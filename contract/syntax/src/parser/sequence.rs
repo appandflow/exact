@@ -1,5 +1,5 @@
-//! `sequence NAME when cond [key=expr]` and its one `play(...)`. The gate
-//! is a task's, parsed by [`Parser::gate`].
+//! `sequence NAME when cond [key=expr]` and its one `play(...)` (LLP 1125
+//! D2). The gate is a task's (LLP 1092 D7), parsed by [`Parser::gate`].
 
 use super::*;
 use crate::sequence::Sequence;

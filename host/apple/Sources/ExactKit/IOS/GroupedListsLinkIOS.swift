@@ -1,4 +1,4 @@
-// A grouped list is a linked capability:
+// @ref LLP 1047.001 D4 — a grouped list (LLP 1084) is a linked capability:
 // its implementation is the `ExactGroupedLists` module, which an app's
 // composition links only when its plan uses one, and installs here. The core
 // names no grouped-list type; without the module, a plan with a grouped list
@@ -43,7 +43,7 @@ package protocol GroupedLists: AnyObject {
     func draws(_ id: UInt32) -> Bool
     /// A route's screen is about to show again (a pop back to it, with the
     /// transition it rides, if any): the rows its lists kept selected under
-    /// the screen they pushed let go.
+    /// the screen they pushed let go (LLP 1115.000 D11.3).
     func appearing(_ route: NodeView, alongside coordinator: UIViewControllerTransitionCoordinator?)
     /// The agent's reveal of what a list draws or carries: its row's cell
     /// scrolled into `port` (the collection view's visible part, in its
@@ -56,9 +56,13 @@ package protocol GroupedLists: AnyObject {
     func press(_ node: NodeView, down: Bool) -> Bool
     /// The agent's `tap` on a row UIKit draws.
     func activate(_ node: NodeView, before: (CGPoint?) -> Bool) -> [String: Any]?
+    /// The custom choice row whose carried radio is `node`.
+    func radioRow(for node: NodeView) -> NodeView?
+    /// Select a carried radio row from its non-control content, keeping a nested press's target.
+    func selectRadioRow(from node: NodeView, pressing target: NodeView?) -> UInt32?
     /// `layout <id>`'s native fields for a list or a row it draws.
     func observation(_ node: NodeView) -> [String: Any]?
-    // What the inspection walk accounts for.
+    // LLP 1080.001 D3: what the inspection walk accounts for.
     func inspectionOwns(_ view: UIView) -> Bool
     func hides(_ node: NodeView) -> Bool
     func hidSection(_ node: NodeView) -> Bool
@@ -67,11 +71,12 @@ package protocol GroupedLists: AnyObject {
     func logicalParent(of view: UIView) -> UIView?
 }
 
-/// Where a finger aimed at a row a list draws lands: a
+/// Where a finger aimed at a row a list draws lands (LLP 1080.000 D4): a
 /// view inside a collection view's port, or why it can't.
 package enum GroupedAim { case view(UIView, port: UIScrollView), refused(String) }
 
-/// A grouped list's collection view, which scrolls in its list's place.
+/// A grouped list's collection view, which scrolls in its list's place
+/// (LLP 1084 D8).
 package protocol GroupedScroller: UIScrollView {}
 
 /// The grouped lists module's hooks, installed by the composition.

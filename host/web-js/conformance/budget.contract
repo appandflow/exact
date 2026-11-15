@@ -1,5 +1,5 @@
 // data: carousel
-// Synthetic conformance plan: the runner's evaluation bounds
+// Synthetic conformance plan: the runner's evaluation bounds (LLP 1090 D7)
 // on the wasm runner, the JS target and the Linux runner, on Carousel's
 // sources: `cards(n, _)` answers `n` six-value records, `long(n, c)` is `c`
 // `n` times. Each `case-N` sets `c`, and what `c` names is evaluated in that
@@ -7,9 +7,9 @@
 // reason (`conform.mjs` compares the bound refusals' text). Long strings are
 // built by doubling (`fn d1`…), not asked of a source: the JS target's Rust
 // data seam carries at most 16 MiB a message (MAX_HOST_WORK_BYTES), so a
-// string past MAX_STRING from a source (cases 10, 13, 17's first
+// string past MAX_STRING from a source (the LLP's cases 10, 13, 17's first
 // two and 8's one-item join) is tested on the runner and on the JS runtime
-// directly (host/web/tests/js-runtime.test.mjs). The cases, by number:
+// directly (host/web/tests/js-runtime.test.mjs). The cases, by the LLP's number:
 //  1  65,536 list steps succeed (c 1), 65,537 trap at the `map` (c 2);
 //  2  a nested `map` over 300 traps (90,300 steps) (c 3);
 //  3  two arguments of one resource, 40,000 steps each (c 4);
@@ -38,7 +38,7 @@
 // 17  a trapping argument on a poisoned runner is still a trap (last);
 // 18  a cached 10 MB list three times (30 MB exact, 90 MB as 3 a unit)
 //     succeeds (c 18); seven times traps (c 30).
-// The list builders, on the same budget:
+// LLP 1088 §9.1's list builders, in LLP 1090 D3's terms, on the same budget:
 //     `concat` of 40,000 and 40,000 traps at its call (c 35), of 30,000 and
 //     30,000 succeeds (c 36); `slice` keeping 65,537 traps (c 37), 65,536
 //     succeeds (c 38); `includes` scanning 40,000 labels after their `map`
@@ -48,7 +48,7 @@
 //     65,537 code units traps at its call (c 43), into 65,536 pieces between
 //     its separators does not (c 44); `indexOf` scanning 40,000 labels after
 //     their `map` traps (c 45), and finding the first takes one step (c 46).
-// A text binding past the bound is unset, journaled with its
+// LLP 1017.003 D3: a text binding past the bound is unset, journaled with its
 //     trap, and the commit goes on (c 47); the next step runs (c 0). A
 //     painted style row (`z-index`) past the bound is journaled once (c 48),
 //     and not again while it goes on trapping (c 49).

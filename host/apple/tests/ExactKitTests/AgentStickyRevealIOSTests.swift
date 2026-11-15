@@ -3,7 +3,7 @@ import XCTest
 @testable import ExactKit
 import UIKit
 
-/// The agent's tap and a sticky box on UIKit (tests/fixtures/sticky-tap.contract), hosted: a
+/// The agent's tap and a sticky box on UIKit (theme2's 14:49 ruling; tests/fixtures/sticky-tap.contract), hosted: a
 /// row whose middle the scroller's sticky dock covers is scrolled into the band above it before the tap, and pressed;
 /// a row in the clear scrolls nothing.
 final class AgentStickyRevealIOSTests: XCTestCase {

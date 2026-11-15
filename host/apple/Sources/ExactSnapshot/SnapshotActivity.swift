@@ -1,5 +1,5 @@
-// A Live Activity's placements through the snapshot
-// driver: one headless session per activity, each placement laid
+// @ref LLP 1126.001 WP10 — a Live Activity's placements through the snapshot
+// driver (D4, D5): one headless session per activity, each placement laid
 // out in its region's viewport, where the bake positioned its root
 // absolutely at the top left, so CSS 2.1 §10.3.7 gives the root its
 // shrink-to-fit width (or the region's, for the Lock Screen and the expanded
@@ -70,7 +70,7 @@ public final class ActivityRender {
     private var layouts = 0
     private var nanoseconds: UInt64 = 0
     /// How many layouts this state has run, and their time: the render's
-    /// cost per push, which the extension reports.
+    /// cost per push (LLP 1126.001 §5 Q4), which the extension reports.
     public var layoutCount: Int { lock.lock(); defer { lock.unlock() }; return layouts }
     public var layoutMilliseconds: Double { lock.lock(); defer { lock.unlock() }; return Double(nanoseconds) / 1_000_000 }
     /// The widest a placement is laid out at when the system proposes no
@@ -224,26 +224,30 @@ public enum SnapshotActivity {
         ActivityPlacementView(render: render, placement: placement, environment: environment)
     }
 
-    /// The Lock Screen placement's root background, from the placement
+    /// D5: the Lock Screen placement's root background, from the placement
     /// as laid out: a `background-color` is the system's
     /// `activityBackgroundTint` (which it extends to the whole screen in
     /// StandBy), a `background-image`'s gradients paint full bleed behind
     /// the margins over that tint, as a widget's container background does;
     /// both unsaid leaves the system's material.
-    public static func background(of laid: ActivityRender.Laid, dark: Bool) -> ActivityBackground {
-        let style = SnapshotStyle(laid.root)
-        let tint = SnapshotColor.color(style.color("background_color"), dark: dark)
+    public static func background(of laid: ActivityRender.Laid, dark: Bool) -> ActivityBackground { background(of: laid.root, dark: dark) }
+
+    public static func background(of root: HeadlessSession.Node, dark: Bool) -> ActivityBackground {
+        let style = SnapshotStyle(root)
+        // The system draws this colour outside the view, so a tint role in it is resolved against the root's accent here
+        let accent = SnapshotTint.accent(style.color("accent_color"), dark: dark)
+        let tint = SnapshotTint.color(style.color("background_color"), around: accent, dark: dark)
         let gradients = style.gradients("background_image").isEmpty ? nil : SnapshotPaint(style: style, dark: dark)
         return ActivityBackground(tint: tint, gradients: gradients)
     }
 
-    /// The URL a placement opens: its first link, in document order.
+    /// The URL a placement opens (D7): its first link, in document order.
     public static func url(_ laid: ActivityRender.Laid, environment: SnapshotEnvironment) -> URL? {
         SnapshotDriver.url(laid.snapshot, from: [laid.root.id], environment: environment)
     }
 }
 
-/// A Lock Screen placement's background: the colour as the system's
+/// A Lock Screen placement's background (D5): the colour as the system's
 /// tint, the gradients the view paints over it.
 @available(iOS 17.0, macOS 14.0, watchOS 10.0, visionOS 26.0, *)
 public struct ActivityBackground {
@@ -256,13 +260,13 @@ public struct ActivityBackground {
 /// (the content's size in the region), and the content inside is the
 /// placement's tree as the layout that size was measured from placed it,
 /// the root at its own margins. The Lock Screen presentation sits inside
-/// the content margins: the system's where it gives them, else the
+/// the content margins (D5): the system's where it gives them, else the
 /// standard layout margin for Live Activities on the Lock Screen, 14 points
 /// (Human Interface Guidelines, Live Activities, "Use standard margins to
 /// align your design with notifications"), since the system proposes the
 /// card's whole width to the view; its root's gradients paint full bleed
 /// behind them from the same layout, and its colour is the system's tint.
-/// The content is account content, private but for a node that says
+/// The content is account content (D8), private but for a node that says
 /// `data-privacy="public"`; the placeholder carries none.
 @available(iOS 17.0, macOS 14.0, watchOS 10.0, visionOS 26.0, *)
 public struct ActivityPlacementView: View {

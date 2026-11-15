@@ -1,4 +1,4 @@
-"""Python driver for the GPUI measurements. Run from the repository root; inputs and outputs are retained under target/s0."""
+"""Stage 0 Python driver. Run from the repository root; inputs and outputs are retained under target/s0."""
 import argparse, hashlib, json, os, pathlib, signal, socket, subprocess, time
 ROOT=pathlib.Path(__file__).resolve().parents[3]
 P=ROOT/'target/s0'

@@ -1,6 +1,6 @@
-//! `fetch` — delegating, **capability-bearing**.
+//! `fetch` — delegating, **capability-bearing** (LLP 0059.000 §3.5).
 //!
-//! The largest binding, and the first one that carries a capability.
+//! The largest v1 item, and the first one that carries a capability.
 //!
 //! **Rust owns:** header name case-folding and the forbidden-header list,
 //! redirect following and its count limit, the body state machine,
@@ -11,6 +11,9 @@
 //! transport is a trait here and not a hard-coded client: inverting it gives
 //! four platforms four different `fetch`es, which is the failure mode a
 //! cross-platform runtime exists to prevent.
+//!
+//! @ref LLP 0059.000#35-fetch--delegating-capability-bearing — the surface this implements
+//! @ref LLP 0057#3-the-boundary — Rust owns semantics, the platform owns transport
 
 use super::abort::AbortSignal;
 pub use super::fetch_body::{Body, BodySource, StreamingResponse};
@@ -28,8 +31,8 @@ pub const MAX_REDIRECTS: u32 = 20;
 pub const DEFAULT_MAX_BODY: usize = 64 * 1024 * 1024;
 
 /// The one spelling of "the response was too big", so a caller sees the same
-/// failure whichever transport is underneath. The error taxonomy is Rust's;
-/// a transport reports the overflow, it does not word it.
+/// failure whichever transport is underneath. The error taxonomy is Rust's
+/// (LLP 0057 §3); a transport reports the overflow, it does not word it.
 pub fn over_limit(limit: usize) -> HostError {
     HostError::Failed(format!(
         "TypeError: Failed to fetch — response exceeded the {limit}-byte limit"
@@ -41,10 +44,22 @@ pub fn over_limit(limit: usize) -> HostError {
 /// Stored folded so lookup and duplicate detection are exact, and so two
 /// platforms cannot disagree about whether `Content-Type` and `content-type`
 /// are the same header.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default)]
 pub struct Headers {
     entries: Vec<(String, String)>,
+    /// `entries`' indexes in name order, made when an indexed read first
+    /// asks and dropped when a header is added or deleted (a changed value
+    /// keeps its place), so iterating an unchanged list sorts it once.
+    order: std::sync::OnceLock<Box<[usize]>>,
 }
+
+impl PartialEq for Headers {
+    fn eq(&self, other: &Self) -> bool {
+        self.entries == other.entries
+    }
+}
+
+impl Eq for Headers {}
 
 /// Headers a caller may not set, because the transport owns them.
 ///
@@ -136,8 +151,13 @@ impl Headers {
         let value = normalize_value(value).to_string();
         match self.entries.iter_mut().find(|(k, _)| *k == folded) {
             Some(entry) => entry.1 = value,
-            None => self.entries.push((folded, value)),
+            None => self.add(folded, value),
         }
+    }
+
+    fn add(&mut self, folded: String, value: String) {
+        self.entries.push((folded, value));
+        self.order.take();
     }
 
     /// Append, combining with any existing value as `a, b` per the spec.
@@ -149,7 +169,7 @@ impl Headers {
                 entry.1.push_str(", ");
                 entry.1.push_str(&value);
             }
-            None => self.entries.push((folded, value)),
+            None => self.add(folded, value),
         }
     }
 
@@ -172,6 +192,7 @@ impl Headers {
                 .filter(|(name, _)| !FORBIDDEN_REQUEST_HEADERS.contains(&name.as_str()))
                 .cloned()
                 .collect(),
+            order: Default::default(),
         }
     }
 
@@ -182,6 +203,19 @@ impl Headers {
         let mut sorted = self.entries.clone();
         sorted.sort_by(|a, b| a.0.cmp(&b.0));
         sorted
+    }
+
+    /// The entry at `index` of [`Headers::sorted_entries`], without copying
+    /// or sorting the list again while it is unchanged.
+    pub fn sorted_entry(&self, index: usize) -> Option<(&str, &str)> {
+        let order = self.order.get_or_init(|| {
+            let mut order: Box<[usize]> = (0..self.entries.len()).collect();
+            // Names are unique, so an unstable sort orders them as a stable one.
+            order.sort_unstable_by(|&a, &b| self.entries[a].0.cmp(&self.entries[b].0));
+            order
+        });
+        let (name, value) = &self.entries[*order.get(index)?];
+        Some((name, value))
     }
 
     pub fn get(&self, name: &str) -> Option<&str> {
@@ -198,7 +232,11 @@ impl Headers {
 
     pub fn delete(&mut self, name: &str) {
         let folded = Self::fold(name);
+        let before = self.entries.len();
         self.entries.retain(|(k, _)| *k != folded);
+        if self.entries.len() != before {
+            self.order.take();
+        }
     }
 
     pub fn entries(&self) -> &[(String, String)] {
@@ -249,10 +287,18 @@ pub struct Request {
     /// transport that cannot stop mid-response cannot honor this field.
     pub max_body: Option<usize>,
     /// The platform transport's own request timeout. A caller that needs the
-    /// whole exchange bounded also aborts its signal.
+    /// whole exchange bounded also aborts its signal (LLP 0068.000 §4).
     pub timeout: Option<std::time::Duration>,
     /// Told the body's bytes as they are sent (Exact patch 23).
     pub sent: Option<Sent>,
+    /// Each hop's response head, before redirects or body reads (LLP 1162 D4).
+    pub received: Option<Received>,
+    /// The asynchronous fetch's final 2xx body destination (Exact patch 33).
+    pub response_body: Option<crate::stdlib::fetch_async::ResponseBody>,
+    /// Made ahead of its caller's asking: the platform's client refuses it
+    /// where the person has asked for less data (URLSession's
+    /// `allowsConstrainedNetworkAccess`; Exact patch 37).
+    pub speculative: bool,
 }
 
 /// An upload's progress, XMLHttpRequest's `upload` events: the body's bytes
@@ -278,6 +324,15 @@ impl std::fmt::Debug for Sent {
     }
 }
 
+type ReceiveHead = dyn Fn(&str, &str, u16, &Headers) + Send + Sync;
+#[derive(Clone)]
+pub struct Received(pub std::sync::Arc<ReceiveHead>);
+impl std::fmt::Debug for Received {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Received")
+    }
+}
+
 impl Request {
     pub fn get(url: &str) -> Self {
         Self {
@@ -290,6 +345,9 @@ impl Request {
             max_body: None,
             timeout: None,
             sent: None,
+            received: None,
+            response_body: None,
+            speculative: false,
         }
     }
 
@@ -423,7 +481,7 @@ pub fn fetch_stream(
 }
 
 /// [`fetch_stream`], with the host's `gate` checked beside the grant at
-/// every hop (Exact patch).
+/// every hop (Exact patch, LLP 1133.036 D6).
 pub fn fetch_stream_gated(
     transport: &dyn Transport,
     grants: &GrantSet,
@@ -459,6 +517,14 @@ pub fn fetch_stream_gated(
         guarded.headers = current.headers.for_request();
         let result = transport.open(&guarded, signal);
         current.body = guarded.body.take();
+        if let (Some(received), Ok(response)) = (&current.received, &result) {
+            (received.0)(
+                &current.method,
+                &current.url,
+                response.status,
+                &response.headers,
+            );
+        }
         signal.check()?;
         let mut response = result?;
         response.redirected = redirected;
@@ -507,8 +573,8 @@ fn admit_hop_grant(grants: &GrantSet, url: &str, redirected: bool) -> Result<(),
 }
 
 /// What following one redirect does to the request, decided once for the
-/// blocking `fetch_stream` and the asynchronous `fetch_async::FetchTask`,
-/// so the two cannot disagree on a hop.
+/// blocking `fetch_stream` and the asynchronous `fetch_async::FetchTask`
+/// (LLP 0068.000 §2), so the two cannot disagree on a hop.
 pub(crate) struct RedirectStep {
     /// The next hop's URL, resolved against the one just used.
     pub(crate) url: String,
@@ -576,8 +642,7 @@ pub(crate) fn redirect_step(
         || (matches!(status, 301 | 302) && current.method != "GET" && current.method != "HEAD");
     // A redirect to another origin drops the credentials this request
     // carried, as the Fetch standard does for `Authorization`.
-    // A subdomain grant admits sibling hosts, which must not receive a token
-    // meant for the first.
+    // @ref LLP 0059.000#35-fetch--delegating-capability-bearing — a subdomain grant admits sibling hosts, which must not receive a token meant for the first
     let drops_credentials = origin_of(next.as_str())? != origin_of(&current.url)?;
     Ok(Some(RedirectStep {
         url: next.to_string(),
@@ -876,6 +941,38 @@ mod tests {
             .map(|(name, _)| name)
             .collect();
         assert_eq!(names, vec!["alpha", "mike", "zebra"]);
+    }
+
+    #[test]
+    fn an_indexed_read_follows_every_change_to_the_list() {
+        let mut headers = Headers::new();
+        let agree = |headers: &Headers| {
+            let indexed: Vec<_> = (0..=headers.len())
+                .map(|i| {
+                    headers
+                        .sorted_entry(i)
+                        .map(|(n, v)| (n.to_owned(), v.to_owned()))
+                })
+                .collect();
+            let mut sorted: Vec<_> = headers.sorted_entries().into_iter().map(Some).collect();
+            sorted.push(None);
+            assert_eq!(indexed, sorted);
+        };
+        agree(&headers);
+        headers.set("zebra", "1");
+        headers.set("alpha", "2");
+        agree(&headers);
+        headers.append("Mike", "3");
+        agree(&headers);
+        headers.append("ALPHA", "4");
+        headers.set("zebra", "5");
+        agree(&headers);
+        headers.delete("alpha");
+        agree(&headers);
+        headers.delete("absent");
+        headers.set("beta", "6");
+        agree(&headers);
+        assert_eq!(headers.sorted_entry(0), Some(("beta", "6")));
     }
 
     #[test]

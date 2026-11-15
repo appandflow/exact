@@ -1,6 +1,6 @@
 # Markdown reader benchmarks (macOS)
 
-Black-box measurements of `apps/markdown` on macOS: scrolling heavy documents
+Black-box measurements of `apps/markdown` on macOS, the kind behind LLP 1044 §3: scrolling heavy documents
 through the window server, and launch to first content. They see only what
 reaches the screen, so any other reader (Legend Markdown, say) can run the same
 trials alongside.

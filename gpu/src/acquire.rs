@@ -8,8 +8,8 @@
 //! list then missed. Here each presented canvas has a thread that waits
 //! instead: the presenter asks for a drawable after each present and takes
 //! it on a later frame only when it is ready; until then the canvas keeps
-//! its last frame and still wants one (the host owns the frame; the
-//! instance stays the node's).
+//! its last frame and still wants one (LLP 1009 D4 — the host owns the
+//! frame; the instance stays the node's, D2).
 //!
 //! A drawable presented at the start of frame k comes back about 4 ms into
 //! frame k + 3, so a canvas rendered only at the tick would draw two frames
@@ -78,6 +78,8 @@ impl Retired {
 
     /// Wait for the thread to end, then drop the surface here.
     pub(crate) fn join(self) {
+        #[cfg(test)]
+        lifetime_tests::joining(self.thread.thread().id());
         let _ = self.thread.join();
         let surface = self.surface;
         crate::swapchains(|| drop(surface));
@@ -350,6 +352,10 @@ fn interactive() {
 
 #[cfg(not(target_vendor = "apple"))]
 fn interactive() {}
+
+#[cfg(test)]
+#[path = "acquire_lifetime_tests.rs"]
+mod lifetime_tests;
 
 #[cfg(all(test, target_os = "macos"))]
 pub(crate) mod tests {

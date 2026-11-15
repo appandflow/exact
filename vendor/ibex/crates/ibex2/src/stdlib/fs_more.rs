@@ -1,5 +1,5 @@
-//! The file operations Exact patch 24 adds, by Node's names where Node
-//! has them: `access`, `chmod`, `symlink`, a file's
+//! The file operations exact2 LLP 1133.007 D6a adds, by Node's names where
+//! Node has them (Exact patch 24): `access`, `chmod`, `symlink`, a file's
 //! `digest` read in bounded memory, and `flock`, an exclusive advisory lock
 //! (POSIX `flock(2)`, a declared deviation: Node has none). A lock taken here
 //! waits in [`LOCKS`] until the runtime that asked takes it
@@ -93,7 +93,7 @@ fn try_lock(file: &std::fs::File) -> Result<bool, String> {
 
 #[cfg(not(unix))]
 fn try_lock(_file: &std::fs::File) -> Result<bool, String> {
-    Err("unsupported: flock waits for this host".into())
+    Err("unsupported: flock waits for this host (LLP 1133.007 stage 3)".into())
 }
 
 /// Take a lock out of this table: the runtime that asked holds it from here.
@@ -204,7 +204,7 @@ pub(crate) fn perform(
         FsOp::Unlock => unlock(&path.to_string_lossy())
             .map(|()| FsResult::Done)
             .map_err(HostError::Failed),
-        _ => Err(HostError::Failed("not an Exact patch 24 operation".into())),
+        _ => Err(HostError::Failed("not a D6a operation".into())),
     }
 }
 

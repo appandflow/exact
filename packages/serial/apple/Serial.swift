@@ -1,12 +1,12 @@
-// @exact/serial on macOS: IOKit's serial family for the ports and their USB names, the callout
+// @exact/serial on macOS (LLP 1133.037 D7–D9): IOKit's serial family for the ports and their USB names, the callout
 // device (`/dev/cu.*`) opened exclusive (`TIOCEXCL`) with termios, and a read loop on a queue of the module's own.
 //
 // - The attached list is every serial BSD client IOKit lists, updated on its match and termination notifications;
-//   tier 2's `apple.path` and `locationID` are not given yet;
-//   a development build also offers the ports `EXACT_DEVICE_FIXTURE` names (a pseudo-terminal a drive made).
-// - `requestPort` is a sheet listing the matching ports, on the session's window; the remembered ports are kept
+//   tier 2's `apple.path` and `locationID` (D15) are not given yet;
+//   a development build also offers the ports `EXACT_DEVICE_FIXTURE` names (a pseudo-terminal a drive made, D19 item 3).
+// - `requestPort` is a sheet listing the matching ports, on the session's window (D2); the remembered ports are kept
 //   in the app's defaults by id, matched again when plugged in.
-// - Reading loses nothing: the read source is suspended while the undelivered bytes reach the retained bound, so
+// - Reading loses nothing (D8): the read source is suspended while the undelivered bytes reach the retained bound, so
 //   the rest waits in the OS's and the device's buffers; each `serialInput` answer takes every byte since the last.
 import AppKit
 import ExactPackage
@@ -172,7 +172,7 @@ public final class SerialModule: ExactPackage {
         }
     }
 
-    /// The module's own sheet: the matching ports by name, Cancel failing `NotFoundError`.
+    /// The module's own sheet (D2): the matching ports by name, Cancel failing `NotFoundError`.
     private func choose(_ args: [String: Any], reply: @escaping ([String: Any]) -> Void) {
         let found = ports().filter { matches($0, args["filters"] as? [[String: Any]]) }
         DispatchQueue.main.async {
@@ -208,7 +208,7 @@ public final class SerialModule: ExactPackage {
         guard baud > 0 else { return ["error": "TypeError", "message": "baudRate"] }
         let fd = Darwin.open(port.path, O_RDWR | O_NOCTTY | O_NONBLOCK)
         guard fd >= 0 else { return ["error": errno == EBUSY ? "InvalidStateError" : "NetworkError", "message": String(cString: strerror(errno))] }
-        // Another process's open now fails EBUSY (tty_ioctl).
+        // Another process's open now fails EBUSY (tty_ioctl, D5).
         _ = ioctl(fd, TIOCEXCL)
         var t = termios()
         guard tcgetattr(fd, &t) == 0 else { Darwin.close(fd); return ["error": "NetworkError", "message": String(cString: strerror(errno))] }
@@ -243,12 +243,12 @@ public final class SerialModule: ExactPackage {
                 let n = read(c.fd, &buffer, min(buffer.count, c.bound - c.pending.count))
                 if n > 0 { c.pending.append(contentsOf: buffer[0..<n]); continue }
                 if n < 0 && (errno == EAGAIN || errno == EINTR) { break }
-                // End of file, EIO or ENXIO: the port went away.
+                // End of file, EIO or ENXIO: the port went away (D9).
                 c.unplugged = true
                 self.stopReading(c, error: "NetworkError")
                 break
             }
-            // Backpressure: no more reads while the undelivered bytes reach the bound.
+            // Backpressure (D8): no more reads while the undelivered bytes reach the bound.
             if c.pending.count >= c.bound, !c.suspended, let s = c.source { s.suspend(); c.suspended = true }
             self.context.changed("serial.serialInput")
         }

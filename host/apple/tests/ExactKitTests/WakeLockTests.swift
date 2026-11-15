@@ -4,7 +4,7 @@ import XCTest
 import UIKit
 #endif
 
-/// The wake lock is the process's, taken by the first
+/// LLP 1125 D11: the wake lock is the process's, taken by the first
 /// presenter whose batch says it is held and given back with the last; a
 /// batch that says nothing leaves it, and a reset (a new host follows) lets go.
 final class WakeLockTests: XCTestCase {

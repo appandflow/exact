@@ -1,7 +1,7 @@
 <!--
-`contract vocab` with no name prints the card: what a builder looks up one call at a
+`contract vocab` with no name prints the card (LLP 1116.010 D1): what a builder looks up one call at a
 time, in one read, at most 12 KB (`contract/cli/tests/it/vocab.rs` holds it). `docs/card.md` is the same
-text checked in for builders that read files (a test keeps the two identical). `card.rs` generates it from
+text checked in for builders that read files (LLP 1116.011 D1; a test keeps the two identical). `card.rs` generates it from
 the tables: the functions from the roster and the grammar, the parts from `exact:content`'s calls, the
 steps from docs/recipes/tests.md, the agent's operations from scripts/help.mjs, the symbols from the
 schema. This file holds what no table says, and a test checks it against them: every tag, attribute and
@@ -24,11 +24,11 @@ concat: xs.concat(ys) -> T[]
 filter: xs.filter(x => bool) -> T[]
 flat: xs.flat() -> T[]
 first: first(xs) -> option<T>
-formatDate: formatDate(ms, offsetMinutes, "medium"|"month-year"|"iso") -> string
-formatDay: formatDay(then, now, offsetMinutes, "day"|"day-time"|"list") -> string  (Today, Monday)
+formatDate: formatDate(msOrDayKey, offset, "medium"|"month-year"|"month-day"|"iso") -> string
+formatDay: formatDay(then, now, offset, "day"|"day-time"|"list"|"section") -> string  (Today)
 formatDecimal: (cents to "12.34"; literal digits)
-formatNumber: formatNumber(n, "compact"|"decimal"|"percent"|"currency", "USD") -> string  (1,234.5; 26%)
-formatTime: ("2:13 PM"; minutes east of UTC)
+formatNumber: formatNumber(n, "compact"|"decimal"|"percent"|"currency", "USD"|digits) -> string  (1,234.5; 26%)
+formatTime: formatTime(ms, offset, "short"|"2-digit") -> string  ("2:13 PM"; offset: min east of UTC)
 frame: (action)
 includes: s.includes(x) -> bool  (text or list)
 indexOf: s.indexOf(x) -> number  (-1 for none)
@@ -68,19 +68,19 @@ dialog | closedby | cancel close
 
 ```contract
 component App
-  state name = ""
+  state low = ""
   state on = false
-  action setName(v: string)
-    name = v
+  action setLow(v: string)
+    low = v
   action setOn(b: bool)
     on = b
   view
     column
-      input value=name input=setName inputmode="decimal" min=-40
-      input type="checkbox" checked=on change=setOn
+      input value=low input=setLow inputmode="decimal" min=-40 aria-label="Low"
+      input type="checkbox" checked=on change=setOn aria-label="On"
 ```
 - `select value=v change=set` holds `option "Label" value="x"`. Tabs: a `row role="tablist"` of `button role="tab" aria-controls="panel-x" aria-selected=… press=…`, each panel a `column role="tabpanel" id="panel-x"`; `routes nav`, `tab`, `select(nav, name)`.
-- A number field's `min`, `max`, `step` are numbers (`min=-40`); with `inputmode="decimal"` a negative `min` gives the pad its ± key.
+- `min`, `max`, `step` are numbers; with `inputmode="decimal"` a negative `min` gives the pad its ± key.
 - Symbols: `"symbol:<role>"` (below); `symbol:sf/<name>` is Apple-only.
 - Not in Contract (`vocab <name>` says what instead): abs pow sqrt sort reduce find some every contains padStart parseInt.
 
@@ -139,12 +139,12 @@ action step
 text `${now}`
 ```
 ### keeping a value
-Root `state` only: a number, string or bool (or an option or list of one) up to 16 KB. Records belong in a source (`files-and-grants`).
+Root `state` only: a number, string or bool (or an option or list of one) up to 16 KB. Records go in a source (`files-and-grants`).
 ```contract
 state units = "C" persist
 ```
 ### colour
-Leave the accent unsaid (a brand is an app.tamber) and controls unpainted; elsewhere a role (follows the scheme): text `label`, `secondary-label`; a card `secondary-background`; a fill `secondary-fill`; a hue `system-red`…. No hex.
+Leave the accent unsaid (a brand is an app.forma) and controls unpainted; elsewhere a role (follows the scheme): text `label`, `secondary-label`; a card `secondary-background`; a fill `secondary-fill`; a hue `system-red`…. No hex.
 ```contract
 main
   text "Total" color="-exact-secondary-label"
@@ -152,7 +152,7 @@ main
     text "Over" color="-exact-system-red"
 ```
 ### reading and writing data
-`loadItems` and `addItem` are in app.ts and answer exactly their shape; a refusal is a reply (`ok: false, error`), not a throw. `then act` after `refreshes` clears the field on an ok reply; `pending(added)` stops a second send.
+app.ts's `loadItems`, `addItem` answer exactly their shape; a refusal is a reply (`ok: false`), not a throw. `then act` after `refreshes` clears the field on ok; `pending(added)` stops a second send, `parallel` runs both.
 ```contract
 shape Reply
   ok: bool
@@ -163,7 +163,7 @@ action add
 text items.join(", ")
 ```
 ### a dated record
-The write reads the clock, not a ticked `now`, and stores `at`; `performanceNow()` alone is 0 each launch. `"iso"` is the day, compared as text; its label `formatDay(at, now, …)`: Today, Yesterday. Tests pin `epoch` and `time-zone`.
+The write reads the clock, not a ticked `now`; `performanceNow()` alone restarts at 0. `"iso"` is the day, compared as text; its label `formatDay(at, now, …)`: Today, Yesterday. Tests pin `epoch` and `time-zone`.
 ```contract
 shape Time
   epochAtZero: number
@@ -175,8 +175,8 @@ action log
   days = days.concat([formatDate(at, time.utcOffset, "iso")])
 ```
 ### a test, and verify
-Tests start with empty storage. `clock data` lands replies, `clock settle` ends transitions, `clock held` lands held replies; `reload` keeps storage. `bun exact.mjs verify` tests, checks end screens, relaunches; `verify ios` last; `--shots <dir>` keeps screenshots.
-It runs `contract verify` too; keep its receipt.
+Tests start with empty storage. `clock data` lands replies, `clock settle` ends transitions, `clock held` lands held replies; `reload` keeps storage. `bun exact.mjs verify` tests, checks end screens, relaunches; `verify ios` last; `--shots <dir>` keeps shots.
+It runs `contract verify`; keep its receipt.
 ```contract-test
 test "a pick survives a relaunch"
   tap "pick"

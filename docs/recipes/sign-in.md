@@ -1,7 +1,7 @@
 # Recipe: Sign in with Apple and Google
 
 `@exact/sign-in` is FedCM's `identity` request on `@exact/passkeys`' `get`
-. The provider's ID token goes to your server; the plan never
+(LLP 1133.014). The provider's ID token goes to your server; the plan never
 sees it. `apps/auth-fixture` (`app.contract`, `app.ts`, `sign-in.mjs`) is
 the whole app and server to copy from.
 
@@ -29,8 +29,7 @@ the whole app and server to copy from.
    const { handle, ...posted } = credential;          // post `posted`, never the handle
    ```
 
-   Google's `configURL` is `https://accounts.google.com/gsi/fedcm.json`;
-   on Apple it also takes `apple: { clientId: <iOS client> }`. Show
+   Google's `configURL` is `https://accounts.google.com/gsi/fedcm.json`. Show
    nothing for `NetworkError`, `NotAllowedError` or `AbortError`.
 
 4. **Verify on the server:** the signature against the provider's keys,
@@ -50,3 +49,11 @@ the whole app and server to copy from.
 Under the agent a request holds a `credential` ticket naming the provider,
 audience and nonce; `packages/sign-in/test/idp.mjs` signs what a provider
 would, and `tap @t cancel` dismisses it.
+
+Native Apple requests can run alone or beside a passkey: pass both
+`publicKey` and passive `identity` to `get` for one system sheet.
+Google on Apple is not implemented and its capabilities read false; use
+[`@exact/oauth`](oauth.md) through the system browser.
+The `auth.apple` grant derives the signing
+entitlement when the profile allows it. See [native sign-in](../contract-for-agents.md#native-sign-in-exactsign-in)
+for signing, nonce handling, result fields and current limits.

@@ -76,7 +76,7 @@ inductive EvalR (env : Env) : Bool → Locals → Expr → Value → Prop
       MapR env inFn ls ps body xs 0 ys → EvalR env inFn ls (.call "map" [l, .arrow ps body]) (.list ys)
   | filter : env.prog.fns.find? (·.name == "filter") = .none → EvalR env inFn ls l (.list xs) →
       FilterR env inFn ls ps body xs 0 ys → EvalR env inFn ls (.call "filter" [l, .arrow ps body]) (.list ys)
-  /-- `sortBy`: the keys by `map`'s callback, then the
+  /-- `sortBy` (LLP 1116.016 §5): the keys by `map`'s callback, then the
   roster's sort of the items by them. -/
   | sortBy : env.prog.fns.find? (·.name == "sortBy") = .none → EvalR env inFn ls l (.list xs) →
       MapR env inFn ls ps body xs 0 ks → sortDir dir = .ok d → sortByKeys xs ks d = .ok v →
@@ -95,13 +95,21 @@ inductive EvalR (env : Env) : Bool → Locals → Expr → Value → Prop
   | failedOther : env.prog.fns.find? (·.name == "failed") = .none →
       env.prog.resources.any (·.name == x) = false →
       EvalR env inFn ls (.call "failed" [.var x]) (.bool false)
-  /-- `failure(r)`, likewise: nothing here says why. -/
+  /-- `failure(r)`, likewise: nothing here says why (LLP 1109 D3). -/
   | failureSettled : env.prog.fns.find? (·.name == "failure") = .none →
       env.prog.resources.any (·.name == x) = true → (lookup x env.resources).isSome →
       EvalR env inFn ls (.call "failure" [.var x]) .none
   | failureOther : env.prog.fns.find? (·.name == "failure") = .none →
       env.prog.resources.any (·.name == x) = false →
       EvalR env inFn ls (.call "failure" [.var x]) .none
+  /-- `current(r)` of a settled resource: true unless it is idle (LLP
+  1161.001 D5); of a name that is not one, false. -/
+  | currentSettled : env.prog.fns.find? (·.name == "current") = .none →
+      env.prog.resources.any (·.name == x) = true → (lookup x env.resources).isSome →
+      EvalR env inFn ls (.call "current" [.var x]) (.bool !(env.idle.contains x))
+  | currentOther : env.prog.fns.find? (·.name == "current") = .none →
+      env.prog.resources.any (·.name == x) = false →
+      EvalR env inFn ls (.call "current" [.var x]) (.bool false)
   /-- Any other roster entry, on its evaluated arguments. (`stdlib` refuses
   the names of the forms above, so this never overlaps them.) -/
   | stdlib : env.prog.fns.find? (·.name == name) = .none → ListR env inFn ls args vs →
@@ -210,7 +218,7 @@ inductive ExecR (env : Env) : Locals → List Stmt → Effects → Effects → P
       ExecR env ls rest fx₁ fx' → ExecR env ls (.matchS s x sm nn :: rest) fx fx'
   | matchNone : EvalR env false ls s .none → ExecR env ls nn fx fx₁ → ExecR env ls rest fx₁ fx' →
       ExecR env ls (.matchS s x sm nn :: rest) fx fx'
-  /-- A call: its arguments in the caller's scope, the
+  /-- A call (LLP 1089 D9): its arguments in the caller's scope, the
   callee's body in a scope of its parameters alone, against the same `env`;
   the rest of the caller's block sees its locals again. -/
   | call : ListR env false ls args vs → env.prog.actions.find? (·.name == a) = .some ad →
@@ -221,15 +229,17 @@ inductive ExecR (env : Env) : Locals → List Stmt → Effects → Effects → P
 /-! ## The interpreter is sound -/
 
 theorem stdlib_map {env : Env} {vs v} : stdlib env "map" vs ≠ .ok v := by
-  unfold stdlib; split <;> simp_all
+  simp [stdlib, routing]
 theorem stdlib_filter {env : Env} {vs v} : stdlib env "filter" vs ≠ .ok v := by
-  unfold stdlib; split <;> simp_all
+  simp [stdlib, routing]
 theorem stdlib_pending {env : Env} {vs v} : stdlib env "pending" vs ≠ .ok v := by
-  unfold stdlib; split <;> simp_all
+  simp [stdlib, routing]
 theorem stdlib_failed {env : Env} {vs v} : stdlib env "failed" vs ≠ .ok v := by
-  unfold stdlib; split <;> simp_all
+  simp [stdlib, routing]
 theorem stdlib_failure {env : Env} {vs v} : stdlib env "failure" vs ≠ .ok v := by
-  unfold stdlib; split <;> simp_all
+  simp [stdlib, routing]
+theorem stdlib_current {env : Env} {vs v} : stdlib env "current" vs ≠ .ok v := by
+  simp [stdlib, routing]
 
 theorem binop_and {a b v} : binop .and a b ≠ .ok v := by simp [binop]
 theorem binop_or {a b v} : binop .or a b ≠ .ok v := by simp [binop]
@@ -329,6 +339,12 @@ theorem sound_aux : ∀ n,
               obtain ⟨hs, rfl⟩ := Option.elim_err_const.mp h
               exact .failureSettled hfd hr hs
             next hr => simp at h; subst h; exact .failureOther hfd (by simpa using hr)
+          next x =>
+            split at h
+            next hr =>
+              obtain ⟨hs, rfl⟩ := Option.elim_err_const.mp h
+              exact .currentSettled hfd hr hs
+            next hr => simp at h; subst h; exact .currentOther hfd (by simpa using hr)
           next =>
             simp only [Except.bind_ok_iff] at h
             obtain ⟨vs, h1, h2⟩ := h
@@ -508,6 +524,7 @@ theorem mono_aux : ∀ n,
           next => exact h
           next => exact h
           next => exact h
+          next => exact h
           next =>
             simp only [Except.bind_ok_iff] at h ⊢
             obtain ⟨vs, h1, h2⟩ := h
@@ -673,6 +690,7 @@ theorem eval_stdlib_intro {n env inFn ls name args vs v}
   next => exact absurd h2 stdlib_pending
   next => exact absurd h2 stdlib_failed
   next => exact absurd h2 stdlib_failure
+  next => exact absurd h2 stdlib_current
   next => simp only [Except.bind_ok_iff]; exact ⟨_, h1, h2⟩
 
 local macro "lift" h:term : term =>
@@ -726,6 +744,8 @@ theorem EvalR.complete {env inFn ls e v} :
   | .failedOther hfd hr => ⟨1, by simp [eval, hfd, hr]⟩
   | .failureSettled hfd hr hs => ⟨1, by simp [eval, hfd, hr, Option.elim_err_const, hs]⟩
   | .failureOther hfd hr => ⟨1, by simp [eval, hfd, hr]⟩
+  | .currentSettled hfd hr hs => ⟨1, by simp [eval, hfd, hr, Option.elim_err_const, hs]⟩
+  | .currentOther hfd hr => ⟨1, by simp [eval, hfd, hr]⟩
   | .stdlib hfd h1 h2 => by
     obtain ⟨n, h1⟩ := h1.complete
     exact ⟨n + 1, eval_stdlib_intro hfd h1 h2⟩

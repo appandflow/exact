@@ -1,4 +1,4 @@
-// A node marked `hatch="word"` on the JS target.
+// A node marked `hatch="word"` on the JS target (@ref LLP 1075.003.000 §3.2).
 // The app's page module (`modules/web/index.js`) may export
 //
 //   export function element(e)       // after the commit that mounts the node,
@@ -31,17 +31,17 @@ const publish = () => {
   x.hatchState = state; x.hatchPerf = { reply: perfReply, site: perfSite, window: perfWindow };
   x.hatchActs = { drains: () => A.drains, queued: () => Acts.length, command() { K.fires = K.acts = 0; } };
   x.hatchRegions = { of: regionsOf, part: partOf };
-  // What a page module reaches: its diagnostics and the frame clock.
+  // What a page module reaches: its diagnostics and the frame clock (§2.4).
   x.diagnostics = diagnostics("module"); x.hatches = { ...hatchClock, diagnostics: x.diagnostics };
 };
 
-// What Exact measures by itself, and what hatch code adds: development
-// only, as `perf` is;
+// What Exact measures by itself, and what hatch code adds (@ref LLP
+// 1075.003.000.001 §3.1–3.2): development only, as `perf` is (LLP 1079 D1);
 // a production page keeps nothing and each call returns on this one flag.
 let Dev = null;
 // Asked again until it is so: the page names its plan once it has started.
 const dev = () => Dev ||= globalThis.exact?.plan != null;
-// `EXACT_HATCHES=off`, on the web `?hatches=off`: a development page
+// `EXACT_HATCHES=off`, on the web `?hatches=off` (§2.6): a development page
 // connects no hatch and says so once; the module's views and calls work. A
 // production page does not read the name.
 let Off = null;
@@ -56,7 +56,7 @@ const off = () => {
 // Every call, timed: a node's by plan site and moment, another scope's by its
 // hatch. Times are exclusive: a call nested in another is charged to itself.
 const Timing = new Map(), Stack = [];
-// The last 1,024 calls (start, end, hatch), for a late frame's join.
+// The last 1,024 calls (start, end, hatch), for a late frame's join (§3.1).
 const Calls = [];
 let callAt = 0;
 function timed(hatch, site, moment, f) {
@@ -75,7 +75,7 @@ function timed(hatch, site, moment, f) {
   }
 }
 
-// `diagnostics`, with its bounds per page module: 64 counters, 64
+// `diagnostics` (§3.2), with its bounds per page module: 64 counters, 64
 // timings (a cumulative count, sum and max, and the last 256 samples), 32 open
 // spans, 16 snapshots of 4 KB, and a 256-byte log line, 20 a second of session
 // clock per scope. Past a bound a call is refused and counted, never grown.
@@ -147,7 +147,7 @@ function diagnostics(scope, spans) {
       spans?.add(span);
       return span;
     },
-    /** Ask for Save Trace: at most one a second of wall time; a
+    /** Ask for Save Trace (LLP 1079 D5): at most one a second of wall time; a
      * sooner ask joins the pending one. Under the agent's clock no frame is
      * sampled, so there is no trace to save. */
     saveTrace() {
@@ -193,7 +193,7 @@ const grouped = (map, value) => {
   return out;
 };
 
-/** `state.hatches`: the words with their nodes and calls, the other
+/** `state.hatches` (§3.3): the words with their nodes and calls, the other
  * scopes with theirs, and what hatch code counted and published. A read
  * changes nothing. */
 function state() {
@@ -214,7 +214,7 @@ function state() {
 }
 
 const quantile = (sorted, q) => sorted.length ? sorted[Math.min(sorted.length - 1, Math.floor(q * sorted.length))] : 0;
-/** `perf hatches`, a form of `perf`: every call Exact timed, by word
+/** `perf hatches` (§3.3), a form of `perf`: every call Exact timed, by word
  * and by site and moment, and the hatches' own counters and timings. All of
  * it is cumulative; a difference is two reads. */
 function perfReply(tags) {
@@ -228,7 +228,7 @@ function perfReply(tags) {
     counters: grouped(D.counters, c => c.n), timings, rejected: D.rejected, abandoned: D.abandoned, limited: D.limited };
   return fit(reply, [[reply, "calls"], [reply, "hatches"], [reply, "counters"], [reply, "timings"]]);
 }
-/** A late frame's `hatches`: the calls that overlapped its window
+/** A late frame's `hatches` (§3.1): the calls that overlapped its window
  * `(from, to]` on `performance.now()`'s clock, each charged its overlap;
  * `coverage: partial` when the window reaches past the oldest call kept.
  * Null when none did. A join by window, not a causal trace. */
@@ -252,7 +252,7 @@ function perfSite(site) {
   return calls ? { hatch: { calls, ms } } : null;
 }
 
-// What a hatch asks of an authored element:
+// What a hatch asks of an authored element (@ref LLP 1075.003.000.001 §2.5):
 // `click`, `focus`, `blur`, and `input(text)`, which replaces a field's whole
 // value. Each is queued, never run inside the hatch: one FIFO a page, at
 // most 256 acts and 1 MB of text, an act past either refused by name and
@@ -297,7 +297,7 @@ function run({ h, what, kind, text }) {
   const e = h.element;
   if (!h.isLive || !e) return say(`${what}: ${kind}() after its end does nothing`);
   if (kind !== "input") { say(`${what}: ${kind} (delivery: hatch)`); return e[kind](); }
-  // `input`: an authored text field's whole value, through the DOM's
+  // `input` (§2.5): an authored text field's whole value, through the DOM's
   // own primitive, without moving focus. Journaled by length, never by text.
   const field = e.localName === "textarea" || e.localName === "input" && INPUTS.has(e.type);
   if (!field) return refuse(what, `input refused: ${e.isContentEditable ? "a contenteditable editor" : "not an editable text field"}`);
@@ -314,9 +314,9 @@ if (typeof document !== "undefined" && document.addEventListener) {
   document.addEventListener("compositionend", () => { A.composing = null; }, true);
 }
 
-// The frame clock: logical time, for what
+// The frame clock (@ref LLP 1075.003.000.001 §2.4): logical time, for what
 // keeps step with the app. `exact.hatches.frames(frame => …)` is a ticket:
-// it ticks at the instants the frame tasks fire, after that frame's
+// it ticks at the instants LLP 1073's frame tasks fire, after that frame's
 // tasks and timers, with `frame.now` the session clock and `frame.seq` the
 // commit the instant's state ends at; each presented frame on the wall, and
 // under the agent the virtual display, `base + k·1000/60`.
@@ -394,7 +394,7 @@ const hatchClock = {
   now() { time(); return clock.now; },
 };
 
-// Regions and parts: what a hatch
+// Regions and parts (@ref LLP 1075.003.000.001 §3.4, §3.5): what a hatch
 // tells the agent it cannot otherwise see. `e.owns(element, "what")` binds a
 // sentence, weakly, to an element the hatch made (`a.owns("what")` on the app
 // binds an appearance to nothing); `e.parts = [{ id, element, role, label }]`
@@ -463,7 +463,7 @@ function regionsOf(node) {
 const partOf = (node, id) => { const el = Parts.get(node)?.find(p => p.id === id)?.ref?.deref(); return el?.isConnected ? el : null; };
 
 // The words this platform handles, when the app's manifest gives words their
-// platforms (web-js/build.mjs): a word it leaves
+// platforms (web-js/build.mjs; LLP 1075.003.000.001 §4.3): a word it leaves
 // out is shown and never called, journaled once and listed in `state`.
 const Unhandled = new Map();
 
@@ -489,7 +489,7 @@ export function ht(e) {
     set parts(list) { if (h.isLive) setParts(`element ${word}`, e, list); },
     diagnostics: diagnostics(`element ${word}`, spans),
   };
-  // A throw is caught and journaled: this node's
+  // A throw is caught and journaled (LLP 1075.003.000.001 §4.4): this node's
   // built and changed are not called again; its end still is, so what it
   // added before throwing is still taken back.
   let module = null, inRow = false, threw = false;
@@ -511,7 +511,7 @@ export function ht(e) {
     module = m;
     publish();
     counted(word).live++;
-    if (!said.has(word)) { said.add(word); say(`element ${word}: nothing beyond the call on this host`); }
+    if (!said.has(word)) { said.add(word); say(`element ${word}: nothing beyond the call on this host (LLP 1075.003.000)`); }
     const row = e.closest("[data-listitemkey]");
     inRow = !!row;
     if (row && !warned.has(word)) {
@@ -551,7 +551,7 @@ export function ht(e) {
   });
 }
 
-// The app and window scopes on the web:
+// The app and window scopes on the web (@ref LLP 1075.003.000.001 §2.1):
 //
 //   export function app(a)          // when the page module connects, and when a fact changes:
 //                                   // { visibilityState, onLine, prefersColorScheme, prefersContrast,
@@ -567,10 +567,12 @@ export function ht(e) {
 function scopesOf(m) {
   if (!["app", "appEnded", "window", "windowEnded"].some(n => typeof m[n] === "function") || typeof document === "undefined") return;
   const media = q => typeof matchMedia === "function" && matchMedia(q).matches;
+  const fixed = () => { const s = document.querySelector?.('meta[name="color-scheme"]')?.content; return s === "light" || s === "dark" ? s : null; };
   const QUERIES = ["(prefers-color-scheme: dark)", "(prefers-contrast: more)", "(prefers-contrast: less)", "(prefers-contrast: custom)", "(prefers-reduced-motion: reduce)", "(prefers-reduced-transparency: reduce)"];
   const facts = () => ({
     visibilityState: document.visibilityState ?? "visible", onLine: globalThis.navigator?.onLine !== false,
-    prefersColorScheme: globalThis.exact?.systemScheme ?? (media(QUERIES[0]) ? "dark" : "light"), // a dev pin's is the system's
+    // A dev pin's is the system's (LLP 1122 D4), else the manifest's fixed `userInterfaceStyle` (the shell's meta, look.mjs).
+    prefersColorScheme: globalThis.exact?.systemScheme ?? fixed() ?? (media(QUERIES[0]) ? "dark" : "light"),
     prefersContrast: media(QUERIES[1]) ? "more" : media(QUERIES[2]) ? "less" : media(QUERIES[3]) ? "custom" : "no-preference",
     prefersReducedMotion: media(QUERIES[4]), prefersReducedTransparency: media(QUERIES[5]),
   });
@@ -582,7 +584,7 @@ function scopesOf(m) {
     calls[moment] = (calls[moment] ?? 0) + 1;
     try { timed(scope, null, moment, () => m[name](arg)); } catch (error) { say(`${name} threw ${error?.message ?? error}`); }
   };
-  // The root node's `data-*` words are the app's: its `dataset`, and a change is a `changed` moment.
+  // The root node's `data-*` words are the app's (§2.5): its `dataset`, and a change is a `changed` moment.
   const rootNode = document.getElementById("exact-root")?.firstElementChild ?? null;
   const app = { ...facts(), data: rootNode?.dataset ?? {}, processOwner: true, isNew: true, isLive: true, owns: (sentence, options) => owns("app", null, null, sentence, options) };
   const win = { window: globalThis, document, exclusive: true, frame: frame(), isNew: true, isLive: true, owns: (target, sentence, options) => owns("window", null, target, sentence, options) };
@@ -614,7 +616,7 @@ function scopesOf(m) {
   });
 }
 
-// The page module's container hatches, loaded after
+// The page module's container hatches (LLP 1075.003.000 §3.7), loaded after
 // first paint only for a page module that exports one (web-js/build.mjs):
 //
 //   export function navigation(e)  // a navigation root's element, once

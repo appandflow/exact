@@ -1,4 +1,4 @@
-//! Filter primitives (Filter Effects 1 §9, §15): a
+//! Filter primitives (LLP 1055.000 D14; Filter Effects 1 §9, §15): a
 //! resolved chain run over an island that covers the filter region.
 //!
 //! Working images are premultiplied RGBA in `f32`, each tagged with its
@@ -647,6 +647,40 @@ mod tests {
             run(&one(Op::ColorMatrix(m), linear), &mut px, 20, 20, SPACE);
             let i = (10 * 20 + 10) * 4;
             assert_eq!(&px[i..i + 4], &[0, 255, 0, 255]);
+        }
+    }
+
+    #[test]
+    fn turbulence_truncates_fractional_seeds() {
+        for fractal in [false, true] {
+            for stitch in [false, true] {
+                let render = |seed| {
+                    let mut px = square();
+                    run(
+                        &one(Op::Turbulence(0.033, 0.07, 2, seed, fractal, stitch), true),
+                        &mut px,
+                        20,
+                        20,
+                        SPACE,
+                    );
+                    px
+                };
+                assert_ne!(render(1.0), render(2.0));
+                assert_eq!(render(-1.0), render(2.0));
+                for (seed, integer) in [
+                    (1.5, 1.0),
+                    (-1.5, -1.0),
+                    (1.9, 1.0),
+                    (-1.9, -1.0),
+                    (0.9, 0.0),
+                    (-0.9, 0.0),
+                ] {
+                    assert!(
+                        render(seed) == render(integer),
+                        "seed={seed}, integer={integer}, fractal={fractal}, stitch={stitch}"
+                    );
+                }
+            }
         }
     }
 }

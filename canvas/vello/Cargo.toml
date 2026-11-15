@@ -1,4 +1,4 @@
-# Canvas 2D replayed on the GPU with vello (the bake-off's
+# Canvas 2D replayed on the GPU with vello (LLP 1056 §8.4; the bake-off's
 # vello candidate, bake/canvas-vello). A loaded module: the Apple host dlopens
 # `libexact_canvas_vello.dylib` (as `libexact_canvas_gpu.dylib`, ABI v3) and no
 # host links it. Every shader is Metal AIR compiled at build time
@@ -16,7 +16,7 @@ name = "exact_canvas_vello"
 crate-type = ["rlib", "cdylib"]
 
 # Apple only: elsewhere the crate is empty (Linux replays Canvas 2D into
-# tiny-skia), so `cargo build --workspace` still builds there.
+# tiny-skia, LLP 1056 D7), so `cargo build --workspace` still builds there.
 [target.'cfg(target_vendor = "apple")'.dependencies]
 exact-canvas = { path = ".." }
 # vello 0.10, patched (vendor/vello): precompiled pipelines, bump buffers
@@ -28,6 +28,11 @@ wgpu = { version = "29", default-features = false, features = ["std", "metal"] }
 wgpu-hal = { version = "29", default-features = false, features = ["metal"] }
 objc2 = "0.6"
 objc2-metal = { version = "0.3", default-features = false, features = ["std", "MTLDevice", "MTLTexture", "MTLResource", "MTLTypes", "MTLAllocation"] }
+
+[dev-dependencies]
+# Scene encoding tests run without the Apple module or a GPU.
+exact-canvas = { path = ".." }
+vello = { package = "exact-vello", path = "../../vendor/vello", default-features = false }
 
 [build-dependencies]
 # Build time only: vello's WGSL, preprocessed and validated, then MSL.

@@ -1,4 +1,5 @@
-//! The `format` capability and `formatTime` against the web's `Intl`.
+//! The `format` capability and `formatTime` against the web's `Intl`
+//! (LLP 1054.000.003 D1–D3, D7).
 //!
 //! The rows are data, derived once from Bun 1.4.2 (JavaScriptCore, ICU 78.1,
 //! Unicode 17.0) with
@@ -7,15 +8,27 @@
 //! year: "numeric" }`, and
 //! `new Intl.NumberFormat("en-US", { notation: "compact", roundingMode: "trunc", signDisplay: "negative" }).format(n)`.
 //! A fixed-offset `timeZone` is `utcOffset`'s meaning: the Date constructor
-//! clips the instant (TimeClip) and the zone then shifts it — the runner's order.
+//! clips the instant (TimeClip) and the zone then shifts it — D7's order.
 //! Year 1 is `Date.parse("0001-01-01T00:00:00.000Z")`, not `Date.UTC(1, …)`
 //! (which is 1901). A row whose shifted wall time falls outside years
-//! 1–9999 says `""`, a declared difference: there Intl prints an era-less
+//! 1–9999 says `""`, D7's declared difference: there Intl prints an era-less
 //! `Dec 31, 1` for 1 BC or `Jan 1, 10000`, or throws past TimeClip's range.
 //! Bun prints U+0020 before AM/PM, so no row is normalized.
 
-use exact_plan::{Stdlib, Value};
-use exact_runner::{formatting, stdlib::format_time};
+use exact_plan::{Plan, Stdlib, Value};
+use exact_runner::stdlib::{format_time, format_time_two_digit};
+
+/// A plan with no strings tables: every entry formats `en-US`, as a call
+/// whose format locale is `""` (or absent) does.
+static PLAN: std::sync::LazyLock<Plan> = std::sync::LazyLock::new(|| {
+    exact_plan::builder::PlanBuilder::new(exact_kernel::SCHEMA_DIGEST, 1)
+        .finish()
+        .unwrap()
+});
+
+fn formatting(f: Stdlib, args: &[Value]) -> Option<Value> {
+    exact_runner::formatting(f, args, &PLAN)
+}
 
 /// (epochMs, utcOffset, formatTime "short", formatDate "medium", formatDate "month-year").
 #[rustfmt::skip]
@@ -622,7 +635,7 @@ const NUMBERS: &[(f64, &str)] = &[
 
 /// (n, formatNumber "decimal", "percent", "currency" "USD"), from Bun 1.4.2's
 /// `new Intl.NumberFormat("en-US", options).format(n)` with `{}`, `{ style:
-/// "percent" }` and `{ style: "currency", currency: "USD" }`:
+/// "percent" }` and `{ style: "currency", currency: "USD" }` (LLP 1116 D8):
 /// halves at each style's cut, a carry into a new digit, negative zero, the
 /// ends of the doubles. `host/web/tests/js-runtime.test.mjs` sweeps the JS
 /// target's against `Intl` itself.
@@ -714,6 +727,69 @@ fn date(ms: f64, offset: f64, style: &str) -> Value {
     .expect("a date")
 }
 
+#[test]
+fn day_keys_are_calendar_dates_at_every_offset() {
+    let label = |key: &str, offset: f64, style: &str| {
+        formatting(
+            Stdlib::FormatDate,
+            &[Value::str(key), Value::Number(offset), Value::str(style)],
+        )
+    };
+    for (key, medium, month_year) in [
+        ("2026-10-16", "Oct 16, 2026", "October 2026"),
+        ("2024-02-29", "Feb 29, 2024", "February 2024"),
+        ("2000-02-29", "Feb 29, 2000", "February 2000"),
+        ("2400-02-29", "Feb 29, 2400", "February 2400"),
+        ("0001-01-01", "Jan 1, 1", "January 1"),
+        ("0099-12-31", "Dec 31, 99", "December 99"),
+        ("9999-12-31", "Dec 31, 9999", "December 9999"),
+    ] {
+        for offset in [-1080.0, -720.0, -420.0, 0.0, 345.5, 840.0, 1080.0] {
+            for (style, want) in [("medium", medium), ("month-year", month_year), ("iso", key)] {
+                assert_eq!(
+                    label(key, offset, style),
+                    Some(Value::str(want)),
+                    "{key} {offset} {style}"
+                );
+            }
+        }
+    }
+    for key in [
+        "",
+        "2026-02-29",
+        "1900-02-29",
+        "2100-02-29",
+        "2024-04-31",
+        "2024-00-01",
+        "2024-13-01",
+        "2024-01-00",
+        "2024-01-32",
+        "0000-01-01",
+        "10000-01-01",
+        "2024-2-09",
+        "24-02-09",
+        "2024/02/09",
+        " 2024-02-09",
+        "2024-02-09 ",
+        "2024-02-09\n",
+        "2024-02-09T00:00:00Z",
+        "1707436800000",
+        "２０２４-02-09",
+        "2024-٠٢-09",
+    ] {
+        for style in ["medium", "month-year", "iso"] {
+            assert_eq!(
+                label(key, 0.0, style),
+                Some(Value::str("")),
+                "{key:?} {style}"
+            );
+        }
+    }
+    for offset in [f64::NAN, f64::INFINITY, -1081.0, 1080.1] {
+        assert_eq!(label("2026-10-16", offset, "medium"), Some(Value::str("")));
+    }
+}
+
 fn number(n: f64) -> Value {
     formatting(
         Stdlib::FormatNumber,
@@ -799,16 +875,63 @@ fn decimal_percent_and_currency_numbers_are_intl_s() {
         STYLED.len() + CURRENCY.len(),
         wrong.join("\n")
     );
-    // The table is the roster's literal choice, code for code.
+    // The table is the roster's literal choice, code for code; the
+    // parameter's range is `decimal`'s digits.
     let listed: Vec<&str> = Stdlib::FormatNumber.params()[2]
         .split(" | ")
+        .filter(|c| c.starts_with('"'))
         .map(|c| c.trim_matches('"'))
         .collect();
     let tested: Vec<&str> = CURRENCY.iter().map(|c| c.0).collect();
     assert_eq!(listed, tested);
 }
 
-/// Every entry prints `""` for a non-finite argument or an offset past
+/// expo/exact#491: `formatTime`'s `"2-digit"`, `formatDate`'s `"month-day"`
+/// and `formatNumber(n, "decimal", digits)`, as Chrome's `Intl` prints
+/// `{ hour: "2-digit", minute: "2-digit" }`, `{ month: "short", day:
+/// "numeric" }` and `{ minimumFractionDigits: d, maximumFractionDigits: d }`.
+#[test]
+fn two_digit_hours_month_days_and_fixed_digits_are_intl_s() {
+    for (ms, offset, time, month_day) in [
+        (0.0, 0.0, "12:00 AM", "Jan 1"),
+        (-0.5, 60.0, "01:00 AM", "Jan 1"),
+        (3_720_000.0, 0.0, "01:02 AM", "Jan 1"),
+        (43_200_000.0, 0.0, "12:00 PM", "Jan 1"),
+        (45_000_000.0, 0.0, "12:30 PM", "Jan 1"),
+        (1_790_000_000_000.7, 345.0, "07:58 PM", "Sep 21"),
+        (1_791_762_120_000.0, -420.0, "04:42 PM", "Oct 11"),
+        (1_767_225_540_000.0, 330.0, "05:29 AM", "Jan 1"),
+    ] {
+        assert_eq!(format_time_two_digit(ms, offset), Value::str(time), "{ms}");
+        assert_eq!(date(ms, offset, "month-day"), Value::str(month_day), "{ms}");
+    }
+    let fixed = |n: f64, d: f64| {
+        formatting(
+            Stdlib::FormatNumber,
+            &[Value::Number(n), Value::str("decimal"), Value::Number(d)],
+        )
+    };
+    for (n, want) in [
+        (1.005, ["1", "1.0", "1.01", "1.0050"]),
+        (2.5, ["3", "2.5", "2.50", "2.5000"]),
+        (-0.0, ["-0", "-0.0", "-0.00", "-0.0000"]),
+        (-0.001, ["-0", "-0.0", "-0.00", "-0.0010"]),
+        (-1234.5, ["-1,235", "-1,234.5", "-1,234.50", "-1,234.5000"]),
+        (
+            123_456.789,
+            ["123,457", "123,456.8", "123,456.79", "123,456.7890"],
+        ),
+    ] {
+        for (d, want) in [0.0, 1.0, 2.0, 4.0].into_iter().zip(want) {
+            assert_eq!(fixed(n, d), Some(Value::str(want)), "{n} at {d}");
+        }
+    }
+    assert_eq!(fixed(f64::NAN, 2.0), Some(Value::str("")));
+    assert_eq!(fixed(1.0, 101.0), None, "past the roster's 0..=100");
+    assert_eq!(fixed(1.0, 1.5), None, "a whole number of digits");
+}
+
+/// D7: every entry prints `""` for a non-finite argument or an offset past
 /// ±18 h, where Intl prints `NaN` or `∞`, or throws a RangeError.
 #[test]
 fn invalid_input_is_blank_from_every_entry() {
@@ -832,7 +955,7 @@ fn invalid_input_is_blank_from_every_entry() {
     assert_eq!(format_time(0.0, -1080.0), Value::str("6:00 AM"));
 }
 
-/// The one order, where it shows: TimeClip before the shift (`-0.5` at
+/// D7's one order, where it shows: TimeClip before the shift (`-0.5` at
 /// +60 is 1:00 AM, not 12:59 AM), and no zero sentinel — `0` is the epoch.
 #[test]
 fn the_instant_is_clipped_before_it_is_shifted() {
@@ -844,10 +967,10 @@ fn the_instant_is_clipped_before_it_is_shifted() {
     assert_eq!(format_time(3_599_999.9, 0.0), Value::str("12:59 AM"));
 }
 
-/// `iso` against `new Date(Math.trunc(ms) + offset * 60000)
+/// `iso` (LLP 1102 §3.4) against `new Date(Math.trunc(ms) + offset * 60000)
 /// .toISOString().slice(0, 10)` in Bun 1.4.2 at whole-minute offsets: the date
 /// at the wall time, four-digit years; `""` outside years 1–9999 as every
-/// style. A fractional offset's wall time is not clipped again, as no
+/// style (D7). A fractional offset's wall time is not clipped again, as no
 /// style's is (`-0.000001` at the epoch is Dec 31, where `Date` says Jan 1).
 #[test]
 fn iso_dates_are_to_iso_string_s_date_part() {
@@ -889,10 +1012,10 @@ fn fixed(f: Stdlib, x: f64, digits: f64) -> Option<Value> {
     formatting(f, &[Value::Number(x), Value::Number(digits)])
 }
 
-/// `toFixed` against Bun 1.4.2's
+/// LLP 1102 §3.2 (decided (c)): `toFixed` against Bun 1.4.2's
 /// `x.toFixed(d)` (the binary value rounded, a tie away from zero, `1e21`
 /// and up as `String(x)` prints), but `""` where it prints `NaN` or
-/// `Infinity`; `formatDecimal` an integer count, exactly. A random
+/// `Infinity` (D7); `formatDecimal` an integer count, exactly. A random
 /// sweep of both agreed with JavaScript on 200,000 cases when they were
 /// written; `difftest arith` holds them to the Lean semantics.
 #[test]
@@ -940,8 +1063,8 @@ fn to_fixed_is_javascript_s_and_format_decimal_is_exact() {
     }
 }
 
-/// (thenMs, nowMs, utcOffset, "day", "day-time", "list") of `formatDay`:
-/// the dates, times and weekdays from Bun 1.4.2's
+/// (thenMs, nowMs, utcOffset, "day", "day-time", "list") of `formatDay`
+/// (LLP 1116.020 D8): the dates, times and weekdays from Bun 1.4.2's
 /// `Intl.DateTimeFormat("en-US", { timeZone: "±HH:MM", ... })` with
 /// `dateStyle: "medium"`, `timeStyle: "short"`, `weekday: "long"` and
 /// `dateStyle: "short"`, the words chosen by the offset's calendar days
@@ -971,6 +1094,39 @@ const DAYS: &[(f64, f64, f64, &str, &str, &str)] = &[
     (253402300799999.0, 253402300799999.0, 0.0, "Today", "Today at 11:59 PM", "11:59 PM"),
 ];
 
+/// `formatDay`'s `"section"` (LLP 1168.000 D5) in `en-US`, from Saturday
+/// 2026-11-14 12:00 UTC, as LLP 1168.000's table prints it: the words, a
+/// weekday six days either side, a date with its weekday past them, and the
+/// year only in another year; the year's turn either way.
+#[rustfmt::skip]
+const SECTIONS: &[(f64, f64, &str)] = &[
+    (1794657600000.0, 1794657600000.0, "Today"), // 2026-11-14
+    (1794614340000.0, 1794657600000.0, "Yesterday"), // 2026-11-13
+    (1794700800000.0, 1794657600000.0, "Tomorrow"), // 2026-11-15
+    (1794484800000.0, 1794657600000.0, "Thursday"), // 2026-11-12
+    (1794398400000.0, 1794657600000.0, "Wednesday"), // 2026-11-11
+    (1794139200000.0, 1794657600000.0, "Sunday"), // 2026-11-08
+    (1794916800000.0, 1794657600000.0, "Tuesday"), // 2026-11-17
+    (1795176000000.0, 1794657600000.0, "Friday"), // 2026-11-20
+    (1794052800000.0, 1794657600000.0, "Sat, Nov 7"), // 2026-11-07
+    (1795262400000.0, 1794657600000.0, "Sat, Nov 21"), // 2026-11-21
+    (1792065600000.0, 1794657600000.0, "Thu, Oct 15"), // 2026-10-15
+    (1795521600000.0, 1794657600000.0, "Tue, Nov 24"), // 2026-11-24
+    (1746360000000.0, 1794657600000.0, "Sun, May 4, 2025"), // 2025-05-04
+    (1798200000000.0, 1798977600000.0, "Fri, Dec 25, 2026"), // 2026-12-25
+    (1799755200000.0, 1798632000000.0, "Tue, Jan 12, 2027"), // 2027-01-12
+];
+
+#[test]
+fn a_section_label_names_a_chat_s_day() {
+    let wrong: Vec<String> = SECTIONS
+        .iter()
+        .filter(|&&(then, now, want)| day(then, now, 0.0, "section") != Some(Value::str(want)))
+        .map(|(then, _, want)| format!("{then}: {want}"))
+        .collect();
+    assert!(wrong.is_empty(), "{wrong:#?}");
+}
+
 fn day(then: f64, now: f64, offset: f64, mode: &str) -> Option<Value> {
     formatting(
         Stdlib::FormatDay,
@@ -994,7 +1150,7 @@ fn a_day_s_label_is_relative_to_now_at_the_offset() {
         }
     }
     assert!(wrong.is_empty(), "{wrong:#?}");
-    // Either instant invalid, as `formatDate` judges one, is ""; a mode
+    // Either instant invalid, as `formatDate` judges one, is "" (D7); a mode
     // the compiler refuses is refused.
     for (then, now, offset) in [
         (f64::NAN, 0.0, 0.0),
@@ -1019,7 +1175,7 @@ fn a_style_outside_the_table_is_refused_not_guessed() {
         ),
         None
     );
-    // A code the roster does not list, or none, is no currency.
+    // A code the roster does not list, or none, is no currency (LLP 1116 D8).
     for code in ["XYZ", "usd", ""] {
         let args = [Value::Number(1.0), Value::str("currency"), Value::str(code)];
         assert_eq!(formatting(Stdlib::FormatNumber, &args), None, "{code}");

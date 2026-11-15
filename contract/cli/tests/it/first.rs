@@ -1,5 +1,5 @@
-//! `first(list)`: `some` of a list's first item, `none` for an empty list,
-//! and a type error for anything but a list.
+//! `first(list)` (LLP 1054.000 C4): `some` of a list's first item, `none`
+//! for an empty list, and a type error for anything but a list.
 
 use exact_kernel::{Kernel, PropId};
 use exact_runner::{DataError, DataSource, Runner, Value};

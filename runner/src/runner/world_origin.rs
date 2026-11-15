@@ -1,4 +1,4 @@
-//! A world's message carries what caused it.
+//! A world's message carries what caused it (LLP 1133.022 D6, D10 item 6).
 //!
 //! A `postMessage` to a canvas from a commit that was not a person's or the
 //! app's own carries that commit's origin in front of its text; the world

@@ -1,24 +1,24 @@
-// @exact/local-auth on Apple:
+// @exact/local-auth on Apple (LLP 1133.010 D1, D3, D8, D10-D13):
 // LocalAuthentication's sheet, answered in the interface's shapes. The app's
 // composed module calls it outside the agent; under the agent the runner's
 // substitute answers and no context is made, unless the drive binds it
 // (`--bind local-auth`).
 //
 // - `authenticate` evaluates `deviceOwnerAuthentication` unless the call
-//   says otherwise: `biometricOnly`, or `apple.policy`, which beats it.
-// - The status's `state` is the Face ID permission. Apple gives no
+//   says otherwise (D3): `biometricOnly`, or `apple.policy`, which beats it.
+// - The status's `state` is the Face ID permission (D12). Apple gives no
 //   call that tells `prompt` from `granted`, so the module keeps, in its own
 //   defaults, whether an evaluation that could use Face ID has completed.
-// - The authenticator entry: the host's presence backend asks it to
+// - The authenticator entry (D13): the host's presence backend asks it to
 //   check the person for an item; it evaluates the policy the item's line
 //   names (biometrics for `biometry-*`, else the device owner), which shows
 //   the sheet, and the host reads the item with the context it returns, which
-//   the keychain accepts without asking again. The
+//   the keychain accepts without asking again. D6's
 //   `evaluateAccessControl(_:operation:localizedReason:)` fails on the iOS
 //   27 simulator with LAError -1020 before any sheet, so the access control
 //   is not evaluated itself; a `device-credential` item read after a face
 //   asks for the passcode in the keychain's own sheet.
-// - Tier 3: `LocalAuthModule.hatch` receives each call's context after
+// - Tier 3 (D11): `LocalAuthModule.hatch` receives each call's context after
 //   the module's words are set, before evaluation. The module sets what it
 //   owns again after the hatch returns (`interactionNotAllowed`, the reuse
 //   duration), so a hatch cannot weaken a check, and a development build
@@ -29,7 +29,7 @@ import LocalAuthentication
 import Security
 
 public final class LocalAuthModule: ExactPackage, ExactAuthenticator {
-    /// The app's access hatch: each call's context, before evaluation.
+    /// The app's access hatch (D11): each call's context, before evaluation.
     public static var hatch: ((LAContext) -> Void)?
 
     private let changed: (String) -> Void
@@ -38,9 +38,9 @@ public final class LocalAuthModule: ExactPackage, ExactAuthenticator {
     private let context: ExactPackageContext
     /// Contexts whose sheet is up, invalidated if the session ends first.
     private var evaluating: [ObjectIdentifier: LAContext] = [:]
-    /// The status last answered, to announce a change on return.
+    /// The status last answered, to announce a change on return (D12).
     private var said: [String: Any]?
-    /// An evaluation that could use Face ID has completed.
+    /// An evaluation that could use Face ID has completed (D12).
     private static let usedKey = "exact.local-auth.faceID"
     private var faceIDUsed: Bool {
         get { UserDefaults.standard.bool(forKey: Self.usedKey) }
@@ -69,7 +69,7 @@ public final class LocalAuthModule: ExactPackage, ExactAuthenticator {
     }
 
     /// The person can change Face ID's permission or the passcode in Settings
-    /// while the app is away: asked again on return.
+    /// while the app is away: asked again on return (D12).
     public func foreground(_ shown: Bool) {
         guard shown, let said else { return }
         if !NSDictionary(dictionary: status()).isEqual(to: said) { changed("local-auth.localAuthStatus") }
@@ -120,7 +120,7 @@ public final class LocalAuthModule: ExactPackage, ExactAuthenticator {
     }
 
     /// The host's keychain keeps locked items: iOS's always; a Mac's only
-    /// with a provisioned keychain group. The runner's own answer
+    /// with a provisioned keychain group (D7). The runner's own answer
     /// replaces this on every asynchronous read.
     private var keychainKeepsLocked: Bool {
         #if os(macOS)
@@ -133,7 +133,7 @@ public final class LocalAuthModule: ExactPackage, ExactAuthenticator {
 
     // MARK: the check
 
-    /// `apple.policy` by Apple's name, where this OS has it.
+    /// `apple.policy` by Apple's name, where this OS has it (D10).
     private func policy(_ word: String?, biometricOnly: Bool) -> LAPolicy {
         switch word {
         case "deviceOwnerAuthentication": return .deviceOwnerAuthentication
@@ -152,25 +152,25 @@ public final class LocalAuthModule: ExactPackage, ExactAuthenticator {
     }
 
     /// A context with the call's words, then the hatch, then the module's own
-    /// fields set again.
+    /// fields set again (D11).
     private func made(_ apple: [String: Any], origin: String) -> LAContext {
         let c = LAContext()
         if let title = apple["localizedFallbackTitle"] as? String { c.localizedFallbackTitle = title }
         if let title = apple["localizedCancelTitle"] as? String { c.localizedCancelTitle = title }
-        // Touch ID's reuse of the device's own unlock is a person's to use.
+        // Touch ID's reuse of the device's own unlock is a person's to use (D12).
         let reuse = origin == "app" ? min(apple["touchIDAuthenticationAllowableReuseDuration"] as? Double ?? 0, LATouchIDAuthenticationMaximumAllowableReuseDuration) : 0
         c.touchIDAuthenticationAllowableReuseDuration = reuse
         c.interactionNotAllowed = false
         Self.hatch?(c)
         if c.interactionNotAllowed || c.touchIDAuthenticationAllowableReuseDuration != reuse {
-            log("local-auth: the context hatch changed interactionNotAllowed or the reuse duration, which the module owns; set again")
+            log("local-auth: the context hatch changed interactionNotAllowed or the reuse duration, which the module owns; set again (LLP 1133.010 D11)")
         }
         c.interactionNotAllowed = false
         c.touchIDAuthenticationAllowableReuseDuration = reuse
         return c
     }
 
-    /// The code for a LocalAuthentication error, with Apple's own beside it.
+    /// D1's code for a LocalAuthentication error, with Apple's own beside it.
     private func failure(_ error: Error?, _ c: LAContext) -> [String: Any] {
         let ns = error as NSError?
         let code = ns.flatMap { LAError.Code(rawValue: $0.code) }
@@ -181,7 +181,7 @@ public final class LocalAuthModule: ExactPackage, ExactAuthenticator {
         case .authenticationFailed?: word = "AUTHENTICATION_FAILED"
         case .biometryLockout?: word = "LOCKOUT"
         case .notInteractive?: return ["error": "PERMISSION_DENIED", "message": "person-required"]
-        // Face ID refused for the app reads as not available.
+        // Face ID refused for the app reads as not available (D12).
         case .biometryNotAvailable? where c.biometryType == .faceID && faceIDRefused(): word = "PERMISSION_DENIED"
         default: word = "NOT_AVAILABLE"
         }
@@ -195,7 +195,7 @@ public final class LocalAuthModule: ExactPackage, ExactAuthenticator {
         return !ok && error.map { LAError.Code(rawValue: $0.code) == .biometryNotAvailable } == true
     }
 
-    /// The evaluation ended: a Face ID one counts as used.
+    /// The evaluation ended: a Face ID one counts as used (D12).
     private func ended(_ c: LAContext) {
         evaluating[ObjectIdentifier(c)] = nil
         if c.biometryType == .faceID, !faceIDUsed {
@@ -205,7 +205,7 @@ public final class LocalAuthModule: ExactPackage, ExactAuthenticator {
     }
 
     private func authenticate(_ args: [String: Any], origin: String, _ reply: @escaping ([String: Any]) -> Void) {
-        // Presence is not delegable; the runner refuses first, and this holds without it.
+        // Presence is not delegable (D12); the runner refuses first, and this holds without it.
         guard origin == "app" else { return reply(["error": "PERMISSION_DENIED", "message": "person-required"]) }
         let apple = args["apple"] as? [String: Any] ?? [:]
         let chosen = policy(apple["policy"] as? String, biometricOnly: args["biometricOnly"] as? Bool ?? false)

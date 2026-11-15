@@ -1,5 +1,5 @@
-// The map drives 1 to 4 on Map Demo, under the agent, where
-// the map is the real package view with plain tiles, and drive 5, the
+// LLP 1133.021 §13's map drives 1 to 4 on Map Demo, under the agent, where
+// the map is the real package view with plain tiles (§12), and drive 5, the
 // web build refused without a tile source.
 //
 // 1. Select on the map: `tap map/ferry`, real input at the marker.
@@ -8,6 +8,7 @@
 //    none`) zoom from where `moveend` last left the camera.
 // 4. Plain tiles: a screenshot, kept for a person to read.
 // 5. A missing source: the web build without `tiles` fails `maps-tiles-missing`.
+// 6. Web panning: an arrow key and a drag with three moves keep the camera near its start.
 //
 // usage: bun packages/maps/test/map-demo.mjs <web|macos|ios> [--browser chromium|firefox|webkit] [--sim <udid>] [--out <dir>]
 //   (Map Demo built for that host first: host/web/build.mjs map-demo, or host/apple/build.mjs [--ios] map-demo-apple)
@@ -45,9 +46,11 @@ const platform = host === 'ios' ? ['--touch', 'platform'] : [];
 
 // 1: a marker selected on the map is the app's `change`.
 {
-  const r = drive(['clock settle', 'tap map/ferry', 'clock settle', 'tree', 'state extensions', 'logs'], platform);
-  const tree = r[3];
-  check('1: tap map/ferry selects it', text(tree, 'selected') === 'Selected: ferry', text(tree, 'selected') || String(JSON.stringify(r[1] ?? r)).slice(0, 400));
+  const r = drive(['clock settle', 'tree', 'tap map/ferry', 'clock settle', 'tree', 'state extensions', 'logs'], platform);
+  const tree = r[4];
+  const parts = r[1]?.nodes?.find(n => n.props?.testId === 'map')?.parts ?? [];
+  check('1: tree lists the declared marker parts', ['ferry', 'coit', 'union', 'chinatown'].every(id => parts.some(p => p.id === id)), JSON.stringify(parts));
+  check('1: tap map/ferry selects it', text(tree, 'selected') === 'Selected: ferry', text(tree, 'selected') || String(JSON.stringify(r[2] ?? r)).slice(0, 400));
   check('1: one pick from the map', text(tree, 'picks').endsWith(': 1'), text(tree, 'picks'));
   const m = maps(r);
   if (host === 'web') check("1: state.extensions shows the marker selected", m?.[0]?.selected === 'ferry', JSON.stringify(m));
@@ -104,6 +107,19 @@ if (host === 'web') {
     const said = `${r.stdout}\n${r.stderr}`;
     check('5: the web build without tiles fails maps-tiles-missing', r.status !== 0 && said.includes('maps-tiles-missing'), said.slice(-800));
   } finally { rmSync(dir, { recursive: true, force: true }); }
+}
+if (host === 'web') {
+  for (const [name, input, longitude] of [
+    ['ArrowRight pans 80 px east', 'type map key ArrowRight', -122.400567],
+    ['a three-move drag pans 9 px east', 'tap map drag -9 0 mouse over 48', -122.403614],
+  ]) {
+    const r = drive(['clock settle', 'tap map', input,
+      `clock until state extensions.maps.implementation.maps.0.camera.longitude == ${longitude} within 3000`,
+      'state extensions']);
+    const camera = maps(r)?.[0]?.camera;
+    check(`6: ${name}`, camera?.longitude === longitude && camera?.latitude === 37.7946 && camera?.zoom === 15,
+      JSON.stringify(camera ?? r));
+  }
 }
 console.log(failures ? `${failures} failed` : 'all passed');
 process.exit(failures ? 1 : 0);

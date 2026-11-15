@@ -1,4 +1,4 @@
-// The agent's `sample`: the pixels under view points,
+// @ref LLP 1100 D12 — the agent's `sample`: the pixels under view points,
 // from a float render of the view's layers, in extended linear sRGB, so
 // what an 8-bit sRGB screenshot would clip reads outside 0–1.
 // This is CALayer.render(in:), not the display compositor: on iOS 27 it
@@ -29,7 +29,7 @@ extension Agent {
         guard let layer = view.layer else { return ["error": "the session's view has no layer"] }
         #endif
         #if os(iOS) || os(tvOS)
-        let size = view.pageSize // the page's area, a box's space
+        let size = view.pageSize // the page's area, a box's space (LLP 1130)
         #else
         let area = presenter.navigation.split.agentCaptureArea
         let size = area.size
@@ -44,7 +44,7 @@ extension Agent {
         ctx.translateBy(x: 0, y: CGFloat(h)); ctx.scaleBy(x: 1, y: -1)
         CATransaction.flush()
         #if os(iOS) || os(tvOS)
-        // A presentation mounts beside the viewport: the
+        // A presentation mounts beside the viewport (LLP 1123 D2): the
         // viewport's area is read from the window, sheets composited
         if presenter.surfaces(includingRetiring: true).contains(where: { $0.kind != .document }), let window = view.window {
             // The viewport's area in the window, which the agent's window

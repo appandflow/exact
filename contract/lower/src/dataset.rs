@@ -1,10 +1,10 @@
-//! `data-*`: the app's own words on any element,
+//! `data-*` (@ref LLP 1075.003 §3.3): the app's own words on any element,
 //! as HTML's custom data attributes. A node's words lower to one `dataset`
-//! row — keys sorted, values strings — through the `NativeProps` opcode,
-//! so a new word never touches the schema or the tag table.
+//! row — keys sorted, values strings — through the `NativeProps` opcode
+//! (LLP 1024 §9), so a new word never touches the schema or the tag table.
 //! On the web they are real attributes (`el.dataset`); a native hatch reads
-//! a route's. A word names the app's meaning, not a
-//! platform property, and never makes a view. The app declares its
+//! a route's (LLP 1075.003 §3.2). A word names the app's meaning, not a
+//! platform property, and never makes a view (§1.2). The app declares its
 //! words in `app.json` (`"data"`), and the bake refuses one it lacks.
 
 use crate::{err, LowerError, Lowerer};
@@ -83,7 +83,6 @@ const HOST_WORDS: [&str; 124] = [
     "headstatus",
     "headtitle",
     "heightdragfor",
-    "hitslop",
     "hyphen",
     "initialitemcount",
     "intersectmargin",
@@ -125,6 +124,7 @@ const HOST_WORDS: [&str; 124] = [
     "showsscrollindicator",
     "site",
     "surface",
+    "svgrelativefontweight",
     "symbol-fill",
     "symbol-path",
     "symboleffectvalue",
@@ -182,7 +182,7 @@ pub(crate) fn refused(a: &Attr) -> Option<LowerError> {
         )
     } else if reserved(w) {
         format!(
-            "`{}` is written by the web host on its own elements; give the app's word another name",
+            "`{}` is written by the web host on its own elements; give the app's word another name (LLP 1075.003 §3.3)",
             a.name
         )
     } else {
@@ -201,8 +201,8 @@ pub fn data_words(file: &File) -> Vec<(String, Span)> {
     attr_words(file, |a| word(&a.name).map(str::to_owned))
 }
 
-/// Every `hatch` word the file's views use, with where: the driver checks
-/// them against `app.json` `hatches`
+/// Every `hatch` word the file's views use, with where (LLP 1075.003.000
+/// Q1): the driver checks them against `app.json` `hatches`
 /// (`bake-undeclared-hatch`). Only a literal is a word; lowering refuses the
 /// rest.
 pub fn hatch_words(file: &File) -> Vec<(String, Span)> {
@@ -226,19 +226,11 @@ fn attr_words(file: &File, pick: impl Fn(&Attr) -> Option<String> + Copy) -> Vec
                     out.extend(attrs.iter().filter_map(|a| pick(a).map(|w| (w, a.span))));
                     walk(children, out, pick);
                 }
-                Node::Use { children, .. } => walk(children, out, pick),
-                Node::When {
-                    then, otherwise, ..
-                } => {
-                    walk(then, out, pick);
-                    walk(otherwise, out, pick);
+                node => {
+                    for list in node.child_lists() {
+                        walk(list, out, pick);
+                    }
                 }
-                Node::Each { body, .. } => walk(body, out, pick),
-                Node::Match { some, none, .. } => {
-                    walk(&some.1, out, pick);
-                    walk(none, out, pick);
-                }
-                Node::Children { .. } => {}
             }
         }
     }
@@ -249,7 +241,7 @@ fn attr_words(file: &File, pick: impl Fn(&Attr) -> Option<String> + Copy) -> Vec
     out
 }
 
-/// A `hatch` the lowering refuses: on a module tag,
+/// A `hatch` the lowering refuses (LLP 1075.003.000 §3.1): on a module tag,
 /// whose instance is already the module's; anything but a literal, since a
 /// node hatched at run time would need its view made mid-row; a value that is
 /// not a word.
@@ -321,7 +313,7 @@ impl Lowerer<'_> {
     /// A node's `data-` words as its one `dataset` row: keys sorted, the
     /// last binding of a word winning, each value a string, number or bool
     /// (or an option of one, absent when none), evaluated with the node's
-    /// bindings — the module props' rule.
+    /// bindings — the module props' rule (LLP 1024 D1).
     pub(crate) fn dataset_bindings(
         &mut self,
         attrs: &[&Attr],

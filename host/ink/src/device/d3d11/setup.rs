@@ -17,7 +17,7 @@ pub(super) fn open(warp: bool) -> Result<(ID3D11Device, ID3D11DeviceContext, Str
     let (mut device, mut context) = (None, None);
     let start = Instant::now();
     // SAFETY: the API writes owned COM references; the feature list and outputs
-    // remain live for the call. BGRA is required by Direct2D.
+    // remain live for the call. BGRA is required by Direct2D (LLP 1149 D5.2).
     unsafe {
         D3D11CreateDevice(
             None,

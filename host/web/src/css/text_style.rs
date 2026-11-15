@@ -1,4 +1,4 @@
-//! Text-style fills for a page without a kernel.
+//! Text-style fills for a page without a kernel (LLP 1115.000 D12.2).
 
 use exact_kernel::style::metrics::Column;
 use exact_kernel::style::relative::{text_style_leading, text_style_weight, Unit};

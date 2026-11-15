@@ -1,8 +1,8 @@
-// DOM's own `pointerdown`, `pointerup` and `pointermove`,
-// as the web host's input-glue `pointer`: a button (any)
-// or a touch going down on an element, then up or cancelled (a cancel
+// DOM's own `pointerdown`, `pointerup` and `pointermove` (LLP 1005 §3; LLP
+// 1056 §3 stage 3), as the web host's input-glue `pointer`: a button (any,
+// studio diary R22) or a touch going down on an element, then up or cancelled (a cancel
 // is an up), and the pointer moving over it or, once down on it, anywhere
-// until it lifts. The down and the up bubble: every
+// until it lifts. The down and the up bubble (Charlie, 2026-10-15): every
 // enabled element from the target up that hears either holds the pointer
 // for its up, innermost first, and the innermost hearing any of the three
 // also for its moves. The down goes along the event's own path from one
@@ -15,7 +15,7 @@
 
 // The record: the point from the element's content box in its own CSS px
 // (a scale undone), DOM's button, buttons and pressure, the device and its id, the
-// viewport point (`frame()`'s space), the modifiers held.
+// viewport point (`frame()`'s space, LLP 1094 D11), the modifiers held.
 import { inertAncestor } from './navigation.js';
 export function record(e, ev, lifted = false) {
   const r = e.getBoundingClientRect(), cs = getComputedStyle(e);
@@ -27,6 +27,8 @@ export function record(e, ev, lifted = false) {
 }
 let walking = false;
 export function pointer(e, kind, f) {
+  // A server render has no window and no pointer to observe.
+  if (typeof window === "undefined") return;
   if (!walking) {
     walking = true;
     // Every holder is fixed before any down runs, as the native hosts fix the path: a node a handler further in disables or removes still hears the up.
@@ -34,14 +36,20 @@ export function pointer(e, kind, f) {
   }
   let s = e.$pointer;
   if (!s) {
-    s = e.$pointer = { held: null, owner: false, last: null, move: null, frame: 0 };
+    s = e.$pointer = { held: null, owner: false, last: null, move: null, frame: 0, spent: false };
     const live = () => e.isConnected && !e.closest("[data-exiting]");
     const flush = () => {
-      cancelAnimationFrame(s.frame); s.frame = 0;
       const m = s.move; s.move = null;
       if (m && live()) s.pointermove?.(record(e, m));
     };
-    const moved = ev => { s.last = ev; s.move = ev; if (!s.frame) s.frame = requestAnimationFrame(flush); };
+    // A move goes out in its own event unless one went out since the last animation frame; then the latest goes at
+    // the next frame. Chromium and Firefox deliver moves aligned to frames, so each goes out as it comes.
+    const tick = () => { s.frame = 0; s.spent = s.move !== null; flush(); if (s.spent) s.frame = requestAnimationFrame(tick); };
+    const moved = ev => {
+      s.last = ev; s.move = ev;
+      if (!s.spent) { s.spent = true; flush(); }
+      if (!s.frame) s.frame = requestAnimationFrame(tick);
+    };
     // While held, its pointer anywhere in the document: the owner's moves,
     // and every holder's latest point, which a blur's up reports.
     const held = ev => { if (ev.pointerId !== s.held) return; s.last = ev; if (s.owner && s.pointermove) moved(ev); };
@@ -61,7 +69,7 @@ export function pointer(e, kind, f) {
     };
     const enabled = () => live() && !e.matches(":disabled") && !e.hasAttribute("disabled") && !inertAncestor(e);
     s.hold = ev => {
-      // Any button, as the DOM's (a secondary click's down; `buttons` says which).
+      // Any button, as the DOM's (studio diary R22: a secondary click's down; `buttons` says which).
       if (!ev.isPrimary || s.held !== null || !enabled()) return;
       // The innermost enabled pointer element holds its moves, as the web
       // host's does; an ancestor holds only its up.

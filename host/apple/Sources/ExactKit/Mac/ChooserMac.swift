@@ -1,10 +1,10 @@
-// The chooser on AppKit: a `role="alertdialog"` popover of the
+// LLP 1021 "The chooser" on AppKit: a `role="alertdialog"` popover of the
 // shape iOS presents as an action sheet — one or more press rows that hide
 // it (the actions), at most one handlerless hide-only cancel, text rows (the
 // message) — is an NSMenu popped up against its invoker by its
 // `position-area`, as a button menu is. (One in the alert shape, with text,
-// a cancel and at most three buttons, is `NSAlert` first: AlertsMac.swift.
-// What reaches this is a chooser, or text with no cancel.)
+// a cancel and at most three buttons, is `NSAlert` first: AlertsMac.swift,
+// LLP 1115.000 D7.6. What reaches this is a chooser, or text with no cancel.)
 // One item per action: its title, its image (a symbol, else its `img` once
 // loaded), checked for `aria-checked`, dimmed when disabled, red when
 // destructive. A chooser (more than one action, no text) is headed by its
@@ -16,7 +16,7 @@
 // action, and the press's batch may unmount it), and only while the menu
 // still shows what is there: owner live, every action live, in its popover,
 // closing it, shown, its title and enablement as presented. Under the agent every popover
-// stays painted, so its drives tap the painted rows.
+// stays painted (D4), so its drives tap the painted rows.
 #if os(macOS)
 import AppKit
 
@@ -176,8 +176,8 @@ extension MenuHost {
         presenter?.press(node.id, fromNativeMenu: true)
     }
 
-    /// A row's item image: its symbol, custom or native, else its `img` —
-    /// a provider's own icon — once that has loaded.
+    /// A row's item image: its symbol, custom or native (LLP 1069.011.000
+    /// D5), else its `img` — a provider's own icon — once that has loaded.
     /// The menu reads what the hidden row already holds; opening it never
     /// fetches, and an image still loading is no image until the next open.
     func image(of row: NodeView) -> NSImage? {

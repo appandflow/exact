@@ -1,5 +1,5 @@
-//! Colours that name a platform colour: a role from the schema's
-//! table, or `-exact-platform-color()`. Each carries a fallback pair, so
+//! Colours that name a platform colour (LLP 1095): a role from the schema's
+//! table (D2), or `-exact-platform-color()` (D3). Each carries a fallback pair, so
 //! the kernel and any host without the platform's colour always have a
 //! deterministic RGBA; a host that has it resolves the name per view.
 
@@ -11,7 +11,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 
 /// The role a keyword names, in any ASCII case: CSS's system colours by
-/// their names, Exact's roles as `-exact-<role>`, WebKit's
+/// their names, Exact's roles as `-exact-<role>` (LLP 1081 D2), WebKit's
 /// `-apple-system-*` names for those it has, and the web form a role is
 /// written as (`var(--exact-<role>, …)`), so canonical CSS reads back. An
 /// Exact role's bare name is not a colour.
@@ -74,7 +74,7 @@ pub fn is_css_system(role: &ColorRole) -> bool {
     role.name.starts_with(|c: char| c.is_ascii_uppercase())
 }
 
-/// The role table's two fallback columns: what a role
+/// The role table's two fallback columns (LLP 1115.000 D3.2): what a role
 /// is where no host reported the platform's own colour for it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Column {
@@ -82,8 +82,8 @@ pub enum Column {
     /// its own, and what every host shows until it says otherwise.
     Apple,
     /// The neutral pairs, no platform's palette: a host's that paints its
-    /// own controls, and the web's for a role its page does not report (the
-    /// page draws Apple's and reports them).
+    /// own controls (D17), and the web's for a role its page does not
+    /// report (the page draws Apple's and reports them, D4).
     Neutral,
 }
 
@@ -91,8 +91,8 @@ pub enum Column {
 static NEUTRAL: AtomicBool = AtomicBool::new(false);
 
 /// The one switch between the columns: a host says which it shows, once,
-/// before it presents (the web, and a host that paints its own controls,
-/// show the neutral column). Every fallback follows: what the kernel
+/// before it presents (LLP 1115.000 D4 part B for the web, D17 for a host
+/// that paints its own controls). Every fallback follows: what the kernel
 /// resolves itself, the pair an Exact role carries to the browser
 /// (`var(--exact-<role>, …)`), what a painter reads. The look's metrics
 /// follow too (`style::metrics::column`), so this is the look's one switch.
@@ -143,14 +143,14 @@ pub struct PlatformColor {
     pub text: Box<str>,
 }
 
-/// What a host reported each reference resolves to, by
+/// What a host reported each reference resolves to (LLP 1095 D1), by
 /// reference and appearance: a host with the platform's colours resolves
 /// every reference under the traits it is showing (style, Increased
 /// Contrast) and reports the whole set again whenever they change, so what
 /// the kernel resolves itself — paint motion, gradients, SVG scenes and
 /// filters — is the platform's colour, not a snapshot of the fallback. The
 /// Apple hosts report their named colours; Android reports the device's
-/// Material colours, role by role. A host that reports
+/// Material colours, role by role (LLP 1115.001 D4). A host that reports
 /// nothing (desktop Linux, headless) keeps the fallback pair.
 /// One platform per process, so one table.
 static REPORTED: RwLock<BTreeMap<(u8, u16, bool), Color>> = RwLock::new(BTreeMap::new());
@@ -183,7 +183,8 @@ pub fn reported_generation() -> u64 {
 /// Whether a role is the tint itself on an Apple platform (`@tint`, at full
 /// strength: on iOS `AccentColor`, a link and a button's text; on the Mac
 /// `AccentColor`), which resolves to the nearest `accent-color` a node or an
-/// ancestor sets, else the platform's, as UIKit's inherited `tintColor` does: iOS sets an
+/// ancestor sets, else the platform's (LLP 1116.001 D2; LLP 1115.000 D3.4
+/// for the Mac), as UIKit's inherited `tintColor` does: iOS sets an
 /// authored accent as the view's tint, and the Mac's presenter reads the
 /// nearest one up the view chain. The web's own two are [`web_accent`].
 pub fn follows_accent(id: u8, macos: bool) -> bool {
@@ -191,12 +192,12 @@ pub fn follows_accent(id: u8, macos: bool) -> bool {
 }
 
 /// Whether the browser draws a role in the accent: CSS's `AccentColor`,
-/// and `LinkText`, so a link is one blue on the web,
+/// and `LinkText` (LLP 1115.000 D3.5), so a link is one blue on the web,
 /// the plain button's and the tab bar's, where the browser's own
 /// `LinkText` is a second; and an Exact role that is the tint on iOS
-/// (`-exact-link`, and `-exact-symbol`: the web draws a symbol nobody
+/// (`-exact-link`, and `-exact-symbol`, D3.9: the web draws a symbol nobody
 /// tinted in its accent). Each reads the nearest `accent-color`
-/// (`--exact-accent`), else the browser's accent. CSS's
+/// (`--exact-accent`, LLP 1116.001 D2), else the browser's accent. CSS's
 /// `ButtonText` is the tint on iOS and the browser's own keyword here.
 pub fn web_accent(r: &ColorRole) -> bool {
     matches!(r.name, "AccentColor" | "LinkText") || (!is_css_system(r) && r.ios == "@tint")
@@ -274,12 +275,12 @@ pub use session::{
 
 impl ColorValue {
     /// What a host is sent for this colour: a role the theme replaces is
-    /// what replaces it, anything else itself.
+    /// what replaces it (LLP 1095 D4), anything else itself.
     ///
     /// A role an Apple platform draws in the view's tint (`AccentColor`,
     /// `LinkText`, a symbol's default) stays itself: a host makes the theme's
     /// colour the app's tint, under which an authored `accent-color` still
-    /// wins for its subtree (the author over the design).
+    /// wins for its subtree (LLP 1095 D1, the author over the design).
     #[track_caller]
     pub fn themed(self) -> ColorValue {
         match self {
@@ -290,7 +291,7 @@ impl ColorValue {
     }
 }
 
-/// The web's reach: the overridden roles as `:root` custom
+/// The web's reach (LLP 1095 D4): the overridden roles as `:root` custom
 /// properties the host's own sheet reads (`--exact-<role>`, a CSS system
 /// colour's as `--exact-<name>` in lower case, `AccentColor` as
 /// `--exact-accent`, which an authored `accent-color` redeclares below),
@@ -315,7 +316,7 @@ pub fn theme_css() -> String {
                 "color:var(--exact-canvas-text);--exact-scheme-color:var(--exact-canvas-text);",
             ),
             "Canvas" => out.push_str("background-color:var(--exact-canvas);"),
-            // The design's accent is authored: a spinner reads it.
+            // The design's accent is authored (LLP 1121 D9): a spinner reads it.
             "AccentColor" => out.push_str(
                 "--exact-accent-design:var(--exact-accent);--exact-accent-said:var(--exact-accent-design);",
             ),
@@ -337,10 +338,10 @@ pub fn theme_css() -> String {
     format!(":root{{{out}}}{scheme}{}", brand_states())
 }
 
-/// What a theme's accent and selection colours
+/// @ref LLP 1129 D2, D3 — what a theme's accent and selection colours
 /// reach on the web beyond the controls. The keyboard's ring is drawn in
 /// the theme's accent, as iOS draws its focus halo in the tint the theme
-/// sets, and solid: Chrome's `auto` ring ignores its offset
+/// sets (LLP 1095 D1), and solid: Chrome's `auto` ring ignores its offset
 /// and hugs the control, so in the accent it vanishes on a control the
 /// accent fills. Selected text takes the theme's `Highlight` pair; unsaid,
 /// no `::selection` rule is written, since one changes how an engine draws
@@ -371,7 +372,7 @@ fn brand_states() -> String {
     out
 }
 
-/// A theme's `CanvasText` is a `color` on the web's root,
+/// @ref LLP 1095 D4 — a theme's `CanvasText` is a `color` on the web's root,
 /// which the browser computes on the root's scheme; a `color-scheme` card
 /// reads the entry again on its own, as Apple's does. Written at an id and
 /// a class's specificity: over the page's control reset (`all: unset`, so a
@@ -420,7 +421,7 @@ thread_local! {
 /// While the guard lives, an overridden role crosses into CSS as its sheet
 /// property over its value (`var(--exact-label, #…)`), so a development
 /// build's live edit of the override, which sets the property, reaches it
-/// (the JS target). A release build crosses the value.
+/// (the JS target, LLP 1121 stage 5). A release build crosses the value.
 pub fn live_properties(on: bool) -> LiveProperties {
     LiveProperties(LIVE_PROPERTIES.with(|l| l.replace(on)))
 }
@@ -476,7 +477,7 @@ thread_local! {
 /// ancestor's; another role (`LinkText`) is the platform's colour, read with
 /// no scope ([`painted_accent`]).
 ///
-/// The scope holds a copy of a wide colour id, unmarked:
+/// The scope holds a copy of a wide colour id, unmarked (LLP 1121 stage 4):
 /// it lasts only inside one paint call, and the id is the painted node's,
 /// which the kernel the host borrows to paint marks for that whole time.
 pub fn authored_accent(accent: Option<ColorValue>) -> AccentScope {
@@ -579,7 +580,7 @@ pub fn overridden(id: u8) -> Option<ColorValue> {
 }
 
 /// Interned `-exact-platform-color()`s. A plan names a few; the runner admits one
-/// only as a plan literal, and the cap bounds the table
+/// only as a plan literal (LLP 1095 D3), and the cap bounds the table
 /// whatever else parses one.
 static PLATFORM: Mutex<Vec<Arc<PlatformColor>>> = Mutex::new(Vec::new());
 const PLATFORM_CAP: usize = 1024;
@@ -609,7 +610,7 @@ pub fn native_name_ok(name: &str) -> bool {
 
 /// Intern every `-exact-platform-color()` written in `text` (a plan literal: a
 /// colour, or a composite value holding some), so a host's first report
-/// resolves it before any branch selects it. One that does
+/// resolves it before any branch selects it (LLP 1095 D9). One that does
 /// not parse is left for the row's own parse to refuse.
 pub fn intern_literals(text: &str) {
     let mut rest = text;
@@ -637,7 +638,7 @@ pub fn intern_literals(text: &str) {
     }
 }
 
-/// `-exact-platform-color(<platform> <name>, …, <fallback>)`, interned.
+/// `-exact-platform-color(<platform> <name>, …, <fallback>)` (LLP 1095 D3), interned.
 /// The fallback is a colour or a `light-dark()` pair, never a reference.
 pub fn parse_platform(text: &str) -> Option<ColorValue> {
     let inner = text
@@ -724,7 +725,7 @@ pub(crate) fn reference_css(out: &mut String, c: ColorValue, mode: ColorText) {
                 out.push_str("transparent");
                 return;
             };
-            // A role the theme replaces crosses as what
+            // @ref LLP 1095 D4 — a role the theme replaces crosses as what
             // replaces it, on the wire and in CSS.
             // The browser's accent roles read the nearest `accent-color`
             // first, so an authored one still wins; the theme's colour is
@@ -789,7 +790,7 @@ pub(crate) fn reference_css(out: &mut String, c: ColorValue, mode: ColorText) {
 
 impl ColorValue {
     /// What a host without the platform's colour, or with only sRGB, shows:
-    /// a reference's fallback, a wide colour's sRGB clip.
+    /// a reference's fallback (LLP 1095 D1), a wide colour's sRGB clip.
     #[track_caller]
     pub fn fallback(self) -> ColorValue {
         match self {
@@ -805,7 +806,7 @@ impl ColorValue {
             }
             ColorValue::Wide(id) => super::wide::wide(id)
                 .map_or(ColorValue::Fixed(Color::TRANSPARENT), |w| w.fallback()),
-            // A host that reaches here has refused it already.
+            // A host that reaches here has refused it already (LLP 1100 D3).
             ColorValue::Profiled(_) => ColorValue::Fixed(Color::TRANSPARENT),
             ColorValue::Moving(..) => {
                 let (c, a) = self.moving_linear().unwrap_or_default();
@@ -816,9 +817,9 @@ impl ColorValue {
     }
 
     /// A role's WebKit name (`-apple-system-label`), when it has one: what an
-    /// Apple host draws vibrantly inside a material. `fill`
+    /// Apple host draws vibrantly inside a material (LLP 1077 D13). `fill`
     /// has no WebKit name and answers as its author spelling, `-exact-fill`,
-    /// UIKit's `.fill` vibrancy.
+    /// UIKit's `.fill` vibrancy (LLP 1095 §12).
     pub fn system_name(self) -> Option<&'static str> {
         match self {
             ColorValue::Role(id) => {
@@ -987,7 +988,7 @@ mod tests {
         assert_eq!(
             role("secondary-label"),
             None,
-            "an Exact role is spelled -exact-"
+            "an Exact role is spelled -exact- (LLP 1081)"
         );
         assert_eq!(
             role("-exact-canvastext"),
@@ -1012,8 +1013,8 @@ mod tests {
             Some(ColorValue::Role(id))
         );
         // The tint is the nearest accent for the browser, its name on the
-        // wire, and reads back as itself. A link is the
-        // accent there too, one blue, under its own
+        // wire, and reads back as itself (LLP 1116.001 D2). A link is the
+        // accent there too, one blue (LLP 1115.000 D3.5), under its own
         // name, so it is still `LinkText` when read back.
         for (name, web) in [
             ("AccentColor", "var(--exact-accent, AccentColor)"),
@@ -1040,7 +1041,7 @@ mod tests {
         assert_eq!(role("var(--exact-canvastext, CanvasText)"), None);
         // An Exact role that is the tint on iOS is the accent for the browser
         // too, under its own name: a link named by its role, and a symbol
-        // nobody tinted.
+        // nobody tinted (LLP 1115.000 D3.9).
         for name in ["-exact-link", "-exact-symbol"] {
             let tint = ColorValue::Role(role(name).unwrap());
             css.clear();
@@ -1074,7 +1075,7 @@ mod tests {
         assert_eq!(role("var(--exact-accent, CanvasText)"), None);
     }
 
-    /// The table holds two columns. Apple's are the
+    /// LLP 1115.000 D3.2: the table holds two columns. Apple's are the
     /// measurements (the separator, the system red and blue and the tint,
     /// iOS 27); each host shows them until it throws the switch, which no
     /// host does yet (`kernel/tests/column.rs` throws it, in a process of
@@ -1118,8 +1119,8 @@ mod tests {
         );
         // The tint is one colour: a role that is the tint on iOS, or the
         // tint at an alpha (`Highlight`), falls back to `AccentColor`'s pair
-        // in Apple's column, so a host without a tint shows one blue. A
-        // button's text and a link are the tint there, as
+        // in Apple's column, so a host without a tint shows one blue. LLP
+        // 1115.000 D3.6: a button's text and a link are the tint there, as
         // UIKit draws them, so an authored accent reaches both, and
         // `-exact-link` and `LinkText` resolve alike.
         let named = |name: &str| COLOR_ROLES[usize::from(role_id(name))];
@@ -1152,7 +1153,7 @@ mod tests {
                 r.name
             );
         }
-        // On the Mac the accent alone is the view's tint,
+        // LLP 1115.000 D3.4: on the Mac the accent alone is the view's tint,
         // the nearest authored `accent-color` and else the system's; a link
         // and a control's text are AppKit's own colours there.
         let mac: Vec<&str> = COLOR_ROLES

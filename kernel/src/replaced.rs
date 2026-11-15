@@ -13,7 +13,7 @@ use taffy::geometry::{Rect, Size};
 use taffy::style::{AvailableSpace, BoxSizing};
 use taffy::tree::SizingMode;
 
-/// CSS `zoom` on an `iframe`, else 1: the one
+/// CSS `zoom` on an `iframe` (@ref LLP 1020.002 D6), else 1: the one
 /// element the compiler admits it on.
 pub(crate) fn zoom(arena: &NodeArena, slot: u32) -> f32 {
     let z = arena.style(slot).rare.zoom;
@@ -27,7 +27,7 @@ pub(crate) fn zoom(arena: &NodeArena, slot: u32) -> f32 {
 /// Multiplies the element's own absolute lengths by its `zoom`, as Chrome
 /// zooms a frame: its sizes, margins, padding, borders and insets, never a
 /// percentage (a frame sized by its container keeps its size; Chrome 155,
-/// The default object size is zoomed in [`measure`].
+/// LLP 1020.002 D6). The default object size is zoomed in [`measure`].
 pub(crate) fn apply_zoom(arena: &NodeArena, slot: u32, s: &mut taffy::Style) {
     use taffy::style::{CompactLength, Dimension, LengthPercentage, LengthPercentageAuto};
     let z = zoom(arena, slot);
@@ -119,7 +119,7 @@ pub(crate) fn measure(
             .filter(|_| default.is_some() || crate::svg::natural_ratio(arena, slot).is_some()),
     };
     if let Some(ratio) = unsized_ratio {
-        // A replaced element with a ratio and no
+        // @ref LLP 1055.000 D4 — a replaced element with a ratio and no
         // natural size fills the offered width (CSS Sizing's stretch fit, as
         // Chrome sizes one). Its intrinsic width starts at zero, or the
         // 300 px default object width at max-content when a percentage
@@ -188,7 +188,7 @@ pub(crate) fn symbol_role(arena: &NodeArena, slot: u32) -> Option<&str> {
 }
 
 /// The Apple system symbol a `symbol:` role draws: an `sf/<name>`'s own
-/// name, an icon token's SF Symbol, or a portable role's
+/// name, an icon token's SF Symbol (LLP 1121 D10), or a portable role's
 /// Apple name; "" for a role with none, which draws no glyph. A role is read
 /// by any of its spellings, as the compiler reads a literal source: a
 /// computed `symbol:house` or `symbol:gear` draws what the literal would.
@@ -208,7 +208,7 @@ fn portable_role(name: &str) -> &str {
 }
 
 /// An icon token's source form, as the build writes it after `symbol:`
-///: `icon|<sf>|<view_box>|<path>|<svg>`, each empty for none.
+/// (LLP 1121 D10): `icon|<sf>|<view_box>|<path>|<svg>`, each empty for none.
 ///
 /// The `<path>` of an icon whose SVG fills even-odd starts `evenodd:` (stage
 /// 14 C2): `evenodd:M…;M…`, every `;` path by that one rule; a nonzero
@@ -225,7 +225,7 @@ pub struct Icon<'a> {
     /// The SVG's viewBox, `min-x min-y width height`.
     pub view_box: &'a str,
     /// Its paths' `d`, drawn as a template (filled), its rule's marker
-    /// stripped; empty for an SVG the web draws as the file.
+    /// stripped; empty for an SVG drawn from a file or an Apple raster asset.
     pub path: &'a str,
     /// The SVG's path under `assets/`.
     pub svg: &'a str,
@@ -234,7 +234,7 @@ pub struct Icon<'a> {
 }
 
 impl<'a> Icon<'a> {
-    /// The marker an even-odd icon's path starts with.
+    /// The marker an even-odd icon's path starts with (stage 14 C2).
     pub const EVEN_ODD: &'static str = "evenodd:";
 
     /// The icon a name after `symbol:` is, when it is one.
@@ -250,7 +250,7 @@ impl<'a> Icon<'a> {
     /// the table builds. `None` for a rule it doesn't know (the build never
     /// writes one: drawing nothing beats drawing wrong), a marker with no
     /// path (or only whitespace), or a second `:` after the marker
-    /// (`evenodd:evenodd:M…`). Path data holds no `:`, so a `:`
+    /// (`evenodd:evenodd:M…`, C2 round 1). Path data holds no `:`, so a `:`
     /// is a rule's, and one rule is all a path has.
     pub fn of_row(sf: &'a str, view_box: &'a str, path: &'a str, svg: &'a str) -> Option<Icon<'a>> {
         let (path, even_odd) = match path.split_once(':') {
@@ -267,6 +267,12 @@ impl<'a> Icon<'a> {
         })
     }
 
+    /// The file the Apple build rasterizes, when neither an SF Symbol nor
+    /// a template path supplies the icon.
+    pub fn apple_asset(&self) -> Option<&'a str> {
+        (self.sf.is_empty() && self.path.is_empty() && !self.svg.is_empty()).then_some(self.svg)
+    }
+
     /// The source form a host reads, after `symbol:` (as the build writes a
     /// literal, and the runner a computed source from a row).
     pub fn form(&self) -> String {
@@ -278,7 +284,8 @@ impl<'a> Icon<'a> {
     }
 }
 
-/// A symbol's path for a host that draws paths.
+/// A symbol's path for a host that draws paths (LLP 1035.004 D1, LLP 1121
+/// D10).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SymbolPath<'a> {
     /// Its paths' `d`, joined by `;` (an icon's SVG may hold several, each
@@ -287,19 +294,19 @@ pub struct SymbolPath<'a> {
     /// Filled, else stroked (a role's outline).
     pub filled: bool,
     /// Filled even-odd (a `-fill` role's silhouette, or an icon whose SVG
-    /// says so), else nonzero.
+    /// says so, stage 14 C2), else nonzero.
     pub even_odd: bool,
     /// Its viewBox, `min-x min-y width height`: a role's is `0 0 24 24`.
     pub view_box: &'a str,
 }
 
-/// Whose shapes a host that draws paths gives the roles:
+/// Whose shapes a host that draws paths gives the roles (LLP 1115.001 D14):
 /// the schema's `symbolGlyphs`, where a platform's own symbols draw a role
 /// differently from the table's path.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum SymbolSet {
     /// The table's own paths: the web's, and the Linux desktop's neutral
-    /// look.
+    /// look (LLP 1115.000 D17).
     #[default]
     Web,
     /// Windows: Segoe Fluent Icons' shapes.
@@ -355,7 +362,7 @@ pub fn symbol_path_in(name: &str, set: SymbolSet) -> Option<SymbolPath<'_>> {
 mod tests {
     use super::{apple_symbol_name, symbol_path};
 
-    /// An icon's form, and an SF Symbol that is a role's own
+    /// LLP 1121 D10: an icon's form, and an SF Symbol that is a role's own
     /// Apple name, draw everywhere; another SF Symbol only on Apple.
     #[test]
     fn an_icon_and_a_roles_apple_name_have_paths() {
@@ -378,7 +385,7 @@ mod tests {
         assert_eq!(apple_symbol_name("sf/flag.checkered"), "flag.checkered");
     }
 
-    /// An even-odd icon's path starts `evenodd:`, which
+    /// Stage 14 C2: an even-odd icon's path starts `evenodd:`, which
     /// `Icon` strips into its rule, from a source and from a row alike; a
     /// nonzero icon is as before; an unknown rule, or a marker with no path,
     /// is no icon; `form` writes the marker back.
@@ -435,7 +442,7 @@ mod tests {
         );
     }
 
-    /// Windows and Android draw `back` as an arrow and
+    /// LLP 1115.001 D14: Windows and Android draw `back` as an arrow and
     /// `more` as bare dots, Android `share` as its own mark; the web keeps
     /// the table's chevron and circled ellipsis. A role spelled another way
     /// (Apple's name, `sf/` it) is the role; an icon is kept.

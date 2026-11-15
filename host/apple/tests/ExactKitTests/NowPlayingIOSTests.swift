@@ -1,12 +1,12 @@
-// The video arm's media session coordinator with publication on, over
-// stand-in players. `MPNowPlayingInfoCenter` reads back the owner's title,
-// duration, elapsed time, rate and media type; play, pause and the toggle
-// are enabled for any owner, the six only where handled, the skips with the
-// element's offsets; the owner moves on play, stays after a pause and moves
-// on removal; the last removal clears the info, disables every command and
-// gives AVKit its publication back; a failed artwork says so; under the
-// driver nothing is assigned. On the Mac and, by its name, the iOS simulator
-// (`build.mjs --test --ios`).
+// @ref LLP 1098 D5, D7, D10, §5: the video arm's media session coordinator
+// with publication on, over stand-in players. `MPNowPlayingInfoCenter`
+// reads back the owner's title, duration, elapsed time, rate and media type;
+// play, pause and the toggle are enabled for any owner, the six only where
+// handled, the skips with the element's offsets; the owner moves on play,
+// stays after a pause and moves on removal; the last removal clears the
+// info, disables every command and gives AVKit its publication back; a
+// failed artwork says so; under the driver nothing is assigned. On the Mac
+// and, by its name, the iOS simulator (`build.mjs --test --ios`).
 import MediaPlayer
 import XCTest
 @testable import ExactNowPlaying
@@ -109,7 +109,7 @@ final class NowPlayingIOSTests: XCTestCase {
         np.left(p)
     }
 
-    /// Two claimants play in one commit. The episode is earlier
+    /// Two claimants play in one commit (LLP 1098 D5). The episode is earlier
     /// in the document and its `timeControlStatus` callback arrives last; the
     /// later claimant still owns Now Playing.
     func testTwoPlaysInOneCommitGoToTheLaterClaimant() {

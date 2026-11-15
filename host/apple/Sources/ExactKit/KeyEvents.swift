@@ -2,10 +2,12 @@
 // capture handlers outermost first, then the focused node — the field or
 // textarea being edited counts as its node — and every ancestor with a `key`
 // handler, innermost first. Then the key's default action unless a handler
-// called `preventDefault()`. Every key, printable or not, on every host,
-// so a field editor cannot eat printable keys and an app can claim any
-// key. A keyup goes the same way to the `keyup` handlers, a
-// modifier's release included, and each carries DOM's `code` and `repeat`.
+// called `preventDefault()`. Every
+// key, printable or not, on every host: calc F3 (macOS's field editor ate
+// printable keys) and minesweeper F7 (no way to claim a key) in the
+// x2apps diaries. A keyup goes the same way to the `keyup` handlers, a
+// modifier's release included, and each carries DOM's `code` and `repeat`
+// (#140).
 #if canImport(AppKit)
 import AppKit
 typealias KeyPlatformView = NSView
@@ -17,8 +19,8 @@ typealias KeyPlatformView = UIView
 extension NodeView {
     /// `disabled` where HTML defines it: a button, an input, a control. It
     /// takes those out of focus and keys; on any other box it means nothing
-    /// there, as Chrome's `<div disabled>`. A pressable with an `href` is
-    /// the web's `<a>`, which
+    /// there, as Chrome's `<div disabled>` (LLP 1088 D7.3, amended
+    /// 2026-10-04). A pressable with an `href` is the web's `<a>`, which
     /// `disabled` does not touch either. A press is still refused on any
     /// disabled node.
     var formDisabled: Bool {
@@ -41,7 +43,7 @@ extension KeyCodes {
     }
 }
 
-/// A key event for the runner: DOM's `keydown` (`key`, ABI kind 6)
+/// A key event for the runner (#140): DOM's `keydown` (`key`, ABI kind 6)
 /// or `keyup` (43), or a capture keydown (44): its chord (`Shift+Meta+b`, `Event::key`), its
 /// `KeyboardEvent.code` ("" when the host cannot tell), `repeat` and
 /// `isComposing`. It prints as its chord, which the hosts' tests read.
@@ -71,7 +73,7 @@ struct KeyPress: ExpressibleByStringLiteral, CustomStringConvertible {
 }
 
 extension NodeView {
-    /// HTML's `tabindex` as authored, nil when absent: any
+    /// HTML's `tabindex` as authored, nil when absent (LLP 1088 D7.3): any
     /// explicit value makes a node focusable — by pointer, script and
     /// `autofocus` — and only one ≥ 0 a Tab stop; a missing one is never
     /// read as `0`, which would make every box a stop.
@@ -110,7 +112,7 @@ extension Presenter {
         return prevented
     }
     /// The `keyup` handlers at `target` and above hear a key's release, in
-    /// the same order. True when one called `preventDefault()`.
+    /// the same order (#140). True when one called `preventDefault()`.
     @discardableResult
     func keyUp(at target: NodeView?, _ name: String, held: String = "", code: String = "", composing: Bool = false) -> Bool {
         keyEvent("keyup", at: target, KeyPress(held + name, code: code, up: true, composing: composing))
@@ -130,7 +132,7 @@ extension Presenter {
     /// of the top layer: on the Mac an open popover or a presented dialog,
     /// painted over the page or in a window of its own, and a block's root
     /// (BlockHostMac.swift); on iOS a route to its tab panel or the routes'
-    /// owner. Never the page under a popover or a dialog that
+    /// owner (LLP 1123 D2). Never the page under a popover or a dialog that
     /// is not its ancestor.
     func eventParent(of view: KeyPlatformView) -> KeyPlatformView? {
         #if os(macOS)
@@ -219,7 +221,7 @@ extension Presenter {
         if event.type == .keyDown || event.type == .flagsChanged && KeyCodes.pressed(event) { heldKey(at: keyTarget((window ?? event.window)?.firstResponder)) }
         if focused {
             keyboardUsed(event, in: window)
-            // A keyup's handlers; AppKit gets the event either way.
+            // A keyup's handlers (#140); AppKit gets the event either way.
             keyUp(event, in: window)
             if event.type == .keyDown && shortcuts.perform(event) { return true }
             if keyDown(event, in: window) { return true }
@@ -246,7 +248,7 @@ extension Presenter {
                         code: KeyCodes.code(event), repeats: event.type == .keyDown && event.isARepeat, composing: composing), inline: (responder as? InlineKeyView)?.id)
     }
     /// A keyup at the window's first responder, a modifier's (a flags change
-    /// that released it) included: the `keyup` handlers there and
+    /// that released it) included (#140): the `keyup` handlers there and
     /// above. A keyup has no default here, so nothing is dropped. An input
     /// method's composition keeps its keyups but a modifier's own
     /// (`passesComposition`).
@@ -258,15 +260,15 @@ extension Presenter {
                      code: KeyCodes.code(event), up: true, composing: composes(event, at: responder)), inline: (responder as? InlineKeyView)?.id)
     }
     /// A key's `isComposing`: a modifier's own press or release while an
-    /// input method composes text at `responder`, as Chrome reports one.
-    /// A ⌘ chord's keydown commits the composition before its
+    /// input method composes text at `responder`, as Chrome reports one
+    /// (#140). A ⌘ chord's keydown commits the composition before its
     /// handlers run (`passesComposition`), so it is not composing; no other
     /// key reaches them during one.
     func composes(_ event: NSEvent, at responder: NSResponder?) -> Bool {
         event.type == .flagsChanged && (responder as? NSTextInputClient)?.hasMarkedText() == true
     }
     /// Whether a key reaches the handlers while an input method composes
-    /// text at `responder`. Without a composition, every key. During
+    /// text at `responder` (#140). Without a composition, every key. During
     /// one, a modifier's own press and release, which are never the input
     /// method's (Chrome forwards every flags change to the page, so a Shift
     /// let go mid-syllable is still a keyup), and a ⌘ chord's keydown, which
@@ -330,12 +332,12 @@ extension Presenter {
         guard let view = responder as? NSView else { return nil }
         var next: NSView? = view
         #if os(macOS)
-        // A list's table has the keyboard: its selected row hears the keys, else the list.
+        // A list's table has the keyboard (LLP 1115.002 D5): its selected row hears the keys, else the list.
         if let table = view as? RunnerTableView { return table.feed?.keyTarget }
         #endif
         while let v = next {
-            // A search input's field in the window's toolbar has no node
-            // above it: the input is its delegate.
+            // A search input's field in the window's toolbar (LLP 1115.002
+            // D2) has no node above it: the input is its delegate.
             if let field = v as? NSTextField, let node = field.delegate as? NodeView, node.pageField != nil, node.field === field {
                 return views[node.id] === node ? node : nil
             }
@@ -352,7 +354,7 @@ extension Presenter {
 extension KeyCodes {
     /// A flags change that pressed a modifier key, not one that released it.
     static func pressed(_ event: NSEvent) -> Bool { modifierDown(event) == true }
-    /// A flags change that released a modifier key.
+    /// A flags change that released a modifier key (#140).
     static func released(_ event: NSEvent) -> Bool { modifierDown(event) == false }
     /// Whether a flags change pressed (true) or released (false) its
     /// modifier key; nil for any other key (Caps Lock, fn). The NX_DEVICE*
@@ -396,6 +398,22 @@ extension NodeView {
         return KeyCodes.typed(option: event.modifierFlags.contains(.option), characters: event.characters,
                               ignoringModifiers: event.charactersIgnoringModifiers ?? "")
     }
+    /// The key a Command chord names, lowercased. A layout can change while
+    /// Command is held (Dvorak - QWERTY ⌘): `characters` keeps that change
+    /// and `charactersIgnoringModifiers` loses it. Option and Control change
+    /// `characters` too, so with either the layout is asked for Command's
+    /// character alone.
+    static func commandKey(_ event: NSEvent) -> String? {
+        let typed = event.modifierFlags.isDisjoint(with: [.control, .option])
+            ? event.characters : event.characters(byApplyingModifiers: .command)
+        return (typed ?? event.charactersIgnoringModifiers)?.lowercased()
+    }
+    /// Whether Command is the only modifier held, as the Edit menu's ⌘A and
+    /// ⌘C have it, ignoring Caps Lock, the numeric pad and Fn: a chord with
+    /// another (⇧⌘C) is a different command.
+    static func isCommandAlone(_ event: NSEvent) -> Bool {
+        event.modifierFlags.intersection(.deviceIndependentFlagsMask).subtracting([.capsLock, .numericPad, .function]) == .command
+    }
 }
 #else
 extension KeyCodes {
@@ -423,19 +441,19 @@ extension NodeView {
         guard passesComposition(code, command: key.modifierFlags.contains(.command), down: true) else { return false }
         return hardwareKey(key, down: true, composing: composing)
     }
-    /// A hardware key's release at this node's field or textarea.
+    /// A hardware key's release at this node's field or textarea (#140).
     func editorKeyUp(_ presses: Set<UIPress>) {
         guard !formDisabled, let key = presses.first?.key else { return }
         let code = KeyCodes.hid(key.keyCode.rawValue), composing = composes(code)
         guard passesComposition(code, command: key.modifierFlags.contains(.command), down: false) else { return }
         _ = hardwareKey(key, down: false, composing: composing)
     }
-    /// macOS's `composes`: a modifier's own key while an input
+    /// macOS's `composes` (#140): a modifier's own key while an input
     /// method composes text here is `isComposing`.
     func composes(_ code: String) -> Bool {
         KeyCodes.modifier(code) && (selectionField?.markedTextRange ?? textArea?.markedTextRange) != nil
     }
-    /// macOS's `passesComposition`: while an input method composes
+    /// macOS's `passesComposition` (#140): while an input method composes
     /// text here, a modifier's own press and release still reach the
     /// handlers, and a ⌘ chord's keydown does once it has committed the
     /// composition (the app has heard the composed text as `input` as it

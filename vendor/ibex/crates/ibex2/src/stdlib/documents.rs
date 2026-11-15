@@ -1,6 +1,6 @@
 //! Chosen documents retain capabilities, never physical pathnames; only
 //! `realpath` answers where one is, on a desktop.
-//!#3-chosen-document-provider — admission precedes trusted minting.
+//! @ref LLP 0068.001#3-chosen-document-provider — admission precedes trusted minting.
 use super::fs::{FsOp, FsResult, Stat};
 use crate::{
     boundary::{self, HostError},
@@ -246,11 +246,19 @@ pub fn run_document(
             leaf,
             name,
         } => {
-            if parts.len() != 2
-                || parts[1] != name
-                || matches!(op, FsOp::Remove | FsOp::Mkdir | FsOp::ReadDir)
-            {
+            if parts.len() != 2 || parts[1] != name || op == FsOp::Remove {
                 return Err(DocumentError::new(DocumentErrorKind::PermissionDenied).guest(path));
+            }
+            // A file lease never grants directory access, even if its leaf
+            // is absent or has been replaced by a directory.
+            match op {
+                FsOp::ReadDir => {
+                    return Err(DocumentError::new(DocumentErrorKind::NotDirectory).guest(path));
+                }
+                FsOp::Mkdir => {
+                    return Err(DocumentError::new(DocumentErrorKind::AlreadyExists).guest(path));
+                }
+                _ => {}
             }
             if op == FsOp::Realpath {
                 return native_path(directory, leaf).map_err(|e| e.guest(path));
@@ -280,7 +288,8 @@ pub fn run_document(
     }
 }
 
-/// Whether `realpath` answers a document's native path: on a desktop, whose apps hand
+/// Whether `realpath` answers a document's native path (exact2 LLP 1069.010
+/// D1, amended 2026-11-04; Exact patch 26): on a desktop, whose apps hand
 /// paths to other programs. iOS, Android and the rest refuse it.
 const NATIVE_PATHS: bool = cfg!(any(target_os = "macos", target_os = "linux", windows));
 
@@ -438,6 +447,86 @@ mod tests {
         GrantSet::parse("fs.read doc:/1\nfs.write doc:/1").unwrap()
     }
     #[test]
+    fn selected_file_directory_operations_report_type_errors_without_touching_the_leaf() {
+        let f = Fixture::new();
+        let retained = Arc::new(File::open(&f.0).unwrap());
+        let provider = move |_: &str, _: DocumentAccess| {
+            DocumentLease::selected_file_named(
+                retained.clone(),
+                "chosen".into(),
+                "kept".into(),
+                Arc::new(()),
+            )
+        };
+        let errors = || {
+            [FsOp::ReadDir, FsOp::Mkdir].map(|op| {
+                run_document(&grants(), Some(&provider), op, "doc:/1/kept", None).unwrap_err()
+            })
+        };
+        let expected = [
+            HostError::Failed("document ENOTDIR: doc:/1/kept".into()),
+            HostError::Failed("document EEXIST: doc:/1/kept".into()),
+        ];
+        assert_eq!(errors(), expected);
+        assert_eq!(std::fs::read(f.0.join("chosen")).unwrap(), b"old");
+        std::fs::remove_file(f.0.join("chosen")).unwrap();
+        assert_eq!(errors(), expected);
+        assert!(!f.0.join("chosen").exists());
+        std::fs::create_dir(f.0.join("chosen")).unwrap();
+        std::fs::write(f.0.join("chosen/private"), b"private").unwrap();
+        assert_eq!(errors(), expected);
+        assert!(!f.0.join("kept").exists());
+    }
+    #[test]
+    fn selected_file_directory_operations_preserve_the_capability_boundary() {
+        let f = Fixture::new();
+        let retained = Arc::new(File::open(&f.0).unwrap());
+        let provider = move |_: &str, _: DocumentAccess| {
+            DocumentLease::selected_file(retained.clone(), "chosen".into(), Arc::new(()))
+        };
+        for op in [FsOp::ReadDir, FsOp::Mkdir] {
+            for path in [
+                "doc:/1",
+                "doc:/1/other",
+                "doc:/1/chosen/child",
+                "doc:/1/chosen-extra",
+            ] {
+                assert_eq!(
+                    run_document(&grants(), Some(&provider), op, path, None).unwrap_err(),
+                    HostError::Failed(format!("document EACCES: {path}")),
+                );
+            }
+        }
+        assert_eq!(
+            run_document(
+                &grants(),
+                Some(&provider),
+                FsOp::Remove,
+                "doc:/1/chosen",
+                None,
+            )
+            .unwrap_err(),
+            HostError::Failed("document EACCES: doc:/1/chosen".into()),
+        );
+        let read_only = |_: &str, access: DocumentAccess| {
+            assert_eq!(access, DocumentAccess::Write);
+            Err(DocumentError::new(DocumentErrorKind::PermissionDenied))
+        };
+        assert_eq!(
+            run_document(
+                &grants(),
+                Some(&read_only),
+                FsOp::Mkdir,
+                "doc:/1/chosen",
+                None,
+            )
+            .unwrap_err(),
+            HostError::Failed("document EACCES: doc:/1/chosen".into()),
+        );
+        assert_eq!(std::fs::read(f.0.join("chosen")).unwrap(), b"old");
+        assert!(!f.0.join("other").exists());
+    }
+    #[test]
     fn document_result_limits_keep_the_same_safe_error_as_other_storage() {
         let f = Fixture::new();
         std::fs::write(f.0.join("chosen"), [0; 64]).unwrap();
@@ -479,16 +568,25 @@ mod tests {
             "doc:/1/chosen\\x",
             "doc:/1/chosen\0",
         ] {
-            assert!(run_document(&grants(), Some(&provider), FsOp::ReadFile, path, None).is_err());
+            for op in [FsOp::ReadFile, FsOp::ReadDir, FsOp::Mkdir] {
+                assert!(matches!(
+                    run_document(&grants(), Some(&provider), op, path, None),
+                    Err(HostError::Denied { .. })
+                ));
+            }
         }
-        assert!(run_document(
-            &GrantSet::none(),
-            Some(&provider),
-            FsOp::ReadFile,
-            "doc:/1/chosen",
-            None
-        )
-        .is_err());
+        for op in [FsOp::ReadFile, FsOp::ReadDir, FsOp::Mkdir] {
+            assert!(matches!(
+                run_document(
+                    &GrantSet::none(),
+                    Some(&provider),
+                    op,
+                    "doc:/1/chosen",
+                    None
+                ),
+                Err(HostError::Denied { .. })
+            ));
+        }
         assert!(!GrantSet::parse("fs.read /\nfs.read app:/")
             .unwrap()
             .permits(&Operation::FsRead {
@@ -706,7 +804,7 @@ mod tests {
         .is_err());
         assert!(f.0.join("chosen").exists());
     }
-    /// An app that hands a chosen
+    /// exact2 LLP 1069.010 D1, amended 2026-11-04: an app that hands a chosen
     /// item to another program asks its native path, which follows the
     /// retained directory and is refused once that directory is removed.
     #[cfg(any(target_os = "macos", target_os = "linux"))]

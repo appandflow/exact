@@ -1,4 +1,4 @@
-//! The aurora composes its children (the readback fixture's
+//! The aurora composes its children (LLP 1014 D3, the readback fixture's
 //! native half): a known bitmap — an opaque white block on a transparent
 //! ground — handed to the surface as the host hands it a capture, rendered
 //! into a module-owned texture on this machine's GPU and read back. Where
@@ -64,7 +64,7 @@ fn the_aurora_composes_its_children_over_the_sky() {
     let Some(gpu) = fixture::device_or_skip(fixture::device()) else {
         return;
     };
-    // The shaders travel as files: registered as a host would.
+    // The shaders travel as files (LLP 1030 D8): registered as a host would.
     exact_gpu::shaders::load_dir(&caltrain_gpu::shader_dir(), &caltrain_gpu::REGISTRY).unwrap();
     let frame = Frame {
         width: W as f32,

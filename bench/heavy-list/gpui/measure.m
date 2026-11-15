@@ -1,4 +1,4 @@
-// Interleaved rounds; wheel.swift supplies process-targeted gestures.
+// Interleaved rounds; wheel.swift supplies LLP 1142 D3's process-targeted gestures.
 #import <AppKit/AppKit.h>
 #import <QuartzCore/QuartzCore.h>
 #import <CoreGraphics/CoreGraphics.h>

@@ -2,7 +2,7 @@
 import AppKit
 
 // The pointer's hover on the Mac, beside `Presenter.setHoverPath`: a native
-// module's, and a node's `:hover` look, which every node under
+// module's, and a node's `:hover` look (LLP 1121 D8), which every node under
 // the pointer that has one shows at once, with no runner round trip and
 // whether or not it hears `hover`.
 extension Presenter {

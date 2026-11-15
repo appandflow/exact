@@ -1,8 +1,8 @@
-//! Action bodies: statements through every branch, and the
-//! block-scoped, immutable `let` locals.
+//! Action bodies (LLP 1017 P2): statements through every branch, and the
+//! block-scoped, immutable `let` locals of LLP 1035.005.000 D2.
 
 use super::{calls, checks, err, infer, ComponentTypes, Ref, Scope, Shapes, Sink, Ty, TypeError};
-use contract_syntax::{Component, Expr, Span, Stmt, TemplatePart};
+use contract_syntax::{Component, Expr, Span, Stmt};
 
 /// The `let`s a block sees: those in force (declared above, in it or a
 /// block around it) and those declared below, which it may not read yet.
@@ -224,8 +224,8 @@ impl Cx<'_, '_> {
                 }
             }
             Stmt::Command { name, args, span } => {
-                // A native module's send that answers nothing: its one
-                // options record, as a `send`'s arguments are.
+                // A native module's send that answers nothing (LLP 1133.004
+                // D5): its one options record, as a `send`'s arguments are.
                 if shapes.effects.contains(name) {
                     let mut params = Vec::with_capacity(args.len());
                     for arg in args {
@@ -233,8 +233,8 @@ impl Cx<'_, '_> {
                     }
                     return crate::record_source(self.ct, name, params, Ty::Unit, *span);
                 }
-                // An action prop or injected action, called anywhere:
-                // its arguments here, against its declared
+                // An action prop or injected action, called anywhere (LLP
+                // 1089 D1, D7): its arguments here, against its declared
                 // type; the action it names is run, and checked, after
                 // lifting.
                 if !contract_syntax::HOST_COMMANDS.contains(&name.as_str()) {
@@ -242,7 +242,7 @@ impl Cx<'_, '_> {
                         return calls::prop_args(name, params, args, scope, shapes, *span);
                     }
                 }
-                // Refused as ambiguous: not a host command's too.
+                // Refused as ambiguous (LLP 1089 D1): not a host command's too.
                 if shapes.ambiguous.contains(span) {
                     return Ok(());
                 }
@@ -375,61 +375,15 @@ fn read_too_early(stmt: &Stmt, scope: &Scope, lets: &Lets<'_>) -> Option<TypeErr
 
 /// The names `e` reads, outside the binders written inside it.
 fn names<'e>(e: &'e Expr, bound: &mut Vec<&'e str>, out: &mut Vec<(&'e str, Span)>) {
-    match e {
-        Expr::Ident(n, span) => {
-            if !bound.contains(&n.as_str()) {
-                out.push((n, *span));
-            }
+    if let Expr::Ident(n, span) = e {
+        if !bound.contains(&n.as_str()) {
+            out.push((n, *span));
         }
-        Expr::Number(..) | Expr::Str(..) | Expr::Bool(..) | Expr::None(_) => {}
-        Expr::List(items, _) => items.iter().for_each(|x| names(x, bound, out)),
-        Expr::Template(parts, _) => {
-            for p in parts {
-                if let TemplatePart::Expr(x) = p {
-                    names(x, bound, out);
-                }
-            }
-        }
-        Expr::Some(x, _)
-        | Expr::Member(x, _, _)
-        | Expr::NamedArg(_, x, _)
-        | Expr::Typed(x, _, _)
-        | Expr::Unary(_, x, _) => names(x, bound, out),
-        Expr::Call(_, args, _) => args.iter().for_each(|a| names(a, bound, out)),
-        Expr::Binary(_, a, b, _) => {
-            names(a, bound, out);
-            names(b, bound, out);
-        }
-        Expr::Ternary(a, b, x, _) => {
-            names(a, bound, out);
-            names(b, bound, out);
-            names(x, bound, out);
-        }
-        Expr::Match {
-            subject,
-            var,
-            some,
-            none,
-            ..
-        } => {
-            names(subject, bound, out);
-            names(none, bound, out);
-            bound.push(var);
-            names(some, bound, out);
-            bound.pop();
-        }
-        Expr::Let {
-            name, value, body, ..
-        } => {
-            names(value, bound, out);
-            bound.push(name);
-            names(body, bound, out);
-            bound.pop();
-        }
-        Expr::Arrow { params, body, .. } => {
-            bound.extend(params.iter().map(String::as_str));
-            names(body, bound, out);
-            bound.truncate(bound.len() - params.len());
-        }
+    }
+    for (child, binds) in e.scoped_operands() {
+        let depth = bound.len();
+        bound.extend(binds.iter());
+        names(child, bound, out);
+        bound.truncate(depth);
     }
 }

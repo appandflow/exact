@@ -1,4 +1,4 @@
-//! Tool calls: a door hands the runner
+//! Tool calls (LLP 1133.023 D7, LLP 1111 D4): a door hands the runner
 //! `{tool, args, door}`, and the runner runs it as an invocation of origin
 //! `tool`, as a wake's event is: one at a time with the wakes, as its own
 //! commit, done when it owns nothing.
@@ -14,31 +14,35 @@
 //! - **Dispatch:** the action runs as one commit of origin `tool`, stamped
 //!   with the call's invocation id (`admit.rs`), which every request,
 //!   `then` and queued send it makes carries, and every commit that answers
-//!   one of those. The commands a call skips are not run and are listed.
+//!   one of those. The commands D4a skips are not run and are listed.
 //! - **Complete** when no work stamped with its id is in flight: `fails
 //!   when` and `returns` are read once. Background storage out then is
 //!   `failed`, `uncertain` (`background`). Background storage is the
-//!   module's ticket for storage no answer awaits (`background.rs`), which
-//!   no invocation can own; an answer's own storage is in
+//!   module's ticket for storage no answer awaits (`background.rs`, LLP
+//!   1097 D5), which no invocation can own; an answer's own storage is in
 //!   its answer, which the call owns or does not.
 //! - **Superseded** when a commit not its own lets go of work it owns,
 //!   taken when that commit stands: `uncertain` for a send, `applied` for a
 //!   resource's ask. **Timeout** [`BOUND`] after dispatch. A name that needs
 //!   a person refuses the call `person-required`, `uncertain`.
+//! - **Cancelled** by its caller (`{"op":"cancel","id"}`): one still
+//!   waiting is dropped, `refused`, `none` (`cancelled`); one dispatched
+//!   runs to its end, since its commit has landed and what it started is the
+//!   app's to finish, and its record says the caller left (`cancelled`).
 
 use super::super::{CommitReceipt, DataSource, Runner, RunnerError};
 use super::{CallOrigin, Json};
 use serde_json::json;
 use std::collections::VecDeque;
 
-/// How long a call waits for the invocation before it.
+/// How long a call waits for the invocation before it (D7).
 pub(in crate::runner) const WAIT: f64 = 5_000.0;
-/// A call's bound from its dispatch.
+/// A call's bound from its dispatch (LLP 1111 D4).
 const BOUND: f64 = 10_000.0;
 /// The calls `state.intents` keeps, newest last.
 const KEPT: usize = 20;
 
-/// The commands a call's commit does not run: each moves
+/// The commands a call's commit does not run (LLP 1111 D4a): each moves
 /// the person's view.
 const SKIPPED: &[&str] = &[
     "focus",
@@ -54,6 +58,7 @@ const SKIPPED: &[&str] = &[
 const RUN: &[&str] = &[
     "postMessage",
     "stopSounds",
+    "setSounds",
     "preventDefault",
     "stopPropagation",
 ];
@@ -80,6 +85,8 @@ struct Call {
     arrived: f64,
     dispatched: Option<f64>,
     skipped: Vec<String>,
+    /// Its caller cancelled it.
+    cancelled: bool,
 }
 
 #[derive(Default)]
@@ -114,6 +121,7 @@ impl<D: DataSource> Runner<D> {
             arrived: self.now_ms,
             dispatched: None,
             skipped: Vec::new(),
+            cancelled: false,
         });
         self.native_slot().changed("");
         Ok(id)
@@ -129,6 +137,7 @@ impl<D: DataSource> Runner<D> {
     pub(in crate::runner) fn step_calls(&mut self) -> (Vec<CommitReceipt>, Option<RunnerError>) {
         let mut receipts = Vec::new();
         loop {
+            self.expire_waiting_calls();
             if let Some(call) = self.extensions.calls.current.as_ref() {
                 let (id, at) = (call.id, call.dispatched.unwrap_or(self.now_ms));
                 if self.now_ms >= at + BOUND {
@@ -140,16 +149,8 @@ impl<D: DataSource> Runner<D> {
                 }
                 continue;
             }
-            let Some(next) = self.extensions.calls.waiting.front() else {
-                break;
-            };
-            if self.wake_running() || !self.data.ready() {
-                if self.now_ms >= next.arrived + WAIT {
-                    let call = self.extensions.calls.waiting.pop_front().expect("front");
-                    self.extensions.calls.current = Some(call);
-                    self.end_call("refused", "none", "busy", Json::Null);
-                    continue;
-                }
+            if self.extensions.calls.waiting.is_empty() || self.wake_running() || !self.data.ready()
+            {
                 break;
             }
             let call = self.extensions.calls.waiting.pop_front().expect("front");
@@ -161,6 +162,24 @@ impl<D: DataSource> Runner<D> {
             }
         }
         (receipts, None)
+    }
+
+    /// Refuse `busy` each waiting call whose [`WAIT`] has run out, whether
+    /// a wake, another call or the data source held it.
+    fn expire_waiting_calls(&mut self) {
+        let now = self.now_ms;
+        let waiting = |r: &mut Self| {
+            r.extensions
+                .calls
+                .waiting
+                .pop_front_if(|c| now >= c.arrived + WAIT)
+        };
+        while let Some(call) = waiting(self) {
+            let name = self.plan.str(self.plan.tools[call.tool].name).to_owned();
+            let message = "a wake or another call is running";
+            self.log(format!("tool {name}: refused, busy ({message})"));
+            self.finish_call(call, "refused", "none", "busy", json!(message));
+        }
     }
 
     /// Validate the current call and run its action (module doc).
@@ -222,8 +241,8 @@ impl<D: DataSource> Runner<D> {
         }
     }
 
-    /// Why the face refuses the current call at `door`, if it does:
-    /// a door it does not name, or a digest not the plan's.
+    /// Why the face refuses the current call at `door`, if it does (LLP
+    /// 1133.023 D8): a door it does not name, or a digest not the plan's.
     /// The agent's door takes every tool.
     fn face_refused(&self, row: usize, door: &str, digest: Option<&str>) -> Option<String> {
         if door == "agent" {
@@ -301,9 +320,21 @@ impl<D: DataSource> Runner<D> {
 
     /// The current call ends `outcome`, with its certainty and reason.
     fn end_call(&mut self, outcome: &str, certainty: &str, reason: &str, value: Json) {
-        let Some(call) = self.extensions.calls.current.take() else {
-            return;
-        };
+        if let Some(call) = self.extensions.calls.current.take() {
+            self.finish_call(call, outcome, certainty, reason, value);
+        }
+    }
+
+    /// `call` ends `outcome`, its record joining the ended calls'. A
+    /// refusal's `value` is its message.
+    fn finish_call(
+        &mut self,
+        call: Call,
+        outcome: &str,
+        certainty: &str,
+        reason: &str,
+        value: Json,
+    ) {
         let name = self.plan.str(self.plan.tools[call.tool].name).to_owned();
         let message = match (outcome, value.as_str()) {
             ("refused", Some(m)) => m.to_owned(),
@@ -329,6 +360,7 @@ impl<D: DataSource> Runner<D> {
             "reason": reason,
             "stale": false,
             "skipped": call.skipped,
+            "cancelled": call.cancelled,
             "value": value,
             "message": message,
             "at": self.time.epoch_at_zero + self.now_ms,
@@ -359,7 +391,7 @@ impl<D: DataSource> Runner<D> {
     }
 
     /// Take off this commit's commands from `first` that a call does not
-    /// run, when the commit is the running call's.
+    /// run, when the commit is the running call's (LLP 1111 D4a).
     pub(in crate::runner) fn skip_in_call(&mut self, first: usize) {
         let id = self.invocation_id();
         if id == 0 || !(self.extensions.calls.current.as_ref()).is_some_and(|c| c.id == id) {
@@ -391,21 +423,55 @@ impl<D: DataSource> Runner<D> {
     /// When the host should next advance for the calls.
     pub(in crate::runner) fn call_due(&self) -> Option<f64> {
         let calls = &self.extensions.calls;
+        let waited = calls.waiting.front().map(|c| c.arrived + WAIT);
         if let Some(call) = calls.current.as_ref() {
             let deadline = call.dispatched.unwrap_or(self.now_ms) + BOUND;
-            return Some(match self.invocation_owns(call.id) {
+            let due = match self.invocation_owns(call.id) {
                 true => deadline,
                 false => self.now_ms,
-            });
+            };
+            return Some(waited.map_or(due, |w| due.min(w)));
         }
-        let next = calls.waiting.front()?;
+        let waited = waited?;
         Some(match self.wake_running() || !self.data.ready() {
-            true => next.arrived + WAIT,
+            true => waited,
             false => self.now_ms,
         })
     }
 
-    /// Call `id` as its door polls it: the call's envelope once it has
+    /// Call `id`'s caller cancelled it (module doc): `{call, state}`, the
+    /// state `ended` once it has ended, `running` while it runs to its end.
+    fn cancel_call(&mut self, id: u64) -> Result<String, String> {
+        let calls = &mut self.extensions.calls;
+        if let Some(i) = calls.waiting.iter().position(|c| c.id == id) {
+            let mut call = calls.waiting.remove(i).expect("found");
+            call.cancelled = true;
+            let name = self.plan.str(self.plan.tools[call.tool].name).to_owned();
+            self.log(format!(
+                "tool:system:{} {name}: cancelled before it ran",
+                call.how.door
+            ));
+            let message = json!("Its caller cancelled it before it ran.");
+            self.finish_call(call, "refused", "none", "cancelled", message);
+            return Ok(json!({ "call": id, "state": "ended" }).to_string());
+        }
+        if let Some(call) = calls.current.as_mut().filter(|c| c.id == id) {
+            if !std::mem::replace(&mut call.cancelled, true) {
+                let door = call.how.door.clone();
+                let name = self.current_tool_name();
+                self.log(format!(
+                    "tool:system:{door} {name}: its caller cancelled; it runs to its end"
+                ));
+            }
+            return Ok(json!({ "call": id, "state": "running" }).to_string());
+        }
+        match calls.ended.iter().any(|c| c["id"] == id) {
+            true => Ok(json!({ "call": id, "state": "ended" }).to_string()),
+            false => Err(format!("no call {id}")),
+        }
+    }
+
+    /// Call `id` as its door polls it: LLP 1111 D4's envelope once it has
     /// ended, else `{call, state}` with `waiting` or `running`.
     fn call_answer(&self, id: u64) -> Result<String, String> {
         let calls = &self.extensions.calls;
@@ -424,7 +490,8 @@ impl<D: DataSource> Runner<D> {
     /// as the door would hand it), a launch's `--call '<tool> <json>'`
     /// (`{"op":"launchEntry","launch":"call","entry"}`: a cold call in a
     /// session no one sees, as a system's call boots one), a door's poll of
-    /// its call (`{"op":"called","id"}`) and `entities`
+    /// its call (`{"op":"called","id"}`), its caller's cancellation
+    /// (`{"op":"cancel","id"}`) and `entities`
     /// (`{"op":"entities","kind","matching"}`, what the content index's
     /// query answers a system). `None` for any other op.
     pub fn call_agent(&mut self, op: &str, request: &str) -> Option<Result<String, String>> {
@@ -468,6 +535,10 @@ impl<D: DataSource> Runner<D> {
                 Some(id) => self.call_answer(id),
                 None => Err("called needs the call's id".into()),
             }),
+            "cancel" => Some(match v["id"].as_u64() {
+                Some(id) => self.cancel_call(id),
+                None => Err("cancel needs the call's id".into()),
+            }),
             "entities" => {
                 let Some(kind) = v["kind"].as_str() else {
                     return Some(Err("entities <kind> [<text>]".into()));
@@ -481,7 +552,7 @@ impl<D: DataSource> Runner<D> {
 
     /// `state.intents`: each tool with its word, modifiers, availability
     /// and face, and the calls running, waiting and ended, never their
-    /// arguments.
+    /// arguments (LLP 1133.023 §10).
     pub fn intents_state(&self) -> Option<Json> {
         if self.plan.tools.is_empty() {
             return None;

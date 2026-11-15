@@ -3,7 +3,7 @@
 Complete crates.io archive, including upstream MIT/Apache licenses and
 `.cargo_vcs_info.json`. No feature or dependency change: exact2 builds it
 with default features off and `std` on (no `system`: no fontconfig, no
-DirectWrite or Core Text).
+DirectWrite or Core Text; LLP 1085.000 §3).
 
 - Upstream: https://github.com/linebender/parley (the `fontique` crate)
 - Exact release archive: https://static.crates.io/crates/fontique/fontique-0.11.1.crate
@@ -15,21 +15,21 @@ The numbered patches below are upstream status **to send**. Remove a patch
 when a pinned upstream release supplies the same behaviour and the tests named
 here pass.
 
-1. **Font admission.** `FontInfo::from_font_ref` refuses a face with no
+1. **Font admission (G2).** `FontInfo::from_font_ref` refuses a face with no
    `head` table (some bitmap-only faces have `bhed` instead) or with
    `unitsPerEm` 0, where it already refuses one with no usable cmap: glyph
    metrics are divided by it, and such a face laid out with infinite
    advances. Fallback goes on to the next face. Parity spike: the DejaVu
    fixtures register no face and fall back to the good one, also when the
    damaged copy keeps the family name. Tests:
-   `host/linux/src/text/transfer_tests/font_admission.rs`.
+   `host/painted/src/text/transfer_tests/font_admission.rs`.
 2. **Faces described ahead of time.** `FontInfo::from_parts(source, index,
    width, style, weight, axes, charmap_index)`, `CharmapIndex::{to_parts,
    from_parts}` and `Collection::register_described(family, faces)`: a host
    that cached a font directory's listing registers its faces without
    opening a file (the storage-and-fonts spike: 1.05 ms against fontdb's
    0.82 for 269 files on Linux, opening no font file; 6 files opened by the
-   first shape). The host's cache (`host/linux/src/text/font_cache.rs`)
+   first shape). The host's cache (`host/painted/src/text/font_cache.rs`)
    stores each face's family, width, style, weight, every axis and its
    charmap subtable. Tests: every host text test registers faces this way.
 3. **`load_fonts_from_paths` registers each file once.** 0.11.1 shared one
@@ -44,14 +44,14 @@ here pass.
    families followed by one shared last resort (every installed family);
    the ~125 scripts with none of their own now share that list instead of
    each holding a copy (`fallback::configure` 0.42 to 0.25 ms of a Pixel 10
-   Pro XL's boot). Tests:
-   `host/linux/src/text/fallback.rs`
+   Pro XL's boot, LLP 1085.000 stage 3). Tests:
+   `host/painted/src/text/fallback.rs`
    (`a_script_without_families_of_its_own_takes_the_last_resort`: every
    script's list is what a copy per script gave).
 
 5. **Declared weight and width ranges.** `FontInfo::with_declared_ranges`
    keeps a declaration's `wght` and `wdth` ranges (`@font-face`'s
-   `font-weight` and `font-stretch`), each clamped to the
+   `font-weight` and `font-stretch`, LLP 1019 §13), each clamped to the
    file's axis. `match_font` takes a range at its value nearest the request
    (`matching_weight`, `matching_width`; CSS Fonts 4 §5.2), and synthesis
    always emits the request clamped to the range, even when it equals the
@@ -61,7 +61,7 @@ here pass.
    settings agree. An axis the file lacks, or reversed or NaN bounds, leave
    that axis undeclared. Static faces and installed variable fonts retain
    their behavior.
-   Tests: `host/linux/src/text/variable_face_tests.rs`.
+   Tests: `host/painted/src/text/variable_face_tests.rs`.
 
 `Cargo.toml` also carries the empty `[workspace]` boundary described below;
 retain it when updating. All remaining archive files are byte-for-byte upstream.

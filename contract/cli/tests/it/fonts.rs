@@ -1,5 +1,5 @@
-//! Declared fonts lower to plan identity, and every portable refusal happens
-//! before a host can substitute a font.
+//! LLP 1019 D1–D3/§5: declared fonts lower to plan identity, and every
+//! portable refusal happens before a host can substitute a font.
 
 use exact_kernel::{FontStyle, Kernel};
 use exact_plan::Value;
@@ -111,8 +111,8 @@ fn shorthand_declares_one_400_normal_face() {
     assert!(!plan.faces[0].italic);
 }
 
-/// A variable face's range is its `@font-face` descriptor, read from the
-/// file's `wght` axis when the declaration leaves it unsaid.
+/// LLP 1019 D2: a variable face's range is its `@font-face` descriptor,
+/// read from the file's `wght` axis when the declaration leaves it unsaid.
 #[test]
 fn a_variable_face_declares_its_file_range_or_the_written_one() {
     let app = AppDir::new(
@@ -147,9 +147,9 @@ fn a_variable_face_declares_its_file_range_or_the_written_one() {
     assert_eq!(node.style.font_stretch, 75.0);
 }
 
-/// One variable file declared at several weights is one face over their
-/// span, so the web fetches it once; a span another face of the same style
-/// overlaps, a static file, and the italics stay apart.
+/// LLP 1019 D2: one variable file declared at several weights is one face
+/// over their span, so the web fetches it once; a span another face of the
+/// same style overlaps, a static file, and the italics stay apart.
 #[test]
 fn pinned_weights_of_one_variable_file_are_one_face() {
     let app = AppDir::new(
@@ -180,8 +180,8 @@ fn pinned_weights_of_one_variable_file_are_one_face() {
     );
 }
 
-/// `font-optical-sizing` is CSS's, inherited, and reaches the run style a
-/// host draws with.
+/// LLP 1019 §13: `font-optical-sizing` is CSS's, inherited, and reaches
+/// the run style a host draws with.
 #[test]
 fn font_optical_sizing_reaches_the_run_style() {
     let app = AppDir::new(
@@ -212,8 +212,8 @@ fn font_optical_sizing_reaches_the_run_style() {
     );
 }
 
-/// `font-variation-settings` reaches the kernel's row as CSS writes it, and
-/// a value CSS refuses is refused at compile.
+/// LLP 1019 D9: `font-variation-settings` reaches the kernel's row as CSS
+/// writes it, and a value CSS refuses is refused at compile.
 #[test]
 fn font_variation_settings_reach_the_row_and_bad_ones_are_refused() {
     let app = AppDir::new(
@@ -240,6 +240,64 @@ fn font_variation_settings_reach_the_row_and_bad_ones_are_refused() {
     );
 }
 
+/// CSS Fonts 4 §6.12: `font-feature-settings` reaches the kernel's row as CSS
+/// writes it, and a value CSS refuses is refused at compile,
+/// naming the rule it breaks.
+#[test]
+fn font_feature_settings_reach_the_row_and_bad_ones_are_refused() {
+    let app = AppDir::new(
+        "font \"Inter\" = \"assets/InterVariable.ttf\"\ncomponent App\n  view\n    text \"Il1 0123\" font-family=\"Inter\" font-feature-settings=`'cv05' 1, \"cv11\", \"tnum\" on, \"liga\" off` testId=\"label\"\n",
+    );
+    let plan = app.compile().unwrap();
+    let runner = Runner::boot(
+        plan,
+        NoData,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let kernel = runner.kernel();
+    let node = kernel
+        .node_by_key(kernel.find_by_test_id("label")[0])
+        .unwrap();
+    let f = node.style.font_feature_settings;
+    assert_eq!(
+        [
+            f.get(b"cv05"),
+            f.get(b"cv11"),
+            f.get(b"tnum"),
+            f.get(b"liga")
+        ],
+        [Some(1), Some(1), Some(1), Some(0)]
+    );
+    for (value, why) in [
+        ("cv05 1", "each feature is a quoted tag"),
+        ("'cv5' 1", "exactly four printable ASCII characters"),
+        ("'cv05' -1", "a non-negative integer, `on` or `off`"),
+        ("'cv05' 1.5", "a non-negative integer, `on` or `off`"),
+    ] {
+        let app = AppDir::new(&format!(
+            "component App\n  view\n    text \"x\" font-feature-settings=\"{value}\"\n"
+        ));
+        let error = app.compile().unwrap_err();
+        assert_eq!(error.id, "lower-attr-value", "{error}");
+        assert!(error.message.contains(why), "{value}: {error}");
+    }
+    let seventeen = (0..17)
+        .map(|i| format!("'ss{i:02}'"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let app = AppDir::new(&format!(
+        "component App\n  view\n    text \"x\" font-feature-settings=\"{seventeen}\"\n"
+    ));
+    let error = app.compile().unwrap_err();
+    assert!(
+        error.message.contains("at most 16 distinct features"),
+        "{error}"
+    );
+}
+
 fn refusal(source: &str, id: &str) {
     let app = AppDir::new(source);
     let error = app.compile().unwrap_err();
@@ -248,7 +306,7 @@ fn refusal(source: &str, id: &str) {
 
 #[test]
 fn family_identity_and_sources_fail_closed() {
-    // An empty family declares nothing (borders.rs); an empty member is refused.
+    // An empty family clears the row (borders.rs); an empty member is refused.
     refusal(
         "component App\n  view\n    text \"x\" font-family=\"serif,, sans-serif\"\n",
         "lower-font-family-list",
@@ -345,8 +403,8 @@ fn duplicate_style_attributes_cannot_bypass_the_face_diagnostic() {
     );
 }
 
-/// A choice between literal families compiles each arm to its stack id; the
-/// face checks cover every declared arm.
+/// LLP 1053 G7: a choice between literal families compiles each arm to its
+/// stack id; the face checks cover every declared arm.
 #[test]
 fn a_choice_of_literal_families_resolves_each_arm_to_its_stack() {
     let app = AppDir::new(&format!(
@@ -625,6 +683,68 @@ fn unsupported_css_generics_are_diagnosed_and_quoted_names_stay_local() {
             "component App\n  view\n    text \"x\" font-family=\"'{name}', sans-serif\"\n"
         ))
         .unwrap();
+    }
+}
+
+#[test]
+fn literal_family_quotes_preserve_the_name_and_fallback() {
+    for (family, name) in [
+        (r#""O'Brien", serif"#, "O'Brien"),
+        (r#""'Missing'", serif"#, "'Missing'"),
+        (r#"'Say "hi" again', serif"#, r#"Say "hi" again"#),
+    ] {
+        let literal = serde_json::to_string(family).unwrap();
+        let plan = contract::compile(&format!(
+            "component App\n  view\n    text \"x\" testId=\"text\" font-family={literal}\n"
+        ))
+        .unwrap();
+        let stack = exact_runner::bridge::plan_stack(&plan, family).unwrap();
+        let members: Vec<_> = plan
+            .stack(exact_plan::StacksId(stack.into()))
+            .members
+            .iter()
+            .map(|id| {
+                let member = plan.stack_member(id);
+                (
+                    member.kind,
+                    member.family.map(|f| plan.str(plan.familie(f).name)),
+                )
+            })
+            .collect();
+        assert_eq!(
+            members,
+            [
+                (exact_plan::StackMemberKind::Family, Some(name)),
+                (exact_plan::StackMemberKind::Serif, None),
+            ],
+            "{family}"
+        );
+        let r = Runner::boot(
+            plan,
+            NoData,
+            Kernel::with_monospace(),
+            Default::default(),
+            "/",
+        )
+        .unwrap();
+        let k = r.kernel();
+        let node = k.node_by_key(k.find_by_test_id("text")[0]).unwrap();
+        assert_eq!(node.style.font_family, stack, "{family}");
+    }
+
+    for family in [
+        r#"'"Missing"', monospace"#,
+        r#"'"Missing', monospace"#,
+        r#"'Missing"', monospace"#,
+        r#"'Say "hi"', serif"#,
+    ] {
+        let literal = serde_json::to_string(family).unwrap();
+        let error = contract::compile(&format!(
+            "component App\n  view\n    text \"x\" font-family={literal}\n"
+        ))
+        .unwrap_err();
+        assert_eq!(error.id, "lower-font-family-list", "{error}");
+        assert!(error.message.contains("quote"), "{error}");
     }
 }
 

@@ -1,4 +1,4 @@
-//! Shared-element flights.
+//! Shared-element flights (LLP 1013.000 D4).
 //!
 //! A receipt's handoff names a destroyed node and the created node its name
 //! moved to. The host tells the presenter `flight` before the batch's
@@ -29,7 +29,8 @@ struct Flight {
     node: u64,
     /// How long after its curve starts a spring flight lands (seconds): as
     /// UIKit's spring animators finish, not at the engine's rest. From the
-    /// curve's own start, which waits for the first presented frame.
+    /// curve's own start, which waits for the first presented frame (LLP
+    /// 1003.001 D3).
     lands_after: Option<f64>,
 }
 

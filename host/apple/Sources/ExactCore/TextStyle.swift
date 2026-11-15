@@ -25,20 +25,22 @@ package enum TextStyle {
                    numeric: Int(style["font_variant_numeric"]?.number ?? 0),
                    ligatures: Int(style["font_variant_ligatures"]?.number ?? 0),
                    stretch: CGFloat(Float(style["font_stretch"]?.number ?? 100)),
-                   variations: FontAxis.of(style))
+                   variations: FontAxis.of(style), features: FontFeature.of(style))
     }
     package static func spec(runs input: [Run], style: NodeStyle, props: [String: String], strut: Run,
-                             color: [Double] = [0, 0, 0, 255], language: String = "", flow: Bool = false) -> Spec {
+                             color: [Double] = [0, 0, 0, 255], language: String = "", flow: Bool = false,
+                             resolveRuns: ([Run]) -> [Run] = { $0 }) -> Spec {
         var runs = input
         let align = alignment(style), rtl = style["direction"]?.string == "rtl"
         func number(_ name: String) -> Double { style[name]?.number ?? 0 }
         // A fitted paragraph is drawn at the scale the kernel's layout chose
-        // for it, as it was measured (`-exact-fit`).
+        // for it, as it was measured (`-exact-fit`, LLP 1116.001 D1.4).
         let fit = props["fitScale"].flatMap(Float.init) ?? 1
         if fit != 1 { runs = runs.map { $0.scaled(fit) } }
+        runs = resolveRuns(runs)
         let whiteSpace = ["pre-wrap": 1, "nowrap": 2, "pre-line": 3, "pre": 4][style["white_space"]?.string ?? ""] ?? 0
         // CSS collapses white space before shaping, as the measurer does in
-        // Rust with the same function; Markdown keeps its lines.
+        // Rust with the same function (LLP 1053 G5); Markdown keeps its lines.
         let source = whiteSpace == 1 || whiteSpace == 4 || props["markup"] == "markdown" ? SourceMap() : SourceMap.collapse(&runs, whiteSpace: whiteSpace)
         let lineClamp = Int(number("line_clamp"))
         // `text-overflow: ellipsis` applies to a box that clips its inline overflow.

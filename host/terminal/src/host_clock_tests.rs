@@ -1,5 +1,5 @@
-//! The loop's clock owns the terminal's time: a repeat that missed beats while
-//! the process was stopped fires once.
+//! The loop's clock owns the terminal's time (the timers RFC, D1): a repeat
+//! that missed beats while the process was stopped fires once.
 use super::*;
 use exact_plan::Value;
 use std::time::{Duration, Instant};

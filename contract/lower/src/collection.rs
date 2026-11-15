@@ -1,6 +1,6 @@
 //! Conservative initial flow shape for opt-in variable-size collections: a
 //! block list scrolls vertically; a flex row scrolls horizontally, CSS's
-//! carousel.
+//! carousel (LLP 1070 H2).
 use super::{err, values::numeric_literal, LowerError, Lowerer};
 use contract_syntax::{Attr, Expr, Node, Span};
 use contract_types::{Scope, Ty};
@@ -22,7 +22,7 @@ pub(super) fn row_list(attrs: &[Attr]) -> bool {
     literal(attrs, "display").and_then(string) == Some("flex")
 }
 
-/// `reach-margin`: one or two literal nonnegative px or
+/// `reach-margin` (@ref LLP 1145 D4): one or two literal nonnegative px or
 /// % lengths, before and after, as the runner and list.js read them.
 fn reach_margin(a: &Attr, virtualized: bool) -> Result<(), LowerError> {
     if !virtualized {
@@ -49,7 +49,7 @@ fn reach_margin(a: &Attr, virtualized: bool) -> Result<(), LowerError> {
 }
 
 impl Lowerer<'_> {
-    /// `keep-mounted=keys`: a list of row keys, each a
+    /// `keep-mounted=keys` (@ref LLP 1010 §6.11): a list of row keys, each a
     /// string, number or bool or an option of one, as a `for`'s `key=` is.
     pub(super) fn bind_keep_mounted(
         &mut self,
@@ -95,9 +95,10 @@ impl Lowerer<'_> {
         span: Span,
         scope: &Scope,
     ) -> Result<(), LowerError> {
-        // Reorder is a collection's: every host
+        // Reorder is a collection's (LLP 1010 §6, LLP 1043.000): every host
         // drags only a virtualized list's measured rows, so anywhere else
-        // `reorderdrop` would never fire, on any host.
+        // `reorderdrop` would never fire, on any host (the weather diary's
+        // F1 met it as the web build's refusal).
         let virtualized = tag == "list"
             && attrs
                 .iter()
@@ -143,7 +144,7 @@ impl Lowerer<'_> {
             return Ok(());
         }
         let row = row_list(attrs);
-        self.collection_axis(attrs, row, span)?;
+        self.collection_axis(attrs, row, span, scope)?;
         // Computed bounds are checked by the bake's measured-layout lint.
         // Merely spelling `auto` or a non-growing flex is not a bound.
         if !row
@@ -165,7 +166,7 @@ impl Lowerer<'_> {
         let [Node::Each { body, .. }] = children else {
             return err(
                 "lower-collection-template",
-                "a virtualized list initially supports exactly one direct `for`",
+                "a virtualized list holds exactly one direct `for` and nothing beside it; a header, footer, loading or streaming row is a row of that `for`'s collection, appended by a derive (docs/recipes/long-lists.md)",
                 span,
             );
         };
@@ -188,11 +189,11 @@ impl Lowerer<'_> {
         self.collection_flow(&expanded, None)
     }
 
-    /// `reorderGroup`: lists that share one exchange rows,
+    /// `reorderGroup` (@ref LLP 1094 D1): lists that share one exchange rows,
     /// so each takes the drop (`reorderdrop`), is named by its `id` in the
     /// drop's `ReorderEvent`, and keys its rows by strings, the keys a row
     /// carries from one list to another. A row list and a nested list are
-    /// refused by their own reorder rules.
+    /// refused by their own reorder rules (LLP 1094 §7).
     fn check_group(
         &self,
         virtualized: bool,
@@ -231,7 +232,7 @@ impl Lowerer<'_> {
     }
 
     /// `keep-mounted`'s keys are the `for`'s key type: a number never names
-    /// a row keyed by a string.
+    /// a row keyed by a string (@ref LLP 1010 §6.11).
     fn check_kept_keys(
         &self,
         keep: &Attr,
@@ -277,10 +278,36 @@ impl Lowerer<'_> {
         }
     }
 
+    /// Whether `value` is a number of points: a literal one at least
+    /// `least` (`positive`: more than it), or a computed one; a string could
+    /// be `auto` or a percentage.
+    fn points(&self, value: &Expr, scope: &Scope, positive: bool) -> bool {
+        match (numeric_literal(value), value) {
+            (Some(n), _) => n.is_finite() && if positive { n > 0.0 } else { n >= 0.0 },
+            (None, Expr::Ternary(_, yes, no, _)) => {
+                self.points(yes, scope, positive) && self.points(no, scope, positive)
+            }
+            (None, Expr::Str(..) | Expr::Bool(..)) => false,
+            (None, value) => matches!(
+                contract_types::infer(value, scope, &self.types.shapes),
+                Ok(Ty::Number) | Err(_)
+            ),
+        }
+    }
+
     /// The rules that make a list's axis CSS's and keep its index's starts
-    /// prefix sums: a row list is a literal-height flex row,
-    /// left to right, that neither wraps, reverses nor spreads its items.
-    fn collection_axis(&self, attrs: &[Attr], row: bool, span: Span) -> Result<(), LowerError> {
+    /// prefix sums (LLP 1070 H2, §8, as amended for #226): a row list is a
+    /// flex row of a definite height, left to right, that neither wraps,
+    /// reverses nor spreads its items; its `gap` is a number of points the
+    /// index counts between items. A vertical list is a block, where CSS lays
+    /// out no gap.
+    fn collection_axis(
+        &self,
+        attrs: &[Attr],
+        row: bool,
+        span: Span,
+        scope: &Scope,
+    ) -> Result<(), LowerError> {
         if let Some(display) = literal(attrs, "display") {
             if !matches!(string(display), Some("block" | "flex")) {
                 return err("lower-collection-flow", "a virtualized list's `display` is a literal `block` (it scrolls vertically) or `flex` (a row that scrolls horizontally)", display.span);
@@ -313,15 +340,24 @@ impl Lowerer<'_> {
             }
         }
         if let Some(reorder) = literal(attrs, "reorderdrop").filter(|_| row) {
-            return err("lower-collection-reorder", "reordering is vertical; a virtualized row list refuses `reorderdrop` until a consumer needs it", reorder.span);
+            return err("lower-collection-reorder", "reordering is vertical; a virtualized row list refuses `reorderdrop` until a consumer needs it (LLP 1070 §4.7)", reorder.span);
+        }
+        for gap in attrs
+            .iter()
+            .filter(|a| matches!(a.name.as_str(), "gap" | "row-gap" | "column-gap"))
+        {
+            if !row && numeric_literal(&gap.value) != Some(0.0) {
+                return err("lower-collection-flow", format!("`{}` on a vertical virtualized list: it is a block, where CSS lays out no gap; space rows with a `margin-bottom` on the row root", gap.name), gap.span);
+            }
+            if row && !self.points(&gap.value, scope, false) {
+                return err("lower-collection-flow", format!("`{}` on a virtualized row list is a nonnegative number of points, a literal or a computed number, which the list counts between its items", gap.name), gap.span);
+            }
         }
         if !row {
             return Ok(());
         }
-        if !literal(attrs, "height")
-            .is_some_and(|a| numeric_literal(&a.value).is_some_and(|n| n > 0.0))
-        {
-            return err("lower-collection-cross", "a virtualized row list needs a literal `height`: an auto height would be its tallest mounted item, which changes as items mount", span);
+        if !literal(attrs, "height").is_some_and(|a| self.points(&a.value, scope, true)) {
+            return err("lower-collection-cross", "a virtualized row list needs a `height` in points, a literal or a computed number: an auto height would be its tallest mounted item, which changes as items mount", span);
         }
         for a in attrs {
             let refusal = match a.name.as_str() {
@@ -343,7 +379,7 @@ impl Lowerer<'_> {
 
     // Component uses and slots have already expanded before lowering. Inspect
     // all arms, even currently inactive ones. A row may hold one virtualized
-    // list, one level down, whose lifetime is the row's; it
+    // list, one level down, whose lifetime is the row's (LLP 1070 N1, N6); it
     // may not hold another, reorder, or scroll vertically without a literal
     // height, since a row's height is its content's and `flex` alone bounds
     // nothing there.
@@ -363,11 +399,7 @@ impl Lowerer<'_> {
                             return err("lower-collection-depth", "virtualized lists nest one level deep: this list is inside a virtualized list that is itself in a virtualized list's row", opt.span);
                         }
                         if let Some(reorder) = attrs.iter().find(|a| a.name == "reorderdrop") {
-                            return err(
-                                "lower-collection-reorder",
-                                "reordering is not built for a virtualized list in another's row",
-                                reorder.span,
-                            );
+                            return err("lower-collection-reorder", "reordering is not built for a virtualized list in another's row (LLP 1070 §4.7)", reorder.span);
                         }
                         let bounded = attrs.iter().any(|a| {
                             matches!(a.name.as_str(), "height" | "max-height")
@@ -381,27 +413,17 @@ impl Lowerer<'_> {
                     }
                     self.check_nested(children, inner)?;
                 }
-                Node::When {
-                    then, otherwise, ..
-                } => {
-                    self.check_nested(then, inner)?;
-                    self.check_nested(otherwise, inner)?;
+                node => {
+                    for list in node.child_lists() {
+                        self.check_nested(list, inner)?;
+                    }
                 }
-                Node::Match { some, none, .. } => {
-                    self.check_nested(&some.1, inner)?;
-                    self.check_nested(none, inner)?;
-                }
-                Node::Each { body, .. } => {
-                    self.check_nested(body, inner)?;
-                }
-                Node::Use { children, .. } => self.check_nested(children, inner)?,
-                Node::Children { .. } => {}
             }
         }
         Ok(())
     }
 
-    /// Main-axis padding on a virtualized list: CSS's
+    /// Main-axis padding on a virtualized list (@ref LLP 1010 §6.9): CSS's
     /// room before the first row and after the last, inside the scroll
     /// content. It takes what padding takes elsewhere (a number,
     /// `env(safe-area-inset-*)`, `calc(env(…) ± px)`), computed too: each
@@ -481,9 +503,7 @@ impl Lowerer<'_> {
                     };
                     matches!(&a.value, Expr::Str(s, _) if if a.name == main { s == "scroll" || s == "auto" } else { s == "hidden" })
                 }
-                "gap" | "row-gap" | "column-gap" if container => {
-                    numeric_literal(&a.value) == Some(0.0)
-                }
+                "gap" | "row-gap" | "column-gap" if container => true, // `collection_axis`
                 "flex-direction" | "flex-wrap" | "grid-template-rows" | "grid-template-columns"
                     if container =>
                 {
@@ -495,7 +515,7 @@ impl Lowerer<'_> {
                 && a.name == "position"
                 && matches!(&a.value, Expr::Str(s, _) if s == "sticky")
             {
-                // Each row is laid out in a wrapper of its own.
+                // @ref LLP 1083 D5 — each row is laid out in a wrapper of its own.
                 return err("lower-collection-flow", "a windowed row's root would stick only inside its own row: make a section one row, and its header `position: sticky` inside it", a.span);
             }
             if !allowed {

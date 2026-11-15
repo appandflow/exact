@@ -200,6 +200,11 @@ impl<G: Game> Sim<G> {
                 .get(name)
                 .is_some_and(|deps| deps.iter().all(|n| ready(n)))
     }
+    /// A generated model's identity, its content digest (`hash::of`): the
+    /// renderer's digest for it too, so the model is hashed once.
+    pub fn model_identity(&self, name: &str) -> Option<u64> {
+        self.world.assets.identity(name)
+    }
     /// Current renderer requests, including pending dependencies.
     pub fn presentation_assets(&self) -> impl Iterator<Item = &str> {
         self.world.assets.states.keys().map(String::as_str)
@@ -358,7 +363,7 @@ impl<G: Game> Sim<G> {
             _ => Err(format!("unknown op `{}`; use tree, screenshot, tap, type, state, layout, logs or clock",q.op)),
         }
     }
-    /// The agent's pad: `type <canvas> key Gamepad…` and
+    /// The agent's pad (LLP 1046.001 D3): `type <canvas> key Gamepad…` and
     /// `tap <canvas> stick left|right x y`, each the pad's whole state queued
     /// at the request's clock, as a host reports a real one.
     fn synthesize_pad(&mut self, q: &Request) -> Result<String, String> {

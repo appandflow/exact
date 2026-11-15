@@ -1,4 +1,4 @@
-//! Shelf, the native recipe app: its Contract UI and TypeScript data.
+//! Shelf, the native recipe app (LLP 1115): its Contract UI and TypeScript data.
 
 include!(concat!(env!("OUT_DIR"), "/module.rs"));
 const PLAN: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/app.plan"));

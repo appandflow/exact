@@ -1,8 +1,8 @@
-//! A resource's local listener, the runner half: the request
+//! A resource's local listener, the runner half (LLP 1133.005): the request
 //! carries its options, it is pending until `listening` lands, a listener
-//! waiting for its address is pending but quiet, its standing reaches
+//! waiting for its address is pending but quiet (D2), its standing reaches
 //! `state.streams` and the journal and no mapper, and its mapper's sends are
-//! addressed to a connection.
+//! addressed to a connection (D6).
 use exact_kernel::Kernel;
 use exact_plan::Value;
 use exact_runner::listen::{ConnectionView, Listen, ListenView, LISTEN_STATUS};

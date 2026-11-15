@@ -1,5 +1,5 @@
-//! In an app with a Windows host, a button chord that never presses it on
-//! Windows is a warning.
+//! LLP 1115.004 D9.6: in an app with a Windows host, a button chord that
+//! never presses it on Windows is a warning.
 
 const SOURCE: &str = "component App
   view

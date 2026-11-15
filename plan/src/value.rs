@@ -1,6 +1,7 @@
 //! Runtime values and the canonical value encoding used by the data pool.
 //!
-//! A resource's value crosses the seam as bytes and is `shape`-validated there.
+//! @ref LLP 1004 D3 (closed types, `Option`-only absence) / D4 (a resource's
+//! value crosses the seam as bytes and is `shape`-validated there)
 //!
 //! A value is one of a closed set: number (f64), bool, string, unit, option,
 //! list, record. Records carry fields by position; the plan's `types` table
@@ -27,7 +28,8 @@ macro_rules! str_value {
 /// rest, shared by count. Construction picks ([`Value::str`], `From`); both
 /// payloads are opaque, so text is read through [`Value::as_str`] and
 /// nothing outside this crate matches either variant for its text. A
-/// wildcard arm that meant "not text" must name both, or ask `is_str`.
+/// wildcard arm that meant "not text" must name both, or ask `is_str`
+/// (Charlie, 2026-09-28; LLP 1017.003 §"The value's text").
 #[derive(Clone)]
 pub enum Value {
     /// IEEE 754 binary64.
@@ -48,7 +50,7 @@ pub enum Value {
     Record(Items),
 }
 
-/// The derived text, with the number printed by exact-num.
+/// The derived text, with the number printed by exact-num (LLP 1047 §6).
 impl std::fmt::Debug for Value {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {

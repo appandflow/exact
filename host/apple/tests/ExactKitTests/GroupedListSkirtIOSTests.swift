@@ -7,18 +7,18 @@ import XCTest
 /// A grouped list's background past a viewport short of its container's
 /// edge (moved whole from GroupedListIOSTests.swift for its line cap).
 final class GroupedListSkirtIOSTests: GroupedListFixture {
-    /// A page with no navigation container keeps its viewport inside the
-    /// safe area, and a grouped list at its bottom left the root's white
-    /// under the home indicator. Where the list's box meets an edge of a
-    /// viewport short of its container's, the list's background goes on to
-    /// the container's edge, behind the viewport; not while the keyboard
-    /// ends the viewport.
+    /// LLP 1116.004 D2 (chat-rooms, round 6): a page with no navigation
+    /// container keeps its viewport inside the safe area, and a grouped list
+    /// at its bottom left the root's white under the home indicator. Where
+    /// the list's box meets an edge of a viewport short of its container's,
+    /// the list's background goes on to the container's edge, behind the
+    /// viewport; not while the keyboard ends the viewport.
     func testAListAtTheViewportsEdgeDrawsItsBackgroundToTheScreensEdge() throws {
         let p = presenter(height: 840) { self.model() }
         let grey: [[Int]] = [[242, 242, 247, 255], [0, 0, 0, 255]]
         p.apply(wireBatch([["op": "style", "id": 1, "style": ["background_color": grey]]]))
         // The page's area ends at the home indicator's 34 points, which the
-        // viewport is drawn past.
+        // viewport is drawn past (LLP 1130 D1).
         p.viewport.frame = CGRect(x: 0, y: 0, width: 402, height: 874)
         p.pageMargins = UIEdgeInsets(top: 0, left: 0, bottom: 34, right: 0)
         p.apply(wireBatch([["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 402.0, "h": 840.0]]))

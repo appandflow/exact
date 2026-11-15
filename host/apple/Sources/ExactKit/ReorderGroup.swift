@@ -1,4 +1,4 @@
-// Dropping across lists on the Apple hosts. A grip whose
+// Dropping across lists on the Apple hosts (LLP 1094 D5–D9). A grip whose
 // list shares a `reorderGroup` lifts as a ghost in the window's top layer —
 // a snapshot of its row, which the runner then hides — and the ghost follows
 // the contact by the grip's offset. The ghost's centre picks the target: the
@@ -43,7 +43,7 @@ extension Runtime: ReorderGroupCalls {
     }
 }
 
-/// The moves: the gap a row up or down, or the previous or next list.
+/// D9's moves: the gap a row up or down, or the previous or next list.
 enum ReorderGroupStep: UInt32 {
     case earlier = 1, later, previousList, nextList
     /// The arrows, by DOM's names.
@@ -56,7 +56,7 @@ enum ReorderGroupStep: UInt32 {
         default: return nil
         }
     }
-    /// The custom actions' names, in their order.
+    /// The custom actions' names (D9), in their order.
     static let actions: [(String, ReorderGroupStep)] = [
         ("Move earlier", .earlier), ("Move later", .later),
         ("Move to previous list", .previousList), ("Move to next list", .nextList),
@@ -107,7 +107,7 @@ extension CollectionHost {
 }
 
 extension NodeView {
-    /// The grouped list this grip's row is in, and its group.
+    /// The grouped list this grip's row is in, and its group (D1).
     package var reorderGroupList: (list: UInt32, group: String)? {
         guard !(props["reorderFor"] ?? "").isEmpty, let presenter,
               let list = presenter.collections.owningCollection(id),
@@ -115,7 +115,7 @@ extension NodeView {
         return (list, group)
     }
     /// A grouped grip with no `press`, `key`, `pan` or `pointerdown` of its
-    /// own takes the keys.
+    /// own takes the keys (D9).
     var reorderKeys: Bool {
         handlers.isDisjoint(with: ["press", "key", "pan", "pointerdown"]) && reorderGroupList != nil
     }
@@ -141,9 +141,9 @@ package final class ReorderGroupHold {
     /// Pin the grip, snapshot its row (before the runner hides it), and lift.
     package init?(_ handle: NodeView, point: CGPoint, ghost drawn: Bool) {
         handle.presenter?.reorderGroup?.landNow()
-        // Said, as the web says it: a drive's reply reads like a success otherwise.
+        // Said, as the web says it (LLP 1102 §3.17): a drive's reply reads like a success otherwise.
         if handle.presenter?.reorderGroup != nil {
-            handle.presenter?.session?.log("reorder: a drag refused: the last drop is held until its move shows; a person waits for the card to land; a drive waits with `clock settle` before the next drag")
+            handle.presenter?.session?.log("reorder: a drag refused: the last drop is held until its move shows (LLP 1094 D8); a person waits for the card to land; a drive waits with `clock settle` before the next drag")
         }
         guard let presenter = handle.presenter, SwipeInput.allows(handle),
               presenter.reorderGroup == nil, presenter.reorder == nil,
@@ -211,7 +211,7 @@ package final class ReorderGroupHold {
         return CGPoint(x: ghost.frame.midX, y: ghost.frame.midY)
     }
 
-    /// The grouped list whose port holds the centre, with its facts.
+    /// The grouped list whose port holds the centre (D7), with its facts.
     private func target() -> (list: UInt32, port: ReorderPort)? {
         guard let presenter else { return nil }
         for (id, node) in presenter.views where node.props["reorderGroup"] == group {
@@ -228,7 +228,7 @@ package final class ReorderGroupHold {
         observe(ReorderGroupState.last(in: batch))
     }
 
-    /// A key's or custom action's move.
+    /// A key's or custom action's move (D9).
     func step(_ step: ReorderGroupStep) {
         guard active, live, let presenter else { return }
         let batch = calls.groupStep(state.token, step: step, now: now)
@@ -236,7 +236,7 @@ package final class ReorderGroupHold {
         observe(ReorderGroupState.last(in: batch))
     }
 
-    /// The contact ended: a drop into the current target, or a cancel.
+    /// The contact ended (D8): a drop into the current target, or a cancel.
     /// A drop that holds keeps the ghost where it is until the move shows.
     package func finish(cancel: Bool) {
         guard active, let presenter else { return }
@@ -250,7 +250,7 @@ package final class ReorderGroupHold {
     /// Escape, a lost contact, the window resigning: before a drop only.
     package func cancel() { if active { finish(cancel: true) } }
 
-    /// This session's op: a hold keeps the ghost; the end of one, or a
+    /// This session's op (D8): a hold keeps the ghost; the end of one, or a
     /// cancel, lands it; `finished` retires everything.
     func observe(_ next: ReorderGroupState?) {
         guard let next, next.token == state.token, state.phase != "finished" else { return }
@@ -279,7 +279,7 @@ package final class ReorderGroupHold {
     /// Whether the ghost is springing home: the move has shown, so a new drag may end it.
     package var isLanding: Bool { landing }
 
-    /// A new drag ends a landing at once; a session that holds is untouched.
+    /// A new drag ends a landing at once (LLP 1102 §3.18); a session that holds is untouched (D8).
     func landNow() { if landing { finishSession() } }
 
     private func finishSession() {
@@ -290,7 +290,7 @@ package final class ReorderGroupHold {
         Self.apply(batch, presenter)
         observe(ReorderGroupState.last(in: batch))
         if state.phase != "finished" { end() }
-        // Focus follows the moved row's grip when it landed, the source's otherwise.
+        // Focus follows the moved row's grip when it landed, the source's otherwise (D9).
         focusAfter(row: landedHere ? row : nil)
     }
 
@@ -321,7 +321,7 @@ package final class ReorderGroupHold {
         return nil
     }
 
-    // Autoscroll: the target list's port on its own axis, then each
+    // Autoscroll (D7): the target list's port on its own axis, then each
     // scroll ancestor of it whose port holds the centre (or the contact, once
     // the centre has passed its edge: 2026-10-07); the innermost that
     // can still move toward the edge it is near scrolls, at the web's band
@@ -355,11 +355,11 @@ package final class ReorderGroupHold {
 }
 
 extension NodeView {
-    /// The keys on a grouped grip: Space lifts (no ghost); then the arrows
+    /// D9's keys on a grouped grip: Space lifts (no ghost); then the arrows
     /// step, Space or Enter drops and Escape cancels. True when taken.
     func reorderKey(_ name: String) -> Bool {
         guard reorderKeys, let presenter else { return false }
-        // A landing session yields to a new lift: Space below ends it first.
+        // A landing session yields to a new lift (LLP 1102 §3.18): Space below ends it first.
         if let hold = presenter.reorderGroup, !hold.isLanding {
             guard hold.handle === self else { return false }
             if let step = ReorderGroupStep(key: name) { hold.step(step); return true }
@@ -373,7 +373,7 @@ extension NodeView {
         return ReorderGroupHold(self, point: .zero, ghost: false) != nil
     }
 
-    /// One custom action: begin, one step and the drop, in one turn;
+    /// One custom action (D9): begin, one step and the drop, in one turn;
     /// the hold still runs, and the gap closes in place when it ends.
     func reorderAction(_ step: ReorderGroupStep) -> Bool {
         guard reorderGroupList != nil, let hold = ReorderGroupHold(self, point: .zero, ghost: false) else { return false }

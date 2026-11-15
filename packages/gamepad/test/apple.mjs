@@ -1,4 +1,4 @@
-// @exact/gamepad on macOS: the fixture app
+// @exact/gamepad on macOS (LLP 1133.022 §10, D4, D10 item 1): the fixture app
 // made outside the repo, built with the package's Swift, and driven bound
 // (`--bind gamepad`) with a drive's pads (`EXACT_AGENT_PADS`): snapshot
 // controllers in the process's slot table, whose motors and light are a

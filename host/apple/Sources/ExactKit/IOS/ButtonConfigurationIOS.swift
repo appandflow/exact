@@ -1,4 +1,4 @@
-// One configuration for fitting and presenting.
+// @ref LLP 1069.011.001 D1–D9, D14–D17: one configuration for fitting and presenting.
 #if os(iOS) || os(tvOS)
 import UIKit
 
@@ -81,8 +81,8 @@ enum ButtonConfigurationIOS {
         if requestUpdate { button.setNeedsUpdateConfiguration() }
     }
     /// The title, subtitle or symbol font where its author wrote a size or a
-    /// weight. A written size is the kernel's number and is drawn at it: an
-    /// absolute `font-size` is the author's, the same on
+    /// weight. A written size is the kernel's number and is drawn at it (LLP
+    /// 1115.000 D12.1): an absolute `font-size` is the author's, the same on
     /// a button as on a `text` or a field, and what follows Dynamic Type
     /// (`rem`, `em` under the platform's control font, a text style) the
     /// kernel has resolved against the reader's size already. Unsaid, the
@@ -106,9 +106,9 @@ enum ButtonConfigurationIOS {
     }
     /// A row naming a colour UIKit has (a role such as `-exact-label` or `-exact-system-teal`, a platform
     /// colour or an asset) as UIKit's own colour, as a hand-built button is given `.label` or `.systemTeal`,
-    /// which UIKit resolves in the button's traits: glass brings a label colour out of a sheet's
+    /// which UIKit resolves in the button's traits (LLP 1095): glass brings a label colour out of a sheet's
     /// dim with the sheet, and under Increase Contrast a filled style draws a system accent at its
-    /// high-contrast value where it darkens a fixed one once more; any other row, `resolved`
+    /// high-contrast value where it darkens a fixed one once more (LLP 1116.019 D3); any other row, `resolved`
     static func platformColor(_ row: BatchValue?, _ resolved: UIColor?) -> UIColor? {
         SystemColor.native(row) ?? resolved
     }
@@ -197,7 +197,7 @@ enum ButtonConfigurationIOS {
 
     /// A destructive button's ink: `systemRed`. The gray, bordered and tinted styles sit on a fill of their own,
     /// where `systemRed` reads 2.9:1 (on UIKit's gray) and 2.7:1 (on its red tint) in light, a hair under the 3:1
-    /// `check` holds a control's label to; there the light red is deepened one notch (#f0302f
+    /// `check` holds a control's label to (LLP 1116.003 D3); there the light red is deepened one notch (#f0302f
     /// for #ff383c), which no one tells apart, and dark and increased contrast stay `systemRed`'s own.
     static func destructiveInk(for style: String) -> UIColor {
         guard ["gray", "bordered", "tinted", "borderedTinted"].contains(style) else { return .systemRed }
@@ -218,8 +218,9 @@ enum ButtonConfigurationIOS {
                       padding: [CGFloat?]? = nil, raster: UIImage? = nil) {
         (button as? NativeButtonIOS)?.resetActiveConfiguration()
         let rows = face.rows
+        let colorTint = accent ?? (button as? NativeButtonIOS)?.owner?.carriedTint
         var (config, drawn, _) = ControlHost.configuration(face)
-        background(rows.button, configuration: &config.background, traits: traits, accent: accent)
+        background(rows.button, configuration: &config.background, traits: traits, accent: colorTint)
         config.title = face.title
         config.subtitle = face.subtitle
         config.image = face.symbol.flatMap { FaceSymbol.image($0) } ?? raster ?? ButtonRasterIOS.image(face, lease: nil)
@@ -262,17 +263,17 @@ enum ButtonConfigurationIOS {
         let circle = !sides.contains(where: { $0 != nil }) && face.title?.isEmpty ?? true && face.subtitle?.isEmpty ?? true
             && config.image != nil && !["plain", "borderless"].contains(drawn)
         if circle, rows.button["control_corner_style"] == nil, uniformRadius(face) == nil { config.cornerStyle = .capsule }
-        let foreground = platformColor(rows.title["text_color"], color(rows.title["text_color"], traits: traits, accent: accent))
+        let foreground = platformColor(rows.title["text_color"], color(rows.title["text_color"], traits: traits, accent: colorTint))
         if let foreground { config.baseForegroundColor = foreground }
         // Unsaid on a fill of the accent, the ink is UIKit's white on every accent, teal and yellow too, as a
-        // hand-built filled button draws it. Increase Contrast darkens a system accent, which
+        // hand-built filled button draws it (LLP 1116.019 D3). Increase Contrast darkens a system accent, which
         // resolves with the contrast trait as UIKit's own system colours do.
         else if destructive, !filledStyles.contains(drawn) {
             // UIKit's `role` draws nothing; the gray and bordered styles keep the label colour under a red tint.
             config.baseForegroundColor = destructiveInk(for: drawn)
         }
         let titleFontAuthored = rows.title["font_size"] != nil || rows.title["font_weight"] != nil
-        // An authored colour survives UIKit's disabled-state foreground transform. Enabled, it is the
+        // An authored colour survives UIKit's disabled-state foreground transform (D16). Enabled, it is the
         // configuration's foreground, which UIKit greys with the tint behind a modal (`tintAdjustmentMode`).
         if titleFontAuthored || foreground != nil {
             config.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { [weak button] incoming in
@@ -282,7 +283,7 @@ enum ButtonConfigurationIOS {
                 return outgoing
             }
         }
-        let subtitleColor = platformColor(rows.subtitle["text_color"], color(rows.subtitle["text_color"], traits: traits, accent: accent))
+        let subtitleColor = platformColor(rows.subtitle["text_color"], color(rows.subtitle["text_color"], traits: traits, accent: colorTint))
         let subtitleFontAuthored = rows.subtitle["font_size"] != nil || rows.subtitle["font_weight"] != nil
         if subtitleFontAuthored || subtitleColor != nil {
             config.subtitleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { incoming in
@@ -315,18 +316,23 @@ enum ButtonConfigurationIOS {
             // A symbol alone is sized as UIKit sizes one: from the body style
             // at the button's text size and its `buttonSize`. Without a title the
             // label's font is UIKit's fixed 17, which kept a − or + small at the
-            // accessibility sizes.
+            // accessibility sizes (LLP 1116.019 D1).
             config.preferredSymbolConfigurationForImage = nil
             symbolPoints = UIFont.preferredFont(forTextStyle: .body, compatibleWith: traits).pointSize
         } else { config.preferredSymbolConfigurationForImage = UIImage.SymbolConfiguration(font: titleFont) }
-        // An svg-only icon's path: a template image at the point
+        // An svg-only icon's path (stage 9 A2): a template image at the point
         // size the configuration gives a symbol here, tinted as one below. A
         // symbol alone is sized by UIKit (its `buttonSize` too): the path
         // takes the size UIKit resolves for a symbol in this configuration.
-        let path = face.symbol.flatMap { FaceSymbol.isPath($0) ? $0 : nil }
+        let path = face.symbol.flatMap { FaceSymbol.isCustom($0) ? $0 : nil }
         if let path {
             if config.preferredSymbolConfigurationForImage == nil { symbolPoints = resolvedSymbolPoints(config, on: button) ?? symbolPoints }
-            config.image = FaceSymbol.pathImage(path, points: symbolPoints)
+            config.image = FaceSymbol.image(path, points: symbolPoints)
+        }
+        if let rendering = rows.symbol["symbol_rendering"]?.string {
+            let base = config.preferredSymbolConfigurationForImage ?? UIImage.SymbolConfiguration.unspecified
+            let tint = color(rows.symbol["tint_color"], traits: traits, accent: colorTint) ?? button.tintColor ?? .systemBlue
+            config.preferredSymbolConfigurationForImage = FaceSymbol.configuration(base, rendering: rendering, tint: tint)
         }
         config.imagePadding = rows.imageGap ?? systemSpacing(font: titleFont)
         // A symbol's colour is the configuration's, which UIKit greys with the whole button behind a modal
@@ -334,13 +340,16 @@ enum ButtonConfigurationIOS {
         // image in its own ink and ignores that, so there the symbol carries its colour, drawn again as the
         // tint changes (`NativeButtonIOS.tintColorDidChange`).
         let follows = followsAccent(rows.symbol["tint_color"])
-        let resolved = color(rows.symbol["tint_color"], traits: traits, accent: accent), own = follows ? nil : resolved
+        let resolved = color(rows.symbol["tint_color"], traits: traits, accent: colorTint), own = follows ? nil : resolved
         let native = button as? NativeButtonIOS
         native?.symbolInk = nil
         if face.image != nil, follows || own != nil { config.image = config.image?.withRenderingMode(.alwaysTemplate) }
-        if follows || own != nil, let template = config.image {
+        let multicolorSF = face.symbol.map { !FaceSymbol.isCustom($0) } == true && rows.symbol["symbol_rendering"]?.string == "multicolor"
+        if face.symbol.map(FaceSymbol.isOriginal) == true || multicolorSF {
+            config.imageColorTransformer = nil
+        } else if follows || own != nil, let template = config.image {
             if !button.isEnabled {
-                // Disabled, an authored colour keeps its look through UIKit's disabled one
+                // Disabled, an authored colour keeps its look through UIKit's disabled one (D16)
                 if let resolved { config.image = template.withTintColor(resolved, renderingMode: .alwaysOriginal) }
             } else if drawn.lowercased().hasSuffix("glass"), let native {
                 let ink = NativeButtonIOS.Ink(template: template, color: own, alpha: (follows ? accent : own)?.cgColor.alpha)
@@ -351,7 +360,7 @@ enum ButtonConfigurationIOS {
                 config.imageColorTransformer = UIConfigurationColorTransformer { [weak button] _ in own ?? button?.tintColor ?? .tintColor }
             }
         } else if path != nil, let template = config.image {
-            // An unsaid path takes the title's foreground, as an untinted symbol does: UIKit gives a
+            // An unsaid path takes the title's foreground, as an untinted symbol does (D14): UIKit gives a
             // configuration's foreground to a symbol image only, so the path asks for it (the colour UIKit
             // proposes, greyed when disabled or dimmed). Glass ignores that: there the path is drawn in the
             // glass's ink, white on a prominent glass, else the label, grey when disabled.

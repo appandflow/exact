@@ -1,5 +1,6 @@
 import Foundation
 import CoreGraphics
+import QuartzCore
 import CExact
 import ImageIO
 import ObjectiveC
@@ -8,14 +9,14 @@ import UIKit
 #endif
 
 enum RasterFailure: Error, CustomStringConvertible, Equatable {
-    case encodedLimit, headerLimit, dimensions, sourcePixels, overflow, tooLarge, decode, reservation
+    case encodedLimit, headerLimit, dimensions, sourcePixels, overflow, decode, reservation
     /// Bytes no decoder here reads (text served as `image/png`).
     case format
-    /// An SVG the parser refused, with its reason and line.
+    /// An SVG the parser refused, with its reason and line (LLP 1011.001 D2).
     case svg(String)
     /// A source that names nothing: another scheme, an asset that is not there.
     case unresolved
-    /// What the image's `error` says and the agent's `state` shows.
+    /// What the image's `error` says (LLP 1011 §4) and the agent's `state` shows.
     var description: String {
         switch self {
         case .encodedLimit: return "over \(RasterMetadata.encodedLimit) encoded bytes"
@@ -23,7 +24,6 @@ enum RasterFailure: Error, CustomStringConvertible, Equatable {
         case .dimensions: return "invalid dimensions"
         case .sourcePixels: return "over \(RasterMetadata.pixelLimit) source pixels"
         case .overflow: return "overflow"
-        case .tooLarge: return "too large"
         case .decode: return "decode failed"
         case .reservation: return "actual exceeds reservation"
         case .svg(let why): return "not an SVG this host reads: \(why)"
@@ -33,7 +33,7 @@ enum RasterFailure: Error, CustomStringConvertible, Equatable {
     }
 }
 
-/// How a decode keeps its pixels: `exact_raster::variant`'s
+/// How a decode keeps its pixels (LLP 1100 D7): `exact_raster::variant`'s
 /// numbers, which the budget prices.
 enum RasterVariant {
     /// 8-bit sRGB (the budget's; this host plans none).
@@ -42,7 +42,7 @@ enum RasterVariant {
     static let own8: UInt32 = 2
     /// 16-bit float in the picture's own colour space.
     static let deep: UInt32 = 3
-    /// An HDR picture shown as HDR, tagged with its headroom.
+    /// An HDR picture shown as HDR, tagged with its headroom (LLP 1100 D5).
     static let hdr: UInt32 = 4
     /// 8-bit, for a deep picture the budget can't hold at full depth.
     static let reduced8: UInt32 = 5
@@ -58,20 +58,20 @@ enum RasterVariant {
 /// Metadata is read before allocating pixels. Only the bounded prefix is passed
 /// to ImageIO here; its later internal decoder allocations are not measurable by
 /// our ledger and are not claimed to fit the Exact-owned storage budget.
-struct RasterMetadata: Equatable, Sendable {
+package struct RasterMetadata: Equatable, Sendable {
     static let encodedLimit = 64 * 1024 * 1024
     static let headerLimit = 256 * 1024
-    static let pixelLimit = 64 * 1024 * 1024
+    package static let pixelLimit = 64 * 1024 * 1024
     let sourceWidth: Int
     let sourceHeight: Int
     let orientation: Int
     let encodedBytes: Int
     let headerBytes: Int
-    /// More than 8 bits a channel, or float samples.
+    /// More than 8 bits a channel, or float samples (LLP 1100 D4).
     var deep = false
-    /// A PQ or HLG transfer, or a gain map, as the header says.
+    /// A PQ or HLG transfer, or a gain map, as the header says (LLP 1100 D4).
     var hdr = false
-    /// An SVG document: its size is the file's natural size
+    /// An SVG document (LLP 1011.001): its size is the file's natural size
     /// in CSS pixels, and it is drawn at any size the plan asks.
     var svg = false
     /// The variant when nothing limits it. For an HDR source's SDR rendition
@@ -97,7 +97,7 @@ struct RasterMetadata: Equatable, Sendable {
     static func read(prefix: Data, encodedBytes: Int) throws -> Self {
         guard encodedBytes > 0, encodedBytes <= encodedLimit else { throw RasterFailure.encodedLimit }
         guard !prefix.isEmpty, prefix.count <= headerLimit, prefix.count <= encodedBytes else { throw RasterFailure.headerLimit }
-        // An SVG, by its bytes: its root tag's size is the
+        // An SVG, by its bytes (LLP 1011.001 D4): its root tag's size is the
         // natural size, rounded to the pixel counts the seam carries.
         var size = [Double](repeating: 0, count: 2)
         let isSVG = prefix.withUnsafeBytes { raw in
@@ -151,7 +151,7 @@ struct RasterMetadata: Equatable, Sendable {
     }
 }
 
-/// A gain map: ImageIO's auxiliary data when the prefix shows
+/// A gain map (LLP 1100 D4): ImageIO's auxiliary data when the prefix shows
 /// it, else the gain map's metadata, which a JPEG carries in its first
 /// segments though the map is at the end (ISO 21496-1, `hdrgm`, Apple's).
 func hasGainMap(_ source: CGImageSource, prefix: Data) -> Bool {
@@ -162,7 +162,7 @@ func hasGainMap(_ source: CGImageSource, prefix: Data) -> Bool {
 }
 private let gainMapMarkers = ["urn:iso:std:iso:ts:21496", "hdrgm:Version", "http://ns.apple.com/HDRGainMap/"].map { Data($0.utf8) }
 
-/// A PQ or HLG transfer.
+/// A PQ or HLG transfer (LLP 1100 D4).
 func isHDRSpace(_ space: CGColorSpace) -> Bool {
     #if os(tvOS)
     // The PQ/HLG-specific queries have no tvOS availability annotation.
@@ -173,7 +173,7 @@ func isHDRSpace(_ space: CGColorSpace) -> Bool {
     #endif
 }
 
-/// A colour space's name as the agent reports it: CSS's where
+/// A colour space's name as the agent reports it (LLP 1100 D1): CSS's where
 /// CSS has one, a dashed standard name otherwise, `icc` for anything else.
 /// An extended form has its space's name.
 func colorSpaceName(_ space: CGColorSpace) -> String {
@@ -377,13 +377,13 @@ struct RasterDecodePlan: Sendable {
     let scratchBytes: Int
     var peakBytes: Int { outputBytes + scratchBytes }
     /// An SVG's device pixels per CSS pixel: the scene is resolved at the
-    /// plan's size over this, so a 3× screen gets a 3×
+    /// plan's size over this (LLP 1011.001 D3), so a 3× screen gets a 3×
     /// drawing. A bitmap's plan ignores it.
     var scale: Double = 1
 
     /// `aspect`: for an SVG under `object-fit: fill`, the box's pixel size,
-    /// whose ratio the plan takes in place of the natural size's (the
-    /// concrete object size is the box itself).
+    /// whose ratio the plan takes in place of the natural size's (LLP
+    /// 1011.001 D1: the concrete object size is the box itself).
     init(metadata: RasterMetadata, maxPixel: Int, variant: UInt32? = nil, aspect: (Int, Int)? = nil) throws {
         guard maxPixel > 0 else { throw RasterFailure.dimensions }
         self.variant = variant ?? metadata.variant
@@ -408,8 +408,8 @@ struct RasterDecodePlan: Sendable {
         let (scratch, overflow) = staging.addingReportingOverflow(64 * 1024)
         guard !overflow else { throw RasterFailure.overflow }
         scratchBytes = scratch
-        let (peak, peakOverflow) = outputBytes.addingReportingOverflow(scratchBytes)
-        guard !peakOverflow, peak <= 32 * 1024 * 1024 else { throw RasterFailure.tooLarge }
+        let (_, peakOverflow) = outputBytes.addingReportingOverflow(scratchBytes)
+        guard !peakOverflow else { throw RasterFailure.overflow }
     }
     private static func product(_ a: Int, _ b: Int) throws -> Int {
         let (n, overflow) = a.multipliedReportingOverflow(by: b)
@@ -447,7 +447,7 @@ private final class RasterOwner {
 /// Immutable CG-only payload: safe to destroy on a worker. The `CGImage`, not
 /// merely this wrapper, owns the charge so every alias stays charged. An
 /// animated GIF or WebP carries its first frame here and the facts to play
-/// the rest (`RasterAnimation`).
+/// the rest (`RasterAnimation`, LLP 1011.000).
 final class RasterImage: @unchecked Sendable {
     // Cache identity: first frame, EXIF-transformed pixels, in the plan's variant.
     let image: CGImage
@@ -475,7 +475,7 @@ final class RasterImage: @unchecked Sendable {
         return nil
         #endif
     }
-    /// A package's decoded picture, drawn into the
+    /// A package's decoded picture (LLP 1133.019 D11 item 1), drawn into the
     /// plan's storage, which the budget charges as any decode's.
     static func picture(_ image: CGImage, metadata: RasterMetadata, plan: RasterDecodePlan,
                         charge: any RasterBackingCharge, sourceOwner: (any RasterSourceOwner)?) throws -> RasterImage {
@@ -490,7 +490,7 @@ final class RasterImage: @unchecked Sendable {
 
     static func decode(_ bytes: Data, metadata: RasterMetadata, plan: RasterDecodePlan,
                        charge: any RasterBackingCharge, sourceOwner: (any RasterSourceOwner)? = nil,
-                       url: URL? = nil) throws -> RasterImage {
+                       file: FileHandle? = nil) throws -> RasterImage {
         guard bytes.count == metadata.encodedBytes, bytes.count <= RasterMetadata.encodedLimit else { throw RasterFailure.encodedLimit }
         // A file can change between metadata inspection and worker admission.
         // Recheck the actual bytes before asking ImageIO for any pixel buffer.
@@ -524,16 +524,16 @@ final class RasterImage: @unchecked Sendable {
                 headroom = Self.headroom(of: thumbnail)
                 if headroom > 0, #available(iOS 18, macOS 15, tvOS 18, *), let tagged = CGImageCreateCopyWithContentHeadroom(headroom, image) { image = tagged }
             }
-            let animation = url.flatMap { RasterAnimation.read(source, url: $0, plan: plan, owner: sourceOwner) }
+            let animation = file.flatMap { RasterAnimation.read(source, file: $0, plan: plan, owner: sourceOwner) }
             return RasterImage(image: owner.own(image), natural: metadata.naturalSize, bytes: plan.outputBytes,
                                animation: animation, headroom: headroom)
         }
     }
 
-    /// An SVG drawn at the plan's size: the file
+    /// An SVG drawn at the plan's size (LLP 1011.001 D3, D4): the file
     /// parsed and resolved in Rust at the plan's size in CSS pixels, its scene
     /// rendered as an island is (`SvgIsland.render`), on the main thread when
-    /// it has text (where the session's fonts are) and here otherwise, into
+    /// it has text and here otherwise, using the image's own font stacks, into
     /// the plan's storage. Animation is ignored and nothing is dark: a
     /// picture does not follow the page's scheme, as a browser's `<img>`
     /// does not.
@@ -558,7 +558,7 @@ final class RasterImage: @unchecked Sendable {
                                  space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
             }
             return SvgIsland.render(els, rect: CGRect(origin: .zero, size: css), w: plan.width, h: plan.height, k: plan.scale,
-                                    transform: transform, flip: true, dark: false, fonts: nil)
+                                    transform: transform, flip: true, dark: false, fonts: flags & 1 != 0 ? SvgText.imageFonts(spec["fonts"]) : nil)
         }
         let context = flags & 1 != 0 && !Thread.isMainThread ? DispatchQueue.main.sync(execute: render) : render()
         guard let context else { throw RasterFailure.svg("the picture did not render at \(plan.width)×\(plan.height)") }
@@ -608,7 +608,7 @@ final class RasterImage: @unchecked Sendable {
     static func normalized(_ thumbnail: CGImage, plan: RasterDecodePlan, adopt: Bool = true) -> CGImage? {
         // An HDR decode in a BT.2100 space is kept as ImageIO made it: Core
         // Animation tone-maps that to the layer's range, which it doesn't do
-        // for extended linear content.
+        // for extended linear content (LLP 1100 D5, D8).
         // ImageIO's one-pixel rounding (`decode`) keeps it so too, within the
         // resident charge: drawing it to the plan's size would make it extended linear.
         if plan.variant == RasterVariant.hdr, let source = thumbnail.colorSpace, CGColorSpaceUsesITUR_2100TF(source),
@@ -627,7 +627,7 @@ final class RasterImage: @unchecked Sendable {
         })
     }
 
-    /// The colour space a decode is kept in: an RGB picture's
+    /// The colour space a decode is kept in (LLP 1100 D5): an RGB picture's
     /// own; sRGB for gray; Display P3, which contains print gamuts, for CMYK,
     /// Lab and the rest (Core Animation shows only RGB contents).
     static func storageSpace(_ source: CGColorSpace?, plan: RasterDecodePlan) -> CGColorSpace {
@@ -705,18 +705,46 @@ enum RasterGeometry {
     }
 
     /// The bitmap into `rect`, or with a `-exact-tint-color` as a template: its
-    /// alpha masks the tint. The same decoded pixels either way.
+    /// alpha masks the tint (LLP 1011 §4). The same decoded pixels either way.
     /// A layer composited source-in, not `clip(to:mask:)`, which reads an
     /// image with alpha wrongly (a transparent pixel came back half covered).
-    static func draw(_ ctx: CGContext, _ image: CGImage, in rect: CGRect, tint: CGColor?) {
-        guard let tint else { ctx.draw(image, in: rect); return }
+    static func draw(_ ctx: CGContext, _ image: CGImage, in rect: CGRect, tint: CGColor?, rendering: String? = nil) {
+        ctx.saveGState()
+        defer { ctx.restoreGState() }
+        if rendering == "crisp-edges" { ctx.interpolationQuality = .none }
+        func picture() {
+            if rendering == "pixelated" { pixelated(ctx, image, in: rect) }
+            else { ctx.draw(image, in: rect) }
+        }
+        guard let tint else { picture(); return }
         ctx.saveGState()
         ctx.beginTransparencyLayer(in: rect, auxiliaryInfo: nil)
-        ctx.draw(image, in: rect)
+        picture()
         ctx.setBlendMode(.sourceIn)
         ctx.setFillColor(tint)
         ctx.fill(rect)
         ctx.endTransparencyLayer()
         ctx.restoreGState()
     }
+
+    static func filter(_ layer: CALayer, rendering: String?) {
+        let filter: CALayerContentsFilter = rendering == "crisp-edges" ? .nearest : .linear
+        layer.magnificationFilter = filter
+        layer.minificationFilter = filter
+    }
+
+    private static func pixelated(_ ctx: CGContext, _ image: CGImage, in rect: CGRect) {
+        let t = ctx.ctm
+        let n = RasterTiles.enlargement(image, rect: rect, scale: CGSize(width: hypot(t.a, t.b), height: hypot(t.c, t.d)))
+        ctx.interpolationQuality = .low
+        if n == CGSize(width: 1, height: 1) { ctx.draw(image, in: rect); return }
+        RasterTiles.each(image, rect: rect, visible: ctx.boundingBoxOfClipPath, enlargement: n, tint: nil) { pixels, core, halo in
+            ctx.saveGState()
+            ctx.setShouldAntialias(false)
+            ctx.clip(to: core)
+            ctx.draw(pixels, in: halo)
+            ctx.restoreGState()
+        }
+    }
+
 }

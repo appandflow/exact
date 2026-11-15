@@ -1,10 +1,10 @@
-// Accept fixture: `position: sticky`. A scroll view holds four
+// Accept fixture: `position: sticky` (LLP 1083). A scroll view holds four
 // sections, each with a header at `top: 0` inside its own section, so the
 // next section's header pushes it out, then a footer at `bottom: 0`, which
 // stays at the scroll view's bottom until its own place comes into view. A
 // bar at `top: 0` sticks to the page. Each header and the bar paint over
 // what scrolls under them by `z-index`, as on the web, where a static box
-// after them would otherwise paint over them. A press on a header
+// after them would otherwise paint over them (LLP 1001). A press on a header
 // is counted, so a pinned header is hit where it shows.
 component Sticky
   state taps = 0

@@ -1,4 +1,4 @@
-//! `use Name from "./file.contract"`, resolved by path.
+//! LLP 1017 P8: `use Name from "./file.contract"`, resolved by path.
 
 use exact_kernel::Kernel;
 use exact_plan::Value;
@@ -122,9 +122,9 @@ fn an_unknown_name_an_unreadable_file_and_a_cycle_are_refused_by_name() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// `Port` here and an identical `PortRow` in a used file would meet `expects
-/// PortRow[], given Port[]` alone. A shape is its name; the refusal says so
-/// and keeps the shared one, and that edit compiles.
+/// The euxy port: `Port` here and an identical `PortRow` in a used file
+/// met `expects PortRow[], given Port[]` alone. A shape is its name; the
+/// refusal says so and keeps the shared one, and that edit compiles.
 #[test]
 fn two_shapes_with_the_same_fields_are_told_a_shape_is_its_name() {
     let dir = temp_dir("nominal");
@@ -253,9 +253,9 @@ fn uses_are_dot_relative_contained_and_relative_to_the_using_file() {
 
 #[test]
 fn two_files_of_the_same_names_load_together_and_each_reads_its_own() {
-    // A shape, a fn, a style, keyframes and a component of one name in each
-    // file. The root keeps its names; the library's are renamed where they
-    // are written.
+    // LLP 1091 D1/D4/D5: a shape, a fn, a style, keyframes and a component
+    // of one name in each file. The root keeps its names; the library's are
+    // renamed where they are written.
     let dir = temp_dir("same-names");
     std::fs::write(
         dir.join("ui.contract"),
@@ -326,12 +326,12 @@ fn a_name_reached_only_through_another_file_is_refused_with_its_use() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// An app written before module scope: every file's references to names it
-/// does not see are refused in one compile, one refusal a file naming each
-/// `use` line it lacks — the one it has for that file, extended, or a new
-/// one — and `fix_uses` writes exactly those, after which the program
-/// compiles to the bytes the lines written by hand give. What no rule
-/// decides is said, never written.
+/// LLP 1091 D1 for an app written before module scope (19 x2apps apps):
+/// every file's references to names it does not see are refused in one
+/// compile, one refusal a file naming each `use` line it lacks — the one
+/// it has for that file, extended, or a new one — and `fix_uses` writes
+/// exactly those, after which the program compiles to the bytes the lines
+/// written by hand give. What no rule decides is said, never written.
 #[test]
 fn the_missing_use_lines_are_named_and_written() {
     let dir = temp_dir("missing");
@@ -426,9 +426,9 @@ fn the_missing_use_lines_are_named_and_written() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// A root split into files that names none of them: its neighbours are read
-/// too, so `fix_uses` writes the lines the root lacks, and what stays
-/// unreached (another entry) is named, not passed over.
+/// A root split into files that names none of them (the euxy port): its
+/// neighbours are read too, so `fix_uses` writes the lines the root lacks,
+/// and what stays unreached (another entry) is named, not passed over.
 #[test]
 fn a_root_that_names_no_file_has_its_lines_written() {
     let dir = temp_dir("unnamed");
@@ -486,10 +486,10 @@ fn a_root_that_names_no_file_has_its_lines_written() {
     let _ = std::fs::remove_dir_all(&shared_dir);
 }
 
-/// App → Panel, panel → Widget, widget → Panel and Icon. The Panel/Widget
-/// lines would make a cycle and are not written, so the root never reaches
-/// widget.contract, and its `use Icon` is not written either: only an edge a
-/// fix writes makes a file the root's.
+/// Review round 2's case: app → Panel, panel → Widget, widget → Panel and
+/// Icon. The Panel/Widget lines would make a cycle and are not written, so
+/// the root never reaches widget.contract, and its `use Icon` is not
+/// written either: only an edge a fix writes makes a file the root's.
 #[test]
 fn a_file_reached_only_through_a_refused_cycle_is_not_written() {
     let dir = temp_dir("cycle-reach");

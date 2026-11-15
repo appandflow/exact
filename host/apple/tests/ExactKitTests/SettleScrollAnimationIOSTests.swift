@@ -3,8 +3,8 @@ import XCTest
 @testable import ExactKit
 import UIKit
 
-/// Under platform timing a smooth correction is an
-/// animated port: a list following its end after an appended row.
+/// Under platform timing (LLP 1035.003 D5) a smooth correction is an
+/// animated port (LLP 1010 §6.8): a list following its end after an appended row.
 /// `clock settle` must not read the fixed point mid-flight, and an
 /// interrupted one must not keep it waiting.
 final class SettleScrollAnimationIOSTests: XCTestCase {

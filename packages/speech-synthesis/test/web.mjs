@@ -1,9 +1,9 @@
-// @exact/speech-synthesis's conformance suite on the web: th// te fixture app
-// (`test/fixture`) made with `exact new` outside the repo, depending on the
-// package by `file:`, built for the web, and driven in each engine with the
-// web implementation bound. No agent: an implementation's agent path would
-// prove nothing about the browser's. An engine with no voices here is skipped,
-// named.
+// @exact/speech-synthesis's conformance suite on the web (LLP 1133.001 D7,
+// LLP 1133.012 §10, stage 1): the fixture app (`test/fixture`) made with
+// `exact new` outside the repo, depending on the package by `file:`, built for
+// the web, and driven in each engine with the web implementation bound. No
+// agent: an implementation's agent path would prove nothing about the
+// browser's. An engine with no voices here is skipped, named.
 //
 // usage: bun packages/speech-synthesis/test/web.mjs [chrome] [chromium] [firefox] [webkit]
 //   (every engine by default; `chrome` is the installed Google Chrome, `chromium`

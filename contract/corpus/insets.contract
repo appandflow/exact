@@ -2,9 +2,9 @@
 // keeps out of the safe areas with `env(safe-area-inset-*)` lengths, and an
 // input at the bottom that a software keyboard would cover. Under
 // `interactive-widget="resizes-visual"` (iOS's opt-out of its default
-// keyboard avoidance; the web's default) the host insets its
+// keyboard avoidance, LLP 1116 D2; the web's default) the host insets its
 // viewport by the keyboard and reveals the field, as a browser's visual
-// viewport does; `dismiss` takes the focus, and the keyboard
+// viewport does (LLP 1008 §9); `dismiss` takes the focus, and the keyboard
 // with it. `under`, a strip at the page's bottom, is under the keyboard while
 // it is up: a finger landing there lands on the keyboard, so the driver
 // refuses a tap at a point in it.

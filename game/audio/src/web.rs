@@ -2,18 +2,70 @@ use crate::{Output, Pcm};
 use std::{cell::Cell, collections::BTreeMap, rc::Rc};
 use wasm_bindgen::JsValue;
 use web_sys::{
-    AudioBuffer, AudioBufferSourceNode, AudioContext, AudioNode, ChannelMergerNode, GainNode,
+    AudioBuffer, AudioBufferSourceNode, AudioContext, AudioNode, AudioParam, ChannelMergerNode,
+    GainNode,
 };
 type CachedBuffer = (Pcm, AudioBuffer);
 
+#[derive(Default)]
+struct GainRamp {
+    from: f32,
+    to: f32,
+    at: f64,
+}
+impl GainRamp {
+    fn set(&mut self, param: &AudioParam, target: f32, now: f64) -> Result<(), JsValue> {
+        const SECONDS: f64 = 0.01;
+        // AudioParam.value can lag by a render quantum. Hold the scheduled
+        // ramp's value at this time before replacing its endpoint.
+        let progress = ((now - self.at) / SECONDS).clamp(0.0, 1.0) as f32;
+        let current = self.from + (self.to - self.from) * progress;
+        param.cancel_scheduled_values(now)?;
+        param.set_value_at_time(current, now)?;
+        param.linear_ramp_to_value_at_time(target, now + SECONDS)?;
+        self.from = current;
+        self.to = target;
+        self.at = now;
+        Ok(())
+    }
+}
+
+struct PitchRamp {
+    from: f32,
+    to: f32,
+    at: f64,
+}
+impl PitchRamp {
+    fn set(&mut self, param: &AudioParam, target: f32, now: f64) -> Result<(), JsValue> {
+        const SECONDS: f64 = 0.01;
+        let current = self.to as f64
+            + (self.from as f64 - self.to as f64) * (-(now - self.at) / SECONDS).exp();
+        // Hold the approach's current value, including within a render quantum.
+        // Cancel past targets too: each approach otherwise stays on the timeline.
+        param.cancel_scheduled_values(0.0)?;
+        param.set_value_at_time(current as f32, now)?;
+        param.set_target_at_time(target, now, SECONDS)?;
+        self.from = current as f32;
+        self.to = target;
+        self.at = now;
+        Ok(())
+    }
+}
+
 /// source → (splitter, for stereo) → left and right gains → merger → destination.
 /// Mono feeds both gains; stereo feeds each gain its own channel, as on Apple.
+/// @ref LLP 1046.003 §AU4 (outputs)
 struct Voice {
     source: AudioBufferSourceNode,
     nodes: Vec<AudioNode>,
     left: GainNode,
     right: GainNode,
+    left_ramp: GainRamp,
+    right_ramp: GainRamp,
+    pitch_ramp: PitchRamp,
     buffer: (usize, u32),
+    ended: Rc<Cell<bool>>,
+    _onended: wasm_bindgen::closure::Closure<dyn FnMut()>,
 }
 /// One suspended context. Construct only for a human-owned surface, never an agent.
 pub struct WebOutput {
@@ -40,8 +92,14 @@ impl WebOutput {
             voices: BTreeMap::new(),
         })
     }
-    /// Stop device time while hidden or interrupted.
+    /// Stop device time while hidden or interrupted, and every voice with it,
+    /// as the native outputs do: a context resumed with its sources would play
+    /// them until the first sync after `resume` starts new ones.
     pub fn suspend(&mut self) -> Result<(), JsValue> {
+        let ids: Vec<u64> = self.voices.keys().copied().collect();
+        for id in ids {
+            Output::stop(self, id);
+        }
         self.suspended.set(true);
         self.activation.set(self.activation.get().wrapping_add(1));
         self.unlocking.set(false);
@@ -133,6 +191,14 @@ impl WebOutput {
         self.buffers
             .entry(key)
             .or_insert_with(|| (pcm.clone(), buffer));
+        use wasm_bindgen::JsCast;
+        let ended = Rc::new(Cell::new(false));
+        let flag = ended.clone();
+        let onended = wasm_bindgen::closure::Closure::wrap(
+            Box::new(move || flag.set(true)) as Box<dyn FnMut()>
+        );
+        let scheduled: &web_sys::AudioScheduledSourceNode = source.as_ref();
+        scheduled.set_onended(Some(onended.as_ref().unchecked_ref()));
         self.voices.insert(
             id,
             Voice {
@@ -140,13 +206,33 @@ impl WebOutput {
                 nodes,
                 left,
                 right,
+                left_ramp: GainRamp::default(),
+                right_ramp: GainRamp::default(),
+                pitch_ramp: PitchRamp {
+                    from: pitch,
+                    to: pitch,
+                    at: self.context.current_time(),
+                },
                 buffer: key,
+                ended,
+                _onended: onended,
             },
         );
         Ok(())
     }
 }
 impl Output for WebOutput {
+    fn flush(&mut self) {
+        let ended: Vec<_> = self
+            .voices
+            .iter()
+            .filter(|(_, v)| v.ended.get())
+            .map(|(&id, _)| id)
+            .collect();
+        for id in ended {
+            self.stop(id);
+        }
+    }
     fn capacity(&self) -> usize {
         32
     }
@@ -201,16 +287,31 @@ impl Output for WebOutput {
         self.begin(id, pcm, rate, looping, offset, pitch).is_ok()
     }
     fn set(&mut self, id: u64, left: f32, right: f32) {
-        if let Some(v) = self.voices.get(&id) {
+        if let Some(v) = self.voices.get_mut(&id) {
             let now = self.context.current_time();
-            let _ = v.left.gain().set_target_at_time(left, now, 0.01);
-            let _ = v.right.gain().set_target_at_time(right, now, 0.01);
+            let _ = v.left_ramp.set(&v.left.gain(), left, now);
+            let _ = v.right_ramp.set(&v.right.gain(), right, now);
         }
+    }
+    fn set_pitch(&mut self, id: u64, pitch: f32) {
+        if let Some(v) = self.voices.get_mut(&id) {
+            let _ = v.pitch_ramp.set(
+                &v.source.playback_rate(),
+                pitch,
+                self.context.current_time(),
+            );
+        }
+    }
+    fn finished(&self, id: u64) -> bool {
+        self.voices.get(&id).is_none_or(|v| v.ended.get())
     }
     fn stop(&mut self, id: u64) {
         if let Some(v) = self.voices.remove(&id) {
             let scheduled: &web_sys::AudioScheduledSourceNode = v.source.as_ref();
-            let _ = scheduled.stop();
+            scheduled.set_onended(None);
+            if !v.ended.get() {
+                let _ = scheduled.stop();
+            }
             let _ = v.source.disconnect();
             for node in &v.nodes {
                 let _ = node.disconnect();
@@ -220,6 +321,10 @@ impl Output for WebOutput {
 }
 impl Drop for WebOutput {
     fn drop(&mut self) {
+        for voice in self.voices.values() {
+            let scheduled: &web_sys::AudioScheduledSourceNode = voice.source.as_ref();
+            scheduled.set_onended(None);
+        }
         let _ = self.context.close();
     }
 }

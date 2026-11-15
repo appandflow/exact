@@ -1,4 +1,4 @@
-// The fixture: @exact/payments read and sent as an
+// The fixture (LLP 1133.034 §12 stage 3): @exact/payments read and sent as an
 // app would, each answer shown by testId. It is Android's acceptance app, since
 // the photo editor has no Android build. Its checkout is the print lab's
 // (`apps/photo-editor/fixture/prints.ts`), reached from a phone through

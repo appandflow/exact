@@ -1,7 +1,7 @@
 // The platform floor: an empty AppKit app — NSApplication, one NSScrollView,
 // one titled window, one view that draws — with the same stamps ExactMac
 // prints, so every number the presenter reports can be read against what
-// the OS costs with nothing in the window. Built and run by
+// the OS costs with nothing in the window (LLP 1008 §6). Built and run by
 // scripts/metrics.mjs: `swiftc -O -o <out> host/apple/macos/floor.swift`.
 import AppKit
 let t0 = CACurrentMediaTime()

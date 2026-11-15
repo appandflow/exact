@@ -1,7 +1,8 @@
 #!/usr/bin/env bun
 // A live-clock headless transport proof, never a refresh-rate measurement.
 import {spawnSync} from 'node:child_process';
-const r=spawnSync(process.execPath,[new URL('../run.mjs',import.meta.url).pathname,'exact-web','cubes','1000'],{
+import { fileURLToPath } from 'node:url';
+const r=spawnSync(process.execPath,[fileURLToPath(new URL('../run.mjs',import.meta.url)),'exact-web','cubes','1000'],{
   env:{...process.env,BENCH_HEADLESS:'1',BENCH_SECONDS:'1'},encoding:'utf8',stdio:['ignore','pipe','inherit'],
 });
 if(r.status!==0) throw new Error(`bench sanity failed: ${r.status}`);

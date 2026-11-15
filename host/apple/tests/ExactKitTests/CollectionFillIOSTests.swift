@@ -60,7 +60,7 @@ final class CollectionFillIOSTests: XCTestCase {
         XCTAssertFalse(p.collections.covers(1))
         XCTAssertEqual(reports.count, 2, "a visible gap is rescued in its UIKit callback")
         XCTAssertEqual(limit(try XCTUnwrap(reports.last)), 2, "visible rows plus two, rather than a whole window")
-        print("perf scroll callbacks=1000 covered_reports=0 ms=\(milliseconds) slice_limit=5 rescue_limit=2")
+        print("D3 scroll callbacks=1000 covered_reports=0 ms=\(milliseconds) slice_limit=5 rescue_limit=2")
     }
     func testCoveredScrollPublishesItsDeferredReportThroughTheScheduledPump() throws {
         let (p, window, scroll) = try fixture()
@@ -90,7 +90,7 @@ final class CollectionFillIOSTests: XCTestCase {
         let limit = try XCTUnwrap(reports.first).withUnsafeBytes { $0.loadUnaligned(fromByteOffset: 88, as: UInt32.self) }
         XCTAssertGreaterThan(limit, 0)
         XCTAssertLessThan(limit, UInt32.max - 1, "the pump rations its slice")
-        print("perf scheduled scroll reports=\(reports.count) limit=\(limit) elapsed_ms=\((CACurrentMediaTime() - started) * 1000)")
+        print("D3 scheduled scroll reports=\(reports.count) limit=\(limit) elapsed_ms=\((CACurrentMediaTime() - started) * 1000)")
     }
 
     /// Steps of a port or more each frame (a scroll indicator dragged)
@@ -183,7 +183,7 @@ final class CollectionFillIOSTests: XCTestCase {
     }
 
 
-    // A kept end row past a gap of unbuilt rows does
+    // @ref LLP 1010 §6.11 — a kept end row past a gap of unbuilt rows does
     // not end the travel: the rows the port will uncover are still owed.
     func testAKeptEndRowPastAGapStillLeadsTheSlice() throws {
         do {

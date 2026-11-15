@@ -1,4 +1,4 @@
-// @exact/translation's suite under the agent,
+// @exact/translation's suite under the agent (LLP 1133.027 §9, §12 stage 3),
 // the same on each host named: the fixed language list, the detection rule,
 // a download the drive completes, the translation script with a removed
 // language (drive 8's module half), and on Apple the download sheet declined.
@@ -30,7 +30,7 @@ for (const host of hosts.length ? hosts : ['web']) {
     'prefer extension translation.translations=[{"text":"The meeting tomorrow is at ten."},{"error":"InvalidStateError","reason":"not-installed"}]',
     'tap say-ru', 'tap translate', 'clock data', 'tree translated', 'tap translate', 'clock data', 'tree translated-error', 'clock data', 'tree pair',
     'tap destroy', 'clock data', 'tap translate', 'clock data', 'tree translated-error'];
-  // Apple's download is the system's sheet; the drive answers it.
+  // Apple's download is the system's sheet; the drive answers it (§9).
   if (apple) ops.push('prefer extension translation.downloadSheet="decline"', avail({ availability: 'downloadable' }), 'tap create', 'clock data', 'tree translator-error', 'state translator');
   ops.push('state extensions.translation', 'logs');
   const r = spawnSync('bun', ['exact.mjs', 'agent', host, ...ops], { cwd: app, env, encoding: 'utf8', maxBuffer: 64 << 20 });

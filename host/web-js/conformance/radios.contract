@@ -1,5 +1,5 @@
-// Synthetic conformance plan: HTML's radio and a text field's selection.
-// A radio checks itself and unchecks its
+// Synthetic conformance plan: HTML's radio and a text field's selection
+// (x2apps survey #2, codeedit #2). A radio checks itself and unchecks its
 // group (`name`) at once, its `change` carrying its `value`; a checked radio
 // tapped again fires nothing; the arrows move the check to the next enabled
 // radio of the group, wrapping, past a disabled one; a group whose action

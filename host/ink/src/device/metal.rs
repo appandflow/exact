@@ -1,4 +1,4 @@
-//! Direct Metal over the same instances and shader as wgpu.
+//! Direct Metal over the same instances and shader as wgpu. @ref LLP 1149 D5.2.
 use super::check_region;
 use super::texture_ids;
 use super::{Device, Error, Format, Info, Result, Submission, TextureDesc};

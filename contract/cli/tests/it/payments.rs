@@ -1,11 +1,11 @@
-//! `@exact/payments` under its declared substitute, the package's own
-//! `exact.json`: a Contract send holds one `payment` ticket for the wallet's
-//! sheet, which asks the app's handlers (a Rust stand-in for its data module's
-//! `tools`) through `invoke` while it is up; its authorization carries a
-//! synthetic payment that no ticket, journal line or `state.extensions` shows;
-//! a let-go send never cancels a running final handler; budgets run on the
-//! session's clock; and the sheet's phases differ by target as each wallet's
-//! do.
+//! `@exact/payments` under its declared substitute (LLP 1133.034 §9), the
+//! package's own `exact.json`: a Contract send holds one `payment` ticket
+//! for the wallet's sheet, which asks the app's handlers (a Rust stand-in
+//! for its data module's `tools`) through `invoke` while it is up; its
+//! authorization carries a synthetic payment that no ticket, journal line
+//! or `state.extensions` shows; a let-go send never cancels a running
+//! final handler; budgets run on the session's clock; and D6's phases
+//! differ by target as each wallet's do.
 
 use exact_runner::{
     Answer, CallOrigin, DataError, DataSource, Dispatch, HoldAnswer, Outcome, Reply, Request,
@@ -301,7 +301,7 @@ fn address() -> Json {
         "addressLine": ["1 Fixture Way"], "recipient": "Fixture Payer", "phone": "+15555550100" })
 }
 
-/// The sheet is one ticket; an address asks `quoteShipping` with the
+/// §9: the sheet is one ticket; an address asks `quoteShipping` with the
 /// W3C's redaction and shows its update; `authorize` gives `placeOrder` a
 /// synthetic payment in Apple's shape; the send answers its result with
 /// the full address and no payment, which nothing records.
@@ -366,7 +366,7 @@ fn a_sheet_asks_the_app_and_answers_its_result() {
     assert!(extensions.contains("placeOrder"), "{extensions}");
 }
 
-/// An update's `error` is shown and the sheet stays; a retry shows its
+/// D6: an update's `error` is shown and the sheet stays; a retry shows its
 /// field errors and the sheet waits for another authorization.
 #[test]
 fn an_error_update_and_a_retry_keep_the_sheet() {
@@ -394,7 +394,7 @@ fn an_error_update_and_a_retry_keep_the_sheet() {
     assert_ne!(first, second, "each authorization is a new payment");
 }
 
-/// Google's error result keeps its sheet up, so the send waits
+/// D6's table: Google's error result keeps its sheet up, so the send waits
 /// for the next authorization; Apple's closes with the failure.
 #[test]
 fn a_failure_closes_apples_sheet_and_keeps_googles() {
@@ -430,7 +430,7 @@ fn a_failure_closes_apples_sheet_and_keeps_googles() {
     assert!(google.ordered().contains("VISA"), "{}", google.ordered());
 }
 
-/// A send let go while its final handler runs is not
+/// D5, D16 item 2: a send let go while its final handler runs is not
 /// cancelled; the handler's answer then closes the sheet and answers nothing.
 #[test]
 fn a_running_final_handler_outlives_its_send() {
@@ -461,7 +461,7 @@ fn a_running_final_handler_outlives_its_send() {
     assert!(!host.ordered().contains("PR-9"), "{}", host.ordered());
 }
 
-/// Let go while editing, Apple's sheet closes; Google's cannot, so it
+/// D6: let go while editing, Apple's sheet closes; Google's cannot, so it
 /// is abandoned, and its authorization fails without calling the app.
 #[test]
 fn a_send_let_go_closes_or_abandons_by_target() {
@@ -495,7 +495,7 @@ fn a_send_let_go_closes_or_abandons_by_target() {
     assert!(google.sheet().is_none());
 }
 
-/// A handler past its budget on the session's clock: the authorization
+/// D5: a handler past its budget on the session's clock: the authorization
 /// fails `authorize-timeout`, and its late answer is dropped.
 #[test]
 fn a_handler_past_its_budget_fails_the_authorization() {
@@ -516,7 +516,7 @@ fn a_handler_past_its_budget_fails_the_authorization() {
     assert!(host.logs().contains("dropped"), "{}", host.logs());
 }
 
-/// A tool's call cannot spend; no sheet is held.
+/// D14: a tool's call cannot spend; no sheet is held.
 #[test]
 fn a_tool_cannot_pay() {
     let mut host = Host::photo_editor("tool", "ios");
@@ -526,7 +526,7 @@ fn a_tool_cannot_pay() {
     assert!(host.logs().contains("person-required"), "{}", host.logs());
 }
 
-/// On the web, Apple Pay validates the merchant before the sheet takes
+/// D8: on the web, Apple Pay validates the merchant before the sheet takes
 /// an answer, through the app's `onmerchantvalidation`.
 #[test]
 fn the_web_validates_apple_pays_merchant_first() {
@@ -561,7 +561,7 @@ fn the_web_validates_apple_pays_merchant_first() {
     );
 }
 
-/// What the call is refused, and the code it is refused with,
+/// D10, D13: what the call is refused, and the code it is refused with,
 /// before any sheet: an ungranted merchant ID, a currency that is no ISO
 /// 4217 code, `environment` (the bake's), and a target with no wallet.
 #[test]

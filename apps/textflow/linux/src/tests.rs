@@ -1,6 +1,6 @@
-//! The actual app, clock, glyphs and CPU pixels.
+//! @ref LLP 1043.000 §3 D7/D8 — the actual app, clock, glyphs and CPU pixels.
 use exact_kernel::{PropId, ViewId};
-use exact_linux::{presenter::PainterChoice, Presenter};
+use exact_painted::{presenter::PainterChoice, Presenter};
 use std::time::{Duration, Instant};
 use textflow_data::Textflow;
 fn boot(wrap: bool) -> Presenter<Textflow> {
@@ -129,7 +129,7 @@ fn damage_is_local_and_pixels_equal_a_fresh_full_repaint() {
         .agent("{\"op\":\"tree\"}")
         .contains("The river was the first thing"));
 }
-// Scrolling cannot reuse stale exclusion ink.
+// @ref LLP 1043.000 §3 D4/D7 — scrolling cannot reuse stale exclusion ink.
 #[test]
 fn scrolling_flow_repaints_changed_exclusions_and_reuses_ordinary_text() {
     let mut p = boot_size(true, (960., 500.));

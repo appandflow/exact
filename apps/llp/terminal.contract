@@ -1,4 +1,4 @@
-// LLP in a terminal: the reader's corpus, documents and search,
+// LLP in a terminal (LLP 1101): the reader's corpus, documents and search,
 // full screen, over the same data module as the windowed reader
 // (`apps/llp/data`). What a terminal reader needs that a window does not —
 // find in the page, the links as a list, the neighbours in number order —

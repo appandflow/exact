@@ -1,4 +1,4 @@
-# Messages: the demo conversation, then a swipe to reply on Ada's first bubble:
+# Messages: the demo conversation, then a swipe to reply on Ada's first bubble (LLP 1057.001):
 # its indicator follows the hold (opacity and scale, motion-glue's
 # companions), and past the knee `openReplies` runs; a short swipe returns.
 tap conversation-demo

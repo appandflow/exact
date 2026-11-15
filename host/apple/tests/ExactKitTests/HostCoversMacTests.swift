@@ -1,7 +1,7 @@
-// Covers on the Mac: a box a native presentation stands for leaves layout
-// and comes back when the cover is withdrawn, and the kernel is told what
-// stands after the batch, never a projection that was taken back inside
-// it.
+// @ref LLP 1115.002 D8.1 — covers on the Mac: a box a native presentation
+// stands for leaves layout and comes back when the cover is withdrawn, and
+// the kernel is told what stands after the batch, never a projection that
+// was taken back inside it.
 #if os(macOS)
 import AppKit
 import XCTest
@@ -26,6 +26,29 @@ final class HostCoversMacTests: XCTestCase {
             }
             wait(for: [delivered], timeout: 5)
             XCTAssertEqual(p.covers.delivered, covered ? [1: .whole] : [:])
+        }
+    }
+
+    /// A cover reported while one is delivered is delivered after it, and a
+    /// report that never settles stops.
+    func testCoversReportedDuringADeliveryFollowItWithoutNesting() {
+        _ = NSApplication.shared
+        let p = Presenter()
+        p.apply(wireBatch([["op": "create", "id": 1, "kind": "view"], ["op": "roots", "ids": [1]]]))
+        for limit in [4, 64] {
+            var count = 0, depth = 0, deepest = 0
+            p.onCovers = { _ in
+                count += 1
+                depth += 1
+                deepest = max(deepest, depth)
+                if count < limit { p.covers.report("test", [1: .gutter(right: count % 2 == 1 ? 0 : 15, bottom: 0)]) }
+                depth -= 1
+            }
+            p.covers.report("test", [1: .gutter(right: 15, bottom: 0)])
+            XCTAssertEqual(deepest, 1, "a delivery returns before the next one starts")
+            XCTAssertEqual(count, min(limit, 8), limit < 8 ? "a settling report is delivered in full" : "an oscillation stops")
+            p.onCovers = nil
+            p.covers.reset()
         }
     }
 

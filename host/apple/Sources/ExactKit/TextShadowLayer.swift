@@ -1,4 +1,4 @@
-// CSS `text-shadow` on a paragraph's raster layer: Core
+// CSS `text-shadow` on a paragraph's raster layer (LLP 1077 D3): Core
 // Animation casts the glyphs' own alpha, past the layer's bounds as CSS's
 // shadow reaches past the box. Without a `shadowPath` that is an offscreen
 // pass per frame, so the layer is rasterized: the shadowed glyphs are kept
@@ -23,7 +23,7 @@ enum TextShadowLayer {
 }
 
 /// An HDR `text-shadow`'s bitmap, under its ink layer. Each layer is mapped to
-/// the limit on its own, so under `standard` SDR ink stays white.
+/// the limit on its own, so under `standard` SDR ink stays white (LLP 1100 D8).
 final class TextCastLayer: CALayer {
     override func action(forKey event: String) -> (any CAAction)? { nil }
 }

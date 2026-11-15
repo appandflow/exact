@@ -1,11 +1,11 @@
-// System vibrancy on UIKit (`Vibrancy.swift` is the shared part). A blur's
+// LLP 1077 D13 on UIKit (`Vibrancy.swift` is the shared part). A blur's
 // vibrancy draws only what is inside a vibrancy effect view within the
 // blur's content view, so:
 //
 // - A blur material whose box clips its children (`overflow: hidden` on
 //   both axes) hosts them in its effect view's content view, which clips
 //   them the same way. One whose children may overflow keeps them beside
-//   it, and its labels are their colours, not vibrant (a declared deviation).
+//   it, and its labels are their colours, not vibrant (declared in LLP 1001).
 // - A paragraph in a system colour inside such a material draws its ink
 //   (`TextRasterIOS.swift`) inside a vibrancy effect view of that colour's
 //   style, which takes the ink's shape and draws it as UIKit draws the
@@ -40,7 +40,7 @@ extension NodeView {
     /// moves, and every descendant re-decides whether it is vibrant.
     func rehomeMaterialChildren() {
         let target = container
-        let holders = [self, materialView?.contentView].compactMap { $0 }
+        let holders = [self, materialView?.contentView, clipBox].compactMap { $0 }
         let strays = holders.filter { $0 !== target }.flatMap(\.subviews).compactMap { $0 as? NodeView }
         if !strays.isEmpty { GlassGroups.moving(in: self) { for child in strays { target.addSubview(child) } } }
         // No record is a view holding its own children, unhosted, as every

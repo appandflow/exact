@@ -3,7 +3,7 @@ import AppKit
 import XCTest
 @testable import ExactKit
 
-/// On AppKit: an indeterminate `progress`
+/// LLP 1069.001, amended 2026-10-07, on AppKit: an indeterminate `progress`
 /// is a spinning `NSProgressIndicator`, small in the default 20 × 20 box and
 /// regular from 32 points, centred, named by `aria-label`; it turns while it
 /// shows and stops when hidden or removed (the agent's clock, which holds
@@ -55,7 +55,7 @@ final class ProgressMacTests: XCTestCase {
         XCTAssertNotEqual(small.accessibilityLabel(), "Loading", "a cleared label is cleared")
     }
 
-    /// With a `value`, a `progress` is AppKit's determinate bar
+    /// LLP 1116 D8: with a `value`, a `progress` is AppKit's determinate bar
     /// across its content box, small in HTML's 16-point box and regular from
     /// 20, from 0 to `max` (1 unsaid), named by `aria-label`, its words
     /// `aria-valuetext`; a click passes through it. Its value taken away, it

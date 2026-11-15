@@ -1,10 +1,10 @@
-// The AppKit walks behind `layout <target> native` and
+// @ref LLP 1080.001 — the AppKit walks behind `layout <target> native` and
 // `layout agree`, as UIKit's (`AgentNativeIOS.swift`): ownership by
 // identity, strays judged only in a subview list Exact owns. AppKit has no
 // node pool and no flat leaves; its window is shared (two sessions of the
 // sample host, sheets of unproven ownership), so the walk is the session's
 // `ExactView` alone. `interactive` is absent: AppKit has no flag of its own,
-// and `NodeView.inert` folds route and dialog policy.
+// and `NodeView.inert` folds route and dialog policy (LLP 1080.001 §0 4).
 #if os(macOS)
 import AppKit
 
@@ -38,7 +38,7 @@ extension Agent {
         return reply
     }
 
-    // MARK: `layout agree`
+    // MARK: D2 — `layout agree`
 
     func agreement(limit: Int) -> [String: Any] {
         let size = presenter.viewport.contentView.bounds.size
@@ -87,6 +87,7 @@ extension Presenter {
             if sub === o.clipBox { return ("clip", id) }
             if sub === o.metal || sub === o.overlay { return ("canvas", id) }
             if sub === o.field || sub === o.textArea || sub === o.textAreaScroll { return ("editor", id) }
+            if o.inlineKeyViews.values.contains(where: { $0 === sub }) { return ("editor", id) }
             if sub === o.scroll { return ("scroll", id) }
             if sub === o.video || sub === o.web || sub is FrameScaleHolder { return ("heavy", id) }
             if sub === controls.controls[id] { return ("control", id) }
@@ -115,7 +116,7 @@ extension Presenter {
         return nil
     }
 
-    /// The views under `root`, preorder, bounded; `box` puts a view in
+    /// D1: the views under `root`, preorder, bounded; `box` puts a view in
     /// the viewport's space.
     func inspectionDump(_ root: NSView, kind: String, depth: Int, limit: Int, box: (NSView) -> CGRect) -> [String: Any] {
         var leaving = Set<ObjectIdentifier>()
@@ -127,7 +128,7 @@ extension Presenter {
             var e: [String: Any] = ["kind": "view", "depth": d, "class": String(describing: Swift.type(of: v)), "frame": AgreementReport.rect(box(v)),
                                     "hidden": v.isHidden, "alpha": Agent.r2(v.alphaValue)]
             if let layer = v.layer {
-                var l: [String: Any] = ["masksToBounds": layer.masksToBounds, "zPosition": Agent.r2(layer.zPosition)]
+                var l: [String: Any] = ["masksToBounds": layer.masksToBounds, "zPosition": Double(layer.zPosition)]
                 let t = layer.transform
                 if !CATransform3DIsIdentity(t) {
                     if CATransform3DIsAffine(t) {
@@ -156,7 +157,7 @@ extension Presenter {
         return out
     }
 
-    /// Walk `roots`, then compare frames; `box` puts a view in the
+    /// D2: walk `roots`, then compare frames; `box` puts a view in the
     /// viewport's space for a disagreement's report.
     func inspectAgreement(roots: [(NSView, String)], kernel: KernelFrames, inFlight: Bool, report: AgreementReport,
                           box: (NSView) -> CGRect) {
@@ -199,7 +200,7 @@ extension Presenter {
                         continue
                     }
                     if leaving.contains(ObjectIdentifier(n)) { continue }
-                    // An unmapped node view is a leak wherever it hangs.
+                    // An unmapped node view is a leak wherever it hangs (D3).
                     do {
                         var fields: [String: Any] = ["class": "NodeView", "retired": Int(n.id), "frame": AgreementReport.rect(box(n))]
                         if let o = owner { fields["under"] = Int(o.id) }

@@ -1,8 +1,8 @@
 import XCTest
 @testable import ExactKit
 
-/// SVG islands retain their coverage and phase when tiled or cropped,
-/// within `SvgIsland.cap` pixels.
+/// SVG islands retain their coverage and phase when tiled or cropped
+/// (LLP 1055.000 D7, D10, D14), within `SvgIsland.cap` pixels.
 class SvgIslandTests: XCTestCase {
     func testRotatedPatternHasNoSeamsBetweenOpaqueTiles() throws {
         let rect = CGRect(x: 0, y: 0, width: 32, height: 32)

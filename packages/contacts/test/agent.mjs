@@ -1,8 +1,9 @@
-// @exact/contacts' conformance suite under the agent: the fixture app built
-// for a host and driven with the implementation's agent path over
-// packages/contacts/fixture/contacts.json. The queries are held equal to
-// the suite's own reading of that file: a case-insensitive substring of a
-// name, an email or a number, in the fixture's order, `limit` at a time.
+// @exact/contacts' conformance suite under the agent (LLP 1133.018 §10, §14
+// stage 0): the fixture app built for a host and driven with the
+// implementation's agent path over packages/contacts/fixture/contacts.json.
+// The queries are held equal to the suite's own reading of that file: a
+// case-insensitive substring of a name, an email or a number, in the
+// fixture's order, `limit` at a time.
 //
 // The web has no store: there the status answers `available` false, a
 // query fails NotSupportedError, and the picker answers as a browser with
@@ -73,7 +74,7 @@ try {
       check(host, 'the pick answers the two, icons copied', /^Ana Lima app:\/tmp\/picked\/contacts\/\S+; Dana Kowalski app:\/tmp\/picked\/contacts\/\S+$/.test(after.chosen) && icons.length === 2, after.chosen);
       check(host, 'two ids for a single pick are refused by the driver', r.length < 12 || /not|refus|one id/i.test(JSON.stringify(r[11])), JSON.stringify(r[11]));
     }
-    // Limited: reads answer the shared four; on iOS the access picker adds one.
+    // Limited (D5): reads answer the shared four; on iOS the access picker adds one.
     {
       const ops = ['clock settle', 'prefer extension contacts.contactsStatus={"access":"limited"}', 'clock settle', 'tree', 'tap share', 'clock +100', 'state pending'];
       const ios = host === 'ios' ? ['type @share c7', 'clock settle', 'tree'] : ['clock settle', 'tree'];
@@ -88,7 +89,7 @@ try {
         check(host, 'the access picker is iOS only', shared['share-error'] === 'NotSupportedError' && !ticket(r[6], 'share'), `${shared['share-error']} ${JSON.stringify(r[6])}`);
       }
     }
-    // A storm of changes costs at most two rounds of reads.
+    // A storm of changes costs at most two rounds of reads (D7).
     {
       const r = drive(fixture, host, flags('granted'), ['clock settle', 'prefer extension contacts.notify=25', 'clock settle', 'clock +3000', 'clock settle', 'tree', 'logs']);
       const lines = r[6]?.lines ?? [], from = lines.findIndex(l => /contacts: notify 25/.test(l));

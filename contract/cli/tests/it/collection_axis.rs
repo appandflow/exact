@@ -1,4 +1,4 @@
-//! A virtualized flex row scrolls horizontally, on the same
+//! LLP 1070 H1–H4: a virtualized flex row scrolls horizontally, on the same
 //! engine; the compiler refuses what would move its items' starts.
 use exact_kernel::Kernel;
 use exact_plan::Value;
@@ -18,6 +18,12 @@ fn a_flex_row_compiles_and_the_other_shapes_are_refused_by_name() {
         "list virtualized=true display=\"flex\" height=132 padding-top=8 padding-bottom=8 justify-content=\"flex-start\" flex-wrap=\"nowrap\"",
         "list virtualized=true display=\"flex\" height=132 padding-left=16 padding-right=\"env(safe-area-inset-right)\"",
         "list virtualized=true display=\"block\" height=132 estimated-item-height=40",
+        // CSS's gap between the cards, a computed height and a computed
+        // estimate (LLP 1070, as amended for #226).
+        "list virtualized=true display=\"flex\" height=132 gap=8",
+        "list virtualized=true display=\"flex\" height=132 column-gap=8 row-gap=0",
+        "list virtualized=true display=\"flex\" height=(66 * 2) estimated-item-width=(50 + 50) gap=(4 * 2)",
+        "list virtualized=true display=\"block\" height=132 gap=0",
     ] {
         contract::compile(&source(list)).unwrap_or_else(|e| panic!("{list}: {e}"));
     }
@@ -55,8 +61,20 @@ fn a_flex_row_compiles_and_the_other_shapes_are_refused_by_name() {
             "lower-collection-flow",
         ),
         (
-            "list virtualized=true display=\"flex\" height=132 gap=8",
+            "list virtualized=true display=\"block\" height=132 gap=8",
             "lower-collection-flow",
+        ),
+        (
+            "list virtualized=true display=\"flex\" height=132 gap=\"8px\"",
+            "lower-collection-flow",
+        ),
+        (
+            "list virtualized=true display=\"flex\" height=(true ? \"132\" : \"auto\")",
+            "lower-collection-cross",
+        ),
+        (
+            "list virtualized=true display=\"flex\" height=132 estimated-item-width=\"40\"",
+            "lower-list-height",
         ),
         (
             "list virtualized=true display=\"flex\" height=132 direction=\"rtl\"",
@@ -220,6 +238,7 @@ fn a_row_list_is_horizontal_its_wrappers_are_flex_items_and_its_spacers_widths()
 
 #[test]
 fn a_row_list_anchors_first_measurements_and_lets_a_remeasured_card_move_the_strip() {
+    // @ref LLP 1070 Q3 (a).
     let left_of_view = |r: &Runner<Rows>, offset: f64| {
         let c = r.collections().pop().unwrap();
         c.rows

@@ -1,4 +1,4 @@
-//! `@exact/calls`' declared substitute, through this
+//! `@exact/calls`' declared substitute (LLP 1133.033 D21), through this
 //! checkout's package installed beside the app: a call is listed in
 //! `state.calls` as the app places it, moves as the app reports it, and the
 //! person's acts on the system's screen are `tap @ref <choice>`, each raising
@@ -257,9 +257,10 @@ fn an_incoming_call_rings_and_the_person_answers_it() {
     );
 }
 
-/// `@fixture/intercom`, a module outside exact2's packages: its own keyed list
-/// with the forms calls uses (`with`, `stamp`, `refuse`, `ends`, `tap.choices`
-/// with `when`, `set` and an event) drives as `@exact/calls` does.
+/// `@fixture/intercom`, a module outside exact2's packages (LLP 1133.033 §12
+/// stage 0): its own keyed list with the forms calls uses (`with`, `stamp`,
+/// `refuse`, `ends`, `tap.choices` with `when`, `set` and an event) drives as
+/// `@exact/calls` does.
 const INTERCOM: &str = r#"{
   "kind": "interface",
   "name": "@fixture/intercom",
@@ -378,9 +379,10 @@ fn a_third_party_list_drives_as_calls_does() {
     );
 }
 
-/// Bound, `@exact/calls`' list stays the runner's: the implementation is handed
-/// it at the bind and at each change, never sent the list's sends, and its
-/// report of a person's act on the platform's screen takes the declared choice.
+/// Bound, `@exact/calls`' list stays the runner's (LLP 1133.033 §13,
+/// "Runner hands it over"): the implementation is handed it at the bind and
+/// at each change, never sent the list's sends, and its report of a
+/// person's act on the platform's screen takes the declared choice.
 #[test]
 fn a_bound_implementation_is_handed_the_list_and_reports_a_choice() {
     use exact_runner::{Outcome, Reply, Response};

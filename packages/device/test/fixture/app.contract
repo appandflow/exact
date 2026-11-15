@@ -1,5 +1,5 @@
-// The conformance fixture: every source of @exact/device,
-// read through the generated bindings by data code and shown by testId
+// The conformance fixture (LLP 1133.001 D7): every source of @exact/device,
+// read through the generated bindings by data code (D13) and shown by testId
 // for the suites. A read in data code is a reader like a resource: each
 // source's change asks it again, and `toggle` stops the reads, so the last
 // reader of `getBattery` and `connection` goes and the runner releases them

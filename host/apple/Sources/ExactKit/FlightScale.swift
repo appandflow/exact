@@ -1,4 +1,5 @@
-// How a flying view that is not an image is shown. It keeps its own layout, at its slot's
+// LLP 1013.000 D4.4 (amended 2026-10-05, approved by Charlie): how a flying
+// view that is not an image is shown. It keeps its own layout, at its slot's
 // size, and the whole view (its surface and its children together) is scaled
 // uniformly to the shown width, top-anchored, inside a clip that is the shown
 // box with the interpolated radius, as CSS draws a view transition's snapshot

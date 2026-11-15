@@ -1,5 +1,5 @@
 // @fixture/tide on the web: a module outside exact2's tree that wakes the app
-// as a platform would. A registration is a button on the
+// as a platform would (LLP 1133.017 D8). A registration is a button on the
 // page standing in for the platform's scheduler; clicking it raises `tide`
 // through the context's `wakes.raise`, and the button shows the outcome the
 // host answered (`completed`, `expired`, `refused`, `unheard`).

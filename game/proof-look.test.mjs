@@ -1,4 +1,4 @@
-// The look result: what makes it PASS, FAIL or UNVERIFIED in
+// The look result (LLP 1127.000 D5): what makes it PASS, FAIL or UNVERIFIED in
 // one proof and across a prove's hosts, apart from the simulation's; and the
 // browser's negative control, a starter whose sparks burn under the ground.
 import {test, expect} from 'bun:test';
@@ -165,7 +165,7 @@ test('a collecting repin run whose look fails records its pins; a missing host l
   } finally { rmSync(app2, {recursive:true, force:true}); }
 }, 60000);
 
-// The browser negative control: a starter whose sparks burn 2 m under the ground fails its web
+// The browser negative control (LLP 1127.000 D6): a starter whose sparks burn 2 m under the ground fails its web
 // proof on particles-uncovered, and the same starter with the sparks above the ground passes. Long: it builds a game.
 test('in the browser, buried sparks fail the look and sparks above the ground pass it', async () => {
   const name = `look-sparks-${process.pid}`, app = resolve(import.meta.dir, 'games', name);

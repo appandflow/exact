@@ -1,21 +1,21 @@
 //! The Linux readings as pure functions over what the system answered: the
 //! power supplies in `/sys/class/power_supply`, a link's `/sys/class/net`
 //! entry, rtnetlink's route reply, UPower's display device and the D-Bus
-//! wire format these come over. Nothing here opens a
+//! wire format these come over (LLP 1133.031 D1–D3). Nothing here opens a
 //! socket, so `rustc --test` runs it over recorded answers
 //! (`packages/device/test/linux.mjs`).
 
 use std::path::Path;
 
 /// A battery reading: `level` 0 to 1 in hundredths, `charging` false only
-/// while discharging.
+/// while discharging (D1).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Battery {
     pub level: f64,
     pub charging: bool,
 }
 
-/// The specification's no-battery values.
+/// The specification's no-battery values (D1).
 pub const NO_BATTERY: Battery = Battery {
     level: 1.0,
     charging: true,
@@ -67,7 +67,7 @@ pub fn sysfs_battery(root: &Path) -> Option<Battery> {
     None
 }
 
-/// UPower's display device: `IsPresent`, `Percentage` and `State` (the
+/// UPower's display device: `IsPresent`, `Percentage` and `State` (D1's
 /// Linux row). `Charging`, `FullyCharged`, `PendingCharge` and `Unknown`
 /// are charging; `Discharging`, `Empty` and `PendingDischarge` are not.
 pub fn upower_battery(present: bool, percentage: f64, state: u32) -> Battery {
@@ -81,7 +81,7 @@ pub fn upower_battery(present: bool, percentage: f64, state: u32) -> Battery {
 }
 
 /// The `type` of the link `name` from its `/sys/class/net/<name>` entry
-/// under `root` (the Linux row): a tunnel first, whose underlying link the
+/// under `root` (D2's Linux row): a tunnel first, whose underlying link the
 /// kernel does not name, then Wi-Fi, a WWAN modem, Ethernet, else other.
 pub fn link_type(root: &Path, name: &str) -> &'static str {
     let dir = root.join(name);

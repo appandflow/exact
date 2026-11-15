@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # The relay host's side of relay/deploy/deploy.sh, run as root over SSH (`bash -s -- <command> ...`).
 # Every command is idempotent: run it again and it changes only what differs. Ubuntu 22.04+ or Debian 12+.
-# OUTWARD-FACING: it opens 443 to the internet. Only on a host the operator provides for the relay.
+# OUTWARD-FACING: it opens 443 to the internet. Only on a host Charlie provides for the relay (theme2, 2026-10-24).
 #
 #   provision <domain>          user, directories, firewall (22 and 443 only), sshd keys-only, journald cap,
 #                               unattended upgrades, the systemd unit, the config; a placeholder certificate
-#                               for <domain> when none is installed (marked; the ACME step replaces it)
+#                               for <domain> when none is installed (marked; R4 replaces it by ACME)
 #   release <sha256> <path>     install the uploaded binary at <path> as a release, switch to it, restart,
 #                               health-check, and switch back to the previous release when that fails
 #   rollback                    switch to the previous release and restart (health-checked, switched back on failure)
@@ -19,7 +19,7 @@ set -euo pipefail
 # (ufw and sshd print words this script reads: in English, whatever the host's locale)
 export LC_ALL=C
 
-APP=tamber-relay
+APP=forma-relay
 OPT=/opt/$APP
 ETC=/etc/$APP
 VAR=/var/lib/$APP
@@ -45,12 +45,12 @@ put() {
 # Points symlink $1 at $2 in one rename. Returns 1 when it couldn't (never half-done).
 relink() { ln -sfn "$2" "$1.new" && mv -T "$1.new" "$1"; }
 
-# An upload removed: its private directory, when it is one deploy.sh made (/tmp/tamber-relay-upload.<random>/<file>);
+# An upload removed: its private directory, when it is one deploy.sh made (/tmp/forma-relay-upload.<random>/<file>);
 # any other path is left alone.
 unload() {
   local f
   for f in "$@"; do
-    if [[ $f =~ ^/tmp/tamber-relay-upload\.[A-Za-z0-9]+/[A-Za-z0-9._-]+$ ]]; then rm -rf "$(dirname "$f")"; else say "not removing $f: no upload of deploy.sh's"; fi
+    if [[ $f =~ ^/tmp/forma-relay-upload\.[A-Za-z0-9]+/[A-Za-z0-9._-]+$ ]]; then rm -rf "$(dirname "$f")"; else say "not removing $f: no upload of deploy.sh's"; fi
   done
 }
 
@@ -187,13 +187,13 @@ EOF
   # From here, a change restarts the relay (its config, certificate and unit are read at start).
   CHANGED=0
 
-  # The DNS hook the relay runs for an account's ACME TXT record. A placeholder that refuses until a
-  # provider is chosen: it is replaced by the provider's script, its API token in dns.env.
+  # The DNS hook the relay runs for an account's ACME TXT record. A placeholder that refuses until the
+  # provider is chosen (R4, waits on the domain): it is replaced by the provider's script, its API token in dns.env.
   if [ ! -f $ETC/dns-hook ]; then
     put $ETC/dns-hook 0750 root:$APP <<'EOF'
 #!/bin/sh
-# PLACEHOLDER (relay/deploy): no DNS provider yet. Replace with the provider's script.
-echo "tamber-relay dns-hook: no DNS provider is configured on this relay yet" >&2
+# PLACEHOLDER (relay/deploy): no DNS provider yet. Replace with the provider's script (runbook, "DNS").
+echo "forma-relay dns-hook: no DNS provider is configured on this relay yet" >&2
 exit 1
 EOF
   fi
@@ -219,7 +219,7 @@ EOF
   # marked, and refused by every connector (they verify WebPKI), until the ACME step installs the real one.
   if [ -d $ETC/tls ] && [ ! -L $ETC/tls ]; then local was; was=$(tls_new); mv $ETC/tls/* "$was"/ 2>/dev/null || true; rmdir $ETC/tls; relink $ETC/tls "$was"; fi
   if [ ! -f $ETC/tls/cert.pem ] || { [ -f $ETC/tls/PLACEHOLDER ] && [ "$(cat $ETC/tls/PLACEHOLDER)" != "$domain" ]; }; then
-    say "certificate: a self-signed PLACEHOLDER for $domain (replace it by ACME or install-cert)"
+    say "certificate: a self-signed PLACEHOLDER for $domain (replace by ACME: runbook, 'Certificate')"
     local d; d=$(tls_new)
     openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes -days 30 -subj "/CN=$domain" \
       -addext "subjectAltName=DNS:$domain" -keyout "$d/key.pem" -out "$d/cert.pem" 2>/dev/null
@@ -232,8 +232,8 @@ EOF
 
   put $UNIT 0644 root:root <<EOF
 [Unit]
-Description=tamber relay (SNI pass-through for tamber serve --relay)
-Documentation=https://github.com/expo/exact/blob/main/docs/tamber-relay-service.md
+Description=forma relay (SNI pass-through for forma serve --relay)
+Documentation=https://github.com/ccheever/exact2/blob/main/docs/forma-relay-service.md
 After=network-online.target
 Wants=network-online.target
 

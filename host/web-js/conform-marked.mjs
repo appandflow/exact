@@ -1,6 +1,7 @@
-// An interim marker on the wasm reference, until the wasm host binds
-// packages. The web's wasm host binds no package implementation
-// under the agent, while the JS target does, so on these
+// An interim marker on the wasm reference (theme2 + the lead, 2026-10-30; the
+// landing fix removes it). The web's wasm host binds no package implementation
+// under the agent (QUEUE.md, "The web's wasm host has no extension modules",
+// 1624 in the ruling; LLP 1133.008 §9), while the JS target does, so on these
 // three apps the two pages differ where a package answers. Their targets still
 // run in full; a wasm-vs-JS difference on them (state, tree, layout, paint,
 // screenshot, bound refusals, sound lines) is recorded and counted under the
@@ -8,7 +9,7 @@
 // an open, a crash, a step that did not run or that one page refused, an app
 // test that failed) still fails. Exactly these three, with exactly this reason:
 // conform.test.mjs refuses an addition.
-export const WASM_UNBOUND_REASON = 'reference does not bind packages';
+export const WASM_UNBOUND_REASON = 'reference does not bind packages (LLP 1071 retirement)';
 export const WASM_UNBOUND = Object.freeze({
   'photo-editor': WASM_UNBOUND_REASON,
   recorder: WASM_UNBOUND_REASON,

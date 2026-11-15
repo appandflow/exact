@@ -1,4 +1,4 @@
-//! Contacts and calendar admission in the runner (D11,
+//! Contacts and calendar admission in the runner (LLP 1133.018 D4, D11,
 //! D13), through this checkout's `@exact/contacts` and `@exact/calendar`
 //! installed beside the app, each implementation played by the test as the
 //! host's native slot under the agent: a pick that needs no line and whose
@@ -127,6 +127,9 @@ fn boot(name: &str, source: &str, grants: &'static str) -> (App, Runner<Grants>,
             }));
         })));
     r.bind_extensions(&[], &["contacts", "calendar"]);
+    // Both packages are unsupported on Linux and Windows; a test that wants
+    // another target sets its own.
+    r.set_module_target("macos");
     (app, r, calls)
 }
 
@@ -271,7 +274,7 @@ fn a_tool_cannot_pick() {
 
 /// The access picker is iOS's: its sheet holds there only under limited
 /// access, and on macOS the name fails `NotSupportedError`, under the agent
-/// too (D9).
+/// too (D9, LLP 1133.002 D14 step 2).
 #[test]
 fn the_access_picker_is_ios_s_and_holds_only_under_limited() {
     let (_app, mut r, calls) = boot("share", CONTACTS, "device.contacts purpose.read\n");

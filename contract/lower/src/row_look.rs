@@ -1,4 +1,4 @@
-//! `-exact-row-look="platform"`: an element whose box's look
+//! `-exact-row-look="platform"` (LLP 1139): an element whose box's look
 //! (its background, border, padding and shadow) is its own where it stands
 //! alone and the platform's row where it is a grouped list's row, as Exact
 //! Content's answer tile is a list's cell in a poll. There its look is

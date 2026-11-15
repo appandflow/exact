@@ -1,4 +1,4 @@
-//! A host's containing blocks: what a block that
+//! A host's containing blocks (LLP 1115.002 D8.2): what a block that
 //! changes costs, and what the fixtures in Chrome
 //! (`tests/it/browser_host_block.rs`) cannot show.
 use super::*;
@@ -61,12 +61,14 @@ fn children(id: ViewId, children: impl IntoIterator<Item = ViewId>) -> Op {
 }
 fn is(width: f32, height: f32) -> Option<HostBlock> {
     Some(HostBlock {
+        tactic: Default::default(),
         width: BlockAxis::Is(width),
         height: BlockAxis::Is(height),
     })
 }
 fn at_most(width: f32, height: f32) -> Option<HostBlock> {
     Some(HostBlock {
+        tactic: Default::default(),
         width: BlockAxis::AtMost(width),
         height: BlockAxis::AtMost(height),
     })
@@ -130,7 +132,7 @@ fn page(counts: &Rc<RefCell<BTreeMap<char, usize>>>) -> Kernel {
     k
 }
 
-/// When one block's constraints change, the other subtrees and the
+/// D8.3: when one block's constraints change, the other subtrees and the
 /// page around them are not laid out again. Counted four ways: paragraphs
 /// measured (by subtree), leaves the engine laid out, nodes publication
 /// visited, and the nodes the receipt names (what `perf` counts as moved).
@@ -251,7 +253,7 @@ fn a_block_that_changes_lays_out_its_subtree_alone() {
 }
 
 /// A route with a block inside a box the host replaced whole (a tab not
-/// yet built) is not laid out: none of its text is
+/// yet built, LLP 1075.003 §9.12) is not laid out: none of its text is
 /// measured. Given back, it is laid out as one never replaced is.
 #[test]
 fn a_block_in_a_box_replaced_whole_waits_for_the_box() {
@@ -452,8 +454,8 @@ fn refusals_and_a_destroyed_root() {
 
 #[test]
 fn a_hairline_in_a_block_is_the_displays_and_a_new_scale_lays_that_subtree_out() {
-    // The display's scale is the window's fact, as the root font size is,
-    // resolved into rows at a commit: no block scopes
+    // The display's scale is the window's fact, as the root font size is
+    // (LLP 1115.000 D10.3), resolved into rows at a commit: no block scopes
     // it. A sheet as tall as its content, its route under a hairline edge.
     let mut ops = small();
     let edge = [
@@ -541,6 +543,7 @@ fn route_fitting_tracks_retained_sizes_clears_and_its_own_basis() {
     let mut k = laid_out(small());
     let fit = |width, height| {
         Some(HostBlock {
+            tactic: Default::default(),
             width: BlockAxis::Fit(width),
             height: BlockAxis::Fit(height),
         })
@@ -621,9 +624,9 @@ fn route_fitting_tracks_retained_sizes_clears_and_its_own_basis() {
     );
 }
 
-/// A sheet whose content decides its height (the `fit-content` detent)
-/// fits its content once its route is laid out in its
-/// block: measured at the block's width, so text wraps as it
+/// A sheet whose content decides its height (the `fit-content` detent,
+/// LLP 1075.003 §9.11) fits its content once its route is laid out in its
+/// block (LLP 1123 D2): measured at the block's width, so text wraps as it
 /// will in the block, and whatever the block's height, which the
 /// measurement is for.
 #[test]

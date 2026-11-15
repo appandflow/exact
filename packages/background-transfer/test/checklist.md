@@ -2,7 +2,7 @@
 
 What the agent cannot drive: iOS relaunching a terminated app for its
 transfers' events, a person's force-quit, and a phone before its first
-unlock. Record the date, the OS version and what
+unlock (LLP 1133.017 D10). Record the date, the OS version and what
 happened beside each step when you run it.
 
 Build the fixture as `test/apple.mjs` makes it, for the phone
@@ -24,7 +24,7 @@ the phone can reach. The host's lines are in the system's log, subsystem
    shows `u2 abort failure aborted`.
 4. **Before the first unlock.** As 2, then restart the phone before the
    answer and leave it locked. Record whether anything is heard before the
-   first unlock (the staging is not built, so it should not be), and what
+   first unlock (D10's staging is not built, so it should not be), and what
    the app shows when opened after it.
 5. **A large download.** Serve a file of several hundred megabytes at
    `/file`, tap Download d1 and lock the phone. Record how long it took and

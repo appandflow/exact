@@ -1,6 +1,6 @@
-// The router on the JS target (route/src), re-exported by rt.js: the verbs and reads, the route table, and the
+// The router on the JS target (LLP 1038; route/src), re-exported by rt.js: the verbs and reads, the route table, and the
 // router slot's changes to the browser's history.
-import { Refusal, effect, After, journal, clock, commit, W, pressFeedback, fact, Hosts, Resources, Assigned, refused } from "./rt.js";
+import { Refusal, effect, After, journal, clock, commit, W, pressFeedback, fact, Hosts, Resources, Assigned, refused, useTraversal } from "./rt.js";
 import { Counting } from "./held.js";
 import { projectRoots } from "./document.js";
 import { canonical, locationOf, fragmentOf, enc, dec, matchPattern } from "./route-pattern.js";
@@ -49,12 +49,12 @@ function chain(location) {
 const entry = (id, d, fragment = "") => [id, d.name, d.url, d.tab, d.params, fragment];
 function refuse(r, why) { say(`router: ${why}`); return r; }
 function mint(r, d, fragment) { const id = r[2]; r[2] = id + 1; return entry(id, d, fragment); }
-/** The visit `e` with the fragment a location named: `e` itself when it already has it. */
+/** The visit `e` with the fragment a location named: `e` itself when it already has it (LLP 1153 D5). */
 const arrive = (e, fragment) => e[5] === fragment ? e : [...e.slice(0, 5), fragment];
 const sel = r => r[1].findIndex(t => t[0] === r[0] && t[1].length);
 const copy = r => [r[0], r[1].map(t => [t[0], t[1].slice()]), r[2]];
 /** A launch: the location's chain, else, when no route matches it and no `notfound` route absorbs it (an app with no
- * navigation root, which the compiler writes none for), the first screen's (`/`), the refusal journaled;
+ * navigation root, which the compiler writes none for: LLP 1116.009 D2), the first screen's (`/`), the refusal journaled;
  * the runner's `RouterContext::launch` (runner/src/runner/router.rs). The app boots, and its first commit puts `/` in the
  * address bar. */
 export function launch(location) {
@@ -67,7 +67,8 @@ function open_(r, location) {
   const c = chain(location);
   if (!c.length) return refuse(r, `no route matches ${canonical(location)}`);
   const out = copy(r);
-  if (!out[1].length) for (const i of roots()) out[1].push([Routes[i].name, [mint(out, { name: Routes[i].name, url: canonical(Routes[i].pattern), tab: Routes[i].name, params: empty() })]]);
+  // The location's own tab is seeded at its chain's root visit: a query on a root location changes no id (exact-route `open`).
+  if (!out[1].length) for (const i of roots()) out[1].push([Routes[i].name, [mint(out, Routes[i].name === c[0].name ? c[0] : { name: Routes[i].name, url: canonical(Routes[i].pattern), tab: Routes[i].name, params: empty() })]]);
   const t = out[1].find(t => t[0] === c[0].tab), leaf = c.length - 1, fragment = fragmentOf(location);
   if (!t) return refuse(r, `unknown tab ${c[0].tab}`);
   // The leaf takes the location's fragment; an ancestor kept keeps its own.
@@ -117,14 +118,15 @@ const stack_ = r => r[1].find(t => t[0] === r[0])?.[1] ?? [];
 const top_ = r => stack_(r).at(-1) ?? [0, "", "", "", empty(), ""];
 const depth_ = r => stack_(r).length;
 const params_ = (r, name) => stack_(r).map(e => e[4][Names.indexOf(name)]).filter(v => v);
-/** `fragment(entry)`: reads any entry, as `searchParam` does. */
+/** `fragment(entry)` (LLP 1153 D5): reads any entry, as `searchParam` does. */
 export const x_fragment = e => e[5];
 export function x_searchParam(e, name) {
-  const q = e[2].split("?")[1]; if (!q) return "";
+  const at = e[2].indexOf("?"); if (at < 0) return "";
+  const q = e[2].slice(at + 1);
   for (const pair of q.split("#")[0].split("&").filter(Boolean)) { const [k, ...v] = pair.split("="); if (dec(k, true) === name) return dec(v.join("="), true); }
   return "";
 }
-// A received share's files by token (runner/src/runner/router.rs `share`): a token not set this launch answers none.
+// A received share's files by token (LLP 1133.024 D3; runner/src/runner/router.rs `share`): a token not set this launch answers none.
 const Shared = new Map(); let SharedSet = null; const sharedSet = () => SharedSet ??= fact(); // made at first use: rt.js imports this module before its own body runs
 export function x_sharedFiles(e, name) {
   sharedSet().get();
@@ -141,22 +143,22 @@ export { segmentOf }; // `encodeRouteSegment` is budget.js's, checked
 export const x_path = (name, ...values) => path(Routes.find(r => r.name === name && !r.notfound), values);
 /** The router slot's changes, to the browser's history (`navigation.js`,
  * the web host's own), and a popstate back as the navigation root's
- * `navigate`. */
-let RouterSlot = null, Shown = null, Navigate = null, History = null; export const pageHistory = () => History; // the page's navigation.js, which the agent observes: its own copy's state is never written
+ * `navigate` (LLP 1038 D7, D11). */
+let RouterSlot = null, Shown = null, Navigate = null, History = null, Early = null; export const pageHistory = () => History; // the page's navigation.js, which the agent observes: its own copy's state is never written
 /** The plan's navigation roots, with a router or without (document.js `projectRoots`). A page with one loads the input
- * piece after first paint: the focus follows its routes (input-glue.js `arrive`). */
-export function navigationRoots(history) { History = history; projectRoots(history, location => Navigate ? (Navigate(location), true) : false, say, After, hostBack, hostGo, href => { const match = matchRoute(canonical(href)); return match !== null && !Routes[match[0]].notfound; }); pressFeedback(); }
-/** The platform's own Back from the selected visit `id`, with no `navigate` handler: the router's `back`
+ * piece after first paint: the focus follows its routes (input-glue.js `arrive`; LLP 1115.000 D4.2). */
+export function navigationRoots(history) { History = history; useTraversal(traversal, history); projectRoots(history, location => Navigate ? (Navigate(location), true) : false, say, After, hostBack, hostGo, href => { const match = matchRoute(canonical(href)); return match !== null && !Routes[match[0]].notfound; }, canonical); pressFeedback(); }
+/** The platform's own Back from the selected visit `id`, with no `navigate` handler (LLP 1115 D5): the router's `back`
  * as a commit of its own, the runner's `host_back`. */
 function hostBack(id) { const r = RouterSlot?.n.v; if (r && validRouter(r) && top_(r)[0] === id && depth_(r) > 1) commit(() => W(RouterSlot, back_(r)), "host back"); }
-/** The platform's own navigation to `location`, with no `navigate` handler (the browser's Forward, a
+/** The platform's own navigation to `location`, with no `navigate` handler (LLP 1115.000 D4.3: the browser's Forward, a
  * link to a declared route): the router's `go` as a commit of its own, the runner's `host_go`; nothing when `go` leaves
  * the router as it is. */
 function hostGo(location) {
   const r = RouterSlot?.n.v; if (!r || !validRouter(r)) return;
   const next = navigating(go_)(r, location); if (next !== r) commit(() => W(RouterSlot, next), "host go");
 }
-// The scroll to a fragment, the browser's own step made once the route's data has arrived (the
+// @ref LLP 1153 D5 — the scroll to a fragment, the browser's own step made once the route's data has arrived (the
 // runner's `fragment_command`): no resource waiting for its source and no request in flight, a mutation's included and
 // a held one not (held.js `Counting`, the runner's `has_pending`). `fragment.js` finds and scrolls, then holds the
 // target while the route's pictures load; it loads at first use. `Navigations`: what each `open`, `push`, `replace`
@@ -204,18 +206,38 @@ function afterCommit() {
   if (t && t[0] === n[1] && t[5] === n[2]) { const op = changeOf(r, t, true); History.apply(op); wantScroll(op); }
   queueMicrotask(fragmentDue);
 }
+/** The router's value `r`, to the history: the op it applied. */
+function mirror(r) {
+  const top = top_(r), ids = new Set(r[1].flatMap(t => t[1].map(e => e[0]))), before = Shown?.[1].flatMap(t => t[1]) ?? [];
+  const removed = before.map(e => e[0]).filter(id => !ids.has(id)), was = before.find(e => e[0] === top[0]);
+  Shown = r;
+  // A navigation to a fragment, a new visit with one, or a fragment that changed scrolls (LLP 1153 D5); a visit
+  // returned to keeps its place. The history mirrors the visit's url with its fragment.
+  const n = assigned(), activated = !!n && n[1] === top[0] && n[2] === top[5];
+  const op = changeOf(r, top, activated || (was ? was[5] !== top[5] : !!top[5]), removed);
+  History.apply(op);
+  return op;
+}
+/** Before a commit's tree update, which a view transition may defer with the router's effect (rt.js): during a Back or
+ * Forward the history mirrors the router's settled value now, for `popped` to judge (LLP 1007 §4). Whether the update
+ * runs at once instead of flying: when the browser animated the traversal itself (LLP 1013.000 D7). */
+function traversal() {
+  const pop = History.traversing, r = RouterSlot?.n.v;
+  if (pop && r?.[1].length && r !== Shown) Early = mirror(r);
+  return pop?.ua;
+}
 export function router(slot, history) {
   RouterSlot = slot; Assigned.n = slot.n; navigationRoots(history); After.push(afterCommit);
   // An author's own `scrollIntoView` wins over a fragment's scroll not yet made, or held while pictures load; its
   // `scrollBy` over one held.
   const own = Hosts.scrollIntoView; Hosts.scrollIntoView = (...a) => { const d = Due ?? Scheduled; if (d) { say(`fragment #${d.fragment}: the app's own scrollIntoView took its place`); Due = Scheduled = null; } globalThis.exact?.fragment?.cancel(); return own(...a); };
-  const by = Hosts.scrollBy; Hosts.scrollBy = (...a) => { globalThis.exact?.fragment?.cancel(); return by(...a); };
-  // A plain click on a same-origin link to a declared
+  const by = Hosts.scrollBy; Hosts.scrollBy = (...a) => { globalThis.exact?.fragment?.cancel(false); return by(...a); };
+  // @ref LLP 1038 §7 — a plain click on a same-origin link to a declared
   // route stays in this document, as input-glue.js's rule for the wasm host:
   // a link with its own `press` navigates by it; any other goes to the
   // root's `navigate` handler, as popstate does, and with no handler is the
   // router's own `go` (`hostGo`). A link to a fragment is a location
-  // too: `href="#moves"` is the visit shown, read from the
+  // too (LLP 1153 D5): `href="#moves"` is the visit shown, read from the
   // attribute, since the shell's `<base href="/">` resolves it to `/`. A
   // modified click, a `target` or `download`, another origin or an
   // undeclared path (a file) is the browser's alone.
@@ -234,24 +256,18 @@ export function router(slot, history) {
     if (Navigate) Navigate(target); else hostGo(target);
     if (RouterSlot.n?.v === r && !(here && url.hash)) say(`history: link ${JSON.stringify(target)} refused`);
   }, true);
+  // A value `traversal` mirrored already is not applied again: its scroll waited for the tree.
   effect(() => {
     const r = slot(); if (!r || !r[1].length) return;
-    const top = top_(r), ids = new Set(r[1].flatMap(t => t[1].map(e => e[0]))), before = Shown?.[1].flatMap(t => t[1]) ?? [];
-    const removed = before.map(e => e[0]).filter(id => !ids.has(id)), was = before.find(e => e[0] === top[0]);
-    Shown = r;
-    // A navigation to a fragment, a new visit with one, or a fragment that changed scrolls; a visit
-    // returned to keeps its place. The history mirrors the visit's url with its fragment.
-    const n = assigned(), activated = !!n && n[1] === top[0] && n[2] === top[5];
-    const op = changeOf(r, top, activated || (was ? was[5] !== top[5] : !!top[5]), removed);
-    history.apply(op);
-    if (op.scroll) wantScroll(op);
+    const op = r === Shown ? Early : mirror(r); Early = null;
+    if (op?.scroll) wantScroll(op);
   });
   // `effect` runs once synchronously. Its first apply follows
   // `projectRoots`' projection, so publish those initial visits now.
   history.project(document.getElementById("exact-root"), say);
 }
 /** `location` (a path and query) routed in place as a link to it is: the navigation root's `navigate` handler, else the
- * router's own `go` (the development page's `navigate` command). Why not, or "". */
+ * router's own `go` (the development page's `navigate` command, LLP 1122 T7). Why not, or "". */
 export function goTo(location) {
   const m = matchRoute(canonical(location)), said = JSON.stringify(location.length > 200 ? `${location.slice(0, 200)}…` : location);
   if (m === null || Routes[m[0]].notfound) return `${said} is no route of this app`;
@@ -259,7 +275,7 @@ export function goTo(location) {
   if (Navigate) Navigate(location); else hostGo(location);
   return RouterSlot?.n?.v === before ? `the app's router took no step to ${said}` : "";
 }
-export const navigateTo = f => { Navigate = f; }, navigateRoot = location => Navigate ? (Navigate(location), true) : false; // the agent's `type <root> <location>`
+export const navigateTo = f => { Navigate = f; }, navigateRoot = location => Navigate ? (Navigate(location), true) : false; // the agent's `type <root> <location>` (LLP 1038 D11)
 export const routeAt = location => matchRoute(canonical(location))?.[0] ?? -1;
 /** Whether `location` names a declared route, never only the notfound fallback: the runner's `route_matches`. */
 export const routeMatches = location => { const m = matchRoute(canonical(location)); return m !== null && !Routes[m[0]].notfound; };

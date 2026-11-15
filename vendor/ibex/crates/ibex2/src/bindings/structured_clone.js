@@ -1,5 +1,5 @@
 // The HTML structured clone algorithm over the value space Hermes exposes.
-// Clone stays inside the engine; transfer is refused.
+// @ref LLP 0059.000#310-atob--btoa-structuredclone-blob--file--formdata-customevent--pure-ungated — clone stays inside the engine and v1 refuses transfer
 (function (global) {
   "use strict";
 

@@ -1,4 +1,4 @@
-//! Exit animation and layout transition on the web: the browser
+//! Exit animation and layout transition on the web (LLP 1063): the browser
 //! plays both. The host writes each row as a custom property the page's
 //! presence module reads, sends an exit's `@keyframes` while its node lives,
 //! and names the view that leaves ahead of the destroys that remove it.
@@ -33,7 +33,7 @@ fn the_rows_reach_the_page_as_custom_properties_and_an_exit_precedes_its_destroy
         .and_then(|op| op.split_once('"'))
         .map(|(name, _)| name.to_string())
         .expect("the exit's rule, sent while its node lives");
-    assert_eq!(leave, "leave", "the page's rule, by its name");
+    assert_eq!(leave, "leave", "the page's rule, by its name (LLP 1055 D7)");
     assert!(
         first.contains("--exact-exit-animation:0.2s cubic-bezier(0.32, 0.72, 0, 1) 0s 1 normal both running leave;"),
         "{first}"

@@ -79,7 +79,7 @@ package struct TransformDragPosition {
     package func moved(dx: Double, dy: Double) -> [Double]? {
         TransformDragPosition(x: x + dx, y: y + dy, scale: scale)?.values
     }
-    /// Pinch anchored at its focal point: the content under
+    /// Pinch anchored at its focal point (LLP 1057.001 §4): the content under
     /// `from` stays under `to` while scale multiplies by `factor`, so translate
     /// follows the centroid. Points are relative to the clip's centre, in the
     /// translate's space (x right, y down); `factor` 1 is a pan by `to - from`.

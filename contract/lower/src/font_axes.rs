@@ -1,6 +1,6 @@
 //! A face's `wght` and `wdth` ranges from its file's `fvar` table, for an
-//! `@font-face` descriptor the declaration leaves `auto`
-//! (CSS Fonts 4 §4.5, §4.6).
+//! `@font-face` descriptor the declaration leaves `auto` (CSS Fonts 4 §4.5,
+//! §4.6). @ref LLP 1019 D2.
 //!
 //! OpenType's table directory and `fvar` layout:
 //! <https://learn.microsoft.com/en-us/typography/opentype/spec/otff>,

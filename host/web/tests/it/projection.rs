@@ -1,4 +1,4 @@
-//! The web host's element projection: a lone plain text is
+//! The web host's element projection (LLP 1007.001): a lone plain text is
 //! its box's text content.
 
 use exact_runner::Event;
@@ -64,11 +64,11 @@ fn view_with_test_id(host: &Host<caltrain_data::Caltrain>, test_id: &str) -> u32
 }
 
 /// A text that is its box's only child, with nothing of its own, is the box's
-/// text content: its element makes no box. One with a test id,
+/// text content (LLP 1007.001): its element makes no box. One with a test id,
 /// a row of its own, a sibling or a handler keeps its box, and a sibling that
 /// arrives later takes the fold back. A block button folds its label at any
 /// height (Chrome centres a block button's line boxes as the kernel centres
-/// its text); a flex one only where its height is its text's.
+/// its text, LLP 1001 §1); a flex one only where its height is its text's.
 /// Under a box that restricts touch the folded text is an inline box.
 #[test]
 fn a_lone_plain_text_is_its_boxs_text_content() {

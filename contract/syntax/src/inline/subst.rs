@@ -55,15 +55,15 @@ pub(super) struct Subst<'m, T> {
     /// and `match` variables) are values, never callable, so a call that
     /// spells one names a function (`t("key")` beside `for t in …`).
     calls: bool,
-    /// States, device facts and derives replace value reads only, even
-    /// when a derive's body is shaped like a curried action binding.
+    /// Value props, injects, states, device facts and derives replace value
+    /// reads only, even when a derive's body looks like a curried action.
     pub(super) value_only: BTreeSet<String>,
     /// The declared record constructors: shapes that are not `fn`s. A call
-    /// spelling one constructs that record ahead of any scoped name,
-    /// so its head is never replaced — its arguments are.
+    /// spelling one constructs that record ahead of any scoped name (LLP
+    /// 1035.005.000 D3), so its head is never replaced — its arguments are.
     records: &'m BTreeSet<String>,
     /// What a called action's body is substituted with past its parameters'
-    /// `let`s: nothing, when this substitution is of the
+    /// `let`s (LLP 1089 D2): nothing, when this substitution is of the
     /// caller's own names, which the callee never reads; the component's
     /// names, when lifting substitutes them into caller and callee alike.
     callee: Option<&'m BTreeMap<String, T>>,
@@ -224,6 +224,9 @@ pub(super) fn subst_expr<T: SubstitutionValue>(e: &Expr, s: &mut Subst<'_, T>) -
                     all.extend(args);
                     Expr::Call(f.clone(), all, *span)
                 }
+                // Types refuses a non-callable action binding at its supplier.
+                // Keep that value instead of leaving an unknown callee here.
+                Some(Replacement::Expr(value)) => value.clone(),
                 _ => Expr::Call(n.clone(), args, *span),
             }
         }
@@ -320,7 +323,7 @@ pub(super) fn subst_expr<T: SubstitutionValue>(e: &Expr, s: &mut Subst<'_, T>) -
 /// A child action's body, its names substituted: assignment targets renamed
 /// with `names`, expressions through `s` (props, injects, renamed states
 /// and actions, derives as expressions). A `let` binds for the rest of its
-/// block and is renamed apart, as a `match` binding
+/// block (LLP 1035.005.000 D2) and is renamed apart, as a `match` binding
 /// is, when a replacement mentions its name.
 pub(super) fn subst_stmts(
     stmts: &[Stmt],
@@ -407,7 +410,7 @@ pub(super) fn subst_stmts(
             }
             // The arguments, and the parameters' `let`s that bind them, are
             // the caller's expressions. The rest of the body is the callee's,
-            // closed over the caller's names, so a
+            // closed over the caller's names (LLP 1089 D2), so a
             // substitution of those stops at the `let`s; lifting carries the
             // component's own names on into it.
             Stmt::Call {
@@ -462,110 +465,28 @@ pub(super) fn subst_stmts(
 /// Add the names free in `e` (a call's head included: substitution
 /// replaces it too), skipping those `bound` holds.
 fn free_names(e: &Expr, bound: &mut Vec<String>, out: &mut BTreeSet<String>) {
-    let mut name = |n: &str, bound: &Vec<String>| {
-        if !bound.iter().any(|b| b == n) {
-            out.insert(n.to_owned());
+    if let Expr::Ident(n, _) | Expr::Call(n, _, _) = e {
+        if !bound.contains(n) {
+            out.insert(n.clone());
         }
-    };
-    match e {
-        Expr::Ident(n, _) => name(n, bound),
-        Expr::Call(n, args, _) => {
-            name(n, bound);
-            for a in args {
-                free_names(a, bound, out);
-            }
-        }
-        Expr::List(items, _) => {
-            for x in items {
-                free_names(x, bound, out);
-            }
-        }
-        Expr::Member(o, _, _)
-        | Expr::NamedArg(_, o, _)
-        | Expr::Typed(o, _, _)
-        | Expr::Some(o, _)
-        | Expr::Unary(_, o, _) => free_names(o, bound, out),
-        Expr::Binary(_, a, b, _) => {
-            free_names(a, bound, out);
-            free_names(b, bound, out);
-        }
-        Expr::Ternary(a, b, c, _) => {
-            free_names(a, bound, out);
-            free_names(b, bound, out);
-            free_names(c, bound, out);
-        }
-        Expr::Match {
-            subject,
-            var,
-            some,
-            none,
-            ..
-        } => {
-            free_names(subject, bound, out);
-            free_names(none, bound, out);
-            bound.push(var.clone());
-            free_names(some, bound, out);
-            bound.pop();
-        }
-        Expr::Let {
-            name: n,
-            value,
-            body,
-            ..
-        } => {
-            free_names(value, bound, out);
-            bound.push(n.clone());
-            free_names(body, bound, out);
-            bound.pop();
-        }
-        Expr::Arrow { params, body, .. } => {
-            bound.extend(params.iter().cloned());
-            free_names(body, bound, out);
-            bound.truncate(bound.len() - params.len());
-        }
-        Expr::Template(parts, _) => {
-            for p in parts {
-                if let TemplatePart::Expr(x) = p {
-                    free_names(x, bound, out);
-                }
-            }
-        }
-        Expr::Number(..) | Expr::Str(..) | Expr::Bool(..) | Expr::None(_) => {}
+    }
+    for (child, binds) in e.scoped_operands() {
+        let depth = bound.len();
+        bound.extend(binds.iter().map(String::from));
+        free_names(child, bound, out);
+        bound.truncate(depth);
     }
 }
 
 /// Whether `name` is written anywhere in `e`, free or bound.
 fn occurs(e: &Expr, name: &str) -> bool {
-    match e {
-        Expr::Ident(n, _) => n == name,
-        Expr::Call(n, args, _) => n == name || args.iter().any(|a| occurs(a, name)),
-        Expr::List(items, _) => items.iter().any(|a| occurs(a, name)),
-        Expr::Member(o, _, _)
-        | Expr::NamedArg(_, o, _)
-        | Expr::Typed(o, _, _)
-        | Expr::Some(o, _)
-        | Expr::Unary(_, o, _) => occurs(o, name),
-        Expr::Binary(_, a, b, _) => occurs(a, name) || occurs(b, name),
-        Expr::Ternary(a, b, c, _) => occurs(a, name) || occurs(b, name) || occurs(c, name),
-        Expr::Match {
-            subject,
-            var,
-            some,
-            none,
-            ..
-        } => var == name || occurs(subject, name) || occurs(some, name) || occurs(none, name),
-        Expr::Let {
-            name: n,
-            value,
-            body,
-            ..
-        } => n == name || occurs(value, name) || occurs(body, name),
-        Expr::Arrow { params, body, .. } => params.iter().any(|p| p == name) || occurs(body, name),
-        Expr::Template(parts, _) => parts
-            .iter()
-            .any(|p| matches!(p, TemplatePart::Expr(x) if occurs(x, name))),
-        Expr::Number(..) | Expr::Str(..) | Expr::Bool(..) | Expr::None(_) => false,
-    }
+    let here = match e {
+        Expr::Ident(n, _) | Expr::Call(n, _, _) => n == name,
+        _ => false,
+    };
+    here || e
+        .scoped_operands()
+        .any(|(child, binds)| binds.contains(name) || occurs(child, name))
 }
 
 pub(super) fn stmt_occurs(st: &Stmt, name: &str) -> bool {

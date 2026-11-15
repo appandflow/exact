@@ -1,7 +1,7 @@
 //! The page's environment in Contract: `viewport-fit="cover"` on the root and
 //! `env(safe-area-inset-*)` lengths in style attributes reach the kernel as
 //! the `viewportFit` prop and `Dimension::Env` rows, and the insets the host
-//! sets move the content.
+//! sets move the content (LLP 1001 §2, LLP 1006 §2).
 
 use exact_kernel::{Dimension, Edge, Env, Kernel, Offer, PropId};
 use exact_plan::Value;
@@ -125,9 +125,9 @@ fn dismiss_reaches_the_host_as_a_blur_command() {
     assert_eq!(commands, [("blur".to_string(), 0)]);
 }
 
-/// `min()`, `max()` and `clamp()` in a length attribute, a box shorthand's side
-/// among them, reach the kernel as one length each and follow the insets the
-/// host sets.
+/// LLP 1001 §2 (2026-10-07): `min()`, `max()` and `clamp()` in a length
+/// attribute, a box shorthand's side among them, reach the kernel as one
+/// length each and follow the insets the host sets.
 #[test]
 fn comparison_lengths_compile_and_follow_the_insets() {
     let src = "component A\n  view\n    column testId=\"root\" height=\"100%\"\n      column testId=\"bar\" height=49 padding=\"0 0 clamp(15px, env(safe-area-inset-bottom), 60px)\"\n      column testId=\"fab\" position=\"absolute\" height=56 bottom=\"calc(clamp(15px, env(safe-area-inset-bottom), 60px) + 15px + 44px)\"\n";
@@ -175,10 +175,10 @@ fn a_comparison_outside_the_kernel_grammar_is_refused_at_compile_time() {
         assert_eq!(e.id, "lower-attr-value", "{value}: {e}");
         assert!(e.message.contains(says), "{value}: {e}");
     }
-    // A `var()` names a design token, and this app declares none.
+    // A `var()` names a design token (LLP 1153 D6), and this app declares none.
     let src = "component A\n  view\n    column padding-bottom=\"max(15px, var(--gutter))\"\n";
     assert_eq!(
         contract::compile(src).unwrap_err().id,
-        "tamber-unknown-token"
+        "forma-unknown-token"
     );
 }

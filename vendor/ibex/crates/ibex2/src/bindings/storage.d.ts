@@ -23,7 +23,7 @@ export interface FileSystem {
   rename(from: string, to: string): Promise<void>;
   copyFile(from: string, to: string): Promise<void>;
   realpath(path: string): Promise<string>;
-  /** Exact patch 24: `stat` of a link itself. */
+  /** Exact patch 24 (exact2 LLP 1133.007 D6a): `stat` of a link itself. */
   lstat(path: string): Promise<FileStat>;
   /** A symbolic link's target. Needs `fs.read`. */
   readlink(path: string): Promise<string>;
@@ -39,10 +39,10 @@ export interface FileSystem {
   /** An exclusive advisory lock (POSIX `flock`), made if absent and left on
    * disk, waiting up to `timeout` ms: held until `unlock()`. Needs `fs.write`. */
   flock(path: string, options?: { timeout?: number }): Promise<{ unlock(): Promise<void> }>;
-  /** Exact patch 9, the app interface: decode the
+  /** Exact patch 9 (exact2 LLP 1069.002 A1), the app interface: decode the
    * image at `from`, scale it to fit `maxDimension` and encode a JPEG of at
    * most `maxBytes` at `to`, searching quality as Bluesky's composer does;
-   * or, with `type: "image/png"`, a PNG that keeps alpha, shrunk by
+   * or, with `type: "image/png"` (A1.11), a PNG that keeps alpha, shrunk by
    * 0.8 up to four times until it fits. Orientation is applied and no
    * metadata is written. Needs `fs.read` on
    * `from` and `fs.write` on `to`, both `app:/` paths. Rejects with a
@@ -50,11 +50,11 @@ export interface FileSystem {
    * on this host), `undecodable`, `too-large` (over 64 MiB, 64 Mi pixels,
    * or more decoding memory than the host allows), `unfit` (nothing fits) or
    * `timeout` (20 s), or a filesystem code. With `rotate`, `flip` or `crop`
-   * the edit is made first, in `transformImage`'s
+   * (exact2 LLP 1133.019 D15) the edit is made first, in `transformImage`'s
    * order, and the search runs on the edited picture; a crop that misses it
    * rejects with `code` `outside`. */
   compressImage(from: string, to: string, options: CompressImageOptions): Promise<CompressedImage>;
-  /** Exact patch 9a, the app interface: decode
+  /** Exact patch 9a (exact2 LLP 1133.019 D14), the app interface: decode
    * the image at `from` once, turn it upright, then `rotate` it about its
    * centre (degrees clockwise; a free angle takes the bounding box, clear
    * where the type keeps alpha and white otherwise), `flip` it in the
@@ -69,13 +69,13 @@ export interface FileSystem {
    * this host does not write), `undecodable`, `too-large`, `outside` (the
    * crop misses the picture) or `timeout`, or a filesystem code. */
   transformImage(from: string, to: string, options?: TransformImageOptions): Promise<TransformedImage>;
-  /** Exact patch 14, the app interface: this
+  /** Exact patch 14 (exact2 LLP 1069.010.000 D1), the app interface: this
    * answer depends on the `doc:/` path, and the host asks it again when the
    * file, a folder's own entries or, with `recursive`, its subtree change on
    * disk, by any process. Call it inside an answer; it carries no value, so
    * the answer reads again. Needs `fs.read` on the path. */
   watch(path: string, options?: WatchOptions): void;
-  /** Exact patch 15, the app interface: the
+  /** Exact patch 15 (exact2 LLP 1069.010.000 D5), the app interface: the
    * documents the host keeps for this app across launches, most recent
    * first, without reading them. `watch("doc:/")` asks the answer again when
    * the list changes. Needs the `doc.keep` grant; a host that keeps nothing
@@ -105,7 +105,7 @@ export interface WatchOptions {
 }
 
 export interface WriteOptions {
-  /** Exact patch 14: on a `doc:/` path, the
+  /** Exact patch 14 (exact2 LLP 1069.010.000 D2a): on a `doc:/` path, the
    * stat last read. The write is refused with `code` `ECHANGED`, writing
    * nothing, when the file's `modifiedMs` or `size` is no longer this. */
   readonly expect?: Pick<FileStat, "modifiedMs" | "size">;
@@ -118,7 +118,7 @@ export interface CompressImageOptions {
   readonly maxBytes: number;
   /** What to write; `"image/jpeg"` when absent. */
   readonly type?: "image/jpeg" | "image/png";
-  /** Exact patch 9a: `transformImage`'s edit. */
+  /** Exact patch 9a (exact2 LLP 1133.019 D15): `transformImage`'s edit. */
   readonly rotate?: number;
   readonly flip?: "horizontal" | "vertical";
   readonly crop?: ImageCrop;
@@ -204,6 +204,9 @@ export interface SQLCommand {
   sql: string;
   params?: SQLValue[];
 }
+export interface SQLTransactionOptions {
+  foreignKeys?: "check";
+}
 export interface SQLite {
   open(path: string): Promise<Database>;
 }
@@ -212,8 +215,11 @@ export interface Database {
   /** Read-only queries; one SQL statement per call. */
   query(sql: string, params?: SQLValue[]): Promise<SQLRows>;
   prepare(sql: string): Promise<Statement>;
-  /** One atomic batch, rolled back on failure; no callback transaction. */
-  transaction(commands: SQLCommand[]): Promise<SQLExecution[]>;
+  /** One atomic batch, rolled back on failure; no callback transaction.
+   * `foreignKeys: "check"` is for a migration that rebuilds a table other
+   * rows reference: foreign keys are not enforced while the batch runs and
+   * are checked once, before it commits. */
+  transaction(commands: SQLCommand[], options?: SQLTransactionOptions): Promise<SQLExecution[]>;
   /** Idempotent; invalidates this database's prepared statements. */
   close(): Promise<void>;
 }

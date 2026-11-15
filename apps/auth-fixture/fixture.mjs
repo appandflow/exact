@@ -1,13 +1,13 @@
 #!/usr/bin/env bun
 // A local OAuth authorization and resource server for the auth fixture
-// (sign-in under the agent reaches fixture servers only).
+// (LLP 1069.006 D7: sign-in under the agent reaches fixture servers only).
 // The AT Protocol's profile, small: PAR required, PKCE S256, DPoP-bound
 // tokens (ES256 proofs verified with WebCrypto, `jti` single-use, a nonce
 // the client must retry with, `jkt` bound at PAR and checked at the token
 // and resource servers, `ath` on the resource), `iss` in the callback. Two
-// registered clients, one per application type: the
+// registered clients, one per application type (after review, item 3): the
 // native one's redirect is the client id's hostname reversed, or a desktop's
-// loopback `/oauth/loopback`, the web one's the app's
+// loopback `/oauth/loopback` (LLP 1133.005 D9), the web one's the app's
 // `/.exact/auth/callback` (any loopback port in development).
 //
 //   bun apps/auth-fixture/fixture.mjs [--port 4331]
@@ -16,9 +16,9 @@
 //                                   {location} instead, for a drive's `type @t`
 //   GET /fixture/log                 what the server checked, for a smoke
 //   POST /passkey/…                  the passkey relying party (relying-party.mjs)
-//   POST /attest/challenge           a single-use challenge for @exact/attestation
+//   POST /attest/challenge           a single-use challenge for @exact/attestation (LLP 1133.028 §8.1)
 //   POST /attest/verify              {format, token, keyId, clientData} → {ok, message, error}
-//   /sign-in/…                       nonce, the web's return route, identity (sign-in.mjs)
+//   /sign-in/…                       nonce, the web's return route, identity (sign-in.mjs, LLP 1133.014 §10)
 //
 // `--substitute` accepts the agent's attestation tokens, which its drives
 // start it with; `--team <id>` is the team an App Attest key's RP ID names
@@ -48,7 +48,7 @@ const nonce = () => crypto.randomUUID();
 let authNonce = nonce(), resourceNonce = nonce(), coop = false, auto = false;
 const log = { par: 0, authorize: 0, token: 0, resource: 0, dpopVerified: 0, nonceRetries: 0, pkce: 0, refused: [] };
 // The RP IDs this server's relying party takes: the app's origin's host, with Apple's origin and each Android
-// signing certificate's, and `localhost` for a loopback page. The public origin's are `origin.mjs`'s.
+// signing certificate's (D6), and `localhost` for a loopback page. The public origin's are `origin.mjs`'s.
 const certificates = JSON.parse(readFileSync(new URL('./app.json', import.meta.url), 'utf8')).host?.android?.certificates ?? [];
 const passkeys = relyingParty(log, { rps: {
   'auth-fixture.exact.test': [ORIGIN, ...certificates.map(androidOrigin)],
@@ -58,7 +58,7 @@ const identities = signIn(log, { substitute: args.includes('--substitute'), idpK
 const team = args.includes('--team') ? args[args.indexOf('--team') + 1] : process.env.EXACT_APPLE_TEAM ?? 'TEAMID';
 const attestations = verifier({ appId: `${team}.com.exact.authfixture`, packageName: 'com.exact.authfixture', substitute: args.includes('--substitute') });
 log.attestation = attestations.log;
-// Each attestation challenge, single use, five minutes.
+// Each attestation challenge, single use, five minutes (§8.1).
 const challenges = new Map();
 
 const b64 = s => Buffer.from(s, 'base64url');

@@ -1,7 +1,7 @@
 <!doctype html>
 <meta charset="utf-8">
 <title>Exact motion parity</title>
-<!-- The browser as oracle: run every case in cases.json by
+<!-- The browser as oracle (LLP 1002 D2, §5): run every case in cases.json by
      seeking its transitions with Animation.currentTime and write what the
      browser computed into #out, one `sample` line each. Host code. -->
 <div id="stage"></div>
@@ -14,7 +14,7 @@ const identity = { translate: [0, 0], scale: [1, 0], rotate: [0, 0], opacity: [1
 function read(el, property) {
   const v = getComputedStyle(el)[property];
   if (v === "none") return identity[property];
-  // A colour: `rgb(r, g, b)` or `rgba(r, g, b, a)`, four numbers.
+  // A colour (LLP 1062): `rgb(r, g, b)` or `rgba(r, g, b, a)`, four numbers.
   const color = /^rgba?\(([^)]*)\)$/.exec(v);
   if (color) { const c = color[1].split(",").map(parseFloat); return [c[0], c[1], c[2], c[3] ?? 1]; }
   const parts = v.split(/\s+/).map(parseFloat);
@@ -29,7 +29,7 @@ try {
     el.style[c.property] = css(c.property, c.initial);
     getComputedStyle(el)[c.property];
     if (c.timeline) {
-      // A drag timeline has no browser oracle of its own; a
+      // A drag timeline (LLP 1057.003) has no browser oracle of its own; a
       // scroll timeline is the same mapping: the animation on `--t`, read at
       // the scroll offset each sample's position is, a frame after scrolling.
       const scroller = document.createElement("div");

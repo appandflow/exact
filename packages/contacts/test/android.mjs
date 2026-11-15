@@ -1,8 +1,8 @@
-// @exact/contacts and @exact/calendar on Android, on `apps/contacts-calendar-fixture`, both
+// @exact/contacts and @exact/calendar on Android (LLP 1133.018 stage 3), on `apps/contacts-calendar-fixture`, both
 // packages' consumer there (the Calendar example has no Android crate).
 //
 // With no flag it builds the fixture's APK and checks what the build made: the permissions the grant lines derive,
-// with `WRITE_CALENDAR` because the fixture calls `saveEvent` (the derivation's other cases are
+// with `WRITE_CALENDAR` because the fixture calls `saveEvent` (D11; the derivation's other cases are
 // `contract/cli/tests/it/contacts_calendar.rs`'s); the roster naming both extensions and their classes compiled in;
 // the agent's fixtures carried byte for byte. `--emulator` then drives the fixture under the agent on a booted
 // emulator or phone (adb's one device): both statuses, the store reads, a pick, a save and the editor. Both need an
@@ -15,11 +15,12 @@ import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { checker, root, texts, ticket } from './fixture.mjs';
+import { apkBuildDir } from '../../../scripts/agent-android.mjs';
 
 const app = 'contacts-calendar-fixture';
 const sha = bytes => createHash('sha256').update(bytes).digest('hex');
 const { check, failed } = checker();
-const built = resolve(root, 'host/android/app/build', app);
+const built = apkBuildDir(app);
 
 const build = spawnSync('bun', ['scripts/agent-android.mjs', 'build', app, '--apk'], { cwd: root, encoding: 'utf8', maxBuffer: 1 << 28 });
 check('android', 'the fixture builds as an APK', build.status === 0, (build.stdout + build.stderr).slice(-2000));

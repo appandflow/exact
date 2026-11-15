@@ -79,6 +79,6 @@ test "lanes loop at their own lengths; an edit plays at once"
 - **A playhead** is an animation: the guide's "Following the transport".
 - **MIDI:** a track's `output` is an output's `id`, its `offset` a delay in ms;
   `clock=` an input's `id` follows that device (`waiting` until Start).
-- **iOS stops it when hidden** unless the app plays in the background; a
+- **iOS stops it when hidden** unless the app plays in the background (LLP 1125 D4); a
   task on `transport.reason == "background"` (add `reason: string` to `Transport`) sets
   `playing` false.

@@ -1,23 +1,23 @@
-// @exact/media-capture on Android: the microphone as Media Capture's tracks, one
+// @exact/media-capture on Android (LLP 1133.009 D1-D3, D6, D8, D9): the microphone as Media Capture's tracks, one
 // `AudioRecord` for the process, each track in the session's track table (`context.tracks`) so a package that consumes
 // a track (`@exact/recording`) reaches it by id.
 //
-// - One capture: one `AudioRecord` whose read loop, on a thread of its own, hands each read to every tap. It
+// - One capture (D3): one `AudioRecord` whose read loop, on a thread of its own, hands each read to every tap. It
 //   runs while any track holds a lease, configured by the lease that opened it, and stops with the last.
-// - A track holds a lease while it has a consumer: its first consumer takes it, and after use only a start does;
+// - A track holds a lease while it has a consumer (D6): its first consumer takes it, and after use only a start does;
 //   a reader joining an idle track hears silence and opens nothing. A tool's or a wake's consumer never leases.
-// - Unsaid, the source is `MIC` with no effect; `echoCancellation` written true asks for `AcousticEchoCanceler`
+// - Unsaid, the source is `MIC` with no effect (D2); `echoCancellation` written true asks for `AcousticEchoCanceler`
 //   where the device has one, else `VOICE_COMMUNICATION`; `android.audioSource` and `android.privacySensitive` are
-//   the platform's words.
+//   the platform's words (D4).
 // - The capture policy silences an app whose capture another app takes: `isClientSilenced` mutes the tracks,
-//   `silenced` (API 29).
-// - The permission is `RECORD_AUDIO`, its state a fact with the history geolocation keeps.
-// - The background: with `device.microphone-background` the capture claims the host's `capture`
+//   `silenced` (D8, API 29).
+// - The permission is `RECORD_AUDIO`, its state a fact with the history geolocation keeps (D9).
+// - The background (LLP 1133.033 D5): with `device.microphone-background` the capture claims the host's `capture`
 //   service, type `microphone`, at the first lease and lets it go at the last, so it records on while the app is hidden.
 //   Without the line, or with the claim refused, Android lets a hidden app hear only silence, so leaving the app mutes
 //   the tracks, `background`, and lets their lease go, as on iOS; coming back takes it again.
 // - Under the agent no record is made and nothing is asked: a stream with one track, "Agent microphone".
-// - Tier 3: `MediaCaptureModule.hatch` is given the `AudioRecord.Builder` once per capture, after the words.
+// - Tier 3 (D5): `MediaCaptureModule.hatch` is given the `AudioRecord.Builder` once per capture, after the words.
 package exact.mediacapture
 
 import android.Manifest
@@ -46,9 +46,12 @@ import dev.exact.canvas.TrackOwner
 import org.json.JSONArray
 import org.json.JSONObject
 
-class MediaCaptureModule(context: ExtensionContext) : ExactExtension(context), TrackOwner {
+class MediaCaptureModule internal constructor(
+    context: ExtensionContext, private val audioSource: AudioSource?,
+) : ExactExtension(context), TrackOwner {
+    constructor(context: ExtensionContext) : this(context, if (context.agent) null else Capture)
     companion object {
-        /** The app's access hatch: the builder, once per capture, after the module's words are set. */
+        /** The app's access hatch (D5): the builder, once per capture, after the module's words are set. */
         @JvmStatic var hatch: ((AudioRecord.Builder) -> Unit)? = null
         private const val PERMISSION = Manifest.permission.RECORD_AUDIO
         private val SOURCES = mapOf(
@@ -59,8 +62,10 @@ class MediaCaptureModule(context: ExtensionContext) : ExactExtension(context), T
         )
     }
 
-    private class Track(val id: String, val stream: String, val label: String, val options: JSONObject) {
+    private class Track(val id: String, val stream: String, val label: String, val options: JSONObject, source: AudioSource?) {
+        val audio = source?.let(::TrackAudioSource)
         var enabled = true
+            set(value) { field = value; audio?.enabled = value }
         var muted = true
         var muteReason: String? = "idle"
         var readyState = "live"
@@ -76,11 +81,11 @@ class MediaCaptureModule(context: ExtensionContext) : ExactExtension(context), T
     private val history get() = app.getSharedPreferences("exact.media-capture", Context.MODE_PRIVATE)
     private val tracks = LinkedHashMap<String, Track>()
     private var next = 0
-    /** The cameras (VideoCapture.kt). */
+    /** The cameras (VideoCapture.kt, LLP 1133.008). */
     private val cameras = VideoTracks(context) { ++next }
     private var overlay: String? = null
     private var opened = false
-    /** The `capture` service's claim, held while any track is active. */
+    /** The `capture` service's claim, held while any track is active (LLP 1133.033 D5). */
     private var background: ForegroundClaim? = null
 
     init { if (!context.agent) Capture.listeners += this }
@@ -104,7 +109,7 @@ class MediaCaptureModule(context: ExtensionContext) : ExactExtension(context), T
             "setTrackEnabled" -> {
                 if (t == null) return reply(error("NotFoundError"))
                 t.enabled = args.optBoolean("enabled", true)
-                // Turning a track back on is a start: it reopens an idle one that has consumers.
+                // Turning a track back on is a start: it reopens an idle one that has consumers (D6).
                 if (t.enabled && !t.active && t.consumers.isNotEmpty() && t.readyState == "live") activate(t)
                 announce()
                 reply(shape(t))
@@ -123,12 +128,12 @@ class MediaCaptureModule(context: ExtensionContext) : ExactExtension(context), T
         }
     }
 
-    /** A stream with a camera's track, and the microphone's first where it asks for both. */
+    /** A stream with a camera's track, and the microphone's first where it asks for both (LLP 1133.008 D1). */
     private fun withCamera(args: JSONObject, reply: (JSONObject) -> Unit) {
         val stream = "stream-${context.session}-${++next}"
         val video = { made: List<JSONObject> ->
             cameras.open(args, stream) { v ->
-                // What opened first is let go when the camera fails.
+                // What opened first is let go when the camera fails (LLP 1133.009 D3).
                 if (v.has("error")) {
                     made.forEach { m -> tracks[m.optString("id")]?.let { end(it, "the camera failed") } }
                     reply(v)
@@ -155,12 +160,12 @@ class MediaCaptureModule(context: ExtensionContext) : ExactExtension(context), T
     private fun getUserMedia(args: JSONObject, reply: (JSONObject) -> Unit) {
         // No kind asked for is Media Capture's TypeError, before anything opens.
         if (!args.optBoolean("audio", false) && !args.has("audioConstraints")) return reply(error("TypeError"))
-        // A recognizer holding the microphone exclusively: nothing opens beside it.
+        // A recognizer holding the microphone exclusively (LLP 1133.012 D8): nothing opens beside it.
         if (context.tracks.held("audio")) return reply(error("NotReadableError"))
         val make = {
             next += 1
             val t = Track("track-${context.session}-$next", "stream-${context.session}-$next",
-                if (context.agent) "Agent microphone" else "Microphone", args)
+                if (context.agent) "Agent microphone" else "Microphone", args, audioSource)
             t.platformMute = overlay
             tracks[t.id] = t
             opened = true
@@ -179,7 +184,7 @@ class MediaCaptureModule(context: ExtensionContext) : ExactExtension(context), T
         }
     }
 
-    // Tracks and leases
+    // Tracks and leases (D6)
 
     override fun subscribe(id: String, consumer: TrackConsumer, start: Boolean, origin: String): () -> Unit {
         val t = tracks[id] ?: throw TrackError("NotFoundError")
@@ -187,10 +192,10 @@ class MediaCaptureModule(context: ExtensionContext) : ExactExtension(context), T
         t.consumers[consumer] = Unit
         when {
             t.active -> {
-                consumer.live(if (context.agent) null else Capture)
+                consumer.live(t.audio)
                 if (t.muted) consumer.muted(t.muteReason ?: "idle")
             }
-            // While a recognizer holds the microphone exclusively, a track stays idle.
+            // While a recognizer holds the microphone exclusively, a track stays idle (LLP 1133.012 D8).
             origin == "app" && t.enabled && (!t.used || start) && !context.tracks.held("audio") -> activate(t)
             else -> consumer.muted(t.muteReason ?: "idle")
         }
@@ -230,7 +235,7 @@ class MediaCaptureModule(context: ExtensionContext) : ExactExtension(context), T
                 t.platformMute = "interrupted"
             }
         }
-        each(t) { it.live(if (context.agent) null else Capture) }
+        each(t) { it.live(t.audio) }
         settle(t)
         if (t.leased || context.agent) claimBackground()
     }
@@ -242,7 +247,7 @@ class MediaCaptureModule(context: ExtensionContext) : ExactExtension(context), T
         releaseBackground()
     }
 
-    /** Claim the `capture` service where the app's lines declare it, at a lease taken in the foreground. */
+    /** Claim the `capture` service where the app's lines declare it, at a lease taken in the foreground (D5). */
     private fun claimBackground() {
         if (background != null || !context.foregroundService.declared("capture", "microphone")) return
         background = context.foregroundService.claim("capture", setOf("microphone"), context.origin, lost = { why ->
@@ -268,6 +273,7 @@ class MediaCaptureModule(context: ExtensionContext) : ExactExtension(context), T
     private fun end(t: Track, why: String) {
         if (t.readyState != "live") return
         t.readyState = "ended"; t.active = false
+        t.audio?.removeTaps()
         release(t)
         context.log("media-capture: ${t.id} ended ($why)")
         each(t) { it.ended() }
@@ -276,7 +282,7 @@ class MediaCaptureModule(context: ExtensionContext) : ExactExtension(context), T
         releaseBackground()
     }
 
-    /** The capture policy's silencing of this app's capture, or its end. */
+    /** The capture policy's silencing of this app's capture, or its end (D8). */
     internal fun silenced(on: Boolean) {
         for (t in tracks.values) {
             if (t.readyState != "live") continue
@@ -286,7 +292,7 @@ class MediaCaptureModule(context: ExtensionContext) : ExactExtension(context), T
     }
 
     /**
-     * The app left the foreground or came back: a capture under its claim runs on; any other one
+     * The app left the foreground or came back (LLP 1133.033 D5): a capture under its claim runs on; any other one
      * mutes `background` and lets its lease go, since a hidden app hears only silence, and takes it again on return.
      */
     override fun foreground(shown: Boolean) {
@@ -305,8 +311,8 @@ class MediaCaptureModule(context: ExtensionContext) : ExactExtension(context), T
         }
     }
 
-    /** Under the agent: a preferred `mediaStreamTrack` is the platform's change to every live track, and
-     * a preferred `foregroundService` refusal the platform's refusal of the claim. */
+    /** Under the agent: a preferred `mediaStreamTrack` is the platform's change to every live track (D10 item 11), and
+     * a preferred `foregroundService` refusal the platform's refusal of the claim (LLP 1133.033 D21). */
     override fun preferred(values: JSONObject) {
         context.foregroundService.refusing = values.optJSONObject("foregroundService")?.optString("refused")?.ifEmpty { null }
         val value = values.optJSONObject("mediaStreamTrack")
@@ -324,7 +330,10 @@ class MediaCaptureModule(context: ExtensionContext) : ExactExtension(context), T
         ids.forEach(cameras::dispose)
     }
 
-    override fun resumed() { context.changed("media-capture.microphoneStatus") }
+    override fun resumed() {
+        context.changed("media-capture.microphoneStatus")
+        context.changed("media-capture.cameraStatus")
+    }
 
     override fun destroy(done: () -> Unit) {
         tracks.values.toList().forEach { end(it, "the session ended") }
@@ -333,7 +342,7 @@ class MediaCaptureModule(context: ExtensionContext) : ExactExtension(context), T
         done()
     }
 
-    // The fact, with geolocation's history: a rejection with no rationale owed afterwards is permanent.
+    // The fact (D9), with geolocation's history: a rejection with no rationale owed afterwards is permanent.
 
     private fun granted() = app.checkSelfPermission(PERMISSION) == PackageManager.PERMISSION_GRANTED
 
@@ -352,9 +361,9 @@ class MediaCaptureModule(context: ExtensionContext) : ExactExtension(context), T
     }
 
     private fun ask(done: () -> Unit) {
-        context.requestPermissions(arrayOf(PERMISSION)) {
+        context.requestPermissions(arrayOf(PERMISSION)) { answered ->
             val activity = context.activity
-            if (!granted() && activity != null && !activity.shouldShowRequestPermissionRationale(PERMISSION)) {
+            if (PERMISSION in answered && !granted() && activity != null && !activity.shouldShowRequestPermissionRationale(PERMISSION)) {
                 history.edit().putBoolean("permanent", true).apply()
             }
             context.changed("media-capture.microphoneStatus")
@@ -387,7 +396,7 @@ class MediaCaptureModule(context: ExtensionContext) : ExactExtension(context), T
         return out
     }
 
-    /** The process's one capture. */
+    /** The process's one capture (D3). */
     @SuppressLint("MissingPermission")
     object Capture : AudioSource {
         const val RATE = 44100
@@ -471,4 +480,36 @@ class MediaCaptureModule(context: ExtensionContext) : ExactExtension(context), T
             r.release()
         }
     }
+}
+
+/** Disabled audio is silence with the input's sample count; the shared microphone stays unchanged (LLP 1133.033 D8). */
+internal class TrackAudioSource(private val source: AudioSource) : AudioSource {
+    @Volatile var enabled = true
+    override val sampleRate get() = source.sampleRate
+    override val channels get() = source.channels
+    private val taps = java.util.concurrent.CopyOnWriteArrayList<() -> Unit>()
+
+    override fun tap(block: (ShortArray, Int) -> Unit): () -> Unit {
+        val active = java.util.concurrent.atomic.AtomicBoolean(true)
+        // Only this tap's capture callback accesses its reusable silence.
+        var silence = ShortArray(4096)
+        val upstream = source.tap { samples, n ->
+            if (active.get()) {
+                if (enabled) block(samples, n)
+                else {
+                    if (silence.size < n) silence = ShortArray(n)
+                    silence.fill(0, 0, n)
+                    block(silence, n)
+                }
+            }
+        }
+        lateinit var cancel: () -> Unit
+        cancel = {
+            if (active.getAndSet(false)) { upstream(); taps -= cancel }
+        }
+        taps += cancel
+        return cancel
+    }
+
+    fun removeTaps() { taps.toList().forEach { it() } }
 }

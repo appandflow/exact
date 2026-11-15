@@ -1,4 +1,4 @@
-# The SVG gallery's data source: none; every fixture is literal.
+# The SVG gallery's data source (LLP 1055.000): none; every fixture is literal.
 [package]
 name = "svg-gallery-data"
 version.workspace = true

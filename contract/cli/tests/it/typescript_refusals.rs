@@ -1,4 +1,4 @@
-//! TypeScript that Contract refuses is refused with an edit,
+//! LLP 1116.016 D5: TypeScript that Contract refuses is refused with an edit,
 //! and the edit compiles.
 
 /// A component whose derive `c` is `expr`, over a few states.

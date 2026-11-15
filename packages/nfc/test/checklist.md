@@ -1,9 +1,9 @@
-# NFC by a person
+# NFC by a person (LLP 1133.035 §11 items 11 to 17)
 
 What no simulator or emulator can do: bring a tag to a radio. Each step says
 what to run and what you should see. Record what you see beside the item's
-number; where an item says "record", write the answer down with the date and
-device.
+number; where an item says "record", the answer goes into the RFC's as-built
+notes.
 
 ## What you need
 
@@ -35,7 +35,7 @@ nothing for NFC.
 ## Before Android
 
 ```
-bun scripts/hermes-android.mjs build        # once
+bun scripts/exact.mjs setup                 # once: the Android target and Hermes bundle
 bun scripts/agent-android.mjs build shelf --apk
 adb install -r host/android/app/build/shelf/outputs/apk/release/app-release.apk
 ```
@@ -79,21 +79,21 @@ it can never be written again.
       range.
     - "This tag is too small" needs a tag smaller than Shelf's two records
       (about 80 bytes), such as an NTAG210 (48 bytes). An NTAG215 never
-      gives it. If you have one, record Chrome's error name for it.
+      gives it. If you have one, record Chrome's error name for it (D3).
     - On the iPhone, each failure is the sheet's last line and no alert
       follows. On Android and in Chrome, it is an alert.
 14. **A card that holds no NDEF.** Hold the bank card to the phone during a
     Scan.
     - Android and Chrome: "This tag can't be read", and the scan goes on.
       A sticker after it is read.
-    - iPhone: nothing happens and the sheet stays.
+    - iPhone: nothing happens and the sheet stays (D11).
 15. **The radio (Android).** Turn NFC off in Settings and return to Shelf:
     Scan and Tag This Book read "Turn On NFC", which opens the NFC switch.
     Turning it on brings Scan back.
 16. **Two stickers at once.** Hold two stickers together to the phone during
     a Scan.
     - iPhone: neither is read. Take one away, and the one left is read.
-    - Android and Chrome: record which one is read.
+    - Android and Chrome: record which one is read (D5).
 17. **Tier 2, from the fixture app.** Make it as the suite does
     (`packages/contacts/test/fixture.mjs`'s `makeFixture('nfc')`; keep its
     directory), then build it for the iPhone with
@@ -110,8 +110,12 @@ it can never be written again.
       answer ends `00 11 03` (NTAG215's storage size and protocol).
     - On the iPhone, a second sticker is read only after the first is taken
       away.
+    - On the iPhone, Scan all, then Write link and hold a sticker: it is
+      written. Take it away and hold another: it is read. Write link again
+      and hold a third: it is written. Write link onto the locked sticker:
+      it fails `read-only`, and the next sticker held is read.
     - Command after the scan ended fails `InvalidStateError`.
-- **Chrome, a data-code write.** In Chrome on the phone, Tag This
+- **Chrome, a data-code write (D15).** In Chrome on the phone, Tag This
   Book's write runs from data code after the press. Record whether Chrome
   still allows it as the press's activation, or fails it
   `NotAllowedError`.

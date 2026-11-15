@@ -1,9 +1,9 @@
-// The OAuth fixture: `@exact/oauth` against the fake
+// The OAuth fixture (LLP 1146): `@exact/oauth` against the fake
 // authorization server (`packages/oauth/test/fixture.ts`), one provider
 // profile at a time. Its testIds are the ones the conformance cases read
 // (`packages/oauth/test/cases.template.contract`): sign-in, sign-out, status,
 // name, refresh and error. `sign-in-here` signs in to ForgeRock with the
-// app's own screens (`app.test.contract`).
+// app's own screens (LLP 1146 D8; `app.test.contract`).
 
 use OAuthSession, OAuthResult from "@exact/oauth"
 

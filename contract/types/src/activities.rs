@@ -1,4 +1,4 @@
-//! Reserved mutation sends, available in every plan.
+//! @ref LLP 1126.001 WP9 — reserved mutation sends, available in every plan.
 use crate::{err, infer, Scope, Shapes, Ty, TypeError};
 use contract_syntax::{Expr, Span};
 

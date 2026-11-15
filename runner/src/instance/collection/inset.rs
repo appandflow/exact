@@ -1,4 +1,4 @@
-//! A list's padding along its axis: the padding
+//! A list's padding along its axis (@ref LLP 1010 §6.9): the padding
 //! before the first row and after the last that its host laid out, taken in
 //! with the report that carries it, whose anchor is taken on the range the
 //! reader was in.

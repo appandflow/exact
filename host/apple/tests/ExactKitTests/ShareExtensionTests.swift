@@ -1,4 +1,4 @@
-// The share extension's inbox, written through a stub
+// LLP 1133.024 D4, D9: the share extension's inbox, written through a stub
 // extension context, as the app's claim reads it.
 import Foundation
 import UniformTypeIdentifiers

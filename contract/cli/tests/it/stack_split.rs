@@ -1,7 +1,7 @@
-//! A stack splits when a row of its root route's list pushes, read from the
-//! push and not from a chevron (`Runner::stack_split`). The Mac's split view
-//! reads it; the web's projection reads the same plan facts and retained
-//! visit URLs.
+//! LLP 1115.002 D4 (the rule is LLP 1116.004 D1.2's): a stack splits when a
+//! row of its root route's list pushes, read from the push and not from a
+//! chevron (`Runner::stack_split`). The Mac's split view reads it; the web's
+//! projection reads the same plan facts and retained visit URLs.
 
 use exact_kernel::{Kernel, Op, PropId, PropValue, ViewId};
 use exact_plan::Value;
@@ -130,6 +130,32 @@ fn a_list_whose_rows_link_to_a_route_splits_and_names_each_rows_detail() {
     assert_eq!(r.stack_split(view(&r, "star-a"), None), None);
 }
 
+/// A row's link is compared as its visit stores it: canonical, without its
+/// fragment.
+#[test]
+fn a_row_whose_link_is_not_canonical_is_still_its_routes_row() {
+    let rows = r#"              link href="/item/a#panel" testId="row-a"
+                text "a"
+              link href="/item/b?q=a b" testId="row-b"
+                text "b"
+              link href="/item/./c" testId="row-c"
+                text "c""#;
+    for (href, detail, row) in [
+        ("/item/a#panel", "item-a", "row-a"),
+        ("/item/b?q=a b", "item-b", "row-b"),
+        ("/item/./c", "item-c", "row-c"),
+    ] {
+        let mut r = boot(&app("", "", rows));
+        let root = r.kernel().roots()[0];
+        r.dispatch(root, Event::Navigate(href.into())).unwrap();
+        assert_eq!(
+            split(&r).unwrap().rows,
+            vec![(view(&r, detail), view(&r, row))],
+            "{href}"
+        );
+    }
+}
+
 #[test]
 fn a_decorative_chevron_cannot_opt_out_another_rows_route_link() {
     let rows = format!(
@@ -249,7 +275,7 @@ fn a_row_whose_press_writes_the_router_splits_and_one_that_writes_none_does_not(
     assert!(found.rows.is_empty(), "a press names no location");
     assert!(found.locations.is_empty(), "nothing is pushed yet");
     // What a press pushes is named with its location, which a host reads to
-    // tell when `replace` moves it.
+    // tell when `replace` moves it (LLP 1127 D3).
     r.dispatch(view(&r, "row-b"), Event::Press).unwrap();
     let found = split(&r).unwrap();
     assert!(found.rows.is_empty());
@@ -356,6 +382,7 @@ fn the_list_beside_a_route_in_a_hosts_pane_is_not_inactive() {
     let (row, item) = (view(&r, "row-a"), view(&r, "item-b"));
     assert!(r.inactive(row), "a pushed route covers its list");
     let pane = HostBlock {
+        tactic: Default::default(),
         width: BlockAxis::Is(500.0),
         height: BlockAxis::Is(400.0),
     };
@@ -371,6 +398,7 @@ fn the_list_beside_a_route_in_a_hosts_pane_is_not_inactive() {
     assert!(r.inactive(item), "a route under the pane's top is covered");
     // A sheet's block is a maximum: what is under it is covered.
     let sheet = HostBlock {
+        tactic: Default::default(),
         width: BlockAxis::AtMost(500.0),
         height: BlockAxis::AtMost(400.0),
     };
@@ -381,7 +409,7 @@ fn the_list_beside_a_route_in_a_hosts_pane_is_not_inactive() {
 }
 
 /// A host that lays every route out in a block of its own, as iOS gives
-/// each route its controller's view, shows no list beside a
+/// each route its controller's view (LLP 1123 D2), shows no list beside a
 /// pane: the route under a pushed route, and under a sheet the size of its
 /// detent, stays covered.
 #[test]
@@ -390,6 +418,7 @@ fn a_list_in_a_block_of_its_own_is_covered_by_the_route_over_it() {
     let mut r = boot(&app("", "", LINKS));
     let root = r.kernel().roots()[0];
     let screen = HostBlock {
+        tactic: Default::default(),
         width: BlockAxis::Is(402.0),
         height: BlockAxis::Is(874.0),
     };
@@ -405,6 +434,7 @@ fn a_list_in_a_block_of_its_own_is_covered_by_the_route_over_it() {
     r.dispatch(root, Event::Navigate("/".into())).unwrap();
     r.dispatch(view(&r, "add"), Event::Press).unwrap();
     let sheet = HostBlock {
+        tactic: Default::default(),
         width: BlockAxis::Is(402.0),
         height: BlockAxis::Is(814.0),
     };
@@ -416,8 +446,8 @@ fn a_list_in_a_block_of_its_own_is_covered_by_the_route_over_it() {
     );
 }
 
-/// A box the root route marks `navigationSplit="placeholder"` is
-/// `display: none` until a host shows it in its split's empty detail pane
+/// LLP 1116.006 D2: a box the root route marks `navigationSplit="placeholder"`
+/// is `display: none` until a host shows it in its split's empty detail pane
 /// (`Runner::show_split_placeholder`): then it is the web shell's flex box
 /// filling the block it is given, its content centred where the author said
 /// nothing of that, and hidden again after. A list in it is never the
@@ -460,6 +490,7 @@ fn a_shown_placeholder_fills_its_block_and_hides_again() {
         "already shown"
     );
     let pane = HostBlock {
+        tactic: Default::default(),
         width: BlockAxis::Is(500.0),
         height: BlockAxis::Is(400.0),
     };

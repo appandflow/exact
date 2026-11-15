@@ -10,7 +10,7 @@ import AppKit
 /// offset change with its arrival time and phase, in a fixed ring, under a lease. It is fed only from the scroll
 /// callbacks the host already has (iOS `scrollViewDidScroll`, the Mac clip's bounds change): no display link, timer
 /// or observer of its own, so tracking a fling never changes how the app schedules frames. It exists only while an
-/// agent leases it, where the capture lease may be taken (`FrameHealth.enabled`, not a virtual clock).
+/// agent leases it, where #1141's capture lease may be taken (`FrameHealth.enabled`, not a virtual clock).
 final class FrameHealthTrack {
     static let capacity = 4096, maximumBytes = 4000, format = "exact.frame-health.track/1"
     /// A gap this long between two rows starts a new run: no comparable predecessor, interval 0 (as a sampler

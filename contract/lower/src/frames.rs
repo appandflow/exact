@@ -1,4 +1,4 @@
-//! A browser shell's `iframe`: the words only
+//! A browser shell's `iframe` (@ref LLP 1020.002 D1, D6, §9): the words only
 //! an `iframe` takes, and what a `partition` refuses beside it. A
 //! partitioned frame is a top-level page with its own storage, so nothing
 //! may reach the app from it: no `sandbox` (WebKit cannot sandbox a
@@ -140,7 +140,7 @@ fn frame_ids(view: &[contract_syntax::Node]) -> Option<std::collections::BTreeMa
     Some(ids)
 }
 
-/// The frame commands, whose first argument is an
+/// The frame commands (@ref LLP 1020.002 D3), whose first argument is an
 /// iframe's `id`; `reload` only with one (bare, it is the app's reload).
 pub(crate) fn is_frame_command(name: &str, args: &[Expr]) -> bool {
     matches!(
@@ -150,7 +150,7 @@ pub(crate) fn is_frame_command(name: &str, args: &[Expr]) -> bool {
 }
 
 /// Whether `path` names a file under one of the app's own roots, which a
-/// capture writes: `app:/data/…`, `app:/cache/…`
+/// capture writes (@ref LLP 1069.002 D7): `app:/data/…`, `app:/cache/…`
 /// or `app:/tmp/…`, with no `.` or `..` part.
 fn app_file(path: &str) -> bool {
     let Some(rest) = path.strip_prefix("app:/") else {

@@ -1,4 +1,4 @@
-//! Reflect every shader under `shaders/` at build: naga
+//! Reflect every shader under `shaders/` at build (LLP 1009 D5): naga
 //! validates each one — a bad shader fails the build with its line and
 //! column, never a canvas at runtime — and what it declares (bindings,
 //! layouts, vertex inputs, entry points) is generated as Rust into

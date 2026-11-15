@@ -1,4 +1,4 @@
-# The OAuth fixture on the Apple hosts.
+# The OAuth fixture on the Apple hosts (LLP 1146 D6).
 [package]
 name = "oauth-fixture-apple"
 version.workspace = true
@@ -13,6 +13,7 @@ test = false
 bench = false
 
 [dependencies]
+ibex2-sqlite = { path = "../../../vendor/ibex/crates/ibex2-sqlite" }
 exact-logic = { path = "../../../logic" }
 exact-apple = { path = "../../../host/apple" }
 exact-js = { path = "../../../js" }

@@ -1,5 +1,6 @@
-//! A declared WAV is read and checked before any host plays it, the three
-//! commands are checked, and `expect sound` parses and reaches the driver.
+//! LLP 1096 D1, D2, D10, §5: a declared WAV is read and checked before any
+//! host plays it, the three commands are checked, and `expect sound` parses
+//! and reaches the driver.
 
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -221,7 +222,7 @@ fn the_checker_reads_literal_sources_and_named_arguments() {
             "{bad}"
         );
     }
-    // A literal rate or pan outside its range is refused, as a literal gain is.
+    // A literal rate or pan outside its range is refused, as a literal gain is (LLP 1125 D10).
     for (bad, message) in [
         (
             "playSound(\"assets/kit/hat.wav\", playbackRate=8)",

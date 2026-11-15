@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 // `bun scripts/fling.mjs ios <app> --target <scroller> [--to "<op>" …] [--flings N] [--distance <pt>] [--json]`
-// An app's list flung as a person flings it, and what that cost.
+// (LLP 1144 D1): an app's list flung as a person flings it, and what that cost.
 //
 // The app runs on the agent's socket under platform timing and real touches, so
 // the frames are the display's and each fling is UIKit's own tracking and
@@ -69,7 +69,7 @@ framesBetween.records = (before, after) => (after.records ?? []).filter((r) => r
 /** What the tracked scroller did frame by frame, while momentum alone moved it
  * (`d`): steps far larger than their neighbours' (a jump an anchor or a bounce
  * does not explain) and frames where it stood still mid-glide (a stall).
- * Diagnostic: neither is judged until checked against known cases. */
+ * Diagnostic: neither is judged until checked against known cases (LLP 1144 D1). */
 export function motionOf(records) {
   const xs = records.filter((r) => Array.isArray(r.scroll));
   const jumps = [], stalls = [];
@@ -164,7 +164,7 @@ export async function main(argv) {
     const collect = async () => { for (const r of (await s.op({ op: 'perf', frames: true, records: true, late: 0 })).records ?? []) if (r.t > (before.window?.to ?? -Infinity)) records.set(r.t, r); };
     for (let i = 0; i < args.flings; i++) {
       const down = (i + flip) % 2 === 1;
-      // macOS: a trackpad's fling through the window server, which AppKit runs as a person's; a positive dy scrolls down.
+      // macOS: a trackpad's fling through the window server, which AppKit runs as a person's (LLP 1142 D3); a positive dy scrolls down.
       if (args.host === 'macos') await s.tap(args.target, { wheel: [0, down ? -travel : travel], fling: true });
       else await s.tap(args.target, { drag: { dx: 0, dy: down ? travel : -travel, from: [box.w / 2, down ? box.h * 0.15 : box.h * 0.85], over: FLING_MS } });
       // A real touch's reply comes before UIKit's deceleration: what moved is read from the offset the frames recorded.
@@ -178,7 +178,7 @@ export async function main(argv) {
     if (moved.length && moved.every((m) => m === before0)) throw new Error(`fling: ${args.target} did not scroll: it is at the end of its range, or its content fits it`);
     const after = await s.op({ op: 'perf', frames: true, hold: false, records: true, late: 100 });
     const workAfter = await s.perf();
-    // Images whose box showed before their pixels, from the app's start: the screen's own loading too.
+    // Images whose box showed before their pixels (LLP 1145 D2), from the app's start: the screen's own loading too.
     const images = (await s.op({ op: 'state' }))?.raster?.lateImages ?? null;
     for (const r of framesBetween.records(before, after)) records.set(r.t, r);
     const all = [...records.values()].sort((a, b) => a.t - b.t);

@@ -1,4 +1,4 @@
-// @exact/altimeter on the web: no browser ships a
+// @exact/altimeter on the web (LLP 1133.026 D13, D21): no browser ships a
 // barometer, so the status reads `available` false and every other name
 // fails `NotSupportedError`.
 

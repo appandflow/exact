@@ -1,0 +1,45 @@
+{
+  "$schema": "../../scripts/app.schema.json",
+  "name": "Mosaic",
+  "short_name": "Mosaic",
+  "id": "com.exact.mosaic",
+  "start_url": "/",
+  "display": "standalone",
+  "app": {
+    "id": "com.exact.mosaic",
+    "name": "Mosaic"
+  },
+  "host": {
+    "web": {},
+    "macos": {
+      "minimumOS": "14.0",
+      "window": {
+        "width": 900,
+        "height": 700
+      }
+    },
+    "ios": {
+      "minimumOS": "17.0",
+      "deviceFamily": [
+        "iphone",
+        "ipad"
+      ]
+    }
+  },
+  "rust": false,
+  "commands": {
+    "server": [
+      "bun",
+      "server.ts"
+    ]
+  },
+  "server": {
+    "database": false
+  },
+  "deploy": {
+    "store": {
+      "macos": "0",
+      "ios": "0"
+    }
+  }
+}

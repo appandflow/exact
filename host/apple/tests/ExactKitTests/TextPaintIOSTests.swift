@@ -67,7 +67,7 @@ final class TextPaintIOSTests: XCTestCase {
         XCTAssertNil(node.paragraphSpec().runs.last?.background, "a hidden inline parent paints no background behind its visible child")
     }
 
-    /// A fitted paragraph is drawn at the scale the kernel's
+    /// LLP 1116.001 D1.4: a fitted paragraph is drawn at the scale the kernel's
     /// layout chose (`fitScale`): its runs' sizes, line heights and letter
     /// spacing and its strut, in the kernel's f32 arithmetic; and back at its
     /// size when the prop goes.

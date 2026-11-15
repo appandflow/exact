@@ -8,9 +8,9 @@ import XCTest
 import ExactCore
 @testable import ExactKit
 
-/// A timer's advance is posted to the owner, and main does not
+/// LLP 1072.000: a timer's advance is posted to the owner, and main does not
 /// wait for it. Its commit is held here between the owner making it and main
-/// applying it, the window this rule settles: an input on a row
+/// applying it, the window the ruling (§7.1 (a)) settles: an input on a row
 /// the commit removed is refused and logged, one on a row it changed runs
 /// against the current state, and nothing crashes. A delayed advance
 /// observes the clock when it runs and keeps its repeat's phase.
@@ -79,7 +79,7 @@ final class AsyncAdvanceTests: XCTestCase {
 
     private func logs(_ session: ExactSession) -> String { session.agent(#"{"op":"logs"}"#) }
 
-    /// A task's timer is Foundation's: once its first row is due, its
+    /// A task's timer is Foundation's (#1144): once its first row is due, its
     /// firing, delivered as the run loop delivers it (`deliverNativeTimer`):
     /// posted to the owner. The row it fired.
     @discardableResult private func deliverTask(_ session: ExactSession, beforeDelivery: () -> Void = {}) throws -> NativeTimerWake {
@@ -137,7 +137,7 @@ final class AsyncAdvanceTests: XCTestCase {
     }
 
     /// A row the held commit changed but kept: the input runs with the
-    /// owner's current values, not the ones shown.
+    /// owner's current values, not the ones shown (§7.1 (a)).
     func testAnInputOnARowAHeldAdvanceChangedRunsAgainstCurrentState() throws {
         let session = try booted()
         let row = try XCTUnwrap(id(session, "row-b")), field = try XCTUnwrap(id(session, "field-b"))
@@ -153,7 +153,7 @@ final class AsyncAdvanceTests: XCTestCase {
 
     /// On the live clock a delayed advance observes the clock when the owner
     /// runs it, as one main waited for does, and its repeat keeps the phase
-    /// of its scheduled beat.
+    /// of its scheduled beat (the timers RFC D3).
     func testADelayedAdvanceObservesWhenItRunsAndKeepsItsPhase() throws {
         let session = try booted()
         session.presenter.onPress?(try XCTUnwrap(id(session, "beat")))

@@ -12,7 +12,7 @@ pub(super) struct Rare {
     pub(super) collection: Option<Box<collection::Collection>>,
     /// Last published surface inputs (a canvas node).
     pub(super) last_surface: Option<Vec<Value>>,
-    /// A mode boundary's implied rows, by [`super::theme::INHERITED`].
+    /// A mode boundary's implied rows, by [`super::theme::INHERITED`] (D7).
     pub(super) implied: Option<[Option<Value>; 8]>,
     /// The bindings, by `BindingsId`, whose last evaluation trapped
     /// (`trapped.rs`): unset and journaled once.

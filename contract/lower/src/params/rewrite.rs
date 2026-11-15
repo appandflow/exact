@@ -1,4 +1,4 @@
-//! Where a component names its params: `param.<name>` where
+//! Where a component names its params (LLP 1121 D15): `param.<name>` where
 //! one of its rows (a style, shorthand or motion row, an image's `symbol:`
 //! source, named or positional) takes its value, and in its params' defaults
 //! and `select` options, is the param's token name. A row takes its value
@@ -23,8 +23,8 @@ use contract_syntax::{BinOp, Component, Expr, File, Node, Span, TemplatePart};
 /// stand in.
 fn row(tag: &str, name: &str) -> bool {
     use crate::tags::AttrTarget;
-    // A state part's row is a row (a param read only by `:active` is
-    // reached).
+    // A state part's row is a row (LLP 1121 D8, stage 8 F: a param read only
+    // by `:active` is reached).
     let name = contract_syntax::state::state_of(name).map_or(name, |(_, row)| row);
     matches!(
         crate::tags::attr(name),
@@ -115,13 +115,15 @@ fn source(tag: &str, name: &str) -> bool {
 /// Each `param.<name>` whole word of `text` outside quotes, not after `#`,
 /// and (`glued`) not touching a template hole at its start or end, with its
 /// byte range and name; and the quote `text` leaves open, starting in
-/// `quote` (a template's earlier text's).
+/// `quote` (a template's earlier text's). Only dotted names matching the
+/// internal token form are included, so authored internal tokens are refused
+/// without treating ordinary dotted text as a param reference.
 fn found(
     text: &str,
     glued: (bool, bool),
     mut quote: Option<char>,
 ) -> (Vec<(usize, usize, String)>, Option<char>) {
-    let ident = |c: char| c.is_ascii_alphanumeric() || matches!(c, '_' | '-');
+    let ident = |c: char| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.');
     let bytes: Vec<(usize, char)> = text.char_indices().collect();
     let mut out = Vec::new();
     let mut k = 0;
@@ -148,13 +150,22 @@ fn found(
             let tail = &text[i + PREFIX.len()..];
             let len = tail.find(|c: char| !ident(c)).unwrap_or(tail.len());
             let end = i + PREFIX.len() + len;
-            let whole = before.is_none_or(|c| !ident(c) && c != '.' && c != '#')
+            let name = &tail[..len];
+            let internal = name.split_once('.').is_some_and(|(file, rest)| {
+                file.len() == 9
+                    && file.starts_with('f')
+                    && file[1..].bytes().all(|b| b.is_ascii_hexdigit())
+                    && rest.split_once('.').is_some_and(|(component, param)| {
+                        !component.is_empty() && !param.is_empty() && !param.contains('.')
+                    })
+            });
+            let whole = before.is_none_or(|c| !ident(c) && c != '#')
                 && len > 0
-                && !tail[len..].starts_with('.')
+                && (!name.contains('.') || internal)
                 && !(glued.0 && i == 0)
                 && !(glued.1 && end == text.len());
             if whole {
-                out.push((i, end, tail[..len].to_string()));
+                out.push((i, end, name.to_string()));
             }
             while k < bytes.len() && bytes[k].0 < end {
                 k += 1;
@@ -343,24 +354,17 @@ fn view(list: &mut [Node], visit: &mut dyn FnMut(&mut Expr, bool)) {
                 }
                 view(children, visit);
             }
-            Node::When {
-                then, otherwise, ..
-            } => {
-                view(then, visit);
-                view(otherwise, visit);
-            }
-            Node::Each { body, .. } => view(body, visit),
-            Node::Match { some, none, .. } => {
-                view(&mut some.1, visit);
-                view(none, visit);
-            }
             Node::Use { args, children, .. } => {
                 for a in args.iter_mut() {
                     visit(&mut a.value, true);
                 }
                 view(children, visit);
             }
-            Node::Children { .. } => {}
+            node => {
+                for list in node.child_lists_mut() {
+                    view(list, visit);
+                }
+            }
         }
     }
 }
@@ -436,7 +440,7 @@ fn everything(list: &mut [Node], visit: &mut dyn FnMut(&mut Expr, bool)) {
 /// reached something other than a row's value: a text's content, an
 /// attribute that is no row, a computation in a row (a function's
 /// argument, a condition), a state, a derive or an action. Refused
-/// (`tamber-param-scope`), naming the param in full.
+/// (`forma-param-scope`), naming the param in full.
 pub fn reached(root: &Component, params: &[ParamToken]) -> Vec<LowerError> {
     // A refusal, which the design server's build, stopped at the design's
     // retention, never says (`retention_only`).
@@ -453,10 +457,12 @@ pub fn reached(root: &Component, params: &[ParamToken]) -> Vec<LowerError> {
         })
     });
     let mut out = Vec::new();
+    // A whole token, not a prefix: `…Button.color` is not `…Button.colorActive`.
+    let names = |text: &str, p: &ParamToken| param_words(text).any(|w| w == p.token);
     for (text, span) in found {
-        if let Some(p) = params.iter().find(|p| text.contains(&p.token)) {
+        for p in params.iter().filter(|p| names(&text, p)) {
             out.push(LowerError {
-                id: "tamber-param-scope",
+                id: "forma-param-scope",
                 message: format!("param `{}` reaches a place no row takes its value from (a text's content, an attribute that is no row, a function's argument or a condition), through an argument that passed it: pass it only to a prop the component writes a row's value with", p.full),
                 span,
             });
@@ -467,9 +473,9 @@ pub fn reached(root: &Component, params: &[ParamToken]) -> Vec<LowerError> {
     rest.view.clear();
     rest.params = Default::default();
     let rest = format!("{rest:?}");
-    for p in params.iter().filter(|p| rest.contains(&p.token)) {
+    for p in params.iter().filter(|p| names(&rest, p)) {
         out.push(LowerError {
-            id: "tamber-param-scope",
+            id: "forma-param-scope",
             message: format!("param `{}` reaches a state, a derive or an action, through an argument that passed it: pass it only to a prop the component writes a row's value with", p.full),
             span: p.param.span,
         });
@@ -477,12 +483,18 @@ pub fn reached(root: &Component, params: &[ParamToken]) -> Vec<LowerError> {
     out
 }
 
+/// The param tokens `text` writes, each a whole word.
+fn param_words(text: &str) -> impl Iterator<Item = &str> {
+    text.split(|c: char| !(c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_')))
+        .filter(|w| w.starts_with(PREFIX))
+}
+
 /// A refusal of a param named where no component owns it.
 fn scoped(span: Span, name: &str, place: String, fix: &str) -> LowerError {
     LowerError {
-        id: "tamber-param-scope",
+        id: "forma-param-scope",
         message: format!(
-            "`param.{name}` in {place}: a param is named in its own component's rows; {fix}"
+            "`param.{name}` in {place}: a param is named in its own component's rows (D15); {fix}"
         ),
         span,
     }
@@ -507,12 +519,12 @@ fn named_in(e: &mut Expr) -> Vec<(String, Span)> {
 
 /// Rewrite `param.<name>` where each component of `file` names its params
 /// (module docs) to the param's token name; refuse a name the component does
-/// not declare (`tamber-param-unknown`), and one where no component owns it
-/// (`tamber-param-scope`).
+/// not declare (`forma-param-unknown`), and one where no component owns it
+/// (`forma-param-scope`).
 pub fn rewrite(file: &mut File) -> Vec<LowerError> {
     let mut errors = Vec::new();
-    // A `style` one component alone applies is that component's: its
-    // `param.*` are its params. One any other applies, or none, is
+    // A `style` one component alone applies is that component's (LLP 1139
+    // D3): its `param.*` are its params. One any other applies, or none, is
     // no one's, as a `keyframes` is.
     let owners = owners(file);
     for s in &mut file.styles {
@@ -542,7 +554,7 @@ pub fn rewrite(file: &mut File) -> Vec<LowerError> {
             }
             for (name, span) in bad {
                 errors.push(LowerError {
-                    id: "tamber-param-unknown",
+                    id: "forma-param-unknown",
                     message: format!("`param.{name}` in the style `{}`, which `{}` alone applies: `{}` declares no param `{name}`", s.name, c.name, c.name),
                     span,
                 });
@@ -551,7 +563,7 @@ pub fn rewrite(file: &mut File) -> Vec<LowerError> {
         }
         for a in &mut s.attrs {
             for (n, span) in named_in(&mut a.value) {
-                errors.push(scoped(span, &n, format!("the style `{}`", s.name), "a style is shared by every component that applies it: write the row on the component's element, or apply the style from one component alone, whose params it then reads"));
+                errors.push(scoped(span, &n, format!("the style `{}`", s.name), "a style is shared by every component that applies it: write the row on the component's element, or apply the style from one component alone, whose params it then reads (LLP 1139 D3)"));
             }
         }
     }
@@ -563,7 +575,7 @@ pub fn rewrite(file: &mut File) -> Vec<LowerError> {
         }
     }
     // A members block's states and derives too, before it joins its
-    // component.
+    // component (LLP 1091.002).
     for c in file.components.iter_mut().chain(file.members.as_mut()) {
         rewrite_component(c, &mut errors);
     }
@@ -571,7 +583,7 @@ pub fn rewrite(file: &mut File) -> Vec<LowerError> {
 }
 
 /// A style one component alone applies in its own file, which names that
-/// component's params, as [`owned`] finds it before the
+/// component's params (LLP 1139 D3), as [`owned`] finds it before the
 /// rewrite.
 #[derive(Debug, Clone)]
 pub struct Owned {
@@ -605,7 +617,7 @@ pub fn owned(file: &File) -> Vec<Owned> {
 }
 
 /// Each [`Owned`] style a component of another source applies too, in the
-/// sources made one (`tamber-param-scope`): its `param.` names were its
+/// sources made one (`forma-param-scope`): its `param.` names were its
 /// owner's, and a second applier would read them.
 pub fn escaped(file: &File, owned: &[Owned]) -> Vec<LowerError> {
     let owners = owners(file);
@@ -620,8 +632,8 @@ pub fn escaped(file: &File, owned: &[Owned]) -> Vec<LowerError> {
         for c in list.iter().map(|&i| &file.components[i]) {
             if c.span != o.owner {
                 errors.push(LowerError {
-                    id: "tamber-param-scope",
-                    message: format!("the style `{}` names `{}`'s params, the one component in its file that applies it, but `{}` applies it too: a style is shared by every component that applies it; write the rows on `{}`'s element, or apply the style from it alone", o.name, o.owner_name, c.name, o.owner_name),
+                    id: "forma-param-scope",
+                    message: format!("the style `{}` names `{}`'s params, the one component in its file that applies it, but `{}` applies it too: a style is shared by every component that applies it; write the rows on `{}`'s element, or apply the style from it alone (LLP 1139 D3)", o.name, o.owner_name, c.name, o.owner_name),
                     span: o.style,
                 });
             }
@@ -657,17 +669,11 @@ fn owners(file: &File) -> Vec<(String, Vec<usize>)> {
                 Node::Use { children, .. } | Node::Each { body: children, .. } => {
                     classes(children, out)
                 }
-                Node::When {
-                    then, otherwise, ..
-                } => {
-                    classes(then, out);
-                    classes(otherwise, out);
+                node => {
+                    for list in node.child_lists() {
+                        classes(list, out);
+                    }
                 }
-                Node::Match { some, none, .. } => {
-                    classes(&some.1, out);
-                    classes(none, out);
-                }
-                Node::Children { .. } => {}
             }
         }
     }
@@ -732,7 +738,7 @@ fn rewrite_component(c: &mut Component, errors: &mut Vec<LowerError>) {
     }
     for (name, span) in bad {
         errors.push(LowerError {
-            id: "tamber-param-unknown",
+            id: "forma-param-unknown",
             message: format!(
                 "`param.{name}`: `{}` declares no param `{name}`{}",
                 c.name,
@@ -766,8 +772,8 @@ fn read(c: &mut Component) -> Vec<String> {
 }
 
 /// Each param of `file` no row of its component reaches, directly or
-/// through another of its params (`tamber-param-unused`); a state part's
-/// row is a row (a `pressed` param among them).
+/// through another of its params (`forma-param-unused`); a state part's
+/// row is a row (D8, D15's `pressed`).
 pub fn unused(file: &File) -> Vec<LowerError> {
     let mut errors = Vec::new();
     let owners = owners(file);
@@ -777,7 +783,7 @@ pub fn unused(file: &File) -> Vec<LowerError> {
         }
         let identity = c.params.identity.clone().unwrap_or_else(|| c.name.clone());
         let mut reached = read(&mut c.clone());
-        // And the rows of each style it alone applies.
+        // And the rows of each style it alone applies (LLP 1139 D3).
         for style in file.styles.iter().filter(|s| {
             owners
                 .iter()
@@ -797,12 +803,7 @@ pub fn unused(file: &File) -> Vec<LowerError> {
                 });
             }
         }
-        let words = |text: &str| -> Vec<String> {
-            text.split(|c: char| !(c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_')))
-                .filter(|w| w.starts_with(PREFIX))
-                .map(str::to_string)
-                .collect()
-        };
+        let words = |text: &str| -> Vec<String> { param_words(text).map(str::to_string).collect() };
         loop {
             let more: Vec<String> = c
                 .params
@@ -820,7 +821,7 @@ pub fn unused(file: &File) -> Vec<LowerError> {
         for p in &c.params.list {
             if !reached.contains(&token_name(&identity, &p.name)) {
                 errors.push(LowerError {
-                    id: "tamber-param-unused",
+                    id: "forma-param-unused",
                     message: format!(
                         "param `{}` is read by no row of `{}`, directly or through another of its params: read it in a row or a state part's row (`param.{}`), or remove it",
                         full_name(&identity, &p.name),
@@ -855,6 +856,20 @@ mod tests {
             ),
             ["fill"]
         );
+        assert_eq!(
+            names("param.f123abcde.App.ink", (false, false)),
+            ["f123abcde.App.ink"]
+        );
+        for dotted in [
+            "https://param.example.com/icon.png",
+            "param.f123abcd.App.ink",
+            "param.f123abcdg.App.ink",
+            "param.f123abcde.App",
+            "param.f123abcde..ink",
+            "param.f123abcde.App.ink.extra",
+        ] {
+            assert!(names(dotted, (false, false)).is_empty(), "{dotted}");
+        }
         assert!(names("\"param.fill\", system-ui", (false, false)).is_empty());
         assert!(names("url(#param.fill)", (false, false)).is_empty());
         assert!(names("param.fill", (true, false)).is_empty());

@@ -1,4 +1,4 @@
-//! `saveFile(id, from, suggestedName)`: export is a copy
+//! `saveFile(id, from, suggestedName)` (LLP 1069.010 D3): export is a copy
 //! the host makes. The app has already written `from`, an `app:/` file,
 //! under its own grant; the host copies it to where the person chooses
 //! (`NSSavePanel`, the exporting document picker, `showSaveFilePicker` or a
@@ -6,14 +6,14 @@
 //! names, or HTML's `cancel` there. The web has no single name for "copy
 //! this file out", so the command's name is a declared deviation.
 //! `saveFile(id, text=…, suggestedName=…)` saves the text itself, as UTF-8,
-//! with no file to write first and no grant to read it ("export what's on
-//! screen" would otherwise need a mirror file kept current, because the save
-//! picker needs the press's activation and a `then` is past it).
+//! with no file to write first and no grant to read it (x2apps notes #4:
+//! "export what's on screen" took a mirror file kept current, because the
+//! save picker needs the press's activation and a `then` is past it).
 //!
-//! One rule on every host, as for `share`: the runner
+//! One rule on every host, as for `share` (LLP 1069.003): the runner
 //! refuses bad data into the journal (`saveFile: refused: <reason>`), holds
 //! the request for the agent (capability `export`, answered by `type @t
-//! <path>` or `tap @t cancel`), or tells the host to
+//! <path>` or `tap @t cancel`, LLP 1069.007 D3), or tells the host to
 //! present it.
 
 use crate::agent::{field_bool, field_str, quote};
@@ -257,7 +257,7 @@ mod tests {
         assert!(!covered(g, "fs.write", "app:/tmp/f"));
         assert!(covered("fs.read doc:/", "fs.read", "doc:/1/a.md"));
         assert!(!covered("fs.read doc:/", "fs.read", "app:/data/a"));
-        // A quoted target is one path, spaces and all,
+        // A quoted target is one path, spaces and all (LLP 1125 D12 review),
         // as the browser's grant set reads it (host/web-js/files.test.js).
         let quoted = "fs.read \"app:/data/a b\"";
         assert!(covered(quoted, "fs.read", "app:/data/a b/file.txt"));
@@ -291,7 +291,7 @@ mod tests {
         );
         assert!(SaveFile::from_args(&[s("x"), s("app:/data/a")]).is_err());
         assert!(SaveFile::from_args(&[s("x"), Value::Number(1.0), s("a")]).is_err());
-        // `text=`: the content in place of a file.
+        // `text=` (x2apps notes #4): the content in place of a file.
         let text = SaveFile::from_args(&[s("x"), Value::Option(None), s("a.md"), s("A")]).unwrap();
         assert_eq!(
             text.summary(),

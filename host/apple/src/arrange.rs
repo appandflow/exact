@@ -1,4 +1,4 @@
-//! Arrange on the Apple hosts: the platform recognizes the
+//! Arrange on the Apple hosts (LLP 1041 §8.5): the platform recognizes the
 //! contact and Swift maps the pointer; this owns the lifted wrapper's hold and
 //! asks the collection for a gap, in the web and Linux hosts' order: the final
 //! sample, one `reorderdrop` while the source is still held, the rebase of

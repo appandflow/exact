@@ -1,4 +1,4 @@
-// Static and computed repeating gradients, masks and mixed stops.
+// LLP 1066: static and computed repeating gradients, masks and mixed stops.
 component Gradients
   state size = 120
   state period = 8

@@ -1,5 +1,5 @@
-// The fixture's two activities share one component: one line in each of the
-// eight Live Activity placements.
+// The fixture's two activities share one component: one line in each of WP8's
+// eight placements (LLP 1126.001 WP8).
 shape FixtureState
   label: string
 

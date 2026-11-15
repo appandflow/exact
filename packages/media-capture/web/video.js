@@ -1,32 +1,32 @@
-// @exact/media-capture's video half on the web: the
+// @exact/media-capture's video half on the web (LLP 1133.008 D1-D3, D6): the
 // browser's cameras as Media Capture's video tracks, each in the session's
 // track table (`tracks`) so a package that consumes one (`@exact/camera`'s
 // viewfinder and `takePhoto`) reaches it by id. index.js routes its names
 // here for a video track and for `video=`.
 //
-// - A track holds a lease while it has a consumer. A consumer that shows
+// - A track holds a lease while it has a consumer (D3). A consumer that shows
 //   the capture takes it whenever its origin is the person's or the app's own
 //   code and the page is shown; a tool's or a wake's consumer never does
-//   ("a visible consumer"). The last consumer gone, the
+//   (LLP 1133.008 §14, "a visible consumer"). The last consumer gone, the
 //   browser's track is stopped (`enabled = false` lets a browser keep the
 //   camera and its indicator on) and the track reads `muted`, `idle`; the next
 //   lease opens the camera again under the same id, by its `deviceId`.
 // - The browser opens its camera at `getUserMedia`, where it asks. A track no
 //   consumer joins within a second is stopped then.
 // - `applyConstraints` with another `deviceId` or `facingMode` moves the track
-//   to that camera under the same id; the others are the browser's track's
+//   to that camera under the same id (D1); the others are the browser's track's
 //   own constraints. Zoom is not offered: Image Capture puts it behind the
-//   `panTiltZoom` permission.
+//   `panTiltZoom` permission (§12).
 // - Under the agent no camera opens and nothing is asked: two cameras, "Agent
 //   back camera" (`environment`, with a torch) and "Agent front camera"
 //   (`user`), whose consumers are told `live(null)` and draw the agent's
-//   picture themselves. A preferred `mediaStreamTrack` mutes every live
-//   track, as an interruption would.
-// - An observer (a barcode scan, say) hears what a
+//   picture themselves (§9). A preferred `mediaStreamTrack` mutes every live
+//   track, as an interruption would (LLP 1133.009 D10 item 11).
+// - An observer (LLP 1133.027 D17 item 1: a barcode scan) hears what a
 //   consumer hears and attaches to the capture the consumers keep, but takes,
 //   holds and reopens no lease. Under the agent the camera package hands the
 //   track the picture its viewfinder draws (`picture`), which an observer
-//   reads as the track's frame.
+//   reads as the track's frame (D17 item 2).
 
 const GRACE = 1000; // ms a fresh browser track waits for its first consumer
 const MEMBERS = ['deviceId', 'groupId', 'facingMode', 'width', 'height', 'aspectRatio', 'frameRate', 'resizeMode', 'zoom', 'torch'];
@@ -37,7 +37,7 @@ const AGENT = {
 
 const failure = e => ({ error: typeof e?.name === 'string' && /Error$/.test(e.name) ? e.name : 'NotReadableError' });
 
-/** The constraints written, and only those: bare values, Media Capture's ideals. */
+/** The constraints written, and only those (D2): bare values, Media Capture's ideals. */
 function written(c) {
   const out = {};
   for (const k of MEMBERS) if (c?.[k] != null) out[k] = c[k];
@@ -81,8 +81,10 @@ export function video({ changed, agent, log, tracks, nextId, media, shown }) {
     };
   };
 
-  /** The browser's track as this track's source: its settings, and its events as the track's. */
+  /** The browser's track as this track's source: its settings, and its events as the track's. A source it replaces
+   * is stopped. */
   const adopt = (t, source) => {
+    if (t.source && t.source !== source) t.source.stop();
     t.source = source;
     source.enabled = t.enabled;
     const s = source.getSettings?.() ?? {}, c = source.getCapabilities?.() ?? {};
@@ -99,7 +101,7 @@ export function video({ changed, agent, log, tracks, nextId, media, shown }) {
   };
   const stopSource = t => { clearTimeout(t.grace); t.source?.stop(); t.source = null; };
 
-  /** The camera again, by the device the track last used. */
+  /** The camera again, by the device the track last used (D3). */
   const reopen = async t => {
     const c = { ...t.constraints };
     if (t.settings.deviceId) { delete c.facingMode; c.deviceId = { exact: t.settings.deviceId }; }
@@ -110,14 +112,18 @@ export function video({ changed, agent, log, tracks, nextId, media, shown }) {
   /** Take the lease: the camera runs. */
   async function activate(t) {
     t.active = true;
+    // This activation's lease: one given back and taken again while the device opens is another, whose own open adopts.
+    const lease = t.lease = (t.lease ?? 0) + 1;
     if (!agent && (!t.source || t.source.readyState === 'ended')) {
       try {
         const source = await reopen(t);
-        if (!t.active || t.readyState !== 'live') { source.stop(); return; }
+        if (!t.active || t.lease !== lease || t.readyState !== 'live') { source.stop(); return; }
         adopt(t, source);
         say(`${t.id}: opened again`);
       } catch (e) {
         say(`${t.id}: could not open again: ${failure(e).error}`);
+        // A superseded open's failure is not the track's: a later lease's open may already have adopted.
+        if (t.lease !== lease) return;
         t.active = false;
         return end(t, failure(e).error);
       }
@@ -128,7 +134,7 @@ export function video({ changed, agent, log, tracks, nextId, media, shown }) {
   }
   /** Give the lease back: the camera stops and the track is idle. */
   function deactivate(t) {
-    t.active = false;
+    t.active = false; t.lease = (t.lease ?? 0) + 1;
     if (!agent) stopSource(t);
     mute(t, 'idle');
   }
@@ -167,7 +173,7 @@ export function video({ changed, agent, log, tracks, nextId, media, shown }) {
         if (!t.consumers.size && t.active) deactivate(t);
       };
     },
-    /** `observer` hears track `id` as a consumer does, and never leases. */
+    /** `observer` hears track `id` as a consumer does, and never leases (LLP 1133.027 D17 item 1). */
     observe(id, observer) {
       const t = own.get(id);
       if (!t) throw Object.assign(new Error(`no track ${id}`), { code: 'NotFoundError' });
@@ -180,7 +186,7 @@ export function video({ changed, agent, log, tracks, nextId, media, shown }) {
       } else observer.muted?.(t.muteReason ?? 'idle');
       return () => { if (t.observers.delete(observer)) say(`${t.id}: an observer leaves`); };
     },
-    /** Under the agent: the picture a viewfinder of track `id` draws, a promise of an `ImageBitmap` or null. */
+    /** Under the agent: the picture a viewfinder of track `id` draws, a promise of an `ImageBitmap` or null (D17 item 2). */
     picture(id, frame) {
       const t = own.get(id);
       if (t) t.picture = frame;
@@ -226,7 +232,7 @@ export function video({ changed, agent, log, tracks, nextId, media, shown }) {
       const c = written(args);
       const moves = (c.deviceId != null && c.deviceId !== t.settings.deviceId) || (c.facingMode != null && c.facingMode !== t.settings.facingMode);
       if (moves) {
-        // Another camera under the same id: a capture start, which the page must be shown for.
+        // Another camera under the same id (D1): a capture start, which the page must be shown for (D6).
         if (!shown()) return { error: 'NotAllowedError' };
         const next = { ...t.constraints, ...c };
         if (c.deviceId != null) delete next.facingMode;
@@ -235,14 +241,23 @@ export function video({ changed, agent, log, tracks, nextId, media, shown }) {
         if (agent) {
           const facing = c.facingMode ?? (c.deviceId === AGENT.user.deviceId ? 'user' : 'environment');
           Object.assign(t, agentCamera(facing));
-        } else if (t.source) {
+        } else {
+          // Opened even while idle, so the answer and the next lease name the camera moved to; idle, it closes again.
+          // An activation's open already in flight asked for the camera moved from: a new lease drops it.
+          t.lease = (t.lease ?? 0) + 1;
           stopSource(t);
           t.settings = { ...t.settings, deviceId: null };
-          try { adopt(t, (await media.getUserMedia({ video: next })).getVideoTracks()[0]); }
+          let source;
+          try { source = (await media.getUserMedia({ video: next })).getVideoTracks()[0]; }
           catch (e) { say(`${t.id}: could not move: ${failure(e).error}`); end(t, failure(e).error); return failure(e); }
+          // A lease taken while it opened may have opened the camera too; this open replaces that one.
+          stopSource(t);
+          if (t.readyState === 'ended') { source.stop(); return shape(t); }
+          adopt(t, source);
+          if (!t.active) stopSource(t);
         }
         say(`${t.id}: moved to ${t.label}`);
-        if (t.active) each(t, x => x.live?.(t.source));
+        if (t.active) { each(t, x => x.live?.(t.source)); muteNow(t); }
         announce();
         return shape(t);
       }
@@ -267,13 +282,13 @@ export function video({ changed, agent, log, tracks, nextId, media, shown }) {
       const t = own.get(id);
       t.enabled = enabled;
       if (t.source) t.source.enabled = enabled;
-      // Turning a track back on is a start: it reopens an idle one that has consumers.
+      // Turning a track back on is a start: it reopens an idle one that has consumers (D6).
       if (enabled && !t.active && t.consumers.size && t.readyState === 'live' && shown()) await activate(t);
       announce();
       return shape(t);
     },
     track: id => shape(own.get(id)),
-    /** Under the agent, each track for `state.extensions` (Disclosure). */
+    /** Under the agent, each track for `state.extensions` (LLP 1133.008 §9, Disclosure). */
     disclosed: () => [...own.values()].map(t => ({
       ...shape(t), consumers: [...t.consumers].map(c => origins.get(c)).sort(), observers: t.observers.size, lease: t.active,
     })),
@@ -313,7 +328,7 @@ export function video({ changed, agent, log, tracks, nextId, media, shown }) {
       }
     },
     end: (id, why) => own.has(id) && end(own.get(id), why),
-    /** The page was hidden or shown: a hidden page's camera mutes, `background`, and is let go. */
+    /** The page was hidden or shown: a hidden page's camera mutes, `background`, and is let go (D6). */
     foreground(visible) {
       for (const t of own.values()) {
         if (t.readyState !== 'live' || !t.consumers.size) continue;

@@ -3,7 +3,7 @@ name = "theme-fixture-web"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "The theme fixture on the web: one wasm with the runner, the kernel, and the baked plan"
+description = "The theme fixture on the web (LLP 1122 T2b): one wasm with the runner, the kernel, and the baked plan"
 publish = false
 build = "build.rs"
 

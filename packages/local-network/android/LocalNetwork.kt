@@ -1,17 +1,17 @@
-// @exact/local-network on Android: `NsdManager`'s discovery and resolution. Under the
+// @exact/local-network on Android (LLP 1133.036 D1-D4, D8, D13): `NsdManager`'s discovery and resolution. Under the
 // agent the runner's declared substitute answers and nothing here runs.
 //
 // - One discovery per type, shared by the session's readers and stopped when the last releases it; a resolve per
 //   (name, type) by `registerServiceInfoCallback` from API 34, which answers again on each change, and below it by
 //   `resolveService`, which runs one at a time, so resolves queue.
 // - A browse answers once its first service is found or a second after it started, then each change; instances are
-//   merged across networks and ordered by name, case-insensitively. Both pause in the background.
-// - `host` is an address the platform resolved, IPv4 first, an IPv6 one in brackets otherwise.
+//   merged across networks and ordered by name, case-insensitively (D2). Both pause in the background.
+// - `host` is an address the platform resolved, IPv4 first, an IPv6 one in brackets otherwise (D4).
 // - Before T extensions 7 the system does not manage multicast reception, so a browse holds a `MulticastLock`
 //   (`CHANGE_WIFI_MULTICAST_STATE`, which `net.dns-sd` derives).
 // - The host targets API 36, where an app holding `INTERNET` has the local network implicitly: the state is
-//   `granted` and `android` is none. `ACCESS_LOCAL_NETWORK` and `android.chooseService` wait for API 37.
-// - Tier 3: `LocalNetworkModule.nsdManager` is given the manager once, when the module is made.
+//   `granted` and `android` is none. `ACCESS_LOCAL_NETWORK` and `android.chooseService` wait for API 37 (§15 Q6).
+// - Tier 3 (D13): `LocalNetworkModule.nsdManager` is given the manager once, when the module is made.
 package exact.localnetwork
 
 import android.content.Context
@@ -33,7 +33,7 @@ import org.json.JSONObject
 
 class LocalNetworkModule(context: ExtensionContext) : ExactExtension(context) {
     companion object {
-        /** The app's access hatch: given the manager once, when the module is made. */
+        /** The app's access hatch (D13): given the manager once, when the module is made. */
         @JvmStatic var nsdManager: ((NsdManager) -> Unit)? = null
     }
 
@@ -191,7 +191,7 @@ class LocalNetworkModule(context: ExtensionContext) : ExactExtension(context) {
         }
 
         private fun took(found: NsdServiceInfo, addresses: List<InetAddress>) {
-            // A link-local IPv6 address carries a zone no URL can.
+            // A link-local IPv6 address carries a zone no URL can (D2).
             val usable = addresses.filterNot { it is Inet6Address && it.isLinkLocalAddress }
             if (usable.isEmpty()) return
             val v4 = usable.firstOrNull { it is Inet4Address }

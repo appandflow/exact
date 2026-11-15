@@ -16,7 +16,7 @@ path = "src/main.rs"
 test = false
 bench = false
 
-# The pages as documents: the web build's render entry.
+# The pages as documents (LLP 1048.000 D9): the web build's render entry.
 [[bin]]
 name = "caltrain-render"
 path = "src/bin/caltrain-render.rs"
@@ -24,9 +24,11 @@ test = false
 bench = false
 
 [dependencies]
+ibex2-sqlite = { path = "../../../vendor/ibex/crates/ibex2-sqlite" }
 exact-logic = { path = "../../../logic" }
 caltrain-data = { path = "../data" }
 exact-linux = { path = "../../../host/linux" }
+exact-painted = { path = "../../../host/painted" }
 exact-render = { path = "../../../host/render" }
 
 exact-linux-update = { path = "../../../host/linux-update" }

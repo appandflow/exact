@@ -1,4 +1,5 @@
 // Opt-in first-present diagnosis. AppKit facts are sampled only on main.
+// @ref LLP 1149.001 M10, cut 1c.
 static BOOL fpEnabled;
 static pthread_mutex_t fpLock = PTHREAD_MUTEX_INITIALIZER;
 static NSMutableArray *fpRows;

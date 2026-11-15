@@ -1,6 +1,6 @@
-// The Apple implementation's hub fed recorded readings: compiled with
-// Device.swift by apple.mjs and run on this Mac. It checks what a drive
-// cannot make the device do on cue.
+// The Apple implementation's hub fed recorded readings (LLP 1133.031 §12
+// stage 2): compiled with Device.swift by apple.mjs and run on this Mac. It
+// checks what a drive cannot make the device do on cue.
 //
 // - A level change within a hundredth announces nothing; one past it
 //   announces once.

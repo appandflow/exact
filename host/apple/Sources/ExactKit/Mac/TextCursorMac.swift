@@ -1,4 +1,4 @@
-// The I-beam over selectable text, from the page's
+// @ref LLP 1115.000 D7.9 — the I-beam over selectable text, from the page's
 // one tracking area and the hit test a pointer move already makes.
 #if os(macOS)
 import AppKit

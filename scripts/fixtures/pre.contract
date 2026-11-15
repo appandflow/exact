@@ -1,8 +1,8 @@
-// The parity page for `white-space: pre`, the browser the oracle.
+// LLP 1053 G5's parity page for `white-space: pre`, the browser the oracle.
 // Each `text` shrinks to its lines (a flex column at flex-start), so its box
 // is what the engine measured: kept spaces (leading, inner and trailing),
 // tabs to CSS's `tab-size: 8` stops (in a monospace face, and in system-ui,
-// whose stops Apple declares narrower), forced breaks only, and a long line
+// whose stops Apple declares narrower: LLP 1053 §0 r3), forced breaks only, and a long line
 // that overflows its clipped card rather than wrapping. `code` is the feed's
 // code row: many styled runs in `pre`, clipped at the card's padding, and
 // `scroller` the same line in a horizontal scroll. `pre-wrap` beside it

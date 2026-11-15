@@ -1,4 +1,4 @@
-// The acceptance drives 1 to 7 under the agent, with the auth
+// LLP 1133.014 §10's acceptance drives 1 to 7 under the agent, with the auth
 // fixture against its server's sign-in routes (apps/auth-fixture/sign-in.mjs).
 // Each request holds a `credential` ticket; "answer" runs `idp.mjs` on the
 // ticket's args and types its credential, so the server verifies a real
@@ -56,15 +56,38 @@ audience.macos = audience.ios;
 
 await fetch(`${ISSUER}/fixture/reset`);
 let s;
-try { s = await open({ host, app: 'auth-fixture', storage: `sign-in-${Date.now().toString(36)}` }); }
+try { s = await open({ host, app: 'auth-fixture', size: host === 'web' ? [402, 778] : undefined,
+  storage: `sign-in-${Date.now().toString(36)}` }); }
 catch (e) { server.kill(); rmSync(dir, { recursive: true, force: true }); throw e; }
 const run = (n) => !only || only.includes(n);
 const appleHere = host !== 'macos';
 try {
   await s.clock('settle');
+  if (host !== 'web') {
+    const caps = (await s.state()).resources?.identities;
+    check(3, 'default capabilities offer combined Apple/passkey requests on iOS and hide Google',
+      caps?.providers?.google?.active === false && caps?.providers?.apple?.withPublicKey === (host === 'ios'),
+      JSON.stringify(caps));
+    check(3, 'the default app shows no Google button', !(await shown(s, 'google-sign-in')));
+    // The remaining drives exercise ticket handling with explicitly simulated cells.
+    await s.prefer({ extension: `sign-in.getIdentityCapabilities=${JSON.stringify({ providers: {
+      google: { active: true },
+    } })}` });
+    await s.clock('settle');
+  }
   if (run(1) && appleHere) {
     // A passive offer may be held first where the target has one (drive 4); the press supersedes it.
     await until(s, () => shown(s, 'apple-sign-in'));
+    const layout = await s.layout();
+    const box = (l, id) => l.nodes.find((n) => n.testId === id);
+    for (const id of ['apple-sign-in', 'google-sign-in']) {
+      check(1, `${id} keeps its authored 44-point height`, box(layout, id)?.h === 44, JSON.stringify(box(layout, id)));
+    }
+    await s.tap('auth', { wheel: [0, 10000] });
+    await s.clock('settle');
+    const scrolled = await s.layout(), lower = box(scrolled, 'attestation-status');
+    check(1, 'the demos scroll to the lower controls', box(scrolled, 'auth')?.sy > 0
+      && lower?.y >= 0 && lower.y + lower.h <= scrolled.viewport.h, JSON.stringify({ auth: box(scrolled, 'auth'), lower }));
     await s.tap('apple-sign-in');
     const t = await identityTicket(s, (a) => a.identity.mode === 'active');
     const p = t?.device.args.identity.providers[0] ?? {};
@@ -143,7 +166,7 @@ try {
     check(6, 'the server signed no one in', (await log()).signIn.verified === before, JSON.stringify((await log()).signIn));
   }
   if (run(7)) {
-    // No answer, journal line or state field holds a token, a code or a return route's handle.
+    // No answer, journal line or state field holds a token, a code or a return route's handle (§10's test).
     const st = JSON.stringify(await s.state()), lines = (await s.logs({ all: true })).lines.join('\n');
     const secret = /eyJ[A-Za-z0-9_-]{8,}\.|fixture-code-|fixture-apple-code|"relay":/;
     check(7, 'no state field or journal line holds a token, a code or a handle', !secret.test(st) && !secret.test(lines), (st.match(secret) ?? lines.match(secret))?.[0]);

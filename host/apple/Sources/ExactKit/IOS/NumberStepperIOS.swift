@@ -1,4 +1,4 @@
-// `input type="number"` is a field with the platform's
+// @ref LLP 1116.007 D4 — `input type="number"` is a field with the platform's
 // stepping control, where the web draws its spin buttons: a `UIStepper` at the
 // field's trailing edge, inside the input's box, the text between the field's
 // leading edge and the stepper. The field stays the editor (direct entry, the
@@ -8,7 +8,7 @@
 // of any other `type` never has one, whatever its bounds say.
 //
 // A value typed past `min` or `max` is held to them too, when the edit
-// commits: the field shows the bound, and the app hears it
+// commits (LLP 1116.008 D5): the field shows the bound, and the app hears it
 // as it hears a step, `input` and then the `change` that committed. The web
 // leaves its bounds to the browser's validation; a typed 250 against a `max`
 // of 99 saved 250 while the stepper's plus was dimmed.
@@ -22,6 +22,27 @@ import UIKit
 
 /// The stepper in a number input: `UIStepper`, which keeps what it last showed.
 final class FieldStepper: UIStepper {
+    /// UIKit's parts stood in for at the frames the surface draws them at,
+    /// inside a placed canvas child (PlacedAccessibilityIOS.swift).
+    private let placedParts = PlacedStandIns()
+    private func placedElements() -> [PlacedElement]? {
+        placedParts.elements(of: self) {
+            declaredElements(super.accessibilityElements, count: super.accessibilityElementCount(), at: { super.accessibilityElement(at: $0) })
+        }
+    }
+    override var accessibilityElements: [Any]? {
+        get { placedElements() ?? super.accessibilityElements }
+        set { super.accessibilityElements = newValue }
+    }
+    override func accessibilityElementCount() -> Int { placedElements()?.count ?? super.accessibilityElementCount() }
+    override func accessibilityElement(at index: Int) -> Any? {
+        guard let elements = placedElements() else { return super.accessibilityElement(at: index) }
+        return elements.indices.contains(index) ? elements[index] : nil
+    }
+    override func index(ofAccessibilityElement element: Any) -> Int {
+        guard let elements = placedElements() else { return super.index(ofAccessibilityElement: element) }
+        return elements.firstIndex { $0 === element as AnyObject } ?? NSNotFound
+    }
     /// The field's value as last written: a change from it is a step up or down.
     var shown = 0.0
 }
@@ -67,7 +88,7 @@ extension NodeView {
         let made = stepper ?? {
             let s = FieldStepper()
             s.addTarget(self, action: #selector(stepperChanged(_:)), for: .valueChanged)
-            addSubview(s)
+            (clipBox ?? self).addSubview(s)
             stepper = s
             return s
         }()
@@ -107,7 +128,8 @@ extension NodeView {
         let x = rtl ? rect.minX : rect.maxX - size.width
         let frame = CGRect(x: x, y: ((bounds.height - size.height) / 2).rounded(.toNearestOrAwayFromZero), width: size.width, height: size.height)
         if stepper.frame != frame { stepper.frame = frame; field.setNeedsLayout() }
-        if stepper.superview === self, subviews.last !== stepper { bringSubviewToFront(stepper) }
+        let parent = clipBox ?? self
+        if stepper.superview === parent, parent.subviews.last !== stepper { parent.bringSubviewToFront(stepper) }
     }
 
     /// A tap of the plus or the minus: the field's text steps one way, and
@@ -146,7 +168,7 @@ extension NodeView {
     }
 }
 
-// The agent's side (every path is a touch at a place): `layout <id>`
+// The agent's side (LLP 1012: every path is a touch at a place): `layout <id>`
 // says where the stepper's halves are in the node's own space, and a `tap <id>
 // at <x> <y>` over one steps it as a finger on that half does.
 extension NodeView {
@@ -171,7 +193,7 @@ extension Agent {
     func steppedTap(_ node: NodeView, hit: UIView, at point: CGPoint, tapped at: [Double]) -> [String: Any]? {
         var up: UIView? = hit
         while let view = up, !(view is FieldStepper) { up = view.superview }
-        guard let stepper = up as? FieldStepper, stepper.superview === node else { return nil }
+        guard let stepper = up as? FieldStepper, stepper.superview === (node.clipBox ?? node) else { return nil }
         let half = stepper.convert(point, from: nil).x > stepper.bounds.midX ? "increment" : "decrement"
         guard stepper.isEnabled, !stepper.isHidden, !node.disabled, !node.inert else { return ["error": "tap #\(node.id): its stepper is disabled"] }
         let before = node.field?.text ?? ""

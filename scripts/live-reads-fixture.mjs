@@ -1,5 +1,5 @@
-// What the Bluesky clone's three live-read tests prove about exact2, on a server of this machine:
-// those tests asked Bluesky itself, and failed in main's runs while passing on a fresh main, the network
+// What the Bluesky clone's three live-read tests prove about exact2, on a server of this machine (theme2's 23:41Z
+// approval): those tests asked Bluesky itself, and failed in main's runs while passing on a fresh main, the network
 // the likeliest cause. Each read is a plain fetch from a TypeScript source, as the clone's are (the poll and Top's
 // 403 are synthetic: the clone answers both locally when signed out), and each answer is WITHHELD until a clock
 // operation has run `delay` ms (`clocked`), and taken back if it ends first, so a `clock` step must wait for the
@@ -8,7 +8,7 @@
 // from, not hang on; host/web/live-reads.test.mjs runs both on the wasm target, against a dist built as `native`
 // below says.
 //   1. Discover's poll: a timer's re-ask lands within `clock data`, and the scroll-dependent button follows it.
-//   2. Explore's tabs: a tap-started fetch is waited on; Top's 403 is the source's to shape.
+//   2. Explore's tabs: a tap-started fetch is waited on; Top's 403 is the source's to shape (LLP 1016 D4).
 //   3. Content & Media: a config read gates the switches; a device-kept setting survives a reload.
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';

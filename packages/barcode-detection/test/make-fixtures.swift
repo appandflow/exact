@@ -1,4 +1,4 @@
-// Makes the vision packages' fixture images, so
+// Makes the vision packages' fixture images (LLP 1133.027 §7, stage 1), so
 // what each holds is reproducible: the barcodes are drawn module by module
 // from their symbologies' tables (GS1 General Specifications §5.2.1 for
 // EAN-13 and UPC-A), the QR code by Core Image's generator, the quote in the

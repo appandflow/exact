@@ -1,4 +1,4 @@
-// @exact/compose on Android: the mail and message apps' composers, by intent.
+// @exact/compose on Android (LLP 1133.024 D15): the mail and message apps' composers, by intent.
 //
 // - A mail with no attachment is `ACTION_SENDTO` on a `mailto:` URI, which only mail apps handle; with attachments it is
 //   `ACTION_SEND` or `ACTION_SEND_MULTIPLE` with each file's content URI from the host's provider
@@ -8,7 +8,7 @@
 //   `sms_body` and `subject`, addressed to the default SMS app.
 // - Mail and message apps return no result, so each answers `opened`. The fact is whether an app resolves
 //   (`SENDTO mailto:` and `smsto:`, which the package's `queries` make visible), read again at each resume.
-// - A hand-off leaves the app, so the embedder decides first ([ExtensionContext.leave]).
+// - A hand-off leaves the app, so the embedder decides first ([ExtensionContext.leave], D22 item 7).
 // - Under the agent nothing opens: the `compose` ticket's tap is the answer. The journal names the composer, the counts
 //   and the attachments' types, never an address, the subject or the body.
 package exact.compose
@@ -66,7 +66,7 @@ class ComposeModule(context: ExtensionContext) : ExactExtension(context) {
         val subject = args.optString("subject")
         val body = args.optString("body")
         val paths = list(args, "attachments")
-        val files = paths.map { context.file(it) ?: return reply(error("NotFoundError", "an attachment names no app file")) }
+        val files = paths.map { context.fileToRead(it) ?: return reply(error("NotFoundError", "an attachment names no app file")) }
         val types = files.map { dev.exact.canvas.Files.type(it) }
         val line = { action: String -> "$kind $action, ${to.size + cc.size + bcc.size} recipients, ${files.size} attachments" + if (types.isEmpty()) "" else " (${types.joinToString()})" }
         if (!(if (kind == "email") mail || context.agent else sms || context.agent)) return reply(error("NotSupportedError", "no app on this device composes a $kind; check composeStatus()"))

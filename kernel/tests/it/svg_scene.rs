@@ -1,4 +1,4 @@
-//! The resolved scene — transforms composed as
+//! LLP 1055.000 D1, D4, D5: the resolved scene — transforms composed as
 //! Chrome composes them (pinned to Chrome 154's `getCTM()`), lengths against
 //! the nearest viewport, inheritance carried down, `display` and
 //! `visibility`, and an `svg`'s natural ratio from its view box.
@@ -10,8 +10,14 @@ use exact_kernel::{
 
 #[path = "svg_scene/bounds.rs"]
 mod bounds;
+#[path = "svg_scene/filters.rs"]
+mod filters;
 #[path = "svg_scene/lengths.rs"]
 mod lengths;
+#[path = "svg_scene/object_box.rs"]
+mod object_box;
+#[path = "svg_scene/refs.rs"]
+mod refs;
 
 fn style(id: u32, rows: &[(StyleId, &str)]) -> Op {
     let mut patch = StyleProps::default();
@@ -91,7 +97,7 @@ impl Doc {
 fn resolve(k: &Kernel, svg: u32) -> scene::Scene {
     let node = k.node(svg).unwrap();
     let content = scene::content_box(k, &node);
-    scene::resolve(k, &node, content, &|_, _| None)
+    scene::resolve(k, &node, content, &|_, _| None, false)
 }
 
 fn find(items: &[Item], id: u32) -> Option<&Item> {
@@ -328,7 +334,7 @@ fn inheritance_display_and_visibility() {
     );
 }
 
-/// A shape nobody filled is its text's colour, on every
+/// LLP 1115.000 D3.8: a shape nobody filled is its text's colour, on every
 /// host, where SVG's own initial `fill` is black: an icon with no `fill`
 /// was black on a dark page. `currentcolor` is each element's own `color`,
 /// so with none written anywhere it is the platform's text colour, which
@@ -425,7 +431,7 @@ fn a_view_box_is_the_natural_ratio() {
     assert_eq!(size(bare), (300.0, 150.0));
 }
 
-/// An animated inherited value on a `g` reaches the
+/// LLP 1055.000 D15: an animated inherited value on a `g` reaches the
 /// shapes that inherit it, and an animated `color` reaches `currentcolor`.
 #[test]
 fn animated_inherited_values_flow_to_descendants() {
@@ -478,9 +484,13 @@ fn animated_inherited_values_flow_to_descendants() {
     k.motion_sync(&receipt).apply(&mut engine).unwrap();
     let node = k.node(svg).unwrap();
     let content = scene::content_box(&k, &node);
-    let s = scene::resolve(&k, &node, content, &|key, p| {
-        engine.sampled_value(exact_kernel::motion_node(key), p)
-    });
+    let s = scene::resolve(
+        &k,
+        &node,
+        content,
+        &|key, p| engine.sampled_value(exact_kernel::motion_node(key), p),
+        false,
+    );
     let Kind::Shape(l) = &find(&s.items, line).unwrap().kind else {
         panic!()
     };
@@ -495,7 +505,7 @@ fn animated_inherited_values_flow_to_descendants() {
     let _ = Property::Color;
 }
 
-/// A duplicate id resolves to the candidate
+/// LLP 1055.000 D3, D7, D8: a duplicate id resolves to the candidate
 /// nearest the reference; gradient defaults; `use` inherits from itself.
 #[test]
 fn references_resolve_nearest_and_instances_inherit_from_their_use() {
@@ -627,7 +637,116 @@ fn references_resolve_nearest_and_instances_inherit_from_their_use() {
     assert!(children[0].uid != dot as u64, "an instance has its own key");
 }
 
-/// A `clipPath` resolves to its children's union in the
+#[test]
+fn every_instance_of_a_node_has_its_own_key() {
+    use NodeType::*;
+    let mut d = Doc::new();
+    let size = [(StyleId::Width, "1"), (StyleId::Height, "1")];
+    let rect = d.node(SvgRect, &size, &[(PropId::Id, "shape")]);
+    let defs = d.node(SvgDefs, &[], &[]);
+    d.children(defs, &[rect]);
+    // `use`s whose ids differ by 256, and every id between.
+    let uses: Vec<u32> = (0..300)
+        .map(|_| d.node(SvgUse, &[], &[(PropId::Href, "#shape")]))
+        .collect();
+    let svg = d.node(Svg, &[(StyleId::Width, "10")], &[]);
+    d.children(svg, &[&[defs][..], &uses].concat());
+    let k = d.kernel(&[svg], 100.0);
+    let mut keys = std::collections::HashSet::new();
+    resolve(&k, svg).walk(&mut |item| {
+        assert!(keys.insert(item.uid), "{} twice", item.uid);
+        assert!(item.uid < 1 << 50, "{} is not below 2^50", item.uid);
+    });
+    assert_eq!(keys.len(), 600, "each use and its instance");
+}
+
+#[test]
+fn a_clip_use_keeps_its_targets_transform() {
+    use NodeType::*;
+    use StyleId::*;
+    for (rows, expected) in [
+        (vec![(Transform, "translate(50 0)")], (50., 0., 10., 10.)),
+        (vec![(Translate, "30px 20px")], (30., 20., 10., 10.)),
+        (vec![(Rotate, "90")], (-10., 0., 10., 10.)),
+        (vec![(Scale, "2")], (0., 0., 20., 20.)),
+        (
+            vec![
+                (TransformBox, "fill-box"),
+                (TransformOrigin, "center"),
+                (Translate, "3px 4px"),
+                (Rotate, "90"),
+                (Scale, "2"),
+                (Transform, "translate(5 2)"),
+            ],
+            (-6., 9., 20., 20.),
+        ),
+    ] {
+        let mut d = Doc::new();
+        let svg = d.node(Svg, &[(Width, "100"), (Height, "100")], &[]);
+        let mut shape_rows = vec![(Width, "10"), (Height, "10")];
+        shape_rows.extend_from_slice(&rows);
+        let target = d.node(SvgRect, &shape_rows, &[(PropId::Id, "shape")]);
+        let defs = d.node(SvgDefs, &[], &[]);
+        d.children(defs, &[target]);
+        let direct = d.node(SvgRect, &shape_rows, &[]);
+        let instance = d.node(SvgUse, &[], &[(PropId::Href, "#shape")]);
+        let clip = d.node(SvgClipPath, &[], &[(PropId::Id, "clip")]);
+        d.children(clip, &[direct, instance]);
+        let rect = d.node(
+            SvgRect,
+            &[(Width, "100"), (Height, "100"), (ClipPath, "url(#clip)")],
+            &[],
+        );
+        d.children(svg, &[defs, clip, rect]);
+        let mut k = d.kernel(&[svg], 100.);
+        for placed in [false, true] {
+            if placed {
+                k.apply(
+                    1,
+                    2,
+                    &[
+                        style(clip, &[(Transform, "translate(7 11)")]),
+                        style(instance, &[(X, "3"), (Y, "4"), (Transform, "scale(2)")]),
+                    ],
+                )
+                .unwrap();
+            }
+            let scene = resolve(&k, svg);
+            let shapes = &find(&scene.items, rect)
+                .unwrap()
+                .clip
+                .as_ref()
+                .unwrap()
+                .shapes;
+            assert_eq!(shapes.len(), 2);
+            for (index, shape) in shapes.iter().enumerate() {
+                let (mut x, mut y, mut w, mut h) = expected;
+                if placed {
+                    if index == 1 {
+                        x = 2. * (x + 3.);
+                        y = 2. * (y + 4.);
+                        w *= 2.;
+                        h *= 2.;
+                    }
+                    x += 7.;
+                    y += 11.;
+                }
+                let actual = shape.path.bounds().unwrap();
+                for (actual, expected) in [actual.0, actual.1, actual.2, actual.3]
+                    .into_iter()
+                    .zip([x, y, w, h])
+                {
+                    assert!(
+                        (actual - expected).abs() < 1e-4,
+                        "{rows:?}, placed={placed}, shape {index}: {actual} != {expected}"
+                    );
+                }
+            }
+        }
+    }
+}
+
+/// LLP 1055.000 D10: a `clipPath` resolves to its children's union in the
 /// clipped element's user space, `objectBoundingBox` mapped to its box, its
 /// own `clip-path` intersected; a missing one does not clip.
 #[test]
@@ -706,7 +825,7 @@ fn clips_resolve_in_the_element_space() {
     );
 }
 
-/// SVG text resolves into chunks of runs: a `tspan` with
+/// LLP 1055.000 D11: SVG text resolves into chunks of runs: a `tspan` with
 /// its own `y` starts a chunk, white space collapses, `dx` shifts a run.
 #[test]
 fn text_resolves_into_chunks_of_runs() {
@@ -727,14 +846,15 @@ fn text_resolves_into_chunks_of_runs() {
     let b = d.node(
         SvgTSpan,
         &[(StyleId::Fill, "#16a34a")],
-        &[(PropId::Text, "+4%"), (PropId::TextDx, "2")],
+        &[(PropId::Text, "+4% "), (PropId::TextDx, "2")],
     );
     let c = d.node(
         SvgTSpan,
         &[],
         &[(PropId::Text, "next"), (PropId::TextY, "30")],
     );
-    d.children(text, &[a, b, c]);
+    let blank = d.node(SvgTSpan, &[], &[(PropId::Text, " \n ")]);
+    d.children(text, &[a, b, blank, c]);
     d.children(svg, &[text]);
     let k = d.kernel(&[svg], 400.0);
     let s = resolve(&k, svg);
@@ -763,7 +883,7 @@ fn text_resolves_into_chunks_of_runs() {
     );
 }
 
-// Markers at a path's vertices, oriented, scaled by the
+// LLP 1055.000 D9: markers at a path's vertices, oriented, scaled by the
 // stroke width, the reference point on the vertex; content inherits from
 // the marker, not the shape.
 #[test]
@@ -837,7 +957,7 @@ fn markers_sit_on_vertices() {
     );
 }
 
-/// A mask's region and content units against the
+/// LLP 1055.000 D7, D10: a mask's region and content units against the
 /// element's box, and a pattern's tile, content and template.
 #[test]
 fn masks_and_patterns_resolve_against_the_box() {
@@ -926,77 +1046,7 @@ fn masks_and_patterns_resolve_against_the_box() {
     assert!(find(&s.items, mask).is_none() && find(&s.items, pat).is_none());
 }
 
-/// A filter's region against the box, primitive inputs by
-/// name, and a list whose functions chain after the reference.
-#[test]
-fn filters_resolve_into_one_chain() {
-    use exact_kernel::svg::filter::{Input, Op};
-    use NodeType::*;
-    let mut d = Doc::new();
-    let svg = d.node(
-        Svg,
-        &[(StyleId::Width, "100"), (StyleId::Height, "100")],
-        &[],
-    );
-    let filter = d.node(SvgFilter, &[], &[(PropId::Id, "f")]);
-    let flood = d.node(
-        SvgFe,
-        &[(StyleId::FloodOpacity, "0.5")],
-        &[(PropId::Fe, "feFlood"), (PropId::Result, "wash")],
-    );
-    let offset = d.node(
-        SvgFe,
-        &[],
-        &[
-            (PropId::Fe, "feOffset"),
-            (PropId::In, "SourceAlpha"),
-            (PropId::FeDx, "3"),
-        ],
-    );
-    let comp = d.node(
-        SvgFe,
-        &[],
-        &[
-            (PropId::Fe, "feComposite"),
-            (PropId::In, "wash"),
-            (PropId::Operator, "in"),
-        ],
-    );
-    d.children(filter, &[flood, offset, comp]);
-    let rect = d.node(
-        SvgRect,
-        &[
-            (StyleId::X, "10"),
-            (StyleId::Y, "10"),
-            (StyleId::Width, "50"),
-            (StyleId::Height, "20"),
-            (StyleId::Filter, "url(#f) blur(2px)"),
-        ],
-        &[],
-    );
-    d.children(svg, &[filter, rect]);
-    let k = d.kernel(&[svg], 400.0);
-    let s = resolve(&k, svg);
-    let f = find(&s.items, rect)
-        .unwrap()
-        .filter
-        .as_ref()
-        .expect("filtered");
-    let p = &f.primitives;
-    assert_eq!(p.len(), 4, "three primitives and the blur");
-    assert!(matches!(p[0].op, Op::Flood(c) if (c[3] - 0.5).abs() < 1e-6));
-    assert_eq!(p[1].inputs[0], Input::SourceAlpha);
-    assert!(matches!(p[1].op, Op::Offset(dx, _) if dx == 3.0));
-    // `in="wash"` names the flood; `in2` is the previous result.
-    assert_eq!(p[2].inputs, [Input::Result(0), Input::Result(1)]);
-    // The blur's source is the reference's result.
-    assert_eq!(p[3].inputs[0], Input::Result(2));
-    assert!(p.iter().all(|q| q.linear == (q.op != Op::Blur(2.0, 2.0))));
-    // −10%/−10%/120%/120% of the box, grown by the blur's reach.
-    assert!(f.region.0 <= 5.0 && f.region.2 >= 60.0, "{:?}", f.region);
-}
-
-/// Presented geometry moves the shape; blend and
+/// LLP 1055.000 D15, D19: presented geometry moves the shape; blend and
 /// isolation reach the item.
 #[test]
 fn geometry_moves_and_blends_resolve() {
@@ -1036,7 +1086,7 @@ fn geometry_moves_and_blends_resolve() {
         Property::Y => Some(Value::scalar(30.0)),
         _ => None,
     };
-    let s = scene::resolve(&k, &node, content, &presented);
+    let s = scene::resolve(&k, &node, content, &presented, false);
     let d_item = find(&s.items, dot).unwrap();
     match &d_item.kind {
         Kind::Shape(sh) => assert_eq!(sh.circle.map(|c| (c.0, c.1)), Some((40.0, 10.0))),
@@ -1051,7 +1101,7 @@ fn geometry_moves_and_blends_resolve() {
     }
 }
 
-/// A path's `d` under `transition` moves through the
+/// LLP 1055.000 D15: a path's `d` under `transition` moves through the
 /// engine and the scene draws the path between (the issue #123 chevron);
 /// a pair with other commands changes at once, as Chrome shows it.
 #[test]
@@ -1088,7 +1138,13 @@ fn a_transitioning_d_draws_the_path_between() {
     k.motion_sync(&receipt).apply(&mut engine).unwrap();
     let ys = |k: &Kernel, engine: &Engine| -> Vec<f32> {
         let node = k.node(svg).unwrap();
-        let s = scene::resolve(k, &node, scene::content_box(k, &node), &Shown(engine));
+        let s = scene::resolve(
+            k,
+            &node,
+            scene::content_box(k, &node),
+            &Shown(engine),
+            false,
+        );
         let Kind::Shape(shape) = &find(&s.items, chev).unwrap().kind else {
             panic!("a shape")
         };

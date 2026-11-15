@@ -3,7 +3,7 @@ import AppKit
 import XCTest
 @testable import ExactKit
 
-/// The chooser on AppKit: an alertdialog popover is an NSMenu
+/// LLP 1021 "The chooser" on AppKit: an alertdialog popover is an NSMenu
 /// against its invoker, an item per action, and a chosen item presses its
 /// own row once, on the next turn, only while the menu still shows what is there.
 final class ChooserMacTests: XCTestCase {
@@ -157,7 +157,7 @@ final class ChooserMacTests: XCTestCase {
     }
 
     func testAnOpenMenuWhoseRowChangesItsTitleEnds() throws {
-        try XCTSkipIf(ExactEnv.agentMode, "the agent keeps every popover painted")
+        try XCTSkipIf(ExactEnv.agentMode, "the agent keeps every popover painted (LLP 1021 D4)")
         let q = chooser()
         q.press(1)
         XCTAssertTrue(q.menus.isOpen(try XCTUnwrap(q.views[2])))
@@ -224,7 +224,7 @@ final class ChooserMacTests: XCTestCase {
     }
 
     func testResetEndsTheMenuAndNothingDispatches() throws {
-        try XCTSkipIf(ExactEnv.agentMode, "the agent keeps every popover painted")
+        try XCTSkipIf(ExactEnv.agentMode, "the agent keeps every popover painted (LLP 1021 D4)")
         let p = chooser()
         var pressed: [UInt32] = []
         p.onPress = { pressed.append($0) }
@@ -246,7 +246,7 @@ final class ChooserMacTests: XCTestCase {
         XCTAssertEqual(pressed, [])
     }
 
-    /// Text with no cancel to keep is not the alert's shape:
+    /// Text with no cancel to keep is not the alert's shape (LLP 1115 D6):
     /// it stays the menu, its text the menu's only heading.
     func testTextWithNoCancelStaysAMenuThatShowsItsTextAndNoTitle() throws {
         let p = chooser(["Block"], label: "Block Contact", message: ["Blocked people can't call you."], cancels: 0)
@@ -261,8 +261,8 @@ final class ChooserMacTests: XCTestCase {
     }
 
     /// The same confirmation with its cancel is the alert's shape, and no
-    /// longer a menu: `NSAlert`, a sheet on the window
-    /// (AlertMacTests holds the alert).
+    /// longer a menu: `NSAlert`, a sheet on the window (LLP 1115.000 D7.6;
+    /// AlertMacTests holds the alert).
     func testAConfirmationWithACancelIsTheAlertNotAMenu() throws {
         let p = chooser(["Block"], label: "Block Contact", message: ["Blocked people can't call you."])
         defer { p.alerts.reset() }
@@ -293,7 +293,7 @@ final class ChooserMacTests: XCTestCase {
     /// unmounts the invoker the menu was popped up in. The press lands once,
     /// after the tracking has ended, and nothing touches the dead invoker.
     func testAChoiceThatUnmountsTheInvokerPressesOnceAfterTheMenuEnds() throws {
-        try XCTSkipIf(ExactEnv.agentMode, "the agent keeps every popover painted")
+        try XCTSkipIf(ExactEnv.agentMode, "the agent keeps every popover painted (LLP 1021 D4)")
         let p = chooser()
         let window = try XCTUnwrap(windows.last)
         window.orderFrontRegardless()
@@ -342,7 +342,7 @@ final class ChooserMacTests: XCTestCase {
     /// (`display: none`, its title and handler unchanged) ends the menu, and
     /// the pick presses nothing.
     func testARowHiddenDuringTheTrackingIsNeverPressed() throws {
-        try XCTSkipIf(ExactEnv.agentMode, "the agent keeps every popover painted")
+        try XCTSkipIf(ExactEnv.agentMode, "the agent keeps every popover painted (LLP 1021 D4)")
         let p = chooser()
         try XCTUnwrap(windows.last).orderFrontRegardless()
         var pressed: [UInt32] = []
@@ -371,7 +371,7 @@ final class ChooserMacTests: XCTestCase {
         XCTAssertFalse(p.menus.isOpen(try XCTUnwrap(p.views[2])))
     }
 
-    /// The menu pops up where the popover's box would sit: its
+    /// The menu pops up where the popover's box would sit (§5): its
     /// `position-area` against the invoker, its margins around the menu.
     func testTheMenuPopsUpByItsPositionArea() throws {
         let p = chooser()
@@ -393,7 +393,7 @@ final class ChooserMacTests: XCTestCase {
     /// The real popUp at a `top` area: the menu's window sits above the
     /// invoker rather than below it.
     func testATopAreaMenuOpensAboveItsInvoker() throws {
-        try XCTSkipIf(ExactEnv.agentMode, "the agent keeps every popover painted")
+        try XCTSkipIf(ExactEnv.agentMode, "the agent keeps every popover painted (LLP 1021 D4)")
         let p = chooser()
         let window = try XCTUnwrap(windows.last)
         window.orderFrontRegardless()

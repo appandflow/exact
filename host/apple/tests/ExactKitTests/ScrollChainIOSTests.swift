@@ -3,11 +3,12 @@ import UIKit
 import XCTest
 @testable import ExactKit
 
-/// CSS scroll chaining at a touch's start (provisional, pending a real-finger feel
-/// test): an inner scroller at its edge hands an outward drag to the scroller
-/// around it under `overscroll-behavior: auto`; `contain` keeps UIKit's rubber
-/// band, and `none` keeps the gesture with no band. `handsOff` is a decision over
-/// the velocity and the geometry, checked without a finger:
+/// CSS scroll chaining at a touch's start (LLP 1070 G1; Q4, ruled
+/// provisionally pending a real-finger feel test): an inner scroller at its
+/// edge hands an outward drag to the scroller around it under
+/// `overscroll-behavior: auto`; `contain` keeps UIKit's rubber band, and
+/// `none` keeps the gesture with no band. `handsOff` is a decision over the
+/// velocity and the geometry, checked without a finger:
 ///   bun host/apple/build.mjs --test --ios
 final class ScrollChainIOSTests: XCTestCase {
     /// A page that scrolls vertically (it holds the rest: keep it alive), holding a node whose scroller scrolls

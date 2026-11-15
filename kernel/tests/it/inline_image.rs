@@ -1,4 +1,4 @@
-//! An image in a paragraph's text: its paragraph's measurer
+//! An image in a paragraph's text (LLP 1011.002): its paragraph's measurer
 //! reserves its margin box in the line, the line grows to hold it as CSS's
 //! line box does, and the kernel places the image where the box went.
 
@@ -217,6 +217,41 @@ fn a_hidden_image_is_no_run() {
 }
 
 #[test]
+fn a_nonvisible_image_keeps_its_box_but_contributes_no_readable_label() {
+    for visibility in ["visible", "hidden", "collapse"] {
+        let mut k = paragraph(
+            &[
+                (StyleId::Height, "20px"),
+                (StyleId::Width, "30px"),
+                (StyleId::Visibility, visibility),
+            ],
+            "ab",
+        );
+        k.apply(
+            1,
+            2,
+            &[Op::SetProp {
+                id: 4,
+                prop: PropId::AccessibilityLabel,
+                value: "star".into(),
+            }],
+        )
+        .unwrap();
+        let paragraph = k.node(2).unwrap();
+        assert_eq!(paragraph.text_runs()[1].inline.unwrap().width, 30.0);
+        assert_eq!(
+            paragraph.read_runs(),
+            [
+                "ab",
+                if visibility == "visible" { "star" } else { "" },
+                " ef"
+            ],
+            "{visibility}"
+        );
+    }
+}
+
+#[test]
 fn an_image_on_a_line_the_clamp_cuts_shows_nothing() {
     let mut k = paragraph(
         &[(StyleId::Height, "10px"), (StyleId::Width, "30px")],
@@ -290,4 +325,50 @@ fn an_authored_ratio_relates_the_border_box_under_border_box_sizing() {
         close(image.width, 100.0) && close(image.height, 50.0),
         "{image:?}"
     );
+}
+
+/// A grid or flex `text` lays its lines out as one anonymous item (CSS Grid
+/// §6, Flexbox §4): its images take the item's wrapping width and stand
+/// where the item went, with its glyphs.
+#[test]
+fn an_image_stands_in_the_anonymous_item_with_its_lines() {
+    for (css, x, y) in [
+        // "abcd" fills most of the centred 50 px track, so the image wraps
+        // to the second line: 19.2 + 23.84 px of lines, centred in 100.
+        (
+            &[
+                (StyleId::Display, "grid"),
+                (StyleId::GridTemplateColumns, "50px"),
+                (StyleId::JustifyContent, "center"),
+                (StyleId::AlignItems, "center"),
+            ][..],
+            25.0,
+            (100.0 - 19.2 - 23.84) / 2.0 + 19.2,
+        ),
+        // One 23.84 px line, at the bottom of the box.
+        (
+            &[(StyleId::Display, "flex"), (StyleId::AlignItems, "end")][..],
+            4.0 * ADVANCE,
+            100.0 - 23.84,
+        ),
+    ] {
+        let mut k = paragraph(
+            &[(StyleId::Height, "20px"), (StyleId::Width, "20px")],
+            "abcd",
+        );
+        let mut style = vec![(StyleId::Width, "100px"), (StyleId::Height, "100px")];
+        style.extend_from_slice(css);
+        k.apply(
+            1,
+            2,
+            &[Op::SetStyle {
+                id: 2,
+                patch: rows(&style),
+            }],
+        )
+        .unwrap();
+        k.compute_layout(1, Offer::definite(400.0, 600.0)).unwrap();
+        let image = frame(&k, 4);
+        assert!(close(image.x, x) && close(image.y, y), "{css:?}: {image:?}");
+    }
 }

@@ -1,5 +1,5 @@
 // The build stamp (`buildinfo.mjs`): `bun test host/apple/buildinfo.test.mjs`;
-// an ignored test in `tests/it/development.rs` runs it too.
+// the async lane runs it (`tests/it/development.rs`).
 import { test, expect } from 'bun:test';
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -35,6 +35,13 @@ test('the orientation lock is part of an iPhone and Android binary\'s identity, 
     expect(nativeManifestMetadata({ ...manifest, orientation: 'portrait' }, platform)).not.toEqual(nativeManifestMetadata(manifest, platform));
   }
   expect(nativeManifestMetadata({ ...manifest, orientation: 'portrait' }, 'macos')).toEqual(nativeManifestMetadata(manifest, 'macos'));
+});
+
+test('the dark icons are part of an iPhone binary\'s identity, not a Mac\'s, which has no dark raster icon', () => {
+  const manifest = { app: { id: 'com.exact.dusk' }, icons: [{ src: 'assets/icon.png' }] };
+  const dark = { ...manifest, color_scheme_dark: { icons: [{ src: 'assets/icon-dark.png' }] } };
+  expect(nativeManifestMetadata(dark, 'ios')).not.toEqual(nativeManifestMetadata(manifest, 'ios'));
+  expect(nativeManifestMetadata(dark, 'macos')).toEqual(nativeManifestMetadata(manifest, 'macos'));
 });
 
 test('an app inside exact2 carries exact2\'s commit alone, and the kind', () => {

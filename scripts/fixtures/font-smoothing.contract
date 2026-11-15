@@ -1,4 +1,4 @@
-// The parity page for font smoothing: the same labels with `-webkit-font-smoothing`
+// LLP 1019 D12's parity page: the same labels with `-webkit-font-smoothing`
 // unset and `antialiased`, Chrome on the Mac the oracle. Black on white at the
 // sizes and weights a desktop app's labels use, in the system face on both,
 // then an input's and a textarea's text, which AppKit draws. `flip` binds

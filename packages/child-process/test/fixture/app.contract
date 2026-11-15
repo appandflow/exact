@@ -1,9 +1,9 @@
-// The stage drives' fixture: a child its data module
+// The stage drives' fixture (LLP 1133.007 §10): a child its data module
 // spawns, writes to on `drain`, restarts and reads to its close; a mutation
 // that writes to, ends and signals it through the kept handle; `next` lets
 // it go for a new one; a one-shot `execFile`; and an install's file work
-// under `home:/`. Its tools are a tool's call into the same actions,
-// which start, write to, end and signal no child.
+// under `home:/` (D6a). Its tools are a tool's call into the same actions,
+// which start, write to, end and signal no child (D13).
 shape Line
   text: string
 

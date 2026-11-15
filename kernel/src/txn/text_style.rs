@@ -1,5 +1,5 @@
-//! A platform text style's weight and leading move with what names it: its
-//! node's size, and whether the `font` shorthand named
+//! A platform text style's weight and leading move with what names it (LLP
+//! 1115.000 D12.2): its node's size, and whether the `font` shorthand named
 //! it. Either change reaches every node that inherits them, a child with a
 //! size of its own included.
 use super::*;

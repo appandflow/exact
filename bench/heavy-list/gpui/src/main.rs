@@ -1,4 +1,4 @@
-//! The whole-app GPUI arm of the heavy-list benchmark, using heavy-list/SPEC.md's data.
+//! The whole-app GPUI arm of LLP 1149 §4, using heavy-list/SPEC.md's data.
 use gpui::{prelude::*, *};
 use std::{
     cell::RefCell,

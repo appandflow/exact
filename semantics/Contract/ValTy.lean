@@ -4,7 +4,8 @@ Types as sets of values, and the order the checker's `?` induces on them.
 `ValTy p v τ` says the value `v` has the type `τ` in program `p`. It is
 `conforms` without finiteness: a number inside an evaluation may be an
 infinity or NaN (`1 / 0` is a value), and only a boundary — a slot written,
-a derive settled, a source's answer — refuses a non-finite one, at run time.
+a derive settled, a source's argument or answer — refuses a non-finite one,
+at run time.
 
 The checker's `?` (`Ty.unknown`) is the empty type here: `[]` is a
 `list<?>` and `none` an `option<?>` because nothing is in the list or the
@@ -103,8 +104,8 @@ theorem unify_le : ∀ {a b u : Ty}, unify a b = .some u → le a u = true ∧ l
     case record s' => obtain ⟨rfl, rfl⟩ := h; simp [le]
     case unknown => subst h; simp [le]
 
-/-- A list literal's items met in turn (`Ty::unify`, item by item):
-`?` for `[]`. -/
+/-- A list literal's items met in turn (`Ty::unify`, item by item, LLP
+1088 §9.1): `?` for `[]`. -/
 def unifyAll : List Ty → Option Ty
   | [] => .some .unknown
   | t :: ts => (unifyAll ts).bind (unify t)
@@ -428,5 +429,48 @@ theorem flat_ok {p : Program} {a : Ty} : ∀ {xss : List Value}, ValTys p xss (.
 theorem flat_unknown {p : Program} : ∀ {xss : List Value}, ValTys p xss .unknown → Value.flat xss = .some []
   | [], _ => rfl
   | x :: _, h => by cases x <;> simp [ValTys, ValTy] at h
+
+/-- A boundary check's failure on a value of its type is a refusal. -/
+theorem unfit_typed {b : Bool} {finite wrong : String} (h : b = true) :
+    unfit b finite wrong = .refused finite := by
+  simp [unfit, h]
+
+/-- Values pairwise of types. -/
+def ValTyL (p : Program) : List Value → List Ty → Prop
+  | [], [] => True
+  | v :: vs, t :: ts => ValTy p v t ∧ ValTyL p vs ts
+  | _, _ => False
+
+section
+variable {p : Program} {v : Value}
+theorem ValTy.num_inv (h : ValTy p v .number) : ∃ f, v = .num f := by cases v <;> simp_all [ValTy]
+theorem ValTy.str_inv (h : ValTy p v .string) : ∃ s, v = .str s := by cases v <;> simp_all [ValTy]
+theorem ValTy.bool_inv (h : ValTy p v .bool) : ∃ b, v = .bool b := by cases v <;> simp_all [ValTy]
+theorem ValTy.list_inv {a} (h : ValTy p v (.list a)) : ∃ xs, v = .list xs ∧ ValTys p xs a := by
+  cases v <;> simp_all [ValTy]
+theorem ValTy.option_inv {a} (h : ValTy p v (.option a)) : v = .none ∨ ∃ w, v = .some w ∧ ValTy p w a := by
+  cases v <;> simp_all [ValTy]
+theorem ValTy.record_inv {s} (h : ValTy p v (.record s)) :
+    ∃ vs sh, v = .record s vs ∧ p.shapes.find? (·.name == s) = .some sh ∧ FieldsTy p vs sh.fields := by
+  cases v <;> simp [ValTy] at h
+  case record s' vs => obtain ⟨rfl, sh, h1, h2⟩ := h; exact ⟨vs, sh, rfl, h1, h2⟩
+theorem ValTyL.nil_inv {vs : List Value} (h : ValTyL p vs []) : vs = [] := by
+  cases vs <;> simp_all [ValTyL]
+theorem ValTyL.cons_inv {vs : List Value} {t ts} (h : ValTyL p vs (t :: ts)) :
+    ∃ w ws, vs = w :: ws ∧ ValTy p w t ∧ ValTyL p ws ts := by
+  cases vs <;> simp_all [ValTyL]
+  exact ⟨_, _, ⟨rfl, rfl⟩, h⟩
+/-- A list literal's items, each of its own type, are of the type they meet in. -/
+theorem ValTyL.unifyAll : ∀ {vs : List Value} {ts : List Ty} {u : Ty},
+    ValTyL p vs ts → Ty.unifyAll ts = .some u → ValTys p vs u
+  | [], [], _, _, _ => trivial
+  | v :: vs, t :: ts, u, h, hu => by
+    simp only [ValTyL] at h
+    simp only [Ty.unifyAll, Option.bind_eq_some_iff] at hu
+    obtain ⟨w, hw, hu⟩ := hu
+    have hle := Ty.unify_le hu
+    exact ⟨h.1.mono hle.1, ValTys.of_mem fun x hx => ((ValTyL.unifyAll h.2 hw).mem x hx).mono hle.2⟩
+  | [], _ :: _, _, h, _ | _ :: _, [], _, h, _ => by simp [ValTyL] at h
+end
 
 end Contract

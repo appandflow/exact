@@ -1,5 +1,5 @@
 // @exact/barcode-detection's and @exact/text-detection's suite under the
-// agent, the same on each host named:
+// agent (LLP 1133.027 §9, §12 stages 1 and 2), the same on each host named:
 // the fixture app's stills (drive 5), text read from a still where the
 // platform has a recognizer (drive 6's module half), and a live scan of the
 // camera's agent picture (drives 2 and 3). Vision answers for real on Apple
@@ -47,7 +47,7 @@ for (const host of hosts.length ? hosts : ['web']) {
   const out = `${r.stdout}\n${r.stderr}`, codes = shown(out, 'code'), found = shown(out, 'found');
   check(host, 'the drive ran', r.status === 0, out.split('\n').slice(-20).join('\n'));
   const want = STILLS.flatMap(([, , , w]) => w);
-  check(host, 'each still answers its codes, the UPC rule applied', JSON.stringify(codes.map(c => c.split(' ').slice(0, 2).join(' '))) === JSON.stringify(want), JSON.stringify(codes));
+  check(host, 'each still answers its codes, D11\'s rule applied', JSON.stringify(codes.map(c => c.split(' ').slice(0, 2).join(' '))) === JSON.stringify(want), JSON.stringify(codes));
   // The simulator's detector (Vision's revision 2, BarcodeDetection.swift) boxes the scan lines it decoded, which
   // span the bars' width but not their whole height: there the box's sides are checked and its top and bottom lie
   // within the bars.

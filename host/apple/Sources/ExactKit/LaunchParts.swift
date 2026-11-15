@@ -262,7 +262,8 @@ final class ExactService {
     func background() { backgroundFn(state) }
 }
 
-/// A module's service, asked by the app's own module.
+/// A module's service, asked by the app's own module (LLP 1067.000 keeps
+/// one module per app; a service such as Observe's is the framework's).
 /// `reply` runs once, on any thread, with the service's JSON answer. A query
 /// made before its service has loaded (Observe's loads after startup) loads
 /// it then and waits; nil when the app asks for no such service, it fails

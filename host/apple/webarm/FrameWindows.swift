@@ -1,9 +1,9 @@
 // Every iframe's new windows, dialogs, file inputs, downloads, permissions
-// and other apps' schemes on Apple: the arm is each
+// and other apps' schemes on Apple (@ref LLP 1020.002 D5): the arm is each
 // web view's `WKUIDelegate`. What the author leaves unsaid is the platform's:
 // its sheets and panels, Safari's popup rules, and denial of what a guest
 // asks for. Under the agent a sheet or panel is a request the drive answers
-// instead.
+// instead (§10).
 import Foundation
 import WebKit
 #if os(macOS)
@@ -133,7 +133,7 @@ class FrameUI: NSObject, WKUIDelegate {
     }
 
     /// What was decided for `origin`'s requests in `web` (a web view, or a
-    /// PDF frame's view).
+    /// PDF frame's view, D10).
     func asked(_ web: AnyObject, _ origin: String) -> Asked { pages[ObjectIdentifier(web)]?.asked[origin] ?? Asked() }
 
     func record(_ web: AnyObject, _ origin: String, _ change: (inout Asked) -> Void) {
@@ -186,7 +186,7 @@ class FrameUI: NSObject, WKUIDelegate {
 
     /// What a navigation in the frame does before WebKit loads it: another
     /// app's scheme asks first, a ⌘- or middle-click is a tab, and `<a
-    /// download>` downloads.
+    /// download>` downloads (@ref LLP 1020.002 D5).
     func intercept(_ action: WKNavigationAction, in web: WKWebView) -> Policy {
         let url = action.request.url
         let main = action.targetFrame?.isMainFrame != false
@@ -225,7 +225,7 @@ class FrameUI: NSObject, WKUIDelegate {
 
     // MARK: New windows
 
-    /// The popup table, rows in order; the first that matches decides. A
+    /// D5's popup table, rows in order; the first that matches decides. A
     /// sandbox without `allow-popups`, and a scripted window with no
     /// person's gesture (`javaScriptCanOpenWindowsAutomatically` is false),
     /// never reach this.
@@ -288,7 +288,7 @@ class FrameUI: NSObject, WKUIDelegate {
     /// for an alert's or a confirm's OK).
     func dialog(_ web: WKWebView, _ frame: WKFrameInfo, type: String, _ message: String, defaultText: String?, done: @escaping (String?) -> Void) {
         // An agent-controlled frame's own dialog is automation's to answer;
-        // a person who takes the frame back is shown it.
+        // a person who takes the frame back is shown it (@ref LLP 1020.002 D9).
         if web === arm?.built, let automation = arm?.automation,
            automation.hold(type: type, message: message, defaultValue: defaultText,
                            show: { [weak self] in self?.dialog(web, frame, type: type, message, defaultText: defaultText, done: done) }, answer: done) { return }
@@ -399,7 +399,7 @@ class FrameUI: NSObject, WKUIDelegate {
         #endif
     }
 
-    // MARK: Permissions, denied
+    // MARK: Permissions, denied (§12 Q8)
 
     func webView(_ web: WKWebView, requestMediaCapturePermissionFor origin: WKSecurityOrigin, initiatedByFrame frame: WKFrameInfo,
                  type: WKMediaCaptureType, decisionHandler: @escaping (WKPermissionDecision) -> Void) {
@@ -712,8 +712,9 @@ extension FramePopup: UIAdaptivePresentationControllerDelegate {
 /// `DownloadItem` states.
 final class FrameDownloads: NSObject, WKDownloadDelegate {
     /// `temp` is where WebKit writes, beside `path`, until the download is
-    /// in and is renamed over it.
-    struct Item { var url: String; var name = ""; var path: URL?; var temp: URL?; var shown = ""; weak var web: WKWebView? }
+    /// in and is renamed over it. `exports`: `path` is iOS's temporary place,
+    /// from which the export picker moves the file where the person chooses.
+    struct Item { var url: String; var name = ""; var path: URL?; var temp: URL?; var shown = ""; var exports = false; weak var web: WKWebView? }
     weak var ui: FrameUI?
     var items: [ObjectIdentifier: Item] = [:]
     #if os(iOS)
@@ -768,7 +769,7 @@ final class FrameDownloads: NSObject, WKDownloadDelegate {
             self.items[key] = item
             completionHandler(temp)
         }
-        // An agent-controlled frame's downloads go to automation's folder, with no panel.
+        // An agent-controlled frame's downloads go to automation's folder, with no panel (@ref LLP 1020.002 D9).
         if let arm = ui?.arm, item.web === arm.built, let automation = arm.automation, automation.controlled, let place = automation.downloads {
             let name = Self.fresh(item.name, in: place.folder, taken: Set(items.values.compactMap { $0.path?.path }))
             return accept(place.folder.appendingPathComponent(name), place.shown.hasSuffix("/") ? place.shown + name : place.shown + "/" + name)
@@ -791,6 +792,7 @@ final class FrameDownloads: NSObject, WKDownloadDelegate {
         #else
         // The file comes in first, then the person chooses where it goes.
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent("exact-downloads/\(UUID().uuidString)", isDirectory: true)
+        items[key]?.exports = true
         accept(folder.appendingPathComponent(item.name), nil)
         #endif
     }
@@ -819,7 +821,15 @@ final class FrameDownloads: NSObject, WKDownloadDelegate {
             return report(item, "interrupted")
         }
         #if os(iOS)
-        if !(ui?.arm?.agent ?? true), let path = item.path, let web = item.web, let presenter = FrameUI.presenter(web) {
+        if item.exports, let path = item.path {
+            // The person never chose a place: with no export picker to ask,
+            // the download is cancelled, as the Mac's is in no window.
+            guard let web = item.web, let presenter = FrameUI.presenter(web) else {
+                items[key] = nil
+                try? FileManager.default.removeItem(at: path.deletingLastPathComponent())
+                ui?.log("a download of \(item.name) is cancelled: the frame is in no window")
+                return report(item, "cancelled")
+            }
             let picker = UIDocumentPickerViewController(forExporting: [path], asCopy: false)
             picker.delegate = self
             exporting[ObjectIdentifier(picker)] = key

@@ -1,7 +1,8 @@
-// `pointerdown` and `pointerup` on UIKit: DOM's names for a touch going
-// down on a node and coming up or being cancelled, bubbling to every
-// enabled ancestor that hears either and `pointermove` while it is down
-// (UIKit delivers moves once a frame; a touch has no hover, and an iPad's
+// `pointerdown` and `pointerup` on UIKit (LLP 1005 §3; Charlie,
+// 2026-10-03): DOM's names for a touch going down on a node and coming up
+// or being cancelled, bubbling to every enabled ancestor that hears either
+// (Charlie, 2026-10-15), and `pointermove` while it is down (LLP 1056 §3 stage
+// 3: UIKit delivers moves once a frame; a touch has no hover, and an iPad's
 // pointer hovering is not delivered). An observer, not a gesture: it never
 // recognizes, so it takes nothing from a press, a pan, a long press or the
 // scroll view, and it fires before any of them has decided.
@@ -14,7 +15,7 @@ extension Presenter {
     var cancelledPressTouches: NSHashTable<UITouch> { Self.cancelledPressTouches }
     private static let cancelledPressTouches = NSHashTable<UITouch>.weakObjects()
     /// A window point from the viewport's top-left, the page scroll applied:
-    /// DOM's `clientX`/`clientY`, `frame()`'s space. tvOS's
+    /// DOM's `clientX`/`clientY`, `frame()`'s space (LLP 1094 D11). tvOS's
     /// samples (the agent's pan, a long press) read it too.
     func client(_ windowPoint: CGPoint) -> CGPoint {
         let p = viewport.convert(windowPoint, from: nil)
@@ -123,7 +124,7 @@ final class PointerRecognizer: UIGestureRecognizer {
         dispatch(path.compactMap(\.node).filter { $0.handlers.contains("pointerdown") }) { n in
             if !n.disabled { n.presenter?.pointer(n.id, .down, sample(first, button: Self.domButton(buttons), at: n)) }
         }
-        // Prevented, the view it went down on takes no focus from this touch.
+        // Prevented, the view it went down on takes no focus from this touch (LLP 1005 §3).
         if presenter?.defaultPrevented == true { presenter?.preventedTouches.add(first) }
         presenter?.defaultPrevented = false
         if let pressPath, let presenter {
@@ -173,7 +174,7 @@ final class PointerRecognizer: UIGestureRecognizer {
         let client = node.presenter?.client(t.location(in: nil)) ?? .zero
         let type = t.type == .pencil ? "pen" : t.type == .indirectPointer ? "mouse" : "touch"
         let pressure = lifted ? 0 : t.maximumPossibleForce > 0 ? Double(t.force / t.maximumPossibleForce) : 0.5
-        // The keys a hardware keyboard holds, an iPad's ⇧ or ⌘.
+        // The keys a hardware keyboard holds, an iPad's ⇧ or ⌘ (gallery F20).
         return PointerSample(x: Double(point.x - box.minX), y: Double(point.y - box.minY), buttons: lifted ? 0 : buttons,
                              pressure: pressure, type: type, id: type == "mouse" ? 1 : touchId,
                              clientX: Double(client.x), clientY: Double(client.y), held: KeyCodes.held(modifierFlags), button: button)
@@ -508,7 +509,7 @@ extension NodeView {
         }
         let lands = inside && pressContact === contact && incarnation == contact.incarnation && (!contact.cancelled || movedByFocus) && presenter?.views[id] === self
         // A tap on a list's row selects its cell before the press runs, and
-        // the cell stays selected under a screen the press pushed.
+        // the cell stays selected under a screen the press pushed (LLP 1115.000 D16).
         let cells = presenter?.rowCells, screen = cells?.screen(of: self)
         let row = lands ? cells?.select(self) : nil
         pressed = overlayHoldsPress
@@ -537,7 +538,7 @@ extension NodeView {
     /// synthesis.
     @discardableResult
     func activate(at windowPoint: CGPoint) -> NodeView? {
-        // An SVG element under the point takes it.
+        // An SVG element under the point takes it (LLP 1055.000 D17).
         if kind == "svg", let element = presenter?.svg.target(id, at: local(windowPoint)) { activateSvg(element); return self }
         let target = activationTarget(at: windowPoint), consumed = controlTakesTouch(at: windowPoint)
         if target == nil, !takesPress, consumed { return nil }
@@ -642,7 +643,7 @@ extension NodeView {
         guard let presenter else { return nil }
         let handoff = presenter.beginPress(control: target.map { $0.textArea ?? $0.field ?? $0 })
         guard !presenter.contextRetainsFocus(self) else { return handoff }
-        // A press whose `pointerdown` an action prevented moves no focus, nor ends the editing there;
+        // A press whose `pointerdown` an action prevented moves no focus, nor ends the editing there (LLP 1005 §3);
         // what was typed is committed (`change`), as every press commits it on the Mac.
         if keepsFocus(from: self) {
             // Not while an input method composes: the confirmed text commits at its end, as the Mac waits for it.
@@ -711,7 +712,7 @@ extension NodeView {
 extension NodeView {
     /// Whether `view` keeps out of the focus a touch whose `pointerdown` an
     /// action prevented (`Presenter.preventedTouches`): the view it went down
-    /// on, and those it is in, until a turn after its lift.
+    /// on, and those it is in, until a turn after its lift (LLP 1005 §3).
     /// An action's own `focus()` (`Presenter.authoredFocus`) still reaches it.
     func keepsFocus(from view: UIView) -> Bool {
         guard presenter?.authoredFocus != true else { return false }

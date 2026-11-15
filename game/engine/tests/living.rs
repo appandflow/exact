@@ -117,9 +117,9 @@ fn bounded_settle_names_unfinished_work() {
         .iter()
         .any(|e| e.line.contains("settle exhausted: crate remains awake")));
 }
-// Save mode rebuilds at each advance's last tick (what a proof observes) and
-// every 16th tick inside one, and still agrees with Off. Round-tripping every
-// tick cost 205-310 s against 15 s Off for a 2k-tree world's proof.
+// Save mode once round-tripped every tick: 205-310 s against 15 s Off for the
+// forest's proof. It now rebuilds at each advance's last tick (what a proof
+// observes) and every 16th tick inside one, and still agrees with Off.
 #[test]
 fn paranoid_save_rebuilds_at_observed_and_sampled_ticks_only() {
     let mut off = Sim::<Living>::new(()).unwrap();

@@ -1,4 +1,4 @@
-// A timer whose action sends a `queue` mutation twice: the
+// A timer whose action sends a `queue` mutation twice (LLP 1092 D3): the
 // waiting send is asked after the timer's commit and before the next
 // timer due, inside one advance.
 shape Beat

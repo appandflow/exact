@@ -1,4 +1,4 @@
-//! Every name an author writes in a CSS position is one of three
+//! LLP 1081: every name an author writes in a CSS position is one of three
 //! kinds — CSS's (bare), a browser's (its own prefix), or Exact's
 //! (`-exact-`) — and the old spellings are refused with their new ones.
 
@@ -45,7 +45,7 @@ fn refusal(src: &str) -> String {
     contract::compile(src).unwrap_err().to_string()
 }
 
-/// A provenance string's form, and the spelling its kind requires.
+/// D8: a provenance string's form, and the spelling its kind requires.
 fn check(name: &str, provenance: &str) {
     let (kind, rest) = provenance.split_once(' ').unwrap_or((provenance, ""));
     match kind {
@@ -74,11 +74,13 @@ fn check(name: &str, provenance: &str) {
         }
         "exact" => {
             assert!(
-                rest.is_empty(),
-                "{name}: an Exact name's provenance is the bare word `exact`"
+                rest.starts_with("LLP "),
+                "{name}: an Exact name cites its LLP"
             );
+            // A custom property the host defines is spelled `--exact-`
+            // (LLP 1123 D9), as an author reads it through `var()`.
             assert!(
-                name.starts_with("-exact-"),
+                name.starts_with("-exact-") || name.starts_with("--exact-"),
                 "{name}: a name Exact invents is spelled `-exact-`"
             );
         }
@@ -92,7 +94,7 @@ fn every_name_is_its_kind() {
     for (name, provenance, _) in STYLE_NAMES {
         check(name, provenance);
     }
-    // The colour roles: CSS's system colours by their names,
+    // The colour roles (LLP 1095 D2): CSS's system colours by their names,
     // Exact's as `-exact-<role>`, WebKit's aliases with WebKit's prefix.
     for r in COLOR_ROLES {
         if is_css_system(r) {
@@ -105,7 +107,7 @@ fn every_name_is_its_kind() {
             );
         } else {
             let spelled = format!("-exact-{}", r.name);
-            check(&spelled, "exact");
+            check(&spelled, "exact LLP 1095");
             assert!(role(&spelled).is_some(), "{spelled}");
             assert_eq!(role(r.name), None, "the bare `{}` is not a colour", r.name);
         }
@@ -129,7 +131,7 @@ fn every_name_is_its_kind() {
 #[test]
 fn every_author_motion_name_is_a_style_name() {
     // Motion's author names (`Property::from_author_name`) are the style
-    // table's spellings, so they share its kinds.
+    // table's spellings, so they share its kinds (LLP 1081 D8).
     for p in Property::ALL {
         if Property::from_author_name(p.name()) == Some(p) {
             assert!(
@@ -169,7 +171,7 @@ fn no_old_spelling_is_accepted_by_any_table() {
     assert!(Transitions::parse("translate -exact-spring(300, 30, 1)").is_ok());
     assert!(Transitions::parse("tint-color 1s").is_err());
     assert!(Transitions::parse("-exact-tint-color 1s").is_ok());
-    // The host's custom property is not an author name in a transition,
+    // D5: the host's custom property is not an author name in a transition,
     // and is still decoded where the plan stores a serialized keyframes rule.
     assert!(Transitions::parse("--exact-tint 1s").is_err());
     assert_eq!(Property::from_author_name("--exact-tint"), None);
@@ -340,6 +342,6 @@ fn review_cases_values_in_keyframes_composites_and_author_names() {
         &[exact_kernel::StyleId::ClipPath]
     )
     .is_none());
-    // An author's own name that looks like an old token stays theirs.
+    // An author's own name that looks like an old token stays theirs (D5).
     boot(&app("      view display=\"grid\" grid-template-columns=\"[underline-line-through] 1fr\"\n      view -exact-animation-trigger=\"none\"\n"));
 }

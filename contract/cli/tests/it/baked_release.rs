@@ -1,5 +1,5 @@
 //! A resource's compiled value is released once nothing outside the runner
-//! holds it (`exact_runner::held`): a source that adopted it
+//! holds it (`exact_runner::held`): a source that adopted it (LLP 1027 D11)
 //! answers its edits through a mutation, as a live list does, and the
 //! baked copy of what it replaced is freed. A later read decodes the
 //! plan's bytes again: the value never changes for a reader.

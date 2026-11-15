@@ -1,8 +1,8 @@
-// Accept fixture: a browser shell's `iframe`: a partitioned top-level
-// guest, the Navigation API's events with their
+// Accept fixture: a browser shell's `iframe` (LLP 1020.002 D1–D3, D5, D6,
+// §9): a partitioned top-level guest, the Navigation API's events with their
 // `FrameNavigation` record, the four frame commands, a guest's window
-// requests and downloads, a capture of the guest, an agent-controlled
-// frame's dialog, and its inspector.
+// requests and downloads, a capture of the guest (D7), an agent-controlled
+// frame's dialog (D9), and its inspector (D11).
 component Shell
   state address = ""
   state title = ""

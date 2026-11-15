@@ -1,6 +1,7 @@
 //! The expression VM.
 //!
-//! `opcodes.json` is the one authority; expressions are closed.
+//! @ref LLP 1004 D2 (`opcodes.json` is the one authority) / LLP 0508 §4.3
+//! (closed expressions; research)
 //!
 //! A stack machine over [`Value`]s. Type inference in the compiler guarantees
 //! stack discipline for compiled plans; the VM still checks everything and
@@ -8,7 +9,11 @@
 //! trusted. There is no closure, no heap of the VM's own, no ambient read that
 //! is not an operand: `performanceNow()` reads the clock the runner passes in.
 
+mod column;
+pub use column::Column;
+mod constants;
 mod decoded;
+pub(crate) use constants::Constants;
 mod list_call;
 mod prepared;
 use decoded::Decoded;
@@ -33,7 +38,7 @@ pub const MAX_STRING: usize = 1 << 26;
 /// one counted once per place it appears: that expanded tree is what
 /// equality, shape checks and conversions walk. A list doubled through a
 /// local (`[x, x]`, then again) is otherwise exponential in instructions.
-/// A `some` is not counted: the checker refuses an option
+/// A `some` is not counted (LLP 1090 D2): the checker refuses an option
 /// directly inside an option, so a walk meets at most one per counted value.
 pub const MAX_VALUE_NODES: u64 = 1 << 24;
 
@@ -46,7 +51,7 @@ pub const MAX_VALUE_BYTES: u64 = MAX_STRING as u64;
 /// per action cannot grow past what walking or dropping it recurses through.
 pub const MAX_VALUE_DEPTH: u32 = 64;
 
-/// The most list steps one evaluation takes: each run of a
+/// The most list steps one evaluation takes (LLP 1017.003 D3): each run of a
 /// `map` or `filter` callback body is a step, nested runs each counted, and
 /// each item `join` prints is a step. A body is straight-line code with
 /// forward jumps, so this bounds how many instructions an evaluation runs.
@@ -57,8 +62,8 @@ pub const MAX_LIST_STEPS: u32 = 1 << 16;
 const REMEMBERED: u64 = 64;
 
 /// An instance's own slots — the values of the `state` a child component
-/// declared, one set per keyed row or shown `if`/`match` arm — shared by
-/// the instance and every frame that reaches it, so a
+/// declared, one set per keyed row or shown `if`/`match` arm (LLP 1017
+/// P4c) — shared by the instance and every frame that reaches it, so a
 /// read during an update and a write applied after an action's commit see
 /// one storage.
 pub type RowSlots = Rc<RefCell<BTreeMap<u32, Value>>>;
@@ -68,12 +73,11 @@ pub type RowSlots = Rc<RefCell<BTreeMap<u32, Value>>>;
 pub struct Frame {
     /// The `for` item, when this scope is a keyed row.
     pub item: Option<Value>,
-    /// The row's position in its list, from 0.
+    /// The row's position in its list, from 0 (LLP 1062 D8).
     pub index: Option<usize>,
     /// The `match` binding, when this scope is a `some(x)` arm.
     pub bound: Option<Value>,
-    /// The region this instance belongs to, when this scope is a row or an
-    /// arm that owns slots.
+    /// The region this instance belongs to, including arms with no state.
     pub region: Option<u32>,
     /// The instance's slots, when this scope is a row or an arm owning some.
     pub row: Option<RowSlots>,
@@ -91,38 +95,42 @@ impl Frame {
 }
 
 /// Everything an expression may read.
+#[derive(Clone, Copy)]
 pub struct Env<'a> {
     /// The plan the code belongs to.
     pub plan: &'a Plan,
     /// The plan's strings as values ([`Strings`]), made as they are read.
     pub strings: &'a Strings,
     /// Checked route table and shapes; present only for a plan with a router.
-    /// The same table across all calls in this runner.
+    /// @ref LLP 1038 D3/D9 — the same table across all calls in this runner.
     pub router: Option<&'a dyn crate::runner::Routing>,
-    /// The list engines, when this artifact links them.
+    /// The list engines, when this artifact links them (LLP 1047.000 §9).
     pub lists: Option<&'static crate::instance::ListLinks>,
-    /// The `format` capability, when linked.
+    /// The `format` capability, when linked (LLP 1054.000.003 D8).
     pub format: crate::runner::FormatLink,
-    /// Geometry reads: present only while an action's body runs.
+    /// Geometry reads: present only while an action's body runs
+    /// (LLP 1051.000 D2).
     pub geometry: Option<&'a crate::geometry::GeometryEnv<'a>>,
     /// State slots by index.
     pub slots: &'a [Value],
     /// Derives by index; `None` while not yet settled this update.
     pub derives: &'a [Option<Value>],
     /// Resource values by index; `None` while not yet settled this update.
-    pub resources: &'a [Option<crate::held::Held>],
+    pub resources: Column<'a, Option<crate::held::Held>>,
     /// Action parameters (empty outside an action).
     pub params: &'a [Value],
     /// Enclosing instance scopes, innermost last.
     pub frames: &'a [Frame],
     /// The clock, in milliseconds.
     pub now_ms: f64,
-    /// Whether each resource has a request in flight.
-    pub pending_resources: &'a [bool],
-    /// Arguments whose latest request failed, by resource.
-    pub failed_resources: &'a [Option<Vec<Value>>],
-    /// Why, while `failed_resources` holds; may be shorter.
-    pub failed_why: &'a [Option<crate::failure::Failure>],
+    /// Whether each resource has a request in flight (LLP 1016 D3).
+    pub pending_resources: Column<'a, bool>,
+    /// Whether each resource shows an answer to its call arguments (LLP 1161.001).
+    pub current_resources: Column<'a, bool>,
+    /// Arguments whose latest request failed, by resource (LLP 1054.000.002).
+    pub failed_resources: Column<'a, Option<Vec<Value>>>,
+    /// Why, while `failed_resources` holds (LLP 1109 D3); may be shorter.
+    pub failed_why: Column<'a, Option<crate::failure::Failure>>,
     /// Whether each mutation has a request in flight.
     pub pending_mutations: &'a [bool],
     /// Latest mutation failure; cleared by a new send or assignment.
@@ -130,7 +138,7 @@ pub struct Env<'a> {
     /// Store dependence of settled derives, for bake provenance propagation.
     pub store_dependent_derives: &'a [bool],
     /// Store dependence of settled resources, for bake provenance propagation.
-    pub store_dependent_resources: &'a [bool],
+    pub store_dependent_resources: Column<'a, bool>,
 }
 
 /// Take `n` list steps, or trap at `pc`.
@@ -245,7 +253,7 @@ fn measure(v: &Value, depth: u32, total: &mut Extent, pc: usize) -> Result<(), T
     #[cfg(test)]
     MEASURED.with(|m| m.set(m.get() + 1));
     total.depth = total.depth.max(depth);
-    // A `Some` is not a value of its own, only a level.
+    // A `Some` is not a value of its own (LLP 1090 D2), only a level.
     if let Value::Option(Some(inner)) = v {
         total.check(pc)?;
         return measure(inner, depth + 1, total, pc);
@@ -271,11 +279,12 @@ pub struct Outcome {
     pub value: Value,
     /// `(slot, value)` writes in execution order.
     pub writes: Vec<(u32, Value)>,
-    /// `(slot, value, row)` writes to row slots, with the row they belong to.
+    /// `(slot, value, row)` writes to row slots, with the row they belong to
+    /// (LLP 1017 P4c).
     pub row_writes: Vec<(u32, Value, RowSlots)>,
     /// `(name, args)` commands in execution order.
     pub commands: Vec<(String, Vec<Value>)>,
-    /// `(mutation, source, args)` sends in execution order.
+    /// `(mutation, source, args)` sends in execution order (LLP 1016).
     pub sends: Vec<(u32, String, Vec<Value>)>,
     /// Resources to re-request with their current arguments.
     pub refreshes: Vec<u32>,
@@ -289,6 +298,7 @@ pub struct Outcome {
 /// allocation, never a fresh one.
 pub struct Strings {
     cells: Vec<std::cell::OnceCell<Value>>,
+    constants: Option<std::sync::Arc<Constants>>,
 }
 
 impl Strings {
@@ -297,6 +307,14 @@ impl Strings {
         let cells = (0..plan.strings.len()).map(|_| std::cell::OnceCell::new());
         Strings {
             cells: cells.collect(),
+            constants: None,
+        }
+    }
+
+    pub(crate) fn with_constants(plan: &Plan, constants: std::sync::Arc<Constants>) -> Self {
+        Self {
+            constants: (!constants.is_empty()).then_some(constants),
+            ..Self::new(plan)
         }
     }
 
@@ -305,6 +323,7 @@ impl Strings {
     pub fn of(values: impl IntoIterator<Item = Value>) -> Strings {
         Strings {
             cells: values.into_iter().map(std::cell::OnceCell::from).collect(),
+            constants: None,
         }
     }
 
@@ -372,13 +391,38 @@ pub fn instructions(code: &[u8]) -> impl Iterator<Item = Result<Instruction, Tra
         Some(next)
     })
 }
+/// Instructions reachable through at-read rows, each row scanned once.
+/// This is a dependency walk; nested offsets remain local to their bodies.
+pub fn transitive_instructions<'a>(
+    plan: &'a Plan,
+    code: &'a [u8],
+) -> impl Iterator<Item = Result<Instruction, Trap>> + 'a {
+    let mut bodies = vec![code];
+    let mut seen = std::collections::BTreeSet::new();
+    let mut out = Vec::new();
+    while let Some(body) = bodies.pop() {
+        for i in instructions(body) {
+            if let Ok(i) = &i {
+                if i.op == Opcode::LoadDerive {
+                    if let Some(row) = plan.unsettled_body(i.args[0] as u32) {
+                        if seen.insert(i.args[0]) {
+                            bodies.push(plan.code(row.body));
+                        }
+                    }
+                }
+            }
+            out.push(i);
+        }
+    }
+    out.into_iter()
+}
 
 /// Whether `code` is a literal — pushes of values and `Return`, nothing
 /// read — so a binding can be told from an expression without running it
-/// (a row bound by an expression is `dynamic`). Malformed
+/// (LLP 1035.002 D5: a row bound by an expression is `dynamic`). Malformed
 /// code is not a literal.
-pub fn is_literal(code: &[u8]) -> bool {
-    instructions(code).all(|i| {
+pub fn is_literal(plan: &Plan, code: &[u8]) -> bool {
+    transitive_instructions(plan, code).all(|i| {
         i.is_ok_and(|i| {
             matches!(
                 i.op,
@@ -389,7 +433,7 @@ pub fn is_literal(code: &[u8]) -> bool {
                     | Opcode::Unit
                     | Opcode::Some
                     | Opcode::Return
-            )
+            ) || i.op == Opcode::LoadDerive && plan.unsettled_body(i.args[0] as u32).is_some()
         })
     })
 }
@@ -504,11 +548,20 @@ fn eval_machine(
         env,
         code,
         allowed_writes,
+        constants: env.strings.constants.as_deref().and_then(|pool| {
+            let base = code
+                .as_ptr()
+                .addr()
+                .checked_sub(env.plan.code.as_ptr().addr())?;
+            (base.checked_add(code.len())? <= env.plan.code.len()).then_some((pool, base))
+        }),
         cursor: Reader::new(code),
         out: Outcome::default(),
         extents: std::mem::take(&mut scratch.extents),
         decoded: std::mem::take(&mut scratch.decoded),
         steps: 0,
+        calls: 0,
+        depth: 0,
     };
     let value = machine::run(&mut run, &mut scratch.machine);
     scratch.machine.pos = 0;
@@ -675,10 +728,13 @@ struct Run<'e, 'a> {
     allowed_writes: &'e [u32],
     /// Where the last instruction was read up to.
     cursor: Reader<'e>,
+    constants: Option<(&'e Constants, usize)>,
     out: Outcome,
     extents: Extents,
     decoded: Decoded,
     steps: u32,
+    calls: u32,
+    depth: u16,
 }
 
 impl Host<Value> for Run<'_, '_> {
@@ -688,6 +744,11 @@ impl Host<Value> for Run<'_, '_> {
     fn fetch(&mut self, pos: usize) -> Result<Option<(Instruction, usize)>, Trap> {
         if pos >= self.code.len() {
             return Ok(None);
+        }
+        if let Some((pool, base)) = self.constants {
+            if let Some(kept) = pool.get(base, pos, self.code.len()) {
+                return Ok(Some(kept));
+            }
         }
         if let Some(kept) = self.decoded.get(pos) {
             return Ok(Some(kept));
@@ -736,6 +797,48 @@ impl Host<Value> for Run<'_, '_> {
     fn load_derive(&mut self, i: u64, pc: usize) -> Result<Value, Trap> {
         let derive = i as usize;
         let env = self.env;
+        if let Some(row) = env.plan.unsettled_body(derive as u32) {
+            self.calls += 1;
+            if self.calls > 65_536 {
+                return Err(Trap::CallLimit { pc });
+            }
+            if self.depth >= 64 {
+                return Err(Trap::CallDepth { pc });
+            }
+            let frames = env
+                .plan
+                .owner_frames(env.frames, row.owner, |f| f.region)
+                .ok_or(Trap::BadScope { pc, depth: 0 })?;
+            let nested_env = Env {
+                frames,
+                params: &[],
+                ..*env
+            };
+            let code = env.plan.code(row.body);
+            let mut nested = Run {
+                env: &nested_env,
+                code,
+                allowed_writes: &[],
+                constants: env
+                    .strings
+                    .constants
+                    .as_deref()
+                    .map(|pool| (pool, row.body.offset as usize)),
+                cursor: Reader::new(code),
+                out: Outcome::default(),
+                extents: std::mem::take(&mut self.extents),
+                decoded: Decoded::default(),
+                steps: self.steps,
+                calls: self.calls,
+                depth: self.depth + 1,
+            };
+            let value = machine::run(&mut nested, &mut Machine::default());
+            self.steps = nested.steps;
+            self.calls = nested.calls;
+            self.extents = nested.extents;
+            self.out.store_dependent |= nested.out.store_dependent;
+            return value;
+        }
         let value = env
             .derives
             .get(derive)
@@ -803,12 +906,14 @@ impl Host<Value> for Run<'_, '_> {
         }
         Ok(if op == Opcode::FailedResource {
             env.failed_resources.get(i).is_some_and(Option::is_some)
+        } else if op == Opcode::CurrentResource {
+            env.current_resources.get(i).copied().unwrap_or(false)
         } else {
             env.pending_resources.get(i).copied().unwrap_or(false)
         })
     }
 
-    // `failure(x)`: known once settled, as `failed(x)`;
+    // @ref LLP 1109 D3 — `failure(x)`: known once settled, as `failed(x)`;
     // the `Failure` record is `{ code, message, reason }` by position.
     fn resource_failure(&mut self, i: u64, pc: usize) -> Result<Value, Trap> {
         if !self.resource_flag(Opcode::FailedResource, i, pc)? {
@@ -865,7 +970,7 @@ impl Host<Value> for Run<'_, '_> {
             .unwrap_or(false)
     }
 
-    // A `Some` adds depth and nothing else: the JS
+    // @ref LLP 1090 D2 — a `Some` adds depth and nothing else: the JS
     // target erases it, and `type-option-option` keeps at most one above
     // each counted value, so walks stay within twice the count.
     fn some(&mut self, v: Value, pc: usize) -> Result<Value, Trap> {
@@ -1005,8 +1110,7 @@ impl Host<Value> for Run<'_, '_> {
         self.out.refreshes.push(r as u32);
     }
 
-    /// Called as each callback item begins: from the first, instructions
-    /// are kept decoded.
+    /// A callback keeps instructions that miss the shared pool locally.
     #[inline]
     fn steps(&mut self, n: usize, pc: usize) -> Result<(), Trap> {
         self.decoded.start(self.code.len());
@@ -1040,451 +1144,21 @@ thread_local! {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use exact_plan::asm::Asm;
-    use exact_plan::builder::PlanBuilder;
+mod tests;
 
-    pub(super) fn run(body: Asm) -> Result<Outcome, Trap> {
-        run_reusing(body, &mut Scratch::default())
-    }
-
-    fn run_reusing(body: Asm, scratch: &mut Scratch) -> Result<Outcome, Trap> {
-        let mut b = PlanBuilder::new(exact_kernel::SCHEMA_DIGEST, 1);
-        let code = b.code(body);
-        let plan = b.finish().unwrap();
-        let strings = intern(&plan);
-        let env = Env {
-            plan: &plan,
-            strings: &strings,
-            router: None,
-            lists: None,
-            format: None,
-            geometry: None,
-            slots: &[],
-            derives: &[],
-            resources: &[],
-            params: &[],
-            frames: &[],
-            now_ms: 0.0,
-            pending_resources: &[],
-            failed_resources: &[],
-            failed_why: &[],
-            pending_mutations: &[],
-            failed_mutations: &[],
-            store_dependent_derives: &[],
-            store_dependent_resources: &[],
-        };
-        eval_reusing(plan.code(code), &env, &[], scratch)
-    }
-
-    #[test]
-    fn reused_storage_does_not_carry_locals_stacks_or_failed_callbacks() {
-        let mut scratch = Scratch::default();
-        for _ in 0..100 {
-            let mut local = Asm::new();
-            local.number(2.0).bind_local().number(7.0);
-            assert_eq!(
-                run_reusing(local, &mut scratch).unwrap().value,
-                Value::Number(7.0)
-            );
-            let mut read = Asm::new();
-            read.load_local(0);
-            assert!(matches!(
-                run_reusing(read, &mut scratch),
-                Err(Trap::BadScope { .. })
-            ));
-            let mut pop = Asm::new();
-            pop.simple(Opcode::Pop);
-            assert!(matches!(
-                run_reusing(pop, &mut scratch),
-                Err(Trap::StackUnderflow { .. })
-            ));
-            let mut callback = Asm::new();
-            let end = callback.label();
-            ones(&mut callback, 2)
-                .each_item(Opcode::Map, end)
-                .number(1.0)
-                .simple(Opcode::Return)
-                .place(end);
-            assert!(matches!(
-                run_reusing(callback, &mut scratch),
-                Err(Trap::Malformed { .. })
-            ));
-            let mut valid = Asm::new();
-            valid.number(41.0).number(1.0).simple(Opcode::Add);
-            assert_eq!(
-                run_reusing(valid, &mut scratch).unwrap().value,
-                Value::Number(42.0)
-            );
+impl Trap {
+    /// The bound in diagnostic text, after the unchanged trap token.
+    pub fn bound(&self) -> &'static str {
+        match self {
+            Self::IterationLimit { .. } => ": past the 65,536 list steps one evaluation may take",
+            Self::CallLimit { .. } => ": past the 65,536 derive calls one evaluation may take",
+            Self::CallDepth { .. } => ": past 64 derive call levels",
+            Self::StringTooLong { .. } => ": past the 64 MiB a string may hold",
+            Self::ValueTooLarge { .. } => ": past the 16,777,216 nodes or 64 MiB a value may hold",
+            Self::ValueTooDeep { .. } => ": past 64 levels",
+            _ => "",
         }
-    }
-
-    /// `x` on the stack becomes `[x, x]`, `times` times, through a local.
-    fn doubled(body: &mut Asm, times: usize) -> &mut Asm {
-        for _ in 0..times {
-            body.bind_local()
-                .load_local(0)
-                .load_local(0)
-                .list(2)
-                .drop_local();
-        }
-        body
-    }
-
-    fn measured(f: impl FnOnce()) -> u64 {
-        MEASURED.with(|m| m.set(0));
-        f();
-        MEASURED.with(|m| m.get())
-    }
-
-    /// Doubling through a local makes one instruction's value exponential in
-    /// instructions: 2^k leaves after k doublings, which equality, shape
-    /// checks and encoding then walk leaf by leaf. The VM refuses the
-    /// doubling that passes `MAX_VALUE_NODES`, and sizing a shared part
-    /// costs one lookup, not its expansion.
-    #[test]
-    fn a_doubled_list_is_refused_where_it_is_built() {
-        // k doublings of a number hold 2^(k+1) - 1 values: 23 fit in 2^24.
-        let mut body = Asm::new();
-        body.number(1.0);
-        doubled(&mut body, 23);
-        let mut value = Value::Unit;
-        let walked = measured(|| value = run(body).unwrap().value);
-        assert!(walked < 1_000, "sizing 23 doublings walked {walked} values");
-        let (mut leaves, mut v) = (1u64, &value);
-        while let Value::List(items) = v {
-            assert_eq!(items.len(), 2);
-            leaves *= 2;
-            v = &items[0];
-        }
-        assert_eq!(leaves, 1 << 23);
-
-        let mut body = Asm::new();
-        body.number(1.0);
-        doubled(&mut body, 64);
-        match run(body) {
-            // The 24th doubling's `List`: `Number` is 9 bytes, a doubling
-            // 13 (bind 1, load 3, load 3, list 5, drop 1).
-            Err(Trap::ValueTooLarge { pc }) => assert_eq!(pc, 9 + 23 * 13 + 7),
-            other => panic!("{other:?}"),
-        }
-    }
-
-    /// A shared string counts its bytes wherever it appears: 64 copies of a
-    /// 1 MiB string fit `MAX_VALUE_BYTES`, 128 do not.
-    #[test]
-    fn a_shared_string_counts_its_bytes_in_every_place() {
-        let mut b = PlanBuilder::new(exact_kernel::SCHEMA_DIGEST, 1);
-        let x = b.str("x");
-        let mut fits = Asm::new();
-        fits.str(x);
-        for _ in 0..20 {
-            fits.bind_local()
-                .load_local(0)
-                .load_local(0)
-                .op(exact_plan::Opcode::Concat, &[])
-                .drop_local();
-        }
-        let mut refused = Asm::new();
-        refused.str(x);
-        for _ in 0..20 {
-            refused
-                .bind_local()
-                .load_local(0)
-                .load_local(0)
-                .op(exact_plan::Opcode::Concat, &[])
-                .drop_local();
-        }
-        doubled(&mut fits, 6);
-        doubled(&mut refused, 7);
-        let fits = b.code(fits);
-        let refused = b.code(refused);
-        let plan = b.finish().unwrap();
-        let strings = intern(&plan);
-        let env = Env {
-            plan: &plan,
-            strings: &strings,
-            router: None,
-            lists: None,
-            format: None,
-            geometry: None,
-            slots: &[],
-            derives: &[],
-            resources: &[],
-            params: &[],
-            frames: &[],
-            now_ms: 0.0,
-            pending_resources: &[],
-            failed_resources: &[],
-            failed_why: &[],
-            pending_mutations: &[],
-            failed_mutations: &[],
-            store_dependent_derives: &[],
-            store_dependent_resources: &[],
-        };
-        assert!(eval(plan.code(fits), &env, &[]).is_ok());
-        assert!(matches!(
-            eval(plan.code(refused), &env, &[]),
-            Err(Trap::ValueTooLarge { .. })
-        ));
-    }
-
-    /// A `some` adds a level and no value: 23 doublings each
-    /// wrapped in one fit as the bare doublings do (they would hold
-    /// 3 · 2^23 values counted the old way), and the 24th still traps.
-    #[test]
-    fn a_some_measures_as_its_value() {
-        let wrapped = |times: usize| {
-            let mut body = Asm::new();
-            body.number(1.0);
-            for _ in 0..times {
-                doubled(&mut body, 1).simple(exact_plan::Opcode::Some);
-            }
-            run(body)
-        };
-        assert!(wrapped(23).is_ok());
-        assert!(matches!(wrapped(24), Err(Trap::ValueTooLarge { .. })));
-    }
-
-    /// The VM nests no deeper than `Value::decode` reads: 64 `some`s around a
-    /// number round-trip through the canonical bytes, a 65th is refused.
-    #[test]
-    fn nesting_stops_where_decoding_does() {
-        let nested = |n: usize| {
-            let mut body = Asm::new();
-            body.number(1.0);
-            for _ in 0..n {
-                body.simple(exact_plan::Opcode::Some);
-            }
-            run(body)
-        };
-        let deepest = nested(64).unwrap().value;
-        assert_eq!(Value::from_bytes(&deepest.to_bytes()).unwrap(), deepest);
-        assert!(matches!(nested(65), Err(Trap::ValueTooDeep { .. })));
-        let mut too_deep = deepest.clone();
-        too_deep = Value::some(too_deep);
-        assert!(Value::from_bytes(&too_deep.to_bytes()).is_err());
-    }
-
-    /// Push a list of `n` ones.
-    fn ones(body: &mut Asm, n: u32) -> &mut Asm {
-        for _ in 0..n {
-            body.number(1.0);
-        }
-        body.list(n)
-    }
-
-    /// `map(outer, x => map(inner, y => 1))`, then, when `extra`, one more
-    /// `map` over a one-item list; its value is the nested lists' length.
-    fn nested(outer: u32, inner: u32, extra: bool) -> Result<Outcome, Trap> {
-        let mut body = Asm::new();
-        ones(&mut body, inner).bind_local();
-        ones(&mut body, outer);
-        let (end, end_inner) = (body.label(), body.label());
-        body.each_item(exact_plan::Opcode::Map, end)
-            .load_local(0)
-            .each_item(exact_plan::Opcode::Map, end_inner)
-            .number(1.0)
-            .place(end_inner)
-            .place(end);
-        if extra {
-            let last = body.label();
-            body.simple(exact_plan::Opcode::Pop);
-            ones(&mut body, 1)
-                .each_item(exact_plan::Opcode::Map, last)
-                .number(1.0)
-                .place(last);
-        }
-        body.drop_local();
-        run(body)
-    }
-
-    /// 256 outer runs of 255 inner are 65,536 runs, which
-    /// fit; one more run anywhere in the evaluation is `IterationLimit`.
-    #[test]
-    fn callback_runs_are_counted_across_nesting_and_capped() {
-        let Value::List(outer) = nested(256, 255, false).unwrap().value else {
-            panic!("a list")
-        };
-        assert_eq!(outer.len(), 256);
-        assert!(matches!(&outer[0], Value::List(inner) if inner.len() == 255));
-        assert!(matches!(
-            nested(256, 255, true),
-            Err(Trap::IterationLimit { .. })
-        ));
-        assert!(nested(255, 255, true).is_ok());
-    }
-
-    #[test]
-    fn map_and_filter_bind_the_item_and_index_and_filter_keeps_by_bool() {
-        // map([1, 1, 1], (x, i) => x + i) == [1, 2, 3]
-        let mut body = Asm::new();
-        let end = body.label();
-        ones(&mut body, 3)
-            .each_item(exact_plan::Opcode::Map, end)
-            .load_local(0)
-            .load_local(1)
-            .simple(exact_plan::Opcode::Add)
-            .place(end);
-        let expected: Vec<Value> = [1.0, 2.0, 3.0].map(Value::Number).into();
-        assert_eq!(run(body).unwrap().value, Value::list(expected));
-        // filter(xs, (x, i) => i > 0) drops the first; `true` keeps the list itself.
-        let mut body = Asm::new();
-        let end = body.label();
-        ones(&mut body, 3)
-            .each_item(exact_plan::Opcode::Filter, end)
-            .load_local(1)
-            .number(0.0)
-            .simple(exact_plan::Opcode::Gt)
-            .place(end);
-        assert!(matches!(run(body).unwrap().value, Value::List(l) if l.len() == 2));
-        let mut body = Asm::new();
-        let end = body.label();
-        ones(&mut body, 2).bind_local().load_local(0);
-        body.each_item(exact_plan::Opcode::Filter, end)
-            .bool(true)
-            .place(end)
-            .load_local(0)
-            .op(exact_plan::Opcode::Eq, &[])
-            .drop_local();
-        assert_eq!(run(body).unwrap().value, Value::Bool(true));
-        // A filter body that is not a bool; an empty list runs no body.
-        let mut body = Asm::new();
-        let end = body.label();
-        ones(&mut body, 1)
-            .each_item(exact_plan::Opcode::Filter, end)
-            .number(1.0)
-            .place(end);
-        assert!(matches!(
-            run(body),
-            Err(Trap::TypeMismatch {
-                op: exact_plan::Opcode::Filter,
-                ..
-            })
-        ));
-        let mut body = Asm::new();
-        let end = body.label();
-        body.list(0)
-            .each_item(exact_plan::Opcode::Map, end)
-            .simple(exact_plan::Opcode::Return)
-            .place(end);
-        assert_eq!(run(body).unwrap().value, Value::list(vec![]));
-        // A `Return` inside a body is malformed.
-        let mut body = Asm::new();
-        let end = body.label();
-        ones(&mut body, 1)
-            .each_item(exact_plan::Opcode::Map, end)
-            .number(1.0)
-            .simple(exact_plan::Opcode::Return)
-            .place(end);
-        assert!(matches!(run(body), Err(Trap::Malformed { .. })));
-    }
-
-    /// A body runs on a stack of its own and drops only the locals it bound.
-    #[test]
-    fn a_callback_body_cannot_touch_what_its_caller_holds() {
-        let mut body = Asm::new();
-        let end = body.label();
-        body.number(7.0);
-        ones(&mut body, 1)
-            .each_item(exact_plan::Opcode::Map, end)
-            .simple(exact_plan::Opcode::Pop)
-            .simple(exact_plan::Opcode::Pop)
-            .number(1.0)
-            .place(end);
-        assert!(matches!(run(body), Err(Trap::StackUnderflow { .. })));
-        let mut body = Asm::new();
-        let end = body.label();
-        ones(&mut body, 1)
-            .each_item(exact_plan::Opcode::Map, end)
-            .drop_local()
-            .number(1.0)
-            .place(end);
-        assert!(matches!(run(body), Err(Trap::Malformed { .. })));
-        // Its caller's operands are there again after it.
-        let mut body = Asm::new();
-        let end = body.label();
-        body.number(7.0);
-        ones(&mut body, 2)
-            .each_item(exact_plan::Opcode::Map, end)
-            .number(1.0)
-            .place(end)
-            .simple(exact_plan::Opcode::Pop);
-        assert_eq!(run(body).unwrap().value, Value::Number(7.0));
-    }
-
-    /// Each item `join` prints is a step against the same bound.
-    #[test]
-    fn join_takes_a_step_per_item() {
-        let joined = |n: u32| {
-            let mut body = Asm::new();
-            let mut b = PlanBuilder::new(exact_kernel::SCHEMA_DIGEST, 1);
-            let sep = b.str("");
-            ones(&mut body, n).str(sep).call(Stdlib::Join);
-            let code = b.code(body);
-            let plan = b.finish().unwrap();
-            let strings = intern(&plan);
-            let env = Env {
-                plan: &plan,
-                strings: &strings,
-                router: None,
-                lists: None,
-                format: None,
-                geometry: None,
-                slots: &[],
-                derives: &[],
-                resources: &[],
-                params: &[],
-                frames: &[],
-                now_ms: 0.0,
-                pending_resources: &[],
-                failed_resources: &[],
-                failed_why: &[],
-                pending_mutations: &[],
-                failed_mutations: &[],
-                store_dependent_derives: &[],
-                store_dependent_resources: &[],
-            };
-            eval(plan.code(code), &env, &[]).map(|o| o.value)
-        };
-        assert!(
-            matches!(joined(MAX_LIST_STEPS), Ok(s) if s.as_str().map(str::len) == Some(MAX_LIST_STEPS as usize))
-        );
-        assert!(matches!(
-            joined(MAX_LIST_STEPS + 1),
-            Err(Trap::IterationLimit { .. })
-        ));
-    }
-
-    #[test]
-    fn join_prints_items_as_to_string_does() {
-        let join = |items: Vec<Value>, sep: &str| {
-            stdlib::join(&[Value::list(items), Value::str(sep)], MAX_STRING)
-        };
-        let n = Value::Number;
-        assert_eq!(
-            join(vec![n(1.5), n(-0.0), n(1e21), n(0.1 + 0.2)], ","),
-            Ok(Value::str("1.5,0,1e+21,0.30000000000000004"))
-        );
-        assert_eq!(
-            join(vec![Value::str("a"), Value::Bool(false)], " · "),
-            Ok(Value::str("a · false"))
-        );
-        assert_eq!(join(vec![], ","), Ok(Value::str("")));
-        assert_eq!(
-            join(vec![Value::record(vec![])], ","),
-            Err(stdlib::JoinError::Type)
-        );
-        assert_eq!(
-            stdlib::join(
-                &[
-                    Value::list(vec![Value::str("ab"), Value::str("cd")]),
-                    Value::str("-")
-                ],
-                4
-            ),
-            Err(stdlib::JoinError::TooLong)
-        );
     }
 }
+#[cfg(test)]
+mod unsettled_tests;

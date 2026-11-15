@@ -4,8 +4,11 @@
 // startup report, a background thread subscribes to journal events, keeps the queue
 // (one bounded JSON file), records earlier crashes and sends rows in expo-observe's
 // OTLP/JSON, matching `apple/service/ObserveWire.swift` and `web/service.js`.
+// Every process of the app shares the queue file. A process changes it only while
+// holding `queue.lock`, reading it, changing it and writing it back, and sends only
+// while holding `send.lock`, so each row is sent once.
 
-use exact_linux::journal::{self, serde_json, LaunchContext};
+use exact_painted::journal::{self, serde_json, LaunchContext};
 use serde_json::{json, Map, Value};
 use std::path::PathBuf;
 use std::sync::mpsc;
@@ -89,10 +92,25 @@ fn session_id() -> String {
         z = (z ^ (z >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
         z ^ (z >> 31)
     };
-    let seed = exact_linux::launch_marks::boottime().to_bits()
+    let seed = exact_painted::launch_marks::boottime().to_bits()
         ^ u64::from(std::process::id()).rotate_left(40);
     let (a, b) = (mix(seed), mix(seed ^ journal::wall().to_bits()));
     uuid_v4((u128::from(a) << 64 | u128::from(b)).to_be_bytes())
+}
+
+/// The metadata that names the app's build: its identity and environment. A crash
+/// record carries it, so a crash before this session's row is saved is counted
+/// against the build that crashed, not the one that opens next.
+fn app_meta(app: &Value, config: &Value, development: bool) -> Map<String, Value> {
+    let environment = config["environment"].as_str().unwrap_or(if development {
+        "development"
+    } else {
+        "production"
+    });
+    object(json!({
+        "appIdentifier": app["id"], "appName": app["name"], "appVersion": app["version"],
+        "environment": environment,
+    }))
 }
 
 /// The launch part: no I/O, no parsing, no thread until startup is reported.
@@ -117,9 +135,11 @@ pub fn launch(ctx: LaunchContext) {
             .map(|s| s.to_string())
             .or_else(|| info.payload().downcast_ref::<String>().cloned())
             .unwrap_or_default();
+        let parse = |text: &str| serde_json::from_str::<Value>(text).unwrap_or_default();
+        let meta = app_meta(&parse(app), &parse(config), development);
         let record = json!({
             "session": crash_session, "sessionStart": start, "time": journal::wall(),
-            "type": "panic", "message": message,
+            "meta": meta, "type": "panic", "message": message,
             "location": info.location().map(|l| format!("{}:{}", l.file(), l.line())),
             "thread": std::thread::current().name().map(str::to_string),
         });
@@ -323,6 +343,22 @@ fn device() -> Map<String, Value> {
 
 type Row = Map<String, Value>;
 
+/// Removes from `queue` one row equal to each of `sent`, the earliest first.
+fn remove_sent(queue: &mut Vec<Row>, sent: &[Row]) {
+    let key = |row: &Row| serde_json::to_string(row).unwrap_or_default();
+    let mut left = std::collections::HashMap::<String, usize>::new();
+    for row in sent {
+        *left.entry(key(row)).or_default() += 1;
+    }
+    queue.retain(|row| match left.get_mut(&key(row)) {
+        Some(n) if *n > 0 => {
+            *n -= 1;
+            false
+        }
+        _ => true,
+    });
+}
+
 /// Appends a row, dropping the oldest past `MAX_ROWS`.
 fn push_capped(queue: &mut Vec<Row>, row: Row) {
     queue.push(row);
@@ -345,7 +381,10 @@ struct Service {
     development: bool,
     dir: PathBuf,
     session: String,
+    /// This session's entry in `sessions`: its start and metadata.
+    entry: Value,
     client_id: String,
+    /// The queue file as this process last read or wrote it.
     sessions: Map<String, Value>,
     metrics: Vec<Row>,
     logs: Vec<Row>,
@@ -374,20 +413,14 @@ impl Service {
             let _ = std::fs::write(&id_file, &id);
             id
         });
-        let queue = read_json(&dir.join("queue.json"));
-        let rows = |k: &str| -> Vec<Row> {
-            queue[k]
-                .as_array()
-                .map(|a| a.iter().filter_map(|r| r.as_object().cloned()).collect())
-                .unwrap_or_default()
-        };
         let mut s = Service {
             development,
             dir,
             client_id,
-            sessions: queue["sessions"].as_object().cloned().unwrap_or_default(),
-            metrics: rows("metrics"),
-            logs: rows("logs"),
+            entry: Value::Null,
+            sessions: Map::new(),
+            metrics: Vec::new(),
+            logs: Vec::new(),
             globals: Map::new(),
             launch_route: None,
             navigated: false,
@@ -397,12 +430,7 @@ impl Service {
             session,
             config: Value::Object(config),
         };
-        let environment = s.config["environment"].as_str().unwrap_or(if development {
-            "development"
-        } else {
-            "production"
-        });
-        let meta = json!({
+        let mut meta = object(json!({
             "osName": "Linux",
             "osVersion": read("/proc/sys/kernel/osrelease"),
             "deviceModel": read("/sys/devices/virtual/dmi/id/product_name"),
@@ -410,16 +438,22 @@ impl Service {
             "language": std::env::var("LANG").ok().map(|l| l.split('.').next().unwrap_or("").replace('_', "-"))
                 .filter(|l| !l.is_empty() && l != "C" && l != "POSIX"),
             "clientVersion": CLIENT_VERSION,
-            "appIdentifier": app["id"], "appName": app["name"], "appVersion": app["version"],
-            "environment": environment,
-        });
-        s.sessions
-            .insert(s.session.clone(), json!({ "start": start, "meta": meta }));
+        }));
+        meta.extend(app_meta(app, &s.config, development));
+        s.entry = json!({ "start": start, "meta": meta });
         if log_enabled() {
             eprintln!("observe: service started, session {}", s.session);
         }
-        s.ingest_crashes();
-        s.save();
+        let _queue = s.hold("queue.lock");
+        s.reload();
+        let records = s.ingest_crashes();
+        // A pending record is the only copy of its panic: it goes only once the queue
+        // that holds the panic is on disk, and stays for the next launch otherwise.
+        if s.commit(true).is_ok() {
+            for path in records {
+                let _ = std::fs::remove_file(path);
+            }
+        }
         s
     }
 
@@ -444,12 +478,67 @@ impl Service {
         self.due.get_or_insert_with(|| Instant::now() + DEBOUNCE);
     }
 
-    fn save(&self) {
+    /// An exclusive lock on the file `name` in the state directory, held until the file
+    /// is dropped. When the directory cannot be written there is none, and the process
+    /// goes on without it.
+    fn hold(&self, name: &str) -> Option<std::fs::File> {
+        let file = std::fs::OpenOptions::new()
+            .create(true)
+            .truncate(false)
+            .write(true)
+            .open(self.dir.join(name))
+            .ok()?;
+        file.lock().ok()?;
+        Some(file)
+    }
+
+    /// Reads the queue file, which other processes of the app may have changed. Its
+    /// session metadata gets this session's entry, which another process drops while
+    /// no queued row refers to it.
+    fn reload(&mut self) {
+        let queue = read_json(&self.dir.join("queue.json"));
+        let rows = |k: &str| -> Vec<Row> {
+            queue[k]
+                .as_array()
+                .map(|a| a.iter().filter_map(|r| r.as_object().cloned()).collect())
+                .unwrap_or_default()
+        };
+        self.metrics = rows("metrics");
+        self.logs = rows("logs");
+        self.sessions = queue["sessions"].as_object().cloned().unwrap_or_default();
+        self.sessions
+            .insert(self.session.clone(), self.entry.clone());
+    }
+
+    /// Writes the queue file, forgetting sessions no queued row refers to, except this one.
+    fn save(&mut self) {
+        let _ = self.commit(false);
+    }
+
+    /// Replaces the queue file with this process's copy; `durable` also syncs the new
+    /// file and the rename to disk before returning.
+    fn commit(&mut self, durable: bool) -> std::io::Result<()> {
+        let live: std::collections::HashSet<&str> = self
+            .metrics
+            .iter()
+            .chain(&self.logs)
+            .filter_map(|r| r["session"].as_str())
+            .collect();
+        let current = self.session.as_str();
+        self.sessions
+            .retain(|s, _| s == current || live.contains(s.as_str()));
         let q = json!({ "sessions": self.sessions, "metrics": self.metrics, "logs": self.logs });
         let tmp = self.dir.join("queue.json.tmp");
-        if std::fs::write(&tmp, q.to_string()).is_ok() {
-            let _ = std::fs::rename(&tmp, self.dir.join("queue.json"));
+        let mut file = std::fs::File::create(&tmp)?;
+        std::io::Write::write_all(&mut file, q.to_string().as_bytes())?;
+        if durable {
+            file.sync_all()?;
         }
+        std::fs::rename(&tmp, self.dir.join("queue.json"))?;
+        if durable {
+            std::fs::File::open(&self.dir)?.sync_all()?;
+        }
+        Ok(())
     }
 
     fn metric(
@@ -493,6 +582,8 @@ impl Service {
     }
 
     fn event(&mut self, e: &Value) {
+        let _queue = self.hold("queue.lock");
+        self.reload();
         let wall = e["wall"].as_f64().unwrap_or_else(journal::wall);
         match e["kind"].as_str().unwrap_or("") {
             "startup" => self.startup(e, wall),
@@ -709,8 +800,10 @@ impl Service {
         self.metric("navigation", name, value, wall, Some(&e["route"]), params);
     }
 
-    /// Turns each pending panic record from an earlier process into a `native.exception` log.
-    fn ingest_crashes(&mut self) {
+    /// Turns each pending panic record from an earlier process into a `native.exception`
+    /// log, and returns the records' paths, which the caller removes once the queue is saved.
+    fn ingest_crashes(&mut self) -> Vec<PathBuf> {
+        let mut records = Vec::new();
         for entry in std::fs::read_dir(&self.dir).into_iter().flatten().flatten() {
             let name = entry.file_name().to_string_lossy().into_owned();
             if !name.starts_with("pending-") || name.contains(&self.session) {
@@ -718,12 +811,16 @@ impl Service {
             }
             let path = entry.path();
             let o = read_json(&path);
-            let _ = std::fs::remove_file(&path);
+            records.push(path);
             let Some(crashed) = o["session"].as_str() else {
                 continue;
             };
             if !self.sessions.contains_key(crashed) {
-                let meta = self.sessions[&self.session]["meta"].clone();
+                // The device's metadata is this process's; the build's is the record's.
+                let mut meta = self.sessions[&self.session]["meta"].clone();
+                if let (Some(meta), Some(build)) = (meta.as_object_mut(), o["meta"].as_object()) {
+                    meta.extend(build.clone());
+                }
                 self.sessions.insert(
                     crashed.into(),
                     json!({ "start": o["sessionStart"], "meta": meta }),
@@ -748,6 +845,7 @@ impl Service {
                 (attrs, 0),
             );
         }
+        records
     }
 
     fn resource(&self, meta: &Value) -> Value {
@@ -849,12 +947,13 @@ impl Service {
             self.due = self.gate.0;
             return;
         }
+        let _sending = self.hold("send.lock");
         let project = self.config["projectId"].as_str().map(str::to_string);
         let Some(project) = project.filter(|_| self.should_dispatch()) else {
+            let _queue = self.hold("queue.lock");
+            self.reload();
             self.metrics.clear();
             self.logs.clear();
-            let current = &self.session;
-            self.sessions.retain(|session, _| session == current);
             return self.save();
         };
         let base = self.config["endpoint"]
@@ -865,17 +964,6 @@ impl Service {
         if self.send("metrics", &format!("{base}/{project}/v1/metrics")) {
             self.send("logs", &format!("{base}/{project}/v1/logs"));
         }
-        // Forget sessions no queued row refers to, except the current one.
-        let live: std::collections::HashSet<String> = self
-            .metrics
-            .iter()
-            .chain(&self.logs)
-            .filter_map(|r| r["session"].as_str().map(str::to_string))
-            .collect();
-        let current = self.session.clone();
-        self.sessions
-            .retain(|s, _| *s == current || live.contains(s));
-        self.save();
     }
 
     /// Sends one signal's rows chunk by chunk, as expo-observe's `DispatchLoop.swift` does.
@@ -883,11 +971,15 @@ impl Service {
     fn send(&mut self, signal: &str, url: &str) -> bool {
         let mut limit = CHUNK;
         loop {
-            let queue = self.queue(signal);
-            if queue.is_empty() {
+            let rows: Vec<Row> = {
+                let _queue = self.hold("queue.lock");
+                self.reload();
+                let queue = self.queue(signal);
+                queue[..limit.min(queue.len())].to_vec()
+            };
+            if rows.is_empty() {
                 return true;
             }
-            let rows: Vec<Row> = queue[..limit.min(queue.len())].to_vec();
             let body = self.body(signal, &rows).to_string().into_bytes();
             let headers = [
                 ("content-type", "application/json"),
@@ -905,10 +997,15 @@ impl Service {
                     self.gate.1 = 0;
                     limit = rows.len() / 2;
                 }
-                // Success, a lone 413 row, or a status Observe does not retry: drop the chunk.
+                // Success, a lone 413 row, or a status Observe does not retry: drop the chunk,
+                // and only its rows. During the request other processes may have added rows,
+                // and the capacity trim dropped old ones.
                 Ok((status, _)) if !matches!(status, 429 | 502 | 503 | 504) => {
                     self.gate.1 = 0;
-                    self.queue(signal).drain(..rows.len());
+                    let _queue = self.hold("queue.lock");
+                    self.reload();
+                    remove_sent(self.queue(signal), &rows);
+                    self.save();
                     limit = CHUNK;
                 }
                 retryable => {

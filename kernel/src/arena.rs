@@ -61,13 +61,13 @@ pub struct NodeArena {
     /// root may since have been freed, reused or trimmed away, which ends it.
     geometry_passes: Vec<(u32, u64)>,
     frames: Vec<Frame>,
-    // No per-node vector or allocation.
+    // @ref LLP 1043.000 §3 D4 — no per-node vector or allocation.
     pub(crate) flow: IdMap<u32, crate::flow::FlowState>,
     pub(crate) exclusion_slots: SlotSet,
-    /// Multi-column containers and their last cuts.
+    /// @ref LLP 1093 D7 — multi-column containers and their last cuts.
     pub(crate) frag: crate::fragment::FragState,
-    /// Slots whose style writes a row in `rem`/`em`.
-    pub(crate) relative_slots: SlotSet,
+    /// Relative rows and the slots whose inputs changed (LLP 1069.000 D3).
+    pub(crate) relative: crate::txn::relative::Slots,
     /// System symbols whose role or font changed: their natural size is
     /// measured again before the next layout (`Kernel::measure_symbols`).
     pub(crate) symbols_owed: SlotSet,
@@ -80,24 +80,25 @@ pub struct NodeArena {
     pub(crate) mark_sizes: Vec<((crate::ControlKind, u32), (f32, f32))>,
     /// The kind and font size each standing mark report was made under (`Kernel::mark_withdrawn`).
     pub(crate) mark_reports: IdMap<u32, (crate::ControlKind, u32)>,
-    /// Slots that are `position: sticky`.
+    pub(crate) bar_symbols: Vec<(u32, f32)>,
+    /// Slots that are `position: sticky` (LLP 1083 D3).
     pub(crate) sticky_slots: SlotSet,
     /// Slots in HTML's top layer: popovers, unless their author made them
     /// sticky (`top_layer::lifted`). Each is laid out in the viewport, a
     /// block the kernel implies (`Kernel::imply_blocks`).
     pub(crate) top_layer_slots: SlotSet,
     /// The timeline-bearing nodes and what each follower's name resolves
-    /// to, kept by the linked lookup after each commit.
+    /// to (LLP 1057.003 D4), kept by the linked lookup after each commit.
     pub(crate) timelines: crate::timeline::Registry,
     /// A root font size the host set since the last commit, which that
-    /// commit applies.
+    /// commit applies (LLP 1069.000 D3).
     pub(crate) root_font_size_next: Option<f32>,
     /// The display's scale, device pixels a px, which a hairline resolves
-    /// against: 1 until the host says (`None`), and
+    /// against (LLP 1115.000 D10.3): 1 until the host says (`None`), and
     /// its next commit applies what it says.
     pub(crate) display_scale: Option<f32>,
     pub(crate) display_scale_next: Option<f32>,
-    /// Bold Text is on: the person's setting, which the
+    /// Bold Text is on (LLP 1115.000 D12.3): the person's setting, which the
     /// host says and its next commit applies.
     pub(crate) bold_text: bool,
     pub(crate) bold_text_next: Option<bool>,
@@ -115,7 +116,7 @@ pub struct NodeArena {
     /// tablist's or radio group's native control size; absent before
     /// measurement or after removal. A few nodes have one.
     intrinsic: IdMap<u32, (f32, f32)>,
-    /// What a host container covers of a box: a few
+    /// What a host container covers of a box (LLP 1075.003 §3.5): a few
     /// route nodes at most, so a list by slot rather than a column (and not a
     /// map, whose code every web core would carry).
     covers: Vec<(u32, crate::kernel::HostCover)>,
@@ -123,12 +124,11 @@ pub struct NodeArena {
     /// cells, by the list's slot: a few lists at most, as the covers.
     grouped_margins: Vec<(u32, crate::grouped::GroupedMargins)>,
     /// The margin the platform's cell gives a cells list's rows at each end,
-    /// by the list's slot: a few lists at most.
+    /// by the list's slot (LLP 1138): a few lists at most.
     list_margins: Vec<(u32, [f32; 2])>,
-    /// Alert roots whose host supplies the CSS `::before` title item. The
-    /// engine derives the item from the root's live label and inherited text.
-    pub(crate) alert_prefixes: SlotSet,
-    /// The containing blocks hosts gave subtrees.
+    /// Host-rendered alert titles, and the popovers open as choosers.
+    pub(crate) alert_state: alert::State,
+    /// The containing blocks hosts gave subtrees (LLP 1115.002 D8.2).
     pub(crate) blocks: crate::kernel::Blocks,
     taffy: Vec<Option<NodeId>>,
     is_root: Vec<bool>,
@@ -136,18 +136,18 @@ pub struct NodeArena {
     roots: Vec<u32>,
     by_local: IdMap<ViewId, u32>,
     live_count: usize,
-    /// The page's environment: what `env()` lengths resolve
+    /// The page's environment (LLP 1001 §2): what `env()` lengths resolve
     /// to. The host's, not the tree's — a reset keeps it.
     env: Env,
     control_styles: Option<Box<[StyleProps; 10]>>,
     pub(crate) field_content: IdMap<u32, Frame>,
     pub(crate) button_bases: IdMap<u32, Option<f32>>,
-    /// Each node's host-known state looks (`Op::SetLooks`):
+    /// Each node's host-known state looks (LLP 1121 D8, `Op::SetLooks`):
     /// a state and its resolved patch, ascending; a node with none has no
     /// entry.
     looks: IdMap<u32, Rc<[(u8, StyleProps)]>>,
     /// The scale each fitted paragraph's last layout chose, below 1 only
-    /// (`-exact-fit: shrink`; `layout::fit`).
+    /// (`-exact-fit: shrink`, LLP 1116.001 D1.4; `layout::fit`).
     pub(crate) fit_scales: IdMap<u32, f32>,
     pub(crate) document_language: String,
     pub(crate) document_style: StyleProps,
@@ -184,11 +184,12 @@ impl Clone for NodeArena {
             flow: self.flow.clone(),
             exclusion_slots: self.exclusion_slots.clone(),
             frag: self.frag.clone(),
-            relative_slots: self.relative_slots.clone(),
+            relative: self.relative.clone(),
             symbols_owed: self.symbols_owed.clone(),
             measured_symbols: self.measured_symbols.clone(),
             mark_sizes: self.mark_sizes.clone(),
             mark_reports: self.mark_reports.clone(),
+            bar_symbols: self.bar_symbols.clone(),
             sticky_slots: self.sticky_slots.clone(),
             top_layer_slots: self.top_layer_slots.clone(),
             timelines: self.timelines.clone(),
@@ -205,7 +206,7 @@ impl Clone for NodeArena {
             covers: self.covers.clone(),
             grouped_margins: self.grouped_margins.clone(),
             list_margins: self.list_margins.clone(),
-            alert_prefixes: self.alert_prefixes.clone(),
+            alert_state: self.alert_state.clone(),
             blocks: self.blocks.clone(),
             taffy: self.taffy.clone(),
             is_root: self.is_root.clone(),
@@ -247,7 +248,7 @@ impl NodeArena {
 
     /// The root element's font size, what `rem` resolves against and what
     /// a node no ancestor gives a `font-size` inherits (CSS's `medium`;
-    /// The host's, not the tree's — a reset keeps it.
+    /// LLP 1069.000 D3). The host's, not the tree's — a reset keeps it.
     pub fn root_font_size(&self) -> f32 {
         self.root_font_size_next
             .unwrap_or(self.document_style.font_size)
@@ -274,11 +275,12 @@ impl NodeArena {
         self.flow.clear();
         self.exclusion_slots.clear();
         self.frag = Default::default();
-        self.relative_slots.clear();
+        self.relative = Default::default();
         self.symbols_owed.clear();
         self.measured_symbols.clear();
         self.mark_sizes.clear();
         self.mark_reports.clear();
+        self.bar_symbols.clear();
         self.sticky_slots.clear();
         self.top_layer_slots.clear();
         self.timelines = Default::default();
@@ -303,7 +305,7 @@ impl NodeArena {
         self.covers.clear();
         self.grouped_margins.clear();
         self.list_margins.clear();
-        self.alert_prefixes.clear();
+        self.alert_state.clear();
         self.blocks = Default::default();
         self.free = (0..self.live.len() as u32).rev().collect();
         self.roots.clear();
@@ -394,12 +396,6 @@ impl NodeArena {
     pub fn node_type(&self, slot: u32) -> NodeType {
         self.node_types[slot as usize]
     }
-    /// Whether a slot is a `<button>` element on the web: a Pressable,
-    /// whatever its ARIA role, unless an `href` makes it an `<a>`.
-    pub(crate) fn is_button(&self, slot: u32) -> bool {
-        self.node_type(slot) == NodeType::Pressable
-            && self.props(slot).str(crate::PropId::Href).is_none()
-    }
     /// Parent slot.
     pub fn parent(&self, slot: u32) -> Option<u32> {
         self.parents[slot as usize]
@@ -415,7 +411,7 @@ impl NodeArena {
         &self.styles[slot as usize]
     }
 
-    /// The node's host-known state looks, ascending by
+    /// The node's host-known state looks (LLP 1121 D8), ascending by
     /// state; empty for a node with none.
     pub fn looks(&self, slot: u32) -> &[(u8, StyleProps)] {
         self.looks.get(&slot).map_or(&[], |l| l)
@@ -617,7 +613,7 @@ impl NodeArena {
                 .is_some_and(|p| self.node_types[p as usize] == NodeType::Text)
     }
 
-    /// A Markdown leaf's atom kinds and faces; empty for
+    /// A Markdown leaf's atom kinds and faces (LLP 1045.000 D2); empty for
     /// any other node.
     pub fn markup_atoms(&self, slot: u32) -> crate::text::MarkupAtoms<'_> {
         let props = &self.props[slot as usize];
@@ -630,7 +626,7 @@ impl NodeArena {
         }
     }
 
-    /// What the leaf's string is: its `markup` prop.
+    /// What the leaf's string is (LLP 1045 D3): its `markup` prop.
     pub fn markup(&self, slot: u32) -> crate::text::Markup {
         crate::text::Markup::from_prop(self.props[slot as usize].str(PropId::Markup))
     }
@@ -638,12 +634,13 @@ impl NodeArena {
     /// The paragraph style of the leaf at `slot`. A text input's value is never
     /// collapsed: the web's `<input>` and `<textarea>` preserve what was typed
     /// (the UA sheet's `pre` and `pre-wrap`), so a collapsing row preserves here.
+    /// @ref LLP 1053 §0 G5
     pub fn paragraph(&self, slot: u32) -> crate::text::Paragraph {
         self.paragraph_at(slot, self.fit_scale(slot))
     }
 
     /// The scale a fitted paragraph is drawn at, as its last layout chose
-    /// it: 1 for any other node. An inline run's is its
+    /// it (LLP 1116.001 D1.4): 1 for any other node. An inline run's is its
     /// paragraph's.
     pub fn fit_scale(&self, slot: u32) -> f32 {
         if self.fit_scales.is_empty() {
@@ -660,7 +657,7 @@ impl NodeArena {
                 self.copy_inherited(slot, rows, take)
             });
         paragraph.markup = self.markup(slot);
-        // Bold Text, as its runs are.
+        // Bold Text, as its runs are (LLP 1115.000 D12.3).
         self.embolden(slot, &mut paragraph.strut);
         if scale != 1.0 {
             paragraph.strut = paragraph.strut.scaled(scale);
@@ -677,7 +674,7 @@ impl NodeArena {
     /// measures with its computed style: the rows it sets, else its
     /// paragraph's, else the initial values — as a `<span>` inside a `<div>`.
     /// Its text is `text-transform`ed here, once, for every measurer and
-    /// painter — except a field's, which shows what was typed
+    /// painter (LLP 1064 D5) — except a field's, which shows what was typed
     /// (the web's form controls reset the row), and Markdown source, which a
     /// host expands itself.
     /// A fitted paragraph's runs are at the scale its layout chose.
@@ -715,6 +712,7 @@ impl NodeArena {
         if scale != 1.0 {
             for run in &mut out[start..] {
                 run.style = run.style.scaled(scale);
+                run.edges = run.edges.scaled(scale);
             }
         }
     }
@@ -751,11 +749,7 @@ impl NodeArena {
                         .or_else(|| props.str(PropId::Placeholder).filter(|p| !p.is_empty()))
                         .unwrap_or(" ")
                 };
-                out.push(TextRun {
-                    text: text.into(),
-                    style,
-                    inline: None,
-                });
+                out.push(TextRun::new(text, style));
                 // A textarea's final Return creates a caret line. Paragraph
                 // shapers can omit a terminal break, so retain that line with
                 // zero-width measurement content, never in the field's value.
@@ -763,11 +757,7 @@ impl NodeArena {
                     && props.str(PropId::SemanticTag) == Some("textarea")
                     && text.ends_with('\n')
                 {
-                    out.push(TextRun {
-                        text: "\u{200b}".into(),
-                        style,
-                        inline: None,
-                    });
+                    out.push(TextRun::new("\u{200b}", style));
                 }
             }
             _ => {
@@ -783,19 +773,24 @@ impl NodeArena {
                     };
                     boundary.push(text);
                     let mut style = rows.style();
-                    // Bold Text, as `text_style` reads it.
+                    // Bold Text (LLP 1115.000 D12.3), as `text_style` reads it.
                     self.embolden(slot, &mut style);
-                    out.push(TextRun {
-                        text: shown,
-                        style,
-                        inline: None,
-                    });
+                    out.push(TextRun::new(shown, style));
                 } else {
                     for child in &self.children[s] {
                         match self.node_types[*child as usize] {
                             NodeType::Text => {
                                 let rows = self.run_style_rows(*child, rows);
+                                let first = out.len();
                                 self.text_runs_after(*child, rows, out, boundary);
+                                // Its box's edges beside its first and last runs; an
+                                // inner box's are already there.
+                                let edges = crate::text::inline_box::inline_edges(self, *child);
+                                if out.len() > first {
+                                    out[first].edges.start += edges.start;
+                                    let last = out.len() - 1;
+                                    out[last].edges.end += edges.end;
+                                }
                             }
                             // Its alignment reads its parent's font (CSS 2
                             // §10.8.1), so its run is in the paragraph's style.
@@ -803,6 +798,7 @@ impl NodeArena {
                                 out.push(TextRun {
                                     text: crate::text::inline_box::INLINE_BOX_TEXT.into(),
                                     style: rows.style(),
+                                    edges: Default::default(),
                                     inline: Some(
                                         crate::text::inline_box::inline_image(self, *child)
                                             .reserved,
@@ -847,7 +843,7 @@ impl NodeArena {
     }
 
     /// The leaves [`Self::text_runs`] makes a run of, in its order: its
-    /// texts, and its images.
+    /// texts, and its images (LLP 1011.002).
     pub fn text_leaves(&self, slot: u32, out: &mut Vec<u32>) {
         if self.props[slot as usize].str(PropId::Text).is_some() {
             return out.push(slot);
@@ -922,11 +918,12 @@ impl NodeArena {
     }
 
     pub(crate) fn free_slot(&mut self, slot: u32) {
+        self.bar_symbols.retain(|(s, _)| *s != slot);
         self.field_content.remove(&slot);
         self.mark_reports.remove(&slot);
         self.exclusion_slots.remove(slot);
         self.frag.forget(slot);
-        self.relative_slots.remove(slot);
+        self.relative.forget(slot);
         self.symbols_owed.remove(slot);
         self.measured_symbols.remove(slot);
         self.button_bases.remove(&slot);
@@ -956,7 +953,7 @@ impl NodeArena {
         self.covers.retain(|(s, _)| *s != slot);
         self.grouped_margins.retain(|(s, _)| *s != slot);
         self.list_margins.retain(|(s, _)| *s != slot);
-        self.alert_prefixes.remove(slot);
+        self.alert_state.remove(slot);
         self.blocks.remove(slot);
         self.taffy[s] = None;
         if self.is_root[s] {
@@ -970,6 +967,9 @@ impl NodeArena {
     pub(crate) fn set_parent(&mut self, slot: u32, parent: Option<u32>) {
         if parent.is_some() && self.parents[slot as usize] != parent {
             self.flags[slot as usize].insert(NodeFlags::ATTACHED);
+        }
+        if self.parents[slot as usize] != parent {
+            self.relative.invalidate(slot);
         }
         self.parents[slot as usize] = parent;
     }
@@ -1063,11 +1063,7 @@ impl NodeArena {
     }
 
     fn set_shared_style(&mut self, slot: u32, style: Rc<StyleProps>) {
-        if style.relative.is_empty() {
-            self.relative_slots.remove(slot);
-        } else {
-            self.relative_slots.insert(slot);
-        }
+        self.relative.update(slot, !style.relative.is_empty());
         if crate::fragment::is_multicol(&style) {
             self.frag.containers.insert(slot);
         } else {
@@ -1215,9 +1211,7 @@ impl NodeArena {
             }
             Some(inset) => {
                 self.insets.insert(slot);
-                // Bitwise, so a -0 comes back as it went in.
-                let zero = |v: &[f32; 4]| v.iter().all(|x| x.to_bits() == 0);
-                if zero(&inset.padding) && zero(&inset.border) && zero(&inset.cover) {
+                if inset.is_zero() {
                     self.nonzero_insets.remove(&slot);
                 } else {
                     self.nonzero_insets.insert(slot, inset);
@@ -1333,17 +1327,20 @@ mod tests {
             (StyleId::LetterSpacing, number(2.0)),
             (StyleId::FontVariantNumeric, text("tabular-nums")),
             (StyleId::FontVariantLigatures, text("none")),
+            (StyleId::FontFeatureSettings, text(r#""cv05", "tnum""#)),
             (StyleId::TextColor, text("light-dark(#112233, #ffffff)")),
             (StyleId::WhiteSpace, text("pre-wrap")),
             (StyleId::DynamicRangeLimit, text("constrained")),
+            (StyleId::ImageRendering, text("pixelated")),
             (StyleId::ColorScheme, text("dark")),
-            // The app tuple, plus one.
+            // LLP 1121 D5: the app tuple, plus one.
             (StyleId::Mode, number(2.0)),
             (StyleId::OverflowWrap, text("anywhere")),
             (StyleId::InterpolateSize, text("allow-keywords")),
             (StyleId::TextTransform, text("uppercase")),
             (StyleId::TextIndent, number(24.0)),
             (StyleId::Hyphens, text("auto")),
+            // LLP 1093 D4.
             (StyleId::Widows, number(4.0)),
             (StyleId::Orphans, number(3.0)),
             (StyleId::TextShadow, text("1px 2px 3px #000")),
@@ -1351,7 +1348,7 @@ mod tests {
             (StyleId::TextStrokeColor, text("#ff0000")),
             (StyleId::SymbolRendering, text("palette")),
             (StyleId::SymbolPalette, text("#ff0000 #0000ff")),
-            // SVG 2 presentation properties.
+            // SVG 2 presentation properties (LLP 1055 D2).
             (StyleId::Fill, text("#16a34a")),
             (StyleId::Stroke, text("currentcolor")),
             (StyleId::StrokeWidth, number(1.5)),
@@ -1379,7 +1376,8 @@ mod tests {
             (StyleId::FontSmoothing, text("antialiased")),
         ];
         let mut covered = StyleMask::EMPTY;
-        for (id, value) in samples {
+        let insets = crate::kernel::owner::OVERRIDES.map(|id| (id, number(8.0)));
+        for (id, value) in samples.into_iter().chain(insets) {
             covered.set(id);
             let mut arena = NodeArena::new();
             let root = arena.alloc(1, NodeType::View).unwrap();

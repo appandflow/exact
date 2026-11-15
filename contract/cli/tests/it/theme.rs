@@ -1,7 +1,7 @@
-//! `theme`: an app's own colours named once at its root, an entry named like
-//! a role overriding it; the plan carries the table, and a colour string
-//! naming an entry reads its colour, in the compiler and when the runner
-//! sets the row.
+//! @ref LLP 1095 D4 — `theme`: an app's own colours named once at its
+//! root, an entry named like a role overriding it; the plan carries the
+//! table, and a colour string naming an entry reads its colour, in the
+//! compiler and when the runner sets the row.
 
 use exact_kernel::{Color, ColorValue, Kernel, RowValue, StyleId};
 use exact_plan::Value;
@@ -31,7 +31,6 @@ fn colour(r: &Runner<NoData>, id: &str, row: StyleId) -> ColorValue {
     let key = r.kernel().find_by_test_id(id)[0];
     match r.kernel().node_by_key(key).unwrap().computed(row) {
         RowValue::ColorValue(c) => c,
-        RowValue::Color(c) => ColorValue::Fixed(c),
         other => panic!("{id}: {other:?}"),
     }
 }
@@ -85,8 +84,8 @@ fn names_read_their_entry_and_a_role_entry_overrides_the_role() {
         parsed("CanvasText"),
         "an unknown name is an invalid colour: the row's initial"
     );
-    // The plan carries the table, each value as the crate folds it (CSS's
-    // serialization).
+    // The plan carries the table, each value as the crate folds it (LLP
+    // 1121 D7: CSS's serialization).
     let plan = contract::compile(&src).unwrap();
     let rows: Vec<(&str, &str, &str)> = plan
         .theme
@@ -160,17 +159,17 @@ fn a_theme_name_is_a_colour_in_every_colour_row_and_embedded_colour() {
 #[test]
 fn a_theme_is_checked_where_it_is_declared() {
     for (body, id) in [
-        ("  a = \"b\"\n  b = \"a\"\n", "tamber-cycle"),
+        ("  a = \"b\"\n  b = \"a\"\n", "forma-cycle"),
         (
             "  secondary-label = \"-exact-secondary-label\"\n",
-            "tamber-cycle",
+            "forma-cycle",
         ),
         (
             "  label = \"-exact-platform-color(ios labelColor, label)\"\n",
-            "tamber-cycle",
+            "forma-cycle",
         ),
-        ("  brand = \"blurple\"\n", "tamber-unknown-token"),
-        ("  red = \"#c8102e\"\n", "tamber-name-reserved"),
+        ("  brand = \"blurple\"\n", "forma-unknown-token"),
+        ("  red = \"#c8102e\"\n", "forma-name-reserved"),
         (
             "  brand = \"#000\"\n  brand = \"#111\"\n",
             "syntax-duplicate-declaration",
@@ -178,12 +177,12 @@ fn a_theme_is_checked_where_it_is_declared() {
         ("  brand = 3\n", "syntax-theme-entry"),
         (
             "  secondary-label = \"#000\"\n  -exact-secondary-label = \"#111\"\n",
-            "tamber-duplicate",
+            "forma-duplicate",
         ),
         ("  LinkText = \"#000\"\n", "lower-theme-tint"),
         ("  link = \"#000\"\n", "lower-theme-tint"),
-        ("  none = \"#000\"\n", "tamber-name-reserved"),
-        ("  inherit = \"#000\"\n", "tamber-name-reserved"),
+        ("  none = \"#000\"\n", "forma-name-reserved"),
+        ("  inherit = \"#000\"\n", "forma-name-reserved"),
         ("  top = \"#000\"\n", "lower-theme-name"),
         ("  srgb = \"#000\"\n", "lower-theme-name"),
         ("  AccentColor = \"LinkText\"\n", "lower-theme-tint"),
@@ -192,9 +191,9 @@ fn a_theme_is_checked_where_it_is_declared() {
         let errors = contract::compile(&src).unwrap_err();
         assert!(format!("{errors:?}").contains(id), "{body}: {errors:?}");
     }
-    // A row naming no token, role or colour.
+    // A row naming no token, role or colour (LLP 1121 D3).
     let src = format!("{THEME}component App\n  view\n    text \"a\" color=\"brnad\"\n");
-    assert!(format!("{:?}", contract::compile(&src).unwrap_err()).contains("tamber-unknown-token"));
+    assert!(format!("{:?}", contract::compile(&src).unwrap_err()).contains("forma-unknown-token"));
 }
 
 /// A role the theme replaces is replaced where the kernel resolves it: its
@@ -230,7 +229,7 @@ fn an_overridden_role_is_replaced_where_the_kernel_resolves_it() {
 
 /// Each plan's names are its own, bound per parse: two runners on one
 /// thread, each with its own `brand`, each read their own as their rows
-/// are set; and each keeps its own role overrides,
+/// are set; and each keeps its own role overrides (LLP 1121 stage 5),
 /// bound around what is done for it, both ways round, with nothing said.
 /// An unknown name is an invalid colour in the log.
 #[test]
@@ -312,8 +311,8 @@ fn names_are_exact_profiles_are_colours_and_the_lint_reads_the_theme() {
     assert_eq!(lint("theme\n  card = \"light-dark(#f1f3f5, #0f1419)\"\n  Canvas = \"light-dark(#fff, #000)\"\n\ncomponent App\n  view\n    column background-color=\"card\"\n      text \"a\"\n"), 0);
 }
 
-/// White on an accent fill is a filled button's label (a sent bubble); white
-/// on any other fill, or on none, is still named.
+/// LLP 1116.020 D7: white on an accent fill is a filled button's label (a
+/// sent bubble); white on any other fill, or on none, is still named.
 #[test]
 fn white_on_an_accent_fill_is_not_one_scheme() {
     let lint = |body: &str| {
@@ -342,10 +341,39 @@ fn white_on_an_accent_fill_is_not_one_scheme() {
             > 0,
         "only white"
     );
+    // The fill a `style` gives, with the white in the style or on the text.
+    let styled = |style: &str, body: &str| {
+        let src = format!("style Primary\n{style}component App\n  view\n    column\n      box class=Primary\n{body}");
+        let (result, warnings) = contract::compile_warned(&src);
+        result.unwrap();
+        warnings
+            .iter()
+            .filter(|w| w.id == "lower-colour-one-scheme")
+            .count()
+    };
+    let fill = "  background-color=\"AccentColor\"\n";
+    let text = "        text \"Go\"\n";
+    assert_eq!(
+        styled(&format!("{fill}  color=\"#fff\"\n"), text),
+        0,
+        "both in the style"
+    );
+    assert_eq!(
+        styled(fill, "        text \"Go\" color=\"white\"\n"),
+        0,
+        "the class's fill over it"
+    );
+    assert!(
+        styled(
+            "  background-color=\"-exact-fill\"\n  color=\"#fff\"\n",
+            text
+        ) > 0,
+        "a style's other fill"
+    );
 }
 
 /// A plan with no overrides booted after one with them leaves the first
-/// its own: each session resolves `CanvasText` from its
+/// its own (LLP 1121 stage 5): each session resolves `CanvasText` from its
 /// own table, and nothing is said.
 #[test]
 fn a_plan_without_overrides_leaves_another_sessions_its_own() {
@@ -449,7 +477,7 @@ fn a_reload_with_other_overrides_re_presents() {
 
 /// A candidate its host refuses (dropped once booted) leaves the live
 /// session's roles resolving on the thread, not none; a session that boots
-/// inside another's scope leaves that scope the other's.
+/// inside another's scope leaves that scope the other's (LLP 1121 stage 5).
 #[test]
 fn a_refused_candidate_and_a_nested_boot_leave_the_live_sessions_roles() {
     let run = |canvas: &str| {
@@ -499,7 +527,7 @@ fn a_refused_candidate_and_a_nested_boot_leave_the_live_sessions_roles() {
 }
 
 /// A role resolved with no session bound while two live on the thread is a
-/// host path that forgot to bind: a debug build asserts,
+/// host path that forgot to bind: a debug build asserts (LLP 1121 stage 5),
 /// naming the call site; with one session, or bound, it is that one's.
 #[test]
 #[cfg(debug_assertions)]

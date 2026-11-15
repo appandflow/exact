@@ -1,7 +1,7 @@
 import XCTest
 @testable import ExactCore
 
-/// A late frame's interval is charged each main-thread phase's
+/// LLP 1142 D1: a late frame's interval is charged each main-thread phase's
 /// time no phase inside it took, clipped to the interval, and what none took
 /// is unattributed, never negative.
 final class HostPhasesTests: XCTestCase {

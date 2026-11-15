@@ -1,4 +1,4 @@
-// The TypeScript recorder: the context a data module's `draw`
+// The TypeScript recorder (LLP 1056 D3): the context a data module's `draw`
 // calls, in the executor. It is the Rust recorder (`canvas/src/context.rs`)
 // in JavaScript — the same rules at the call, the same state, the same list
 // bytes (`canvas/src/list.rs`) — and `canvas/tests/cases.txt` holds both to
@@ -121,7 +121,10 @@ function functional(name, body) {
   }
   if (name === "hsl" || name === "hsla" || name === "hwb") {
     if (c[0].pct !== undefined) return null;
-    const frac = (x) => (x.pct !== undefined ? Math.min(1, Math.max(0, x.pct / 100)) : !legacy ? Math.min(1, Math.max(0, x.num / 100)) : null);
+    // hsl() clamps its saturation and lightness to 100%; hwb()'s whiteness and blackness
+    // have no upper bound, a sum over 100% scaled down below (CSS Color 4 §7, §8).
+    const top = name === "hwb" ? Infinity : 1;
+    const frac = (x) => (x.pct !== undefined ? Math.min(top, Math.max(0, x.pct / 100)) : !legacy ? Math.min(top, Math.max(0, x.num / 100)) : null);
     const s = frac(c[1]), l = frac(c[2]);
     if (s === null || l === null) return null;
     let rgb;
@@ -197,10 +200,13 @@ function wide(name, body) {
     : mul3(XYZ_TO_SRGB, mul3(D50_TO_D65, v));
   const out = [...lin.map((x) => channel(fromLinear(x) * 255)), Math.round(alpha * 255) / 255];
   out.lin = lin;
-  out.text = `${space ? `color(${space} ` : `${name}(`}${v.map(jsNumber).join(" ")}${alpha < 1 ? ` / ${jsNumber(alpha)}` : ""})`;
+  // A component written `none` is missing (CSS Color 4 §4.4): 0 in the pixels, `none` in the text.
+  const shown = (t, n) => (t.trim() === "none" ? "none" : jsNumber(n));
+  const alphaText = a !== undefined && a.trim() === "none" ? " / none" : alpha < 1 ? ` / ${jsNumber(alpha)}` : "";
+  out.text = `${space ? `color(${space} ` : `${name}(`}${v.map((n, i) => shown(parts[i], n)).join(" ")}${alphaText})`;
   return out;
 }
-// A `display-p3` canvas's colours (color/src/lib.rs
+// A `display-p3` canvas's colours (LLP 1100 D12a; color/src/lib.rs
 // `LINEAR_SRGB_TO_P3`, the same digits, so the two agree to the byte).
 const LINEAR_SRGB_TO_P3 = [[0.8224619687143622, 0.17753803128563764, 0], [0.033194198850961525, 0.966805801149038, 0], [0.01708263072111999, 0.07239744066396336, 0.9105199286149165]];
 const LINEAR_P3_TO_SRGB = [[1.22494017628056, -0.22494017628055996, 0], [-0.04205695470968818, 1.0420569547096883, 0], [-0.01963755459033439, -0.0786360455506318, 1.0982736001409665]];
@@ -363,14 +369,16 @@ export class TextMetrics {
   }
   get [Symbol.toStringTag]() { return "TextMetrics"; }
 }
-function spacing(v, fontSize) {
+// [text, px, em]: `em`, `ex` and `ch` follow the font in force (canvas/src/context/text.rs `spacing`).
+function spacing(v) {
   const t = String(v).trim().toLowerCase(), i = t.search(/[a-z]/);
   if (i <= 0) return null;
   const n = t.slice(0, i), unit = t.slice(i), value = fnum(n);
   if (value === null) return null;
-  const px = unit === "em" ? value * fontSize : lengthPx(t, false);
-  return px === null || !Number.isFinite(px) ? null : [`${jsNumber(value)}${unit}`, px];
+  const [px, em] = unit === "em" ? [0, value] : unit === "ex" || unit === "ch" ? [0, value / 2] : [lengthPx(t, false), 0];
+  return px === null || !Number.isFinite(px) || !Number.isFinite(em) ? null : [`${jsNumber(value)}${unit}`, px, em];
 }
+const usedSpacing = (s, size) => s[1] + s[2] * size;
 
 // --- geometry (canvas/src/geom.rs) ------------------------------------------
 
@@ -420,7 +428,8 @@ function arcToSegs(p0, p1, p2, r) {
   if ((p0[0] === p1[0] && p0[1] === p1[1]) || (p1[0] === p2[0] && p1[1] === p2[1]) || r === 0) return null;
   const v1 = [p0[0] - p1[0], p0[1] - p1[1]], v2 = [p2[0] - p1[0], p2[1] - p1[1]];
   const cross = v1[0] * v2[1] - v1[1] * v2[0], l1 = Math.hypot(v1[0], v1[1]), l2 = Math.hypot(v2[0], v2[1]);
-  if (Math.abs(cross) <= 1e-12 * l1 * l2) return null;
+  // Skia's arcTo treats |sin(turn)| <= 1/4096 as collinear.
+  if (Math.abs(cross) <= (1 / 4096) * l1 * l2) return null;
   const u1 = [v1[0] / l1, v1[1] / l1], u2 = [v2[0] / l2, v2[1] / l2];
   const cos = Math.min(1, Math.max(-1, u1[0] * u2[0] + u1[1] * u2[1]));
   const half = Math.acos(cos) / 2, dist = r / Math.tan(half);
@@ -485,7 +494,7 @@ class Writer {
 // --- the recorder (canvas/src/context.rs) ------------------------------------
 
 const BLACK = [0, 0, 0, 1];
-const defaultText = () => ({ font: defaultFont(), ls: ["0px", 0], ws: ["0px", 0], kerning: 0, rendering: 0, align: 0, baseline: 3, direction: 2 });
+const defaultText = () => ({ font: defaultFont(), ls: ["0px", 0, 0], ws: ["0px", 0, 0], kerning: 0, rendering: 0, align: 0, baseline: 3, direction: 2 });
 const defaults = () => ({ transform: M.identity(), fill: { color: BLACK }, stroke: { color: BLACK }, lineWidth: 1, cap: 0, join: 0,
   miter: 10, dash: [], dashOffset: 0, alpha: 1, composite: 0, shadow: { color: [0, 0, 0, 0] }, shadowBlur: 0, shadowOffset: [0, 0],
   smoothing: [true, 0], text: defaultText(), fontSent: null });
@@ -605,7 +614,8 @@ class Inner {
   // Text (canvas/src/context/text.rs)
   rtl() { const d = this.state.text.direction; return d === 2 ? this.env.rtl : d === 1; }
   measureRaw(text) {
-    const t = this.state.text, run = { font: t.font, text, rtl: this.rtl(), ls: t.ls[1], ws: t.ws[1], kerning: t.kerning };
+    const t = this.state.text, size = t.font.size;
+    const run = { font: t.font, text, rtl: this.rtl(), ls: usedSpacing(t.ls, size), ws: usedSpacing(t.ws, size), kerning: t.kerning };
     const host = this.env.host;
     if (!host || !host.measure) return estimate(run);
     const f = t.font;
@@ -616,14 +626,15 @@ class Inner {
   }
   sendFont() {
     const t = this.state.text, f = t.font;
-    const rec = textOperands(f.families.join(","), [f.size, f.weight, f.style, f.stretch, f.caps, t.kerning, t.rendering, t.ls[1], t.ws[1]]);
+    const rec = textOperands(f.families.join(","), [f.size, f.weight, f.style, f.stretch, f.caps, t.kerning, t.rendering,
+      usedSpacing(t.ls, f.size), usedSpacing(t.ws, f.size)]);
     const sent = this.state.fontSent;
     if (!sent || sent.length !== rec.length || !rec.every((v, i) => v === sent[i])) { this.op(OP.Font, rec); this.state.fontSent = rec; }
   }
   drawText(code, text, x, y, maxWidth) {
     x = Number(x); y = Number(y);
     if (!finite(x, y) || !this.paints()) return;
-    if (maxWidth !== undefined) { maxWidth = Number(maxWidth); if (Number.isNaN(maxWidth) || maxWidth <= 0) return; }
+    if (maxWidth !== undefined) { maxWidth = Number(maxWidth); if (!Number.isFinite(maxWidth) || maxWidth <= 0) return; }
     text = prepareText(text);
     const raw = this.measureRaw(text);
     const squeeze = maxWidth !== undefined && maxWidth < raw[0];
@@ -699,7 +710,8 @@ function svgPath(text, d) {
   for (;;) {
     skip(false);
     if (at >= s.length) return;
-    if (/[A-Za-z]/.test(s[at])) cmd = s[at++]; else if (!cmd || !more()) return;
+    // `Z` takes no numbers: one after it is the path's first error (SVG 2 §9.5.4), and repeating `Z` would never end.
+    if (/[A-Za-z]/.test(s[at])) cmd = s[at++]; else if (!cmd || cmd === "Z" || cmd === "z" || !more()) return;
     if (first && cmd !== "M" && cmd !== "m") return;
     first = false;
     const rel = cmd === cmd.toLowerCase(), base = rel ? cur : [0, 0];
@@ -882,24 +894,24 @@ export class Recorder {
     g.moveTo(start[0], start[1]); g.segments(segs); this.closePath(); g.moveTo(x, y);
   }
   // Painting
-  _paintPath(path, code, rule, clip) {
+  _paintPath(path, code, rule) {
     const g = this._;
-    if (!clip && !g.paints()) return;
+    if (!g.paints()) return;
     const m = g.state.transform;
     for (const s of path[PATH].segs) { const t = transformSeg(s, m); g.op(PATH_OPS[t[0]], t.slice(1)); }
     g.op(code, rule === undefined ? [] : [rule === "evenodd" ? 1 : 0]);
   }
   fill(a = "nonzero", b = "nonzero") {
-    if (a instanceof Path2D) return this._paintPath(a, OP.FillPath, b, false);
+    if (a instanceof Path2D) return this._paintPath(a, OP.FillPath, b);
     const g = this._; if (g.paints()) g.op(OP.Fill, [a === "evenodd" ? 1 : 0]);
   }
   stroke(path) {
-    if (path instanceof Path2D) return this._paintPath(path, OP.StrokePath, undefined, false);
+    if (path instanceof Path2D) return this._paintPath(path, OP.StrokePath, undefined);
     const g = this._; if (g.paints()) g.op(OP.Stroke, []);
   }
   clip(a = "nonzero", b = "nonzero") {
-    if (a instanceof Path2D) return this._paintPath(a, OP.ClipPath, b, true);
-    this._.op(OP.Clip, [a === "evenodd" ? 1 : 0]);
+    if (a instanceof Path2D) return this._paintPath(a, OP.ClipPath, b);
+    const g = this._; if (g.paints()) g.op(OP.Clip, [a === "evenodd" ? 1 : 0]);
   }
   fillRect(x, y, w, h) { const g = this._; if (finite(x, y, w, h) && g.paints()) g.op(OP.FillRect, [x, y, w, h]); }
   strokeRect(x, y, w, h) { const g = this._; if (finite(x, y, w, h) && g.paints()) g.op(OP.StrokeRect, [x, y, w, h]); }
@@ -1009,7 +1021,7 @@ export class Recorder {
   set textAlign(v) { const k = ALIGN.indexOf(v); if (k >= 0) this._.state.text.align = k; }
   get textBaseline() { return BASELINE[this._.state.text.baseline]; }
   set textBaseline(v) { const k = BASELINE.indexOf(v); if (k >= 0) this._.state.text.baseline = k; }
-  get direction() { return this._.rtl() ? "rtl" : "ltr"; }
+  get direction() { return DIRECTION[this._.state.text.direction]; }
   set direction(v) { const k = DIRECTION.indexOf(v); if (k >= 0) this._.state.text.direction = k; }
   get fontKerning() { return KERNING[this._.state.text.kerning]; }
   set fontKerning(v) { const k = KERNING.indexOf(v); if (k >= 0) this._.state.text.kerning = k; }
@@ -1020,9 +1032,9 @@ export class Recorder {
   get fontStretch() { const s = this._.state.text.font.stretch; return (STRETCH.find(([, p]) => p === s) ?? ["normal"])[0]; }
   set fontStretch(v) { const k = STRETCH.find(([n]) => n === v); if (k) this._.state.text.font.stretch = k[1]; }
   get letterSpacing() { return this._.state.text.ls[0]; }
-  set letterSpacing(v) { const s = spacing(v, this._.state.text.font.size); if (s) this._.state.text.ls = s; }
+  set letterSpacing(v) { const s = spacing(v); if (s) this._.state.text.ls = s; }
   get wordSpacing() { return this._.state.text.ws[0]; }
-  set wordSpacing(v) { const s = spacing(v, this._.state.text.font.size); if (s) this._.state.text.ws = s; }
+  set wordSpacing(v) { const s = spacing(v); if (s) this._.state.text.ws = s; }
   fillText(text, x, y, maxWidth) { this._.drawText(OP.FillText, text, x, y, maxWidth); }
   strokeText(text, x, y, maxWidth) { this._.drawText(OP.StrokeText, text, x, y, maxWidth); }
   measureText(text) {
@@ -1096,7 +1108,7 @@ export class Recorder {
   }
 }
 
-// --- the seam: one recorder per canvas generation --------------
+// --- the seam: one recorder per canvas generation (LLP 1056 D4) --------------
 
 const B64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 function base64(bytes) {
@@ -1114,8 +1126,8 @@ function base64(bytes) {
 
 /** The executor's draw seam over the module's `draw`: requests in, JSON
  * `{lists: [base64…], frame, error}` out; a throw keeps what it recorded.
- * `host` measures text and answers image sizes, where the draw runs:
- * `measure(json) -> json` and `image(json) -> json | ""`. */
+ * `host` measures text and answers image sizes, where the draw runs (LLP
+ * 1056 D8, D9): `measure(json) -> json` and `image(json) -> json | ""`. */
 export function canvasSeam(draw) {
   const recorders = new Map(); // canvas -> { generation, rec }
   return {

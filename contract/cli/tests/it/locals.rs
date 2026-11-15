@@ -1,4 +1,4 @@
-//! `let` in actions — immutable, sequentially scoped
+//! LLP 1035.005.000 D2: `let` in actions — immutable, sequentially scoped
 //! locals, lowered to `BindLocal`/`LoadLocal`/`DropLocal` and proven on the
 //! runner over `contract/corpus/let.contract`.
 
@@ -158,7 +158,7 @@ fn a_local_is_never_reassigned_or_read_before_its_line_or_outside_its_block() {
     let e = refused("    let a = 1\n    a = 2\n");
     assert_eq!(e.id, "type-let-reassign", "{e}");
     assert!(e.message.contains("`a` is the `let` on line 4"), "{e}");
-    // A local set in a branch: the message shows the idiom.
+    // The codeedit diary set a local in a branch: the message shows the idiom.
     assert!(e.message.contains("`let a = cond ? this : that`"), "{e}");
     assert_eq!((e.span.line, e.span.col), (5, 5));
     let e = refused("    s = a\n    let a = 1\n");

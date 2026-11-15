@@ -1,9 +1,74 @@
-//! `lower-symbol-tint`: `-exact-tint-color` on a `symbol:` image warns, naming `color=`. A symbol draws in its
-//! `color` on every host; the tint colours a raster or a native control's face.
+//! `lower-symbol-tint`: `-exact-tint-color` on a `symbol:` image warns, naming `color=` (theme2's 17:23Z ruling,
+//! 2026-10-23). A symbol draws in its `color` on every host; the tint colours a raster or a native control's face.
 
 use crate::warnings::warned;
 
 const TINT: &str = "lower-symbol-tint";
+
+#[test]
+fn a_symbol_tint_repair_keeps_the_authored_param_name() {
+    let src = r##"component App
+  params
+    ink: color = "#333333"
+  view
+    column
+      image "symbol:add" -exact-tint-color="param.ink" aria-label="a"
+"##;
+    let (result, warnings) = contract::compile_warned(src);
+    result.unwrap();
+    let warning = warnings.iter().find(|w| w.id == TINT).unwrap();
+    assert_eq!((warning.span.line, warning.span.col), (6, 26));
+    assert!(
+        warning
+            .message
+            .contains("write `color=\"param.ink\"` instead"),
+        "{}",
+        warning.message
+    );
+    let repaired = src.replace("-exact-tint-color=", "color=");
+    let (result, warnings) = contract::compile_warned(&repaired);
+    result.unwrap();
+    assert!(warnings.is_empty(), "{warnings:?}");
+}
+
+#[test]
+fn a_symbol_tint_repair_keeps_params_in_expressions_classes_and_state_rows() {
+    for (style, image, value) in [
+        (
+            "",
+            "image \"symbol:add\" -exact-tint-color=\"color-mix(in oklab, param.ink 50%, red)\"",
+            "color-mix(in oklab, param.ink 50%, red)",
+        ),
+        (
+            "style Tint\n  -exact-tint-color=\"param.ink\"\n",
+            "image \"symbol:add\" class=Tint",
+            "param.ink",
+        ),
+        (
+            "",
+            "image \"symbol:add\"\n        :disabled\n          -exact-tint-color=\"param.ink\"",
+            "param.ink",
+        ),
+    ] {
+        let src = format!(
+            "{style}component App\n  params\n    ink: color = \"#333333\"\n  view\n    column\n      {image}\n"
+        );
+        let (result, warnings) = contract::compile_warned(&src);
+        result.unwrap();
+        let warning = warnings.iter().find(|w| w.id == TINT).unwrap();
+        assert!(
+            warning
+                .message
+                .contains(&format!("color=\"{value}\"` instead")),
+            "{}",
+            warning.message
+        );
+        let (result, warnings) =
+            contract::compile_warned(&src.replace("-exact-tint-color=", "color="));
+        result.unwrap();
+        assert!(!warnings.iter().any(|w| w.id == TINT), "{warnings:?}");
+    }
+}
 
 fn app(image: &str) -> String {
     format!("component App\n  view\n    column\n      {image}\n")
@@ -46,7 +111,7 @@ fn a_symbol_by_template_or_choice_warns_and_a_raster_or_an_unknown_source_does_n
     ] {
         assert_eq!(warned(&app(image)), [(TINT.to_string(), 4)], "{image}");
     }
-    // A raster's tint is a template's; a source that may be either has the benefit of the doubt;
+    // A raster's tint is a template's (LLP 1011 §3); a source that may be either has the benefit of the doubt;
     // `color` alone is the repair, not a warning.
     for image in [
         "image \"https://example.com/a.png\" -exact-tint-color=\"-exact-secondary-label\"",
@@ -65,7 +130,7 @@ fn a_native_buttons_face_keeps_its_tint_and_a_drawn_buttons_symbol_warns() {
     let button = |appearance: &str| {
         format!("component App\n  action go\n  view\n    column\n      button{appearance} press=go\n        image \"symbol:lock\" -exact-tint-color=\"-exact-secondary-label\"\n        text \"Lock\"\n")
     };
-    // The platform's button (its default, or `appearance="auto"`) gives its face its tint.
+    // The platform's button (its default, or `appearance="auto"`) gives its face its tint (LLP 1115 D4).
     for appearance in ["", " appearance=\"auto\""] {
         assert!(
             !warned(&button(appearance)).iter().any(|(id, _)| id == TINT),

@@ -1,11 +1,12 @@
-// Checks the proposed mapping against a probe report.
+// LLP 1099 §4: checks the proposed mapping against a probe report.
 //   bun motion/tests/fixtures/uikit-springs/fit.mjs [report]   (default ios-27.0.txt)
 // Prints each family's agreement with what UIKit / Core Animation did.
 // Positions are fractions of the move (0 → 1); velocities are moves per second.
 import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 
 const EPS = 1e-3;
-const file = process.argv[2] ?? new URL('ios-27.0.txt', import.meta.url).pathname;
+const file = process.argv[2] ?? fileURLToPath(new URL('ios-27.0.txt', import.meta.url));
 const lines = readFileSync(file, 'utf8').split('\n');
 const fields = (l) => Object.fromEntries([...l.matchAll(/(\w+)=(-?[\d.e+-]+|true|false)/g)].map(([, k, v]) => [k, v === 'true' ? true : v === 'false' ? false : Number(v)]));
 const rows = (tag) => lines.filter((l) => l.startsWith(tag + ' ')).map(fields);
@@ -39,7 +40,7 @@ export function durationW(zeta, u) {
 // v = 0 has a closed form: ζ·W = ln(ζ / (ε·√(1−ζ²))); at ζ = 1, (1+W)e^−W = ε.
 export const durationW0 = (z) => (z < 1 ? Math.log(z / (EPS * Math.sqrt(1 - z * z))) / z : 9.233413476451585);
 
-// Core Animation's CASpringAnimation, as measured: damping clamped to
+// Core Animation's CASpringAnimation, as measured (§4.5): damping clamped to
 // critical unless allowsOverdamping; with it, the overdamped solution pairs
 // each coefficient with the other exponent.
 export function caPos(k, c, v0, t, aod = false) {
@@ -65,8 +66,8 @@ export function caSettle(k, c, v0) {
 // P(T) = −1 + (v0 − ω)·T. P is linear, so f has at most two lobes: one from
 // 0, and, when v0 > ω, a second after P's zero T0 = 1/(v0 − ω), peaking at
 // T0 + 1/ω. The last crossing is on the falling side of the last lobe whose
-// peak exceeds ε; bisect there (each falling side is monotone): hi from max(lo,
-// 1/ω), doubling while F(hi) > 0.
+// peak exceeds ε; bisect there (each falling side is monotone). This is LLP
+// 1099 D3's procedure: hi from max(lo, 1/ω), doubling while F(hi) > 0.
 export function criticalSettle(w, v0) {
   const f = (T) => Math.abs(-1 + (v0 - w) * T) * Math.exp(-w * T) - EPS;
   const bisect = (lo, hi) => { for (let i = 0; i < 200; i++) { const m = (lo + hi) / 2; if (f(m) > 0) lo = m; else hi = m; } return lo; };
@@ -257,10 +258,10 @@ console.log('\nTransform retargets (R lines):');
   }
 }
 
-// 8. The proposed validation and band predicate: a result is a
+// 8. The proposed validation and band predicate (LLP 1099 D2): a result is a
 // root when |g(W)| ≤ 0.1·ε and 0 < W ≤ 1e4; the band is u > 0 with
 // 0.6 ≤ u/min(ζ,1) ≤ 8.
-console.log('\nValidation and band predicate over A, W and the U rows:');
+console.log('\nValidation and band predicate over A, W and the Signal U rows:');
 {
   const g = (W, zeta, u) => { const z = Math.min(zeta, 1), e = Math.exp(-z * W); return z < 1 ? Math.abs((u / W - z) / Math.sqrt(1 - z * z)) * e - EPS : Math.abs(u - W - 1) * e - EPS; };
   const pts = [...rows('A').filter((r) => r.z !== undefined && r.d !== undefined).map((r) => [r.z, r.v * r.d, Math.sqrt(r.stiffness) * r.d]), ...rows('W').map((r) => [r.z, r.u, Math.sqrt(r.k)])];

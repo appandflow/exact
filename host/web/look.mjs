@@ -1,4 +1,5 @@
 // The web's neutral presentation, composed after the shared browser resets.
+// @ref LLP 1115.000 D4 part B
 import { readFileSync } from 'node:fs';
 
 /** The shell inputs recorded by a web build's freshness receipt. */
@@ -11,9 +12,9 @@ export function withLook(shell) {
   return shell.slice(0, at) + readFileSync(new URL('./neutral.css', import.meta.url), 'utf8') + appleColors() + shell.slice(at);
 }
 
-/** Exact's colour roles in Apple's palette, in every browser: the schema's pairs, measured from
+/** Exact's colour roles in Apple's palette, in every browser (LLP 1115.000 D4): the schema's pairs, measured from
  * UIKit, and in Safari the system's own where WebKit names one (`-apple-system-*`). Each is held as
- * `--exact-apple-<role>`, which an app's theme leaves alone, for the glue to report to the kernel;
+ * `--exact-apple-<role>`, which an app's theme (LLP 1095 D4) leaves alone, for the glue to report to the kernel;
  * `--exact-apple-roles` names them. */
 export function appleColors() {
   const { colors } = JSON.parse(readFileSync(new URL('../../kernel/tables/schema.json', import.meta.url), 'utf8'));
@@ -24,3 +25,20 @@ export function appleColors() {
   const own = roles.filter(([name, alias]) => alias && !name.endsWith('background')).map(([name, alias]) => `  @supports (color: ${alias}) { :root { --exact-apple-${name}: ${alias}; } }\n`);
   return `  :root { ${pairs} --exact-apple-roles: "${roles.map(([name]) => name).join(' ')}"; }\n${own.join('')}`;
 }
+
+/** The manifest's fixed `userInterfaceStyle` (`light` or `dark`), or null for `automatic` or none. */
+export const interfaceStyle = (manifest) => (['light', 'dark'].includes(manifest?.userInterfaceStyle) ? manifest.userInterfaceStyle : null);
+
+/** The page's `color-scheme` before its first paint: the shell's `light dark`, or a fixed `style` (`interfaceStyle`), which
+ * then also leads the head as `<meta name="color-scheme">` so the browser's canvas is in it before any style is read. The
+ * scheme is the page's, as the device's would be: `setScheme("system")` returns to it, and the runner's
+ * `prefers-color-scheme` reads it from the meta (navigation.js `preferences`). */
+export function withInterfaceStyle(shell, style) {
+  if (!style) return shell;
+  const rule = 'html { color-scheme: light dark; }';
+  if (!shell.includes(rule)) throw new Error(`the shell has no \`${rule}\` to fix as ${style}`);
+  return shell.replace(rule, `html { color-scheme: ${style}; }`).replace(/(<meta name="viewport"[^>]*>\n)/, `$1${colorSchemeMeta(style)}`);
+}
+
+/** The head's `<meta name="color-scheme">` for a fixed `style`; nothing for none. */
+export const colorSchemeMeta = (style) => (style ? `<meta name="color-scheme" content="${style}">\n` : '');

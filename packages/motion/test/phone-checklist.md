@@ -4,7 +4,7 @@ What the agent cannot drive: real sensors. The iOS simulator reports no
 motion hardware, the Android emulator's are virtual, and under the agent
 the runner's substitute answers every name unless the drive binds the
 implementation (`--bind motion`), so these checks need a person and a
-device. Each item says what to see;
+device (LLP 1133.013 §10 drive 7, §13). Each item says what to see;
 note the device, the OS version and what you saw where it differs.
 
 ## The module (`test/fixture`)
@@ -57,15 +57,15 @@ while the world reads, `30.0 Hz` when only the level does).
    `0° · 0°` and the dot centres.
 
 Items 9 to 11 hold the phone at the angle **Set level** made level, then
-tilt from there. Within 2° of it the stick reads zero;
+tilt from there. Within 2° of it the stick reads zero (D6's dead zone);
 20° gives the full stick, which walks at 4 m/s.
 
 9. **Walk.** Tap **Resume**, then tilt: tilting the right edge down walks
    the player right, tilting the top edge away walks it forward, and
    holding the level angle stands it still. If either direction is
-   reversed, the sign of the map against the platform's gravity is wrong:
+   reversed, the sign of D6's map against the platform's gravity is wrong:
    say which and on which phone. Screen-frame gravity reads negative x
-   when the right edge is down; the map negates that roll to walk right.
+   when the right edge is down; D6 negates that roll to walk right.
    If the player does not move at all on
    Android, look for the `motion: input` line: without it the start was
    refused; with it, the samples did not reach the world.
@@ -79,8 +79,9 @@ tilt from there. Within 2° of it the stick reads zero;
     it. Rotate the phone to landscape and back, where the app allows it:
     tilting the screen's right edge down still walks right.
 12. **Smoothness.** The dot moves smoothly between readings, not in steps.
-13. **The screen keeps its orientation while tilt is on.** With tilt on and
-    the game running, steer hard to one side and lay the phone nearly flat: the screen does not turn, however
+13. **The screen keeps its orientation while tilt is on** (LLP 1133.029
+    §9.1 drive 9). With tilt on and the game running, steer hard to one
+    side and lay the phone nearly flat: the screen does not turn, however
     far the phone is tilted. Turn tilt off: note whether the screen turns
     to the way the phone is held within a second or only when the phone is
     next turned (the iOS 27 simulator does the second). Turn tilt on while holding the phone
@@ -91,4 +92,4 @@ tilt from there. Within 2° of it the stick reads zero;
     lock holds as on the phone.
 
 Beacons on the web has no tilt yet: the web's wasm host, which games run
-on, has no extension modules yet.
+on, has no extension modules (QUEUE.md).

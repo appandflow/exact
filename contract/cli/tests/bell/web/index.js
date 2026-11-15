@@ -1,5 +1,5 @@
 // @fixture/bell on the web: a module outside exact2's tree, bound as any
-// third party's is. A ring is a button on the page, the
+// third party's is (LLP 1133.001 D4). A ring is a button on the page, the
 // object a person clicks, bound through the host's `activation`, so only a
 // trusted click raises `ringclick`; a tag that starts with `chime` also
 // emits `chime` a moment later, which the host gives the device's origin.

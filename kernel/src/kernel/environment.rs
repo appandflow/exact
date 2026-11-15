@@ -1,22 +1,33 @@
-//! Host environment invalidation.
+//! Host environment invalidation. @ref LLP 1104 D4.
 use super::*;
 
 impl Kernel {
+    /// Restore the host's previous scale report after a refused update, including
+    /// its absence. An absent report uses the layout default of one.
+    pub fn restore_display_scale_report(&mut self, scale: Option<f32>) -> Result<(), KernelError> {
+        self.set_display_scale(scale.unwrap_or(1.0))?;
+        if scale.is_none() {
+            self.arena.display_scale = None;
+            self.arena.display_scale_next = None;
+        }
+        Ok(())
+    }
+
     /// Format an instant with the same host that measures its reserved width.
     pub fn format_time(&mut self, request: &crate::time::TimeRequest<'_>) -> Option<String> {
         self.measurer.format_time(request)
     }
 
-    /// Say which font stacks, by id, are the system's:
+    /// Say which font stacks, by id, are the system's (LLP 1115.000 D12.3):
     /// those whose first member is a generic family. Bold Text weights
     /// them; unsaid, the eight generic stacks are.
     pub fn set_system_stacks(&mut self, system: Vec<bool>) {
         self.arena.system_stacks = system;
     }
 
-    /// Whether Bold Text weights stack `family` now:
+    /// Whether Bold Text weights stack `family` now (LLP 1115.000 D12.3):
     /// the setting on, as the last commit applied it, and the stack the
-    /// system's. A binding reading a font outside the plan
+    /// system's. A binding reading a font outside the plan (LLP 1121 D12)
     /// steps its weight by it.
     pub fn bold_text_weights(&self, family: u16) -> bool {
         self.arena.bold_text && self.arena.system_family(family)
@@ -34,7 +45,7 @@ impl Kernel {
         self.arena.system_stacks.len()
     }
 
-    /// Measure every paragraph again: the host's text engine
+    /// Measure every paragraph again (LLP 1008 §3): the host's text engine
     /// rounds line boxes to another display's device pixels now (a Mac window
     /// moved to a display of another scale). Each paragraph's metric
     /// revision moves, so no answer from before stands, and the next layout
@@ -63,7 +74,7 @@ impl Kernel {
         !owners.is_empty()
     }
 
-    /// Say whether Bold Text is on: the person's
+    /// Say whether Bold Text is on (LLP 1115.000 D12.3): the person's
     /// accessibility setting, which weights the system font, an authored
     /// weight included, and leaves a family the app ships alone. The next
     /// commit applies it. Whether it changed.
@@ -77,7 +88,8 @@ impl Kernel {
 
     /// The page's environment: what `env(safe-area-inset-*)`,
     /// `env(viewport-segment-*)`, `env(titlebar-area-*)` and the layout
-    /// regions' `env(-exact-<region>-inset-*)` lengths resolve to.
+    /// regions' `env(-exact-<region>-inset-*)` lengths resolve to (LLP 1001
+    /// §2; LLP 1078 D3; LLP 1123 D10).
     pub fn env(&self) -> Env {
         self.arena.env().clone()
     }
@@ -88,7 +100,7 @@ impl Kernel {
         self.provisional_layouts
     }
 
-    /// Set the insets, the layout regions, the title-bar area and control text
+    /// Set the insets, the layout regions (LLP 1123 D10), the title-bar area and control text
     /// styles of the environment — what the host reports with the viewport (a
     /// rotation changes them); the segment grid
     /// `env` carries is ignored, [`Kernel::set_segments`] being its twin.
@@ -117,7 +129,7 @@ impl Kernel {
         self.replace_env(next)
     }
 
-    /// Set the viewport segments: `cols × rows` rects,
+    /// Set the viewport segments (LLP 1078 D3): `cols × rows` rects,
     /// row-major, in the layout viewport's points — none for one segment,
     /// where CSS defines no segment variable. Refuses a zero count, a count
     /// that is not `cols × rows` (any rect on a 1 × 1 grid), and a
@@ -136,8 +148,8 @@ impl Kernel {
         self.replace_env(next)
     }
 
-    /// Lay borders out as a terminal does: a drawn side is one cell. The
-    /// terminal host sets it on its own kernel before
+    /// Lay borders out as a terminal does: a drawn side is one cell (LLP
+    /// 1101.001 P13). The terminal host sets it on its own kernel before
     /// the tree is built; it is this kernel's alone.
     pub fn set_cell_borders(&mut self, on: bool) {
         let next = self.arena.env().with_cell_borders(on);
@@ -166,7 +178,7 @@ impl Kernel {
     }
 
     /// Lay spaces out as a terminal does: a padding, margin or gap in points
-    /// is whole cells on its axis. The
+    /// is whole cells on its axis (LLP 1101 §4, LLP 1121 stage 11 (c)). The
     /// terminal host sets it beside [`Self::set_cell_borders`]; it is this
     /// kernel's alone.
     pub fn set_cell_spaces(&mut self, on: bool) {
@@ -180,6 +192,18 @@ impl Kernel {
         }
         let control_changed = self.arena.env().control_text_styles != env.control_text_styles
             || self.arena.env().button_fonts != env.button_fonts;
+        let viewport_users: Vec<_> = self
+            .arena
+            .relative
+            .all
+            .iter()
+            .filter(|&slot| {
+                self.arena.style(slot).relative.iter().any(|(_, unit, _)| {
+                    matches!(unit, crate::style::relative::Unit::Viewport(u)
+                        if u.basis(self.arena.env()) != u.basis(&env))
+                })
+            })
+            .collect();
         // Host border and cell rules can change plain px lengths too.
         let box_rules_changed = self.arena.env().cell_spaces != env.cell_spaces
             || self.arena.env().cell_borders != env.cell_borders
@@ -203,7 +227,7 @@ impl Kernel {
         if let Some(r) = &mut self.region {
             r.invalidate();
         }
-        let mut users: Vec<u32> = self
+        let users: Vec<u32> = self
             .arena
             .iter_live()
             // A covered box too: its top cover can hold an inset (cover.rs).
@@ -214,12 +238,6 @@ impl Kernel {
                     || self.arena.neutral_alert(*s)
             })
             .collect();
-        // And a covered box's absolute children, placed past that inset.
-        let positioned: Vec<u32> = (users.iter())
-            .filter(|&&s| matches!(self.arena.cover(s), Some(super::HostCover::Edges(_))))
-            .flat_map(|&s| super::cover::positioned_children(&self.arena, s))
-            .collect();
-        users.extend(positioned);
         for slot in &users {
             if let (Some(node), Some(layout)) =
                 (self.arena.taffy(*slot), self.layout.as_deref_mut())
@@ -241,6 +259,7 @@ impl Kernel {
         let mut unmirrored = Unmirrored;
         let layout = self.layout.as_deref_mut().unwrap_or(&mut unmirrored);
         for (slot, old, old_family) in before {
+            self.arena.relative.invalidate(slot);
             let changed = old.changed_mask(&self.arena.computed_inherited(slot));
             let family_changed = !self.arena.style(slot).mask.has(StyleId::FontFamily)
                 && old_family.as_deref()
@@ -251,7 +270,10 @@ impl Kernel {
             }
         }
         let mut relative_receipt = CommitReceipt::default();
-        if control_changed {
+        for &slot in &viewport_users {
+            self.arena.relative.invalidate(slot);
+        }
+        if control_changed || !viewport_users.is_empty() {
             txn::relative::resolve(
                 &mut self.arena,
                 layout,

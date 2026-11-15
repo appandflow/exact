@@ -1,21 +1,22 @@
 //! The resident dev driver: source change observed → plan ready, in one
-//! long-lived process.
+//! long-lived process (LLP 1004 D5; LLP 1006 §8's owed piece).
 //!
-//! A [`Session`] watches one `.contract` file and every source it uses.
-//! When their bytes change it compiles, bakes against the app's data
-//! source, and writes the plan atomically where the page fetches it. A reload is a restart: the page
+//! A [`Session`] watches one `.contract` file and every source it uses
+//! (LLP 1091 D10). When their bytes change it
+//! compiles, bakes against the app's data source, and writes the plan
+//! atomically where the page fetches it. A reload is a restart: the page
 //! boots the new plan from initial state (`exact_boot_plan`), with no state
-//! migration and no patch format. `host/web/dev.mjs`
+//! migration and no patch format — D5 taken literally. `host/web/dev.mjs`
 //! runs [`main`] for an app, pushes each ready plan to the page, and prints
 //! the edit → present numbers against `rules/RULES.md`'s row.
 //!
-//! A value-only design edit: when only `.tamber` files
+//! A value-only design edit (LLP 1121 stage 4): when only `.forma` files
 //! changed and the new plan's structure ([`exact_plan::Plan::structure`]) is
 //! the published one's, no plan is published and nothing restarts. The
 //! changed tokens go out as a batch instead ([`exact_runner::design`]), which
 //! every running build applies in place. (The plan file is still written,
 //! for a host that watches the file rather than the stream.) This is decided by content, so a hand
-//! edit and the Tamber server's write are one case, in any process.
+//! edit and the Forma server's write are one case, in any process.
 
 use exact_runner::DataSource;
 use std::path::{Path, PathBuf};
@@ -73,7 +74,7 @@ pub struct Session {
     /// tokens were compiled from: a scrub's frame folded over others is
     /// not patched on them. None when the file moved during the build.
     design_source: Option<String>,
-    /// An open scrub's last preview: its
+    /// An open scrub's last preview (LLP 1121 stage 4, commit 6): its
     /// design shape and the design the builds run while it lasts.
     scrub: Option<(String, Vec<exact_runner::design::Token>)>,
     /// That scrub is being written: the next build batches from it and
@@ -205,7 +206,7 @@ impl Session {
         let design_only = uses_changed
             && changed
                 .iter()
-                .all(|(p, _)| p.extension().is_some_and(|e| e == "tamber"));
+                .all(|(p, _)| p.extension().is_some_and(|e| e == "forma"));
         let surfaces_changed = self.surfaces_stamp != surfaces_stamp || uses_changed;
         // A failed compile may have observed a file while an editor was
         // replacing its bytes. Until a good plan lands, re-read even when
@@ -337,7 +338,7 @@ impl Session {
 }
 
 impl Session {
-    /// A scrub's preview: the design `text`
+    /// A scrub's preview (LLP 1121 stage 4, commit 6): the design `text`
     /// compiled in place of the file's and baked, written nowhere; the batch
     /// from the design the builds run to it (`None` when it changes nothing
     /// they read) and its snapshot. A structure change is refused: a
@@ -347,7 +348,7 @@ impl Session {
         Ok(self.show(shape, tokens))
     }
 
-    /// A scrub's frame patched: each folded row
+    /// A scrub's frame patched (LLP 1121 D13): each folded row
     /// (`scrub-fold`'s `values`, a name and its CSS text per full app
     /// tuple) set on the committed design, compiling nothing; the batch from
     /// the design the builds run and the snapshot, as [`Session::scrub`]
@@ -550,15 +551,15 @@ fn write_atomic(out: &Path, bytes: &[u8]) -> Result<(), String> {
 /// stdout — `plan <bytes> <saved_ms> <compile_ms> <bake_ms> <ready_ms>`,
 /// `design <saved_ms> <compile_ms> <bake_ms> <ready_ms> {"batch":…,"snapshot":…}`
 /// for a value-only design edit (no plan written), or `error <message as a
-/// JSON string>`, its lines kept — for `dev.mjs` to relay. On stdin, a scrub:
-/// `scrub <id> <design text as a JSON string>`,
+/// JSON string>`, its lines kept — for `dev.mjs` to relay. On stdin, a scrub
+/// (LLP 1121 stage 4, commit 6): `scrub <id> <design text as a JSON string>`,
 /// `restore <id>` and `release <id>` (the scrub is being written: the build
 /// of what it writes goes from it), each answered `scrubbed <id>
 /// {"batch":…,"snapshot":…}` (each null when there is none) or `scrubbed
 /// <id> {"error":…}`, no file written. Polls every 10 ms; a stat is
 /// microseconds. `--once` builds the plan a single time and exits —
 /// `build.mjs` uses it so `dist/` carries `app.plan` for a static host
-/// (the envelope points at a file that must exist).
+/// (LLP 1023 D2: the envelope points at a file that must exist).
 pub fn main<D: DataSource + Default>() -> std::process::ExitCode {
     use std::io::Write as _;
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -678,7 +679,7 @@ pub fn main<D: DataSource + Default>() -> std::process::ExitCode {
         }
         let built = session.poll::<D>();
         // Each build's design file bytes, before what it says (an empty
-        // batch says nothing else): the served design's.
+        // batch says nothing else): the served design's (LLP 1122 D5).
         if let Some(Ok(_)) = &built {
             let _ = writeln!(
                 stdout,

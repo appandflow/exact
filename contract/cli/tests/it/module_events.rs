@@ -1,9 +1,10 @@
-//! Through a module outside the tree (`tests/bell`, copied out of the checkout
-//! as an installed package is): a send that answers nothing is a statement; an
-//! event is heard on the root and delivered once, in order, as its own commit;
-//! an emitted event carries the device's origin, so the request its handler
-//! makes while `prompt` fails; and the declared list, value and admission forms
-//! answer under the agent, the value app-wide.
+//! LLP 1133.004 stage 0, through a module outside the tree (`tests/bell`,
+//! copied out of the checkout as an installed package is): a send that
+//! answers nothing is a statement; an event is heard on the root and
+//! delivered once, in order, as its own commit; an emitted event carries
+//! the device's origin, so the request its handler makes while `prompt`
+//! fails; and the declared list, value and admission forms answer under
+//! the agent, the value app-wide.
 
 use exact_runner::{agent, CallOrigin, Runner, Value};
 use std::path::{Path, PathBuf};
@@ -204,6 +205,168 @@ fn the_fixture_compiles_its_statements_and_its_root_events() {
 }
 
 #[test]
+fn module_event_attributes_resolve_imports_despite_local_bindings() {
+    let app = App::new("event-scope");
+    for (imported, attribute) in [("chime as heardChime", "heardChime"), ("chime", "chime")] {
+        for (binding, children) in [
+            ("", ""),
+            ("  state chime = false\n", ""),
+            ("  derive chime = false\n", ""),
+            ("  action chime\n    heard = \"local\"\n", ""),
+            (
+                "",
+                "      for chime in [\"one\"] key=chime\n        text chime\n",
+            ),
+        ] {
+            app.write(
+                "app.contract",
+                &format!(
+                    "use {imported} from \"@fixture/bell\"\ncomponent App\n  state heard = \"\"\n{binding}  action hear(tag)\n    heard = tag\n  view\n    column {attribute}=hear\n      text heard\n{children}"
+                ),
+            );
+            let plan = app
+                .compile()
+                .unwrap_or_else(|e| panic!("{imported}, {binding:?}, {children:?}: {e:?}"));
+            assert_eq!(plan.module_events.len(), 1);
+            let event = &plan.module_events[0];
+            assert_eq!(plan.str(event.extension), "bell");
+            assert_eq!(plan.str(event.declared), "chime");
+            assert_eq!(plan.str(plan.action(event.action).name), "hear");
+            let mut r = boot(plan);
+            r.raise_module_event("bell", "chime", r#"["delivered"]"#, CallOrigin::Device)
+                .unwrap();
+            pump(&mut r);
+            assert!(slot(&r, "heard").contains("delivered"), "{}", logs(&r));
+        }
+    }
+}
+
+#[test]
+fn module_event_attributes_require_the_name_in_the_files_scope() {
+    let app = App::new("event-missing-use");
+    for imported in ["chime as heardChime", "clearCount"] {
+        app.write(
+            "app.contract",
+            &format!(
+                "use {imported} from \"@fixture/bell\"\ncomponent App\n  state heard = \"\"\n  action hear(tag: string)\n    heard = tag\n  view\n    column chime=hear\n      text heard\n"
+            ),
+        );
+        let all = app
+            .compile()
+            .err()
+            .unwrap_or_else(|| panic!("compiled `chime=hear` after `use {imported}`"));
+        assert!(
+            all.iter()
+                .any(|e| e.id == "lower-unknown-attr" && e.message.contains("`chime`")),
+            "{imported}: {all:?}"
+        );
+    }
+}
+
+#[test]
+fn module_event_attributes_do_not_capture_same_files_component_arguments() {
+    let app = App::new("event-component-arguments");
+    for (imported, argument) in [("chime as heardChime", "heardChime"), ("chime", "chime")] {
+        app.write(
+            "app.contract",
+            &format!(
+                r#"use {imported} from "@fixture/bell"
+component App
+  state heard = ""
+  action hear(tag: string)
+    heard = tag
+  view
+    column {argument}=hear
+      Label({argument}="ordinary prop")
+component Label
+  props
+    {argument}: string
+  view
+    text {argument}
+"#
+            ),
+        );
+        let plan = app
+            .compile()
+            .unwrap_or_else(|e| panic!("{imported}: {e:?}"));
+        assert_eq!(plan.module_events.len(), 1);
+        let r = boot(plan);
+        assert!(agent::handle(&r, r#"{"op":"tree"}"#).contains("ordinary prop"));
+    }
+}
+
+#[test]
+fn module_event_attributes_do_not_capture_another_files_component_arguments() {
+    let app = App::new("event-file-scope");
+    app.write(
+        "app.contract",
+        r#"use chime from "@fixture/bell"
+use Wrapper from "./wrapper.contract"
+component App
+  state heard = ""
+  action hear(tag: string)
+    heard = tag
+  view
+    column chime=hear
+      Wrapper()
+"#,
+    );
+    app.write(
+        "wrapper.contract",
+        r#"component Wrapper
+  view
+    Label(chime="ordinary prop")
+component Label
+  props
+    chime: string
+  view
+    text chime
+"#,
+    );
+    let plan = app.compile().unwrap_or_else(|e| panic!("{e:?}"));
+    assert_eq!(plan.module_events.len(), 1);
+    let r = boot(plan);
+    assert!(agent::handle(&r, r#"{"op":"tree"}"#).contains("ordinary prop"));
+}
+
+#[test]
+fn module_event_aliases_keep_root_and_handler_checks() {
+    let app = App::new("event-alias-refused");
+    for (ty, view, id, name) in [
+        (
+            "string",
+            "    column\n      text heardChime=hear \"nested\"\n",
+            "contract-event-root",
+            "heardChime",
+        ),
+        (
+            "string",
+            "    column heardChime=hear again=hear\n      text heard\n",
+            "contract-event-root",
+            "again",
+        ),
+        (
+            "number",
+            "    column heardChime=hear\n      text heard\n",
+            "contract-event-handler",
+            "heardChime",
+        ),
+    ] {
+        app.write(
+            "app.contract",
+            &format!(
+                "use chime as heardChime, chime as again from \"@fixture/bell\"\ncomponent App\n  state chime = false\n  state heard = \"\"\n  action hear(tag: {ty})\n    heard = \"heard\"\n  view\n{view}"
+            ),
+        );
+        let all = app.compile().unwrap_err();
+        assert!(
+            all.iter().any(|e| e.id == id && e.message.contains(name)),
+            "{ty}, {view:?}: {all:?}"
+        );
+    }
+}
+
+#[test]
 fn a_send_that_answers_nothing_and_an_event_are_refused_where_they_do_not_belong() {
     let refused = |body: &str| -> Vec<(String, String)> {
         let app = App::new("refused");
@@ -242,11 +405,11 @@ fn a_send_that_answers_nothing_and_an_event_are_refused_where_they_do_not_belong
     );
 }
 
-/// A statement lists the post (held first on the permission ticket while
-/// `prompt`), a newer one replacing its tag; a value is set app-wide;
-/// `tap @ref` raises the activation event, heard once by the root's action with
-/// the entry's data; a not-yet-delivered entry is refused until the agent clock
-/// passes its time.
+/// D5 and §7: a statement lists the post (held first on the permission
+/// ticket while `prompt`), a newer one replacing its tag; a value is set
+/// app-wide; `tap @ref` raises the activation event, heard once by the
+/// root's action with the entry's data; a not-yet-delivered entry is
+/// refused until the agent clock passes its time.
 #[test]
 fn the_declared_substitute_lists_sets_and_taps() {
     let app = App::new("substitute");
@@ -311,7 +474,7 @@ fn the_declared_substitute_lists_sets_and_taps() {
     assert_eq!(state(&r)["count"], serde_json::Value::Null);
 }
 
-/// The origin rule: an event a package emits runs its handler with the
+/// D6's origin rule: an event a package emits runs its handler with the
 /// device's origin, so the request it makes while `prompt` fails, reason
 /// `person-required`, where an activation's would hold a ticket.
 #[test]
@@ -344,8 +507,8 @@ fn an_emitted_event_carries_the_device_s_origin() {
     permission_ticket(&r);
 }
 
-/// Events are held up to their bound, the oldest dropped and journaled, and the
-/// rest delivered in order, one commit each.
+/// D6: events are held up to their bound, the oldest dropped and
+/// journaled, and the rest delivered in order, one commit each.
 #[test]
 fn events_are_held_in_order_and_bounded() {
     let app = App::new("hold");
@@ -368,7 +531,7 @@ fn events_are_held_in_order_and_bounded() {
     assert!(slot(&r, "heard").contains("chime c5"));
 }
 
-/// A relaunched app's `--notification '<entry>'` delivers the entry's data to
+/// §7: a relaunched app's `--notification '<entry>'` delivers the entry's data to
 /// the handler, from nothing the session that posted it kept.
 #[test]
 fn a_launch_entry_carries_its_data_to_the_handler() {
@@ -384,8 +547,8 @@ fn a_launch_entry_carries_its_data_to_the_handler() {
     assert!(slot(&r, "heard").contains("t1 thread-1"), "{}", logs(&r));
 }
 
-/// `"scope": "app"` keeps a value in the host's app-wide state, so a second
-/// session reads what the first set and clears it for both.
+/// §7: `"scope": "app"` keeps a value in the host's app-wide state, so a
+/// second session reads what the first set and clears it for both.
 #[test]
 fn an_app_scoped_value_is_one_value_across_sessions() {
     let app = App::new("app");
@@ -434,11 +597,11 @@ impl exact_runner::DataSource for Later {
 
 const LATER: &str = "use requestBell, chime, BellStatus from \"@fixture/bell\"\n\nshape Done\n  done: bool\n\ncomponent App\n  state heard = \"\"\n  mutation hushed as shape Done then afterHush\n  mutation answered as shape BellStatus\n  action chimed(tag: string)\n    heard = tag\n    send hushed = quiet()\n  action afterHush\n    send answered = requestBell()\n  action press\n    send answered = requestBell()\n  view\n    column chime=chimed\n      text heard\n";
 
-/// Origin follows causation: an emitted event's request, its answer's commit
-/// and the `then` that arms are the device's, so the request there is refused
-/// while `prompt`; a data-code call while that request is in flight is the
-/// device's too (least privileged), and once it lands a person's own request
-/// asks again.
+/// LLP 1133.002 D12, origin follows causation: an emitted event's request,
+/// its answer's commit and the `then` that arms are the device's, so the
+/// request there is refused while `prompt`; a data-code call while that
+/// request is in flight is the device's too (least privileged), and once it
+/// lands a person's own request asks again.
 #[test]
 fn the_device_s_origin_follows_its_requests_answers_and_thens() {
     let app = App::new("later");
@@ -493,8 +656,8 @@ fn the_device_s_origin_follows_its_requests_answers_and_thens() {
     );
 }
 
-/// Each event keeps its own bound; one kind's flood drops none of another's,
-/// and each drop is journaled under its own event.
+/// D6: each event keeps its own bound; one kind's flood drops none of
+/// another's, and each drop is journaled under its own event.
 #[test]
 fn each_event_keeps_its_own_bound() {
     let app = App::new("mixed");
@@ -532,7 +695,8 @@ fn each_event_keeps_its_own_bound() {
     );
 }
 
-/// A declared state name is one module's and never one of the agent's own keys.
+/// §7: a declared state name is one module's and never one of the agent's
+/// own keys.
 #[test]
 fn a_declared_state_name_is_one_module_s_and_not_the_agent_s() {
     let app = App::new("reserved");
@@ -564,8 +728,8 @@ impl exact_runner::DataSource for Named {
     }
 }
 
-/// An app-wide value is the app's, so two apps one embedder hosts, which share
-/// the process's state, each keep their own.
+/// §7: an app-wide value is the app's, so two apps one embedder hosts, which
+/// share the process's state, each keep their own.
 #[test]
 fn an_app_wide_value_is_one_app_s() {
     let app = App::new("apps");

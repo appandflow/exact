@@ -1,4 +1,4 @@
-//! DOM geometry resolves in wasm, not Taffy.
+//! @ref LLP 1043.000 §3 D1–D4, D7 — DOM geometry resolves in wasm, not Taffy.
 use super::*;
 use exact_kernel::{Dimension, Display, PositionType, WrapFlow};
 
@@ -52,7 +52,7 @@ impl<D: DataSource> Host<D> {
                     first = false;
                     let definite = node.style.height != Dimension::Auto;
                     let _ = write!(json, "{{\"id\":{id},\"definite\":{definite},\"refusal\":");
-                    // The kernel's admission rule, by structure.
+                    // @ref LLP 1043.000 §8 — the kernel's admission rule, by structure.
                     let slot = kernel.arena().slot_of(id).expect("live child");
                     match kernel.arena().auto_flow_refusal(slot) {
                         Some(refusal) => exact_runner::agent::quote(refusal.message(), &mut json),

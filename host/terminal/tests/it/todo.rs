@@ -1,4 +1,4 @@
-//! The todo fixture driven headless as the agent drives it.
+//! The todo fixture (LLP 1101 Q9) driven headless as the agent drives it.
 
 use exact_terminal::host::{Host, Key, Mode};
 
@@ -29,7 +29,7 @@ fn adds_toggles_and_filters_in_cells() {
         first.contains(" ╭───"),
         "a rounded border, one cell: {first}"
     );
-    assert!(first.contains("│ [x] Read the spec"), "{first}");
+    assert!(first.contains("│ [x] Read LLP 1101"), "{first}");
 
     let input = host.by_test_id("new-item").expect("the input");
     host.press(input);
@@ -60,7 +60,7 @@ fn the_keyboard_reaches_everything() {
         host.key(Key::Named("Tab"));
     }
     host.key(Key::Named("Enter"));
-    assert!(screen(&mut host).contains("│ [ ] Read the spec"));
+    assert!(screen(&mut host).contains("│ [ ] Read LLP 1101"));
     // `x` clears done; `n` focuses the field and puts the cursor in it.
     host.press(host.by_test_id("item-2").unwrap());
     host.key(Key::Char('x'));

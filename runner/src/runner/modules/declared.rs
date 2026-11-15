@@ -1,5 +1,5 @@
-//! A send that answers nothing and the forms of the
-//! agent's substitute a module declares for it, so a third party's
+//! A send that answers nothing (LLP 1133.004 D5) and the forms of the
+//! agent's substitute a module declares for it (§7), so a third party's
 //! module is substituted as the standard library's is:
 //!
 //! - **Admission**, per name: `asks` holds a call under a `permission`
@@ -15,11 +15,11 @@
 //!   raises the declared event as an activation, and retires the entry.
 //!   `launch` names the launch flag that hands a relaunched app one entry.
 //! - **An app's list** (`"scope": "app"`), with a due time, the person's
-//!   choices and `update`: `app_list.rs`.
-//! - **Checks** every route holds a call to (`"checks"`):
+//!   choices and `update` (LLP 1133.030 D12 item 2): `app_list.rs`.
+//! - **Checks** every route holds a call to (`"checks"`, LLP 1133.030 D2):
 //!   exactly `one` of some options, an instant option `after` now, options
 //!   at least a `min`, options `nonEmpty`, each refused with its `error`.
-//! - **An entry that changes** (`update.rs`): a list's
+//! - **An entry that changes** (`update.rs`, LLP 1133.033 D21): a list's
 //!   `with`, `absent`, `stamp`, `refuse`, `ends` and `inCall`; `when`'s
 //!   alternatives, `set`'s value forms, and a choice's own `when`, `set`
 //!   and `event`, so a call is listed and its state moves.
@@ -65,6 +65,8 @@ pub(in crate::runner) struct Declared {
     app: Option<AppState>,
     /// Effects held on a permission ticket.
     held: Vec<HeldEffect>,
+    /// Native statements still awaiting the platform, counted by invocation.
+    pub(super) statements: Arc<Mutex<BTreeMap<u64, usize>>>,
     /// What a bound implementation's refusals said, for the journal.
     lines: Arc<Mutex<Vec<String>>>,
     /// What a registration a wake runs for keeps beside its options, by `ref`.
@@ -108,7 +110,7 @@ enum Effect {
 }
 
 impl<D: DataSource> Runner<D> {
-    /// Share the host's app-wide state with this session (`"scope":
+    /// Share the host's app-wide state with this session (§7: `"scope":
     /// "app"`), before anything sets it.
     pub fn share_app_state(&mut self, state: AppState) {
         self.extensions.declared.app = Some(state);
@@ -166,12 +168,15 @@ impl<D: DataSource> Runner<D> {
         origin: CallOrigin,
     ) -> Effect {
         let declared = self.plan.str(row.declared).to_owned();
-        // The grants, origin and foreground every call is held to,
-        // before anything else; a grant matched by value
+        // The grants, origin and foreground every call is held to (LLP
+        // 1133.002 D14), before anything else; a grant matched by value
         // fails with its own code.
         if let Err((code, why)) = self.value_grants(row, &args) {
             self.log(format!("{}: refused, {why}", self.key(row)));
             return Effect::Now(json!({ "error": code, "message": why }));
+        }
+        if let Some(refused) = self.undeclared(row, &args) {
+            return Effect::Now(refused);
         }
         if let Err(why) = self.admit(row, &args, origin) {
             self.log(format!("{}: refused, {why}", self.key(row)));
@@ -196,10 +201,21 @@ impl<D: DataSource> Runner<D> {
             let Some(handler) = slot.handler() else {
                 return Effect::Now(json!({ "error": "NotSupportedError" }));
             };
-            // A data-code call settles from the implementation's reply, so
-            // it is the caller's work until the platform has the effect: a
-            // wake does not end on
-            // the handoff. A Contract statement answers nothing to wait for.
+            // A background action owns a native statement until its reply;
+            // ordinary wakes keep fire-and-forget statements (LLP 1133.004 stage 2).
+            let owner = if reply.is_none() && origin == CallOrigin::Action {
+                self.invocation_id()
+            } else {
+                0
+            };
+            let statements = self.extensions.declared.statements.clone();
+            if owner != 0 {
+                *statements
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .entry(owner)
+                    .or_default() += 1;
+            }
             let pending = reply.clone();
             handler(
                 request.body,
@@ -219,6 +235,17 @@ impl<D: DataSource> Runner<D> {
                     }
                     if let Some(pending) = &pending {
                         Pending::complete(pending, outcome);
+                    }
+                    if owner != 0 {
+                        let mut owned = statements.lock().unwrap_or_else(|e| e.into_inner());
+                        if let Some(count) = owned.get_mut(&owner) {
+                            *count -= 1;
+                            if *count == 0 {
+                                owned.remove(&owner);
+                            }
+                        }
+                        drop(owned);
+                        slot.changed("");
                     }
                 }),
             );
@@ -378,14 +405,14 @@ impl<D: DataSource> Runner<D> {
             let state = list["state"].as_str().unwrap_or("listed").to_owned();
             let key = list["key"].as_str().unwrap_or_default().to_owned();
             let value = fields.get(&key).cloned().unwrap_or(Json::Null);
-            // A registration's kind keys it beside its key.
+            // A registration's kind keys it beside its key (LLP 1133.017 §10).
             let kind = list.get("kind").cloned();
             if let Some(kind) = &kind {
                 fields.insert("kind".into(), kind.clone());
             }
             self.due_fields(&sub["list"], &mut fields);
             // What an entry starts with beside its options (`initial`), and
-            // the most a list holds of its kind (`most`).
+            // the most a list holds of its kind (`most`, LLP 1133.021 D11).
             for (field, v) in list
                 .get("initial")
                 .and_then(Json::as_object)
@@ -540,7 +567,7 @@ impl<D: DataSource> Runner<D> {
 
     /// Permission `name` became `state`: its held effects are done
     /// (`granted`) or refused (`denied`). One whose own permission requires
-    /// another asks the next still `prompt` first.
+    /// another asks the next still `prompt` first (LLP 1133.030 D12 item 1).
     pub(super) fn settle_effects(&mut self, name: &str, state: &str) {
         if state == "prompt" {
             return;
@@ -642,7 +669,7 @@ impl<D: DataSource> Runner<D> {
                 out.insert(state.to_owned(), value.unwrap_or(Json::Null));
             }
         }
-        // The app's tools and the system's calls of them.
+        // The app's tools and the system's calls of them (LLP 1133.023 §10).
         if let Some(intents) = self.intents_state() {
             out.insert("intents".into(), intents);
         }
@@ -676,7 +703,7 @@ impl<D: DataSource> Runner<D> {
         }
     }
 
-    /// The agent's operations on listed entries: `{"op":"tap","ticket":ref}`
+    /// The agent's operations on listed entries (§7): `{"op":"tap","ticket":ref}`
     /// on one, or `{"op":"launchEntry","launch","entry"}`. `None` for any other.
     pub fn listed_op(&mut self, op: &str, request: &str) -> Option<Result<String, String>> {
         let v: Json = serde_json::from_str(request).ok()?;
@@ -740,7 +767,7 @@ impl<D: DataSource> Runner<D> {
         })
     }
 
-    /// `tap @ref` on a listed entry: what the platform's click would
+    /// `tap @ref` on a listed entry (§7): what the platform's click would
     /// do. `Ok` is the reply: `{"navigate": location}` for the host to open,
     /// or the event raised; the entry is retired either way.
     pub fn tap_listed(&mut self, reference: u64) -> Result<String, String> {
@@ -748,7 +775,7 @@ impl<D: DataSource> Runner<D> {
     }
 
     /// [`Self::tap_listed`] with the person's choice, for an entry whose
-    /// list declares choices.
+    /// list declares choices (LLP 1133.030 D12 item 2).
     pub fn tap_listed_as(
         &mut self,
         reference: u64,
@@ -781,6 +808,11 @@ impl<D: DataSource> Runner<D> {
         if self.substitute(&row)["list"]["tap"]["as"] == "wake" {
             return self.tap_wake(&state, at);
         }
+        if let Some(choice) =
+            choice.filter(|_| self.substitute(&row)["list"]["tap"]["actions"].is_string())
+        {
+            return self.tap_action(&row, &state, at, choice);
+        }
         let entry = self
             .extensions
             .declared
@@ -793,9 +825,87 @@ impl<D: DataSource> Runner<D> {
         self.activate_entry(&row, &Json::Object(entry.fields), reference)
     }
 
+    /// `tap @ref <action>[=<reply>]` on an entry that shows actions (LLP
+    /// 1133.004 stage 2): the person chose one of the entry's actions, and
+    /// typed `reply` into a text action. The event carries the action's
+    /// name and the reply, and never opens the entry's `navigate`. A
+    /// foreground action is the click's activation; one with `foreground`
+    /// false runs as a background action, as the host raises it.
+    fn tap_action(
+        &mut self,
+        row: &ModulesRow,
+        state: &str,
+        at: usize,
+        choice: &str,
+    ) -> Result<String, String> {
+        let entry = &self.extensions.declared.lists[state][at];
+        let reference = entry.reference;
+        let tap = self.substitute(row)["list"]["tap"].clone();
+        let field = tap["actions"].as_str().unwrap_or_default();
+        let actions = entry.fields.get(field).cloned().unwrap_or(Json::Null);
+        let (name, typed) = match choice.split_once('=') {
+            Some((name, typed)) => (name, Some(typed)),
+            None => (choice, None),
+        };
+        let names: Vec<&str> = (actions.as_array().into_iter().flatten())
+            .filter_map(|a| a["action"].as_str())
+            .collect();
+        let Some(action) = (actions.as_array().into_iter().flatten()).find(|a| a["action"] == name)
+        else {
+            let shows = match names.is_empty() {
+                true => "it shows none".to_owned(),
+                false => format!("it shows {}", names.join(", ")),
+            };
+            return Err(format!("@{reference}: no action `{name}`; {shows}"));
+        };
+        let reply = match (action["placeholder"].is_string(), typed) {
+            (true, typed) => json!(typed.unwrap_or_default()),
+            (false, None) => Json::Null,
+            (false, Some(_)) => return Err(format!("@{reference}: `{name}` takes no typed reply")),
+        };
+        let foreground = action["foreground"] != false;
+        let mut fields = self
+            .extensions
+            .declared
+            .lists
+            .get_mut(state)
+            .expect("found above")
+            .remove(at)
+            .fields;
+        fields.remove("navigate");
+        fields.insert("action".into(), json!(name));
+        fields.insert("reply".into(), reply);
+        self.log(format!("{state} @{reference}: {name} chosen"));
+        if foreground {
+            return self.activate_entry(row, &Json::Object(fields), reference);
+        }
+        let Some(event) = tap["event"].as_str() else {
+            return Err(format!("@{reference}: its list raises no event"));
+        };
+        let args = Json::Array(entry_args(&tap, &Json::Object(fields))).to_string();
+        let extension = self.plan.str(row.extension).to_owned();
+        let how = super::WakeHow {
+            id: 0,
+            cold: false,
+            hidden: true,
+        };
+        self.queue_action(
+            &extension,
+            event,
+            &args,
+            how,
+            &format!("@{reference}"),
+            false,
+        )?;
+        Ok(
+            json!({ "ref": reference, "event": event, "as": "action", "delivery": "substituted" })
+                .to_string(),
+        )
+    }
+
     /// A relaunched app's launch flag (`--notification '<entry>'`): the
-    /// entry as the agent's state printed it, delivered as its tap would be,
-    /// held until the session can hear it.
+    /// entry as the agent's state printed it, delivered as its tap would be
+    /// (LLP 1133.004 §7), held until the session can hear it.
     pub fn launch_listed(&mut self, launch: &str, entry: &str) -> Result<String, String> {
         let entry: Json =
             serde_json::from_str(entry).map_err(|e| format!("--{launch}: not JSON: {e}"))?;

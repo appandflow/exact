@@ -1,4 +1,4 @@
-# The photo editor on the web: one wasm with the runner, the
+# The photo editor on the web (LLP 1067.000): one wasm with the runner, the
 # kernel and the baked plan; its TypeScript runs in the page's realm, and its
 # page module (modules/web/index.js) is `<photo-editor>`.
 [package]

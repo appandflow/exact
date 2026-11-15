@@ -1,4 +1,4 @@
-//! Exit animation and layout transition on Apple: the leaving
+//! Exit animation and layout transition on Apple (LLP 1063): the leaving
 //! view is kept and animated until its exit ends, then destroyed once; the
 //! sibling that takes its place slides there as a `layout` offset.
 
@@ -254,7 +254,7 @@ fn a_box_that_grows_starts_its_surface_at_its_old_size() {
     assert_eq!(layout(&settled, card), Some([0.0; 4]));
 }
 
-// A clipping box closing to zero size shows the size it closes
+// GitHub #940: a clipping box closing to zero size shows the size it closes
 // from, which a ratio of the laid-out size could not carry.
 
 #[test]
@@ -505,7 +505,7 @@ fn a_layout_springs_size_overshoot_is_clamped_to_zero() {
     assert_eq!((dw, dh), (-10.0, -10.0), "shown at zero, not below: {mid}");
 }
 
-/// A box going into the top layer (here its author's sticky
+/// Stage 14 B: a box going into the top layer (here its author's sticky
 /// dropped, so its popover lifts it) moves into the viewport's block, a
 /// change of space, not of place: no layout motion across it, as on the
 /// Mac's painted popover, and none back.

@@ -1,4 +1,4 @@
-// @exact/photos and the image codec on Android, on `apps/photos-fixture`, the library's
+// @exact/photos and the image codec on Android (LLP 1133.019 stage 3), on `apps/photos-fixture`, the library's
 // consumer there (the photo editor has no Android port).
 //
 // With no flag it builds the fixture's APK and checks what the build made: the read permissions with their API
@@ -6,10 +6,10 @@
 // photos extension; the package's Kotlin and the reader's codec compiled in; the agent's six photos carried, byte for
 // byte the package's fixture. `--emulator` then drives the APK on an arm64 emulator (ANDROID_SERIAL, else adb's
 // one device) whose adb can run as root, to read the edits back: under the agent, the library through the reader's
-// picture door, a copy and an add, limited access and a revocation; the image codec's conformance through the
-// fixture's `editImage`; and MediaStore itself, the implementation bound and the read granted by `pm grant`. Both
-// need an NDK in ANDROID_NDK_HOME and a JDK 17 or newer in JAVA_HOME. checklist.md's Android part is what needs a
-// person: the platform's dialogs and what is chosen in them.
+// picture door, a copy and an add, limited access and a revocation; the image codec's conformance (LLP 1133.019 §11,
+// checklist step 9) through the fixture's `editImage`; and MediaStore itself, the implementation bound and the read
+// granted by `pm grant`. Both need an NDK in ANDROID_NDK_HOME and a JDK 17 or newer in JAVA_HOME. checklist.md's
+// Android part is what needs a person: the platform's dialogs and what is chosen in them.
 //
 // usage: bun packages/photos/test/android.mjs [--emulator]
 import { createHash } from 'node:crypto';
@@ -20,6 +20,7 @@ import { spawnSync } from 'node:child_process';
 import { checker } from '../../camera/test/fixture.mjs';
 import { decodePng } from '../../../scripts/png.mjs';
 import { androidDevice, androidSdk } from '../../../scripts/agent-android.mjs';
+import { apkBuildDir } from '../../../scripts/agent-android.mjs';
 
 /** What a JPEG's EXIF says of the checks (orientation, GPS, date, camera, rights, maker note), or null with none. */
 function exif(path) {
@@ -45,7 +46,7 @@ const here = import.meta.dir, root = resolve(here, '../../..'), app = 'photos-fi
 const sha = bytes => createHash('sha256').update(bytes).digest('hex');
 const AGENT = n => sha(readFileSync(resolve(here, `../fixture/agent-${n}.jpg`)));
 const { check, failed } = checker();
-const built = resolve(root, 'host/android/app/build', app);
+const built = apkBuildDir(app);
 
 const build = spawnSync('bun', ['scripts/agent-android.mjs', 'build', app, '--apk'], { cwd: root, encoding: 'utf8', maxBuffer: 1 << 28 });
 check('android', 'the fixture builds as an APK', build.status === 0, (build.stdout + build.stderr).slice(-2000));
@@ -107,7 +108,7 @@ if (process.argv.includes('--emulator')) {
     check(where, '3: limited shows three and Manage', grid(r[3]) === 3 && tree(r[3]).includes('"manage"'), tree(r[3]).slice(0, 400));
     check(where, '3: a smaller selection shows one, the others revoked', grid(r[6]) === 1 && r.lines.some(l => /photos: revoked photos:agent-1/.test(l)), r.lines.filter(l => /photos:/.test(l)).join(' | '));
   }
-  // 4: the codec, its image conformance and checklist step 9, in one launch: each call's record, then its
+  // 4: the codec (D16), §11's image conformance and checklist step 9, in one launch: each call's record, then its
   // file, read from the app's directory (an emulator's adb runs as root) and decoded here by `sips`.
   {
     const cases = [
@@ -182,10 +183,10 @@ if (process.argv.includes('--emulator')) {
     check(where, '4: agent-3\'s top half is the upright photo\'s', half && whole && [[30, 30], [180, 120], [330, 200]].every(([x, y]) => at(half, x, y).slice(0, 3).every((v, i) => Math.abs(v - at(whole, x, y)[i]) < 24)),
       half && whole && JSON.stringify([at(half, 180, 120), at(whole, 180, 120)]));
     check(where, '4: a free turn of a gain-map photo says hdr false', by['gain map, 10°'].record?.hdr === false, JSON.stringify(by['gain map, 10°'].record));
-    // Recorded, not checked: whether API 34 keeps the gain map through a quarter turn.
+    // Recorded, not checked: whether API 34 keeps the gain map through a quarter turn (D16).
     console.log(`NOTE ${where} 4: gain map through a quarter turn: hdr ${by['gain map, a quarter'].record?.hdr}`);
   }
-  // 5: MediaStore for real, the implementation bound (its conformance on an emulator): two photos pushed and
+  // 5: MediaStore for real, the implementation bound (§11's conformance on an emulator): two photos pushed and
   // scanned, the read granted by `pm grant`; the list, a copy with its location, an add whose row is no longer
   // pending and joins the list. The app's own rows and the pushed files go first, so a rerun starts alike.
   {

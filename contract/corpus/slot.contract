@@ -1,4 +1,4 @@
-// Accept fixture: a `slot` component — the nodes indented
+// Accept fixture: a `slot` component (LLP 1017 P4b) — the nodes indented
 // under a use fill its `children`, inlined in the use site's scope, so a
 // layout is written once and every screen is `Shell(...)` with its content.
 component App

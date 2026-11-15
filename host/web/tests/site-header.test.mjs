@@ -1,4 +1,4 @@
-// In Chrome, Firefox and WebKit: a route's header that holds a `nav`, a popover's too, or more than one
+// LLP 1153 D8, in Chrome, Firefox and WebKit: a route's header that holds a `nav`, a popover's too, or more than one
 // link outside a menu, is a site's. The navigation glue marks it `data-exact-site`, and the shell draws it as written:
 // not sticky, no ground or edge, no bar mark, and no Back is drawn for its route, wherever the header stands in it. So
 // is a header whose author wrote `appearance: none`. The header iOS makes its bar of (one heading, a button) keeps the
@@ -11,8 +11,10 @@ import { resolve } from 'node:path';
 import { suiteBrowser } from '../../../scripts/agent-launch.mjs';
 import { withLook } from '../look.mjs';
 import { createDocument } from '../../web-js/dom.js';
-import { markBars } from '../navigation.js';
+import { markBars } from '../navigation/routes.js';
 
+import { bundleHostModule } from '../../web-js/glue.mjs';
+const navigationModule = await bundleHostModule(resolve(import.meta.dir, '../../..'), 'navigation.js');
 const ROOT = resolve(import.meta.dir, '../../..');
 const heading = '<h2 role="heading" data-exact-text>Pokédex</h2>';
 const add = '<button type="button" data-exact-on="press" aria-label="Add"><span data-exact-text>Add</span></button>';
@@ -46,7 +48,7 @@ for (const engine of ['chromium', 'firefox', 'webkit']) test(`${engine}: a site'
   const content = Object.entries(CASES).map(([id, [inner, header, before]]) => stack(id, inner, header, before)).join('');
   const html = withLook(readFileSync(resolve(ROOT, 'host/web/index.html'), 'utf8'))
     .replace('<div id="exact-root"></div>', () => `<div id="exact-root">${content}</div>`)
-    .replace('<script type="module" src="./glue.js"></script>', () => `<script type="module">${readFileSync(resolve(ROOT, 'host/web/navigation.js'), 'utf8')}
+    .replace('<script type="module" src="./glue.js"></script>', () => `<script type="module">${navigationModule}
       const shell = document.getElementById('exact-root'); navigation.connect(shell, () => false, () => {}); navigation.project(shell, () => {}); globalThis.projected = true;</script>`);
   const suite = await suiteBrowser(engine, { timeout: 10000 });
   try {
@@ -95,4 +97,26 @@ test('a page rendered ahead marks a site\'s header, and the bar only where it is
     return [id, { site: header.hasAttribute('data-exact-site'), bar: header.hasAttribute('data-exact-bar') }];
   }));
   expect(marks).toEqual(Object.fromEntries(Object.entries(WANT).map(([id, { site, bar }]) => [id, { site, bar }])));
+});
+
+// Issue #364 (kernel/src/bars.rs): a header with no heading is the bar when the bar places all of it.
+test('a header of buttons alone is marked a bar, and one that also holds a text is not', () => {
+  const doc = createDocument(), saved = globalThis.document;
+  const el = (tag, attrs = {}, ...kids) => { const e = doc.createElement(tag); for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v); e.append(...kids); return e; };
+  const plus = () => el('button', { type: 'button', 'data-exact-on': 'press', 'aria-label': 'Add' });
+  const kids = {
+    alone: () => [el('div', {}, plus()), el('div'), el('p', { role: 'status' }, 'Live')],
+    text: () => [el('div', { 'data-exact-text': '' }, 'Inbox'), plus()],
+    empty: () => [el('div')],
+    // The bar has one place for a search field: a second keeps the header in the page.
+    search: () => [plus(), el('input', { type: 'search' })],
+    searches: () => [plus(), el('input', { type: 'search' }), el('input', { type: 'search' })],
+  };
+  for (const [id, made] of Object.entries(kids)) {
+    doc.root.append(el('main', { navigationKey: '1' }, el('div', { navigationKey: '1', id }, el('header', {}, ...made()))));
+  }
+  globalThis.document = doc;
+  try { markBars(doc.root); } finally { globalThis.document = saved; }
+  const bars = Object.fromEntries(Object.keys(kids).map((id) => [id, doc.getElementById(id).children[0].hasAttribute('data-exact-bar')]));
+  expect(bars).toEqual({ alone: true, text: false, empty: false, search: true, searches: false });
 });

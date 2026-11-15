@@ -3,7 +3,7 @@ import AppKit
 import XCTest
 @testable import ExactKit
 
-/// On a Mac, a kept document's security-scoped bookmark
+/// LLP 1069.010.000 D4 on a Mac: a kept document's security-scoped bookmark
 /// leads to the object chosen, not to whatever is at its path. A move is
 /// followed; a file another program renamed to a backup before writing its
 /// own at the name is followed to the original; one deleted and replaced is
@@ -126,6 +126,36 @@ final class KeptDocumentsMacTests: XCTestCase {
         XCTAssertEqual(listed([]), [])
         RunLoop.main.run(until: Date().addingTimeInterval(0.5))
         XCTAssertEqual(controller.recentDocumentURLs, [])
+    }
+
+    /// Open Recent ▸ Clear Menu is dimmed while there is nothing to clear,
+    /// as `NSDocumentController` refuses `clearRecentDocuments:` then.
+    func testClearMenuIsEnabledOnlyWithSomethingToClear() throws {
+        _ = NSApplication.shared
+        let controller = NSDocumentController.shared
+        func listed(_ want: [String]) -> [String] {
+            let end = Date().addingTimeInterval(3)
+            while controller.recentDocumentURLs.map(\.lastPathComponent) != want, Date() < end { RunLoop.main.run(until: Date().addingTimeInterval(0.02)) }
+            return controller.recentDocumentURLs.map(\.lastPathComponent)
+        }
+        let saved = controller.recentDocumentURLs
+        defer {
+            KeptDocuments.clear(); _ = listed([])
+            saved.reversed().forEach(controller.noteNewRecentDocumentURL)
+        }
+        let recent = RecentMenu(), menu = NSMenu()
+        menu.delegate = recent
+        func clearMenu() throws -> NSMenuItem {
+            recent.menuNeedsUpdate(menu)
+            menu.update()
+            return try XCTUnwrap(menu.items.last { $0.action == #selector(RecentMenu.clear(_:)) })
+        }
+        KeptDocuments.clear()
+        XCTAssertEqual(listed([]), [])
+        XCTAssertFalse(try clearMenu().isEnabled, "nothing to clear")
+        controller.noteNewRecentDocumentURL(try write("a.md", "a"))
+        try XCTSkipUnless(listed(["a.md"]) == ["a.md"], "this test host keeps no recent documents")
+        XCTAssertTrue(try clearMenu().isEnabled)
     }
 
     /// A clear that lands after the 2 s fallback took what it noted: noted

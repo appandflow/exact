@@ -1,7 +1,7 @@
 //! Contract syntax: the lexer, the AST, and the parser.
 //!
-//! The language basis is Contract v1 Edition 1, scoped to the v1 app's
-//! constructs.
+//! @ref LLP 1004 D3 (the language basis: Contract v1 Edition 1, scoped to the
+//! v1 app's constructs) / LLP 0508 (research)
 //!
 //! The grammar is indentation-structured. A file is a sequence of `shape` and
 //! `component` declarations; a component holds `props`, `state`, `derive`,
@@ -42,6 +42,7 @@ pub mod state;
 mod tap;
 mod test_steps;
 pub mod tool;
+mod walk;
 
 pub use ast::*;
 pub use clock::{resolve_clock_timelines, resolve_clock_timelines_in};
@@ -60,6 +61,7 @@ pub use parser::{
 pub use sequence::Sequence;
 pub use share::share_calls;
 pub use spans::VisitSpans;
+pub use walk::{Binds, Walk};
 
 /// A token range in one source file. Lines and byte columns are 1-based.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Hash, PartialOrd, Ord)]
@@ -92,26 +94,26 @@ impl std::fmt::Display for Span {
     }
 }
 
-/// The commands a host answers: every name an action body may
+/// The commands a host answers (LLP 1005 §3): every name an action body may
 /// call. The web host's `command` op, the Apple session's queue, and the Linux
 /// presenter's `run_commands` match these by name; any other name would reach
 /// them and be refused there, silently to the author, so the type pass
 /// refuses it. It lives here, not in the type pass, because expansion reads
 /// it too: a statement naming one is the command, never a call; one whose
 /// component also has an action, `action` prop or inject of that name, its
-/// own action included, is refused as ambiguous
-/// (`syntax-call-ambiguous`).
+/// own action included, is refused as ambiguous (LLP 1089 D1,
+/// `syntax-call-ambiguous`).
 pub const HOST_COMMANDS: &[&str] = &[
     "blur",
     "copyText",
     "deliveryActivate",
     "deliveryCheck",
-    // A media element's, by HTML's method names:
+    // A media element's, by HTML's method names (podcast F8, F18):
     // `fastSeek(id, seconds)` seeks each time, `load(id)` loads its source again.
     "fastSeek",
     "focus",
     "format",
-    // `haptic("success" | "warning" | "error" | …)`.
+    // @ref LLP 1077 D14 — `haptic("success" | "warning" | "error" | …)`.
     "haptic",
     "openURL",
     "load",
@@ -119,14 +121,14 @@ pub const HOST_COMMANDS: &[&str] = &[
     // screen, as HTML's Element.requestFullscreen(); `fullscreenchange` says
     // when it did and when it left.
     "requestFullscreen",
-    // `exitFullscreen()`: the document leaves full
+    // @ref LLP 1069.010 — `exitFullscreen()`: the document leaves full
     // screen, as the web's `document.exitFullscreen()`; on the Mac the
     // session's window leaves its full-screen space.
     "exitFullscreen",
     // `requestPictureInPicture("id")`: the `image` with that HTML id floats
     // in the platform's picture-in-picture window, which shows each picture
     // its `src` names next; `enterpictureinpicture` and
-    // `leavepictureinpicture` say when it did and when it left.
+    // `leavepictureinpicture` say when it did and when it left (LLP 1042 §9).
     "requestPictureInPicture",
     // `exitPictureInPicture()`: the app's floating image leaves the window,
     // as HTML's document.exitPictureInPicture(); no id, as one image floats
@@ -135,40 +137,44 @@ pub const HOST_COMMANDS: &[&str] = &[
     // `reload()`: the development host boots the app again, as its dev
     // menu's Reload does; a host without a dev menu refuses it.
     // `reload(id)`, `reload(id, ignoreCache=true)`: that iframe's page
-    // again, as `close(id)` is a dialog's.
+    // again (LLP 1020.002 D3), as `close(id)` is a dialog's.
     "reload",
-    // An iframe's guest moved by the Navigation
+    // @ref LLP 1020.002 D3 — an iframe's guest moved by the Navigation
     // API's and WebDriver BiDi's names, by the frame's `id`.
     "navigate",
     "traverseHistory",
     "stopLoading",
-    // WebDriver BiDi's `browsingContext.captureScreenshot`:
+    // @ref LLP 1020.002 D7 — WebDriver BiDi's `browsingContext.captureScreenshot`:
     // a picture of the frame's guest into an `app:/` file, answered by `capture=`.
     "captureScreenshot",
-    // Electron's `<webview>.openDevTools()`: the
+    // @ref LLP 1020.002 D11 — Electron's `<webview>.openDevTools()`: the
     // platform's inspector for the frame's guest, in a window of its own.
     "openDevTools",
     "relaunch",
     "removeAllRanges",
     "selectText",
-    // A field's range, or a reader text's source range, by id.
+    // A field's range, or a reader text's source range (issue #274), by id.
     // `setSelectionRange("editor", 4, 4)`.
     "setSelectionRange",
     "setRangeText",
     "setScheme",
-    // `:root { font-size }`: `setRootFontSize(px)`
+    // `setLocale("de")`: the language the app's strings read, over the
+    // host's locale and kept across launches; `setLocale("")` hands it
+    // back. The runner's own.
+    "setLocale",
+    // @ref LLP 1069.000 D3 — `:root { font-size }`: `setRootFontSize(px)`
     // sets the root size `rem` follows, over the host's; `"medium"` hands it
     // back. The runner's own; the web also sets it on the document.
     "setRootFontSize",
-    // Electron's `webContents.setZoomFactor`:
+    // @ref LLP 1021 §5.3.1 — Electron's `webContents.setZoomFactor`:
     // `setPageZoom(factor)` sets the window's page zoom, as View ▸ Zoom In
     // does. The host's own; the web refuses it (the browser's zoom is the
     // person's).
     "setPageZoom",
-    // `setMode("dark-style", "dim")`: the window's app
+    // @ref LLP 1121 D5 — `setMode("dark-style", "dim")`: the window's app
     // modes, as `setScheme` is its scheme. The runner's own.
     "setMode",
-    // `HTMLInputElement.showPicker()` on a file input.
+    // @ref LLP 1069.002 D2 — `HTMLInputElement.showPicker()` on a file input.
     "showPicker",
     // `startTrace_EXPERIMENTAL()` records the display link's callbacks until
     // `stopTrace_EXPERIMENTAL()`, which puts the trace on the clipboard as JSON
@@ -179,7 +185,7 @@ pub const HOST_COMMANDS: &[&str] = &[
     // fields may still change.
     "startTrace_EXPERIMENTAL",
     "stopTrace_EXPERIMENTAL",
-    // `HTMLDialogElement.showModal()` by the dialog's
+    // @ref LLP 1101.001 P5 — `HTMLDialogElement.showModal()` by the dialog's
     // `id`, from an action; `close(id)` closes it (bare `close()` is still
     // the window's).
     "showModal",
@@ -187,18 +193,18 @@ pub const HOST_COMMANDS: &[&str] = &[
     "hidePopover",
     "togglePopover",
     "share",
-    // Export: the host copies an `app:/` file out.
+    // @ref LLP 1069.010 D3 — export: the host copies an `app:/` file out.
     "saveFile",
-    // The File System Access API's pickers.
+    // @ref LLP 1069.010 D2 — the File System Access API's pickers.
     "showOpenFilePicker",
     "showDirectoryPicker",
     "showSaveFilePicker",
-    // `requestPermission(id, path, mode)`: a kept
+    // @ref LLP 1069.010.000 D7 — `requestPermission(id, path, mode)`: a kept
     // document's access asked for again under a press; `change` at `id`.
     "requestPermission",
-    // A virtualized list's row brought into view, by key.
+    // @ref LLP 1070.000 — a virtualized list's row brought into view, by key.
     "scrollIntoView",
-    // `Element.scrollBy(x, y)` by the scroller's
+    // @ref LLP 1101.004 R3 — `Element.scrollBy(x, y)` by the scroller's
     // `id`, in pixels: a reader's `j` and `k`.
     "scrollBy",
     // The inverse of a canvas's `message=`: `postMessage(text, "world")` queues
@@ -209,7 +215,7 @@ pub const HOST_COMMANDS: &[&str] = &[
     // for `beforeunload`, the window stays open (docs/contract-grammar.md#events).
     "preventDefault",
     // `event.stopPropagation()` for the same event: no ancestor's `key`
-    // handler hears it, and its default still happens.
+    // handler hears it, and its default still happens (files diary F8).
     "stopPropagation",
     // Observe's custom event, attributes added to every later event, and a
     // caught error. The Observe module sends them when the app links it.
@@ -219,19 +225,26 @@ pub const HOST_COMMANDS: &[&str] = &[
     // `window.close()` (studio diary R17): the window closes without asking
     // its `beforeunload` again — what an app calls once its own "Save
     // changes?" is answered. An action prop named `close` may be bound, but
-    // calling it is refused as ambiguous (`syntax-call-ambiguous`).
+    // calling it is refused as ambiguous (LLP 1089 D1, `syntax-call-ambiguous`).
     "close",
-    // `setWindowOpacity(n)`: the session's window is
+    // @ref LLP 1069.010 — `setWindowOpacity(n)`: the session's window is
     // drawn at that opacity, 0 to 1, as Electron's `BrowserWindow.setOpacity`.
     // The Mac's; the web refuses it (a page has no window to fade).
     "setWindowOpacity",
-    // `playSound(src, at=, gain=, group=, playbackRate=, pan=)`,
-    // `playSounds(hits)` and `stopSounds(group=)`: the runner keeps the voice
-    // table, so every host skips them as the runner's own.
+    // @ref LLP 1133.025 D4 — `hideWindow()`: the session's window is put
+    // away as a person's close puts it away under `keepRunning` or a placed
+    // status item, the app still running, as Electron's `BrowserWindow.hide`.
+    // The Mac's; a host or an app that cannot keep running refuses it.
+    "hideWindow",
+    // @ref LLP 1096 D2, D14 — `playSound(src, at=, gain=, group=, playbackRate=, pan=)`,
+    // `playSounds(hits)`, `stopSounds(group=)` and `setSounds(group=, gain=,
+    // playbackRate=, pan=, ramp=)`: the runner keeps the voice table, so
+    // every host skips them as the runner's own.
     "playSound",
     "playSounds",
     "stopSounds",
-    // `requestMIDIAccess()` and `sendMIDI(output,
+    "setSounds",
+    // @ref LLP 1125 D6, D7 — `requestMIDIAccess()` and `sendMIDI(output,
     // data, at=)`: the runner keeps the MIDI queue and answers `exactMIDI()`,
     // so every host skips them as the runner's own.
     "requestMIDIAccess",
@@ -262,7 +275,7 @@ impl std::fmt::Display for TypeExpr {
 /// The event a handler's payload and record are typed by, on a node whose
 /// [`ast::payload_control`] is `control`: a text field's `selectionchange` is
 /// its `beforeinput`'s (an `InputEvent`), and an iframe's `navigate` is
-/// `framenavigate`, a `FrameNavigation` with no location.
+/// `framenavigate`, a `FrameNavigation` with no location (LLP 1020.002 D2).
 /// Every other event is itself.
 pub fn typed_event<'a>(event: &'a str, control: Option<&str>) -> &'a str {
     match event {

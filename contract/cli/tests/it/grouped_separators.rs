@@ -1,6 +1,6 @@
-//! A grouped list's row spans its card, `border-box`, with the platform's
-//! insets as its padding, and the separator under it is decoration the
-//! kernel places (`Kernel::grouped_separator`).
+//! LLP 1084 D7: a grouped list's row spans its card, `border-box`, with
+//! the platform's insets as its padding, and the separator under it is
+//! decoration the kernel places (`Kernel::grouped_separator`).
 
 use exact_kernel::{Kernel, Offer};
 use exact_runner::{DataError, DataSource, Runner, Value};
@@ -45,11 +45,11 @@ fn id(r: &Runner<NoData>, test_id: &str) -> u32 {
     k.node_by_key(k.find_by_test_id(test_id)[0]).unwrap().id
 }
 
-/// A row as wide as its card stays inside it, its insets inside its box, and
-/// the separator under each row is the platform's decoration: from the row's
-/// content edge to the card's trailing edge, at its foot, in the platform's
-/// colour, not under the card's last row nor where the author wrote that
-/// edge.
+/// LLP 1084 D7: a row as wide as its card stays inside it, its insets
+/// inside its box, and the separator under each row is the platform's
+/// decoration: from the row's content edge to the card's trailing edge, at
+/// its foot, in the platform's colour, not under the card's last row nor
+/// where the author wrote that edge.
 #[test]
 fn a_full_width_row_stays_in_its_card_and_its_separator_is_decoration() {
     let r = boot(

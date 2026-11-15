@@ -1,7 +1,7 @@
 // `tree --ax` over hand-written replies: the findings, parity and transcript (moved whole from agent.test.mjs, its
 // 1,500-line cap).
 import { test, expect } from 'bun:test';
-// The findings, parity and transcript over hand-written replies.
+// @ref LLP 1080.002 D7–D9 — the findings, parity and transcript over hand-written replies.
 import { axFindings, axParity, axClean, axFinish, renderAx, webAx, axTree } from '../../scripts/agent-ax.mjs';
 const axReply = (elements, extra = {}) => ({ epoch: 3, incarnation: 1, clock: 0, ax: { source: 'chrome-cdp', platform: 'Chrome 1', order: 'tree',
   coverage: { roots: ['document'], complete: true, visited: elements.length }, modal: { present: false }, elements, ...extra } });
@@ -35,6 +35,9 @@ test('tree --ax: outside-modal fires for an element outside the open modal, by t
   const modal = { present: true, element: 0, id: 13, by: 'dialog:modal' };
   const web = axFinish(axReply([sheet, ok, behind], { modal }), axPlain, null).ax.findings;
   expect(web.map(f => [f.kind, f.testId, f.basis])).toEqual([['outside-modal', 'behind', 'platform']]);
+  // The modal's ancestor (Chrome keeps a modal dialog's `main` exposed) holds it: it is not outside it.
+  const held = [el(5, 'main', ''), { ...sheet, i: 1, parent: 0 }, { ...ok, i: 2, parent: 1 }].map((e, i) => ({ ...e, i }));
+  expect(axFinish(axReply(held, { modal: { ...modal, element: 1 } }), axPlain, null).ax.findings).toEqual([]);
   const kit = axFinish(axReply([sheet, ok, { ...behind, outsideModal: false }], { modal, source: 'uikit' }), axPlain, null).ax.findings;
   expect(kit).toEqual([]);
   const leak = axFinish(axReply([sheet, ok, { ...behind, outsideModal: true }], { modal, source: 'uikit' }), axPlain, null).ax.findings;
@@ -52,14 +55,14 @@ test('tree --ax: a targeted read keeps its subtree, the chain above it, and its 
 
 test('tree --ax: parity joins by unique testId, normalizes the fixture controls, and refuses a partial side', () => {
   const web = axReply([el(0, 'checkbox', 'Checked', { testId: 'check', states: { checked: true } }), el(1, 'button', 'Add', { testId: 'add' }), el(2, 'button', 'A', { testId: 'dup' }), el(3, 'button', 'B', { testId: 'dup' })]);
-  const ios = axReply([ // UIKit's form of a checkbox: a toggle whose value is "1" (agent-ax.test.mjs).
+  const ios = axReply([ // UIKit's form of a checkbox: a toggle whose value is "1" (LLP 1115.000 D13.3; agent-ax.test.mjs).
     el(0, 'checkbox', 'Checked', { testId: 'check', value: '1', native: { role: ['button', 'toggleButton'] } }),
     el(1, 'button', 'Plus', { testId: 'add', native: { role: ['button'] } })], { source: 'uikit' });
   const { findings, unjoined } = axParity(web, ios);
   expect(findings.map(f => f.detail)).toEqual(['name "Add" (web) vs "Plus" (uikit)']);
   expect(unjoined).toEqual([]);
   expect(() => axParity({ ...web, spanned: true }, ios)).toThrow(/spanned/);
-  // A drawn radio is a radio, its checked state the UIKit reply's own.
+  // A drawn radio is a radio, its checked state the UIKit reply's own (x2apps survey #2).
   const radioWeb = axReply([el(0, 'radio', 'Red', { testId: 'red', states: { checked: true } })]);
   const radioIos = axReply([el(0, 'button', 'Red', { testId: 'red', states: { checked: true, selected: true }, native: { role: ['button', 'selected'], class: 'ExactRadio' } })], { source: 'uikit' });
   expect(axParity(radioWeb, radioIos).findings).toEqual([]);
@@ -80,11 +83,11 @@ test('tree --ax renders each element with its join and frame, then its findings'
   expect(text).toMatch(/^ax {7}chrome-cdp · Chrome 1 · order tree · epoch 3 · incarnation 1 · clock 0 ms · 3 elements/);
   expect(text).toContain('button "" #10 [play] 1,2 3×4');
   expect(text).toContain('button "Hidden" #12^ [inside]');
-  // The accessible description (aria-describedby) is printed.
+  // The accessible description (aria-describedby) is printed: the survey diary could not see it.
   expect(text).toContain('textbox "Your name" description="Required" [required] #15 [behind]');
   expect(text).toContain('! unnamed button #10 [play]');
   expect(text).toContain('! exposed while hidden: button "Hidden" under #11 (inert) #12 [inside]');
-  expect(renderAx({ ax: { unavailable: true, reason: 'no AT-SPI tree' } })).toBe('ax       unavailable: no AT-SPI tree');
+  expect(renderAx({ ax: { unavailable: true, reason: 'no AT-SPI tree (LLP 1015 §7)' } })).toBe('ax       unavailable: no AT-SPI tree (LLP 1015 §7)');
 });
 
 const fakeChrome = ({ nodes, stamps, plain }) => {

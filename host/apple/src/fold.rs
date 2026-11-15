@@ -1,4 +1,4 @@
-//! The page's environment as the host sets it:
+//! The page's environment as the host sets it (LLP 1001 §2; LLP 1078 D4):
 //! the safe-area insets, the layout regions, the title-bar area and the
 //! viewport segments a fold makes, each a call
 //! that re-sends the dictionaries of the nodes whose style reads the
@@ -27,7 +27,7 @@ impl<D: DataSource> Host<D> {
         self.set_environment(env)
     }
 
-    /// The layout regions' insets, five regions of four
+    /// The layout regions' insets (LLP 1123 D10), five regions of four
     /// edges each, top right bottom left, in [`exact_kernel::style::Region`]'s
     /// order; `None`: every region is the safe area. As for the insets, every
     /// node whose style reads the environment is re-sent and laid out again.
@@ -63,8 +63,8 @@ impl<D: DataSource> Host<D> {
         }
     }
 
-    /// The window's own size, whatever is presented in it:
-    /// what every viewport unit (`vw`, `vh`, `vmin`, `vmax` and kin) resolves
+    /// The window's own size, whatever is presented in it (LLP 1075.003
+    /// §9.11): what every viewport unit (`vw`, `vh`, `vmin`, `vmax` and kin) resolves
     /// against everywhere, root and every sheet, never a sheet's viewport,
     /// so no length follows a sheet's height. `None`: the layout viewport.
     pub fn set_screen(&mut self, screen: Option<(f32, f32)>) -> String {
@@ -73,13 +73,86 @@ impl<D: DataSource> Host<D> {
     }
 
     pub(super) fn set_environment(&mut self, env: Env) -> String {
+        let previous = self.runner.kernel().env();
         let mut batch = Batch::new();
-        let error = match self.environment_into(env, None, &mut batch) {
-            Ok(false) => None,
-            Ok(true) => self.layout(&mut batch).err(),
-            Err(e) => Some(e),
-        };
+        let changed = self.environment_into(env, None, &mut batch);
+        let mut error = changed.as_ref().err().cloned();
+        if error.is_none() {
+            match self.runner.refresh_viewport_geometry() {
+                Ok(Some(receipt)) => {
+                    return self.commit_into(
+                        &[Timed {
+                            at_ms: self.now_ms,
+                            receipt,
+                        }],
+                        None,
+                        batch,
+                    )
+                }
+                Err(e) => {
+                    return self
+                        .geometry_refused(format!("viewport geometry: {e:?}"), Some(previous))
+                }
+                Ok(None) => {}
+            }
+            if changed == Ok(true) {
+                error = self.layout(&mut batch).err();
+            }
+        }
         self.finish(batch, error)
+    }
+
+    pub(super) fn geometry_refused(&mut self, mut error: String, previous: Option<Env>) -> String {
+        if let Some(env) = previous {
+            let kernel = self.runner.kernel_mut();
+            let _ = kernel.set_env(env.clone());
+            let _ = kernel.set_segments(env.cols, env.rows, env.segments);
+        }
+        // Rebuild dictionaries after the runner restores a refused environment.
+        let mut batch = Batch::new();
+        for id in self.preorder() {
+            self.update(id, &mut batch);
+        }
+        self.emit_paragraphs(&mut batch);
+        if let Err(layout) = self.layout(&mut batch) {
+            error.push_str(&format!("; restored layout: {layout}"));
+        }
+        self.finish(batch, Some(error))
+    }
+
+    /// The viewport's change into `batch`, after what it holds (`set_view`),
+    /// with the keyboard's overlap when told.
+    pub(super) fn resize_inner(
+        &mut self,
+        width: f32,
+        height: f32,
+        keyboard: Option<f64>,
+        mut batch: Batch,
+        error: Option<String>,
+        previous: Option<Env>,
+    ) -> String {
+        let _roles = self.runner.bind_roles(); // Its own (LLP 1121 stage 5).
+                                               // @ref LLP 1039 D2 — merge re-answer and relayout, once.
+        let size = Some((f64::from(width), f64::from(height)));
+        let receipt = match self.runner.set_view(size, keyboard) {
+            Ok(receipt) => receipt,
+            Err(e) => {
+                return self.geometry_refused(
+                    error.unwrap_or_else(|| format!("viewport: {e:?}")),
+                    previous,
+                )
+            }
+        };
+        self.viewport = (width, height);
+        self.height_targets_dirty = true;
+        self.presence.snap = true;
+        if let Some(receipt) = receipt {
+            let at_ms = self.now_ms;
+            return self.commit_into(&[Timed { at_ms, receipt }], error, batch);
+        }
+        let laid_out = self.layout(&mut batch).err();
+        self.canvas_turn(&mut batch);
+        self.finish(batch, error.or(laid_out))
     }
 
     /// `env` set, and the segments' rects on the kernel's grid when given,
@@ -91,7 +164,7 @@ impl<D: DataSource> Host<D> {
         segments: Option<Vec<exact_kernel::Rect>>,
         batch: &mut Batch,
     ) -> Result<bool, String> {
-        let _roles = self.runner.bind_roles(); // Its own.
+        let _roles = self.runner.bind_roles(); // Its own (LLP 1121 stage 5).
         let kernel = self.runner.kernel_mut();
         let moved = match segments {
             Some(rects) => {
@@ -116,12 +189,15 @@ impl<D: DataSource> Host<D> {
 
     /// What changed of the view at once, each part only when given: the
     /// window's size (`None` in it clears it), the safe-area insets, the
-    /// layout regions, the viewport and the segments' rects on the grid the
-    /// kernel has, in one batch under one layout, as the calls one by one
-    /// would leave them. An iOS boot's view takes the whole window as its
-    /// tab bar comes, which changes the first four
-    /// (`ExactView.fit`); a keyboard changes the viewport and the
-    /// segments' extents together (the keyboard).
+    /// layout regions, the viewport, the segments' rects on the grid the
+    /// kernel has, the software keyboard's overlap and native containing
+    /// blocks and placements, in one batch under one layout and one commit,
+    /// as the calls one by one would leave them.
+    /// An iOS boot's view takes the whole window as its tab bar comes (LLP
+    /// 1123 D1), which changes the first four (`ExactView.fit`); a keyboard
+    /// changes the viewport, the segments' extents and its overlap together
+    /// (LLP 1078, the keyboard; LLP 1039 D9).
+    #[allow(clippy::too_many_arguments)]
     pub fn set_view(
         &mut self,
         screen: Option<Option<(f32, f32)>>,
@@ -129,8 +205,35 @@ impl<D: DataSource> Host<D> {
         regions: Option<Option<[[f32; 4]; 5]>>,
         size: Option<(f32, f32)>,
         segments: Option<Vec<exact_kernel::Rect>>,
+        keyboard: Option<f32>,
+        blocks: &[(exact_kernel::ViewId, Option<exact_kernel::HostBlock>)],
+        placements: &[(exact_kernel::ViewId, Option<exact_runner::BlockPlacement>)],
     ) -> String {
-        let mut env = self.runner.kernel().env();
+        self.set_view_at(
+            screen, insets, regions, size, segments, keyboard, blocks, placements, None,
+        )
+    }
+
+    /// A combined view change at the presenter's sampled time. Due timers
+    /// see the previous viewport, as they do through `resize_at`.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn set_view_at(
+        &mut self,
+        screen: Option<Option<(f32, f32)>>,
+        insets: Option<[f32; 4]>,
+        regions: Option<Option<[[f32; 4]; 5]>>,
+        size: Option<(f32, f32)>,
+        segments: Option<Vec<exact_kernel::Rect>>,
+        keyboard: Option<f32>,
+        blocks: &[(exact_kernel::ViewId, Option<exact_kernel::HostBlock>)],
+        placements: &[(exact_kernel::ViewId, Option<exact_runner::BlockPlacement>)],
+        now_ms: Option<f64>,
+    ) -> String {
+        let keyboard = keyboard.map(f64::from);
+        self.route_overflow.dirty |=
+            keyboard.is_some_and(|height| height != self.runner.viewport().keyboard_height);
+        let previous = self.runner.kernel().env();
+        let mut env = previous.clone();
         if let Some(screen) = screen {
             env = env.with_screen(screen);
         }
@@ -140,6 +243,23 @@ impl<D: DataSource> Host<D> {
         if let Some(regions) = regions {
             env = env.with_regions(regions);
         }
+        if !env.is_finite() {
+            return self.finish(Batch::new(), Some("view: invalid environment".into()));
+        }
+        if size.is_some() || keyboard.is_some() {
+            let now = self.runner.viewport();
+            let (width, height) =
+                size.map_or((now.width, now.height), |(w, h)| (w as f64, h as f64));
+            let candidate = exact_runner::Viewport {
+                width,
+                height,
+                keyboard_height: keyboard.unwrap_or(now.keyboard_height),
+                ..now
+            };
+            if let Err(e) = candidate.validate() {
+                return self.finish(Batch::new(), Some(format!("viewport: {e:?}")));
+            }
+        }
         // Rects off the kernel's grid are refused before anything changes.
         if let Some(rects) = &segments {
             let next = env.with_segments(env.cols, env.rows, rects.clone());
@@ -147,21 +267,53 @@ impl<D: DataSource> Host<D> {
                 return self.finish(Batch::new(), Some("view: segments off the grid".into()));
             }
         }
-        let mut batch = Batch::new();
-        let changed = self.environment_into(env, segments, &mut batch);
-        let error = changed.as_ref().err().cloned();
-        match size {
-            Some((width, height)) => self.resize_inner(width, height, batch, error),
-            None if changed == Ok(true) => {
-                let laid_out = self.layout(&mut batch).err();
-                self.finish(batch, laid_out)
+        let (mut batch, error) = if size.is_some() {
+            if let Some(now) = now_ms {
+                self.now_ms = now.max(self.now_ms);
             }
-            None => self.finish(batch, error),
+            self.settle_resize_clock(Batch::new(), None)
+        } else {
+            (Batch::new(), None)
+        };
+        let error = error.or(self.blocks_into(blocks, placements));
+        let changed = self.environment_into(env, segments, &mut batch);
+        if let Err(error) = changed {
+            return self.geometry_refused(error, Some(previous));
+        }
+        match size {
+            Some((width, height)) => {
+                self.resize_inner(width, height, keyboard, batch, error, Some(previous))
+            }
+            None => {
+                match self.runner.set_view(None, keyboard) {
+                    Ok(Some(receipt)) => {
+                        return self.commit_into(
+                            &[Timed {
+                                at_ms: self.now_ms,
+                                receipt,
+                            }],
+                            error,
+                            batch,
+                        )
+                    }
+                    Err(e) => {
+                        return self
+                            .geometry_refused(format!("viewport geometry: {e:?}"), Some(previous))
+                    }
+                    Ok(None) => {}
+                }
+                if changed != Ok(true) && blocks.is_empty() {
+                    return self.finish(batch, error);
+                }
+                let laid_out = self.layout(&mut batch).err();
+                self.canvas_turn(&mut batch);
+                self.finish(batch, error.or(laid_out))
+            }
         }
     }
 
-    /// The device's posture and the viewport segments a fold makes:
-    /// the kernel's grid and `exactViewport`'s three fields in one
+    /// The device's posture and the viewport segments a fold makes (LLP
+    /// 1078 D4): the kernel's grid and `exactViewport`'s three fields in one
     /// batch — the nodes whose style reads the environment get their
     /// dictionaries re-sent and are laid out again, as for the insets, and
     /// every reader of the fields recommits. Empty when nothing changed. A
@@ -174,7 +326,7 @@ impl<D: DataSource> Host<D> {
         rows: u32,
         rects: Vec<exact_kernel::Rect>,
     ) -> String {
-        let _roles = self.runner.bind_roles(); // Its own.
+        let _roles = self.runner.bind_roles(); // Its own (LLP 1121 stage 5).
         let (Ok(c), Ok(r)) = (u8::try_from(cols), u8::try_from(rows)) else {
             return self.finish(
                 Batch::new(),
@@ -213,7 +365,7 @@ impl<D: DataSource> Host<D> {
                 self.finish(batch, error)
             }
             Ok(None) => self.finish(batch, None),
-            Err(e) => self.finish(batch, Some(format!("segments: {e:?}"))),
+            Err(e) => self.geometry_refused(format!("segments: {e:?}"), None),
         }
     }
 }
@@ -224,7 +376,7 @@ impl<D: exact_runner::DataSource> crate::Host<D> {
         let fonts = self.runner.kernel().env().button_fonts;
         self.measuring_traits_changed(Some((styles, fonts)))
     }
-    /// The text engine's line boxes round to another scale:
+    /// The text engine's line boxes round to another scale (LLP 1008 §3):
     /// every paragraph is measured again, and the auto heights running
     /// transitions target with them.
     pub(crate) fn text_scale_changed(&mut self) -> String {

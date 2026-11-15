@@ -1,4 +1,4 @@
-//! The crypto list's sparkline surface, one instance per row canvas.
+//! The crypto list's sparkline surface (LLP 1009), one instance per row canvas.
 //!
 //! `spark(series, up, freeze)`: the 48-point series drawn as a polyline into the
 //! canvas's inner 96 × 32 pt box (the canvas is that box outset by 9 pt), a 1.5 pt
@@ -78,7 +78,7 @@ thread_local! {
 
 struct Gpu {
     key: (wgpu::TextureFormat, u32),
-    /// The per-frame uniform, written in place, and a bind group per slot.
+    /// The per-frame uniform, written in place (LLP 1009 D7), and a bind group per slot.
     uniforms: exact_gpu::FrameUniform,
     groups: Vec<wgpu::BindGroup>,
     pipeline: wgpu::RenderPipeline,

@@ -1,9 +1,9 @@
-// What is header-shaped is one rule every host reads:
+// @ref LLP 1115.001 D11 — what is header-shaped is one rule every host reads:
 // the kernel's (`kernel/src/bars.rs`), which the Android host reads from the
 // kernel's own tree to make Material's top app bar. The Apple hosts read the
 // same rule over their own views: UIKit's navigation bar is made from it
 // (`HeaderShape`, NavigationBarIOS.swift), and the Mac's title bar and
-// toolbar (HeaderMac.swift). The views mirror that tree, and
+// toolbar (LLP 1115.002 D2, HeaderMac.swift). The views mirror that tree, and
 // a query of the kernel would not serve here: a presenter fed a batch by hand
 // (the tests') has no kernel behind it, and the bar is projected several
 // times a batch. So the views' facts are handed to the rule as words
@@ -15,18 +15,19 @@ import AppKit
 import UIKit
 #endif
 
-/// A route's header as the shared rule reads it: its heading and level, its
+/// A route's header as the shared rule reads it: its heading and level (none
+/// for a header of buttons alone, whose bar has no title), its
 /// items before and after the heading (buttons and readouts, `role="status"`),
 /// its buttons with the stack's Back control, its search field, its tablist
 /// and the pressable around the heading. Each platform's bar is made from it.
 struct HeaderRule {
-    let header: NodeView, heading: NodeView
+    let header: NodeView, heading: NodeView?
     let level: Int
     let leading: [NodeView], trailing: [NodeView], items: [NodeView]
     let search: NodeView?, segments: NodeView?, tap: NodeView?
 
     /// The readouts among the leading and trailing items: nothing presses
-    /// them.
+    /// them (LLP 1075.003 §9.15).
     var readouts: [NodeView] { (leading + trailing).filter { node in !items.contains { $0 === node } } }
 
     /// The nodes handed to the shared rule, in all: what a projection walks,
@@ -34,7 +35,7 @@ struct HeaderRule {
     nonisolated(unsafe) static var walked = 0
 
     /// The route's first child is a shown `header` whose author wrote
-    /// `appearance: none`: the rule makes no bar of it
+    /// `appearance: none` (LLP 1075.003 §9.10): the rule makes no bar of it
     /// (`fact::AUTHORED`), and on iOS a pushed route with one gets no bar
     /// of the system Back alone either, since the author drew their own.
     static func keepsAuthoredHeader(_ route: NodeView) -> Bool {
@@ -55,11 +56,14 @@ struct HeaderRule {
         // A disabled button, native or bare: a dimmed bar item, pressed or not, never the title's tap.
         let button = node.kind == "button" || (node.kind == "control" && node.props["type"] == "button")
         if button && node.props["accessibilityRole"] == "button" && node.disabled { facts |= 4096 }
-        if node.presenter?.invocation(of: node)?.opensPopover == true { facts |= 16 }
+        // A button that opens what it names, a popover or a modal dialog (`fact::OPENS`).
+        if node.presenter?.invocation(of: node)?.opens == true { facts |= 16 }
         if back != nil, node.props["id"] == back { facts |= 32 }
         if node.props["semanticTag"] == "header" { facts |= 64 }
+        // A plain box, which shows nothing of its own (`fact::BOX`).
+        if node.kind == "view" { facts |= 32768 }
         if node.style["display"]?.string == "none" { facts |= 128 }
-        // Written, never implied: a header that says it keeps its authored bar.
+        // Written, never implied (LLP 1075.003 §9.10): a header that says it keeps its authored bar.
         if node.wrote("appearance"), node.style["appearance"]?.string == "none" { facts |= 512 }
         return facts
     }
@@ -95,7 +99,7 @@ struct HeaderRule {
         let node = { (place: UInt32) in nodes[Int(place)] }
         let optional = { (place: UInt32) in place == 0 ? nil : nodes[Int(place) - 1] }
         header = node(out[0])
-        heading = node(out[1])
+        heading = optional(out[1])
         level = Int(out[2])
         tap = optional(out[3])
         search = optional(out[4])
@@ -104,5 +108,23 @@ struct HeaderRule {
         leading = out[9..<9 + before].map(node)
         trailing = out[9 + before..<9 + before + after].map(node)
         items = out[9 + before + after..<9 + before + after + all].map(node)
+    }
+}
+
+extension NodeView {
+    /// The platform's title font `base` with the typography the author
+    /// wrote on this heading in its place: `font-family`, `font-weight`,
+    /// `font-style` and, where `sized`, `font-size` (LLP 1115 §2, "what the
+    /// author writes wins"). A row the author left unsaid stays `base`'s, so
+    /// a family alone keeps the title's size and weight. Nil when the author
+    /// wrote none of them: the title keeps the platform's own font. A written
+    /// size is the kernel's number, with Dynamic Type already applied.
+    func authoredTitleFont(over base: PlatformFont, sized: Bool = true) -> PlatformFont? {
+        let size = sized && wrote("font_size"), weight = wrote("font_weight"), family = wrote("font_family"), slant = wrote("font_style")
+        guard size || weight || family || slant, let engine = text else { return nil }
+        return engine.font(size: size ? number("font_size", base.pointSize) : base.pointSize,
+                           weight: weight ? min(1000, Int(number("font_weight", 400))) : TextEngine.cssWeight(of: base) ?? 400,
+                           family: family ? Int(number("font_family")) : 0,
+                           italic: slant && style["font_style"]?.string == "italic")
     }
 }

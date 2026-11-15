@@ -1,4 +1,4 @@
-// An injected action called from a child.
+// An injected action called from a child (LLP 1089 D1).
 component App
   state hits = 0
   action hit(by: number)

@@ -1,9 +1,9 @@
-//! What an iframe's guest shows, seen from outside:
+//! What an iframe's guest shows, seen from outside (@ref LLP 1020.002 D2):
 //! the `FrameNavigation` record of `navigate`, `currententrychange`,
 //! `navigatesuccess` and `navigateerror` on an `iframe`. A host sends it as
 //! ABI kind 58, `<event>\n<JSON object>`; a field the host leaves out is
 //! its type's empty value. The same kind carries a guest's `newwindow` and
-//! `download`, with their own records ([`other`]).
+//! `download` (@ref LLP 1020.002 D5), with their own records ([`other`]).
 use exact_plan::{EventKind, Value};
 
 /// The record, its fields in the compiler's order
@@ -104,8 +104,8 @@ impl FrameNavigation {
 /// Kind 58's `newwindow` (a `FrameNewWindow`: `url`, `disposition`),
 /// `download` (a `FrameDownload`: `url`, `suggestedFilename`, `state`,
 /// `path`) or `capture` (a `FrameCapture`: `path`, `width`, `height`,
-/// `error`, `message`) or `userpromptopened` (a
-/// `FrameUserPrompt`: `type`, `message`, `defaultValue`), the record in
+/// `error`, `message`, @ref LLP 1020.002 D7) or `userpromptopened` (a
+/// `FrameUserPrompt`: `type`, `message`, `defaultValue`, D9), the record in
 /// the compiler's order (`contract/types/src/selection.rs`).
 pub fn other(payload: &str) -> Option<(EventKind, Value)> {
     let (name, json) = payload.split_once('\n')?;

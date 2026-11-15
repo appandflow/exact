@@ -1,5 +1,5 @@
-//! `wakelock` lowers to a prop on any element, a literal other than its two
-//! words is refused naming both, and a bound one follows state.
+//! LLP 1125 D11: `wakelock` lowers to a prop on any element, a literal other
+//! than its two words is refused naming both, and a bound one follows state.
 
 use exact_kernel::{Kernel, PropId};
 use exact_plan::Value;

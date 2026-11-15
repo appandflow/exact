@@ -1,4 +1,4 @@
-// The web's frame sampler, for both targets: a development
+// The web's frame sampler (LLP 1079 D3–D4), for both targets: a development
 // page's own requestAnimationFrame loop, run only inside active segments. It
 // watches; it never keeps the app's frame source running, so the measured
 // build schedules frames as the shipped one does. Loaded after first paint
@@ -18,7 +18,7 @@ const RING = 600, LATE = 100, QUIET = 500;
 const r2 = x => Math.round(x * 100) / 100;
 
 /** `origin`: performance.now() at the runner's clock zero. `log(line)`: a
- * journal line. `gather()`: the rest of a trace — `{journal, perf}` —
+ * journal line. `gather()`: the rest of a trace (D5) — `{journal, perf}` —
  * which ⌥⇧T posts with the frames to the dev server's `/__exact/trace`. */
 export function createFrameSampler({ origin, log, gather, covers, target }) {
   const ring = [], late = [];
@@ -33,7 +33,8 @@ export function createFrameSampler({ origin, log, gather, covers, target }) {
     lifetime = { presented: 0, late: 0, missed: 0, segments: 0 };
     dropped = loafUnmatched = 0; floor = prior = Infinity; recent = []; waiting = []; pending = empty();
   }
-  const running = () => document.getAnimations?.().some(a => a.playState === 'running');
+  // A scroll or view timeline's animation runs while the page scrolls, not per frame.
+  const running = () => document.getAnimations?.().some(a => a.playState === 'running' && !(a.timeline && 'source' in a.timeline));
   function tick(ts) {
     raf = 0;
     if (last != null) sample(ts - last, ts);
@@ -53,7 +54,7 @@ export function createFrameSampler({ origin, log, gather, covers, target }) {
   }
   function classify(record, period) {
     record.missed = Math.max(0, Math.round(record.interval / period) - 1);
-    // A late frame names the hatch calls that ran in it, read when it was sampled.
+    // A late frame names the hatch calls that ran in it (LLP 1075.003.000.001 §3.1), read when it was sampled.
     const ran = record.ran;
     delete record.ran;
     if (!record.missed) return;
@@ -97,7 +98,7 @@ export function createFrameSampler({ origin, log, gather, covers, target }) {
   const save = async () => {
     try {
       const identity = { host: 'web', target, userAgent: navigator.userAgent, url: location.href, devicePixelRatio, viewport: [innerWidth, innerHeight], bootWall: Math.round(performance.timeOrigin + origin()) };
-      // Each timing's provenance: what the numbers are proxies for.
+      // Each timing's provenance (LLP 1041 §5): what the numbers are proxies for.
       const proxies = { period: 'floor: the segment\'s lowest median of 8 consecutive requestAnimationFrame intervals', interval: 'requestAnimationFrame callback gap', covers, loaf: PerformanceObserver.supportedEntryTypes?.includes('long-animation-frame') ? 'long-animation-frame entries, frames over 50 ms' : 'unsupported by this browser' };
       const body = JSON.stringify({ identity, proxies, ...await gather(), frames: sampler.reply(LATE, true) });
       const r = await (await fetch('/__exact/trace', { method: 'POST', headers: { 'content-type': 'application/json' }, body })).json();
@@ -107,7 +108,7 @@ export function createFrameSampler({ origin, log, gather, covers, target }) {
   };
   addEventListener('keydown', e => { if (e.exactFlowCapture) return; if (e.altKey && e.shiftKey && e.code === 'KeyT') { e.preventDefault(); save(); } }, true);
   const sampler = {
-    /** Save Trace, as ⌥⇧T asks for it (a hatch's `diagnostics.saveTrace()`). */
+    /** Save Trace, as ⌥⇧T asks for it (a hatch's `diagnostics.saveTrace()`, LLP 1075.003.000.001 §3.3). */
     save,
     /** A commit or batch the page applied: `seq` its transactions' range (or one number), `ms` the time applying it. */
     batch(seq, ms) {
@@ -117,7 +118,7 @@ export function createFrameSampler({ origin, log, gather, covers, target }) {
       pending.batches++; pending.apply += ms;
       activity();
     },
-    /** `{"op":"perf","frames":true[,"late":N]}`; `all` adds every retained record (a trace). */
+    /** `{"op":"perf","frames":true[,"late":N]}` (D4); `all` adds every retained record (a trace). */
     reply(n = 20, all = false) {
       const xs = ring.map(r => r.interval).sort((a, b) => a - b), q = f => xs.length ? xs[Math.min(xs.length - 1, Math.floor(f * xs.length))] : null;
       const period = isFinite(floor) ? floor : prior;
@@ -135,11 +136,12 @@ export function createFrameSampler({ origin, log, gather, covers, target }) {
 }
 
 let windowSampler = null;
-/** `{"op":"perf","frames":true,"live":ms}` (the live window): under the agent's clock no frame is presented, so for `ms` of
+/** `{"op":"perf","frames":true,"live":ms}` (D4's live window; the platformer's
+ * diary, R11): under the agent's clock no frame is presented, so for `ms` of
  * wall time the clock is lent to the wall. Each animation frame advances the
  * runner to the wall's time (`advance`); a GPU canvas draws on its own frame
  * loop with its perf armed (`gpu.live`); a sampler of the window's own
- * measures what was presented. The reply is `perf frames`'s, with `live` (the window and
+ * measures what was presented. The reply is D4's, with `live` (the window and
  * the clock it moved) and each world's perf. The world ticks on the wall in
  * the window, so its hash afterwards is not a seeked run's; headless Chrome's
  * frames are its own clock's, not a display's. */

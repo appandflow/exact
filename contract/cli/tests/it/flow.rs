@@ -1,4 +1,4 @@
-//! Flow authoring and state-to-layout commits.
+//! @ref LLP 1043.000 §3 D1–D4 — authoring and state-to-layout commits.
 use exact_kernel::{FlowShape, Kernel, Offer, WrapFlow};
 use exact_plan::Value;
 use exact_runner::{DataError, DataSource, Runner};
@@ -14,10 +14,10 @@ fn source(attrs: &str) -> String {
 }
 #[test]
 fn auto_values_follow_each_rows_codec_and_vocabulary() {
-    // Enum keywords use the kernel's vocabulary.
+    // @ref LLP 1017.000 P1a — enum keywords use the kernel's vocabulary.
     for (property, reason) in [
         ("display", "one of \"block\", \"flex\", \"grid\", \"none\""),
-        ("font-size", "number"),
+        ("font-size", "nonnegative number"),
         ("opacity", "number"),
     ] {
         let error = contract::compile(&source(&format!("{property}=\"auto\""))).unwrap_err();
@@ -57,15 +57,23 @@ fn supported_css_forms_and_precise_refusals() {
             "{error}"
         );
     }
-    for wrap in ["start", "end", "minimum", "maximum", "clear", "bogus"] {
+    for wrap in ["start", "end", "minimum", "maximum", "clear"] {
         let error = contract::compile(&source(&format!("wrap-flow=\"{wrap}\"")))
             .unwrap_err()
             .to_string();
         assert!(
-            error.contains("CSS Exclusions defines it; exact2 v1 implements `both`"),
+            error.contains("CSS Exclusions defines it, and exact2 v1 builds `both`"),
             "{error}"
         );
+        assert!(error.contains("Write one of auto, both"), "{error}");
     }
+    let error = contract::compile(&source("wrap-flow=\"bogus\""))
+        .unwrap_err()
+        .to_string();
+    assert!(
+        error.contains("expected one of \"auto\", \"both\""),
+        "{error}"
+    );
     for value in ["url(dancer.png)", "path('M 0 0')", "circle(NaN)"] {
         let error = contract::compile(&source(&format!("shape-outside=\"{value}\"")))
             .unwrap_err()

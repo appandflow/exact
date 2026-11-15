@@ -1,4 +1,4 @@
-// The GPU capture on a phone: a shadow tree of
+// The GPU capture (LLP 1014 D3 on a phone; LLP 1008 §9): a shadow tree of
 // plain CALayers mirrors the overlay's layer tree — geometry, opacity,
 // clipping, and the same `contents` objects, the views' backing stores,
 // shared rather than copied — and Core Animation renders that tree on the
@@ -26,29 +26,54 @@ package final class Shadow {
 
     /// Update an existing mirror immediately; creation takes the same setter.
     func rank(_ layer: CALayer, _ value: CGFloat) {
-        if let mirror = mirrors[ObjectIdentifier(layer)], mirror.zPosition != value { mirror.zPosition = value }
+        for pass in [handed, readback].compactMap({ $0 }) {
+            if let mirror = pass.mirrors[ObjectIdentifier(layer)], mirror.zPosition != value { mirror.zPosition = value }
+        }
     }
 
     let device: MTLDevice
     let queue: MTLCommandQueue
-    private var renderer: CARenderer?
-    private var target: MTLTexture?
-    private var readback: MTLBuffer?
-    /// The one texture of the zero-copy hand-over (`renderTexture`),
-    /// imported by the module once: a second one in turn would make the
+
+    /// A renderer, the texture it draws, and the tree it draws: one root,
+    /// its sublayers the mirror of whatever this pass captured last
+    /// (rebuilt per capture; layers kept by the source layer's identity so
+    /// their state carries between frames). Each renderer has a root of
+    /// its own: with one root under both, the hand-over drew none of the
+    /// page once a deck's children had been read back through the other.
+    private final class Pass {
+        let texture: MTLTexture
+        let renderer: CARenderer
+        let root = CALayer()
+        var mirrors: [ObjectIdentifier: CALayer] = [:]
+        var used: Set<ObjectIdentifier> = []
+        /// Its own pixels back (`render`); none for the hand-over.
+        let readback: MTLBuffer?
+        init(_ texture: MTLTexture, queue: MTLCommandQueue, readback: MTLBuffer?) {
+            self.texture = texture
+            self.readback = readback
+            // Under the renderer UIKit's contents draw upside down while the
+            // geometry is upright; a flipped root mirrors the geometry too, so
+            // the whole picture is upside down — and the top layer's transform
+            // mirrors it back (`mirror(_:width:height:scale:)`).
+            root.isGeometryFlipped = true
+            // The queue matters: the readback blit and the hand-over's wait are
+            // ordered after the renderer's work by being on the same one.
+            renderer = CARenderer(mtlTexture: texture, options: [Shadow.queueOption: queue])
+            renderer.layer = root
+        }
+    }
+    /// The pass of the zero-copy hand-over (`renderTexture`), whose one
+    /// texture the module imports once: a second one in turn would make the
     /// module re-import and re-bind every capture, and a surface takes a
     /// new children view as a fresh set — the glass crossfaded on every
     /// capture, a flicker with the alpha in between. The module's reads of
     /// it are complete before it is drawn into again (`gpu_sync`, called by
     /// the capture).
-    private var handed: MTLTexture?
-    private var handedRenderer: CARenderer?
-    /// The tree: one root the renderer draws, its sublayers the mirror of
-    /// whatever was captured last (rebuilt per capture; layers kept by the
-    /// source layer's identity so their state carries between frames).
-    private let root = CALayer()
-    private var mirrors: [ObjectIdentifier: CALayer] = [:]
-    private var used: Set<ObjectIdentifier> = []
+    private var handed: Pass?
+    /// The pass read back into a bitmap (`render`), at the last size asked.
+    private var readback: Pass?
+    /// The pass being mirrored into.
+    private var pass: Pass!
 
     /// The renderer's option for the command queue it renders on — the
     /// constant `kCARendererMetalCommandQueue`, whose Swift name the iOS SDK
@@ -69,11 +94,6 @@ package final class Shadow {
         guard let d = MTLCreateSystemDefaultDevice(), let q = d.makeCommandQueue() else { return nil }
         device = d
         queue = q
-        // Under the renderer UIKit's contents draw upside down while the
-        // geometry is upright; a flipped root mirrors the geometry too, so
-        // the whole picture is upside down — and the top layer's transform
-        // mirrors it back (`mirror(_:width:height:scale:)`).
-        root.isGeometryFlipped = true
     }
 
     /// The view's subtree rendered at `scale` into a Metal texture the module
@@ -85,55 +105,56 @@ package final class Shadow {
     package func renderTexture(_ view: UIView, scale: CGFloat) -> MTLTexture? {
         let w = Int((view.bounds.width * scale).rounded()), h = Int((view.bounds.height * scale).rounded())
         guard w > 0, h > 0 else { return nil }
-        if handed == nil || handed!.width != w || handed!.height != h {
-            let d = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .rgba8Unorm, width: w, height: h, mipmapped: false)
-            d.usage = [.renderTarget, .shaderRead]
-            d.storageMode = .private
-            guard let t = device.makeTexture(descriptor: d) else { return nil }
-            let r = CARenderer(mtlTexture: t, options: [Shadow.queueOption: queue])
-            r.layer = root
-            handed = t
-            handedRenderer = r
+        if handed?.texture.width != w || handed?.texture.height != h {
+            guard let t = texture(width: w, height: h) else { return nil }
+            handed = Pass(t, queue: queue, readback: nil)
         }
-        guard let texture = handed, let renderer = handedRenderer else { return nil }
-        mirror(view, width: w, height: h, scale: scale)
-        draw(renderer, into: texture, width: w, height: h)
+        guard let handed else { return nil }
+        mirror(view, in: handed, width: w, height: h, scale: scale)
+        draw(handed, width: w, height: h)
         guard let cb = queue.makeCommandBuffer() else { return nil }
         cb.commit()
         cb.waitUntilCompleted()
-        return texture
+        return handed.texture
     }
 
     /// The view's subtree rendered at `scale`: premultiplied RGBA, rows
     /// top-down, into `bitmap` — the same bytes the CPU capture makes.
     func render(_ view: UIView, scale: CGFloat, into bitmap: Bitmap) -> Bool {
         let w = bitmap.width, h = bitmap.height
-        guard let bytes = bitmap.bytes, prepare(width: w, height: h), let renderer, let target, let readback else { return false }
-        mirror(view, width: w, height: h, scale: scale)
-        draw(renderer, into: target, width: w, height: h)
+        if readback?.texture.width != w || readback?.texture.height != h {
+            guard let t = texture(width: w, height: h), let b = device.makeBuffer(length: w * h * 4, options: .storageModeShared) else { return false }
+            readback = Pass(t, queue: queue, readback: b)
+        }
+        guard let bytes = bitmap.bytes, let pass = readback, let target = pass.readback else { return false }
+        mirror(view, in: pass, width: w, height: h, scale: scale)
+        draw(pass, width: w, height: h)
         // The pixels back: a blit on the same queue after the renderer's
         // work, waited for (the per-child textures of a deck, and any host
         // without the zero-copy export).
         guard let cb = queue.makeCommandBuffer(), let blit = cb.makeBlitCommandEncoder() else { return false }
-        blit.copy(from: target, sourceSlice: 0, sourceLevel: 0, sourceOrigin: MTLOrigin(x: 0, y: 0, z: 0), sourceSize: MTLSize(width: w, height: h, depth: 1), to: readback, destinationOffset: 0, destinationBytesPerRow: w * 4, destinationBytesPerImage: w * h * 4)
+        blit.copy(from: pass.texture, sourceSlice: 0, sourceLevel: 0, sourceOrigin: MTLOrigin(x: 0, y: 0, z: 0), sourceSize: MTLSize(width: w, height: h, depth: 1), to: target, destinationOffset: 0, destinationBytesPerRow: w * 4, destinationBytesPerImage: w * h * 4)
         blit.endEncoding()
         cb.commit()
         cb.waitUntilCompleted()
-        memcpy(bytes, readback.contents(), w * h * 4)
+        memcpy(bytes, target.contents(), w * h * 4)
         return true
     }
 
     /// The shadow tree brought up to date with the view's layer tree.
-    private func mirror(_ view: UIView, width w: Int, height h: Int, scale: CGFloat) {
+    private func mirror(_ view: UIView, in pass: Pass, width w: Int, height h: Int, scale: CGFloat) {
+        self.pass = pass
+        let root = pass.root
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        used.removeAll(keepingCapacity: true)
+        pass.used.removeAll(keepingCapacity: true)
         // The renderer maps the root's bounds onto the texture one to one, so
         // the root is in pixels and the mirrored tree (points) is scaled by
         // its own transform, about its centre, to fill it.
         let rootBounds = CGRect(x: 0, y: 0, width: w, height: h)
         if root.bounds != rootBounds { root.bounds = rootBounds; root.position = CGPoint(x: CGFloat(w) / 2, y: CGFloat(h) / 2) }
-        let top = mirror(view.layer, opaque: true)
+        // A filtered box shows as its picture (`BoxFilter`), a placed canvas child's too.
+        let top = mirror((view as? NodeView)?.filterPicture ?? view.layer, opaque: true)
         let centre = CGPoint(x: CGFloat(w) / 2, y: CGFloat(h) / 2)
         if top.position != centre { top.position = centre }
         // Scaled to the texture and mirrored vertically: the flipped root
@@ -144,7 +165,7 @@ package final class Shadow {
         if !CATransform3DEqualToTransform(top.transform, fill) { top.transform = fill }
         if root.sublayers?.first !== top || root.sublayers?.count != 1 { root.sublayers?.forEach { $0.removeFromSuperlayer() }; root.addSublayer(top) }
         // What was not seen this time is dropped from the cache.
-        for key in mirrors.keys where !used.contains(key) { mirrors.removeValue(forKey: key) }
+        for key in pass.mirrors.keys where !pass.used.contains(key) { pass.mirrors.removeValue(forKey: key) }
         CATransaction.commit()
         CATransaction.flush()
     }
@@ -152,14 +173,15 @@ package final class Shadow {
     /// One frame of the renderer into `target`, cleared first (the renderer
     /// composites over what the texture holds — the previous frame,
     /// otherwise, seen as ghosts of every text).
-    private func draw(_ renderer: CARenderer, into target: MTLTexture, width w: Int, height h: Int) {
+    private func draw(_ pass: Pass, width w: Int, height h: Int) {
+        let renderer = pass.renderer
         if let cb = queue.makeCommandBuffer() {
-            let pass = MTLRenderPassDescriptor()
-            pass.colorAttachments[0].texture = target
-            pass.colorAttachments[0].loadAction = .clear
-            pass.colorAttachments[0].storeAction = .store
-            pass.colorAttachments[0].clearColor = MTLClearColor(red: 0, green: 0, blue: 0, alpha: 0)
-            cb.makeRenderCommandEncoder(descriptor: pass)?.endEncoding()
+            let clear = MTLRenderPassDescriptor()
+            clear.colorAttachments[0].texture = pass.texture
+            clear.colorAttachments[0].loadAction = .clear
+            clear.colorAttachments[0].storeAction = .store
+            clear.colorAttachments[0].clearColor = MTLClearColor(red: 0, green: 0, blue: 0, alpha: 0)
+            cb.makeRenderCommandEncoder(descriptor: clear)?.endEncoding()
             cb.commit()
         }
         renderer.bounds = CGRect(x: 0, y: 0, width: w, height: h)
@@ -169,21 +191,12 @@ package final class Shadow {
         renderer.endFrame()
     }
 
-    /// The texture, the renderer, and the readback buffer at this size.
-    private func prepare(width w: Int, height h: Int) -> Bool {
-        if let t = target, t.width == w, t.height == h { return true }
+    /// A texture the renderer draws into and the module samples.
+    private func texture(width w: Int, height h: Int) -> MTLTexture? {
         let d = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .rgba8Unorm, width: w, height: h, mipmapped: false)
         d.usage = [.renderTarget, .shaderRead]
         d.storageMode = .private
-        guard let t = device.makeTexture(descriptor: d), let b = device.makeBuffer(length: w * h * 4, options: .storageModeShared) else { return false }
-        target = t
-        readback = b
-        // The queue matters: the readback blit and the hand-over's wait are
-        // ordered after the renderer's work by being on the same one.
-        let r = CARenderer(mtlTexture: t, options: [Shadow.queueOption: queue])
-        r.layer = root
-        renderer = r
-        return true
+        return device.makeTexture(descriptor: d)
     }
 
     /// The shadow of `layer`, its state copied, its sublayers mirrored —
@@ -194,14 +207,14 @@ package final class Shadow {
     /// at alpha 0 in the window; here it is painted.
     private func mirror(_ layer: CALayer, opaque: Bool = false) -> CALayer {
         let key = ObjectIdentifier(layer)
-        used.insert(key)
+        pass.used.insert(key)
         // What is captured is what Core Animation has: a view the batch just
         // invalidated draws now rather than at the display pass, so the
         // capture is not one frame behind it (the logo, as it loaded).
         let redrew = layer.needsDisplay()
         if redrew { layer.displayIfNeeded() }
         let shadow: CALayer
-        if let s = mirrors[key], type(of: s) == shadowClass(for: layer) { shadow = s } else { shadow = shadowClass(for: layer).init(); mirrors[key] = shadow }
+        if let s = pass.mirrors[key], type(of: s) == shadowClass(for: layer) { shadow = s } else { shadow = shadowClass(for: layer).init(); pass.mirrors[key] = shadow }
         // A layer redrawn in place keeps its backing-store object: the copy
         // below compares contents by identity and would leave the shadow
         // holding the same object — which the renderer last snapshotted
@@ -209,19 +222,26 @@ package final class Shadow {
         // picture not). Through nil, the set is a real one.
         if redrew { shadow.contents = nil }
         // A layer Core Animation is animating (an SVG draw-in, a pulse, a
-        // colour) is captured as it shows, not as its model.
+        // colour: LLP 1055.000) is captured as it shows, not as its model.
         let shown = layer.animationKeys()?.isEmpty == false ? (layer.presentation() ?? layer) : layer
         copy(shown, to: shadow)
         if let node = layer.delegate as? NodeView { node.setPaintPosition(node.paintZPosition) }
         else { rank(layer, shown.zPosition) }
-        // An SVG part's mask (a gradient under its shape) comes along.
-        if let mask = layer.mask {
+        // An SVG part's mask (a gradient under its shape) comes along; a
+        // placed child's own, not the empty one that hides it on screen.
+        if let mask = layer.boxMask {
             let m = mirror(mask)
             if shadow.mask !== m { shadow.mask = m }
         } else if shadow.mask != nil {
             shadow.mask = nil
         }
-        if opaque { if shadow.opacity != 1 { shadow.opacity = 1 }; if shadow.isHidden { shadow.isHidden = false } }
+        if opaque {
+            let opacity = Capture.rootOpacity(of: layer)
+            if shadow.opacity != opacity { shadow.opacity = opacity }
+            if shadow.isHidden { shadow.isHidden = false }
+        }
+        // A placed child under the captured root is its surface's to draw.
+        else if (layer as? NodeLayer)?.drawnElsewhere == true, !shadow.isHidden { shadow.isHidden = true }
         let view = layer.delegate as? UIView
         var children: [CALayer] = []
         if let node = view as? NodeView, node.kind == "canvas" {

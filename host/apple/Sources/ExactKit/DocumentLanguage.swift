@@ -54,7 +54,7 @@ extension Presenter {
 extension NodeView {
     /// The document's language (`lang`), which VoiceOver speaks the node in:
     /// read from the presenter. UIKit stores a set one per view (an
-    /// associated object: 20 KB of malloc over 250 nodes), and an
+    /// associated object: 20 KB of malloc over euxy's 250 nodes), and an
     /// unset one is the user's language, not an ancestor's (`UIAccessibility.h`).
     package override var accessibilityLanguage: String? {
         get {

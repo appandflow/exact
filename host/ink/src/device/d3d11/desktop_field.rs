@@ -1,4 +1,5 @@
 //! The product field's native keyboard and UI Automation journey.
+//! @ref LLP 1115.004 D7; LLP 1149.001 Stage 1w.
 use super::*;
 use std::io::Write;
 use windows::Win32::{
@@ -44,7 +45,7 @@ fn type_text(text: &str) {
 }
 
 #[test]
-#[ignore = "Visual record; DPI operator and INK_SHELF required"]
+#[ignore = "Stage 1w visual record; DPI operator and INK_SHELF required"]
 fn shelf_native_field_visual() {
     unsafe {
         let _ = SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
@@ -82,7 +83,7 @@ fn shelf_native_field_visual() {
 }
 
 #[test]
-#[ignore = "Shelf keyboard/UIA journey; INK_SHELF and INK_DESKTOP_OUT"]
+#[ignore = "Stage 1w Shelf keyboard/UIA journey; INK_SHELF and INK_DESKTOP_OUT"]
 fn shelf_native_field() {
     unsafe {
         CoInitializeEx(None, COINIT_APARTMENTTHREADED).unwrap();

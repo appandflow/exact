@@ -1,4 +1,4 @@
-//! DOM's `scrollend` (2026-10-13): a handler on a `scroll` or a
+//! DOM's `scrollend` (LLP 1005, 2026-10-13): a handler on a `scroll` or a
 //! `list`, no payload, heard once a scroll is over; a node with none takes
 //! it as nothing and commits nothing.
 

@@ -1,4 +1,4 @@
-//! Browser-backed regression for the literal CSS reader, independent of platform fonts.
+//! Browser-backed regression for LLP 1035.000.001, independent of platform fonts.
 use crate::support::reader;
 use exact_kernel::Offer;
 
@@ -101,7 +101,7 @@ fn intrinsic_probe_is_remeasured_at_the_definite_content_width() {
     );
 }
 
-// Final measure dimensions must not clip content.
+// @ref LLP 1043.000 §3 D3 — final measure dimensions must not clip content.
 #[test]
 fn resolved_measure_dimensions_preserve_reader_and_shrunk_text_bits() {
     use exact_kernel::{NodeType, Op, PropId, StyleId::*};
@@ -224,7 +224,7 @@ fn a_scroller_in_a_flex_row_is_not_probed_for_a_minimum_it_does_not_use() {
     // Taffy made one anyway and discarded it: the scroller's whole content
     // laid out at no width, every paragraph wrapped a word to a line, on
     // every layout pass — and, the two passes sharing one cache slot, every
-    // row laid out again at its real width after it.
+    // row laid out again at its real width after it (LLP 1044 F6).
     use exact_kernel::{AxisOffer, Kernel, TextMeasureRequest, TextMeasurer, TextMetrics};
     use std::{cell::RefCell, rc::Rc};
     struct Tracked(Rc<RefCell<Vec<AxisOffer>>>);

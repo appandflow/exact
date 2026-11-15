@@ -1,4 +1,4 @@
-// The conformance fixture of @exact/notifications:
+// The conformance fixture of @exact/notifications (LLP 1133.004 stage 1):
 // what the T3 Code clone does with notifications, one button each.
 use showNotification, closeNotification, setAppBadge, clearAppBadge, notificationStatus, requestNotificationPermission, notificationclick, NotificationStatus, NotificationEvent from "@exact/notifications"
 

@@ -1,25 +1,25 @@
-// @exact/nfc on iOS: Core NFC's reader sessions,
+// @exact/nfc on iOS (LLP 1133.035 stage 2): Core NFC's reader sessions,
 // answered in the interface's shapes. The app's composed module calls it
 // outside the agent; under the agent the runner's declared substitute
 // answers and no session starts, unless the drive binds it (`--bind nfc`).
 // Core NFC is iOS's alone, so on the Mac and on tvOS this file compiles to
 // a module that reads `available` false and refuses every request.
 //
-// - One registry per process: a scan or a write is a claim of one
+// - One registry per process (D6): a scan or a write is a claim of one
 //   session's instance; the registry runs one reader session while any
 //   claim lives and ends it with the last. A reading goes to every session
 //   with a live scan, each with its own reading id. One write at a time: a
 //   newer write or lock replaces the waiting one, which fails `AbortError`.
-// - Claims share one reader's settings: the NDEF reader session, or
+// - Claims share one reader's settings (D6): the NDEF reader session, or
 //   the tag reader session for `apple.polling` with its options. A claim
 //   whose settings differ from the running reader's fails
 //   `InvalidStateError` `busy`.
-// - The sheet's message is the latest claim's: a claim's start
+// - The sheet's message is the latest claim's (D6, D10): a claim's start
 //   sets its `alertMessage`, a success its `doneMessage`, a failure its
 //   `errorMessages` sentence; the last claim to end ends the session with
 //   its own sentence.
 // - A tag is read once while it stays in the field: polling restarts only
-//   after it leaves, which also keeps the leases on a tag valid for
+//   after it leaves (D11), which also keeps the leases on a tag valid for
 //   the commands of tier 2.
 // - The sheet's Cancel ends every claim (`cancelled`, a write
 //   `AbortError`); the system's timeout `timeout`; leaving the foreground
@@ -30,7 +30,7 @@ import Foundation
 import CoreNFC
 #endif
 
-/// A claim's words beside its kind.
+/// A claim's words beside its kind (D6, D11).
 struct NfcClaimWords {
     var alert: String?
     var done: String?
@@ -48,13 +48,13 @@ struct NfcClaimWords {
         polling = (apple["polling"] as? [String] ?? []).sorted()
     }
 
-    /// The declaration's camelCase key as the cause (`readOnly` is `read-only`).
+    /// The declaration's camelCase key as D3's cause (`readOnly` is `read-only`).
     static func cause(_ key: String) -> String {
         ["readOnly": "read-only", "tooSmall": "too-small", "notNdef": "not-ndef"][key] ?? key
     }
 }
 
-/// Bytes as they cross the seam.
+/// Bytes as they cross the seam (LLP 1133.035 D2).
 enum NfcWire {
     static func bytes(_ data: Data) -> [String: Any] { ["base64": data.base64EncodedString()] }
 
@@ -184,7 +184,7 @@ enum NfcRecords {
                 .map { (UInt8($0.offset), String(url.dropFirst($0.element.count))) } ?? (0, url)
             return .success((1, Data("U".utf8), id, Data([code]) + Data(rest.utf8)))
         case "absolute-url":
-            guard let url = r["data"] as? String, url.contains(":") else { return .failure("an absolute-url record's data is a URL") }
+            guard let url = r["data"] as? String ?? data.map({ String(decoding: $0, as: UTF8.self) }), url.contains(":") else { return .failure("an absolute-url record's data is a URL") }
             return .success((3, Data(url.utf8), id, Data()))
         case "mime":
             guard let data else { return .failure("a mime record has data") }
@@ -228,9 +228,9 @@ final class NfcClaim {
 
 public final class NfcModule: ExactPackage {
     let context: ExactPackageContext
-    /// The last 16 readings' records with their bytes, by reading id.
+    /// The last 16 readings' records with their bytes, by reading id (D2).
     var readings: [(id: String, records: [[String: Any]])] = []
-    /// The tags of this session's live scans, by their `NFCTag` id.
+    /// The tags of this session's live scans, by their `NFCTag` id (D11).
     var leases: [String: AnyObject] = [:]
     var last = 0
 
@@ -286,12 +286,12 @@ public final class NfcModule: ExactPackage {
         }
     }
 
-    /// A call let go: its scan stops, its write aborts.
+    /// A call let go (LLP 1133.016 D15 item 2): its scan stops, its write aborts.
     public func cancel(_ request: Int) {
         NfcRegistry.shared.cancel(owner: self, request: request)
     }
 
-    /// iOS ends a reader session when the app leaves the foreground.
+    /// iOS ends a reader session when the app leaves the foreground (D6).
     public func foreground(_ shown: Bool) {
         if !shown { NfcRegistry.shared.background() }
     }
@@ -313,7 +313,7 @@ public final class NfcModule: ExactPackage {
         return id
     }
 
-    /// A tag with no NDEF, seen by a polling scan.
+    /// A tag with no NDEF, seen by a polling scan (D8, D11).
     func unread(serial: String, apple: [String: Any]?, tag: AnyObject?) {
         last += 1
         let id = "t\(last)"

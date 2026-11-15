@@ -303,7 +303,7 @@ fn nested_plan(
 
 #[test]
 fn handbuilt_constant_nesting_one_level_down_is_accepted() {
-    // A constant opt-in one level down, realized or not.
+    // LLP 1070 N6: a constant opt-in one level down, realized or not.
     for (count, conditional, lists) in [(1, false, 2), (0, false, 1), (1, true, 1)] {
         let h = from_plan(nested_plan(count, true, true, conditional))
             .unwrap_or_else(|e| panic!("count={count}, conditional={conditional}: {e:?}"));
@@ -320,7 +320,7 @@ fn ordinary_eager_lists_may_enclose_or_be_inside_a_virtual_collection() {
 }
 
 /// A `scroll-restoration` that traps refuses the tree as every other
-/// binding of a collection does, where it once read as `auto`.
+/// binding of a collection does (LLP 1090 D6), where it once read as `auto`.
 #[test]
 fn a_trapping_scroll_restoration_is_refused_like_every_binding() {
     let mut b = PlanBuilder::new(exact_kernel::SCHEMA_DIGEST, 1);
@@ -362,7 +362,10 @@ fn a_trapping_scroll_restoration_is_refused_like_every_binding() {
     assert!(
         matches!(
             error,
-            InstanceError::Trap(crate::vm::Trap::UnwrapNone { .. })
+            InstanceError::Evaluation {
+                trap: crate::vm::Trap::UnwrapNone { .. },
+                ..
+            }
         ),
         "{error:?}"
     );

@@ -1,4 +1,4 @@
-//! Work that outlives its answer. A request with effects
+//! Work that outlives its answer (LLP 1146 D2). A request with effects
 //! ([`crate::Request::has_effects`]) that the runner lets go runs to its
 //! end, as a browser lets a fetch finish: cancelling it would not undo what
 //! its server did. The source keeps it ([`DataSource::keep_sent`]), the host
@@ -16,8 +16,9 @@ use std::collections::BTreeMap;
 /// What the journal and `state.pending` call a kept request.
 pub(super) const NAME: &str = "module work";
 
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 struct Authority {
+    module: Option<super::ModuleInstance>,
     origin: CallOrigin,
     invocation: u64,
     causes: Causes,
@@ -37,14 +38,31 @@ pub(super) struct ModuleWork {
     /// a refused commit goes back to here, not to before the reply.
     pub(super) standing: Option<StoreCheckpoint>,
     /// The resource whose reply's turn read the store in the commit being
-    /// made: a refusal keeps that read, as it keeps the reply's failure.
-    pub(super) reply_reader: Option<usize>,
+    /// made, and whether it read what the store holds, not only randomness:
+    /// a refusal keeps that read, as it keeps the reply's failure.
+    pub(super) reply_reader: Option<(usize, bool)>,
     /// Kept tickets the host refused at admission, settled as failures, and
     /// whether each was ordered.
     refused: Vec<(u64, &'static str, bool)>,
 }
 
 impl<D: DataSource> Runner<D> {
+    pub(super) fn failed_module_work(&self) -> Vec<(u64, String)> {
+        self.module_work
+            .tickets
+            .iter()
+            .filter_map(|(ticket, (_, authority))| {
+                Some((*ticket, authority.module.as_ref()?.failure()?.to_owned()))
+            })
+            .collect()
+    }
+
+    pub(super) fn drop_module_work(&mut self, ticket: u64) {
+        self.module_work.tickets.remove(&ticket);
+        self.module_work.fetches.retain(|_, t| *t != ticket);
+        self.module_work.refused.retain(|(t, ..)| *t != ticket);
+    }
+
     /// Whether `ticket` is a kept request's.
     pub(super) fn is_module_work(&self, ticket: u64) -> bool {
         self.module_work.tickets.contains_key(&ticket)
@@ -99,6 +117,11 @@ impl<D: DataSource> Runner<D> {
     /// not cancelled: as a browser's `Promise.race`, the loser runs on.
     pub(super) fn keep_running(&mut self, ticket: u64, token: u64, fetch: Option<u64>) {
         let authority = Authority {
+            module: self
+                .pending
+                .iter()
+                .find(|p| p.ticket == ticket)
+                .and_then(|p| p.module.clone()),
             origin: self.ticket_origin(ticket),
             invocation: self.ticket_id(ticket),
             causes: self.ticket_causes(ticket),
@@ -115,7 +138,7 @@ impl<D: DataSource> Runner<D> {
     pub(super) fn let_go_request(&mut self, p: PendingReq) {
         // An upload let go before its reply is cut off; one the host refused
         // never reached the network and is not marked as asked; of any other
-        // the host says after the commit whether it had started.
+        // the host says after the commit whether it had started (LLP 1016.000 D10).
         if p.upload && p.sent {
             let end = super::UploadEnd::Failed(super::uploads::interrupted());
             self.upload_over(p.ticket, true, end);
@@ -126,6 +149,7 @@ impl<D: DataSource> Runner<D> {
         }
         if p.admitted_effects() && !self.poisoned {
             let authority = Authority {
+                module: p.module.clone(),
                 origin: self.ticket_origin(p.ticket),
                 invocation: self.ticket_id(p.ticket),
                 causes: self.ticket_causes(p.ticket),
@@ -167,13 +191,14 @@ impl<D: DataSource> Runner<D> {
 
     /// A reply's turn wrote the store, as a browser's continuation writes it
     /// outside every commit: each store reader that failed, but `except`, is
-    /// asked again. A write an action makes in a commit
+    /// asked again (LLP 1146 §2.3). A write an action makes in a commit
     /// leaves a failure standing until its arguments change or `refresh`.
     pub(super) fn ask_failed_readers(&mut self, except: Option<Target>) {
-        for i in 0..self.failed_args.len() {
-            // (an upload's failure is never asked again at its arguments)
-            let failed =
-                self.store_readers[i] && self.failed_args[i].is_some() && !self.upload_failed(i);
+        for i in 0..self.resources.len() {
+            // (an upload's failure is never asked again at its arguments: D10)
+            let failed = self.asks_on_store_change(i)
+                && self.resources[i].failed_args.is_some()
+                && !self.upload_failed(i);
             if failed && except != Some(Target::Resource(i)) {
                 self.force_refresh(i);
             }
@@ -194,6 +219,7 @@ impl<D: DataSource> Runner<D> {
                 target: p.target,
                 source: &p.source,
                 args: &p.args,
+                fetch: p.fetch,
                 continuation: p.continuation,
             })
             .collect();
@@ -202,7 +228,7 @@ impl<D: DataSource> Runner<D> {
             if let Some(token) = token {
                 self.module_work
                     .tickets
-                    .insert(p.ticket, (token, *authority));
+                    .insert(p.ticket, (token, authority.clone()));
                 if let Some(fetch) = p.fetch {
                     self.module_work.fetches.insert(fetch, p.ticket);
                 }
@@ -243,8 +269,11 @@ impl<D: DataSource> Runner<D> {
                         let next = r.next_ticket;
                         r.next_ticket += 1;
                         request.reach = r.reach_of(authority.origin);
-                        r.module_work.tickets.insert(next, (token, authority));
+                        r.module_work
+                            .tickets
+                            .insert(next, (token, authority.clone()));
                         r.requests.push(RequestOut {
+                            class: crate::RequestClass::Ordered,
                             ticket: next,
                             target: NAME.into(),
                             request,
@@ -288,7 +317,7 @@ impl<D: DataSource> Runner<D> {
         let mut now = Vec::new();
         if wrote {
             let revision = self.store.revision();
-            // An upload is asked once for its arguments.
+            // An upload is asked once for its arguments (LLP 1016.000 D10).
             let readers: Vec<usize> = (self.store_readers().into_iter())
                 .filter(|i| !self.upload_stands(*i))
                 .collect();

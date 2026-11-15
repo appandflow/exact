@@ -1,3 +1,4 @@
+// @ref llp/1046.006.000-render-hooks.rfc.md#d3-optional-services-the-scene-copy
 // viewport: pixels wide, high, and the viewmodel layer's depth split (zero without one).
 struct DepthView { inverse_projection: mat4x4f, viewport: vec4f }
 // Raw depth back to the projection's NDC: while a viewmodel draws, it fills

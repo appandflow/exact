@@ -13,7 +13,7 @@ shape Constants
 
 component UpdateLab
   // Only Rust answers this: its first frame bakes through the Rust source,
-  // with no TypeScript placeholder.
+  // with no TypeScript placeholder (LLP 1027.002 §5 step 0).
   resource rustConstants = rustConstants() as shape Constants
   state counter = 1
   state note = "Keep this note through a reload"

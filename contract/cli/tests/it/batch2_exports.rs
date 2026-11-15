@@ -1,10 +1,11 @@
-//! `@exact/cards` exports EmptyState, and `@exact/lists` MenuItem and
-//! MenuGroup. A consumer app outside the repository, both packages installed
-//! under its `node_modules` as the in-repo source, `use`s the three from
-//! their packages as the clone does: an empty state with every piece and one
-//! with the message alone, and a group holding two items in its slot. It
-//! compiles, and its plan holds the three components' own nodes, each named
-//! in the source map by its declaring identity.
+//! LLP 1121 stage 15 B batch 2: `@exact/cards` exports EmptyState, and
+//! `@exact/lists` MenuItem and MenuGroup. A consumer app outside the
+//! repository, both packages installed under its `node_modules` as the
+//! in-repo source, `use`s the three from their packages as the clone does:
+//! an empty state with every piece and one with the message alone, and a
+//! group holding two items in its slot. It compiles, and its plan holds the
+//! three components' own nodes, each named in the source map by its
+//! declaring identity.
 #![cfg(unix)]
 
 use std::path::{Path, PathBuf};
@@ -54,8 +55,8 @@ fn a_consumer_uses_empty_state_and_the_menu_from_the_packages_and_its_plan_holds
     }
     std::fs::write(dir.join("app.contract"), CONSUMER).unwrap();
     std::fs::write(
-        dir.join("app.tamber"),
-        "tamber consumer\n\ntheme\n  ink = #111111\n",
+        dir.join("app.forma"),
+        "forma consumer\n\ntheme\n  ink = #111111\n",
     )
     .unwrap();
     std::fs::write(

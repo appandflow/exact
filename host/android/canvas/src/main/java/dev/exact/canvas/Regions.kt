@@ -8,14 +8,14 @@ import org.json.JSONObject
 import java.lang.ref.WeakReference
 
 /**
- * The host's region store: the regions a package watches and each one's undelivered transition,
+ * The host's region store (LLP 1133.021 D14): the regions a package watches and each one's undelivered transition,
  * readable and writable from any process state with no session, since a package's geofence receiver runs in a
  * process the system started for its broadcast. The store is the truth: Play services keeps no list of an app's
  * geofences and drops them at reboot and when location is turned off, so the package re-arms from it.
  *
  * A transition is written first and delivered second. [wake] hands the store's transitions to a live session's
- * package; with none (Android has no headless session yet) the store keeps them, and the package delivers
- * them when a session next makes it, each with its original time.
+ * package; with none (Android has no headless session yet, §9 item 6) the store keeps them, and the package delivers
+ * them when a session next makes it (D14 step 3), each with its original time.
  */
 object ExactRegions {
     private val main = Handler(Looper.getMainLooper())
@@ -56,7 +56,7 @@ class RegionStore internal constructor(private val context: Context) {
     fun remove(name: String) = synchronized(RegionStore::class.java) { val r = all(); r.remove(name); keep(r) }
 
     /** Region [name] was entered ([inside]) or left at [at] (ms since the epoch): `inside` set, and the one
-     * undelivered transition replaced by this one, the latest. [extra] rides with it. */
+     * undelivered transition replaced by this one, the latest (D11's collapse). [extra] rides with it. */
     fun transition(name: String, inside: Boolean, at: Double, extra: JSONObject? = null) = synchronized(RegionStore::class.java) {
         val regions = all()
         val r = regions.optJSONObject(name) ?: return@synchronized

@@ -5,13 +5,13 @@ import XCTest
 
 /// A press and the focus it takes on UIKit. A tap focuses only a node that
 /// asked for focus (`focusesOnPress`), as UIKit's buttons take none from a
-/// touch; a plain button's press ends the editing, so the field it ends lowers
-/// the keyboard, and under `resizes-content` the button moves at once, yet the
-/// press is the finger's where it went down and came up. A later autofocus
-/// takes no focus a node holds, however it came, except the press's own work's:
-/// a field it mounts, or a sheet's it presents, takes the focus the press gave
-/// its control. UIKit, so a simulator runs it: bun host/apple/build.mjs --test
-/// --ios
+/// touch; a plain button's press ends the editing, so the field it ends
+/// lowers the keyboard, and under `resizes-content` the button moves at
+/// once, yet the press is the finger's where it went down and came up. A later
+/// autofocus takes no focus a node holds, however it came (Charlie,
+/// 2026-10-17), except the press's own work's: a field it mounts, or a
+/// sheet's it presents, takes the focus the press gave its control.
+/// UIKit, so a simulator runs it: bun host/apple/build.mjs --test --ios
 final class PressFocusIOSTests: XCTestCase {
     private var window: UIWindow!
     private var session: ExactSession?
@@ -81,7 +81,7 @@ final class PressFocusIOSTests: XCTestCase {
         }
         return PointTouch(point, on: hit)
     }
-    /// A press held inside a box whose material comes or goes
+    /// euxy's capsule: a press held inside a box whose material comes or goes
     /// for another reason (a timer's state) is still the finger's. The swap
     /// moves the children between the effect's content view and the box,
     /// which is no change of authored parent: a button's own press and a
@@ -569,7 +569,7 @@ final class PressFocusIOSTests: XCTestCase {
 
     /// A field its autofocus focused, then taken out of the window in the
     /// same turn (a sheet's route going into the controller UIKit presents,
-    /// a grouped row into a cell not yet in one):
+    /// a grouped row into a cell not yet in one; grocery-list, round 24):
     /// its autofocus runs again where it lands. Taken out a turn later, it
     /// has had its autofocus, and coming back takes nothing.
     func testAnAutofocusMovedOutOfTheWindowInItsTurnRunsWhereItLands() throws {
@@ -586,6 +586,93 @@ final class PressFocusIOSTests: XCTestCase {
         XCTAssertTrue(field.isFirstResponder, "where it landed, its autofocus focused it again")
         RunLoop.main.run(until: Date().addingTimeInterval(0.05))
         elsewhere.removeFromSuperview()
+        home.addSubview(node)
+        p.syncAccessibility()
+        XCTAssertFalse(field.isFirstResponder, "a turn later, it had had its autofocus")
+    }
+
+    // MARK: On a page a frame has shown, an autofocus takes the focus in the turn that mounts it
+
+    /// Waits for a frame to show the page (1), as a person sees it before
+    /// tapping. What the last frame showed is read in a scene's window.
+    private func shown(_ p: Presenter) throws -> Presenter {
+        let deadline = Date().addingTimeInterval(5)
+        while !(p.views[1].map(p.showed) ?? false), Date() < deadline { RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.01)) }
+        XCTAssertEqual(try XCTUnwrap(p.views[1]).shown, .showed, "a frame showed the page")
+        return p
+    }
+
+    /// A press that mounts a field with `autofocus` while another keeps the
+    /// keyboard: the new field has the focus when the press returns.
+    func testOnAShownPageAPressHandsTheKeptFocusToItsAutofocusInItsTurn() throws {
+        guard hostedWindowScene() != nil else { throw missing("scene", "what the last frame showed is read in a scene's window") }
+        let p = try shown(composer())
+        let field = try XCTUnwrap(p.views[2]?.field), button = try XCTUnwrap(p.views[3])
+        XCTAssertTrue(field.becomeFirstResponder())
+        let sheet = wireBatch(node(4, "textarea", ["autofocus": "true"], y: 260, w: 300, h: 120) + [["op": "children", "id": 1, "ids": [2, 3, 4]]])
+        p.onPress = { _ in
+            p.apply(sheet)
+            p.syncAccessibility()
+        }
+        tap(button)
+        XCTAssertTrue(try XCTUnwrap(p.views[4]?.textArea).isFirstResponder, "the mounted field took its autofocus in the press's turn")
+        XCTAssertFalse(field.isFirstResponder)
+        XCTAssertNil(p.pressHandoff, "its autofocus spent the handoff")
+    }
+
+    /// A press that mounts two autofocused fields (a reply's subject and
+    /// body): the first in the walk's order takes the focus in its turn.
+    func testOnAShownPageAPressMountingTwoAutofocusesFocusesTheFirstInItsTurn() throws {
+        guard hostedWindowScene() != nil else { throw missing("scene", "what the last frame showed is read in a scene's window") }
+        let p = try shown(composer())
+        let field = try XCTUnwrap(p.views[2]?.field), button = try XCTUnwrap(p.views[3])
+        XCTAssertTrue(field.becomeFirstResponder())
+        let reply = wireBatch(node(4, "input", ["autofocus": "true"], y: 260, w: 300, h: 34)
+                              + node(5, "textarea", ["autofocus": "true"], y: 300, w: 300, h: 90)
+                              + [["op": "children", "id": 1, "ids": [2, 3, 4, 5]]])
+        p.onPress = { _ in
+            p.apply(reply)
+            p.syncAccessibility()
+        }
+        tap(button)
+        XCTAssertTrue(try XCTUnwrap(p.views[4]?.field).isFirstResponder, "the first mounted field took its autofocus in the press's turn")
+        XCTAssertFalse(try XCTUnwrap(p.views[5]?.textArea).isFirstResponder)
+        waitFor("a frame shows both fields") { [4, 5].allSatisfy { p.views[$0].map(p.showed) ?? false } }
+        p.syncAccessibility()
+        XCTAssertTrue(try XCTUnwrap(p.views[4]?.field).isFirstResponder, "and keeps it after the frame that shows them")
+    }
+
+    /// Two autofocused fields a batch mounts with nothing focused (a timer's
+    /// answer): the first in the walk's order takes the focus in that turn.
+    func testOnAShownPageTwoAutofocusesMountedTogetherFocusTheFirstInTheirTurn() throws {
+        guard hostedWindowScene() != nil else { throw missing("scene", "what the last frame showed is read in a scene's window") }
+        let p = try shown(presenter(node(1, "view", w: 400, h: 400) + [["op": "roots", "ids": [1]]]))
+        p.apply(wireBatch(node(4, "textarea", ["autofocus": "true"], y: 200, w: 300, h: 90)
+                          + node(5, "input", ["autofocus": "true"], y: 20, w: 300, h: 34)
+                          + [["op": "children", "id": 1, "ids": [5, 4]]]))
+        p.syncAccessibility(changed: [1, 4, 5])
+        XCTAssertTrue(try XCTUnwrap(p.views[4]?.textArea).isFirstResponder, "the walk's first took the focus in the batch's turn")
+        XCTAssertFalse(try XCTUnwrap(p.views[5]?.field).isFirstResponder)
+    }
+
+    /// A field mounted with `autofocus` and moved out of the window in its
+    /// turn (a grouped row going into its cell): it takes the focus where it
+    /// lands in that turn; put back a turn later, it takes nothing.
+    func testOnAShownPageAnAutofocusMovedOutOfTheWindowInItsTurnRunsWhereItLands() throws {
+        guard hostedWindowScene() != nil else { throw missing("scene", "what the last frame showed is read in a scene's window") }
+        let p = try shown(presenter(node(1, "view", w: 400, h: 400) + [["op": "roots", "ids": [1]]]))
+        p.apply(wireBatch(node(2, "input", ["autofocus": "true"], w: 300, h: 34) + [["op": "children", "id": 1, "ids": [2]]]))
+        p.syncAccessibility()
+        let node = try XCTUnwrap(p.views[2]), field = try XCTUnwrap(node.field)
+        XCTAssertTrue(field.isFirstResponder, "its autofocus focused it in the batch's turn")
+        let home = try XCTUnwrap(node.superview), cell = UIView(frame: window.bounds)
+        cell.addSubview(node)
+        window.addSubview(cell)
+        p.syncAccessibility()
+        XCTAssertTrue(field.isFirstResponder, "where it landed, in the same turn")
+        XCTAssertTrue(p.autofocusedThisTurn === node)
+        waitFor("its autofocus's turn ends") { p.autofocusedThisTurn == nil }
+        cell.removeFromSuperview()
         home.addSubview(node)
         p.syncAccessibility()
         XCTAssertFalse(field.isFirstResponder, "a turn later, it had had its autofocus")

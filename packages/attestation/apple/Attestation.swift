@@ -1,11 +1,11 @@
-// @exact/attestation on Apple: App Attest, for the
+// @exact/attestation on Apple (LLP 1133.028 D1-D6): App Attest, for the
 // app's own server. Under the agent it asks DeviceCheck for nothing and
 // answers `exact-substitute` tokens from the session's private store
-// (AgentAttestation.swift); `--bind attestation` asks DeviceCheck.
+// (AgentAttestation.swift, §7); `--bind attestation` asks DeviceCheck.
 //
 // - `clientData` is hashed here, SHA-256 of its UTF-8 bytes, so a server
-//   hashes the same bytes whichever platform called.
-// - One key per account per device: the first `attest` for an account
+//   hashes the same bytes whichever platform called (D1).
+// - One key per account per device (D3): the first `attest` for an account
 //   generates and attests a key, each later one asserts with it. The key id
 //   and whether Apple attested it are kept in Application Support, excluded
 //   from backup, so a restore that cannot bring the key back does not bring
@@ -69,7 +69,7 @@ public final class AttestationModule: ExactPackage {
     public func preferred(_ values: [String: Any]) { agent.preferred(values) }
 
     /// An attestation whose reply the runner dropped: its key goes, since no
-    /// server saw it and Apple does not say a key may be attested twice.
+    /// server saw it and Apple does not say a key may be attested twice (D3).
     public func dispose(_ ids: [String]) {
         for id in ids {
             say("dispose: the dropped attestation's key is discarded")
@@ -96,7 +96,7 @@ public final class AttestationModule: ExactPackage {
         }
     }
 
-    // MARK: App Attest
+    // MARK: App Attest (D3)
 
     static func status() -> [String: Any] {
         let supported = DCAppAttestService.shared.isSupported
@@ -198,7 +198,7 @@ public final class AttestationModule: ExactPackage {
     }
 }
 
-/// The key ids App Attest made, per account: a file in Application
+/// The key ids App Attest made, per account (D3): a file in Application
 /// Support excluded from backup. Main thread.
 enum Keys {
     struct Key: Codable { var id: String; var attested: Bool }

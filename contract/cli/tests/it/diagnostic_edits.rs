@@ -1,7 +1,8 @@
-//! The lines builders wrote that failed to compile, each in a minimal contract
-//! that otherwise compiles, and each refused with the edit that fixes it
-//! leading the message. Taken from builders' logs; a failure the logs show next
-//! joins the list.
+//! LLP 1116.014 D2: the lines builders wrote that failed to compile, each in
+//! a minimal contract that otherwise compiles, and each refused with the edit
+//! that fixes it leading the message. Taken from the bake-off's Exact2 builds
+//! (rounds 13 and 14, LLP 1116.013's comparison). A failure the logs show
+//! next joins the list.
 //!
 //! The edit is also run: each case names what the message tells the builder
 //! to write, and that must build, so a message cannot point at a spelling the
@@ -149,8 +150,8 @@ const CASES: &[Case] = &[
             ("", "button press=go aria-label=\"Add\"\n  image \"symbol:add\" width=24"),
         ],
     },
-    // The refusals whose repairs lost behaviour, each with the edit that keeps
-    // it.
+    // LLP 1116.018: the refusals whose repairs lost behaviour, each with the
+    // edit that keeps it.
     Case {
         wrote: ("", "image src=\"https://example.com/a.png\" aria-label=\"A\" width=48 height=48"),
         id: "lower-attr-tag",
@@ -195,7 +196,7 @@ const CASES: &[Case] = &[
         leads: "put the `role` on a node beside the button",
         fixed: &[("", "text \"Card\" role=\"heading\" aria-level=2\nbutton press=go buttonStyle=\"bordered\" aria-label=\"Front\"\n  text \"Front\"")],
     },
-    // The Pokédex benchmark's type badge and hand-bulleted list.
+    // The Pokédex benchmark's type badge and hand-bulleted list (LLP 1048.007).
     Case {
         wrote: ("", "row gap=4\n  text \"Fire\" display=\"inline-block\" padding=\"0 8px\""),
         id: "lower-attr-value",
@@ -304,8 +305,8 @@ fn a_value_nothing_names_an_edit_for_keeps_its_rule() {
     assert!(negative.ends_with("expected integer"), "{negative}");
 }
 
-/// Two top-level nodes are refused with the wrapper that keeps both, named with
-/// what they are.
+/// LLP 1116.018: two top-level nodes are refused with the wrapper that keeps
+/// both, named with what they are.
 #[test]
 fn a_view_of_two_nodes_is_told_to_wrap_both() {
     let two = "component App\n  view\n    text \"Notes\" role=\"heading\" aria-level=1\n    text \"Nothing yet\"\n";
@@ -320,4 +321,22 @@ fn a_view_of_two_nodes_is_told_to_wrap_both() {
     );
     let wrapped = "component App\n  view\n    column\n      text \"Notes\" role=\"heading\" aria-level=1\n      text \"Nothing yet\"\n";
     contract::compile(wrapped).unwrap();
+}
+
+#[test]
+fn computed_timer_refusals_recommend_a_gated_backoff_ladder() {
+    for word in ["after", "every"] {
+        let source = app(
+            &format!("  state delay = 250\n  task retry mount\n    {word}(delay, go)\n"),
+            "text \"waiting\"",
+        );
+        let error = contract::compile(&source).unwrap_err();
+        assert_eq!(error.id, "lower-timer-literal");
+        assert_eq!(error.message, format!("`{word}` needs a literal number of milliseconds (`{word}(1000, …)`). For bounded retry backoff, use one gated task per step: `task retry1 when waiting and attempt == 1` with `after(250, again)`, then steps with `after(500, again)` and `after(1000, again)` (docs/contract-for-agents.md, \"Retry backoff\"). For a wait that follows a continuous value, gate an `every(frame, check)` task and compare `performanceNow()` with the wait; a tempo follows the transport (\"Following the transport\")"));
+    }
+    contract::compile(&app(
+        "  state waiting = true\n  state attempt = 1\n  action again\n    attempt = attempt + 1\n  task retry1 when waiting and attempt == 1\n    after(250, again)\n  task retry2 when waiting and attempt == 2\n    after(500, again)\n  task retry3 when waiting and attempt >= 3\n    after(1000, again)\n",
+        "text attempt.toString()",
+    ))
+    .expect("the suggested ladder compiles");
 }

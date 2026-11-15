@@ -1,10 +1,40 @@
 // A launch URL (`openURL` before boot) the app cannot hear is said once,
 // as a URL arriving while it runs is (`navigate refused: …`): an app with
-// no navigation root otherwise drops it without a word.
+// no navigation root otherwise drops it without a word (#104).
+//
+// @ref LLP 1038 D8
 import Foundation
 import UniformTypeIdentifiers
 
 extension ExactSession {
+    /// @ref LLP 1038 D8/D11 — pre-boot URLs are launch facts; the adapter consumes development links first.
+    @discardableResult public func openURL(_ url: URL) -> Bool {
+        guard state != .destroyed else { return false }
+        return openIncoming(incomingLocation(url))
+    }
+    /// A link the reader followed — a `link href`, a text run's `href`, a
+    /// Markdown link. A path naming one of the app's routes is a location
+    /// for the navigation root, as the web's same-document link is (LLP 1038
+    /// §7); anything else — a page, a file beside a document — is the
+    /// containing app's to open (`openURL`).
+    @discardableResult public func follow(_ href: String, target: String? = nil) -> Bool {
+        guard state != .destroyed, !href.isEmpty else { return false }
+        // A link to a fragment (`href="#moves"`) is the visit shown, at that fragment (LLP 1153 D5).
+        let href = href.hasPrefix("#") ? String((routerOp?["url"] as? String ?? "/").prefix { $0 != "#" }) + href : href
+        if href.hasPrefix("/"), !href.hasPrefix("//"), booted, runtime.routeMatches(href) { return navigate(href, target: target) }
+        delegate?.exactSession(self, command: "openURL", args: [href])
+        return true
+    }
+    @discardableResult public func navigate(_ location: String) -> Bool {
+        guard state != .destroyed, booted else { return false }
+        let batch: Batch
+        if let node = navigationRoot { batch = runtime.navigate(node.id, location, now: now()) }
+        else if runtime.routeMatches(location) { batch = runtime.hostGo(location, now: now()) }
+        else { log("navigate refused: no navigation root handler or matching route"); return false }
+        apply(batch)
+        return batch.error == nil
+    }
+
     /// The location the agent's `type <root> <text>` delivers: a path as
     /// written, and a URL with a scheme as the system's would arrive
     /// (`openURL`), so a drive opens a deep link without iOS's "Open in …?"
@@ -26,7 +56,7 @@ extension ExactSession {
     }
 
     /// The `https` handler's template, when the app claims the web's links
-    /// (a Mac browser).
+    /// (a Mac browser, LLP 1030 D2).
     var webTemplate: String? {
         protocolHandlers.first { $0["protocol"]?.lowercased() == "https" }?["url"]
     }
@@ -73,13 +103,73 @@ extension ExactSession {
         return navigate(location)
     }
 
-    /// The view that hears `navigate`: the navigation root.
+    /// The window this session runs in, told before boot (LLP 1030.004
+    /// D2): its name, which the page's `name` reads (`main` untold), and,
+    /// rooted, a router that launches at `location`'s screen alone, a
+    /// window opened at a route, presented without the window's sidebar.
+    public func launchWindow(name: String, at location: String?, rooted: Bool) {
+        guard !booted, state != .destroyed else { return }
+        runtime.launchWindow(name, rooted: rooted)
+        #if os(macOS)
+        presenter.sidebar.rooted = rooted
+        #endif
+        if let location { _ = openIncoming(location) }
+    }
+
+    /// A link that targets this rooted window from elsewhere at another
+    /// location: that screen becomes its only visit (LLP 1030.004 D2). The
+    /// host has asked `beforeUnload` first.
+    @discardableResult public func reroot(_ location: String) -> Bool {
+        guard state != .destroyed, booted else { return false }
+        let batch = runtime.hostRoot(location, now: now())
+        apply(batch)
+        return batch.error == nil
+    }
+
+    /// The selected visit's location, `nil` before the first route commit.
+    public var location: String? {
+        guard let url = routerOp?["url"] as? String else { return nil }
+        let fragment = routerOp?["fragment"] as? String ?? ""
+        return fragment.isEmpty ? url : url + "#" + fragment
+    }
+
+    /// Whether the selected visit is at `location`: its location, or its
+    /// url when `location` names no fragment.
+    public func shows(_ location: String) -> Bool {
+        guard let shown = self.location else { return false }
+        return shown == location || !location.contains("#") && routerOp?["url"] as? String == location
+    }
+
+    /// Where a link to one of the app's paths goes by its `target` (LLP
+    /// 1030.004 D1): `nil` in place (none, empty, `_self`, `_parent`, `_top`,
+    /// matched ASCII case-insensitively), else `_blank` or a window's name.
+    /// A name that starts with `_` and is no keyword is `_blank`: such a
+    /// window has no name another link could find.
+    static func window(of target: String?) -> String? {
+        guard let target, !target.isEmpty else { return nil }
+        guard target.hasPrefix("_") else { return target }
+        switch target.lowercased() {
+        case "_self", "_parent", "_top": return nil
+        default: return "_blank"
+        }
+    }
+
+    /// A link to `location`, one of the app's paths: into the window its
+    /// `target` names where the host opens windows (`openWindow`), else in
+    /// place, as a browser without windows does.
+    func navigate(_ location: String, target: String?) -> Bool {
+        guard let window = Self.window(of: target), let openWindow, booted, runtime.routeMatches(location) else { return navigate(location) }
+        openWindow(location, window, false)
+        return true
+    }
+
+    /// The view that hears `navigate`: the navigation root (LLP 1038 D8).
     var navigationRoot: NodeView? {
         presenter.views.values.first { $0.props["navigationBack"] != nil && $0.handlers.contains("navigate") }
     }
 
     /// The platform's Back from a route with no authored Back control: the
-    /// location beneath, to the root it came from, as a
+    /// location beneath, to the root it came from (LLP 1115 D5), as a
     /// popstate is to the web's.
     func navigate(_ location: String, at root: NodeView) {
         guard state != .destroyed, booted, presenter.views[root.id] === root, root.handlers.contains("navigate") else { return }
@@ -87,17 +177,16 @@ extension ExactSession {
     }
 
     /// The platform's Back from a route with no authored Back control under
-    /// a root with no `navigate` handler: the runner's own `back`.
+    /// a root with no `navigate` handler: the runner's own `back` (LLP 1115 D5).
     func hostBack(_ key: String) {
         guard state != .destroyed, booted, let batch = runtime.hostBack(key, now: now()) else { return }
         apply(batch)
     }
 
-    /// The platform's Forward under a root with no `navigate` handler: the
-    /// runner's own `go` to the location ahead.
-    func hostGo(_ location: String) {
-        guard state != .destroyed, booted else { return }
-        apply(runtime.hostGo(location, now: now()))
+    /// The platform's Forward, keeping its direction through the commit.
+    func hostForward(at root: NodeView) {
+        guard state != .destroyed, booted, presenter.views[root.id] === root else { return }
+        apply(runtime.hostForward(root.id, now: now()))
     }
 
     /// Complete a native history jump without intermediate route commits.

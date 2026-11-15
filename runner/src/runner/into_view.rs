@@ -1,4 +1,4 @@
-//! `scrollIntoView`: the command an action states, and the
+//! `scrollIntoView` (LLP 1070.000): the command an action states, and the
 //! agent's `tap … into`, both run here, never by a host.
 use super::text_axes::AxesBefore;
 use super::*;
@@ -63,7 +63,7 @@ impl<D: DataSource> Runner<D> {
     }
 
     /// Bring a virtualized list's row into view by key, as the agent's `tap
-    /// <list> into <key>` asks: the same request an
+    /// <list> into <key>` asks (LLP 1070.000 §5): the same request an
     /// action's command makes, committed now. Its outcome is in `state`.
     pub fn scroll_into_view(&mut self, request: IntoView) -> Result<CommitReceipt, RunnerError> {
         if self.poisoned {
@@ -97,7 +97,7 @@ impl<D: DataSource> Runner<D> {
         }
     }
 
-    /// The agent's `tap <list> into <key>`: the mounted
+    /// The agent's `tap <list> into <key>` (LLP 1070.000 §5): the mounted
     /// list by its view, the key as text, alignments by CSS's names.
     pub fn scroll_into_view_at(
         &mut self,
@@ -126,7 +126,7 @@ impl<D: DataSource> Runner<D> {
 
     /// What the platform covers of list `view`'s port at its start and end:
     /// UIKit's bars over a list drawn under them, which its host reports as
-    /// padding. A row aligned by `scrollIntoView` or a focus
+    /// padding (LLP 1130 D3). A row aligned by `scrollIntoView` or a focus
     /// lands clear of it, as UIKit's `scrollToItem(at:at:animated:)` does.
     /// Nothing moves now. Whether `view` is a mounted list.
     pub fn set_list_covered(&mut self, view: ViewId, covered: [f64; 2]) -> bool {
@@ -268,7 +268,7 @@ impl<D: DataSource> Runner<D> {
         for note in notes {
             self.log(note);
         }
-        // The font rows' presented values.
+        // The font rows' presented values (LLP 1019 §13 D10).
         if let Some(tail) = self.settle_text_axes(axes, &receipt)? {
             super::apply::take_tail(&mut receipt, tail);
         }

@@ -1,5 +1,5 @@
 //! `grant-device-missing`: a device the view reaches through the runner
-//! answers only under the app's grant (`runner/src/device.rs`):
+//! answers only under the app's grant (LLP 1069.008 D3; `runner/src/device.rs`):
 //! `exactMIDI()` reads `denied` on every host, at run time. The grants are the
 //! data module's (`export const grants` in `app.ts`, `fn grants()` in a Rust
 //! data crate) and may be computed, so
@@ -99,7 +99,7 @@ fn commands(file: &File) -> Vec<(&str, &[Expr], Span)> {
 
 /// Whether the file's MIDI provably reaches no device: it never asks for
 /// access, so none is granted; it sends only to `""`, no output, whose
-/// messages `sent` lists with no device; and its `exactMIDI()`
+/// messages `sent` lists with no device (LLP 1125 D6); and its `exactMIDI()`
 /// reads, by shapes this file declares, `sent` alone, not the `state` or
 /// ports a grant would change. An activity log of that kind needs no grant.
 fn midi_silent(file: &File, commands: &[(&str, &[Expr], Span)]) -> bool {
@@ -154,7 +154,7 @@ pub(crate) fn check(file: &File, root: &Path, strings: Option<&Strings>) -> Vec<
         .collect();
     let modules = module_uses(file);
     // Data code imports @exact/child-process only in an app that depends on
-    // it: one small read decides whether to look.
+    // it: one small read decides whether to look (LLP 1133.007 D12).
     let processes = depends_on(root, "@exact/child-process");
     if uses.is_empty() && modules.is_empty() && !processes {
         return Vec::new();
@@ -189,7 +189,7 @@ pub(crate) fn check(file: &File, root: &Path, strings: Option<&Strings>) -> Vec<
         related: Box::new([]),
     };
     let mut out = Vec::new();
-    // A program data code starts: a `process.spawn`
+    // A program data code starts (LLP 1133.007 D7, D12): a `process.spawn`
     // line names each, and with none every call is refused.
     if let Some((path, line, call)) = children {
         if !lits.iter().any(|l| l.text.contains("process.spawn ")) {
@@ -245,7 +245,7 @@ pub(crate) fn check(file: &File, root: &Path, strings: Option<&Strings>) -> Vec<
             Some(_) => {}
         }
     }
-    // A native module that asks permission: the app
+    // A native module that asks permission (LLP 1133.002 D6, D13): the app
     // writes one of its interface's grant lines.
     for (grants, span, call) in modules {
         let Some(found) = grants
@@ -267,7 +267,7 @@ pub(crate) fn check(file: &File, root: &Path, strings: Option<&Strings>) -> Vec<
         let add = match last.strip_prefix("device.") {
             Some(device) if !named(device) => format!("`{last}` to the app's grants"),
             Some(device) => format!("`{last} purpose.{device}` to the app's grants, with its purpose in strings/{base}.json"),
-            // A line that names no target.
+            // A line that names no target (LLP 1020.002 D9).
             None if matches!(last.as_str(), "browser.automation" | "payment.google-pay") => {
                 format!("`{last}` to the app's grants")
             }
@@ -322,7 +322,7 @@ fn child_process_use(
 /// Each set of grant lines a native module's names the app reads or sends
 /// answer under, once, by its first use: the lines, where, and the call. A
 /// name's own list of lines is its set (an empty one, as a picker's, needs
-/// none); else its interface's.
+/// none: LLP 1133.018 D4); else its interface's.
 fn module_uses(file: &File) -> Vec<(Vec<String>, Span, String)> {
     let mut out: Vec<(Vec<String>, Span, String)> = Vec::new();
     let mut seen: Vec<(&str, Vec<String>)> = Vec::new();
@@ -341,7 +341,7 @@ fn module_uses(file: &File) -> Vec<(Vec<String>, Span, String)> {
         fn sends(stmts: &[Stmt], name: &str) -> Option<Span> {
             stmts.iter().find_map(|s| match s {
                 Stmt::Send { source, span, .. } if source == name => Some(*span),
-                // A send that answers nothing is a statement.
+                // A send that answers nothing is a statement (LLP 1133.004 D5).
                 Stmt::Command { name: n, span, .. } if n == name => Some(*span),
                 Stmt::If {
                     then, otherwise, ..

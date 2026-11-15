@@ -1,7 +1,7 @@
-//! MIDI's test steps: `prefer midi.…`, `tap midi "in" 90 3c
+//! MIDI's test steps (LLP 1125 §4): `prefer midi.…`, `tap midi "in" 90 3c
 //! 64` and `expect midi sent|missing "out" 90 3c 64 [at N]`. A byte is a word
 //! of exactly two hex digits; the lexer splits `3c` into a number and a
-//! name, so a word is rebuilt from the tokens that touch.
+//! name, so a word is rebuilt from the tokens that touch (rulings #12).
 
 use super::*;
 use crate::MidiStep;
@@ -64,7 +64,7 @@ impl Parser {
     }
 
     /// After `tap`: `midi "<input>" <hex…>`, or `midi "<input>" clock <bpm>
-    /// <ms>`: ticks at that tempo for that long.
+    /// <ms>` (LLP 1125 D9): ticks at that tempo for that long.
     pub(super) fn tap_midi(&mut self, span: Span) -> R<Step> {
         const USAGE: &str = "as in `tap midi \"keys\" 90 3c 64`";
         self.next();

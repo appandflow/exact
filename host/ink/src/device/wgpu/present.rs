@@ -1,4 +1,4 @@
-//! wgpu's surface over the carrier's same CAMetalLayer.
+//! wgpu's surface over the carrier's same CAMetalLayer. @ref LLP 1149 D5.1, D7.
 use super::*;
 use crate::device::apple::{Layer, RenderLayer};
 use crate::present::Thread;

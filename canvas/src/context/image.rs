@@ -1,4 +1,4 @@
-//! The recorder's image members: `drawImage` over
+//! The recorder's image members (LLP 1056 D9, §3 stage 2): `drawImage` over
 //! image handles, `createPattern`, and raw pixels (`ImageData`,
 //! `putImageData`).
 //!
@@ -40,11 +40,16 @@ pub trait Images: Send + Sync {
         let _ = canvas;
         Vec::new()
     }
+    /// The host let the decoded `src` go: its next use requests it again,
+    /// and draws nothing until it is answered.
+    fn release(&self, src: &str) {
+        let _ = src;
+    }
 }
 
 /// Where a runner's image table lives. It is made by the first image call
 /// a draw makes ([`images_in`]), so an app whose canvases draw no image
-/// links none of it (linked by use).
+/// links none of it (LLP 1047 D2: linked by use).
 pub type ImageSlot = Arc<Mutex<Option<Arc<dyn Images>>>>;
 
 /// The table in `slot`, made on first use.
@@ -54,7 +59,7 @@ pub fn images_in(slot: &ImageSlot) -> Arc<dyn Images> {
         .clone()
 }
 
-/// The image handles 2D canvases draw: decoded, broken, or
+/// The image handles 2D canvases draw (LLP 1056 D9): decoded, broken, or
 /// requested of the host, and which canvases asked. A context reads it at
 /// the call, so readiness is pinned per draw.
 #[derive(Default)]
@@ -93,12 +98,14 @@ impl ImageTable {
 impl Images for ImageTable {
     fn size(&self, canvas: u64, src: &str) -> Option<(u32, u32)> {
         let mut s = self.state();
-        if let Some((_, size)) = s.ready.iter().find(|(r, _)| r == src) {
-            return Some(*size);
-        }
+        // A canvas that drew it is drawn again when it is answered again: the
+        // host decodes a released handle a draw in flight still used.
         let subs = s.subscribers(src);
         if !subs.contains(&canvas) {
             subs.push(canvas);
+        }
+        if let Some((_, size)) = s.ready.iter().find(|(r, _)| r == src) {
+            return Some(*size);
         }
         if !s.broken.iter().any(|(b, _)| b == src) && !s.pending.iter().any(|p| p == src) {
             s.pending.push(src.to_string());
@@ -148,9 +155,13 @@ impl Images for ImageTable {
             .map(|(src, why)| format!("{src}: {why}"))
             .collect()
     }
+
+    fn release(&self, src: &str) {
+        self.state().ready.retain(|(r, _)| r != src);
+    }
 }
 
-/// HTML's `PredefinedColorSpace`.
+/// HTML's `PredefinedColorSpace` (LLP 1100 D12a).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ColorSpace {
     /// `"srgb"`, the default.
@@ -414,7 +425,7 @@ impl Inner {
 }
 
 impl Context2d {
-    /// `drawImage(image, dx, dy)` with an image handle.
+    /// `drawImage(image, dx, dy)` with an image handle (LLP 1056 D9).
     pub fn draw_image_with_image_handle(
         &self,
         src: &str,
@@ -514,7 +525,7 @@ impl Context2d {
         self.set_style_pattern(false, v)
     }
 
-    /// `createImageData(sw, sh)`: backing pixels, transparent
+    /// `createImageData(sw, sh)`: backing pixels (LLP 1056 D6), transparent
     /// black; the magnitudes, truncated; zero is `IndexSizeError`.
     pub fn create_image_data_with_sw_and_sh(
         &self,
@@ -540,7 +551,7 @@ impl Context2d {
         Ok(ImageData::new_with_sw(data.width, data.height)?.with_color_space(self.color_space()))
     }
 
-    /// The canvas's space: HTML's `getContextAttributes().colorSpace`.
+    /// The canvas's space (LLP 1100 D12a): HTML's `getContextAttributes().colorSpace`.
     pub fn color_space(&self) -> ColorSpace {
         if self.g().env.p3 {
             ColorSpace::DisplayP3

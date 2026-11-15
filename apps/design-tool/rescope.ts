@@ -1,4 +1,4 @@
-// Act first, re-scope after: an applied edit of a param
+// Act first, re-scope after (LLP 1122 D6, T3): an applied edit of a param
 // moved to the token it aliases directly on that branch, or an edit of a
 // token's branch that exactly one param aliases there moved to that param,
 // as one transaction: the edit's inverse, then the same value at the other

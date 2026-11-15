@@ -1,6 +1,8 @@
 //! The Apple host.
 //!
-//! 6 (layout is a host call; text measurement is injected)
+//! @ref LLP 1008 (Apple host v1)
+//! @ref LLP 1001 §5–6 (layout is a host call; text measurement is injected)
+//! @ref LLP 1002 D2, §4 (every host but the web runs `exact-motion`)
 //!
 //! One rule, the web host's: **the view tree mirrors the kernel tree.** The
 //! runner and kernel run natively; after every commit the host lays the tree
@@ -20,11 +22,11 @@
 //! - [`measure`] — the text-measurement callback as a kernel [`TextMeasurer`].
 //! - [`host`] — the runner wrapped for a presenter: receipts → batches, layout,
 //!   motion, events, timers.
-//! - [`store`] — the app's kept secrets: `ibex2::host::Secrets`
+//! - [`store`] — the app's kept secrets (LLP 1018): `ibex2::host::Secrets`
 //!   read into a snapshot before boot, written after each commit (kept
 //!   answers by their own thread, `store::flush_kept`).
 //! - [`delivery`] — optional delivery callbacks supplied by a higher adapter;
-//!   the host itself links no update store.
+//!   the host itself links no update store (LLP 1030 D4).
 //! - [`pan_velocity`] — the pan contact's release velocity (AppKit, the iOS agent).
 //! - [`abi`] — the C exports: the web's buffer discipline over `extern "C"`.
 //!
@@ -51,11 +53,13 @@ pub mod delivery;
 mod doc_watch;
 pub mod documents;
 pub mod executor;
-pub mod frame_health;
+/// The frame-health reducer, shared with the Android host (LLP 1079.000 §5.1).
+pub use exact_runner::{frame_health, frame_health_exports};
 pub mod geometry;
 pub mod gradient;
 pub mod host;
 mod icon_path;
+pub mod launch_preloads;
 pub mod link;
 mod looks;
 pub mod markup;

@@ -1,4 +1,4 @@
-//! Polled live sources: a name declared
+//! Polled live sources (LLP 1133.009 D1, D10 item 7): a name declared
 //! `"poll": "<option>"` (or `{"option", "default"}`) is asked again each
 //! period that option gives, on the session's clock, while a reader reads
 //! it and its implementation answers it. A poll is no plan timer, so it
@@ -58,7 +58,8 @@ impl<D: DataSource> Runner<D> {
 
     /// The polled sources an implementation answers and a reader reads, each
     /// with when its next ask is due. The substitute's sampled sources are
-    /// polled too: their batches are taken on the session clock.
+    /// polled too: their batches are taken on the session clock (LLP
+    /// 1133.013 §9).
     fn polled(&self) -> Vec<(String, f64)> {
         (self.plan.modules.iter())
             .filter(|m| m.live && !m.send)
@@ -86,8 +87,8 @@ impl<D: DataSource> Runner<D> {
     /// the session does not hold) is not polled again until a reader asks
     /// anew or the implementation announces a change, so a reader waiting
     /// for an id asks nothing each period. Nor is a source whose every
-    /// Contract reader's last answer is outside its `while` (a response no
-    /// longer generating changes no more).
+    /// Contract reader's last answer is outside its `while` (LLP 1133.016
+    /// D15 item 3: a response no longer generating changes no more).
     pub(in crate::runner) fn note_poll_answer(
         &mut self,
         row: &ModulesRow,

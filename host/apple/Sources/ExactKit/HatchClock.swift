@@ -1,6 +1,6 @@
-// The hatches' frame clock: logical time,
+// The hatches' frame clock (@ref LLP 1075.003.000.001 §2.4): logical time,
 // for behaviour that keeps step with the app. A module's `context.frames`
-// ticket ticks at the instants the runner's frame tasks fire, after that
+// ticket ticks at the instants LLP 1073's frame tasks fire, after that
 // frame's tasks and timers: each presented frame on the wall, and under the
 // agent the virtual display, `base + k·1000/60`. `context.after` waits on the
 // session clock.
@@ -15,6 +15,8 @@
 // 4,096 drained acts, are the most one agent command runs. On the wall the
 // same 4,096 bound one presented frame's ticks and one timer's `after`s,
 // so an animation keeps ticking for as long as the app runs.
+// Coalescing afters refresh values at instants the clock already reaches;
+// they add no seek stop or deadline for settling a pending reply.
 //
 //   host table   64  frames(host, token, on)     a ticket begins or stops
 //                72  after(host, token, ms)      ms < 0 cancels
@@ -29,7 +31,7 @@ final class HatchClock {
     /// The last commit the session applied, for `frame.seq`.
     var seq: UInt64 = 0
     private var tickets: [UInt64] = []
-    private var afters: [(due: Double, token: UInt64, order: Int)] = []
+    private var afters: [(due: Double, token: UInt64, order: Int, coalescing: Bool)] = []
     /// The virtual display's frames after the first ticket began: `base + k·1000/60`.
     private var base = 0.0, k = 1, order = 0
     private var fires = 0, acts = 0
@@ -52,11 +54,11 @@ final class HatchClock {
         if !tickets.isEmpty { natives?.session?.frames.run(true) }
     }
 
-    func after(_ token: UInt64, ms: Double) {
+    func after(_ token: UInt64, ms: Double, coalescing: Bool = false) {
         afters.removeAll { $0.token == token }
         if ms >= 0, ms.isFinite {
             order += 1
-            afters.append((now + ms, token, order))
+            afters.append((now + ms, token, order, coalescing))
         }
         rearm()
     }
@@ -75,12 +77,12 @@ final class HatchClock {
     func beginCommand() { fires = 0; acts = 0 }
 
     /// The next `after` due, which a reply in flight can wait on: a bound
-    /// package's effect answers at its span's end.
-    var nextAfter: Double? { afters.map(\.due).min() }
+    /// package's effect answers at its span's end (LLP 1133.022 §21).
+    var nextAfter: Double? { afters.filter { !$0.coalescing }.map(\.due).min() }
 
     /// The next hatch instant, for a seek to stop at.
     var nextInstant: Double? {
-        let after = afters.map(\.due).min()
+        let after = nextAfter
         guard !tickets.isEmpty else { return after }
         return min(frameDue, after ?? .infinity)
     }
@@ -132,7 +134,7 @@ final class HatchClock {
     private func rearm() {
         timer?.invalidate(); timer = nil
         guard let session = natives?.session, session.clock == nil, let next = afters.map(\.due).min() else { return }
-        timer = Timer.scheduledTimer(withTimeInterval: max(0, (next - now) / 1000), repeats: false) { [weak self] _ in
+        timer = SessionClockTimer.schedule(after: max(0, (next - now) / 1000)) { [weak self] _ in
             guard let self else { return }
             let now = self.now
             self.fires = 0

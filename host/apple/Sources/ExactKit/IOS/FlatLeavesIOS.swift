@@ -1,4 +1,4 @@
-// Flat boxes. An inert box (no text, image, props or
+// @ref LLP 1068 §6.1 — flat boxes. An inert box (no text, image, props or
 // handlers; only a fixed background, corner radii, outer shadows and layout
 // rows) whose children are all such boxes is drawn as a bare `CALayer`
 // instead of a `NodeView`, as SwiftUI draws shapes into its display list and
@@ -32,7 +32,7 @@ final class FlatLeaf {
     let id: UInt32
     let layer = CALayer()
     var style: NodeStyle
-    /// Its paint, read from `style` on the owner thread.
+    /// Its paint, read from `style` on the owner thread (LLP 1072 stage 4).
     var paint: FlatPaint
     /// Its frame drawn, on the device's pixel grid, in its parent's drawn
     /// coordinates, and as layout sent it (`PixelGridIOS.swift`).
@@ -43,7 +43,7 @@ final class FlatLeaf {
     /// kept for the view it becomes: a leaf paints only its fill.
     var content: (box: CGRect, padding: [CGFloat?]?)?
     var opacity: Float = 1
-    /// Its paint rank among its siblings: zero for a root.
+    /// Its paint rank among its siblings (LLP 1083.000): zero for a root.
     var rank: Int64 = 0
     /// The node whose children op placed it: a view, or a flat box.
     var parent: UInt32?
@@ -80,7 +80,7 @@ final class FlatLeaves {
     private var reconsider = Set<UInt32>()
     /// Each parent's shape layers, one per run of alike adjacent leaves.
     private var runs: [UInt32: [CAShapeLayer]] = [:]
-    /// Each run's leaves, in order.
+    /// Each run's leaves, in order (LLP 1080.001 D1).
     private var runLeaves: [ObjectIdentifier: [UInt32]] = [:]
 
     /// The kinds a root's parent may be: a plain box's container.
@@ -93,7 +93,7 @@ final class FlatLeaves {
     }
 
     /// Whether an op's props are at most `data-*` words, which never make a
-    /// view: on iOS a hatch reads them only from a route;
+    /// view (LLP 1075.003 §3.3): on iOS a hatch reads them only from a route;
     /// and `faceBoxSize`, which only a box holding a text or a symbol (a
     /// face, `BoxFace`) is read for, and such a box is never flat.
     static func onlyData(_ op: BatchOp) -> Bool {
@@ -249,7 +249,7 @@ final class FlatLeaves {
     }
     /// Each `light-dark()` leaf under `parentID` (a view or a flat box) in
     /// its host view's appearance, and those under them. Paint motion hears
-    /// every leaf's, as a view says its own, so a transition
+    /// every leaf's, as a view says its own (LLP 1062 D4), so a transition
     /// between pairs eases in the appearance it shows in.
     private func resolveScheme(under parentID: UInt32) {
         guard let ids = order[parentID], let host = drawing(parentID) else { return }
@@ -373,7 +373,7 @@ final class FlatLeaves {
     }
 
     /// A canvas that samples the leaf's host recaptures it, as it does for
-    /// a view's change.
+    /// a view's change (LLP 1014).
     private func changed(_ leaf: FlatLeaf) {
         guard let host = host(of: leaf.id), let c = host.canvasAbove else { return }
         c.needsCapture = true
@@ -397,7 +397,7 @@ final class FlatLeaves {
         let radius = radii.max() ?? 0
         let oneRadius = radii.allSatisfy { $0 == 0 || abs($0 - radius) < 0.01 }
             && radius <= min(bounds.width, bounds.height) / 2 + 0.01
-        // An HDR fill needs its own layer's range: promote it.
+        // An HDR fill needs its own layer's range (LLP 1100 D8): promote it.
         if fill != nil, !oneRadius || ColorRange.isHDR(fill) { promote(leaf.id, style: leaf.style); return }
         var corners: CACornerMask = []
         let masks: [CACornerMask] = [.layerMinXMinYCorner, .layerMaxXMinYCorner, .layerMaxXMaxYCorner, .layerMinXMaxYCorner]
@@ -573,6 +573,7 @@ final class FlatLeaves {
                 i = j
             }
             if !made.isEmpty { runs[parentID] = made }
+            parent?.overflowClipGeometryChanged()
             if let host = drawing(parentID), let c = host.canvasAbove { c.needsCapture = true; host.canvases?.scheduleCapture() }
         }
     }
@@ -597,7 +598,7 @@ final class FlatLeaves {
             view.frame = placed.drawn
             view.grid = placed
             if let content = leaf.content { view.applyKernelContentBox(content.box, padding: content.padding) }
-            view.alpha = CGFloat(leaf.opacity)
+            view.presentOpacity(CGFloat(leaf.opacity))
         }
         presenter.views[id] = view
         if leaf.rank != 0 { view.setRank(leaf.rank) }
@@ -618,7 +619,7 @@ final class FlatLeaves {
 
     /// The layers painting `parent`'s flat leaves, each with the leaves it
     /// paints: its runs, then the leaves that stand alone, each with the
-    /// boxes under it.
+    /// boxes under it (LLP 1080.001 D1).
     func inspectionLayers(under parent: UInt32) -> [(layer: CALayer, leaves: [UInt32])] {
         func subtree(_ id: UInt32) -> [UInt32] { [id] + (order[id] ?? []).filter { leaves[$0] != nil }.flatMap(subtree) }
         var out: [(layer: CALayer, leaves: [UInt32])] = (runs[parent] ?? []).map { ($0, runLeaves[ObjectIdentifier($0)] ?? []) }

@@ -1,14 +1,18 @@
-//! An SVG file as an image: the document parsed into the
+//! An SVG file as an image (LLP 1011.001): the document parsed into the
 //! kernel's own SVG nodes in a scratch kernel, resolved by the kernel's
 //! scene resolver (`exact_kernel::svg::scene`), for a native host to
 //! rasterize as it rasterizes an island and hand to its raster loader as a
 //! decoded picture. A browser's `<img>` of an SVG is the model: a picture
 //! drawn at the size it is shown, no scripts, no external references, no
-//! interaction. Animation is ignored, where a browser would run it.
+//! interaction; animation is ignored (§3's declared deviation).
 
 mod css;
 mod lower;
-mod xml;
+mod values;
+pub mod xml;
+
+#[cfg(test)]
+mod text_tests;
 
 pub use lower::{MAX_DEPTH, MAX_ELEMENTS};
 
@@ -44,7 +48,7 @@ impl std::error::Error for Error {}
 /// `viewBox` (CSS Images 3 §4.1's default object size, 300×150).
 pub const DEFAULT_SIZE: (f32, f32) = (300.0, 150.0);
 
-/// What the root element says of the picture's size.
+/// What the root element says of the picture's size (LLP 1011.001 D1).
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub struct Natural {
     /// An absolute `width`, in CSS pixels; a percentage counts as absent.
@@ -81,7 +85,7 @@ impl Natural {
         }
     }
 
-    /// The natural size the kernel's seam carries: the absolute size;
+    /// The natural size the kernel's seam carries (D1): the absolute size;
     /// one absolute dimension with the other from the `viewBox`'s ratio;
     /// the `viewBox`'s own size when the file gives no size (the declared
     /// deviation: a browser gives such an image its container's width);
@@ -106,6 +110,10 @@ impl Natural {
 /// A length with an absolute unit in CSS pixels; `None` for a percentage
 /// or a unit no picture resolves. `em` and `rem` are the initial 16 px.
 fn absolute_length(text: &str) -> Option<f32> {
+    length_pixels(text, true).filter(|n| *n > 0.0)
+}
+
+fn length_pixels(text: &str, initial_font: bool) -> Option<f32> {
     let text = text.trim();
     // The longest prefix that is a number: `2em` is 2 and `em`, not `2e` and `m`.
     let split = (1..=text.len())
@@ -113,20 +121,22 @@ fn absolute_length(text: &str) -> Option<f32> {
         .find(|&i| text.is_char_boundary(i) && exact_num::parse_f64(&text[..i]).is_ok())?;
     let (number, unit) = text.split_at(split);
     let n = exact_num::parse_f64(number).ok()? as f32;
-    if !n.is_finite() || n <= 0.0 {
+    if !n.is_finite() || n < 0.0 {
         return None;
     }
-    let per = match unit.trim() {
+    let per = match unit.trim().to_ascii_lowercase().as_str() {
         "" | "px" => 1.0,
         "pt" => 4.0 / 3.0,
         "pc" => 16.0,
         "mm" => 96.0 / 25.4,
         "cm" => 96.0 / 2.54,
         "in" => 96.0,
-        "em" | "rem" => 16.0,
+        "q" => 96.0 / 101.6,
+        "em" | "rem" if initial_font => 16.0,
         _ => return None,
     };
-    Some(n * per)
+    let pixels = n * per;
+    pixels.is_finite().then_some(pixels)
 }
 
 /// A parsed document: the ops that build it in a scratch kernel, under a
@@ -143,8 +153,11 @@ pub struct Document {
     /// and the host's log.
     pub warnings: Vec<String>,
     /// Whether the picture has text, which a host draws where its fonts
-    /// are.
+    /// are (D3).
     pub text: bool,
+    /// Image-local font stacks, indexed from 8 after the built-in generics.
+    /// Each member is `(installed_family, name)`; false names a generic.
+    pub fonts: Vec<Vec<(bool, String)>>,
 }
 
 /// Whether `bytes` begin an SVG document: optional BOM, white space,
@@ -189,7 +202,7 @@ fn sniff_text(text: &str) -> bool {
     }
 }
 
-/// The natural size a header read gives from a prefix of the file:
+/// The natural size a header read gives from a prefix of the file (D4):
 /// the root tag's attributes alone. `None` when the prefix holds no root
 /// tag or the document is not SVG.
 pub fn natural(prefix: &[u8]) -> Option<Natural> {
@@ -204,9 +217,10 @@ pub fn natural(prefix: &[u8]) -> Option<Natural> {
     (name == "svg" || name == "svg:svg").then(|| Natural::read(&attrs))
 }
 
-/// Parse a document into its ops.
+/// Parse a document into its ops. With no user languages supplied to this
+/// loader, elements supporting `systemLanguage` fail its condition when present.
 pub fn parse(text: &str) -> Result<Document, Error> {
-    lower::lower(xml::tokenize(text)?)
+    lower::lower(xml::tokenize(text)?.events)
 }
 
 /// A document built in a scratch kernel, ready to resolve at any size.
@@ -215,12 +229,13 @@ pub struct Loaded {
     pub document: Document,
 }
 
-/// Nothing presented: an image has no running animation.
+/// Nothing presented: an image has no running animation (§3).
 fn still(_: exact_kernel::NodeKey, _: exact_motion::Property) -> Option<exact_motion::Value> {
     None
 }
 
-/// Parse and build `text` in a scratch kernel.
+/// Parse and build `text` in a scratch kernel, with the same conditional
+/// processing as [`parse`].
 pub fn load(text: &str) -> Result<Loaded, Error> {
     let document = parse(text)?;
     let mut kernel = Kernel::with_monospace_on_demand();
@@ -231,14 +246,22 @@ pub fn load(text: &str) -> Result<Loaded, Error> {
 }
 
 impl Loaded {
-    /// The scene at a concrete object size of `width` × `height` CSS pixels:
-    /// user units to that box, `preserveAspectRatio` honoured.
+    /// The scene at a concrete object size of `width` × `height` CSS pixels
+    /// (D3): user units to that box, `preserveAspectRatio` honoured.
+    /// Runs use the image-local stack ids in [`Document::fonts`]; the host
+    /// installs those stacks before drawing.
     pub fn scene(&self, width: f32, height: f32) -> Scene {
         let node = self
             .kernel
             .node(self.document.svg)
             .expect("the svg node is in the kernel");
-        scene::resolve(&self.kernel, &node, (0.0, 0.0, width, height), &still)
+        scene::resolve(
+            &self.kernel,
+            &node,
+            (0.0, 0.0, width, height),
+            &still,
+            false,
+        )
     }
 
     /// The kernel the document lives in, for a host's own serializer.
@@ -251,7 +274,7 @@ impl Loaded {
         self.document.svg
     }
 
-    /// Whether the picture can show an SVG island,
+    /// Whether the picture can show an SVG island (LLP 1055.000 D10, D14),
     /// by `exact_runner::svg_islands`'s rule for a plan: a `mask` or
     /// `filter` element, or `filter` set on an SVG element.
     pub fn islands(&self) -> bool {
@@ -274,6 +297,13 @@ impl Loaded {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Warning truncation must not split a multibyte character.
+    #[test]
+    fn a_long_refused_value_with_wide_characters_loads() {
+        let svg = r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 20"><text x="0" y="15" font-style="'游ゴシック体', YuGothic, '游ゴシック Medium', 'Yu Gothic Medium', sans-serif">こんにちは</text></svg>"#;
+        assert!(load(svg).is_ok());
+    }
 
     #[test]
     fn the_natural_size_follows_the_browser_with_the_viewbox_deviation() {
@@ -392,6 +422,242 @@ mod tests {
     }
 
     #[test]
+    fn foreign_elements_with_combining_marks_are_ignored() {
+        let loaded = load("<svg xmlns:m='urn:m'><m:cafe\u{301}></m:cafe\u{301}><rect width='5' height='5'/></svg>").unwrap();
+        assert!(
+            loaded.document.warnings.is_empty(),
+            "{:?}",
+            loaded.document.warnings
+        );
+        assert_eq!(loaded.scene(10.0, 10.0).items.len(), 1);
+    }
+
+    #[test]
+    fn external_hrefs_warn_and_leave_link_contents_and_local_references() {
+        for attr in ["href", "xlink:href"] {
+            let text = format!(
+                "<svg xmlns:xlink='http://www.w3.org/1999/xlink'><defs><rect id='r' width='5' height='5'/></defs><use {attr}='#r'/><use {attr}='https://example.com/x.svg#r'/><a {attr}='https://example.com'><rect width='2' height='2'/></a></svg>"
+            );
+            let loaded = load(&text).unwrap();
+            let warnings = &loaded.document.warnings;
+            assert_eq!(warnings.len(), 2, "{warnings:?}");
+            for (warning, tag) in warnings.iter().zip(["use", "a"]) {
+                assert!(warning.contains(&format!("on `<{tag}>`")), "{warning}");
+                assert!(warning.contains("external reference"), "{warning}");
+            }
+            assert_eq!(loaded.scene(10.0, 10.0).items.len(), 2);
+        }
+    }
+
+    #[test]
+    fn gradients_ignore_conditional_attributes() {
+        for gradient in ["linearGradient", "radialGradient"] {
+            for condition in [
+                r#"systemLanguage="fr""#,
+                r#"requiredExtensions="unsupported""#,
+            ] {
+                for (gradient_attrs, stop_attrs) in [(condition, ""), ("", condition)] {
+                    let text = format!(
+                        r##"<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10">
+                        <{gradient} id="g" {gradient_attrs}>
+                            <stop offset="0" stop-color="red" {stop_attrs}/>
+                        </{gradient}>
+                        <rect width="10" height="10" fill="url(#g) blue"/>
+                        </svg>"##
+                    );
+                    let loaded = load(&text).unwrap();
+                    assert!(loaded.document.warnings.is_empty(), "{text}");
+                    let scene = loaded.scene(10.0, 10.0);
+                    let [item] = scene.items.as_slice() else {
+                        panic!("expected one rectangle: {scene:?}");
+                    };
+                    let scene::Kind::Shape(shape) = &item.kind else {
+                        panic!("expected a rectangle: {item:?}");
+                    };
+                    assert_eq!(
+                        shape.fill.as_ref().unwrap().color.resolve(false),
+                        exact_kernel::Color(0xff0000ff),
+                        "{text}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn failed_conditions_leave_an_empty_picture_when_no_fallback_passes() {
+        for condition in [
+            r#"systemLanguage="fr""#,
+            r#"systemLanguage="""#,
+            r#"systemLanguage="de, fr""#,
+            r#"requiredExtensions="unsupported""#,
+        ] {
+            for body in [
+                format!(r#"<svg width="20" height="10" {condition}><text>Hello</text></svg>"#),
+                format!(
+                    r#"<svg width="20" height="10"><switch>
+                        <g {condition}><text>Hello</text></g>
+                        <text {condition}>Bonjour</text>
+                    </switch></svg>"#,
+                ),
+                format!(
+                    r#"<svg width="20" height="10"><switch {condition}>
+                        <text>Hello</text>
+                    </switch></svg>"#,
+                ),
+            ] {
+                let loaded = load(&body).unwrap();
+                assert_eq!(loaded.document.natural.size(), (20.0, 10.0));
+                assert!(loaded.document.warnings.is_empty(), "{body}");
+                let scene = loaded.scene(20.0, 10.0);
+                assert!(
+                    scene.items.iter().all(|item| matches!(
+                        &item.kind,
+                        scene::Kind::Group(children) if children.is_empty()
+                    )),
+                    "{body}: {scene:?}"
+                );
+            }
+        }
+    }
+
+    fn shape_widths(text: &str) -> Vec<f32> {
+        fn collect(items: &[scene::Item], widths: &mut Vec<f32>) {
+            for item in items {
+                match &item.kind {
+                    scene::Kind::Shape(shape) => widths.push(shape.path.bounds().unwrap().2),
+                    scene::Kind::Group(children) | scene::Kind::Viewport { children, .. } => {
+                        collect(children, widths)
+                    }
+                    _ => panic!("expected shapes: {item:?}"),
+                }
+            }
+        }
+        let loaded = load(text).unwrap();
+        assert!(
+            loaded.document.warnings.is_empty(),
+            "{text}: {:?}",
+            loaded.document.warnings
+        );
+        let mut widths = Vec::new();
+        collect(&loaded.scene(20.0, 10.0).items, &mut widths);
+        widths
+    }
+
+    #[test]
+    fn required_features_only_excludes_switch_children() {
+        let condition = r#"requiredFeatures="http://www.w3.org/TR/SVG11/feature#Shape""#;
+        for text in [
+            format!(r#"<svg {condition}><rect width="10" height="10"/></svg>"#),
+            format!(r#"<svg><rect {condition} width="10" height="10"/></svg>"#),
+            format!(r#"<svg><g {condition}><rect width="10" height="10"/></g></svg>"#),
+            format!(r#"<svg><switch {condition}><rect width="10" height="10"/></switch></svg>"#),
+            format!(
+                r#"<svg><switch><rect {condition} width="5" height="10"/>
+                <rect width="10" height="10"/></switch></svg>"#
+            ),
+        ] {
+            assert_eq!(shape_widths(&text), [10.0], "{text}");
+        }
+        assert!(shape_widths(
+            r#"<svg><switch><rect requiredFeatures="unsupported"
+            width="10" height="10"/></switch></svg>"#
+        )
+        .is_empty());
+    }
+
+    #[test]
+    fn failed_conditions_preserve_descendant_reference_targets() {
+        for condition in [
+            r#"systemLanguage="fr""#,
+            r#"requiredExtensions="unsupported""#,
+        ] {
+            for display in ["", r#"display="none""#] {
+                let text = format!(
+                    r##"<svg><g id="hidden" {display} {condition}>
+                    <rect id="r" width="10" height="10"/></g>
+                    <use href="#hidden"/><use href="#r"/></svg>"##
+                );
+                assert_eq!(shape_widths(&text), [10.0], "{text}");
+            }
+            let text = format!(
+                r##"<svg><switch><g {condition}>
+                <rect id="r" width="10" height="10"/></g><rect width="5" height="10"/>
+                </switch><use href="#r"/></svg>"##
+            );
+            assert_eq!(shape_widths(&text), [5.0, 10.0], "{text}");
+        }
+    }
+
+    #[test]
+    fn failed_conditions_hide_reference_roots_but_not_their_descendants() {
+        for condition in [
+            r#"systemLanguage="fr""#,
+            r#"requiredExtensions="unsupported""#,
+        ] {
+            let text = format!(
+                r##"<svg><rect id="r" {condition} width="10" height="10"/>
+                <use href="#r" x="10"/></svg>"##
+            );
+            assert!(shape_widths(&text).is_empty(), "{text}");
+            for attrs in ["", condition] {
+                let text = format!(
+                    r##"<svg><symbol id="s" {attrs} viewBox="0 0 10 10">
+                    <rect id="r" width="10" height="10"/></symbol>
+                    <use href="#s" width="10" height="10"/>
+                    <use href="#r" x="10"/></svg>"##
+                );
+                let expected = if attrs.is_empty() {
+                    vec![10.0, 10.0]
+                } else {
+                    vec![10.0]
+                };
+                assert_eq!(shape_widths(&text), expected, "{text}");
+            }
+        }
+    }
+
+    #[test]
+    fn failed_resource_conditions_use_fallback_paint_and_no_mask() {
+        for condition in [
+            r#"systemLanguage="fr""#,
+            r#"requiredExtensions="unsupported""#,
+        ] {
+            for attrs in ["", condition] {
+                let text = format!(
+                    r##"<svg width="10" height="10">
+                    <pattern id="p" {attrs} width="10" height="10"
+                        patternUnits="userSpaceOnUse">
+                        <rect width="10" height="10" fill="red"/>
+                    </pattern>
+                    <mask id="m" {attrs}><rect width="5" height="10" fill="white"/></mask>
+                    <rect width="10" height="10" fill="url(#p) blue" mask="url(#m)"/>
+                    </svg>"##
+                );
+                let loaded = load(&text).unwrap();
+                assert!(loaded.document.warnings.is_empty(), "{text}");
+                let scene = loaded.scene(10.0, 10.0);
+                let [item] = scene.items.as_slice() else {
+                    panic!("expected one rectangle: {scene:?}");
+                };
+                let scene::Kind::Shape(shape) = &item.kind else {
+                    panic!("expected a rectangle: {item:?}");
+                };
+                let fill = shape.fill.as_ref().unwrap();
+                assert_eq!(fill.pattern.is_some(), attrs.is_empty(), "{text}");
+                assert_eq!(item.mask.is_some(), attrs.is_empty(), "{text}");
+                if !attrs.is_empty() {
+                    assert_eq!(
+                        fill.color.resolve(false),
+                        exact_kernel::Color(0x0000ffff),
+                        "{text}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
     fn a_stylesheet_and_a_style_attribute_cascade_over_presentation_attributes() {
         let loaded = load("<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 1 1\"><style>rect{fill:#0f0} .x{fill:#00f}</style><rect id=\"r\" class=\"x\" width=\"1\" height=\"1\" fill=\"#f00\" style=\"stroke:#123456\"/></svg>").unwrap();
         let node = loaded.kernel().node(loaded.svg() + 1).unwrap();
@@ -425,20 +691,45 @@ mod tests {
     }
 
     /// Files a few kilobytes long that name billions of items, dashes or
-    /// surface pixels: each is refused by the limit it
-    /// passes, quickly, before a host allocates for it.
+    /// surface pixels (LLP 1011.001 D2): each is refused by the limit it
+    /// passes, before a host allocates for it.
     #[test]
     fn a_file_that_expands_past_a_limit_draws_nothing_and_names_it() {
+        check_expansion_limits(None);
+    }
+
+    // Wall time includes scheduler contention, so qualify it separately.
+    #[test]
+    #[ignore = "async lane: measures SVG expansion limits on the wall clock"]
+    fn expansion_limits_finish_within_five_seconds() {
+        check_expansion_limits(Some(std::time::Duration::from_secs(5)));
+    }
+
+    fn check_expansion_limits(deadline: Option<std::time::Duration>) {
         use exact_kernel::svg::scene::Limit;
         const NS: &str = "xmlns=\"http://www.w3.org/2000/svg\"";
         let zigzag =
             |n: usize| -> String { (0..n).map(|i| format!("l1 {}", i % 2)).collect::<String>() };
-        let over = |file: String| {
+        let check = |name: &str, file: String, expected: Option<Limit>| {
             let started = std::time::Instant::now();
             let scene = load(&file).unwrap().scene(64.0, 64.0);
-            assert!(started.elapsed().as_secs() < 5, "{:?}", started.elapsed());
-            assert!(scene.items.is_empty() || scene.over.is_none());
-            scene.over
+            let elapsed = started.elapsed();
+            assert_eq!(scene.over, expected, "{name}");
+            if expected.is_some() {
+                assert!(
+                    scene.items.is_empty(),
+                    "{name}: a refused scene draws nothing"
+                );
+            } else {
+                assert!(!scene.items.is_empty(), "{name}: an ordinary scene draws");
+            }
+            if let Some(deadline) = deadline {
+                eprintln!("{name}: {elapsed:?}");
+                assert!(
+                    elapsed < deadline,
+                    "{name}: {elapsed:?} exceeds {deadline:?}"
+                );
+            }
         };
         // 16 levels of `symbol`, each using the one below twice.
         let mut defs = format!(
@@ -448,20 +739,20 @@ mod tests {
         for k in 1..=16 {
             defs += &format!("<symbol id=\"s{k}\" viewBox=\"0 0 9 9\"><use href=\"#s{}\"/><use href=\"#s{}\" x=\"1\"/></symbol>", k - 1, k - 1);
         }
-        assert_eq!(
-            over(format!(
-                "<svg {NS} viewBox=\"0 0 9 9\"><defs>{defs}</defs><use href=\"#s16\"/></svg>"
-            )),
-            Some(Limit::Expansion)
+        check(
+            "symbol copies",
+            format!("<svg {NS} viewBox=\"0 0 9 9\"><defs>{defs}</defs><use href=\"#s16\"/></svg>"),
+            Some(Limit::Expansion),
         );
         // Markers whose content is a marked path, four deep: 100^4 copies.
         let mut defs = String::from("<marker id=\"m0\"><circle r=\"1\"/></marker>");
         for k in 1..=4 {
             defs += &format!("<marker id=\"m{k}\"><path d=\"M0 0{}\" marker-mid=\"url(#m{})\" stroke=\"#000\"/></marker>", zigzag(100), k - 1);
         }
-        assert_eq!(
-            over(format!("<svg {NS} viewBox=\"0 0 9 9\"><defs>{defs}</defs><path d=\"M0 0{}\" marker-mid=\"url(#m4)\"/></svg>", zigzag(100))),
-            Some(Limit::Expansion)
+        check(
+            "marker copies",
+            format!("<svg {NS} viewBox=\"0 0 9 9\"><defs>{defs}</defs><path d=\"M0 0{}\" marker-mid=\"url(#m4)\"/></svg>", zigzag(100)),
+            Some(Limit::Expansion),
         );
         // 300 paths of a million dashes each.
         let paths: String = (0..300)
@@ -469,16 +760,18 @@ mod tests {
                 format!("<path d=\"M0 {i}H99000\" stroke=\"#000\" stroke-dasharray=\"0.05\"/>")
             })
             .collect();
-        assert_eq!(
-            over(format!("<svg {NS} viewBox=\"0 0 99000 300\">{paths}</svg>")),
-            Some(Limit::Dashes)
+        check(
+            "dashes",
+            format!("<svg {NS} viewBox=\"0 0 99000 300\">{paths}</svg>"),
+            Some(Limit::Dashes),
         );
         // Filters whose region is far past the drawing, each an island of
         // the largest size with its working images, on 400 shapes.
         let shapes = "<rect width=\"5\" height=\"5\" filter=\"url(#f)\"/>".repeat(400);
-        assert_eq!(
-            over(format!("<svg {NS} viewBox=\"0 0 10 10\"><filter id=\"f\" filterUnits=\"userSpaceOnUse\" x=\"-1e6\" y=\"-1e6\" width=\"2e6\" height=\"2e6\"><feGaussianBlur stdDeviation=\"20\"/></filter>{shapes}</svg>")),
-            Some(Limit::Surfaces)
+        check(
+            "surface pixels",
+            format!("<svg {NS} viewBox=\"0 0 10 10\"><filter id=\"f\" filterUnits=\"userSpaceOnUse\" x=\"-1e6\" y=\"-1e6\" width=\"2e6\" height=\"2e6\"><feGaussianBlur stdDeviation=\"20\"/></filter>{shapes}</svg>"),
+            Some(Limit::Surfaces),
         );
         // A primitive whose work per pixel is a parameter of the file.
         let filtered = |primitive: &str| {
@@ -488,29 +781,31 @@ mod tests {
             "<feTurbulence baseFrequency=\"0.1\" numOctaves=\"1000000000\"/>",
             "<feMorphology radius=\"1000000\"/>",
         ] {
-            assert_eq!(
-                over(filtered(primitive)),
-                Some(Limit::FilterWork),
-                "{primitive}"
-            );
+            check(primitive, filtered(primitive), Some(Limit::FilterWork));
         }
-        assert_eq!(over(filtered("<feMorphology radius=\"0.2\"/>")), None);
+        check(
+            "ordinary morphology",
+            filtered("<feMorphology radius=\"0.2\"/>"),
+            None,
+        );
         // One filter named a thousand times in one list: each a copy.
         let offsets = "<feOffset dx=\"1\"/>".repeat(2000);
         let list = "url(#f) ".repeat(1000);
-        assert_eq!(
-            over(format!("<svg {NS} viewBox=\"0 0 10 10\"><filter id=\"f\">{offsets}</filter><rect width=\"5\" height=\"5\" style=\"filter: {list}\"/></svg>")),
-            Some(Limit::Expansion)
+        check(
+            "filter list",
+            format!("<svg {NS} viewBox=\"0 0 10 10\"><filter id=\"f\">{offsets}</filter><rect width=\"5\" height=\"5\" style=\"filter: {list}\"/></svg>"),
+            Some(Limit::Expansion),
         );
         // A transfer table each filtered shape carries a copy of.
         let table = "1 ".repeat(10_000);
         let shapes = "<rect width=\"1\" height=\"1\" filter=\"url(#t)\"/>".repeat(200);
-        assert_eq!(
-            over(format!("<svg {NS} viewBox=\"0 0 10 10\"><filter id=\"t\"><feComponentTransfer><feFuncR type=\"table\" tableValues=\"{table}\"/></feComponentTransfer></filter>{shapes}</svg>")),
-            Some(Limit::Expansion)
+        check(
+            "transfer tables",
+            format!("<svg {NS} viewBox=\"0 0 10 10\"><filter id=\"t\"><feComponentTransfer><feFuncR type=\"table\" tableValues=\"{table}\"/></feComponentTransfer></filter>{shapes}</svg>"),
+            Some(Limit::Expansion),
         );
         // Copies that carry a gradient's stops, or empty spans of text.
-        let doubling = |base: &str, defs: &str| {
+        let doubling = |name: &str, base: &str, defs: &str| {
             let mut defs = format!("{defs}<g id=\"l0\">{base}</g>");
             for k in 1..=14 {
                 defs += &format!(
@@ -518,9 +813,13 @@ mod tests {
                     k - 1
                 );
             }
-            over(format!(
-                "<svg {NS} viewBox=\"0 0 9 9\"><defs>{defs}</defs><use href=\"#l14\"/></svg>"
-            ))
+            check(
+                name,
+                format!(
+                    "<svg {NS} viewBox=\"0 0 9 9\"><defs>{defs}</defs><use href=\"#l14\"/></svg>"
+                ),
+                Some(Limit::Expansion),
+            );
         };
         let stops: String = (0..200)
             .map(|i| {
@@ -531,22 +830,18 @@ mod tests {
                 )
             })
             .collect();
-        assert_eq!(
-            doubling(
-                "<rect width=\"1\" height=\"1\" fill=\"url(#g)\"/>",
-                &format!("<linearGradient id=\"g\">{stops}</linearGradient>")
-            ),
-            Some(Limit::Expansion)
+        doubling(
+            "gradient stops",
+            "<rect width=\"1\" height=\"1\" fill=\"url(#g)\"/>",
+            &format!("<linearGradient id=\"g\">{stops}</linearGradient>"),
         );
         let spans = "<tspan dx=\"1\"/>".repeat(100);
-        assert_eq!(
-            doubling(&format!("<text>{spans}</text>"), ""),
-            Some(Limit::Expansion)
-        );
+        doubling("empty text spans", &format!("<text>{spans}</text>"), "");
         // An icon with a drop shadow, a pattern and a few uses is none of these.
-        assert_eq!(
-            over(format!("<svg {NS} viewBox=\"0 0 24 24\"><defs><filter id=\"f\"><feGaussianBlur stdDeviation=\"1\"/></filter><pattern id=\"p\" width=\"4\" height=\"4\" patternUnits=\"userSpaceOnUse\"><circle cx=\"2\" cy=\"2\" r=\"1\"/></pattern><path id=\"a\" d=\"M2 2h8v8z\"/></defs><g filter=\"url(#f)\"><use href=\"#a\"/><use href=\"#a\" x=\"10\"/></g><rect width=\"24\" height=\"6\" fill=\"url(#p)\" stroke=\"#000\" stroke-dasharray=\"1 1\"/></svg>")),
-            None
+        check(
+            "ordinary icon",
+            format!("<svg {NS} viewBox=\"0 0 24 24\"><defs><filter id=\"f\"><feGaussianBlur stdDeviation=\"1\"/></filter><pattern id=\"p\" width=\"4\" height=\"4\" patternUnits=\"userSpaceOnUse\"><circle cx=\"2\" cy=\"2\" r=\"1\"/></pattern><path id=\"a\" d=\"M2 2h8v8z\"/></defs><g filter=\"url(#f)\"><use href=\"#a\"/><use href=\"#a\" x=\"10\"/></g><rect width=\"24\" height=\"6\" fill=\"url(#p)\" stroke=\"#000\" stroke-dasharray=\"1 1\"/></svg>"),
+            None,
         );
     }
 

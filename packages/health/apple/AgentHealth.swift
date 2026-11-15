@@ -1,10 +1,10 @@
-// The agent's Health store: what @exact/health reads
+// The agent's Health store (LLP 1133.026 §11): what @exact/health reads
 // under the agent, where it makes no `HKHealthStore`. It is this checkout's
 // `fixture/health.json` (a drive runs on this Mac or its simulators), or
 // another file there the agent's `store` names: hourly samples per type and
 // a list of workouts, from one fixture source.
 //
-// It answers as HealthKit answers this app: every answer's `complete`
+// It answers as HealthKit answers this app (D5): every answer's `complete`
 // is false; a type the person did not share (the runner's `shared` fact)
 // answers what HealthKit answers for it, the samples the app wrote itself,
 // which are none; a limited window (`since`) clamps every read. Buckets are
@@ -50,7 +50,7 @@ final class AgentHealth {
         return true
     }
 
-    /// The order: ascending by `start`, then `id`.
+    /// D8's order: ascending by `start`, then `id`.
     static func ordered(_ a: [String: Any], _ b: [String: Any]) -> Bool {
         let (sa, sb) = (a["start"] as? Double ?? 0, b["start"] as? Double ?? 0)
         return sa != sb ? sa < sb : (a["id"] as? String ?? "") < (b["id"] as? String ?? "")

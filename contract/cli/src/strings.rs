@@ -1,4 +1,4 @@
-//! The app's strings tables: `strings/<locale>.json` beside
+//! The app's strings tables (LLP 1060 D1): `strings/<locale>.json` beside
 //! `app.contract`, each a flat `{ "key": "text with {name}" }`, the base
 //! named by `app.json`'s `strings.base` (`en` when it names none). Every
 //! table is checked on every compile, whether or not a `t` reads it: the
@@ -10,6 +10,33 @@ use contract_types::strings::Strings;
 use std::collections::BTreeMap;
 use std::path::Path;
 use std::sync::Arc;
+
+/// The refusal of a base locale with no table names both repairs: the
+/// base's table, or `strings.base` naming a table the app has.
+fn base_missing<'a>(
+    base: &str,
+    declared: bool,
+    tables: impl Iterator<Item = &'a String>,
+) -> String {
+    let tables: Vec<_> = tables.collect();
+    let named = if declared {
+        format!("the base locale is `{base}` (app.json's `strings.base`), and it has no table")
+    } else {
+        format!(
+            "the base locale is `{base}` (app.json names no `strings.base`), and it has no table"
+        )
+    };
+    match tables.as_slice() {
+        [] => format!("{named}: add `strings/{base}.json`"),
+        [only] => format!(
+            "{named}: add `strings/{base}.json`, or make `{only}` the base with `\"strings\": {{ \"base\": \"{only}\" }}` in app.json"
+        ),
+        [first, ..] => format!(
+            "{named}: add `strings/{base}.json`, or make one of {} the base, as in `\"strings\": {{ \"base\": \"{first}\" }}` in app.json",
+            tables.iter().map(|t| format!("`{t}`")).collect::<Vec<_>>().join(", ")
+        ),
+    }
+}
 
 /// The tables, `None` for an app without a `strings` directory.
 /// `source` is the root `app.contract`, which a manifest refusal names as
@@ -110,7 +137,7 @@ pub(super) fn load(
         errors.push(refusal(
             "strings-base-missing",
             &dir.join(format!("{base}.json")),
-            format!("the base locale is `{base}`, and it has no table"),
+            base_missing(&base, declared.is_some(), tables.keys()),
         ));
         return Err(errors);
     };
@@ -156,7 +183,7 @@ fn read_table(path: &Path) -> Result<BTreeMap<String, String>, String> {
         .collect()
 }
 
-/// `language(-subtag)*`, the shape a host reports.
+/// `language(-subtag)*`, the shape a host reports (LLP 1027.000.000).
 fn is_locale(tag: &str) -> bool {
     let mut subtags = tag.split('-');
     let language = subtags.next().unwrap_or_default();

@@ -1,4 +1,4 @@
-// A filter tablist right after a header whose search the bar
+// LLP 1134: a filter tablist right after a header whose search the bar
 // projects is the search bar's scope bar (SearchScopeIOSTests). `scope`: a
 // large title, a search and three text tabs; the others keep the segmented
 // control: `image` (a tab showing an image), `menu` (tabs with a context
@@ -6,7 +6,7 @@
 // (a text between the header and the tabs), `six` (six tabs). `stay` keeps
 // the selection when a tab is pressed. The buttons that pick a shape are
 // placed absolutely, out of flow. `plain`: no search, so the filter is the
-// large title's subtitle views (SearchScopeIOSTests).
+// large title's subtitle views (LLP 1135, SearchScopeIOSTests).
 routes nav
   start "/"
 

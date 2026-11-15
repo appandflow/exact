@@ -10,7 +10,7 @@ import AppKit
 #endif
 @testable import ExactKit
 
-/// A colour in an extended or PQ/HLG space is tagged with
+/// LLP 1100 D2, D8: a colour in an extended or PQ/HLG space is tagged with
 /// its exposure over SDR white, and every layer a node paints an HDR colour
 /// on asks for the range its `dynamic-range-limit` allows.
 final class HDRColorTests: XCTestCase {

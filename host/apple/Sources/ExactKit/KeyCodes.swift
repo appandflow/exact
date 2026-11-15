@@ -142,8 +142,8 @@ package enum KeyCodes {
     /// A chord's modifiers in the order it names them, each with the prefix
     /// held as it goes down, its own included: `Shift+Control+x` is Shift
     /// (`Shift+`), then Control (`Shift+Control+`). Each is its own keydown
-    /// before the key, as a keyboard's is (the web driver's
-    /// `modifierEdges`).
+    /// before the key, as a keyboard's is (Charlie, 2026-10-07; the web
+    /// driver's `modifierEdges`).
     static func modifierPresses(_ chord: String) -> [(key: String, held: String)] {
         var on: Set<Substring> = [], presses: [(key: String, held: String)] = []
         var rest = Substring(chord)

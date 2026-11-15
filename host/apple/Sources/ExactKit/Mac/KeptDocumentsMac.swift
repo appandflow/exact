@@ -1,14 +1,14 @@
-// Documents kept across launches on the Mac.
+// Documents kept across launches on the Mac (@ref LLP 1069.010.000 D3–D6).
 //
 // For an app granted `doc.keep`, what the person chose — in a picker, from
 // Finder or ⌘O or Open Recent, or by a drop — is kept as a security-scoped
 // bookmark, the platform's documented way to keep a user's choice and what
-// the App Sandbox would require. The kept set itself is
+// the App Sandbox would require (LLP 1069.010 Q2). The kept set itself is
 // the library's (`exact_data::documents::kept`), in the app's own storage
 // outside `app:/`; this side makes and resolves the bookmarks and reports
 // `NSDocumentController`'s recents, the list that decides what stays kept:
 // Clear Menu, or an entry falling off the end of File ▸ Open Recent, ends
-// its reopening.
+// its reopening (D6).
 #if os(macOS)
 import AppKit
 import CExact
@@ -16,7 +16,7 @@ import CExact
 public enum KeptDocuments {
     /// What resolved bookmarks gave, held under their security scope while
     /// the process runs: a kept document belongs to the app, not to one
-    /// session.
+    /// session (D4).
     nonisolated(unsafe) static var scoped: [URL] = []
 
     /// The sessions whose apps keep documents, for a change to the list.
@@ -42,7 +42,7 @@ public enum KeptDocuments {
     /// nil when the object is gone. A bookmark finds its path before its
     /// file: one whose path now holds something else (another program
     /// replaced the file, or moved it and put another in its place) is
-    /// followed to the object itself, by its inode.
+    /// followed to the object itself, by its inode, as D4's table has it.
     public static func resolve(_ data: Data, device: UInt64, inode: UInt64) -> (url: URL, bookmark: Data?)? {
         var stale = false
         let found = try? URL(resolvingBookmarkData: data, options: [.withSecurityScope, .withoutUI, .withoutMounting],
@@ -183,7 +183,7 @@ public enum KeptDocuments {
 
 extension ExactSession {
     /// The session's data is about to activate: its app's kept documents are
-    /// found where they are now, before any answer reads one.
+    /// found where they are now, before any answer reads one (D4).
     func restoreKeptDocuments() {
         _ = KeptDocuments.installed
         let reply = documentCall(["op": "keptDocuments"])
@@ -202,7 +202,7 @@ extension ExactSession {
         _ = documentCall(["op": "keptResolved", "found": found, "recent": KeptDocuments.recent])
     }
 
-    /// What the person chose, kept for an app granted `doc.keep`, once
+    /// What the person chose, kept for an app granted `doc.keep` (D3), once
     /// it is on Open Recent; `noting` puts it there when the app keeps it
     /// (a drop, which an app that keeps nothing takes as content, not as a
     /// document opened).

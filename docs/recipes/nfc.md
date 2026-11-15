@@ -1,6 +1,6 @@
 # Recipe: reading and writing NFC tags
 
-`@exact/nfc` is Web NFC's NDEF reading and writing. Shelf's
+`@exact/nfc` is Web NFC's NDEF reading and writing (LLP 1133.035). Shelf's
 Tag This Book (`apps/shelf`) is the whole app to copy from.
 
 1. **Declare** the grant and its purpose. A signed iOS build also needs the
@@ -66,7 +66,7 @@ component App
 **A failure on iOS is the sheet's last line.** Pass the sentences as
 `apple.errorMessages` (strings keys, by cause: `readOnly`, `tooSmall`,
 `lost`, `notNdef`, `failed`, `unreadable`), and show your own alert only where `readerUI`
-is `app`. A failed write's `code` is Web NFC's error name (`NetworkError`,
+is `app`. A failed write's `code` is D3's error (`NetworkError`,
 `NotSupportedError`, `AbortError`, …) and its message ends with the cause.
 
 **Lock with care.** `makeReadOnly()` cannot be undone: confirm first.

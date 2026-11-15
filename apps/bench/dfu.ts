@@ -1,6 +1,6 @@
 // USB DFU 1.1 (USB-IF, "Device Firmware Upgrade", 2004) over control transfers to the DFU interface, and ST's DfuSe
 // extension (AN3156) for an STM32's system bootloader: an image written in `wTransferSize` blocks, each followed by
-// GET_STATUS until the device is idle again, then the zero-length DNLOAD that starts manifestation.
+// GET_STATUS until the device is idle again, then the zero-length DNLOAD that starts manifestation (LLP 1133.037 §12.2).
 // The transport is `DfuIo`, so the state machine is tested in Bun against a fake device (`dfu.test.ts`). Data code has
 // no timers, so the update is a generator that yields each `bwPollTimeout` wait to its driver: `update` sleeps through
 // them, and Bench's Contract waits each one with a task between steps.

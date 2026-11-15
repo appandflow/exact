@@ -1,4 +1,4 @@
-//! The orientation fixture's data source: none. Every
+//! The orientation fixture's data source (LLP 1133.029 §9.1): none. Every
 //! case is literal Contract over state.
 
 #![deny(missing_docs)]

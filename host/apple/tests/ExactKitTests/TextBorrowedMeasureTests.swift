@@ -169,7 +169,7 @@ extension TextGeometryTests {
         withBorrowedRequest(value) { XCTAssertFalse(TextMetricKey.matches($0, noStrut.geometry)) }
     }
 
-    /// `-webkit-font-smoothing` is paint: the kernel's request
+    /// `-webkit-font-smoothing` is paint (LLP 1019 D12): the kernel's request
     /// never carries it, so the paragraph it measured is the one an
     /// `antialiased` paint finds, and the paint keeps the flag.
     func testAnAntialiasedPaintSharesTheMeasuredIdentity() {

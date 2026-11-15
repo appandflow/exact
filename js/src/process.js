@@ -1,14 +1,14 @@
-// @exact/child-process: Node's `child_process` names over
+// @exact/child-process (LLP 1133.007): Node's `child_process` names over
 // Exact's streams. The package's binding re-exports `__exact_child_process`,
 // built here from the prelude's seam (js/src/prelude.js), which only a
 // native executor whose host starts programs installs: macOS and Linux
 // (`__exact_process_host`, js/build.rs). Everywhere else every name rejects
-// NotSupportedError and `processStatus().available` is false.
+// NotSupportedError and `processStatus().available` is false (§8).
 //
-// A child is a stream resource: `spawn` is a process request to
+// A child is a stream resource (D2): `spawn` is a process request to
 // `exact-process:` that the host answers with ordered events, and its
 // handle stages stdin writes, ends and kills on the stream as a socket's
-// sends are staged, each addressed to its incarnation.
+// sends are staged (LLP 1016.000 D7), each addressed to its incarnation.
 (function (global) {
   var seam = global.__exact_process_seam, os = global.__exact_process_host;
   delete global.__exact_process_seam; delete global.__exact_process_host;
@@ -22,7 +22,7 @@
     Object.defineProperties(e, { code: { value: code, configurable: true }, name: { value: name || "Error", configurable: true } });
     return e;
   }
-  function absent(api) { return coded(api + ": NotSupportedError: this platform starts no programs", "NotSupportedError", "NotSupportedError"); }
+  function absent(api) { return coded(api + ": NotSupportedError: this platform starts no programs (LLP 1133.007)", "NotSupportedError", "NotSupportedError"); }
   function invalid(message) { return new DOMException(message, "InvalidStateError"); }
 
   // The options every call shares, checked and written as the host reads them.
@@ -53,7 +53,7 @@
     return args ? args.slice() : [];
   }
 
-  // A child's events, as its mapper reads them, and its handle per incarnation.
+  // A child's events, as its mapper reads them, and its handle per incarnation (D2, D4).
   function childOwner(stdinIgnored) {
     return function (ticket, call) {
       var owner = seam.socketOwner(ticket, call.mutation), incarnation = 0, child = null;
@@ -74,7 +74,7 @@
             if (typeof data === "string") bytes = new TextEncoder().encode(data);
             else if (data instanceof ArrayBuffer || ArrayBuffer.isView(data)) bytes = new Uint8Array(seam.copyBytes(data, "child.write"));
             else throw new TypeError("child.write expects a string, ArrayBuffer or ArrayBufferView");
-            // Past the mark, the host says `drain` once stdin's queue is empty (as Node's Writable).
+            // Past the mark, the host says `drain` once stdin's queue is empty (D2, as Node's Writable).
             var ok = owner.amount() + bytes.length <= HIGH_WATER;
             owner.stage({ op: "write", size: bytes.length, wire: { op: "write", data: seam.toBase64(bytes), incarnation: n, drain: ok ? undefined : true } });
             return ok;
@@ -191,9 +191,14 @@
         body.input = seam.toBase64(bytes);
       }
     } catch (e) { return Promise.reject(e); }
+    // Output crosses as base64 in either encoding, within this ceiling
     var ceiling = Math.min(67108864, 2 * (4 * Math.ceil(body.maxBuffer / 3)) + 65536);
     return once("execFile", body, ceiling, o.signal).then(function (r) {
-      var text = function (v) { return body.encoding === "utf8" ? v : Uint8Array.from(global.atob(v), function (c) { return c.charCodeAt(0); }).buffer; };
+      var text = function (v) {
+        var bytes = Uint8Array.from(global.atob(v), function (c) { return c.charCodeAt(0); });
+        // As Node's `buffer.toString("utf8")`: invalid sequences replaced, a BOM kept
+        return body.encoding === "utf8" ? new global.TextDecoder("utf-8", { ignoreBOM: true }).decode(bytes) : bytes.buffer;
+      };
       var out = { stdout: text(r.stdout), stderr: text(r.stderr), code: r.code, signal: r.signal };
       if (r.code === 0 && !r.signal && !r.timedOut && !r.overflow) return out;
       var why = r.overflow ? r.overflow + " maxBuffer length exceeded" : "Command failed: " + [file].concat(args).join(" ") + (body.encoding === "utf8" && out.stderr ? "\n" + out.stderr : "");
@@ -214,7 +219,7 @@
       return once(api, { kind: kind }, 1048576);
     };
   }
-  // A fact: granted where a program may start and a `process.spawn` line names one; never `prompt`.
+  // A fact (§6): granted where a program may start and a `process.spawn` line names one; never `prompt`.
   function processStatus() {
     var grants = String(global.exact && global.exact.grants || "").split("\n").some(function (line) { return /^\s*process\.spawn\s/.test(line); });
     return { available: available, state: !available ? "unknown" : grants ? "granted" : "denied" };

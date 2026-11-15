@@ -3,7 +3,7 @@ import UIKit
 import XCTest
 @testable import ExactKit
 
-/// `background-attachment: fixed` sizes a gradient on the
+/// LLP 1066 D7: `background-attachment: fixed` sizes a gradient on the
 /// viewport. Every node with it shows its part of one gradient (a
 /// messenger's outgoing bubbles, dark at the top of the screen and light at
 /// the bottom), re-aimed as its scroller moves; a bubble's corners of

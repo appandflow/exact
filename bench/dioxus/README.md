@@ -3,7 +3,7 @@
 The heavy list (`../heavy-list/SPEC.md`: 10,000 rich messages, the same `messages.json`, the same 104 JPEGs) on
 Dioxus 0.8.0-alpha.1 — Dioxus Web in Chrome and Dioxus Native (Blitz 0.3.0-beta.1) on macOS — against exact2's
 JS target and its macOS host. It measures scroll (frames, late frames, blank samples, CPU), memory, page weight,
-tap latency and cold start. A second exact2 app with a bounded answer is measured beside the
+tap latency and cold start. A second exact2 app with a bounded answer (LLP 1027.004) is measured beside the
 whole-feed one on all three, and on an iPhone with `../heavy-list`'s probe.
 
 ## The apps

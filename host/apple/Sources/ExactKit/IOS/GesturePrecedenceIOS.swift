@@ -1,7 +1,7 @@
 #if os(iOS) || os(tvOS)
 import UIKit
 
-// Gesture precedence on UIKit, with UIKit's own relationships: the press boundary
+// LLP 1057.001 §1 on UIKit, with UIKit's own relationships: rule 3's boundary
 // (a press handler or text input between the touch and a node keeps the touch
 // from that node's drags; a `pan` passes a press) and innermost-first (an
 // ancestor's drag waits for a descendant's to fail). A pinch never gates an
@@ -19,7 +19,7 @@ extension NodeView {
     /// A press handler or text input strictly between the touch and this node.
     /// A `pan` passes a press (`presses: false`): it takes the touch once it
     /// begins, cancelling the press, as a draggable element hears a drag that
-    /// starts on a button inside it.
+    /// starts on a button inside it (kanban F6).
     func pressBoundary(_ touch: UITouch, presses: Bool = true) -> Bool {
         var view = touch.view
         while let current = view, current !== self {

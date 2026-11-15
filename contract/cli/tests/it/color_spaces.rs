@@ -1,4 +1,4 @@
-//! `dynamic-range-limit` and `color-profile`.
+//! LLP 1100: `dynamic-range-limit` and `color-profile`.
 
 use exact_kernel::Kernel;
 use exact_plan::Value;
@@ -24,6 +24,7 @@ fn boot(src: &str) -> Runner<NoData> {
     .unwrap()
 }
 
+/// LLP 1100 D8.
 #[test]
 fn dynamic_range_limit_is_inherited_and_initially_no_limit() {
     let src = "component App\n  view\n    column\n      column testId=\"outer\" dynamic-range-limit=\"constrained\"\n        image \"a.png\" testId=\"inner\"\n      image \"b.png\" testId=\"plain\"\n";
@@ -45,6 +46,7 @@ fn dynamic_range_limit_is_inherited_and_initially_no_limit() {
     }
 }
 
+/// LLP 1100 D3.
 #[test]
 fn a_color_profile_is_declared_and_its_colours_used() {
     let ok = "color-profile --press src=\"assets/press.icc\" rendering-intent=\"perceptual\"\ncomponent App\n  view\n    column\n      box width=4 height=4 background-color=\"color(--press 0.1 0.8 0.2 0.05)\"\n";

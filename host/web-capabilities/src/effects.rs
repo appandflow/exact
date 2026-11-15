@@ -1,4 +1,4 @@
-//! `filter` and `clip-path` on the web: the kernel's
+//! `filter` and `clip-path` on the web (LLP 1055.000 D10, D14): the kernel's
 //! grammars for both rows, linked when a plan binds either, so an app that
 //! filters and clips nothing carries neither.
 

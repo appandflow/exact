@@ -1,6 +1,6 @@
-//! A node's `:hover` and `:focus-visible` looks reach the kernel resolved, as a
-//! static row is, and a token's live edit resolves them again; `:active` is the
-//! node's press paint.
+//! @ref LLP 1121 D8 (stage 8 B): a node's `:hover` and `:focus-visible`
+//! looks reach the kernel resolved, as a static row is, and a token's live
+//! edit resolves them again; `:active` is the node's press paint.
 
 use exact_kernel::{Kernel, LOOK_HOVER};
 use exact_plan::{Plan, Value};
@@ -38,7 +38,7 @@ fn booted(plan: Plan) -> Runner<NoData> {
 }
 
 const DESIGN: &str =
-    "tamber t\n\ntheme\n  accent.soft = #eeeeee\n  ink = #111111\n  page = #ffffff\n";
+    "forma t\n\ntheme\n  accent.soft = #eeeeee\n  ink = #111111\n  page = #ffffff\n";
 
 const VIEW: &str = "component App\n  state n = 0\n  action go\n    n = n + 1\n  view\n    column testId=\"card\" press=go background-color=\"page\"\n      :active\n        background-color = \"accent.soft\"\n        opacity = 0.9\n      :hover\n        border-color = \"ink\"\n      text \"c\"\n";
 
@@ -56,7 +56,7 @@ fn looks(r: &Runner<NoData>) -> String {
 
 #[test]
 fn a_nodes_looks_reach_the_kernel_resolved_and_follow_a_live_token() {
-    let path = app("looks", &[("app.tamber", DESIGN), ("app.contract", VIEW)]);
+    let path = app("looks", &[("app.forma", DESIGN), ("app.contract", VIEW)]);
     let r = booted(contract::compile_path(&path).unwrap_or_else(|e| panic!("{e:?}")));
     let k = r.kernel();
     let node = k.node_by_key(k.find_by_test_id("card")[0]).unwrap();
@@ -66,7 +66,7 @@ fn a_nodes_looks_reach_the_kernel_resolved_and_follow_a_live_token() {
         [LOOK_HOVER],
         "a :hover look; :active is the press paint"
     );
-    // `:active` is the node's own press rows.
+    // `:active` is the node's own press rows (LLP 1121 D8 as amended).
     let pressed = |r: &Runner<NoData>| {
         let k = r.kernel();
         let node = k.node_by_key(k.find_by_test_id("card")[0]).unwrap();
@@ -100,9 +100,9 @@ fn a_nodes_looks_reach_the_kernel_resolved_and_follow_a_live_token() {
     assert_eq!(looks(&r), inked);
 }
 
-/// One spelling a node: `:active` and the pressed paint saying the same paint
-/// on one node (or its class) is refused, naming both; different paint, or
-/// another state, is not.
+/// One spelling a node (LLP 1121 D8): `:active` and D7's pressed paint
+/// saying the same paint on one node (or its class) is refused, naming both;
+/// different paint, or another state, is not.
 #[test]
 fn an_active_look_and_the_pressed_paint_say_one_paint_once() {
     let refused = |rows: &str, part: &str| {
@@ -155,14 +155,14 @@ fn a_looks_unset_crosses_written_with_no_value() {
     );
 }
 
-/// An `:active` row lowered to the press paint is used where it is written:
-/// `uses` names its `:active` line and state.
+/// An `:active` row lowered to the press paint is used where it is written
+/// (theme2's 06:14 condition): `uses` names its `:active` line and state.
 #[test]
 fn uses_names_an_active_rows_own_line() {
-    let path = app("uses", &[("app.tamber", DESIGN), ("app.contract", VIEW)]);
+    let path = app("uses", &[("app.forma", DESIGN), ("app.contract", VIEW)]);
     let (plan, map) = contract::compile_path_mapped(&path).unwrap();
     let map: serde_json::Value = serde_json::from_str(&map.json(&plan.encode())).unwrap();
-    let sites = contract::tamber_uses::sites(&plan, &map, "accent.soft", &Default::default(), &[]);
+    let sites = contract::forma_uses::sites(&plan, &map, "accent.soft", &Default::default(), &[]);
     assert_eq!(sites.len(), 1, "{sites:?}");
     assert_eq!(sites[0]["row"], "press_background_color", "{sites:?}");
     assert_eq!(sites[0]["state"], "active");
@@ -170,16 +170,17 @@ fn uses_names_an_active_rows_own_line() {
 }
 
 /// A token a `:hover` row reads is used where that row is written, as that
-/// state's: its `:hover` line, not its node's.
+/// state's: its `:hover` line, not its node's (LLP 1122's queue item (1);
+/// theme2's 03:18, a correction of the line it named).
 #[test]
 fn uses_finds_a_hover_looks_token() {
     let path = app(
         "uses-hover",
-        &[("app.tamber", DESIGN), ("app.contract", VIEW)],
+        &[("app.forma", DESIGN), ("app.contract", VIEW)],
     );
     let (plan, map) = contract::compile_path_mapped(&path).unwrap();
     let map: serde_json::Value = serde_json::from_str(&map.json(&plan.encode())).unwrap();
-    let sites = contract::tamber_uses::sites(&plan, &map, "ink", &Default::default(), &[]);
+    let sites = contract::forma_uses::sites(&plan, &map, "ink", &Default::default(), &[]);
     assert_eq!(sites.len(), 4, "a border colour's four sides: {sites:?}");
     assert!(sites.iter().all(|s| s["state"] == "hover"), "{sites:?}");
     assert!(
@@ -188,9 +189,9 @@ fn uses_finds_a_hover_looks_token() {
     );
 }
 
-/// `layout <node>` says a node's looks' rows as it says its own: each row's
-/// value and the token it read, so inspect on a held hover names the look's
-/// tokens; a literal row reads none.
+/// LLP 1122 D8 (stage 9 E): `layout <node>` says a node's looks' rows as it
+/// says its own: each row's value and the token it read, so inspect on a
+/// held hover names the look's tokens; a literal row reads none.
 #[test]
 fn a_nodes_layout_says_its_looks_rows_and_their_tokens() {
     let view = VIEW.replace(
@@ -199,7 +200,7 @@ fn a_nodes_layout_says_its_looks_rows_and_their_tokens() {
     );
     let path = app(
         "looks-layout",
-        &[("app.tamber", DESIGN), ("app.contract", &view)],
+        &[("app.forma", DESIGN), ("app.contract", &view)],
     );
     let r = booted(contract::compile_path(&path).unwrap_or_else(|e| panic!("{e:?}")));
     let k = r.kernel();
@@ -228,7 +229,7 @@ fn a_nodes_layout_says_its_looks_rows_and_their_tokens() {
     );
     let path = app(
         "looks-unset",
-        &[("app.tamber", DESIGN), ("app.contract", &cleared)],
+        &[("app.forma", DESIGN), ("app.contract", &cleared)],
     );
     let r2 = booted(contract::compile_path(&path).unwrap_or_else(|e| panic!("{e:?}")));
     let k2 = r2.kernel();
@@ -247,34 +248,35 @@ fn a_nodes_layout_says_its_looks_rows_and_their_tokens() {
     );
 }
 
-/// A conditional class's `:active` part says no place (either style's): `uses`
-/// reads it at its node, still as `:active`'s.
+/// A conditional class's `:active` part says no place (either style's):
+/// `uses` reads it at its node, still as `:active`'s (Astra, round 2 of
+/// LLP 1122's queue item (1)).
 #[test]
 fn uses_keeps_a_conditional_active_parts_state_at_its_node() {
     let view = "style A\n  :active\n    background-color = \"accent.soft\"\n\nstyle B\n  :active\n    background-color = \"accent.soft\"\n\ncomponent App\n  state n = 0\n  state flag = true\n  action go\n    n = n + 1\n  view\n    column class=(flag ? A : B) press=go testId=\"card\"\n      text \"c\"\n";
     let path = app(
         "uses-either",
-        &[("app.tamber", DESIGN), ("app.contract", view)],
+        &[("app.forma", DESIGN), ("app.contract", view)],
     );
     let (plan, map) = contract::compile_path_mapped(&path).unwrap();
     let map: serde_json::Value = serde_json::from_str(&map.json(&plan.encode())).unwrap();
-    let sites = contract::tamber_uses::sites(&plan, &map, "accent.soft", &Default::default(), &[]);
+    let sites = contract::forma_uses::sites(&plan, &map, "accent.soft", &Default::default(), &[]);
     assert_eq!(sites.len(), 1, "{sites:?}");
     assert_eq!(sites[0]["state"], "active", "{sites:?}");
     assert_eq!(sites[0]["line"], 15, "the node's line: {sites:?}");
 }
 
-/// A look resolved again keeps what its new text read beside what it read, as a
-/// row does, so a base a re-set shadow newly reads sets the look again when it
-/// is edited.
+/// Stage 12 B3 (round 1, Grok 1): a look resolved again keeps what its new
+/// text read beside what it read, as a row does, so a base a re-set shadow
+/// newly reads sets the look again when it is edited.
 #[test]
 fn a_look_follows_a_base_its_shadows_new_value_reads() {
     let design =
-        "tamber t\n\ntheme\n  space.md = 10px\n  card.shadow: box-shadow = 0 2px 4px #000\n";
+        "forma t\n\ntheme\n  space.md = 10px\n  card.shadow: box-shadow = 0 2px 4px #000\n";
     let view = "component App\n  view\n    column testId=\"card\" padding=\"space.md\"\n      :hover\n        box-shadow = \"card.shadow\"\n      text \"c\"\n";
     let path = app(
         "look-base",
-        &[("app.tamber", design), ("app.contract", view)],
+        &[("app.forma", design), ("app.contract", view)],
     );
     let mut r = booted(contract::compile_path(&path).unwrap_or_else(|e| panic!("{e:?}")));
     let shadow = |r: &Runner<NoData>| {
@@ -294,4 +296,70 @@ fn a_look_follows_a_base_its_shadows_new_value_reads() {
     assert!(shadow(&r).contains("y: 10.0"), "{}", shadow(&r));
     r.set_token("space.md", "30px", &[]).unwrap();
     assert!(shadow(&r).contains("y: 30.0"), "{}", shadow(&r));
+}
+
+/// A `:hover` and a `:focus-visible` `color` (James Ide's site's nav links,
+/// CSS's `a:hover { color }`) reach the kernel as a look's text colour, a
+/// `light-dark()` token resolved as a static row is: each scheme its own.
+#[test]
+fn a_looks_color_is_a_token_in_both_schemes() {
+    let design = "forma t\n\ntheme\n  ink = light-dark(#222222, #e2e2e2)\n  ink.nav = light-dark(#666666, #ffffff)\n";
+    let view = "component App\n  view\n    link href=\"/a\" testId=\"card\" color=\"ink.nav\"\n      :hover\n        color = \"ink\"\n      :focus-visible\n        color = \"#123456\"\n      text \"a\"\n";
+    let path = app("color", &[("app.forma", design), ("app.contract", view)]);
+    let r = booted(contract::compile_path(&path).unwrap_or_else(|e| panic!("{e:?}")));
+    let k = r.kernel();
+    let node = k.node_by_key(k.find_by_test_id("card")[0]).unwrap();
+    let colour = |state: u8, dark: bool| {
+        let (_, look) = node.looks().iter().find(|(s, _)| *s == state).unwrap();
+        assert!(look.mask.has(exact_kernel::StyleId::TextColor), "{look:?}");
+        format!("{:08x}", look.text_color.resolve(dark).0)
+    };
+    assert_eq!(colour(LOOK_HOVER, false), "222222ff");
+    assert_eq!(colour(LOOK_HOVER, true), "e2e2e2ff");
+    assert_eq!(colour(exact_kernel::LOOK_FOCUS_VISIBLE, false), "123456ff");
+    // The base keeps its own colour; the look stands over it.
+    assert_eq!(
+        format!("{:08x}", node.style.text_color.resolve(true).0),
+        "ffffffff"
+    );
+}
+
+#[test]
+fn hover_scale_is_a_presentation_row_and_leaves_the_base_unchanged() {
+    let source = "component App\n  view\n    button appearance=\"none\" scale=1 transition=\"scale 150ms ease\" testId=\"card\"\n      :hover\n        scale=1.08\n      text \"Hide controls\"\n";
+    let r = booted(contract::compile(source).unwrap());
+    let k = r.kernel();
+    let node = k.node_by_key(k.find_by_test_id("card")[0]).unwrap();
+    assert_eq!(node.style.scale, 1.);
+    let look = &node.looks()[0].1;
+    assert!(look.mask.has(exact_kernel::StyleId::Scale));
+    assert!((look.scale - 1.08).abs() < 1e-6);
+}
+
+/// Issue #151: `:focus-visible` takes its own `scale` beside `:hover`'s, and
+/// the base keeps its own. A computed one is refused as any look's row is,
+/// and a runner-known state still takes none.
+#[test]
+fn a_focus_scale_stands_beside_the_hovers_and_a_computed_one_is_refused() {
+    let view = "component Hover\n  view\n    button appearance=\"none\" scale=1 transition=\"scale 150ms ease\" testId=\"card\"\n      :hover\n        scale=1.08\n      :focus-visible\n        scale=1.12\n      text \"Hide controls\"\n";
+    let r = booted(contract::compile(view).unwrap_or_else(|e| panic!("{e}")));
+    let k = r.kernel();
+    let node = k.node_by_key(k.find_by_test_id("card")[0]).unwrap();
+    let scale = |state: u8| {
+        let (_, look) = node.looks().iter().find(|(s, _)| *s == state).unwrap();
+        assert!(look.mask.has(exact_kernel::StyleId::Scale), "{look:?}");
+        look.scale
+    };
+    assert_eq!(scale(LOOK_HOVER), 1.08);
+    assert_eq!(scale(exact_kernel::LOOK_FOCUS_VISIBLE), 1.12);
+    assert_eq!(node.style.scale, 1.0);
+    for (part, id) in [
+        (":hover\n        scale=k", "lower-state-literal"),
+        (":disabled\n        scale=0.9", "lower-state-row"),
+        (":hover\n        rotate=\"5deg\"", "lower-state-row"),
+    ] {
+        let src = format!("component App\n  state k = 1\n  view\n    box scale=1\n      {part}\n      text \"a\"\n");
+        let e = contract::compile(&src).expect_err(part).to_string();
+        assert!(e.contains(id), "{part}: {e}");
+    }
 }

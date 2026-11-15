@@ -1,31 +1,31 @@
-// @exact/media-capture on Apple: the
+// @exact/media-capture on Apple (LLP 1133.009 D1-D3, D5-D9): the
 // microphone as Media Capture's tracks, one capture for the process, each
 // session's tracks in its track table (`context.tracks`) so a package that
 // consumes a track (`@exact/recording`) reaches it by id.
 //
-// - One capture per process: one `AVAudioEngine`, whose input node's
-//   tap hands each buffer to every consumer of every session. It runs while
-//   any track in the process holds a lease, configured by the lease that
+// - One capture per process (D3): one `AVAudioEngine`, whose input node's
+//   tap fans out through each track's enabled flag. It runs while any track
+//   in the process holds a lease, configured by the lease that
 //   opened it; it is made at the first and stopped at the last.
-// - A track holds a lease while it has a consumer: its first consumer
+// - A track holds a lease while it has a consumer (D6): its first consumer
 //   takes it, and after use only a start does (a recorder's start,
 //   `setTrackEnabled(enabled=true)`); a reader joining an idle track hears
 //   silence and opens nothing. A tool's or a wake's consumer never leases.
-// - The audio session is the host's: the capture claims it
+// - The audio session is the host's (D7): the capture claims it
 //   (`.playAndRecord`), and hears its interruptions, their ends, resets and
 //   route changes. A change of route or hardware format stops the engine,
 //   which posts `AVAudioEngineConfigurationChange` on its own queue; the
-//   handler only schedules the reopening on main.
-// - The permission is a fact: `AVAudioApplication.recordPermission` on
+//   handler only schedules the reopening on main (D7).
+// - The permission is a fact (D9): `AVAudioApplication.recordPermission` on
 //   iOS, `AVCaptureDevice.authorizationStatus(for: .audio)` on macOS, read
 //   before anything starts, since iOS records silence when it is not granted.
-// - Unsaid constraints are the platform's: the input node unprocessed.
+// - Unsaid constraints are the platform's (D2): the input node unprocessed.
 //   `echoCancellation`, `noiseSuppression` or `autoGainControl` written true
 //   turn on voice processing, one switch on Apple.
 // - Under the agent no engine is made and nothing is asked: a stream with
 //   one track, "Agent microphone", whose mute follows the agent's preferred
-//   `mediaStreamTrack`.
-// - Tier 3: `MediaCaptureModule.hatch` is given the engine and a mixer
+//   `mediaStreamTrack` (D10 item 11).
+// - Tier 3 (D5): `MediaCaptureModule.hatch` is given the engine and a mixer
 //   after the input node once per capture, before it starts. The input
 //   node's bus 0 is the fan-out's; a hatch taps the mixer, and
 //   `holdsCapture(track:)` makes that tap a consumer that holds the capture.
@@ -40,13 +40,13 @@ import CoreAudio
 #endif
 
 public final class MediaCaptureModule: ExactPackage, ExactTrackOwner {
-    /// The app's access hatch: the capture's engine and the mixer after
+    /// The app's access hatch (D5): the capture's engine and the mixer after
     /// its input node, once per capture, before `start()`. The app may tap
     /// the mixer's output bus and attach nodes after it; the input node, its
     /// bus 0 and every connection into the mixer are the module's.
     public static var hatch: ((AVAudioEngine, AVAudioMixerNode) -> Void)?
 
-    /// A hatch's tap declared a consumer of `track`: it holds the
+    /// A hatch's tap declared a consumer of `track` (D5): it holds the
     /// capture as a recorder does, until the app cancels the answer. Nil for
     /// a track no session holds. On the main thread.
     public static func holdsCapture(track id: String) -> ExactSubscription? {
@@ -62,15 +62,16 @@ public final class MediaCaptureModule: ExactPackage, ExactTrackOwner {
         func ended() {}
     }
     /// The camera's capture session, inside each configuration, on its queue
-    /// Add outputs, never touch UI.
+    /// (LLP 1133.008 D5): add outputs, never touch UI.
     public static var sessionHatch: ((AVCaptureSession) -> Void)?
     /// The camera after the module's constraints, under its lock, on the
-    /// session's queue.
+    /// session's queue (LLP 1133.008 D5).
     public static var deviceHatch: ((AVCaptureDevice) -> Void)?
 
     private let context: ExactPackageContext
+    private let audioSource: ExactAudioSource?
     private var next = 0
-    /// The cameras (VideoCapture.swift).
+    /// The cameras (VideoCapture.swift, LLP 1133.008).
     private lazy var cameras = VideoTracks(context: context) { [unowned self] in next += 1; return next }
     private var tracks: [String: Track] = [:]
     /// The agent's preferred `mediaStreamTrack`: an interruption begun while it says muted.
@@ -79,19 +80,27 @@ public final class MediaCaptureModule: ExactPackage, ExactTrackOwner {
 
     final class Track {
         let id: String, stream: String
-        var label: String, enabled = true, muted = true, muteReason: String? = "idle", readyState = "live"
+        let audio: TrackAudioSource?
+        var enabled = true { didSet { audio?.enabled = enabled } }
+        var label: String, muted = true, muteReason: String? = "idle", readyState = "live"
         var settings: [String: Any] = [:], options: CaptureOptions
         var consumers: [ObjectIdentifier: ExactTrackConsumer] = [:]
         var active = false, used = false, leased = false
         /// Why the platform mutes it now, if it does (an interruption, the background).
         var platformMute: String?
-        init(id: String, stream: String, label: String, options: CaptureOptions) {
+        init(id: String, stream: String, label: String, options: CaptureOptions, source: ExactAudioSource?) {
             self.id = id; self.stream = stream; self.label = label; self.options = options
+            audio = source.map(TrackAudioSource.init)
         }
     }
 
-    public init(context: ExactPackageContext) {
+    public convenience init(context: ExactPackageContext) {
+        self.init(context: context, audioSource: context.agent ? nil : ProcessCapture.shared)
+    }
+
+    init(context: ExactPackageContext, audioSource: ExactAudioSource?) {
         self.context = context
+        self.audioSource = audioSource
         if !context.agent { ProcessCapture.shared.listen(self) }
     }
 
@@ -116,7 +125,7 @@ public final class MediaCaptureModule: ExactPackage, ExactTrackOwner {
         case "setTrackEnabled":
             guard let t = track(args) else { return reply(["error": "NotFoundError"]) }
             t.enabled = args["enabled"] as? Bool ?? true
-            // Turning a track back on is a start: it reopens an idle one that has consumers.
+            // Turning a track back on is a start: it reopens an idle one that has consumers (D6).
             if t.enabled, !t.active, !t.consumers.isEmpty, t.readyState == "live" { activate(t) }
             announce()
             reply(shape(t))
@@ -140,13 +149,13 @@ public final class MediaCaptureModule: ExactPackage, ExactTrackOwner {
         }
     }
 
-    /// A stream with a camera's track, and the microphone's first where it asks for both.
+    /// A stream with a camera's track, and the microphone's first where it asks for both (LLP 1133.008 D1).
     private func withCamera(_ args: [String: Any], _ reply: @escaping ([String: Any]) -> Void) {
         next += 1
         let stream = "stream-\(context.session)-\(next)"
         let video = { [self] (made: [[String: Any]]) in
             cameras.open(args, stream: stream) { [self] v in
-                // What opened first is let go when the camera fails.
+                // What opened first is let go when the camera fails (LLP 1133.009 D3).
                 if v["error"] != nil {
                     for m in made { if let id = m["id"] as? String, let t = tracks[id] { end(t, "the camera failed") } }
                     return reply(v)
@@ -174,7 +183,7 @@ public final class MediaCaptureModule: ExactPackage, ExactTrackOwner {
         let make = { [self] in
             next += 1
             let t = Track(id: "track-\(context.session)-\(next)", stream: "stream-\(context.session)-\(next)",
-                          label: context.agent ? "Agent microphone" : Permission.inputName, options: options)
+                          label: context.agent ? "Agent microphone" : Permission.inputName, options: options, source: audioSource)
             t.settings = context.agent ? Self.agentSettings : options.settings(ProcessCapture.shared.format)
             if overlay != nil { t.platformMute = overlay }
             tracks[t.id] = t
@@ -196,14 +205,14 @@ public final class MediaCaptureModule: ExactPackage, ExactTrackOwner {
         }
     }
 
-    // MARK: tracks and leases
+    // MARK: tracks and leases (D6)
 
     public func subscribe(_ id: String, _ consumer: ExactTrackConsumer, start: Bool, origin: String) throws -> ExactSubscription {
         guard let t = tracks[id] else { throw ExactTrackError("NotFoundError") }
         if t.readyState == "ended" { consumer.ended(); return ExactSubscription {} }
         t.consumers[ObjectIdentifier(consumer)] = consumer
         if t.active, !(start && origin == "app" && !context.agent && !t.leased) {
-            consumer.live(context.agent ? nil : ProcessCapture.shared)
+            consumer.live(t.audio)
             if t.muted { consumer.muted(t.muteReason ?? "idle") }
         } else if origin == "app", t.enabled, !t.used || start {
             activate(t)
@@ -239,7 +248,7 @@ public final class MediaCaptureModule: ExactPackage, ExactTrackOwner {
         if let reason = t.platformMute { mute(t, reason) } else { unmute(t) }
     }
 
-    /// Take the lease: the capture runs. A capture that will not start
+    /// Take the lease: the capture runs (D6). A capture that will not start
     /// leaves the track muted, `interrupted`, and says why.
     private func activate(_ t: Track) {
         t.active = true; t.used = true
@@ -255,13 +264,14 @@ public final class MediaCaptureModule: ExactPackage, ExactTrackOwner {
                 t.platformMute = "interrupted"
             }
         }
-        each(t) { $0.live(context.agent ? nil : ProcessCapture.shared) }
+        each(t) { $0.live(t.audio) }
         settle(t)
     }
 
     /// Give the lease back: the track is idle.
     private func deactivate(_ t: Track) {
         t.active = false
+        // A recorder reuses its tap when resuming across a lease change.
         release(t)
         mute(t, "idle")
     }
@@ -275,6 +285,7 @@ public final class MediaCaptureModule: ExactPackage, ExactTrackOwner {
     private func end(_ t: Track, _ why: String) {
         guard t.readyState == "live" else { return }
         t.readyState = "ended"; t.active = false
+        t.audio?.removeTaps()
         release(t)
         context.log("media-capture: \(t.id) ended (\(why))")
         each(t) { $0.ended() }
@@ -282,7 +293,7 @@ public final class MediaCaptureModule: ExactPackage, ExactTrackOwner {
         announce()
     }
 
-    // MARK: what the process's capture and the session tell
+    // MARK: what the process's capture and the session tell (D7, D8)
 
     /// An event of the audio session or the engine, for every track this session runs.
     func heard(_ event: String) {
@@ -291,7 +302,7 @@ public final class MediaCaptureModule: ExactPackage, ExactTrackOwner {
             case "interrupted": t.platformMute = "interrupted"
             case "resumed", "reopened": if t.platformMute == "interrupted" { t.platformMute = nil }
             case "reset":
-                // A media-services reset: the capture is let go, and nothing records until a start.
+                // A media-services reset: the capture is let go, and nothing records until a start (D7).
                 t.platformMute = "interrupted"
                 if t.active { mute(t, "interrupted", consumersHear: "media-reset") }
                 t.active = false
@@ -303,9 +314,9 @@ public final class MediaCaptureModule: ExactPackage, ExactTrackOwner {
         }
     }
 
-    /// The app left the foreground or came back: without
+    /// The app left the foreground or came back (D8): without
     /// `device.microphone-background` on iOS a capture's tracks mute,
-    /// `background`, and its lease goes. Under the agent
+    /// `background`, and its lease goes (LLP 1133.033 D3). Under the agent
     /// too, so a drive sees the pause; the lease is then the agent's.
     public func foreground(_ shown: Bool) {
         cameras.foreground(shown)
@@ -325,7 +336,7 @@ public final class MediaCaptureModule: ExactPackage, ExactTrackOwner {
         #endif
     }
 
-    /// Under the agent: a preferred `mediaStreamTrack` is the platform's change to every live track.
+    /// Under the agent: a preferred `mediaStreamTrack` is the platform's change to every live track (D10 item 11).
     public func preferred(_ values: [String: Any]) {
         let value = values["mediaStreamTrack"] as? [String: Any]
         overlay = value?["muted"] as? Bool == true ? value?["muteReason"] as? String ?? "interrupted" : nil
@@ -336,7 +347,7 @@ public final class MediaCaptureModule: ExactPackage, ExactTrackOwner {
         cameras.preferred(value)
     }
 
-    /// Handles a dropped reply carried: the stream's tracks end.
+    /// Handles a dropped reply carried: the stream's tracks end (D6).
     public func dispose(_ ids: [String]) {
         for id in ids {
             if let t = tracks[id] { end(t, "disposed") }
@@ -377,13 +388,13 @@ public final class MediaCaptureModule: ExactPackage, ExactTrackOwner {
     }
 }
 
-/// What a lease configures: voice processing, the session's mode and options.
+/// What a lease configures (D2, D4): voice processing, the session's mode and options.
 struct CaptureOptions {
     let voiceProcessing: Bool, mode: String?, categoryOptions: [String], background: Bool
     /// The capture asked `echoCancellation=false`: no voice processing even during a call.
     let echoRefused: Bool
     let preferredIOBufferDuration: Double?, deviceId: String?
-    /// iOS's words for the input: no system alert interrupts, a data source (front, back, bottom) and its pattern.
+    /// iOS's words for the input (D4): no system alert interrupts, a data source (front, back, bottom) and its pattern.
     let prefersNoInterruptions: Bool, inputDataSource: String?, polarPattern: String?
     init(constraints: [String: Any], apple: [String: Any]) {
         voiceProcessing = ["echoCancellation", "noiseSuppression", "autoGainControl"].contains { constraints[$0] as? Bool == true }
@@ -405,7 +416,7 @@ struct CaptureOptions {
     }
 }
 
-/// The microphone's permission and inputs, as the platform says them.
+/// The microphone's permission and inputs, as the platform says them (D9).
 enum Permission {
     static var state: String {
         #if os(iOS)
@@ -475,7 +486,7 @@ enum Permission {
             .map { ["deviceId": $0.uniqueID, "kind": "audioinput", "label": $0.localizedName, "groupId": $0.modelID] }
         #endif
     }
-    /// `device.microphone-background`'s key: the capture
+    /// `device.microphone-background`'s key (LLP 1133.033 D3): the capture
     /// records on in the background. Not the `audio` mode, which other lines
     /// and an app's own playback derive too.
     static var recordsInBackground: Bool {
@@ -483,11 +494,67 @@ enum Permission {
     }
 }
 
-/// The process's one capture: an engine whose input tap fans every
+/// Media Capture's disabled audio is silence, with the source's frames and timestamps (LLP 1133.033 D8).
+final class TrackAudioSource: ExactAudioSource {
+    private let source: ExactAudioSource
+    private let lock = NSLock()
+    private var isEnabled = true
+    private var next = 0
+    private var taps: [Int: ExactSubscription] = [:]
+    var format: AVAudioFormat { source.format }
+
+    var enabled: Bool {
+        get { lock.lock(); defer { lock.unlock() }; return isEnabled }
+        set { lock.lock(); isEnabled = newValue; lock.unlock() }
+    }
+
+    init(_ source: ExactAudioSource) { self.source = source }
+
+    func tap(_ block: @escaping (AVAudioPCMBuffer, AVAudioTime) -> Void) -> ExactSubscription {
+        lock.lock(); next += 1; let id = next; taps[id] = ExactSubscription {}; lock.unlock()
+        // Only this tap's audio callback accesses the reusable buffer. The shared input is never changed.
+        var silence = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 4096)!
+        let upstream = source.tap { [weak self] buffer, time in
+            guard let self else { return }
+            self.lock.lock()
+            let active = self.taps[id] != nil, enabled = self.isEnabled
+            self.lock.unlock()
+            guard active else { return }
+            if enabled { return block(buffer, time) }
+            if silence.format != buffer.format || silence.frameCapacity < buffer.frameLength {
+                guard let replacement = AVAudioPCMBuffer(pcmFormat: buffer.format, frameCapacity: buffer.frameLength) else { return }
+                silence = replacement
+            }
+            silence.frameLength = buffer.frameLength
+            for audio in UnsafeMutableAudioBufferListPointer(silence.mutableAudioBufferList) {
+                if let data = audio.mData { memset(data, 0, Int(audio.mDataByteSize)) }
+            }
+            block(silence, time)
+        }
+        lock.lock(); taps[id] = upstream; lock.unlock()
+        return ExactSubscription { [weak self] in self?.removeTap(id) }
+    }
+
+    private func removeTap(_ id: Int) {
+        lock.lock(); let upstream = taps.removeValue(forKey: id); lock.unlock()
+        upstream?.cancel()
+    }
+
+    func removeTaps() {
+        lock.lock(); let upstream = Array(taps.values); taps.removeAll(); lock.unlock()
+        for tap in upstream { tap.cancel() }
+    }
+
+    deinit { removeTaps() }
+}
+
+/// The process's one capture (D3): an engine whose input tap fans every
 /// buffer out to each tap, running while any lease is held.
 final class ProcessCapture: ExactAudioSource {
     static let shared = ProcessCapture()
     private var engine: AVAudioEngine?
+    private let openEngine: ((CaptureOptions) throws -> Void)?
+    init(openEngine: ((CaptureOptions) throws -> Void)? = nil) { self.openEngine = openEngine }
     private var leases = 0
     private var claim: ExactSubscription?
     private var options: CaptureOptions?
@@ -515,13 +582,15 @@ final class ProcessCapture: ExactAudioSource {
 
     /// A lease: the first claims the session and starts the engine with its options.
     func lease(_ options: CaptureOptions, session: ExactAudioSession, log: @escaping (String) -> Void) throws {
-        if leases == 0 {
+        if claim == nil {
+            let options = leases > 0 ? self.options ?? options : options
             self.log = log
             guard let claim = session.claim(mode: options.mode, options: options.categoryOptions, background: options.background,
                                             events: { [weak self] in self?.tell($0) }) else { throw CaptureError("NotReadableError: the audio session would not activate") }
             self.claim = claim
             self.options = options
             do { try start(options) } catch { claim.cancel(); self.claim = nil; throw error }
+            if leases > 0 { tell("reopened") }
         }
         leases += 1
     }
@@ -535,11 +604,12 @@ final class ProcessCapture: ExactAudioSource {
     }
 
     private func start(_ options: CaptureOptions) throws {
+        if let openEngine { return try openEngine(options) }
         let engine = AVAudioEngine()
         let input = engine.inputNode
         #if os(iOS)
         let s = AVAudioSession.sharedInstance()
-        // During a call the session is the call's, `.voiceChat` or `.videoChat`, which applies no
+        // During a call (LLP 1133.033 D10) the session is the call's, `.voiceChat` or `.videoChat`, which applies no
         // echo cancellation without voice processing on the I/O unit.
         let inCall = s.mode == .voiceChat || s.mode == .videoChat
         #else
@@ -572,7 +642,7 @@ final class ProcessCapture: ExactAudioSource {
             engine.attach(mixer)
             engine.connect(input, to: mixer, format: format)
             // The engine renders what reaches its output: the mixer feeds the main mixer at no volume,
-            // which keeps its own output whole for a tap and never plays the input.
+            // which keeps its own output whole for a tap and never plays the input (§13's monitoring).
             engine.connect(mixer, to: engine.mainMixerNode, format: format)
             mixer.volume = 0
             hatch(engine, mixer)
@@ -580,14 +650,14 @@ final class ProcessCapture: ExactAudioSource {
         engine.prepare()
         try engine.start()
         self.engine = engine
-        // A route or hardware change stops the engine; the handler only schedules the reopening.
+        // A route or hardware change stops the engine; the handler only schedules the reopening (D7).
         observer = NotificationCenter.default.addObserver(forName: .AVAudioEngineConfigurationChange, object: engine, queue: nil) { [weak self] _ in
             DispatchQueue.main.async { self?.reopen() }
         }
     }
 
     #if os(iOS)
-    /// The input's data source and polar pattern, by the source's
+    /// The input's data source and polar pattern (D4), by the source's
     /// orientation or name: a built-in microphone's are front, back and bottom
     /// ([Selecting a microphone](https://developer.apple.com/documentation/avfaudio/avaudiosessiondatasourcedescription)).
     private static func chooseDataSource(_ options: CaptureOptions, _ s: AVAudioSession, _ log: (String) -> Void) {
@@ -628,7 +698,7 @@ final class ProcessCapture: ExactAudioSource {
     }
 
     /// The engine stopped under a configuration change: another one, the gap journaled.
-    private func reopen() {
+    func reopen() {
         guard leases > 0, let options else { return }
         let began = Date()
         stop()
@@ -637,6 +707,8 @@ final class ProcessCapture: ExactAudioSource {
             log("media-capture: capture reopened, \(Int(Date().timeIntervalSince(began) * 1000)) ms, \(Int(format.sampleRate)) Hz, \(format.channelCount) ch")
             tell("reopened")
         } catch {
+            claim?.cancel()
+            claim = nil
             log("media-capture: the capture did not reopen: \(error)")
             tell("interrupted")
         }

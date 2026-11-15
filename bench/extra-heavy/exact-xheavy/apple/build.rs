@@ -23,7 +23,7 @@ fn main() {
     let compat = exact_bake::compatibility_id(&app_dir, platform, &target, &manifest, Some(source.grants()))
         .unwrap_or_else(|e| panic!("compatibility id: {e}"));
     assert_eq!(compat.inputs["store"]["L"], "0", "app.json deploy.store must stay 0 (no update store)");
-    // What the archive links, as its compatibility inputs name it.
+    // What the archive links, as its compatibility inputs name it (LLP 1047.001 D2).
     let linked = exact_bake::apple_link(&compat, "exact_apple");
     std::fs::write(out_dir.join("compat.json"), compat.to_json()).unwrap();
     std::fs::write(
@@ -33,7 +33,8 @@ fn main() {
             contract::rust_entry(
                 "exact_xheavy_data::XHeavy",
                 "exact_xheavy_data::XHeavy::default()",
-                compat.inputs["rustMode"].as_str().unwrap()
+                compat.inputs["rustMode"].as_str().unwrap(),
+                &compat.inputs,
             )
             .unwrap(),
             linked

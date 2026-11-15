@@ -1,4 +1,4 @@
-//! The voice table: what `playSound`, `playSounds` and
+//! The voice table (LLP 1096 D3–D5): what `playSound`, `playSounds` and
 //! `stopSounds` scheduled, when, and how each voice ends — kept by the
 //! runner, so it is the same on every host and under the driver's clock.
 //!
@@ -7,41 +7,51 @@
 //! through `take_commands` (what difftest observes), and every host skips
 //! them as the runner's own. What an output plays is [`SoundOp`]s: a
 //! `Play` for each new voice and an `End` for each voice whose end moved
-//! earlier, drained with `take_sounds`.
+//! earlier or later, drained with `take_sounds`.
 //!
 //! - **Start.** `max(at, t)`, `t` the commit's time: a timer's commit is its
-//!   due time, so a hit planned at `t` lands on the grid.
+//!   due time, so a hit planned at `t` lands on the grid (D3).
 //! - **Length.** The file's, divided by the voice's `playbackRate`: pitch
-//!   and duration move together, as on tape, so a group's
+//!   and duration move together, as on tape (LLP 1125 D10), so a group's
 //!   cut and the bound read the end the speaker will reach.
 //! - **Groups** are monophonic by start time: a voice ends at the start of
-//!   the next voice in its group, a tie going to the later call.
+//!   the next voice in its group, a tie going to the later call (D4).
 //! - **The bound.** At most [`LIVE`] voices sound at any voice's start,
-//!   after its cuts, and at most [`WAITING`] wait to start;
+//!   after its cuts, and at most [`WAITING`] wait to start (LLP 1125 D3);
 //!   another is dropped and journaled.
-//! - **A sequence's voices** are the same voices, issued by
+//! - **A sequence's voices** (LLP 1125 D3) are the same voices, issued by
 //!   `runner/src/transport.rs` a second ahead: an edit retracts the ones not
 //!   yet started (`edit`), its stop ends them as `stopSounds()` would, and
 //!   `stopSounds` stops the sounding ones and leaves those still to start,
-//!   which are the sequence's next steps. A step's haptic is a timed
+//!   which are the sequence's next steps (D4). A step's haptic is a timed
 //!   [`SoundOp::Haptic`], recorded beside the voices.
-//! - **The record** keeps the last [`RECORD`] voices for the driver.
+//! - **A change** (`setSounds`, LLP 1096 D14) moves a voice's gain, rate
+//!   and pan from the commit's time, each linearly over its `ramp`. A voice
+//!   not yet started takes the values outright, and so does one this batch
+//!   made, whose `Play` carries them. The table follows where in its file a
+//!   voice is, so a rate change moves its natural end, which cuts and is
+//!   cut as any other end.
+//! - **The record** keeps the last [`RECORD`] voices for the driver (D10).
 
 use crate::agent::num;
 use exact_plan::{Plan, Value};
 use std::collections::VecDeque;
 
-/// Voices sounding at any voice's start.
+/// Voices sounding at any voice's start (LLP 1096 §9 Q2; LLP 1125 D3).
 pub const LIVE: usize = 32;
-/// Voices issued and not yet started: another tap that would
+/// Voices issued and not yet started (LLP 1125 D3): another tap that would
 /// wait is dropped; a sequence stops expanding there instead.
 pub const WAITING: usize = 256;
-/// Voices the record keeps for `expect sound`.
+/// Voices the record keeps for `expect sound` (D5).
 pub const RECORD: usize = 1024;
-/// Haptics the record keeps.
+/// Haptics the record keeps (LLP 1125 D5).
 pub const HAPTICS: usize = 1024;
-/// The range of `playbackRate=`; a computed one is clamped to it.
+/// The range of `playbackRate=` (LLP 1125 D10); a computed one is clamped to it.
 pub const PLAYBACK_RATE: std::ops::RangeInclusive<f64> = 0.25..=4.0;
+/// `setSounds`' `ramp=` when the call gives none, ms (LLP 1096 D14): a value
+/// that follows a pointer, changed at every event, then moves without the
+/// click of a step.
+pub const RAMP: f64 = 20.0;
 
 /// What the output does: the table's changes, in order.
 #[derive(Clone, Debug, PartialEq)]
@@ -63,15 +73,32 @@ pub enum SoundOp {
         /// Web Audio's `StereoPannerNode.pan`, −1 (left) to 1 (right).
         pan: f64,
     },
-    /// Voice `id` now ends at runner time `at`, earlier than it did.
+    /// From runner time `at`, each given value of voice `id` moves linearly
+    /// from where it is to the new one, reaching it at `at + ramp`; a voice
+    /// whose start is after `at` takes them outright.
+    Set {
+        /// The voice.
+        id: u64,
+        /// When the change starts, runner milliseconds.
+        at: f64,
+        /// The new linear gain, 0–1, if the call gave one.
+        gain: Option<f64>,
+        /// The new playback rate, 0.25–4, if the call gave one.
+        playback_rate: Option<f64>,
+        /// The new pan, −1–1, if the call gave one.
+        pan: Option<f64>,
+        /// How long each value takes to reach its new one, milliseconds.
+        ramp: f64,
+    },
+    /// Voice `id` now ends at runner time `at`, replacing its previous end.
     End {
         /// The voice.
         id: u64,
         /// When it ends, runner milliseconds.
         at: f64,
     },
-    /// Play haptic `kind` at runner time `at`: a sequence
-    /// step's, played on the main thread at its time.
+    /// Play haptic `kind` (LLP 1077 D14) at runner time `at`: a sequence
+    /// step's (LLP 1125 D3), played on the main thread at its time.
     Haptic {
         /// The haptic, counted from 1 per boot apart from the voices.
         id: u64,
@@ -87,7 +114,7 @@ pub enum SoundOp {
     },
 }
 
-/// How a voice ended, or will.
+/// How a voice ended, or will (D4).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum By {
     /// Its natural end.
@@ -98,13 +125,13 @@ pub enum By {
     Cut,
     /// `stopSounds` ended it while it sounded.
     Stop,
-    /// `stopSounds` came at or before its start: it never sounds.
+    /// Cancelled before its start by a stop or the voice bound: it never sounds.
     Cancelled,
-    /// Its sequence was edited before it started: it never
+    /// Its sequence was edited before it started (LLP 1125 D3): it never
     /// sounds, and the new value is expanded in its place.
     Edit,
     /// Its sequence follows a MIDI clock whose new tempo or phase moved its
-    /// time: it never sounds, and is issued again at the new
+    /// time (LLP 1125 D9): it never sounds, and is issued again at the new
     /// time.
     Clock,
 }
@@ -140,27 +167,74 @@ pub struct Voice {
     pub src: String,
     /// Its effective start, `max(at, t)`.
     pub at: f64,
-    /// Its gain, clamped to 0–1.
+    /// Its gain, clamped to 0–1; after a `setSounds` that gave one, that one.
     pub gain: f64,
     /// Its group; empty is none.
     pub group: String,
     /// Its playback rate, clamped to [`PLAYBACK_RATE`]; 1 is the file's own.
+    /// After a `setSounds` that gave one, the rate it moves to.
     pub playback_rate: f64,
-    /// Its pan, clamped to −1–1; 0 is centred.
+    /// Its pan, clamped to −1–1; 0 is centred. As the gain, the last given.
     pub pan: f64,
     /// When it ends: its start plus its length, or earlier.
     pub ends: f64,
     /// How it ends.
     pub by: By,
-    /// A sequence issued it.
+    /// A sequence issued it (LLP 1125 D3).
     pub seq: bool,
-    /// The step a sequence issued it for, before its track's offset;
-    /// its own start otherwise.
+    /// The step a sequence issued it for, before its track's offset (LLP
+    /// 1125 D7); its own start otherwise.
     step_at: f64,
     natural: f64,
+    /// Its file's length at rate 1, ms.
+    file: f64,
+    /// From `anchor` (its start, or its last rate change) the rate moves
+    /// linearly from `rate_from` to `playback_rate`, reached at `ramp_end`;
+    /// `pos` ms of the file had played at `anchor`.
+    anchor: f64,
+    pos: f64,
+    rate_from: f64,
+    ramp_end: f64,
 }
 
 impl Voice {
+    /// Its rate at `t`, at or after `anchor`.
+    fn rate_at(&self, t: f64) -> f64 {
+        let (a, b) = (self.rate_from, self.playback_rate);
+        if t >= self.ramp_end {
+            b
+        } else {
+            a + (b - a) * (t - self.anchor) / (self.ramp_end - self.anchor)
+        }
+    }
+
+    /// How much of its file has played by `t`, at or after `anchor`: ms at rate 1.
+    fn position(&self, t: f64) -> f64 {
+        let (a, b) = (self.rate_from, self.playback_rate);
+        let d = self.ramp_end - self.anchor;
+        if t >= self.ramp_end {
+            self.pos + (a + b) / 2.0 * d + b * (t - self.ramp_end)
+        } else {
+            let s = t - self.anchor;
+            self.pos + a * s + (b - a) * s * s / (2.0 * d)
+        }
+    }
+
+    /// When the rest of its file has played, at the rates it is set to.
+    fn natural_end(&self) -> f64 {
+        let (a, b) = (self.rate_from, self.playback_rate);
+        let d = self.ramp_end - self.anchor;
+        let rest = (self.file - self.pos).max(0.0);
+        let ramp = (a + b) / 2.0 * d;
+        if rest >= ramp {
+            return self.ramp_end + (rest - ramp) / b;
+        }
+        // Within the ramp: a·s + k·s²/2 = rest. The root, written so that
+        // it does not cancel when k is small.
+        let k = (b - a) / d;
+        self.anchor + 2.0 * rest / (a + (a * a + 2.0 * k * rest).sqrt())
+    }
+
     /// Sounding or waiting at `t`.
     fn live(&self, t: f64) -> bool {
         self.by.sounds() && self.ends > t
@@ -188,7 +262,7 @@ impl Voice {
     }
 }
 
-/// One timed haptic, as the record keeps it.
+/// One timed haptic (LLP 1125 D3), as the record keeps it.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Haptic {
     /// Counts up from 1 per boot.
@@ -197,8 +271,8 @@ pub struct Haptic {
     pub kind: String,
     /// When it plays.
     pub at: f64,
-    /// Why it was retracted before its time, if it was: `edit`, `clock`,
-    /// or `cancelled` (a stop or a reload).
+    /// Why it was retracted before its time, if it was: `edit`, `clock`
+    /// (LLP 1125 D9), or `cancelled` (a stop or a reload).
     pub by: Option<&'static str>,
     /// The step it is for, before its track's offset.
     step_at: f64,
@@ -224,8 +298,16 @@ pub struct Sounds {
     evicted: u64,
     evicted_through: f64,
     ops: Vec<SoundOp>,
+    /// The open batch's changes, queued after its new voices' plays.
+    sets: Vec<SoundOp>,
+    /// The first voice the open batch made.
+    batch_first: u64,
     haptics: VecDeque<Haptic>,
     next_haptic: u64,
+    restore_at: Option<f64>,
+    /// A change moved an end later: at `restore_at`, every voice still to
+    /// start is checked against the bound again.
+    recount: bool,
 }
 
 /// What became of a sequence step's sample.
@@ -243,7 +325,7 @@ pub(crate) enum Cut {
     /// Steps at or after it: an edit's, a stop's, a clock's Start.
     At(f64),
     /// Steps after it only: a clock's re-anchor at the hold's edge, where a
-    /// note is handed already.
+    /// note is handed already (LLP 1125 D9).
     After(f64),
 }
 
@@ -268,15 +350,17 @@ pub(crate) enum Call<'a> {
     Play(&'a [Value]),
     Hits(&'a Value),
     Stop(Option<&'a Value>),
+    Set(&'a [Value]),
 }
 
 impl<'a> Call<'a> {
-    /// The command's call, when it is one of the three.
+    /// The command's call, when it is one of the four.
     pub(crate) fn of(name: &str, args: &'a [Value]) -> Option<Call<'a>> {
         match name {
             "playSound" => Some(Call::Play(args)),
             "playSounds" => args.first().map(Call::Hits),
             "stopSounds" => Some(Call::Stop(args.first())),
+            "setSounds" => Some(Call::Set(args)),
             _ => None,
         }
     }
@@ -334,8 +418,8 @@ impl Sounds {
 
     /// Apply one commit's calls at its time `t`, in order, journaling each
     /// change into `log`. The ops for the output are queued once, at the
-    /// end: a voice gets one `Play`, and an `End` only if it ends earlier
-    /// than its file does.
+    /// end: a new voice gets one `Play`, and an `End` if it ends before its
+    /// file does; an existing voice gets an `End` when its end changes.
     pub(crate) fn apply(&mut self, plan: &Plan, t: f64, calls: &[Call<'_>], log: &mut Vec<String>) {
         self.batch(|s| {
             for call in calls {
@@ -358,12 +442,16 @@ impl Sounds {
                         let group = given(*group).map(|g| g.text().to_string());
                         s.stop(t, group.as_deref(), log);
                     }
+                    Call::Set(args) => s.set(t, args, log),
                 }
             }
         });
+        if plan.sequences.is_empty() {
+            self.settle(log);
+        }
     }
 
-    /// Every live voice ends now: the runner is starting over; every
+    /// Every live voice ends now: the runner is starting over (D5); every
     /// haptic still to come is retracted.
     pub(crate) fn reload(&mut self, t: f64, log: &mut Vec<String>) {
         self.batch(|s| {
@@ -378,12 +466,13 @@ impl Sounds {
     pub(crate) fn batch<T>(&mut self, f: impl FnOnce(&mut Self) -> T) -> T {
         let before: Vec<(u64, f64)> = self.voices.iter().map(|v| (v.id, v.ends)).collect();
         let first_new = self.next + 1;
+        self.batch_first = first_new;
         let out = f(self);
         self.queue(before, first_new);
         out
     }
 
-    /// One sequence step's sample at `t`, `args` as a
+    /// One sequence step's sample at `t` (LLP 1125 D3), `args` as a
     /// `playSound`'s, for the step at `step_at`; [`Added::Full`] when
     /// [`WAITING`] voices already wait and this one would too. Inside
     /// [`Sounds::batch`].
@@ -455,12 +544,12 @@ impl Sounds {
         }
     }
 
-    /// An edit at `t` (`from` at `t`, `by` [`By::Edit`]), or a
-    /// clock's Start or new anchor (`by` [`By::Clock`]): every sequence
+    /// An edit at `t` (LLP 1125 D3; `from` at `t`, `by` [`By::Edit`]), or a
+    /// clock's Start or new anchor (D9; `by` [`By::Clock`]): every sequence
     /// voice not started by `t` for a step `from` takes ends as `by` at its
     /// start, and so leaves the bound; so do its haptics still to come (a
     /// track's offset can put an earlier step's output after `from`: it
-    /// stays). Inside [`Sounds::batch`].
+    /// stays, LLP 1125 D7). Inside [`Sounds::batch`].
     pub(crate) fn retract_seq(&mut self, t: f64, from: Cut, by: By, log: &mut Vec<String>) {
         let mut n = 0;
         for v in self.voices.iter_mut() {
@@ -469,17 +558,20 @@ impl Sounds {
                 n += 1;
             }
         }
+        if n > 0 {
+            self.restore_at = Some(t);
+        }
         log.push(format!("sounds retracted: {n} ({})", by.word()));
         self.retract_haptics(t, from, by.word(), log);
     }
 
-    /// The sequence stops at `t`: its voices end as
+    /// The sequence stops at `t` (LLP 1125 D4): its voices end as
     /// `stopSounds()` ends them, and its haptics still to come are
     /// retracted. Inside [`Sounds::batch`].
     pub(crate) fn stop_seq(&mut self, t: f64, name: &str, log: &mut Vec<String>) {
         let mut n = 0;
         for v in self.voices.iter_mut() {
-            if v.seq && v.live(t) {
+            if v.seq && (v.live(t) || v.by == By::Group && v.ends == t) {
                 n += 1;
                 if v.at < t {
                     (v.ends, v.by) = (t, By::Stop);
@@ -488,8 +580,90 @@ impl Sounds {
                 }
             }
         }
+        if n > 0 {
+            self.restore_at = Some(t);
+        }
         log.push(format!("sounds stopped: {n} (sequence {name})"));
         self.retract_haptics(t, Cut::At(f64::NEG_INFINITY), "cancelled", log);
+    }
+
+    /// Reconcile after the commit's commands and sequence expansion, so a
+    /// temporary gap cannot cancel voices that fit the final schedule.
+    pub(crate) fn settle(&mut self, log: &mut Vec<String>) {
+        if let Some(t) = self.restore_at.take() {
+            self.batch(|s| s.restore(t, log));
+        }
+    }
+
+    /// Restore pending group cuts and revalidate future admissions, keeping
+    /// sounding voices. At each start, the last admitted voices lose first.
+    fn restore(&mut self, t: f64, log: &mut Vec<String>) {
+        let recount = std::mem::take(&mut self.recount);
+        if !self.restore_groups(t, log) && !recount {
+            return;
+        }
+        let mut waiting: Vec<usize> = self
+            .voices
+            .iter()
+            .enumerate()
+            .filter(|(_, v)| v.by.sounds() && v.at >= t)
+            .map(|(i, _)| i)
+            .collect();
+        waiting.sort_by(|&a, &b| {
+            self.voices[a]
+                .at
+                .total_cmp(&self.voices[b].at)
+                .then(self.voices[b].id.cmp(&self.voices[a].id))
+        });
+        for i in waiting {
+            let v = &self.voices[i];
+            if !v.sounding(v.at) || self.voices.iter().filter(|w| w.sounding(v.at)).count() <= LIVE
+            {
+                continue;
+            }
+            log.push(format!(
+                "sound dropped: {LIVE} voices sound at its start ({} at {})",
+                v.src,
+                num(v.at)
+            ));
+            let v = &mut self.voices[i];
+            (v.ends, v.by) = (v.at, By::Cancelled);
+            // Cancelling a grouped voice can extend its predecessor, but
+            // only from this start onward; earlier starts remain valid.
+            self.restore_groups(t, log);
+        }
+    }
+
+    fn restore_groups(&mut self, t: f64, log: &mut Vec<String>) -> bool {
+        let mut changed = false;
+        // Ends already passed, explicit stops and tied losers stay ended.
+        for i in 0..self.voices.len() {
+            let v = &self.voices[i];
+            if v.by != By::Group || v.ends < t {
+                continue;
+            }
+            let next = self
+                .voices
+                .iter()
+                .filter(|w| w.group == v.group && w.by.sounds() && w.at > v.at)
+                .map(|w| w.at)
+                .reduce(f64::min)
+                .unwrap_or(f64::INFINITY);
+            let ends = v.natural.min(next);
+            let by = if next < v.natural { By::Group } else { By::End };
+            if ends != v.ends {
+                log.push(format!(
+                    "sound {} ends at {} ({})",
+                    v.id,
+                    num(ends),
+                    by.word()
+                ));
+                changed = true;
+            }
+            let v = &mut self.voices[i];
+            (v.ends, v.by) = (ends, by);
+        }
+        changed
     }
 
     fn queue(&mut self, before: Vec<(u64, f64)>, first_new: u64) {
@@ -510,13 +684,116 @@ impl Sounds {
                     });
                 }
             } else if let Some((_, was)) = before.iter().find(|(id, _)| *id == v.id) {
-                if v.ends < *was {
+                if v.ends != *was {
                     self.ops.push(SoundOp::End {
                         id: v.id,
                         at: v.ends,
                     });
                 }
             }
+        }
+        self.ops.append(&mut self.sets);
+    }
+
+    /// `setSounds(group=, gain=, playbackRate=, pan=, ramp=)` at `t`: every
+    /// voice sounding, and every one waiting that is not a sequence's next
+    /// step (as `stopSounds` leaves those), in `group` when one is given.
+    /// Inside [`Sounds::batch`].
+    fn set(&mut self, t: f64, args: &[Value], log: &mut Vec<String>) {
+        let group = given(args.first())
+            .map(|g| g.text().to_string())
+            .filter(|g| !g.is_empty());
+        let mut asked = [None; 4];
+        for (i, name) in ["gain", "playbackRate", "pan", "ramp"].iter().enumerate() {
+            match given(args.get(i + 1)) {
+                None => {}
+                Some(Value::Number(n)) if n.is_finite() => asked[i] = Some(*n),
+                Some(_) => {
+                    log.push(format!("sounds not set: {name} is not a number"));
+                    return;
+                }
+            }
+        }
+        let gain = asked[0].map(|g| g.clamp(0.0, 1.0));
+        let rate = asked[1].map(|r| r.clamp(*PLAYBACK_RATE.start(), *PLAYBACK_RATE.end()));
+        let pan = asked[2].map(|p| p.clamp(-1.0, 1.0));
+        let ramp = asked[3].map_or(RAMP, |r| r.max(0.0));
+        let mut n = 0;
+        let mut ends = Vec::new();
+        for i in 0..self.voices.len() {
+            let v = &self.voices[i];
+            if !v.live(t) || v.seq && v.at >= t || group.as_ref().is_some_and(|g| v.group != *g) {
+                continue;
+            }
+            n += 1;
+            let made = v.id >= self.batch_first;
+            let outright = made || v.at > t;
+            let v = &mut self.voices[i];
+            if let Some(g) = gain {
+                v.gain = g;
+            }
+            if let Some(p) = pan {
+                v.pan = p;
+            }
+            if !made {
+                self.sets.push(SoundOp::Set {
+                    id: v.id,
+                    at: t,
+                    gain,
+                    playback_rate: rate,
+                    pan,
+                    ramp,
+                });
+            }
+            let Some(r) = rate else { continue };
+            if outright {
+                (v.anchor, v.pos, v.rate_from, v.ramp_end) = (v.at, 0.0, r, v.at);
+            } else {
+                (v.pos, v.rate_from) = (v.position(t), v.rate_at(t));
+                (v.anchor, v.ramp_end) = (t, t + ramp);
+            }
+            v.playback_rate = r;
+            v.natural = v.natural_end();
+            // Its end is its natural one, or the start of the next voice in
+            // its group, as a play decides it.
+            let v = &self.voices[i];
+            let next = self
+                .voices
+                .iter()
+                .filter(|w| {
+                    !v.group.is_empty() && w.group == v.group && w.by.sounds() && w.at > v.at
+                })
+                .map(|w| w.at)
+                .reduce(f64::min)
+                .unwrap_or(f64::INFINITY);
+            let (end, by) = if next < v.natural {
+                (next, By::Group)
+            } else {
+                (v.natural, By::End)
+            };
+            if end != v.ends {
+                ends.push((v.id, end, by));
+                if end > v.ends {
+                    self.recount = true;
+                    self.restore_at = Some(t);
+                }
+            }
+            let v = &mut self.voices[i];
+            (v.ends, v.by) = (end, by);
+        }
+        let mut line = format!("sounds set: {n}");
+        if let Some(g) = &group {
+            line.push_str(&format!(" (group {g})"));
+        }
+        for (name, v) in [("gain", gain), ("playbackRate", rate), ("pan", pan)] {
+            if let Some(v) = v {
+                line.push_str(&format!(" {name} {}", num(v)));
+            }
+        }
+        line.push_str(&format!(" ramp {}", num(ramp)));
+        log.push(line);
+        for (id, end, by) in ends {
+            log.push(format!("sound {id} ends at {} ({})", num(end), by.word()));
         }
     }
 
@@ -574,7 +851,7 @@ impl Sounds {
         let pan = pan.clamp(-1.0, 1.0);
         let at = asked.max(t);
         // Another voice that would wait behind WAITING others: a tap's is
-        // dropped; a sequence stops expanding there.
+        // dropped; a sequence stops expanding there (LLP 1125 D3).
         if at > t && self.waiting(t) >= WAITING {
             if seq {
                 return Added::Full;
@@ -587,7 +864,8 @@ impl Sounds {
                 ),
             );
         }
-        let length = 1000.0 * f64::from(row.frames) / f64::from(row.rate.max(1)) / playback_rate;
+        let file = 1000.0 * f64::from(row.frames) / f64::from(row.rate.max(1));
+        let length = file / playback_rate;
         let saved: Vec<(u64, f64, By)> = self.voices.iter().map(|v| (v.id, v.ends, v.by)).collect();
         self.next += 1;
         let id = self.next;
@@ -605,6 +883,11 @@ impl Sounds {
             seq,
             step_at: step_at.unwrap_or(at),
             natural: at + length,
+            file,
+            anchor: at,
+            pos: 0.0,
+            rate_from: playback_rate,
+            ramp_end: at,
         };
         let mut cuts = Vec::new();
         if !voice.group.is_empty() {
@@ -676,7 +959,7 @@ impl Sounds {
     }
 
     /// Whether `voice` would make more than [`LIVE`] voices sound at some
-    /// voice's start: its own, or a later one's while it
+    /// voice's start (LLP 1125 D3): its own, or a later one's while it
     /// sounds. The count rises only at a start, so those are the instants
     /// to check, and the bound does not depend on the lookahead.
     fn overfull(&self, voice: &Voice) -> bool {
@@ -694,23 +977,30 @@ impl Sounds {
     }
 
     /// `stopSounds(group=)` at `t`: a sequence's voices still to start are
-    /// its next steps, and play.
+    /// its next steps, and play (LLP 1125 D4).
     fn stop(&mut self, t: f64, group: Option<&str>, log: &mut Vec<String>) {
         let n = self.end_live(t, group.filter(|g| !g.is_empty()), true);
+        if n > 0 {
+            self.restore_at = Some(t);
+        }
         log.push(match group {
             Some(g) if !g.is_empty() => format!("sounds stopped: {n} (group {g})"),
             _ => format!("sounds stopped: {n}"),
         });
     }
 
-    /// End every voice live at `t` (in `group`, when given): one sounding
-    /// stops at `t`, one waiting is cancelled at its start — but a
-    /// sequence's waiting one is kept when `seq_waits`.
+    /// End live voices and group cuts at `t` (in `group`, when given): one
+    /// sounding stops at `t`, one waiting is cancelled at its start — but a
+    /// sequence's waiting one is kept when `seq_waits`. A cut at `t` must not
+    /// be restored when its successor is cancelled by the same stop.
     fn end_live(&mut self, t: f64, group: Option<&str>, seq_waits: bool) -> usize {
         let mut n = 0;
         for v in self.voices.iter_mut() {
             let kept = seq_waits && v.seq && v.at >= t;
-            if v.live(t) && !kept && group.is_none_or(|g| v.group == g) {
+            if (v.live(t) || v.by == By::Group && v.ends == t)
+                && !kept
+                && group.is_none_or(|g| v.group == g)
+            {
                 n += 1;
                 if v.at < t {
                     (v.ends, v.by) = (t, By::Stop);
@@ -723,10 +1013,15 @@ impl Sounds {
     }
 
     /// Keep the last [`RECORD`] voices, letting the oldest that is no
-    /// longer live go first: a live one is still needed for its group.
+    /// longer live go first. A group cut at `t` can still be retracted later
+    /// in this commit.
     fn trim(&mut self, t: f64) {
         while self.voices.len() > RECORD {
-            let Some(i) = self.voices.iter().position(|v| !v.live(t)) else {
+            let Some(i) = self
+                .voices
+                .iter()
+                .position(|v| !v.live(t) && !(v.by == By::Group && v.ends == t))
+            else {
                 return;
             };
             let gone = self.voices.remove(i).expect("a position in the record");

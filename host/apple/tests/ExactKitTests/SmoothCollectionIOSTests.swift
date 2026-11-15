@@ -3,7 +3,7 @@ import UIKit
 import XCTest
 @testable import ExactKit
 
-/// A correction marked smooth (a smooth
+/// LLP 1070.000 §6.2, LLP 1010 §6.8: a correction marked smooth (a smooth
 /// `scrollIntoView`, or a `scroll-behavior: smooth` list following its end)
 /// is one 0.3 s ease-in-out motion of the port; while it runs the fill
 /// reports no travel; a later smooth target retargets it from what shows;
@@ -33,7 +33,7 @@ final class SmoothCollectionIOSTests: XCTestCase {
     /// it began (a motion is 0.3 s), or at the 30 s cap, never on wall time
     /// alone: in the full parallel suite a 2 s deadline failed a motion the
     /// link had starved. What the link did goes in a failure's message and a
-    /// LATE-PASS attachment; a found livelock (the link
+    /// LATE-PASS attachment (theme2's ruling); a found livelock (the link
     /// running, the port still) fails at the budget.
     private func wait(_ what: String, frames budget: CFTimeInterval = 0.6, _ done: () -> Bool) {
         let clock = FrameClock.shared
@@ -101,7 +101,7 @@ final class SmoothCollectionIOSTests: XCTestCase {
         let p = presenter()
         list(p, correction: NSNull())
         let scroll = try XCTUnwrap(p.views[1]?.scroll)
-        // At 3x (the grid 5/3 sits on), whatever the simulator's own scale.
+        // At 3x (the grid 5/3 sits on), whatever the simulator's own scale (Astra's round 2).
         scroll.traitOverrides.displayScale = 3
         scroll.updateTraitsIfNeeded()
         // A grid offset UIKit hands back not exactly as given (the precondition, shown here).
@@ -161,7 +161,7 @@ final class SmoothCollectionIOSTests: XCTestCase {
         XCTAssertEqual(scroll.contentOffset.y, stopped, accuracy: 0.5, "left where the drag found it")
     }
 
-    /// A tap on the status bar is the reader's move of the
+    /// LLP 1070.000 §2.5: a tap on the status bar is the reader's move of the
     /// list, as a drag is, though no finger touches it: it stops a smooth
     /// request where the port is, for UIKit's scroll to the top, a correction
     /// of it planned before the tap no longer lands, and the next report says
@@ -249,7 +249,7 @@ final class SmoothCollectionIOSTests: XCTestCase {
 
     /// A followed end's measured row comes a report after its estimate,
     /// well inside a frame: a target that arrives before the motion's first
-    /// frame is still its one target, begun when it began.
+    /// frame is still its one target, begun when it began (LLP 1010 §6.8).
     /// After a frame has shown, or once the port moved under it, a retarget
     /// is a fresh ease from there; one that folds back onto the port is no
     /// motion. No frame can run between two calls on the main thread here.
@@ -316,7 +316,7 @@ final class SmoothCollectionIOSTests: XCTestCase {
         XCTAssertGreaterThan(scroll.contentOffset.y, 0.2, "set there, to the pixel")
     }
 
-    /// Under Reduce Motion a smooth correction lands at once.
+    /// LLP 1070.000 §1: under Reduce Motion a smooth correction lands at once.
     func testUnderReduceMotionASmoothCorrectionLandsAtOnce() throws {
         let p = presenter()
         let before = DisplayPreferences.agent
@@ -342,7 +342,7 @@ final class SmoothCollectionIOSTests: XCTestCase {
         XCTAssertGreaterThan(scroll.contentOffset.y, 0.1, "set at once")
     }
 
-    /// A transcript opened at its end below the bar, then
+    /// LLP 1116.000 D1.3: a transcript opened at its end below the bar, then
     /// moved under it (a route's scroller goes under a collapsing title once
     /// its push lands). UIKit clamps the offset to the taller frame and then
     /// compensates for the new inset, which together put the end an inset

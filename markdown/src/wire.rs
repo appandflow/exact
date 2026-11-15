@@ -155,7 +155,7 @@ pub fn selection(source: &str, range: Range) -> String {
     selection_with(source, range, &crate::Atoms::default())
 }
 
-/// The toolbar facts with `atoms` recognized: a selection
+/// The toolbar facts with `atoms` recognized (LLP 1045.000 D3): a selection
 /// that is exactly one atom reports its source as `atom`, a link atom's
 /// destination as `link`, and no `link` command.
 pub fn selection_with(source: &str, range: Range, atoms: &crate::Atoms) -> String {

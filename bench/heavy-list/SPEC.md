@@ -75,7 +75,7 @@ When on:
 ## UIKit (added 2026-09-29, `uikit/`, `dev.exact.heavybench.uikit`)
 
 A fourth competitor written the way a strong iOS engineer writes a performance-sensitive feed in UIKit
-(not the "most ordinary" bar the other three follow): the fairness rule applies — the same content and
+(not the "most ordinary" bar the other three follow): Charlie's fairness rule applies — the same content and
 the same work, no skipped items, lower quality or cheaper placeholders — and idiomatic UIKit optimizations are
 the point. Equivalence decisions, item by item (details in `uikit/README.md`):
 

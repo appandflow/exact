@@ -1,4 +1,4 @@
-//! Dropping across lists: the grouped session's calls, each
+//! Dropping across lists (LLP 1094 D5): the grouped session's calls, each
 //! answered with the ordinary batch and its `reorder` op (`arrange_group.rs`).
 
 use super::{not_booted, Bridge};

@@ -1,4 +1,4 @@
-// On the web, in a real browser with a real composition (CDP's
+// LLP 1115.000 §5, ruling 6, on the web, in a real browser with a real composition (CDP's
 // `Input.imeSetComposition`, which fires `compositionstart`, `compositionupdate` and `input` as an input method does;
 // `Input.insertText` commits it, an empty composition cancels it): the app hears `input` at every change, the marked
 // text included, and a value it writes meanwhile never ends the composition. It is held, the last one, and written
@@ -20,8 +20,9 @@ import { cdpBrowser, chromium } from '../../../scripts/agent-launch.mjs';
 import { need } from '../../../scripts/coverage.mjs';
 import { readyPage } from './page.mjs';
 import { standIns } from './stand-ins.mjs';
+import { fileURLToPath } from 'node:url';
 
-const ROOT = resolve(new URL('../../..', import.meta.url).pathname);
+const ROOT = resolve(fileURLToPath(new URL('../../..', import.meta.url)));
 const compiler = resolve(process.env.CARGO_TARGET_DIR ?? resolve(ROOT, 'target'), 'debug', process.platform === 'win32' ? 'contract.exe' : 'contract');
 const WEB_JS = resolve(ROOT, 'host/web-js');
 const { unavailable } = chromium();
@@ -51,7 +52,7 @@ const page = `<!doctype html><meta charset="utf-8"><div id="exact-root">
   window.tell = v => commit(() => W(told, v));
   window.ready = true;
 </script>`;
-const REAL = ['rt.js', 'held.js', 'font-family.js', 'grid.js', 'overlay.js', 'roster.js', 'router.js', 'route-pattern.js', 'schedule.js', 'budget.js', 'shape.js', 'elements.js'];
+const REAL = ['rt.js', 'clock.js', 'resources.js', 'tree.js', 'events.js', 'pieces.js', 'mount.js', 'strings.js', 'held.js', 'font-family.js', 'grid.js', 'overlay.js', 'roster.js', 'router.js', 'route-pattern.js', 'schedule.js', 'budget.js', 'shape.js', 'elements.js'];
 const STUBS = standIns(REAL);
 const module = name => REAL.includes(name) ? readFileSync(resolve(WEB_JS, name))
   : STUBS.get(name) ?? null;

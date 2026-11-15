@@ -1,4 +1,4 @@
-// The recorder, driven: the microphone through
+// The recorder, driven (LLP 1133.009 §11): the microphone through
 // @exact/media-capture and @exact/recording, each implementation its own
 // substitute under the agent. `smoke.mjs` runs this for `--app recorder`: on
 // the web, macOS and iOS, one session records on the agent's clock, its
@@ -81,11 +81,11 @@ export async function recorderSmoke({ host, open, check: record_ }) {
     await s.close?.();
     rmSync(tmp, { recursive: true, force: true });
   }
-  console.log(`${host} recorder: ${checks - failed} of ${checks} checks passed in ${((Date.now() - t0) / 1000).toFixed(1)} s`);
+  console.log(`${host} recorder: ${checks - failed} of ${checks} checks passed in ${((Date.now() - t0) / 1000).toFixed(1)} s (LLP 1133.009)`);
 }
 
 // Two sessions of the sample host: each its own tracks and recorders over the
-// process's one capture; one records on after the other is destroyed.
+// process's one capture; one records on after the other is destroyed (D3, D6).
 export async function recorderSessions({ host, open }) {
   const failures = [];
   const check = (ok, what) => { if (!ok) failures.push(what); };

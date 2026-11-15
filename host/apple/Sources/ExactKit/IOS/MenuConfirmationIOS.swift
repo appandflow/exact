@@ -21,7 +21,8 @@ extension MenuHost {
     typealias ConfirmationDelegate = UIPopoverPresentationControllerDelegate
     #endif
     /// The alert's preferred action, drawn bold and taking a hardware
-    /// Return: the Mac's default button (`AlertsMac.defaultRow`), the one `filled` action that is not destructive, when exactly
+    /// Return: the Mac's default button (`AlertsMac.defaultRow`, LLP 1115.000
+    /// D7.3), the one `filled` action that is not destructive, when exactly
     /// one is; emphasis never picks among several. A prompt's Return is its
     /// first action that is not destructive (`PromptField.returned`), so
     /// there the filled action is preferred only when it is that one: the
@@ -33,12 +34,13 @@ extension MenuHost {
         guard filled.count == 1, prompt || cancel?.face?.style != "filled" else { return nil }
         return !prompt || destructive.firstIndex(of: false) == filled[0] ? filled[0] : nil
     }
-    /// By the HIG: a confirmation — explanatory text, a
+    /// LLP 1115 D6, by the HIG: a confirmation — explanatory text, a
     /// cancel, at most three buttons — is an alert, centred, its Cancel
     /// kept (React Native's `Alert.alert`, SwiftUI's `.alert`). Anything
     /// else is an action sheet: UIKit's unanchored one on a compact screen
     /// when it has a cancel to show (UIKit draws no cancel in a popover), else a
-    /// popover, which a tap outside dismisses. An alert has no outside, so a `dialog` of the alert's shape whose author wrote
+    /// popover, which a tap outside dismisses. An alert has no outside (LLP
+    /// 1115.000 D13.4), so a `dialog` of the alert's shape whose author wrote
     /// `closedby="any"` (`outside`) is the dismissible form too.
     /// Something can be chosen: an action that is choosable, or none at
     /// all, the one-button alert whose button is its cancel.
@@ -54,7 +56,7 @@ extension MenuHost {
         #endif
     }
     final class Confirmation: NSObject, ConfirmationDelegate {
-        /// How it shows: `alert`, the platform's centred
+        /// How it shows (LLP 1115 D6): `alert`, the platform's centred
         /// alert, for a confirmation (a message and a cancel, at most three
         /// buttons); `sheet`, UIKit's unanchored action sheet on a compact
         /// screen (its Cancel drawn; iOS 27 places it mid-screen), for a chooser with a cancel; `popover`, the sheet as a

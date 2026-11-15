@@ -3,7 +3,9 @@
 # inputs, entry points — is generated as Rust the surface compiles against.
 # Depends on naga (and sha2 for the interface digest) alone, so a `build.rs`
 # can use it without building wgpu for the build host; `exact-gpu` links it
-# at run time too, for the same digest over a candidate shader.
+# at run time too, for the same digest over a candidate shader (LLP 1030 D8).
+#
+# @ref LLP 1009 D5
 [package]
 name = "exact-gpu-reflect"
 version.workspace = true

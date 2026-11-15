@@ -1,4 +1,4 @@
-// The attestation drives 1 to 5 under the agent, with the
+// LLP 1133.028 §8.4's attestation drives 1 to 5 under the agent, with the
 // auth fixture's "Check this build" against its server (apps/auth-fixture/
 // fixture.mjs, started with --substitute so it accepts the agent's tokens).
 //
@@ -122,7 +122,7 @@ const drives = {
     check(11, 'and the row shows no button', (await text(s, 'attestation-status')) === 'Attestation: unavailable' && !(await s.find('check-build', false).catch(() => null)), await text(s, 'attestation-status'));
   },
   async 5(s) {
-    // After drive 1: no state field or journal line holds a token.
+    // After drive 1: no state field or journal line holds a token (D2).
     const st = JSON.stringify(await s.state()), j = await journal(s);
     const secret = /"token"|clientDataHash|exact-substitute/;
     check(5, 'no state field or journal line holds a token', !secret.test(st) && !secret.test(j), (st.match(secret) ?? j.match(secret))?.[0]);

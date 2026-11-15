@@ -1,12 +1,11 @@
-// NSURLSession behind the Transport trait: the platform half of the fetch
-// split.
+// NSURLSession behind the Transport trait: the platform half of LLP 0057 §3.
 //
 // What this buys, none of which Rust should reimplement: TLS with the system
 // certificate store, system and per-network proxy configuration, VPN
 // awareness, HTTP/2 and /3, and connection pooling.
 //
 // THE CRITICAL DETAIL: NSURLSession follows redirects by default, and it must
-// not. Redirect policy is Rust's, and — far more
+// not. Redirect policy is Rust's (LLP 0059.000 §3.5), and — far more
 // importantly — Rust re-checks the net.fetch grant on every hop. If the
 // platform followed redirects internally, a grant for a.example would silently
 // deliver a response from b.example, reintroducing exactly the redirect
@@ -14,7 +13,7 @@
 // every redirect by completing with nil, so the 3xx comes back to Rust to
 // decide on.
 //
-// The platform executes; it does not decide.
+// @ref LLP 0057#3-the-boundary — the platform executes; it does not decide
 
 #import <Foundation/Foundation.h>
 
@@ -159,6 +158,7 @@ char *dup_utf8(NSString *value) {
     [exchange finishWith:@"TypeError: Failed to fetch — no response"];
   } else if (hasBody && response.expectedContentLength >= 0 &&
              (unsigned long long)response.expectedContentLength > exchange.limit) {
+    exchange.response = (NSHTTPURLResponse *)response;
     [exchange finishWith:[NSString stringWithFormat:
         @"TypeError: Failed to fetch — response exceeded the %lu-byte limit",
         (unsigned long)exchange.limit]];
@@ -253,7 +253,7 @@ extern "C" {
 /// the previous native task finishes, preserving its platform connection pool.
 /// Serial delegate queues preserve per-task callback order while the four
 /// leases bound native callback concurrency and application handoff buffers.
-/// Pooling is the platform's job.
+/// @ref LLP 0057#3-the-boundary — pooling is the platform's job
 static NSURLSession *new_session(void) {
   @autoreleasepool {
     NSURLSessionConfiguration *config =
@@ -268,7 +268,7 @@ static NSURLSession *new_session(void) {
     // granted per *origin*, while cookies are RFC 6265 *domain*-scoped, so a
     // module granted evil.example.com could set a cookie for example.com that
     // the platform then attaches to another module's request to
-    // app.example.com. v1 has no credentials mode, so the
+    // app.example.com. v1 has no credentials mode (LLP 0059.000 §3.5), so the
     // correct number of cookies is zero. Ibex 1 already did this
     // (src/engine/native_fetch_macos.mm).
     config.HTTPCookieAcceptPolicy = NSHTTPCookieAcceptPolicyNever;
@@ -340,7 +340,8 @@ void ibex2_darwin_session_destroy(void *handle) {
 // headers. Inputs are copied by Foundation before this function returns.
 void *ibex2_darwin_http_start(void *session_handle, const char *method,
     const char *url, const char *header_block, const unsigned char *body,
-    size_t body_len, size_t max_body, double timeout_seconds, char **out_error) {
+    size_t body_len, size_t max_body, double timeout_seconds, int speculative,
+    char **out_error) {
   @autoreleasepool {
     *out_error = nullptr;
     NSURL *nsurl = [NSURL URLWithString:[NSString stringWithUTF8String:url]];
@@ -362,6 +363,8 @@ void *ibex2_darwin_http_start(void *session_handle, const char *method,
     }
     if (body_len > 0) request.HTTPBody = [NSData dataWithBytes:body length:body_len];
     if (timeout_seconds > 0) request.timeoutInterval = timeout_seconds;
+    // Low Data Mode refuses a request nobody has asked for yet (Exact patch 37).
+    if (speculative) request.allowsConstrainedNetworkAccess = NO;
     Ibex2Exchange *exchange = [[Ibex2Exchange alloc] initWithLimit:max_body];
     exchange.pool = pool;
     exchange.request = request;
@@ -423,16 +426,19 @@ int ibex2_darwin_http_headers(void *handle, int *out_status,
       [exchange.condition unlock];
       return 2;
     }
+    // A head that arrived is handed back with a failure too (Exact patch 31).
+    if (exchange.response != nil) {
+      *out_status = (int)exchange.response.statusCode;
+      NSMutableString *headers = [NSMutableString string];
+      [exchange.response.allHeaderFields enumerateKeysAndObjectsUsingBlock:
+          ^(id key, id value, BOOL *) { [headers appendFormat:@"%@: %@\n", key, value]; }];
+      *out_headers = dup_utf8(headers);
+    }
     if (exchange.failure != nil) {
       *out_error = dup_utf8(exchange.failure);
       [exchange.condition unlock];
       return 1;
     }
-    *out_status = (int)exchange.response.statusCode;
-    NSMutableString *headers = [NSMutableString string];
-    [exchange.response.allHeaderFields enumerateKeysAndObjectsUsingBlock:
-        ^(id key, id value, BOOL *) { [headers appendFormat:@"%@: %@\n", key, value]; }];
-    *out_headers = dup_utf8(headers);
     [exchange.condition unlock];
     return 0;
   }

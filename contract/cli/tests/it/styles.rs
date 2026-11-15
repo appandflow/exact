@@ -1,4 +1,4 @@
-//! Named styles, proven on the kernel's rows after boot.
+//! LLP 1017 P6: named styles, proven on the kernel's rows after boot.
 use exact_kernel::{Color, Dimension, Kernel, WhiteSpace};
 use exact_plan::Value;
 use exact_runner::{DataError, DataSource, Runner};
@@ -242,10 +242,7 @@ fn enum_refusals_list_accepted_values_and_each_suggestion_compiles() {
     let error =
         contract::compile("component App\n  view\n    view wrap-flow=\"start\"\n").unwrap_err();
     assert_eq!(error.id, "lower-attr-value");
-    assert!(
-        error.message.contains("implements `both` (or `auto`)"),
-        "{error}"
-    );
+    assert!(error.message.contains("Write one of auto, both"), "{error}");
     assert!(
         !error.message.contains("expected one of"),
         "narrow authoring rule remains authoritative"
@@ -253,6 +250,7 @@ fn enum_refusals_list_accepted_values_and_each_suggestion_compiles() {
 }
 #[test]
 fn nowrap_and_tabular_nums_reach_the_kernel_and_other_numeric_keywords_are_refused_by_name() {
+    // @ref LLP 1053 §0 G4, G5
     let source = "component App\n  state tab = true\n  view\n    text \"111\" testId=\"target\" white-space=\"nowrap\" font-variant-numeric=(tab ? \"tabular-nums\" : \"normal\")\n";
     let plan = contract::compile(source).unwrap();
     let r = Runner::boot(
@@ -354,7 +352,7 @@ fn refused(attrs: &str) -> contract::CompileError {
     contract::compile(&format!("component App\n  view\n    view {attrs}\n")).unwrap_err()
 }
 
-/// CSS `aspect-ratio` — `auto`, a ratio, or both.
+/// LLP 1053 G1: CSS `aspect-ratio` — `auto`, a ratio, or both.
 #[test]
 fn aspect_ratio_takes_the_css_grammar() {
     use exact_kernel::ratio::AspectRatio;
@@ -381,7 +379,7 @@ fn aspect_ratio_takes_the_css_grammar() {
         .contains("auto 4 / 3"));
 }
 
-/// `flex-grow` is the longhand (`flex-basis` stays `auto`);
+/// LLP 1053 G3: `flex-grow` is the longhand (`flex-basis` stays `auto`);
 /// the later of `flex` and `flex-grow` sets the grow factor, as the later
 /// CSS declaration wins; a negative factor is refused.
 #[test]
@@ -389,13 +387,19 @@ fn flex_grow_is_a_longhand_and_the_later_binding_wins() {
     let r = boot("component App\n  view\n    row\n      view flex-grow=1 testId=\"grow\"\n      view flex=1 flex-grow=3 testId=\"flex-then-grow\"\n      view flex-grow=3 flex=1 testId=\"grow-then-flex\"\n");
     let grow = style_of(&r, "grow");
     assert_eq!(
-        (grow.flex_grow, grow.flex_shrink, grow.flex_basis),
+        (grow.flex_grow, grow.flex_shrink, grow.flex_basis.clone()),
         (1.0, 1.0, Dimension::Auto)
     );
     let a = style_of(&r, "flex-then-grow");
-    assert_eq!((a.flex_grow, a.flex_basis), (3.0, Dimension::Percent(0.0)));
+    assert_eq!(
+        (a.flex_grow, a.flex_basis.clone()),
+        (3.0, Dimension::Percent(0.0))
+    );
     let b = style_of(&r, "grow-then-flex");
-    assert_eq!((b.flex_grow, b.flex_basis), (1.0, Dimension::Percent(0.0)));
+    assert_eq!(
+        (b.flex_grow, b.flex_basis.clone()),
+        (1.0, Dimension::Percent(0.0))
+    );
     for attrs in ["flex-grow=-1", "flex-shrink=-1", "flex=-2"] {
         let e = refused(attrs);
         assert_eq!(e.id, "lower-attr-value", "{attrs}: {e}");
@@ -403,8 +407,8 @@ fn flex_grow_is_a_longhand_and_the_later_binding_wins() {
     }
 }
 
-/// `direction` is CSS `direction` (inherited), not a spelling of
-/// `flex-direction`.
+/// LLP 1053: `direction` is CSS `direction` (inherited), no longer an old
+/// spelling of `flex-direction`.
 #[test]
 fn direction_is_css_direction() {
     use exact_kernel::Direction;
@@ -470,7 +474,7 @@ fn transparent_is_a_colour() {
     );
 }
 
-/// `background-image` takes `none` or one gradient — as an
+/// LLP 1066: `background-image` takes `none` or one gradient — as an
 /// attribute, in a `style`, and in a conditional — and what no host draws
 /// is refused at compile time, by name.
 #[test]
@@ -515,8 +519,8 @@ fn background_image_takes_one_gradient_and_refuses_the_rest_by_name() {
     let e =
         refused("background-image=(true ? \"none\" : \"repeating-conic-gradient(#000, #fff)\")");
     assert!(e.message.contains("conic"), "{e}");
-    // A computed value's own text (a grid the web would paint
-    // and the Mac drop): the function it names is refused on every target.
+    // A computed value's own text (studio diary R15: a grid the web painted
+    // and the Mac dropped): the function it names is refused on every target.
     let e = refused(
         "background-image=`repeating-radial-gradient(#0001 0 1px, transparent 1px ${10}px)`",
     );
@@ -559,7 +563,7 @@ fn backdrop_saturation_is_admitted_alone_and_beside_blur() {
 
 #[test]
 fn pre_and_backdrop_filter_reach_the_kernel_and_the_rest_of_css_filters_is_refused_by_name() {
-    // A dynamic value takes the same
+    // @ref LLP 1053 G5; LLP 1053.000 D1 — a dynamic value takes the same
     // grammar at run time as a literal at compile time.
     let source = "component App\n  state blur = 8\n  state saturation = 1.14\n  view\n    main\n      box testId=\"glass\" backdrop-filter=\"blur(\" + blur.toString() + \"px) saturate(\" + saturation.toString() + \" )\"\n        text \"a\\tb\" testId=\"code\" white-space=\"pre\"\n      box testId=\"plain\" backdrop-filter=\"none\"\n";
     let plan = contract::compile(source).unwrap();
@@ -599,7 +603,7 @@ fn pre_and_backdrop_filter_reach_the_kernel_and_the_rest_of_css_filters_is_refus
     }
 }
 
-/// `glassGroup="auto"`, alone or in a choice with
+/// LLP 1053.000.000.000 D1: `glassGroup="auto"`, alone or in a choice with
 /// numbers (nested too), lowers to the reserved `-1`; every literal arm is a
 /// spacing from 0 to 10,000; any other string is refused.
 #[test]
@@ -655,9 +659,9 @@ component Group
     assert_eq!(spacing(&r, "auto"), Some(PropValue::Float(-1.0)));
     assert_eq!(spacing(&r, "choice"), Some(PropValue::Float(-1.0)));
     assert_eq!(spacing(&r, "nested"), Some(PropValue::Float(4.0)));
-    // A component's derive read twice is a `let`.
+    // A component's derive read twice is a `let` (both reviews of the build).
     assert_eq!(spacing(&r, "shared"), Some(PropValue::Float(-1.0)));
-    // A component's string prop forwarding "auto".
+    // A component's string prop forwarding "auto" (astra's review).
     assert_eq!(spacing(&r, "forwarded"), Some(PropValue::Float(-1.0)));
     let id = |r: &Runner<NoData>, t: &str| {
         let k = r.kernel();
@@ -692,7 +696,7 @@ component Group
     }
 }
 
-/// `glassGroup` is a float prop in points that
+/// LLP 1053.000.000 D1, D6: `glassGroup` is a float prop in points that
 /// makes no containing block, refused out of range and where a group cannot
 /// be: beside the element's own material, on a scroll, on a canvas.
 #[test]
@@ -771,7 +775,7 @@ fn a_glass_group_is_a_spacing_and_refused_where_it_cannot_group() {
     contract::compile("component App\n  view\n    box glassGroup=0 overflow=\"hidden\"\n").unwrap();
 }
 
-/// `position` is `static` unless authored, except on a box that
+/// LLP 1074 T1: `position` is `static` unless authored, except on a box that
 /// contains its absolutely positioned descendants on every host, which is
 /// lowered `relative`; an authored `static` there is refused.
 #[test]
@@ -1151,7 +1155,7 @@ component Corners
     let style = |r: &Runner<NoData>, name: &str| {
         let k = r.kernel();
         let n = k.node_by_key(k.find_by_test_id(name)[0]).unwrap();
-        (n.id, n.style.border_radius_top_left)
+        (n.id, n.style.border_radius_top_left.clone())
     };
     let (id, initial) = style(&r, "box");
     assert_eq!(initial, Dimension::Points(4.0));
@@ -1200,7 +1204,7 @@ fn css_flex_shorthands_lower_in_order_to_the_longhands() {
         ));
         let s = style_of(&r, "item");
         assert_eq!(
-            (s.flex_grow, s.flex_shrink, s.flex_basis),
+            (s.flex_grow, s.flex_shrink, s.flex_basis.clone()),
             (grow, shrink, basis),
             "{value}"
         );
@@ -1224,22 +1228,23 @@ fn css_flex_shorthands_lower_in_order_to_the_longhands() {
     let r = boot("component App\n  state w = 200\n  view\n    row\n      view flex-grow=1 flex-shrink=0 flex-basis=`${w}px` testId=\"item\"\n");
     let s = style_of(&r, "item");
     assert_eq!(
-        (s.flex_grow, s.flex_shrink, s.flex_basis),
+        (s.flex_grow, s.flex_shrink, s.flex_basis.clone()),
         (1.0, 0.0, Dimension::Points(200.0))
     );
 }
 
 #[test]
 fn a_zero_minimum_scroller_can_shrink_under_a_bounded_column() {
-    for bound in ["height=200", "max-height=200", "max-height=\"100%\""] {
-        contract::compile(&format!("component App\n  view\n    column {bound}\n      scroll flex-shrink=1 min-height=0\n        box height=1000\n")).unwrap();
-    }
-    for parent in ["column", "box height=200"] {
-        let e = contract::compile(&format!(
-            "component App\n  view\n    {parent}\n      scroll flex-shrink=1 min-height=0\n"
-        ))
-        .unwrap_err();
-        assert_eq!(e.id, "lower-scroll-unbounded");
+    // A scroll container's automatic minimum is zero: a bare `scroll` is one.
+    for scroll in ["scroll flex-shrink=1 min-height=0", "scroll"] {
+        for bound in ["height=200", "max-height=200", "max-height=\"100%\""] {
+            contract::compile(&format!("component App\n  view\n    column {bound}\n      {scroll}\n        box height=1000\n")).unwrap();
+        }
+        for parent in ["column", "box height=200"] {
+            let src = format!("component App\n  view\n    {parent}\n      {scroll}\n");
+            let e = contract::compile(&src).unwrap_err();
+            assert_eq!(e.id, "lower-scroll-unbounded");
+        }
     }
 }
 
@@ -1268,8 +1273,8 @@ fn a_css_width_transition_names_the_engine_limit_not_a_syntax_error() {
         e.message.contains("opacity") && e.message.contains("border-color"),
         "{e}"
     );
-    // Each layout property's refusal leads with the row that animates it,
-    // and every example it gives compiles; an inset's needs a
+    // Each layout property's refusal leads with the row that animates it
+    // (LLP 1063 D6), and every example it gives compiles; an inset's needs a
     // positioned box, so it is not a no-op on a static one.
     for p in "width min-width margin flex-basis gap right left top bottom".split(' ') {
         let m = refused(&format!("transition=\"{p} 200ms ease\"")).message;
@@ -1285,8 +1290,13 @@ fn a_css_width_transition_names_the_engine_limit_not_a_syntax_error() {
         contract::compile(&app).unwrap_or_else(|e| panic!("{p}: {e}"));
     }
     assert!(!e.message.contains("not a CSS"), "{e}");
-    let malformed = refused("transition=\"opacity 20ms gibberish\"");
-    assert!(malformed.message.contains("invalid transition components"));
+    let malformed = refused("transition=\"opacity 20ms gibberish\"").message;
+    assert!(
+        malformed.contains("components: `gibberish` is neither a time"),
+        "{malformed}"
+    );
+    let unitless = refused("transition=\"opacity 0.3\"").message;
+    assert!(unitless.contains("`0.3` is not a time"), "{unitless}");
     for v in [
         "opacity 200ms ease",
         "border-color 200ms ease",
@@ -1450,7 +1460,7 @@ fn both_decoration_lines_are_written_as_css_in_either_order() {
     );
 }
 
-/// CSS's `background` shorthand names the longhand Contract takes.
+/// App farm wave 1: CSS's `background` shorthand names the longhand Contract takes.
 #[test]
 fn the_background_shorthand_names_background_color() {
     let e = refused("background=\"#eee\" width=1 height=1");

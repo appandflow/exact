@@ -4,7 +4,7 @@ import XCTest
 @testable import ExactKit
 @testable import ExactSurfaces
 
-/// A painted popover the agent lifts into the top layer is out
+/// A painted popover the agent lifts into the top layer (LLP 1021 D4) is out
 /// of the page whose recognizers would hear its touches: its layer relays a
 /// touch's pointer events, long press and double tap to the popover's
 /// authored ancestors (`MountRelay`), and the agent's walks reach them too.

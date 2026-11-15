@@ -1,12 +1,13 @@
 //! Where the executor offers no store, a let-go answer's continuation, every
-//! store operation throws rather than reading as "nothing kept",
+//! store operation throws rather than reading as "nothing kept" (LLP 1146 D3),
 //! with the castle fixture.
 #![cfg(exact_js_engine)]
 use super::castle::{later, module, now, store};
 use exact_plan::Value;
 
 /// The continuation of a let-go answer runs with no store: reading it
-/// throws, as a write does, rather than reading as "nothing kept".
+/// throws, as a write does, rather than reading as "nothing kept"
+/// (LLP 1146 D3).
 #[test]
 fn a_let_go_continuation_cannot_read_the_store() {
     use exact_runner::{DataSource, Target};
@@ -25,7 +26,7 @@ fn a_let_go_continuation_cannot_read_the_store() {
     );
 }
 
-/// So does every other store operation there, each naming itself.
+/// So does every other store operation there, each naming itself (LLP 1146 D3).
 #[test]
 fn a_let_go_continuation_has_no_store_for_any_operation() {
     use exact_runner::{DataSource, Target};

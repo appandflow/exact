@@ -1,9 +1,9 @@
-// The base scale (`scale` in tables/schema.json): nine
+// The base scale (LLP 1121 stage 11 B; `scale` in tables/schema.json): nine
 // names an app's views read with no design defining them, a length in each
 // column. Each cell names its source, and the build resolves it here, so a
 // cell can never drift from the metric it reads. Read by `style/scale.rs`.
 
-/// The base names, in the table's order (these nine only).
+/// The base names, in the table's order (ruling 5: these nine only).
 const SCALE_NAMES: [&str; 9] = [
     "space.xs",
     "space.sm",
@@ -17,12 +17,12 @@ const SCALE_NAMES: [&str; 9] = [
 ];
 /// The scale's columns, in a row's order after its name.
 /// (No web column: the web draws the neutral look, and `style::scale` reads
-/// the neutral cell for `Column::Web`.)
+/// the neutral cell for `Column::Web`, theme2 2026-10-19.)
 const SCALE_COLUMNS: [&str; 5] = ["ios", "macos", "neutral", "material", "terminal"];
 
 /// Metric `name`'s value in `column` (`SCALE_COLUMNS`' index), in px: a
-/// `length` row's number there, or a `style length` row's (the unit flag: a
-/// `style` row written on a length property; a plain `style` row's
+/// `length` row's number there, or a `style length` row's (theme2's unit
+/// flag: a `style` row written on a length property; a plain `style` row's
 /// bare number may be a weight or a flex factor). The build refuses any
 /// other: a reference reads a length, never text, `em`, `rem` or `unset`.
 fn scale_metric(metrics: &[MetricRow], cell: &str, column: usize, name: &str) -> f64 {
@@ -134,8 +134,8 @@ fn scale_cell(
                 Some(n),
             )
         }
-        // A metric borrowed for a role it doesn't name, a deliberate stretch:
-        // read as `=metric` is, with its reason in a line
+        // A metric borrowed for a role it doesn't name, where theme2 ruled
+        // it (stage 13 D5): read as `=metric` is, with its reason in a line
         // and its entry under docs/scale-measured.md's Role stretches.
         V::Object(o) if o.contains_key("stretch") => {
             let (Some(V::String(text)), Some(V::String(why))) = (o.get("stretch"), o.get("why"))
@@ -226,11 +226,11 @@ fn scale_cell(
     }
 }
 
-/// `scale`: the base names' lengths, each cell
+/// `scale` (LLP 1121 stage 11 B): the base names' lengths, each cell
 /// resolved to its source here. Read by `style/scale.rs`.
 fn write_scale(w: &mut String, scale: &[Vec<serde_json::Value>], metrics: &[MetricRow]) {
     w.push_str(concat!(
-        "/// A base-scale value in one column.\n",
+        "/// A base-scale value in one column (LLP 1121 stage 11 B).\n",
         "#[derive(Debug, Clone, Copy, PartialEq)]\n",
         "pub enum ScaleValue {\n",
         "    /// Pixels (points).\n    Px(f64),\n",
@@ -241,7 +241,7 @@ fn write_scale(w: &mut String, scale: &[Vec<serde_json::Value>], metrics: &[Metr
         "#[derive(Debug, Clone, Copy, PartialEq, Eq)]\n",
         "pub enum ScaleSource {\n",
         "    /// A metrics row in the same column, read when the kernel was built.\n    Metric(&'static str),\n",
-        "    /// A metrics row read for a role it doesn't name, a deliberate\n    /// stretch, and why.\n    Stretch {\n        /// The metrics row.\n        metric: &'static str,\n        /// Why, in a line.\n        why: &'static str,\n    },\n",
+        "    /// A metrics row read for a role it doesn't name, where theme2 ruled the\n    /// stretch (stage 13 D5), and why.\n    Stretch {\n        /// The metrics row.\n        metric: &'static str,\n        /// Why, in a line.\n        why: &'static str,\n    },\n",
         "    /// A measurement, by its entry in docs/scale-measured.md.\n    Measured(&'static str),\n",
         "    /// A published guideline or the neutral look's own steps, by its entry there.\n    Guideline(&'static str),\n",
         "    /// radius.full's oversized length.\n    Full,\n",
@@ -266,7 +266,7 @@ fn write_scale(w: &mut String, scale: &[Vec<serde_json::Value>], metrics: &[Metr
         .collect();
     assert_eq!(
         names, SCALE_NAMES,
-        "schema: the scale's rows are the nine base names, in order"
+        "schema: the scale's rows are the nine base names, in order (ruling 5)"
     );
     // Every measured or guideline cell's entry, read here; the build reruns
     // when the page changes (said here, not in build.rs, which the schema

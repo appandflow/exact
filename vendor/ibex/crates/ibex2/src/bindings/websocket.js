@@ -1,7 +1,7 @@
-// WHATWG WebSocket over the Rust WebSocket library and host event subscription.
+// WHATWG WebSocket over the Rust WebSocket library and L3 event subscription.
 // The completion value is a factory: caller-owned runtimes invoke it once with
 // their installer endowment, while the secure loader invokes it per grant set.
-// WebSocket authority is a lexical module binding.
+// @ref LLP 0067#1-five-properties — WebSocket authority is a lexical module binding
 (function (global) {
   "use strict";
 
@@ -31,7 +31,6 @@
   var URLCtor = global.URL;
   var StringCtor = global.String;
   var stringIndexOf = StringCtor.prototype.indexOf;
-  var stringToLowerCase = StringCtor.prototype.toLowerCase;
   var stringCharCodeAt = StringCtor.prototype.charCodeAt;
   var NumberCtor = global.Number;
   var NumberIsNaN = NumberCtor.isNaN;
@@ -139,9 +138,8 @@
     for (var i = 0; i < values.length; i++) {
       var protocol = domString(values[i]);
       if (!token(protocol)) throw syntax("A WebSocket protocol is not an HTTP token");
-      var folded = call(stringToLowerCase, protocol, []);
       for (var j = 0; j < result.length; j++) {
-        if (call(stringToLowerCase, result[j], []) === folded) {
+        if (result[j] === protocol) {
           throw syntax("WebSocket protocols must not contain duplicates");
         }
       }

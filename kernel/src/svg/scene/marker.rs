@@ -1,4 +1,4 @@
-//! Markers (SVG 2 §11.6): the `marker`s a shape's
+//! Markers (LLP 1055.000 D9; SVG 2 §11.6): the `marker`s a shape's
 //! `marker-start`, `marker-mid` and `marker-end` name, instanced at its
 //! vertices.
 //!

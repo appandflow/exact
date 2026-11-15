@@ -1,7 +1,8 @@
 # Heavy list: egui on macOS and Windows
 
-This is benchmark apparatus, a separate Cargo workspace.
-The shared driver and probe measured all four arms.
+@ref LLP 1149 §4.1; G4. This is benchmark apparatus, a separate Cargo workspace.
+The shared driver and probe measured all four arms; see
+[G4 results](../gpui/RESULTS.md#g4-four-arms-egui-beside-gpui-ink-and-the-native-host).
 
 ## Implementation
 
@@ -155,10 +156,11 @@ build/test/check commands used this worktree's `target/`; tests used
 `target/g4b/checks/`. These checks preceded the timed series.
 
 The orchestrator subsequently ran the prepared series on 2026-10-29.
-The series records five quiet fling/rest rounds and ten selected successful
-cold launches per arm, including the resumed cold phase's unmonitored samples.
-Egui timed out before its first complete scene in one of thirteen timed attempts, an
-unexplained intermittent failure. The four new row-zero
+[G4](../gpui/RESULTS.md#g4-four-arms-egui-beside-gpui-ink-and-the-native-host)
+records five quiet fling/rest rounds and ten selected successful cold launches
+per arm, including the resumed cold phase's unmonitored samples. Egui timed
+out before its first complete scene in one of thirteen timed attempts;
+`QUEUE.md` tracks that unexplained intermittent failure. The four new row-zero
 captures supersede G4a's egui capture.
 
 ## G6: Windows
@@ -183,7 +185,7 @@ It runs once. Eframe's public render state exposes the adapter, instance,
 device, queue and renderer, but no surface or DXGI swap chain; this arm cannot
 read DXGI frame statistics. PresentMon observes displayed frames separately.
 
-Build in the Windows machine's mirror of the checkout, with the SDK's `fxc` on PATH and the prepared
+Build in the NucBox mirror, with the SDK's `fxc` on PATH and the prepared
 `../data`, `../exact-heavylist/data/messages.json` and app assets present:
 
 ```powershell
@@ -234,4 +236,5 @@ limit. Its startup values are excluded from the reported startup distribution.
 G6c's Ink runs also record `painterSnapshots` and `successfulFrames` from the
 exit log. These count the whole process, including startup; they are written
 after the fling/rest CPU endpoints. The snapshot count includes a completed
-paint whose present was refused.
+paint whose present was refused. See [G6c](../gpui/RESULTS.md#g6c-one-paint-per-refresh)
+for the carrier's pacing change and remeasurement.

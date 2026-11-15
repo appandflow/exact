@@ -1,15 +1,16 @@
-//! `contract gallery <app> -o <dir>`: the design tool's variant gallery. It
-//! writes a Contract app into `<dir>` that places each exported library
-//! component the app uses once per cell: the first values of its variant
-//! props, then each other value of each alone, never their cross product
-//! (`cells`, as apps/library-gate's `cellsFor`). Every other prop gets a
-//! placeholder by its type, for showing only. The gallery's `app.json` names
-//! the app's own design, so it folds the app's current tokens and params. A
-//! cell the compiler refuses says so in place ("can't place: …"); the rest
-//! still show. Nothing here touches a build of the app: `<dir>` is the
-//! caller's build cache, under a `node_modules` or `target` directory (which
-//! git and describe's files don't hold), and must reach the app's packages
-//! where the app reaches them.
+//! `contract gallery <app> -o <dir>`: the design tool's variant gallery
+//! (LLP 1139 D5, §9 Q2 and Q5). It writes a Contract app into `<dir>` that
+//! places each exported library component the app uses once per cell:
+//! the first values of its variant props, then each other value of each
+//! alone, never their cross product (`cells`, as apps/library-gate's
+//! `cellsFor`). Every other prop gets a placeholder by its type, for
+//! showing only. The gallery's `app.json` names the app's own design, so
+//! it folds the app's current tokens and params. A cell the compiler
+//! refuses says so in place ("can't place: …"); the rest still show.
+//! Nothing here touches a build of the app: `<dir>` is the caller's build
+//! cache, under a `node_modules` or `target` directory (which git and
+//! describe's files don't hold), and must reach the app's packages where
+//! the app reaches them.
 
 mod inert;
 
@@ -612,8 +613,9 @@ fn placed<'a>(
             variants: {
                 // Its variant props, then each string prop its view compares
                 // with literals in an `if`: those literals and the empty
-                // string, one cell each; and each enum prop it compares so,
-                // by `==` or `!=` (VerifiedBadge's `badge`, PostCard's and
+                // string, one cell each (stage 15 D4 batch 1 #2); and each
+                // enum prop it compares so, by `==` or `!=` (VerifiedBadge's
+                // `badge`, an enum since stage 15 B batch 2, PostCard's and
                 // PersonRow's `if badge != "none"`, FollowButton's `icon`):
                 // every value it declares, in order, one cell each.
                 let mut variants = contract_lower::anatomy::described(c, file).variants;
@@ -823,7 +825,7 @@ fn gallery_manifest(app: &crate::Manifest, design: Option<&Path>, out: &Path) ->
         let design = design
             .canonicalize()
             .unwrap_or_else(|_| design.to_path_buf());
-        json["tamber"] = relative(out, &design).into();
+        json["forma"] = relative(out, &design).into();
     }
     format!(
         "{}\n",
@@ -955,7 +957,8 @@ fn source(
                     args(p.component, file, shapes, compiler, inert, &c.values).unwrap_or_default();
                 let _ = writeln!(s, "          {}({})", c.component, args.join(", "));
                 // A slot's sample: a tinted block that says so, so a component whose slot is its
-                // whole content (a menu's group) shows something inside its frame.
+                // whole content (a menu's group) shows something inside its frame (stage 15 D4
+                // batch 3 #1).
                 if p.component.slot {
                     let _ = writeln!(
                         s,
@@ -984,7 +987,7 @@ fn source(
 fn compiler_records() -> BTreeMap<String, Vec<(String, Ty)>> {
     let shapes = contract_syntax::parse("component G\n  view\n    column\n")
         .ok()
-        .and_then(|f| contract_types::check_declarations(&f).ok());
+        .and_then(|f| contract_types::check_declarations(&f, None).ok());
     contract_types::records::COMPILER_RECORDS
         .iter()
         .filter_map(|n| Some((n.to_string(), shapes.as_ref()?.map.get(*n)?.clone())))
@@ -1025,10 +1028,10 @@ fn compiler_record(
 }
 
 /// The roles a component's colour props are shown with, in their declared
-/// order: two colours one draws over the other (VerifiedBadge's disc and its
-/// check) never get the same one, and each is a colour text or a mark shows
-/// on the gallery's background (a second text colour must not vanish into
-/// it).
+/// order: two colours one draws over the other (VerifiedBadge's disc and
+/// its check, D4 batch 2 #5) never get the same one, and each is a colour
+/// text or a mark shows on the gallery's background (a second text colour
+/// must not vanish into it).
 const COLOUR_SAMPLES: [&str; 4] = [
     "-exact-label",
     "-exact-system-blue",
@@ -1303,9 +1306,9 @@ mod tests {
         assert_eq!(
             relative(
                 Path::new("/a/b/target/g"),
-                Path::new("/a/b/apps/x/app.tamber")
+                Path::new("/a/b/apps/x/app.forma")
             ),
-            "../../apps/x/app.tamber"
+            "../../apps/x/app.forma"
         );
     }
 }

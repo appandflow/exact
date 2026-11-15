@@ -1,4 +1,4 @@
-//! The parity page's per-side border colours reach the DOM as
+//! LLP 1053 G2: the parity page's per-side border colours reach the DOM as
 //! CSS's own longhands — `currentcolor` a keyword, `light-dark()` a function
 //! the browser resolves — so Chrome paints exactly what was authored. Its
 //! pictures of the page (`scripts/fixtures/borders.web*.png`) are the other

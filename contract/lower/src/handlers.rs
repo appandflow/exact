@@ -1,10 +1,31 @@
 //! A handler attribute: its action named, its arity and payload types
-//! checked against the event, its bound
+//! checked against the event (LLP 1006 §8, LLP 1017 P1b), its bound
 //! arguments lowered.
 use crate::{err, LowerError, Lowerer};
 use contract_syntax::{Attr, Expr};
 use contract_types::{Scope, Ty};
 use exact_plan::{ActionsId, Code, EventKind};
+
+/// `toggle` written on an element with no `popover`. HTML fires `toggle` at
+/// a popover as it opens or closes, never at the button that opens it, and
+/// every host dispatches it only to an element with `popover`, so here the
+/// handler would never run. On a `button` it would also cost the button
+/// its native face: a native button takes no `toggle` (LLP 1069.011 D5).
+pub(crate) fn unheard_toggle(tag: &str, attrs: &[Attr], a: &Attr) -> Option<LowerError> {
+    if a.name != "toggle" || attrs.iter().any(|a| a.name == "popover") {
+        return None;
+    }
+    let instead = if tag == "dialog" {
+        "a `dialog` says it closed with `close`"
+    } else {
+        "to act when it is pressed, use `press`"
+    };
+    Some(LowerError {
+        id: "lower-handler-tag",
+        message: format!("`toggle` fires at a popover as it opens or closes (HTML's `ToggleEvent`), never at the button that opens it, and this `{tag}` has no `popover`, so its `toggle` would never run. Write `toggle=` on the element with `popover` (its `newState` says which way it went); {instead}"),
+        span: a.span,
+    })
+}
 
 impl Lowerer<'_> {
     #[allow(clippy::too_many_arguments)]
@@ -20,7 +41,7 @@ impl Lowerer<'_> {
     ) -> Result<(), LowerError> {
         // HTML submits implicitly from a single-line input, never a
         // textarea, whose Enter breaks the line: one behaviour on
-        // every host.
+        // every host (kanban F21, chat F2 in the x2apps diaries).
         if event == "submit" && tag == "textarea" {
             return err(
                 "lower-handler-tag",
@@ -57,7 +78,7 @@ impl Lowerer<'_> {
         };
         // The view is inlined, so a handler behind a child's `action`
         // prop names the real action here: its arity is checked now,
-        // not at dispatch.
+        // not at dispatch (LLP 1006 §8's circle-back; LLP 1017 P1b).
         let valid = contract_analyze::handler_accepts(
             contract_syntax::typed_event(event, control),
             args.len(),
@@ -80,7 +101,7 @@ impl Lowerer<'_> {
                 a.span,
             );
         }
-        // Then optionally its `ReorderEvent`, which the
+        // Then optionally its `ReorderEvent` (LLP 1094 D2), which the
         // arity rule holds to its type.
         if event == "reorderdrop"
             && self.types.components[0].actions[ai][args.len()..]

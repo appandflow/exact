@@ -1,4 +1,4 @@
-//! The headless screen: the bytes the interactive loop
+//! The headless screen (LLP 1101.002 §0 P1): the bytes the interactive loop
 //! would write go into a terminal emulator (vt100) instead, and the agent
 //! reads that emulator's screen. What `print` and `screenshot` show is what
 //! a person would see, scrollback and all, not the document the host laid

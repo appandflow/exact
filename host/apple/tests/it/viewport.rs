@@ -1,6 +1,6 @@
 use exact_runner::{DataError, Value};
 
-// Native layout and the resource share one viewport.
+// @ref LLP 1039 §5 — native layout and the resource share one viewport.
 #[test]
 fn viewport_resize_reanswers_before_native_layout() {
     struct FactsOnly;
@@ -107,7 +107,7 @@ fn percentage_root_and_nested_pane_follow_keyboard_height_restoration() {
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
 
-// The preferences are told after boot and on change: one
+// @ref LLP 1061 D4 — the preferences are told after boot and on change: one
 // commit that carries the app's own choice (its entry animation dropped).
 #[test]
 fn preferences_reanswer_the_viewport_and_the_app_drops_its_motion() {

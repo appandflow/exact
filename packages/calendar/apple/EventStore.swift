@@ -1,18 +1,18 @@
-// @exact/calendar's production path on Apple: the
+// @exact/calendar's production path on Apple (LLP 1133.018 stage 2): the
 // person's calendars through EventKit, and the system's editor.
 //
-// - Access is asked when a call first needs it: a read asks for full
+// - Access is asked when a call first needs it (D11): a read asks for full
 //   access; a save asks for the narrowest the app declares, write-only where
 //   its Info.plist carries `NSCalendarsWriteOnlyAccessUsageDescription`.
 //   `requestFullCalendarAccess` raises write-only to full (TN3153).
-// - A read runs off the main thread and answers a page in the order of
+// - A read runs off the main thread (D6) and answers a page in the order of
 //   every target, `utcStart`, `utcEnd`, `id`, `recurrenceId`, with the same
 //   cursor as the agent's path. EventKit's predicate spans at most four years.
 // - Under write-only access the reads and `removeEvent` fail `NotAllowedError`,
 //   `write-only`, and a save goes to the default calendar and answers no id.
 // - The editor is `EKEventEditViewController` on iOS, which reports a save,
 //   and an `.ics` file opened in Calendar on macOS, which reports nothing
-//   (`unknown`).
+//   (`unknown`, D15).
 // - `EKEventStoreChanged` is a change of the store, which the module announces.
 import EventKit
 import Foundation
@@ -183,7 +183,7 @@ final class EventStore: NSObject {
         }
     }
 
-    // MARK: an event, both ways
+    // MARK: an event, both ways (D2)
 
     /// The instants an occurrence spans, ms: an all-day one from its first day's start to its last day's end.
     private static func instants(_ e: EKEvent) -> (Double, Double) {
@@ -344,7 +344,7 @@ final class EventStore: NSObject {
         shown.editViewDelegate = self
         CalendarModule.eventEditor?(shown)
         if shown.editViewDelegate !== self {
-            say("the eventEditor hatch changed the delegate, which the module owns")
+            say("the eventEditor hatch changed the delegate, which the module owns (LLP 1133.018 D10)")
             shown.editViewDelegate = self
         }
         editing = { [weak self] action in

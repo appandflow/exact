@@ -1,5 +1,5 @@
-//! A child process in a TypeScript module, through the runner:
-//! the process request, the incarnation's handle,
+//! A child process in a TypeScript module, through the runner (LLP
+//! 1133.007 D2, D3, D13): the process request, the incarnation's handle,
 //! staged writes, ends and kills addressed to it, their admission by the
 //! commit's origin, and a one-shot `execFile`.
 
@@ -217,7 +217,7 @@ fn a_tool_or_a_wake_directs_no_child() {
     for origin in [CallOrigin::Tool, CallOrigin::Wake] {
         r.act_from(origin, "poke", vec![Value::str("kill")])
             .unwrap();
-        assert!(r.take_socket_sends().is_empty(), "refused");
+        assert!(r.take_socket_sends().is_empty(), "refused (D13)");
     }
     let journal: Vec<&str> = r.journal().collect();
     assert!(
@@ -265,6 +265,7 @@ fn an_answer_asks_with_the_origin_of_the_commit_that_asked() {
     let mut r = Runner::boot(plan, m, Kernel::with_monospace(), Default::default(), "/").unwrap();
     r.take_requests();
     let reply = |out: &str| {
+        let out = exact_runner::agent::base64(out.as_bytes());
         let body = serde_json::json!({ "stdout": out, "stderr": "", "code": 0, "signal": null, "timedOut": false, "overflow": null });
         Outcome::Response(Response {
             status: 200,
@@ -311,7 +312,10 @@ fn exec_file_answers_from_the_process_request_and_refused_options_reject() {
         (Some("execFile"), Some(1500))
     );
     assert!(!exec.request.stream);
-    let reply = serde_json::json!({ "stdout": "1.2.0\n", "stderr": "", "code": 0, "signal": null, "timedOut": false, "overflow": null });
+    // Output crosses as base64; `utf8` decodes it as Node does, a control
+    // byte kept and an invalid one replaced.
+    let stdout = exact_runner::agent::base64(b"1.2.0\0\xff\n");
+    let reply = serde_json::json!({ "stdout": stdout, "stderr": "", "code": 0, "signal": null, "timedOut": false, "overflow": null });
     r.fulfill(
         exec.ticket,
         Outcome::Response(Response {
@@ -321,7 +325,10 @@ fn exec_file_answers_from_the_process_request_and_refused_options_reject() {
         }),
     )
     .unwrap();
-    assert_eq!(r.resource("v").and_then(Value::as_str), Some("0 1.2.0"));
+    assert_eq!(
+        r.resource("v").and_then(Value::as_str),
+        Some("0 1.2.0\0\u{fffd}")
+    );
     let bad = r
         .resource("bad")
         .and_then(Value::as_str)
@@ -341,7 +348,7 @@ fn an_exec_file_its_signal_aborts_resumes_rejected_and_is_cancelled() {
     let exec = out.iter().find(|o| o.target == "held").unwrap();
     assert!(exec.request.is_process() && !exec.request.stream);
     // Another answer's turn aborts it: answered aborted at the host's next
-    // pump, and handed to the host to cancel, which ends the child.
+    // pump, and handed to the host to cancel, which ends the child (D3).
     r.act("halt", vec![]).unwrap();
     let (ticket, outcome) = r.take_request_refusal(false).expect("the aborted answer");
     assert_eq!(ticket, exec.ticket);

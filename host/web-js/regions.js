@@ -1,4 +1,4 @@
-// A bound length's layout regions as the browser's safe area:
+// A bound length's layout regions (LLP 1123 D10) as the browser's safe area:
 // the name in `env(-exact-<region>-inset-<edge>)` becomes
 // `safe-area-inset-<edge>`, as css.rs writes a literal one through the
 // kernel's `browser_css`. A browser keeps an `env()` value's text as written,

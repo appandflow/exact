@@ -1,4 +1,4 @@
-//! The Rust binding's fixture: `here(asked)` asks
+//! The Rust binding's fixture (LLP 1133.002 stage 3): `here(asked)` asks
 //! `@exact/geolocation` for a position through the generated binding once
 //! `asked` is above zero, and reads its reply: the coordinates, or the
 //! module's error code.

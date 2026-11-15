@@ -3,7 +3,7 @@ import UIKit
 import XCTest
 @testable import ExactKit
 
-/// The frame sampler's run-loop watch (the overrun amendment)
+/// The frame sampler's run-loop watch (LLP 1079, the overrun amendment)
 /// on a real display link.
 final class FrameSamplerIOSTests: XCTestCase {
     /// The turns are watched while the sampler's link runs, in the common

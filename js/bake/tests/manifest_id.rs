@@ -1,4 +1,4 @@
-//! An `app.ts` that names no `appId` is baked with `app.json`'s, and its receipt carries it.
+//! An `app.ts` that names no `appId` is baked with `app.json`'s (LLP 1030 D2), and its receipt carries it.
 use exact_js::Paired;
 use exact_js_bake::{bake, Tools};
 

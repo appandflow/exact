@@ -1,5 +1,5 @@
-//! `requestMIDIAccess()` and `sendMIDI(output, data, at=)`. A literal
-//! `data` is held to MIDI 1.0 here; a computed one is the
+//! `requestMIDIAccess()` and `sendMIDI(output, data, at=)` (LLP 1125 D6,
+//! D7). A literal `data` is held to MIDI 1.0 here; a computed one is the
 //! runner's to drop and journal.
 
 use super::{err, infer, Scope, Shapes, Ty, TypeError};

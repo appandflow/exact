@@ -1,4 +1,4 @@
-// `input type="radio"` on AppKit: an `NSButton` of the
+// `input type="radio"` on AppKit (x2apps survey #2): an `NSButton` of the
 // radio type, which assistive technology reads as AXRadioButton with its
 // checked value, whose click never moves its own state — the group is
 // Exact's (`Radios.swift`), so AppKit neither checks it nor groups it.
@@ -48,7 +48,7 @@ extension ControlHost {
     }
 
     /// A click checks the radio and moves no focus, as a click on AppKit's
-    /// radio button does: a field being edited keeps its
+    /// radio button does (LLP 1115.000 D7.1): a field being edited keeps its
     /// editor, its edit committed before the radio's `change`.
     @objc func radioClicked(_ sender: NSControl) {
         guard let node = presenter.views[UInt32(sender.tag)] else { return }

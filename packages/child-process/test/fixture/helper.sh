@@ -1,5 +1,5 @@
 #!/bin/sh
-# The stage drives' real child: `--process
+# The stage drives' real child (LLP 1133.007 §10): `--process
 # path:fixture-child=<this file>` runs it in the program's place. It starts
 # a grandchild that holds its output, says so, echoes each line of its
 # stdin, and exits 0 on `quit`, leaving the grandchild holding the pipe.

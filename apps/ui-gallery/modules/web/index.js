@@ -1,4 +1,4 @@
-// The `sticky-limit` hatch: the browser sticks the limit
+// The `sticky-limit` hatch (LLP 1075.003.000): the browser sticks the limit
 // card but doesn't tell the app, so its docked look is a scroll-driven
 // animation over the last 24 px before it sticks.
 

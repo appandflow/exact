@@ -1,6 +1,6 @@
 //! The browser's path, query and fragment serializers, without a host parser.
 //!
-//! Location and the searchParam read.
+//! @ref LLP 1038 §3 — Location and the searchParam read; D1, D3, D8; LLP 1153 D5.
 //!
 //! Locations are absolute paths appended to `https://x`, never resolved as
 //! network-path references. Backslashes are path separators and the query
@@ -148,7 +148,7 @@ fn path_query(input: &str) -> String {
     out
 }
 
-/// JavaScript's encodeURIComponent for a Rust string, for path expansion.
+/// JavaScript's encodeURIComponent for a Rust string (D3's path expansion).
 /// A slash, percent sign or question mark in a parameter is data, not syntax.
 pub fn encode_uri_component(value: &str) -> String {
     encode(value, |b| {

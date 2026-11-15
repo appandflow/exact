@@ -36,7 +36,8 @@ test('a whole-list answer is said once per target, naming it and the bounded for
   data.answer('feed', ['all'], null, 'initial');
   expect(lines).toHaveLength(2);
   expect(lines[0]).toStartWith(`big answer: changed (source react) carries ${ROWS + 1} list rows`);
-  expect(lines[0]).toContain('Answer a window: docs/agent-pitfalls.md "A tap that changes one row of a long list"');
+  expect(lines[0]).toContain('LLP 1027.004');
+  expect(lines[0]).toContain('docs/agent-pitfalls.md "A tap that changes one row of a long list"');
   expect(lines[1]).toStartWith('big answer: initial (source feed)');
 });
 

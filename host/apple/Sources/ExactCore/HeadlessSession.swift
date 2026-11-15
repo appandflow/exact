@@ -1,4 +1,4 @@
-// The existing runtime and text engine, without a presenter.
+// @ref LLP 1126 D8 — the existing runtime and text engine, without a presenter.
 import Foundation
 import CoreText
 import CExact
@@ -22,15 +22,20 @@ public final class HeadlessSession {
         /// nil takes the node's `text_color`.
         public let color: BatchValue?
         public let background: BatchValue?
+        /// Inline opacity, including enclosing runs. The node's own opacity
+        /// is applied by its view, separately from these viewless runs.
+        public var opacity: Double { opacityGroups.reduce(1) { $0 * $1.alpha } }
+        public let opacityGroups: [InlineOpacity]
         public let decoration: String
         public let href: String
         public let hidden: Bool
         public let font: CTFont
         public init(text: String, size: CGFloat, weight: Int, family: Int, italic: Bool, letterSpacing: CGFloat = 0, numeric: Int = 0,
-                    color: BatchValue? = nil, background: BatchValue? = nil, decoration: String = "", href: String = "", hidden: Bool = false, font: CTFont) {
+                    color: BatchValue? = nil, background: BatchValue? = nil, opacityGroups: [InlineOpacity] = [], decoration: String = "", href: String = "", hidden: Bool = false, font: CTFont) {
             self.text = text; self.size = size; self.weight = weight; self.family = family; self.italic = italic
             self.letterSpacing = letterSpacing; self.numeric = numeric; self.color = color; self.background = background
             self.decoration = decoration; self.href = href; self.hidden = hidden; self.font = font
+            self.opacityGroups = opacityGroups
         }
     }
     /// A line's text in one run: `run` indexes the node's `runs`.
@@ -76,7 +81,7 @@ public final class HeadlessSession {
         public fileprivate(set) var handlers: Set<String> = []
         /// A scroller's content size (a `content` op), in points.
         public fileprivate(set) var scrollContent: CGSize?
-        /// A native control's title (`exact_press_face`), read when
+        /// A native control's title (`exact_press_face`, LLP 1069.011.000 D1), read when
         /// the node changes: a `button` the kernel made a platform control has no text child.
         public fileprivate(set) var controlTitle: String?
         /// Computed on first access for this node version, then shared by snapshots.
@@ -136,20 +141,21 @@ public final class HeadlessSession {
     }
 
     /// Boots the supplied plan, or the linked app's baked plan when nil. A `live` session
-    /// is a running app's: its runner reads `liveNow()`, so a repeating
+    /// is a running app's (LLP 1126.002 D3): its runner reads `liveNow()`, so a repeating
     /// timer that missed beats fires once; a render keeps the seek clock its caller moves.
-    public convenience init(plan: Data? = nil, entry: String? = nil, props: Data? = nil, size: CGSize, facts: SessionFacts, assets: AssetResolver,
-                            live: Bool = false) throws {
-        try self.init(plan: plan, entry: entry, props: props, size: size, facts: facts, assets: assets, presentation: nil, live: live)
+    /// An entry's `configuration` is a configured widget's chosen values, as JSON.
+    public convenience init(plan: Data? = nil, entry: String? = nil, props: Data? = nil, configuration: Data? = nil, size: CGSize, facts: SessionFacts,
+                            assets: AssetResolver, live: Bool = false) throws {
+        try self.init(plan: plan, entry: entry, props: props, configuration: configuration, size: size, facts: facts, assets: assets, presentation: nil, live: live)
     }
 
     /// A package composition may install Markdown expansion without a presenter.
-    package init(plan: Data? = nil, entry: String? = nil, props: Data? = nil, size: CGSize, facts: SessionFacts, assets: AssetResolver,
-                 presentation: TextPresentation?, live: Bool = false) throws {
+    package init(plan: Data? = nil, entry: String? = nil, props: Data? = nil, configuration: Data? = nil, size: CGSize, facts: SessionFacts,
+                 assets: AssetResolver, presentation: TextPresentation?, live: Bool = false) throws {
         self.size = size; rootFontSize = facts.rootFontSize
         let runtime = Runtime(hooks: .headless)
         let text = TextEngine(assets: { assets.url($0) }, read: { assets.bytes($0) }, bundled: { assets.bundledURL($0) },
-                              coldTextTargetBytes: facts.textResidencyBytes, presentation: presentation)
+                              coldTextTargetBytes: facts.textResidencyBytes, presentation: presentation, assetResolver: assets)
         text.requiresMarkdownExpansion = true
         core = SessionCore(runtime: runtime, text: text)
         core.measure(with: text)
@@ -164,7 +170,7 @@ public final class HeadlessSession {
             try facts.prime(runtime)
             if let entry {
                 guard let plan else { return Batch(ops: [], timers: false, motion: false, clock: nil, error: "an entry requires a plan") }
-                return runtime.bootEntry(plan, kind: entry, props: props, width: size.width, height: size.height)
+                return runtime.bootEntry(plan, kind: entry, props: props, configuration: configuration, width: size.width, height: size.height)
             }
             return plan.map { runtime.bootPlan($0, width: size.width, height: size.height) }
                 ?? runtime.boot(width: size.width, height: size.height)
@@ -172,9 +178,9 @@ public final class HeadlessSession {
         Owner.shared.sync { text.commitFonts() }
     }
 
-    public convenience init(plan: Data? = nil, entry: String? = nil, props: Data? = nil, size: CGSize, facts: SessionFacts,
+    public convenience init(plan: Data? = nil, entry: String? = nil, props: Data? = nil, configuration: Data? = nil, size: CGSize, facts: SessionFacts,
                             assetRoot: URL = Bundle.main.bundleURL, live: Bool = false) throws {
-        try self.init(plan: plan, entry: entry, props: props, size: size, facts: facts, assets: AssetResolver(root: assetRoot), live: live)
+        try self.init(plan: plan, entry: entry, props: props, configuration: configuration, size: size, facts: facts, assets: AssetResolver(root: assetRoot), live: live)
     }
 
     public static let defaultRootFontSize = SessionFacts.defaultRootFontSize
@@ -242,7 +248,7 @@ public final class HeadlessSession {
     }
 
     /// The margins the last layout resolved around a node's border box, and
-    /// whether its width is explicit, and its resolved minimum border-box width (`Kernel::placement_box`). A read of
+    /// whether its width is explicit, and its resolved minimum border-box width (`Kernel::placement_box`, LLP 1126.001 WP10). A read of
     /// the layout the tree holds; nothing is laid out again.
     public struct PlacementBox {
         /// The resolved margins: left, top, right, bottom.
@@ -308,7 +314,7 @@ public final class HeadlessSession {
     }
 
     /// The platform's Back from the route keyed `key` under the navigation root `root`,
-    /// by iOS's rule (`NavigationBack`): the control the root's
+    /// by iOS's rule (`NavigationBack`, LLP 1115 D5): the control the root's
     /// `navigationBack` names, in that route or in no route; else, when the route
     /// declares none, the location beneath to the root's `navigate`, else the
     /// runner's own back of the router. Nil when Back is refused.
@@ -354,7 +360,7 @@ public final class HeadlessSession {
                                   beneath: { core.runtime.locationBeneath(key) })
     }
 
-    /// A link the reader followed, as `ExactSession.follow` takes it: a
+    /// A link the reader followed, as `ExactSession.follow` takes it (LLP 1038 §7): a
     /// path naming one of the app's routes goes to the navigation root's `navigate`,
     /// else to the runner's router. Nil for anything else, which is the host's to open.
     @discardableResult
@@ -382,7 +388,7 @@ public final class HeadlessSession {
     }
 
     #if EXACT_INSPECT
-    /// An agent request answered by the runner: `tree`, `state`, `logs`, `tags`.
+    /// An agent request answered by the runner (LLP 1012): `tree`, `state`, `logs`, `tags`.
     /// A development build's only: the widget extension links this session too.
     public func agent(_ request: String) -> String {
         Owner.shared.sync { core.runtime.agent(request) }
@@ -480,7 +486,7 @@ public final class HeadlessSession {
         // The callback refuses before shaping raw Markdown. Inspect unmeasured
         // nodes too (for example display:none) so boot never returns a partial tree.
         for id in changed {
-            // A `time` is a paragraph the platform may draw live:
+            // A `time` is a paragraph the platform may draw live (LLP 1126 D6):
             // its runs carry the font the kernel measured it in.
             guard let node = nodes[id], node.kind == "text" || node.kind == "time" else { continue }
             var markdown: [ExactCore.Run]?
@@ -529,14 +535,16 @@ private enum HeadlessWakes {
 /// temporary shaper with its saved catalog and no cold cache; computed nodes
 /// retain only their exported lines and fonts, never the engine's residency.
 fileprivate final class HeadlessLines {
-    private var build: (() -> Value)?
+    private var build: (() -> (Value, settled: Bool))?
     typealias Value = (lines: [HeadlessSession.Line], runs: [HeadlessSession.Run])
     private var cached: Value?
     var computed: Bool { Owner.shared.sync { cached != nil } }
     var value: Value {
         Owner.shared.sync {
             if let cached { return cached }
-            let lines = build!(); cached = lines; build = nil; return lines
+            let (lines, settled) = build!()
+            if settled { cached = lines; build = nil }
+            return lines
         }
     }
     init(lines: [HeadlessSession.Line], runs: [HeadlessSession.Run]) {
@@ -549,7 +557,7 @@ fileprivate final class HeadlessLines {
         // Decoration 3 §2.1); the paragraph's own are added as it is drawn
         // (`SnapshotTextPaint.decoration`).
         let decorates = node.inline.contains { !$0.paints && !$0.lightRun.decoration.isEmpty }
-        let byId = decorates ? Dictionary(node.inline.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a }) : [:]
+        let byId = Dictionary(node.inline.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
         let lines = !decorates ? inline.map(\.lightRun.decoration) : inline.map { leaf in
             var all = [leaf.lightRun.decoration], up = byId[leaf.parent]
             while let run = up {
@@ -559,16 +567,18 @@ fileprivate final class HeadlessLines {
             return all.filter { !$0.isEmpty }.joined(separator: " ")
         }
         let catalog = engine.catalog, resolve = engine.resolve, read = engine.read, bundled = engine.bundled
+        let presentation = engine.presentation, assets = engine.assetResolver
         build = { [weak engine] in
             let engine = engine ?? {
-                let made = TextEngine(assets: resolve, read: read, bundled: bundled, coldTextTargetBytes: 0)
+                let made = TextEngine(assets: resolve, read: read, bundled: bundled, coldTextTargetBytes: 0, presentation: presentation, assetResolver: assets)
                 made.catalog = catalog
                 return made
             }()
             let runs = markdown ?? props["text"].map { [TextStyle.run($0, style: style, defaultSize: rootFontSize)] }
                 ?? inline.map(\.lightRun)
             let spec = TextStyle.spec(runs: runs, style: style, props: props,
-                strut: TextStyle.run("", style: style, defaultSize: rootFontSize), language: language, flow: !flow.isEmpty)
+                strut: TextStyle.run("", style: style, defaultSize: rootFontSize), language: language, flow: !flow.isEmpty,
+                resolveRuns: { engine.presentation?.resolveRuns(engine, runs: $0) ?? $0 })
             let paragraph = engine.paragraph(spec, width: box.width,
                 flow: flow.map { $0.translated(CGPoint(x: -box.minX, y: -box.minY)) })
             let source = spec.runs.map(\.text).joined() as NSString
@@ -578,6 +588,7 @@ fileprivate final class HeadlessLines {
                     letterSpacing: run.letterSpacing, numeric: run.numeric,
                     color: Self.color(input?.colorRef, light: run.color, dark: input?.darkColor),
                     background: Self.color(input?.backgroundRef, light: run.background, dark: input?.darkBackground),
+                    opacityGroups: input?.opacityGroups(in: byId) ?? [],
                     decoration: input == nil ? run.decoration : lines[index], href: run.href, hidden: run.hidden, font: engine.font(run) as CTFont)
             }
             var ends: [Int] = [], offset = 0
@@ -612,7 +623,7 @@ fileprivate final class HeadlessLines {
                     origin: CGPoint(x: paragraph.origin(index, align: spec.align, width: box.width), y: paragraph.baselines[index]),
                     width: width, ascent: ascent, descent: descent, segments: segments)
             }
-            return (lines, renderedRuns)
+            return ((lines, renderedRuns), !spec.runs.contains { $0.atomIcon?.loaded == false })
         }
     }
     /// Where a clamped line's kept text ends: past the last glyph the ellipsized

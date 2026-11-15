@@ -109,6 +109,8 @@ mod tests {
     fn limit() {
         for reason in [
             "Trap(IterationLimit { pc: 8 })",
+            "Trap(IterationLimit { pc: 8 }) in derive \"visible\": past the 65,536 list steps one evaluation may take",
+            "Instance(Trap(ValueTooDeep { pc: 8 })) in view 1 (site 0) state \"row\" initializer: past 64 levels",
             "StringTooLong { name: \"x\" }",
             "TimerFireLimit { limit: 4096 }",
             "QueueFull { mutation: \"save\" }",
@@ -169,6 +171,10 @@ mod tests {
             "unclassified"
         );
         assert_eq!(refusal_class("Trap(FutureError { pc: 0 })"), "unclassified");
+        assert_eq!(
+            refusal_class("Instance(DuplicateKey { region: RegionsId(0) })"),
+            "unclassified"
+        );
     }
 
     #[test]

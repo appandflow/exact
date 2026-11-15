@@ -1,4 +1,4 @@
-// Exit animation on UIKit. An `exit` retires the leaving view
+// Exit animation on UIKit (LLP 1063). An `exit` retires the leaving view
 // and its authored descendants from every lookup. Its painted subtree stays
 // where it was, inert, until `destroy`; lifted presentations close as their
 // content retires. The final destroy releases every member of the same walk.

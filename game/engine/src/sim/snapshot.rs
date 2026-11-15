@@ -9,8 +9,12 @@ impl<G: Game> Sim<G> {
             let mut sprites = self.world.query::<&crate::Sprite>();
             let mut needed = std::collections::BTreeSet::new();
             for (_, mesh) in meshes.iter() {
-                if let crate::Mesh::Asset(name) = mesh {
-                    needed.insert(name);
+                // A cosmetic model is presentation: its readiness never gates a save.
+                match mesh {
+                    crate::Mesh::Asset(name) if !assets.cosmetic.contains(name) => {
+                        needed.insert(name);
+                    }
+                    _ => {}
                 }
             }
             needed.extend(sprites.iter().map(|(_, s)| &s.texture));
@@ -198,6 +202,8 @@ impl<G: Game> Sim<G> {
         next.origin = s.origin;
         next.rebase_queue = true;
         next.restored = true;
+        // Its save holds what `Game::first_frame` wrote, if it ran.
+        next.unframed = false;
         next.world.presentation_generation = self
             .world
             .presentation_generation
@@ -209,6 +215,7 @@ impl<G: Game> Sim<G> {
         next.paranoid = self.paranoid;
         next.paranoid_mode = self.paranoid_mode;
         next.paranoid_checked = self.paranoid_checked;
+        next.paranoid_rebuilds = self.paranoid_rebuilds;
         next.development_edits = self.development_edits;
         next.edits_admitted =
             self.edits_admitted || self.world.set_seen.get() || next.world.set_seen.get();

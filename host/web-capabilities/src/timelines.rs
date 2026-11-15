@@ -1,4 +1,4 @@
-//! Drag timelines on the web: the three rows' grammar,
+//! Drag timelines on the web (LLP 1057.003): the three rows' grammar,
 //! linked when a plan sets one, so an app that binds no animation to a drag
 //! carries none of it.
 

@@ -1,10 +1,10 @@
 //! The roster's implementations — once, here, deterministic.
 //!
-//! Formatting is a roster entry, added by fixture.
+//! @ref LLP 1004 D4 (formatting is a roster entry, added by fixture)
 //!
 //! Every entry the plan format's `stdlib` table names has exactly one body
-//! here, in the router conversion module, or in the linked `format` module.
-//! Formatting is `en-US` at a fixed UTC offset the
+//! here, in the router conversion module, or in the linked `format` module
+//! (LLP 1054.000.003 D8). Formatting is `en-US` at a fixed UTC offset the
 //! call names, by design: a deterministic string is what the corpus and the
 //! agent compare, and the web's `Intl` is its oracle.
 
@@ -59,8 +59,8 @@ pub fn call(
     }
     let v = call_value(f, args, now_ms, plan, router, format, geometry)
         .ok_or(CallError::TypeMismatch)?;
-    // An encoding is a string the expression builds, bounded like the rest,
-    // checked after the route segment's empty and dot refusal.
+    // An encoding is a string the expression builds, bounded like the rest
+    // (LLP 1090 D6), checked after the route segment's empty and dot refusal.
     if matches!(f, Stdlib::EncodeURIComponent | Stdlib::EncodeRouteSegment)
         && v.as_str().is_some_and(|s| s.len() > crate::vm::MAX_STRING)
     {
@@ -69,7 +69,7 @@ pub fn call(
     Ok(v)
 }
 
-/// The string functions that build a string, each bounded by
+/// The string functions that build a string (LLP 1088 D2), each bounded by
 /// `MAX_STRING` alone, as one call counted as its whole output; `None` for
 /// every other entry.
 fn text(f: Stdlib, args: &[Value]) -> Result<Option<Value>, CallError> {
@@ -91,8 +91,8 @@ fn text(f: Stdlib, args: &[Value]) -> Result<Option<Value>, CallError> {
                 .map_err(|_| CallError::StringTooLong)?,
         ),
         // The case tables through `text-transform`'s link, which a web
-        // artifact holds only when its plan uses them (one that does not is
-        // refused at boot); unlinked, a trap.
+        // artifact holds only when its plan uses them (LLP 1047 D6 refuses
+        // one that does not at boot); unlinked, a trap.
         Stdlib::ToLowerCase | Stdlib::ToUpperCase => {
             let map = match f {
                 Stdlib::ToLowerCase => exact_kernel::linked_lowercase(),
@@ -121,16 +121,16 @@ fn call_value(
 ) -> Option<Value> {
     let num = |i: usize| args.get(i).and_then(Value::as_number);
     Some(match f {
-        // An action's reads, through the linked
+        // @ref LLP 1051.000 D1/D2 — an action's reads, through the linked
         // geometry. The compiler admits them nowhere else, and a host refuses
-        // a plan that reads geometry it doesn't link.
+        // a plan that reads geometry it doesn't link (LLP 1047 D6).
         Stdlib::Frame
         | Stdlib::RangeFrame
         | Stdlib::Measure
         | Stdlib::ElementFromPoint
         | Stdlib::ElementsFromPoint
         | Stdlib::QuerySelectorAll => return geometry?.read(plan, f, args),
-        // Pure verbs and typed reads over the plan shapes.
+        // @ref LLP 1038 D3/D9 — pure verbs and typed reads over the plan shapes.
         Stdlib::Open
         | Stdlib::Push
         | Stdlib::Replace
@@ -167,7 +167,7 @@ fn call_value(
             Value::Bool(args.first()?.as_str()?.starts_with(args.get(1)?.as_str()?))
         }
         Stdlib::EndsWith => Value::Bool(args.first()?.as_str()?.ends_with(args.get(1)?.as_str()?)),
-        // `String.prototype.indexOf`; a list's is the VM's.
+        // `String.prototype.indexOf` (LLP 1088 §9.1); a list's is the VM's.
         Stdlib::IndexOf => Value::Number(crate::strings::index_of(
             args.first()?.as_str()?,
             args.get(1)?.as_str()?,
@@ -183,16 +183,20 @@ fn call_value(
             }
         }
         Stdlib::PerformanceNow => Value::Number(now_ms),
-        Stdlib::FormatTime => match args.get(2)?.as_str()? {
-            "short" => format_time(num(0)?, num(1)?),
+        // The core's `en-US`; another format locale's data is the linked
+        // capability's (LLP 1054.000.003 D6).
+        Stdlib::FormatTime => match (args.get(2)?.as_str()?, args.get(3)?.as_str()?) {
+            ("short", "") => format_time(num(0)?, num(1)?),
+            ("2-digit", "") => format_time_two_digit(num(0)?, num(1)?),
+            ("short" | "2-digit", _) => return format?(f, args, plan),
             _ => return None,
         },
-        // The linked capability, or a trap.
+        // @ref LLP 1054.000.003 D8 — the linked capability, or a trap.
         Stdlib::FormatDate
         | Stdlib::FormatNumber
         | Stdlib::ToFixed
         | Stdlib::FormatDecimal
-        | Stdlib::FormatDay => return format?(f, args),
+        | Stdlib::FormatDay => return format?(f, args, plan),
         Stdlib::Length => Value::Number(match args.first()? {
             Value::List(items) => items.len() as f64,
             // The web's String.length (and `maxlength`): UTF-16 code units.
@@ -215,7 +219,7 @@ fn call_value(
                 .map_or(Value::Option(None), Value::some),
             _ => return None,
         },
-        // `Array.prototype.at`: the index as ToIntegerOrInfinity
+        // `Array.prototype.at` (LLP 1006 §3): the index as ToIntegerOrInfinity
         // makes it (NaN is 0, fractions truncate toward zero), a negative one
         // counted from the end, and `none` where JavaScript answers undefined.
         Stdlib::At => match (args.first()?, args.get(1)?) {
@@ -231,9 +235,9 @@ fn call_value(
             }
             _ => return None,
         },
-        // Opcodes with a callback body, never a
+        // @ref LLP 1017.003 D5 — opcodes with a callback body, never a
         // call; `join` is the VM's, which bounds the string it makes, and so
-        // are `concat`, `split`, `range` and `flat`, which build a list.
+        // are `concat`, `split`, `range` and `flat` (LLP 1088 §9.1), which build a list.
         Stdlib::Map
         | Stdlib::Filter
         | Stdlib::Join
@@ -245,10 +249,10 @@ fn call_value(
         | Stdlib::Flat => return None,
         Stdlib::Floor => Value::Number(num(0)?.floor()),
         // `Math.sin` and `Math.cos` through the pinned `libm`, so every
-        // native target computes the same bits.
+        // native target computes the same bits (LLP 1003 §7).
         Stdlib::Sin => Value::Number(exact_motion::math::sin(num(0)?)),
         Stdlib::Cos => Value::Number(exact_motion::math::cos(num(0)?)),
-        // `Math.ceil`, `Math.round`, a strict
+        // @ref LLP 1102 §3.1, §3.2, §3.4 — `Math.ceil`, `Math.round`, a strict
         // `Number()`, and an age's calendar count.
         Stdlib::Ceil => Value::Number(num(0)?.ceil()),
         Stdlib::Round => Value::Number(js_round(num(0)?)),
@@ -283,7 +287,7 @@ pub enum JoinError {
     TooLong,
 }
 
-/// `join(list, separator)`: the web's `Array.prototype.join`
+/// `join(list, separator)` (LLP 1017.003 D4): the web's `Array.prototype.join`
 /// over strings, numbers and bools, each printed as `toString` prints it, in
 /// at most `limit` bytes.
 pub fn join(args: &[Value], limit: usize) -> Result<Value, JoinError> {
@@ -320,13 +324,13 @@ pub fn join(args: &[Value], limit: usize) -> Result<Value, JoinError> {
     result.map(|()| v)
 }
 
-/// A native module's props: `pairs` alternate key and value,
+/// A native module's props (LLP 1024 D1): `pairs` alternate key and value,
 /// keys already in canonical order. Every value is carried as a string (a
 /// number as JavaScript prints it); an option's `none` leaves its key out.
 /// Escaping is JSON's, deterministic: `"`, `\\` and C0 controls only. A key
 /// that is the list `[name, schema]` carries its value as JSON text by the
-/// schema (a package view's record or list prop, `contract_lower`'s
-/// `native_typed.rs`).
+/// schema (a package view's record or list prop, LLP 1133.021 §9 item 1,
+/// `contract_lower`'s `native_typed.rs`).
 pub fn native_props(pairs: &[Value]) -> Option<String> {
     fn quote(s: &str, out: &mut String) {
         out.push('"');
@@ -475,7 +479,7 @@ pub fn assembled(build: impl FnOnce(&mut String)) -> Value {
 /// for a negative `x` that rounds to zero; NaN and the infinities are their
 /// own. `x - floor(x)` is exact for a finite double (below 2^52 the two share
 /// the grid; above it `x` is already an integer), so the tie test is too.
-/// Not `f64::round`, which breaks a tie away from zero.
+/// Not `f64::round`, which breaks a tie away from zero. @ref LLP 1102 §3.2
 pub fn js_round(x: f64) -> f64 {
     if !x.is_finite() {
         return x;
@@ -514,7 +518,7 @@ pub fn js_min(a: f64, b: f64) -> f64 {
     }
 }
 
-/// `parseNumber(text)`: `trim`'s whitespace around an
+/// `parseNumber(text)` (LLP 1102 §3.1): `trim`'s whitespace around an
 /// optional sign, digits with an optional fraction or a fraction alone, and
 /// an optional decimal exponent; the correctly rounded double (`exact_num`,
 /// as `Number()` reads it), or `None` for any other text, for a result past
@@ -624,7 +628,7 @@ fn short_numeral(b: &[u8], mantissa_end: usize) -> String {
 }
 
 /// A `YYYY-MM-DD` date (years 0 through 9999, a real day of the month).
-fn iso_date(s: &str) -> Option<(i64, i64, i64)> {
+pub(crate) fn iso_date(s: &str) -> Option<(i64, i64, i64)> {
     let b = s.as_bytes();
     if b.len() != 10 || b[4] != b'-' || b[7] != b'-' {
         return None;
@@ -654,7 +658,7 @@ fn iso_date(s: &str) -> Option<(i64, i64, i64)> {
     ((1..=12).contains(&m) && d >= 1 && d <= days[m as usize - 1]).then_some((y, m, d))
 }
 
-/// `calendarDiff(from, to, unit)`: the whole years or months
+/// `calendarDiff(from, to, unit)` (LLP 1102 §3.4): the whole years or months
 /// from `from` to `to`, counted as an age is — a period completes when the
 /// later date's month and day (for months, its day) reach the earlier
 /// date's — and negated when `to` is earlier, as `Temporal.PlainDate.prototype
@@ -673,6 +677,7 @@ pub fn calendar_diff(from: &str, to: &str, months: bool) -> Option<i64> {
 
 /// ECMA-262's WhiteSpace and LineTerminator: what `String.prototype.trim`
 /// strips. Not Rust's `White_Space`, which adds U+0085 and drops U+FEFF.
+/// @ref LLP 1054.000.005 D1
 fn is_js_space(c: char) -> bool {
     matches!(
         c,
@@ -691,12 +696,12 @@ fn is_js_space(c: char) -> bool {
 }
 
 /// The first and last wall times a date or time is formatted at:
-/// 0001-01-01T00:00 and 9999-12-31T23:59:59.999.
+/// 0001-01-01T00:00 and 9999-12-31T23:59:59.999 (LLP 1054.000.003 D7).
 const FIRST_WALL_MS: f64 = -62_135_596_800_000.0;
 const LAST_WALL_MS: f64 = 253_402_300_799_999.0;
 
 /// The wall time of `epoch_ms` at `utc_offset` minutes east, in the one
-/// order:
+/// order LLP 1054.000.003 D7 names:
 /// 1. a non-finite argument, or an offset past ±18 h, is invalid;
 /// 2. the instant is clipped first, as ECMA-262's TimeClip does (truncated
 ///    toward zero, so `-0.5` is the epoch), as `new Date(epochMs)` is;
@@ -718,8 +723,20 @@ pub(crate) fn wall_ms(epoch_ms: f64, utc_offset: f64) -> Option<f64> {
 
 /// `formatTime(epochMs, utcOffset, "short")`: `h:mm AM`, as
 /// `Intl.DateTimeFormat("en-US", { timeStyle: "short" })` prints it in a
-/// fixed-offset zone, with U+0020 before the day period.
+/// fixed-offset zone, with U+0020 before the day period
+/// (@ref LLP 1054.000.003 D1, D7).
 pub fn format_time(epoch_ms: f64, utc_offset: f64) -> Value {
+    time_of(epoch_ms, utc_offset, false)
+}
+
+/// `formatTime(epochMs, utcOffset, "2-digit")`: `hh:mm AM`, as
+/// `Intl.DateTimeFormat("en-US", { hour: "2-digit", minute: "2-digit" })`
+/// prints it at a fixed offset.
+pub fn format_time_two_digit(epoch_ms: f64, utc_offset: f64) -> Value {
+    time_of(epoch_ms, utc_offset, true)
+}
+
+fn time_of(epoch_ms: f64, utc_offset: f64, two_digit: bool) -> Value {
     let Some(wall) = wall_ms(epoch_ms, utc_offset) else {
         return Value::str("");
     };
@@ -732,6 +749,9 @@ pub fn format_time(epoch_ms: f64, utc_offset: f64) -> Value {
         _ => (hours - 12, " PM"),
     };
     let mut out = String::with_capacity(8);
+    if two_digit && h12 < 10 {
+        out.push('0');
+    }
     push_number(f64::from(h12), &mut out);
     out.push(':');
     out.push(char::from(b'0' + (minutes / 10) as u8));
@@ -876,7 +896,7 @@ mod tests {
         }
     }
     /// An encoding one byte past `MAX_STRING` traps, after the route
-    /// segment's own refusal of `""`.
+    /// segment's own refusal of `""` (LLP 1090 D6).
     #[test]
     fn the_encoders_trap_one_byte_past_the_longest_string() {
         let plan = exact_plan::builder::PlanBuilder::new(exact_kernel::SCHEMA_DIGEST, 1)
@@ -1062,7 +1082,7 @@ mod tests {
         assert!(Value::same_str(&s, &out));
     }
 
-    /// The same cases as host/web/tests/js-runtime.test.mjs's
+    /// LLP 1102 §3.1–§3.4: the same cases as host/web/tests/js-runtime.test.mjs's
     /// over roster.js, whose oracle is `Number`, `Math.round` and `Math.ceil`.
     #[test]
     fn number_and_date_reads_are_javascript_s() {

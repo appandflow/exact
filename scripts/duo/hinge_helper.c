@@ -4,7 +4,7 @@
 // events the hidden hinge slider and the orientation picker in Xcode's Device
 // Hub send.
 // `bun scripts/smoke.mjs duo` compiles it per run with the selected Xcode's
-// simulator SDK.
+// simulator SDK (LLP 1078 D9).
 //
 // From artemnovichkov/hinge (https://github.com/artemnovichkov/hinge), MIT
 // License, Copyright (c) 2026 Artem Novichkov. Permission is hereby granted,

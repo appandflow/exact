@@ -1,4 +1,4 @@
-//! MIDI's test steps: the driver's `prefer midi.*`, `tap midi`
+//! MIDI's test steps (LLP 1125 §4): the driver's `prefer midi.*`, `tap midi`
 //! and a read of `state.midi.sent`.
 
 /// One MIDI test step.
@@ -22,7 +22,7 @@ pub enum MidiStep {
         data: Vec<u8>,
     },
     /// `tap midi "clock" clock 120 2000`: Timing Clock from that input at
-    /// that tempo for that long, from now.
+    /// that tempo for that long, from now (LLP 1125 D9).
     TapClock {
         /// The input, by id.
         input: String,

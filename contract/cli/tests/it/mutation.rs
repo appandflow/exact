@@ -1,4 +1,4 @@
-//! Mutations end to end through the compiler: a `mutation` slot filled by
+//! LLP 1016 end to end through the compiler: a `mutation` slot filled by
 //! `send`, a request the host runs and brings back through `fulfill`,
 //! `pending(x)` in the view, `refresh` on a resource, and what bake refuses.
 
@@ -581,8 +581,8 @@ fn a_record_that_answers_later_at_the_bake_is_not_compiled_and_shows_its_zero() 
             )))
         }
     }
-    // A source answered later at bake: the resource shows its zero, pending,
-    // and the zero is not its answer.
+    // @ref LLP 1054.000.002 D1/D4 — where the bake used to refuse: the
+    // resource shows its zero, pending, and the zero is not its answer.
     let plan = contract::bake(contract::compile(&src).unwrap(), Remote).unwrap();
     let row = plan
         .resources
@@ -625,7 +625,7 @@ fn the_language_refuses_what_it_should() {
 
 /// A derive that matches a mutation into its record, and derives after it
 /// that read that record's fields, type in whatever order they are written
-/// (here `current`): the fixpoint waits for `?` to fill.
+/// (LLP 1018 §4's `current`): the fixpoint waits for `?` to fill.
 #[test]
 fn a_derive_over_a_matched_record_types_in_any_order() {
     let src = "shape Session\n  ok: bool\n  username: string\n\ncomponent App\n  derive signedIn = current.ok\n  derive who = current.username\n  resource remembered = remember() as shape Session\n  mutation session as shape Session\n  derive current = match session { case some(s) => s, case none => remembered }\n  action go\n    send session = login()\n  view\n    text `${who} ${signedIn}` press=go\n";
@@ -716,7 +716,10 @@ fn poison_leaks_no_effects_from_the_failed_commit() {
     assert!(matches!(
         r.act("go", vec![]),
         Err(RunnerError::Instance(
-            exact_runner::instance::InstanceError::Trap(exact_runner::Trap::StringTooLong { .. })
+            exact_runner::instance::InstanceError::Evaluation {
+                trap: exact_runner::Trap::StringTooLong { .. },
+                ..
+            }
         ))
     ));
     assert!(r.is_poisoned());
@@ -943,7 +946,7 @@ fn a_baked_store_dependency_is_transitive_through_resource_arguments() {
             .iter()
             .find(|row| baked.str(row.name) == name)
             .unwrap();
-        // A reader is compiled — the empty-store
+        // LLP 1027 D4 (2026-09-03): a reader is compiled — the empty-store
         // answer, as the placeholder for a source not ready at boot — and
         // marked, so the device answers it whenever the source is ready.
         assert!(row.reader, "{name} reads the store");
@@ -968,7 +971,7 @@ fn a_baked_store_dependency_is_transitive_through_resource_arguments() {
     );
 }
 
-/// `then` runs a named action after each answer lands, as a
+/// LLP 1016.001: `then` runs a named action after each answer lands, as a
 /// commit of its own that reads the answer from the mutation's slot.
 const THEN: &str = r#"
 shape Session
@@ -1072,8 +1075,9 @@ fn then_runs_after_an_answer_in_the_sending_commit_and_not_after_a_failure() {
     assert_eq!(text_of(&r, "greeted").as_deref(), Some("/0"));
 }
 
-/// An agent's input ends by landing what it settled: `land_then` runs the armed
-/// `then` without moving the clock or firing a timer due at it.
+/// An agent's input ends by landing what it settled (LLP 1012 §2; trivia
+/// F3): `land_then` runs the armed `then` without moving the clock or
+/// firing a timer due at it.
 #[test]
 fn land_then_runs_the_armed_then_and_no_timer() {
     let source = THEN.replace(
@@ -1149,19 +1153,20 @@ fn two_answers_before_advance_currently_coalesce_into_one_then() {
     assert_eq!(r.timer_due_ms(), None);
 }
 
-/// Two sends to one mutation on one path are refused — the second forgets the
-/// first's reply. Exclusive arms pass, and so do sequential `if`s that test one
-/// unchanged name against different literals; an arm's send and another in the
-/// common suffix do not.
+/// LLP 1088 D8 (flashcards F4): two sends to one mutation on one path are
+/// refused — the second forgets the first's reply (LLP 1016 D5). Exclusive
+/// arms pass, and so do sequential `if`s that test one unchanged name
+/// against different literals; an arm's send and another in the common
+/// suffix do not.
 #[test]
 fn two_sends_to_one_mutation_on_one_path_are_refused() {
     let app = |body: &str| {
         format!("shape Ack\n  op: string\ncomponent App\n  state open = true\n  state mode = \"a\"\n  mutation edited as shape Ack then afterEdit\n  action afterEdit\n    open = false\n  action commitEdit(k: string)\n{body}  view\n    button \"s\" press=commitEdit(\"1\")\n")
     };
-    let message = "`commitEdit` sends `edited` twice; only the last send's reply reaches `then afterEdit`. Send once, use a mutation per request, or declare `mutation edited … queue` to run both in order".to_string();
-    // A send in an arm says why both can run.
+    let message = "`commitEdit` sends `edited` twice; only the last send's reply reaches `then afterEdit` (LLP 1016 D5). Send once, use a mutation per request, or declare `mutation edited … queue` to run both in order".to_string();
+    // A send in an arm says why both can run (chess #2).
     let armed = |a: u32, b: u32| {
-        format!("`commitEdit` sends `edited` twice on one path, at lines {a} and {b}: every `if` is read as one that can run, unless the two sends are arms of one `if`/`else` or `match`, or sit in `if`s testing one unchanged name against different literals. Only the last send's reply reaches `then afterEdit`: send once, make the sends arms of one `if … else if`, use a mutation per request, or declare `mutation edited … queue` to run both in order")
+        format!("`commitEdit` sends `edited` twice on one path, at lines {a} and {b}: every `if` is read as one that can run, unless the two sends are arms of one `if`/`else` or `match`, or sit in `if`s testing one unchanged name against different literals. Only the last send's reply reaches `then afterEdit` (LLP 1016 D5): send once, make the sends arms of one `if … else if`, use a mutation per request, or declare `mutation edited … queue` to run both in order")
     };
     for (body, message) in [
         // Flashcards' `commitEdit`.
@@ -1210,9 +1215,9 @@ fn two_sends_to_one_mutation_on_one_path_are_refused() {
     }
 }
 
-/// The same rule on the expanded body: a child's action that calls a root
+/// LLP 1088 D8 on the expanded body: a child's action that calls a root
 /// action through its prop runs that action's sends in its own commit, so the
-/// walk reads the root with every call expanded — the callee's
+/// walk reads the root with every call expanded (LLP 1089 D6) — the callee's
 /// double send is refused once, and a single send through the call compiles.
 #[test]
 fn a_send_twice_is_found_through_a_tail_call_once() {

@@ -1,4 +1,4 @@
-//! Declared font tables and literal uses.
+//! Declared font tables and literal uses. @ref LLP 1019 D1.
 
 use super::*;
 use exact_plan::StackMemberKind;
@@ -161,7 +161,7 @@ impl Lowerer<'_> {
                     .map(|bytes| crate::font_axes::read(&bytes))
                     .unwrap_or_default();
                 // (Unread, it is recorded as no length any file has, so the
-                // write check never trusts its faces.)
+                // write check never trusts its faces: Grok's D1 round 3.)
                 if face.weight.is_none() {
                     let m = std::fs::metadata(&canonical).ok();
                     self.font_files.push((
@@ -224,7 +224,7 @@ impl Lowerer<'_> {
 
     /// `font-family`'s value with each family name replaced by its stack id,
     /// resolved now. A runtime expression stays a string for the host to
-    /// resolve.
+    /// resolve (LLP 1019 D2, 2026-10-11).
     pub(super) fn family_stacks(&mut self, value: &Expr) -> Result<Expr, LowerError> {
         if matches!(value, Expr::Str(s, _) if family_clear(s)) {
             return Ok(value.clone());
@@ -251,13 +251,8 @@ impl Lowerer<'_> {
             }
             return Ok(folded);
         }
-        let mut out = folded;
-        self.replace_arms(&mut out)?;
-        // Beside an empty family's `none`, each stack is `some`, one type.
-        if has_none(&out) && !matches!(out, Expr::None(_)) {
-            some_arms(&mut out);
-        }
-        Ok(out)
+        self.replace_arms(&mut folded)?;
+        Ok(folded)
     }
 
     pub(super) fn literal_arms(e: &Expr) -> bool {
@@ -277,16 +272,16 @@ impl Lowerer<'_> {
     }
 
     /// A literal family's stack, declared as `font-family`'s are: `e`, a
-    /// string, becomes the stack's number (as type and family tokens do).
+    /// string, becomes the stack's number (stage 6 C's type and family
+    /// tokens).
     pub(super) fn replace_family(&mut self, e: &mut Expr) -> Result<(), LowerError> {
         self.replace_arms(e)
     }
 
     fn replace_arms(&mut self, e: &mut Expr) -> Result<(), LowerError> {
         match e {
-            // An empty family declares nothing: the row is unset (the
-            // kernel's `StyleValue::text_unsets`), as `none` clears it.
-            Expr::Str(name, span) if name.trim().is_empty() => *e = Expr::None(*span),
+            // A clear stays a string so the runner retains its written bit.
+            Expr::Str(name, _) if name.trim().is_empty() || family_clear(name) => {}
             Expr::Str(name, span) => {
                 // A quoted comma belongs to one family, not a cached list.
                 let cache_key = format!("\0{name}");
@@ -342,17 +337,6 @@ impl Lowerer<'_> {
     }
 }
 
-/// Whether a replaced literal choice has an empty family's `none` arm.
-fn has_none(e: &Expr) -> bool {
-    match e {
-        Expr::None(_) => true,
-        Expr::Ternary(_, yes, no, _) => has_none(yes) || has_none(no),
-        Expr::Match { some, none, .. } => has_none(some) || has_none(none),
-        Expr::Let { body, .. } => has_none(body),
-        _ => false,
-    }
-}
-
 /// The families of `declared` a node's `font-family` (in `attrs`, its
 /// rows as lowered) can name, for the face checks: one for a literal, one
 /// per declared arm for a choice, each tuple's for a token. The design
@@ -365,7 +349,7 @@ pub(crate) fn font_use(
         return Ok(Vec::new());
     };
     let mut names = Vec::new();
-    // A family token's name is no family: the families of
+    // A family token's name is no family (stage 6 C): the families of
     // its stack, each tuple's, are what the node uses.
     let mut leaves = Vec::new();
     crate::theme::leaves(&family.value, &mut Vec::new(), &mut leaves);
@@ -410,7 +394,7 @@ pub(crate) fn font_use(
 }
 
 /// `font-family="inherit"` (or `unset`), as a reset writes it: a written
-/// clear, which names no family and passes a control's start.
+/// clear, which names no family and passes a control's start (LLP 1104 D4).
 fn family_clear(s: &str) -> bool {
     ["inherit", "unset"].contains(&s.trim().to_ascii_lowercase().as_str())
 }
@@ -436,26 +420,6 @@ fn family_arms(e: &Expr, visit: &mut dyn FnMut(&str, Span)) -> Result<(), LowerE
         }
         Expr::Let { body, .. } => family_arms(body, visit),
         _ => Ok(()),
-    }
-}
-
-/// Each stack number of a replaced literal choice as `some(n)`.
-fn some_arms(e: &mut Expr) {
-    match e {
-        Expr::Number(_, span) => {
-            let span = *span;
-            *e = Expr::Some(Box::new(e.clone()), span);
-        }
-        Expr::Ternary(_, yes, no, _) => {
-            some_arms(yes);
-            some_arms(no);
-        }
-        Expr::Match { some, none, .. } => {
-            some_arms(some);
-            some_arms(none);
-        }
-        Expr::Let { body, .. } => some_arms(body),
-        _ => {}
     }
 }
 
@@ -493,114 +457,18 @@ fn fold_constant_families(value: &mut Expr) {
     }
 }
 
-/// CSS family lists, including quoted names containing spaces or commas.
 fn family_names(value: &str, span: Span) -> Result<Vec<String>, LowerError> {
-    if value.contains('\\') {
-        return err(
-            "lower-font-family-list",
-            "CSS escapes in font-family are not implemented; use the actual family characters",
-            span,
-        );
-    }
-    let mut quote = None;
-    let mut names = Vec::new();
-    let mut start = 0;
-    let mut escaped = false;
-    for (i, c) in value.char_indices() {
-        if escaped {
-            escaped = false;
-            continue;
-        }
-        if c == '\\' {
-            escaped = true;
-            continue;
-        }
-        if let Some(q) = quote {
-            if c == q {
-                quote = None;
-            }
-        } else if c == '\'' || c == '"' {
-            quote = Some(c);
-        } else if c == ',' {
-            names.push(&value[start..i]);
-            start = i + 1;
-        }
-    }
-    names.push(&value[start..]);
-    if quote.is_some() || escaped || names.len() > 64 {
-        return err(
-            "lower-font-family-list",
-            "font-family expects at most 64 comma-separated CSS family names with balanced quotes",
-            span,
-        );
-    }
-    names
-        .into_iter()
-        .map(|name| {
-            let name = name.trim();
-            let quoted = name.starts_with(['\'', '"']);
-            let name = if quoted && name.len() >= 2 && name.ends_with(name.chars().next().unwrap())
-            {
-                &name[1..name.len() - 1]
-            } else if name.contains(['\'', '"']) {
-                return err(
-                    "lower-font-family-list",
-                    "a quoted CSS family name must occupy one whole list member",
-                    span,
-                );
-            } else {
-                name
-            };
-            if name.is_empty() || name.contains([';', '{', '}']) {
-                return err(
-                    "lower-font-family-list",
-                    "font-family expects nonempty CSS family names separated by commas",
-                    span,
-                );
-            }
-            if !quoted && ["cursive", "fantasy", "math", "emoji", "fangsong"].contains(&name.to_ascii_lowercase().as_str()) {
-                return err("lower-font-family-generic", format!("CSS generic family `{name}` has no native mapping in exact2; supported generics are system-ui, ui-sans-serif, sans-serif, ui-serif, serif, ui-monospace, monospace and ui-rounded"), span);
-            }
-            if !quoted && ["inherit", "initial", "unset", "revert", "revert-layer"].contains(&name.to_ascii_lowercase().as_str()) {
-                return err("lower-font-family-wide", format!("CSS-wide font-family value `{name}` is not represented by plan stack ids; `inherit` alone takes the surrounding text's family, or name an explicit family list"), span);
-            }
-            // The run-time rule (runner `runtime_family_members`) and the browser's.
-            if !quoted && !exact_plan::is_css_family_name(name) {
-                return err(
-                    "lower-font-family-list",
-                    format!("unquoted font-family name `{name}` is not a sequence of CSS identifiers; quote it"),
-                    span,
-                );
-            }
-            let generic = [
-                "system-ui",
-                "ui-sans-serif",
-                "sans-serif",
-                "ui-serif",
-                "serif",
-                "ui-monospace",
-                "monospace",
-                "ui-rounded",
-            ];
-            Ok(
-                if quoted && generic.contains(&name.to_ascii_lowercase().as_str()) {
-                    format!("\"{name}\"")
-                } else if !quoted && name.eq_ignore_ascii_case("-apple-system") {
-                    "system-ui".into()
-                } else if !quoted && generic.contains(&name.to_ascii_lowercase().as_str()) {
-                    name.to_ascii_lowercase()
-                } else {
-                    name.to_string()
-                },
-            )
-        })
-        .collect()
+    exact_forma::family_names(value).map_err(|e| LowerError {
+        id: e.id,
+        message: e.message,
+        span,
+    })
 }
 
 /// Several pinned weights of one variable file become one face over their
 /// span, so the web declares one `@font-face` and fetches the file once.
-/// Every host draws a request inside a range at its own `wght`, so a
-/// weight between two of them is drawn as asked rather than at
+/// Every host draws a request inside a range at its own `wght` (LLP 1019
+/// D2), so a weight between two of them is drawn as asked rather than at
 /// the nearer one; the declared weights draw as before. A span another face
 /// of the same style overlaps stays apart, since matching would then choose
 /// between them.

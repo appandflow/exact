@@ -1,4 +1,4 @@
-// The seam is public: two tests
+// The seam is public (LLP 1133.001 D8, LLP 1133.035 §12 stage 4): two tests
 // that need nothing an outside author lacks, in Chromium with the fake
 // `NDEFReader`.
 //
@@ -7,7 +7,7 @@
 //   the repo, builds unchanged and reads a tag.
 // - Replaced: a fixture implementation of @exact/nfc outside the tree, a
 //   direct dependency of the app, replaces the endorsed web implementation
-//  .
+//   (LLP 1133.001 D4).
 //
 // usage: bun packages/nfc/test/seams.mjs
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';

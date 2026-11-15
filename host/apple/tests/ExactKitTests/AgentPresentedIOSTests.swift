@@ -3,13 +3,14 @@ import XCTest
 @testable import ExactKit
 import UIKit
 
-/// A screenshot shows what a person sees: an alert, an action sheet, a popover or
-/// a presented route's sheet is a view of the window beside the viewport, so the
-/// viewport's own picture leaves it out. With one up the capture is the window's,
-/// as `window` draws it, and says what is presented; with none it is the
-/// viewport's, as it was. `presentedViewController` is set at once, in a scene's
-/// window or a bare one (a hostless bundle has no scene, and a presentation
-/// completes only in one), so no test here waits for it.
+/// A screenshot shows what a person sees (LLP 1116.012 D3): an alert, an
+/// action sheet, a popover or a presented route's sheet is a view of the
+/// window beside the viewport, so the viewport's own picture left it out
+/// (grocery-list, round 14: two captures missed the clear alert). With one
+/// up the capture is the window's, as `window` draws it, and says what is
+/// presented; with none it is the viewport's, as it was. `presentedViewController`
+/// is set at once, in a scene's window or a bare one (a hostless bundle has no
+/// scene, and a presentation completes only in one), so no test here waits for it.
 final class AgentPresentedIOSTests: XCTestCase {
     private var window: UIWindow?
     private var session: ExactSession?
@@ -104,7 +105,7 @@ final class AgentPresentedIOSTests: XCTestCase {
 
     // A real touch (`--touch platform`) on a row of a confirmation aims at
     // the button UIKit's alert shows for it, never at the hidden authored
-    // node, which every alert covered (else "UIView covers its middle": a
+    // node, which every alert covered ("UIView covers its middle": a euxy
     // row's rename prompt could not be driven).
 
     private var titles: [UInt32: String] = [:]

@@ -115,7 +115,7 @@ pub fn huge_reply(lines: usize) -> String {
     s
 }
 
-/// The adversarial script: "huge" streams a
+/// The adversarial script (LLP 1101.001 P17): "huge" streams a
 /// 3,000-line reply as fast as it can; "chaos" streams it with a 3 s stall
 /// in the middle, then asks to run a command that prints 5 MB, then closes.
 fn adversarial(

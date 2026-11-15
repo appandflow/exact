@@ -305,7 +305,7 @@
   // Fetch extracts the last valid, non-wildcard MIME type from the combined
   // Content-Type value. A charset carries through later values only while the
   // selected essence stays the same.
-  // Response.blob uses Fetch MIME extraction.
+  // @ref LLP 0059.000#35-fetch--delegating-capability-bearing — Response.blob uses Fetch MIME extraction
   function extractMimeType(input) {
     if (input === null) return "";
     var values = splitMimeTypes(String(input));
@@ -338,7 +338,7 @@
   function convertBody(body, headers) {
     if (body === undefined || body === null) return undefined;
     if (blobHelpers) {
-      // Authored Content-Type wins for Blob and FormData bodies.
+      // @ref LLP 0059.000#35-fetch--delegating-capability-bearing — authored Content-Type wins for Blob and FormData bodies
       var extracted = blobHelpers.extractBody(body);
       if (extracted) {
         if (extracted.type && !headers.has("content-type")) headers.set("Content-Type", extracted.type);

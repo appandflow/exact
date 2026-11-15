@@ -1,4 +1,4 @@
-//! `fetch(url, {exactBodyFrom})` from TypeScript: Hermes
+//! `fetch(url, {exactBodyFrom})` from TypeScript (LLP 1108 D6 R2): Hermes
 //! and the prelude send the path alone, and the native executor core (the
 //! one the Apple, Linux and render hosts share, here the render host's)
 //! reads the file into the body when it runs the request. The bytes never
@@ -78,6 +78,7 @@ fn run(
     executor
         .run(
             RequestOut {
+                class: exact_runner::RequestClass::Ordered,
                 ticket: 1,
                 target: "upload".into(),
                 request,

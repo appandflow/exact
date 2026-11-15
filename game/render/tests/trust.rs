@@ -1,4 +1,4 @@
-//! The update trust baked into this crate: a build baked with
+//! The update trust baked into this crate (LLP 1127.000 D4): a build baked with
 //! `EXACT_UPDATE_TRUST=production` refuses every look request by name, and any
 //! other build answers. This test links the rlib a game's GPU crate links and
 //! reads the trust of the run that built it, so a production run over a

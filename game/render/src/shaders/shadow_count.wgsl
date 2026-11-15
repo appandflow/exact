@@ -1,4 +1,4 @@
-// A look frame's account of the sun's shadow maps: for each
+// A look frame's account of the sun's shadow maps (LLP 1127.000 D1): for each
 // cascade, the texels its pass wrote nearer than the clear depth of 1. What
 // the shadow passes drew, read from what they drew into.
 @group(0) @binding(0) var cascades: texture_depth_2d_array;

@@ -1,6 +1,6 @@
 # Recipe: the battery, the network and Low Power Mode
 
-`@exact/device` answers three live facts with the web's
+`@exact/device` (LLP 1133.031) answers three live facts with the web's
 names. None asks permission or shows anything, and each is announced when
 it changes:
 

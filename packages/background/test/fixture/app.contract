@@ -1,4 +1,4 @@
-// The conformance fixture: @exact/background's names, read
+// The conformance fixture (LLP 1133.001 D7): @exact/background's names, read
 // and sent as an app would, each answer shown by testId for the suite. The
 // root's `sync` and `periodicsync` handlers pull from the suite's server,
 // which answers or refuses as the suite says.

@@ -2,7 +2,7 @@
   "name": "@exact/speech-recognition",
   "version": "1.0.0",
   "private": true,
-  "description": "The Web Speech API's SpeechRecognition: speech to text from a media-capture track, the microphone or a file.",
+  "description": "The Web Speech API's SpeechRecognition: speech to text from a media-capture track, the microphone or a file (LLP 1133.012).",
   "exports": {
     ".": "./exact.json",
     "./apple": "./apple/exact.json",

@@ -1,8 +1,9 @@
-// An Android implementation's manifest fragment: the components and queries a package declares in its `exact.json`
-// `"manifest"`, checked against an allow-list and written into the APK's generated manifest. Every package gets this
-// seam, so the list bounds what any package runs with no session and which packages and services it can see: what it
+// An Android implementation's manifest fragment (LLP 1133.030 D9, D12 item 4; LLP 1133.026 D19 item 3;
+// LLP 1133.012 D12 item 3): the components and queries a package declares in its `exact.json` `"manifest"`, checked
+// against an allow-list and written into the APK's generated manifest. Every package gets this seam (LLP 1133.001
+// D8), so the list bounds what any package runs with no session and which packages and services it can see: what it
 // names, and nothing the XML could say besides, is all a fragment can add. A package that needs another action or
-// type amends the list.
+// type amends the list in its RFC.
 //
 //   "manifest": {
 //     "receivers": [{"name": "<class>", "directBootAware": true, "actions": ["android.intent.action.BOOT_COMPLETED"]}],
@@ -13,7 +14,8 @@
 //     "aliases": [{"name": "<class>", "targetActivity": "<an activity above>", "action": "android.intent.action.VIEW_PERMISSION_USAGE",
 //                  "category": "android.intent.category.HEALTH_PERMISSIONS"}],
 //     "permissions": ["android.permission.ACCESS_NETWORK_STATE"],
-//     "metadata": [{"name": "com.google.android.gms.wallet.api.enabled", "value": "true"}]
+//     "metadata": [{"name": "com.google.android.gms.wallet.api.enabled", "value": "true"},
+//                  {"name": "com.google.firebase.messaging.default_notification_icon", "resource": "@drawable/exact_notification"}]
 //   }
 //
 // Receivers and services are `exported="false"`, but for a service another app binds: the system's protected broadcasts still reach an unexported receiver,
@@ -21,14 +23,17 @@
 // since the system starts it, but only for an action on the list, and never shows: it is `Theme.NoDisplay` and opens
 // the app's privacy policy, which the application's `exact.privacy_policy` meta-data carries (Health Connect's
 // rationale, [Health Connect: get started](https://developer.android.com/health-and-fitness/guides/health-connect/develop/get-started)).
-// A service bound by another app through a permission only that app holds (`SERVICE_BINDS`: Google Pay's callbacks)
-// is exported, since the binder is Play services' process; the permission is what guards it.
+// A service bound by another app through a permission only that app holds (`SERVICE_BINDS`: Google Pay's callbacks,
+// LLP 1133.034 D5) is exported, since the binder is Play services' process; the permission is what guards it.
+// A service a library's own exported receiver starts (`LIBRARY_SERVICES`: Firebase's messaging) is unexported and
+// answers that library's action, and the library's `<provider>`, which would run at every process start, is removed.
 // An alias is guarded by `START_VIEW_PERMISSION_USAGE`, which only the system holds. A permission is only one whose
-// protection level is `normal`, on `NORMAL_PERMISSIONS`, which the system grants at install and asks nothing for; a runtime permission comes only from a grant line, which derives its prompt.
-// There is no `<provider>` and no `android:process`.
+// protection level is `normal`, on `NORMAL_PERMISSIONS` (LLP 1133.031 D12 item 1), which the system grants at install
+// and asks nothing for; a runtime permission comes only from a grant line, which derives its prompt (LLP 1133.002 D6).
+// There is no `<provider>` but a library's removed one, and no `android:process`.
 
 /** The broadcasts a package's receiver may name: the boot, the package replaced, the clock and zone, the exact-alarm
- * switch. */
+ * switch (LLP 1133.030 D9). */
 export const RECEIVER_ACTIONS = new Set([
   'android.intent.action.BOOT_COMPLETED',
   'android.intent.action.LOCKED_BOOT_COMPLETED',
@@ -41,33 +46,49 @@ export const RECEIVER_ACTIONS = new Set([
 /** The foreground service types a package's service may declare. */
 export const SERVICE_TYPES = new Set(['systemExempted']);
 
-/** The packages a fragment may make visible (`<queries>`): Health Connect's provider on Android 13 and earlier. */
+/** The packages a fragment may make visible (`<queries>`): Health Connect's provider on Android 13 and earlier (LLP
+ * 1133.026 D19 item 3). */
 export const QUERY_PACKAGES = new Set(['com.google.android.apps.healthdata']);
 
 /** The service intent actions a fragment may make visible (`<queries>`): speech recognition and synthesis on apps
- * targeting API 30 and later. */
+ * targeting API 30 and later (LLP 1133.012 D12 item 3). */
 export const QUERY_ACTIONS = new Set(['android.speech.RecognitionService', 'android.intent.action.TTS_SERVICE']);
 
-/** The activity intents, by action and data scheme, a fragment may make visible: the mail and message composers',
- * whether one resolves being `composeStatus`. */
+/** The activity intents, by action and data scheme, a fragment may make visible: the mail and message composers'
+ * (LLP 1133.024 D22 item 6), whether one resolves being `composeStatus`. */
 export const QUERY_SCHEMES = { 'android.intent.action.SENDTO': new Set(['mailto', 'smsto']) };
 
-/** The services another app binds: each binder's permission, and the actions its intent may name. */
+/** The services another app binds: each binder's permission, and the actions its intent may name (LLP 1133.034 D5). */
 export const SERVICE_BINDS = new Map([
   ['com.google.android.gms.permission.BIND_PAYMENTS_CALLBACK_SERVICE', new Set(['com.google.android.gms.wallet.callback.PAYMENT_DATA_CALLBACKS'])],
 ]);
 
-/** The `<meta-data>` a package may declare, by name, with its one value (Google Pay's switch). */
-export const METADATA = new Map([['com.google.android.gms.wallet.api.enabled', 'true']]);
+/** The services a library starts from its own receiver in the app's process, by the one action each answers, with the
+ * library's providers the build removes from the merged manifest (`tools:node="remove"`). Firebase's messaging client
+ * starts its `FirebaseMessagingService` from `FirebaseInstanceIdReceiver`, and its `FirebaseInitProvider` would
+ * initialize Firebase before `Application.onCreate` at every process start; the package initializes it at first use
+ * instead (LLP 1133.004.000 D6). */
+export const LIBRARY_SERVICES = new Map([['com.google.firebase.MESSAGING_EVENT', ['com.google.firebase.provider.FirebaseInitProvider']]]);
+
+/** The `<meta-data>` a package may declare, by name, with its one value or resource (LLP 1133.034 D13: Google Pay's
+ * switch; LLP 1133.004.000 D6: Firebase's messaging client off at launch, and the channel and small icon it gives a
+ * notification message shown while the app is in the background, which are the app's default channel and its
+ * `exact_notification` drawable, `android-channels.mjs`'). */
+export const METADATA = new Map([
+  ['com.google.android.gms.wallet.api.enabled', { value: 'true' }],
+  ['firebase_messaging_auto_init_enabled', { value: 'false' }],
+  ['com.google.firebase.messaging.default_notification_channel_id', { value: 'default' }],
+  ['com.google.firebase.messaging.default_notification_icon', { resource: '@drawable/exact_notification' }],
+]);
 
 /** The actions an activity may answer: Health Connect's request to show the app's privacy policy. */
 export const ACTIVITY_ACTIONS = new Set(['androidx.health.ACTION_SHOW_PERMISSIONS_RATIONALE']);
 
-/** An alias's action and category: Android 14's permission-usage entry for Health. */
+/** An alias's action and category: Android 14's permission-usage entry for Health (LLP 1133.026 D19 item 3). */
 export const ALIAS_ACTIONS = new Set(['android.intent.action.VIEW_PERMISSION_USAGE']);
 export const ALIAS_CATEGORIES = new Set(['android.intent.category.HEALTH_PERMISSIONS']);
 
-/** The normal permissions a fragment may declare: `protectionLevel="normal"` in the
+/** The normal permissions a fragment may declare (LLP 1133.031 D12 item 1): `protectionLevel="normal"` in the
  * platform's own manifest, granted at install with no prompt. */
 export const NORMAL_PERMISSIONS = new Set(['android.permission.ACCESS_NETWORK_STATE']);
 
@@ -78,7 +99,7 @@ export function fragmentPermissions(bound) {
   for (const impl of bound) {
     const list = impl.manifest?.permissions;
     if (list == null) continue;
-    const refuse = (what) => { throw new Error(`${impl.extension}'s Android implementation: its manifest fragment ${what} (normal permissions only; a runtime permission comes from a grant line)`); };
+    const refuse = (what) => { throw new Error(`${impl.extension}'s Android implementation: its manifest fragment ${what} (LLP 1133.031 D12 item 1: normal permissions only; a runtime permission comes from a grant line)`); };
     if (!Array.isArray(list)) refuse('has permissions that are not a list');
     for (const p of list) {
       if (!NORMAL_PERMISSIONS.has(p)) refuse(`asks for ${JSON.stringify(p)}, which is not on the list`);
@@ -94,14 +115,14 @@ const FIELDS = {
   queries: new Set(['package', 'action', 'scheme']),
   activities: new Set(['name', 'actions']),
   aliases: new Set(['name', 'targetActivity', 'action', 'category']),
-  metadata: new Set(['name', 'value']),
+  metadata: new Set(['name', 'value', 'resource']),
 };
 
 const ONE = { receivers: 'receiver', services: 'service', queries: 'query', activities: 'activity', aliases: 'alias', metadata: 'meta-data' };
 
 const escape = (s) => s.replaceAll('&', '&amp;').replaceAll('"', '&quot;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
 
-/** The application meta-data a package's configuration may become: by interface and
+/** The application meta-data a package's configuration may become (LLP 1133.021 §9 item 7, D18): by interface and
  * configuration key, the meta-data name. The Maps SDK reads its key from `com.google.android.geo.API_KEY`. */
 export const CONFIG_META = { '@exact/maps': { apiKey: 'com.google.android.geo.API_KEY' } };
 
@@ -127,12 +148,12 @@ export function withMetaData(fragment, meta) {
  * refuses. `bound` is `androidImplementations`' list; `privacyPolicy` is the app's `privacy_policy`, carried as
  * meta-data when a fragment declares an activity. */
 export function manifestFragment(bound, { privacyPolicy = null } = {}) {
-  const lines = [], queries = new Set(), names = new Set();
+  const lines = [], queries = new Set(), names = new Set(), removed = new Set();
   let activities = 0;
   for (const impl of bound) {
     const fragment = impl.manifest;
     if (fragment == null) continue;
-    const who = `${impl.extension}'s Android implementation`, refuse = (what) => { throw new Error(`${who}: its manifest fragment ${what}`); };
+    const who = `${impl.extension}'s Android implementation`, refuse = (what) => { throw new Error(`${who}: its manifest fragment ${what} (LLP 1133.030 D9's allow-list)`); };
     if (typeof fragment !== 'object' || Array.isArray(fragment)) refuse('is not an object');
     // A component is the package's own class: one in the Java package of its `class`.
     const own = impl.className.split('.').slice(0, -1).join('.'), mine = new Set();
@@ -167,10 +188,12 @@ export function manifestFragment(bound, { privacyPolicy = null } = {}) {
           continue;
         }
         if (kind === 'metadata') {
-          if (METADATA.get(c.name) !== c.value) refuse(`gives the meta-data ${JSON.stringify(c.name)} = ${JSON.stringify(c.value)}, which is not on the list`);
+          const field = Object.hasOwn(c ?? {}, 'resource') ? 'resource' : 'value';
+          if (c == null || typeof c !== 'object' || Array.isArray(c) || typeof c.name !== 'string' || typeof c[field] !== 'string' || (field === 'resource' && Object.hasOwn(c, 'value'))) refuse('gives a meta-data without a string name and one string value or resource');
+          if (!METADATA.has(c.name) || METADATA.get(c.name)[field] !== c[field]) refuse(`gives the meta-data ${JSON.stringify(c.name)} the ${field} ${JSON.stringify(c[field])}, which is not on the list`);
           if (names.has(c.name)) refuse(`declares ${c.name} twice`);
           names.add(c.name);
-          lines.push(`        <meta-data android:name="${c.name}" android:value="${c.value}" />`);
+          lines.push(`        <meta-data android:name="${escape(c.name)}" android:${field}="${escape(c[field])}" />`);
           continue;
         }
         component(kind, c);
@@ -208,6 +231,14 @@ export function manifestFragment(bound, { privacyPolicy = null } = {}) {
             lines.push(`        <service android:name="${c.name}" android:exported="false"${boot}${type ? ` android:foregroundServiceType="${type}"` : ''} />`);
             continue;
           }
+          if (c.permission === undefined) {
+            if (!Array.isArray(c.actions) || c.actions.length !== 1 || !LIBRARY_SERVICES.has(c.actions[0])) refuse(`gives ${c.name} actions without a permission that are not one library's action on the list`);
+            if (type !== undefined || c.directBootAware) refuse(`gives the library's service ${c.name} a foreground type or direct boot`);
+            for (const provider of LIBRARY_SERVICES.get(c.actions[0])) removed.add(provider);
+            lines.push(`        <service android:name="${c.name}" android:exported="false">`, '            <intent-filter>',
+              `                <action android:name="${c.actions[0]}" />`, '            </intent-filter>', '        </service>');
+            continue;
+          }
           const actions = SERVICE_BINDS.get(c.permission);
           if (!actions) refuse(`gives ${c.name} the permission ${JSON.stringify(c.permission)}, which is not on the list`);
           if (!Array.isArray(c.actions) || !c.actions.length || c.actions.some((a) => !actions.has(a))) refuse(`gives ${c.name} actions that ${c.permission} does not bind`);
@@ -218,9 +249,34 @@ export function manifestFragment(bound, { privacyPolicy = null } = {}) {
       }
     }
   }
+  for (const provider of removed) lines.push(`        <provider android:name="${provider}" tools:node="remove" />`);
   if (activities && privacyPolicy) lines.unshift(`        <meta-data android:name="exact.privacy_policy" android:value="${escape(privacyPolicy)}" />`);
   return [
     ...(queries.size ? ['    <queries>', ...queries, '    </queries>'] : []),
     ...(lines.length ? ['    <application>', ...lines, '    </application>'] : []),
   ].join('\n');
+}
+
+/** Auth callbacks are custom schemes on Android. HTTPS grants remain available to the web and Apple;
+ * Android does not register App Links or loopback callbacks. The runner checks the full endpoint and state. */
+export function withAuthCallbacks(fragment, callbacks = []) {
+  const endpoints = [...new Set(callbacks.filter(callback => !['http:', 'https:'].includes(new URL(callback).protocol)))];
+  const schemes = [...new Set(endpoints.map(callback => new URL(callback).protocol.slice(0, -1)))];
+  if (!schemes.length) return fragment;
+  const filters = schemes.flatMap(scheme => [
+    '            <intent-filter>',
+    '                <action android:name="android.intent.action.VIEW" />',
+    '                <category android:name="android.intent.category.DEFAULT" />',
+    '                <category android:name="android.intent.category.BROWSABLE" />',
+    `                <data android:scheme="${escape(scheme)}" />`,
+    '            </intent-filter>',
+  ]);
+  // A hostless scheme:/path cannot be narrowed by android:path: Android ignores paths without a host.
+  const activity = '        <activity android:name="dev.exact.app.MainActivity" android:launchMode="singleTask" tools:replace="android:launchMode">';
+  const meta = [`        <meta-data android:name="dev.exact.auth.callbacks" android:value="${escape(JSON.stringify(endpoints))}" />`];
+  // A share target already declared this activity; extend it instead of duplicating the manifest element.
+  if (fragment.includes(activity)) fragment = fragment.replace(activity, [activity, ...filters].join('\n'));
+  else meta.push(activity, ...filters, '        </activity>');
+  const app = withMetaData(fragment, meta);
+  return `${app}\n    <queries>\n        <intent><action android:name="android.support.customtabs.action.CustomTabsService" /></intent>\n        <intent><action android:name="android.intent.action.VIEW" /><category android:name="android.intent.category.BROWSABLE" /><data android:scheme="https" /></intent>\n    </queries>`;
 }

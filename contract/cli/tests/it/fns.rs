@@ -1,4 +1,4 @@
-//! `fn` in Contract, expanded inline, proven on the runner.
+//! LLP 1017 P5: `fn` in Contract, expanded inline, proven on the runner.
 
 use exact_kernel::{Kernel, PropValue};
 use exact_plan::Value;
@@ -69,7 +69,7 @@ fn a_fn_sees_only_its_parameters_and_is_typed_like_a_roster_call() {
 
 #[test]
 fn scoped_actions_and_action_props_keep_their_names_when_the_roster_grows() {
-    // `open` already names actions in the shipped readers.
+    // @ref LLP 1038 D3 — `open` already names actions in the shipped readers.
     let plan = contract::compile(
         r#"component App
   state selected = ""
@@ -143,9 +143,10 @@ fn a_refused_call_of_a_name_that_shadows_a_standard_function_says_so() {
     assert!(!e.message.contains("shadows"), "{e}");
 }
 
-/// An initializer's call targets are read as `infer` resolves them: a roster call or a file `fn` that shares a state's name is not
+/// LLP 1088 D4 reads an initializer's call targets as `infer` resolves
+/// them: a roster call or a file `fn` that shares a state's name is not
 /// that state, and a state named like the roster call it starts from
-/// compiles. An action called there is still
+/// compiles (Astra's batch 2 review). An action called there is still
 /// refused.
 #[test]
 fn an_initializer_calls_the_roster_and_fns_not_states_of_that_name() {

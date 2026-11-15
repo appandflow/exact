@@ -1,11 +1,11 @@
-// The seam is public: two tests that
+// The seam is public (LLP 1133.001 D8, LLP 1133.002 stage 3): two tests that
 // need nothing an outside author lacks.
 //
 // - Out of the tree: this package, packed as a registry would carry it
 //   (`bun pm pack`, npm's tarball), installed into an app `exact new` made
 //   outside the repo, builds unchanged and answers in a browser.
 // - Replaced: a fixture implementation outside the tree, a direct dependency
-//   of the app, replaces the endorsed web implementation
+//   of the app, replaces the endorsed web implementation (D4's second rule)
 //   and answers a real call; two such dependencies are refused until
 //   `app.json` names one.
 //

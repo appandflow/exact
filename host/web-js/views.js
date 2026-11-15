@@ -1,5 +1,5 @@
-// A package's views on the JS target, as the runner's `modules/views.rs`
-// does natively. A tag the
+// A package's views on the JS target (LLP 1133.001 D1; LLP 1133.008 D8
+// items 1 and 2), as the runner's `modules/views.rs` does natively. A tag the
 // plan's `views` table names is made by its extension's web implementation,
 // whose chunk exports `roster`, each tag's view class:
 //
@@ -19,7 +19,7 @@
 import { After, say, viewId } from "./rt.js";
 import { displayed } from "./wakelock-glue.js";
 
-/** `views`: tag → [extension, displayed, binding props]; `chunk(extension)`, its web implementation's module;
+/** `views`: tag → [extension, displayed, binding props, agent vocabulary]; `chunk(extension)`, its web implementation's module;
  * `instance(extension)`, the session's instance of it. */
 export function packageViews(views, chunk, instance) {
   const tags = Object.keys(views);

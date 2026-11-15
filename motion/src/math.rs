@@ -1,5 +1,7 @@
 //! The pinned deterministic-math profile.
 //!
+//! @ref LLP 1003 §5 (determinism)
+//!
 //! Every transcendental the evaluator calls routes through this module, so the
 //! same transition advanced to the same time produces the same bits on every
 //! target this crate compiles for. Rust does not contract separate
@@ -32,8 +34,8 @@ pub fn cos(x: f64) -> f64 {
     libm::cos(x)
 }
 
-/// Deterministic software natural logarithm: UIKit spring conversions solve
-/// with it.
+/// Deterministic software natural logarithm (LLP 1099 D2, amending LLP 1003
+/// §7): UIKit spring conversions solve with it.
 #[inline]
 pub fn ln(x: f64) -> f64 {
     libm::log(x)

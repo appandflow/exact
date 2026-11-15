@@ -1,4 +1,4 @@
-//! The stream fixture on the web: its TypeScript runs in
+//! The stream fixture on the web (LLP 1133.003 §9): its TypeScript runs in
 //! the page's realm and reads H.264 from the local fixture server.
 
 include!(concat!(env!("OUT_DIR"), "/module.rs"));

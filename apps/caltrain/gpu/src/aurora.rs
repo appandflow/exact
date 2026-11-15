@@ -1,5 +1,5 @@
 //! Aurora: a full-screen fragment shader driven by the frame clock — the
-//! canvas that wants a frame every frame, with a uniform
+//! canvas that wants a frame every frame (LLP 1009 D4), with a uniform
 //! buffer and the canvas's children behind the bind-group layout the shader
 //! declares (`shaders::aurora`, reflected at build).
 
@@ -13,7 +13,7 @@ use exact_gpu::{Frame, FrameUniform, Surface, SurfaceError, Value};
 pub struct AuroraSurface {
     seed: f32,
     gpu: Option<Gpu>,
-    /// The canvas's children, painted by the host, when there are any.
+    /// The canvas's children, painted by the host, when there are any (LLP 1014 D2).
     children: Option<wgpu::TextureView>,
     /// The bind group must be rebuilt around a new children texture.
     rebind: bool,
@@ -21,7 +21,7 @@ pub struct AuroraSurface {
 
 struct Gpu {
     format: wgpu::TextureFormat,
-    /// The shader generation the pipeline was built at.
+    /// The shader generation the pipeline was built at (LLP 1030 D8).
     generation: u32,
     pipeline: wgpu::RenderPipeline,
     /// Written in place each frame (`FrameUniform`); a bind group per slot.

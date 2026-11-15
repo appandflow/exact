@@ -1,5 +1,5 @@
-// Synthetic conformance plan: the `iframe` sources the web shows.
-// A `data:` document shows in a `sandbox` that withholds
+// Synthetic conformance plan: the `iframe` sources the web shows (LLP 1020
+// §10). A `data:` document shows in a `sandbox` that withholds
 // `allow-same-origin` and nowhere else, and a script URL never; a shown one
 // posts, which the app hears from the opaque origin "null". A bound sandbox
 // decides a literal and a bound `data:` source again as it opens and closes.

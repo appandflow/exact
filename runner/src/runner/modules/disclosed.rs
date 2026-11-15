@@ -1,5 +1,5 @@
-//! What a bound implementation discloses of its own objects under the agent:
-//! a camera's tracks and photos, a model's
+//! What a bound implementation discloses of its own objects under the agent
+//! (LLP 1133.008 D8 item 9): a camera's tracks and photos, a model's
 //! sessions. A native implementation says them through its module's
 //! `changed` ([`STATED`]), since the runner cannot ask a host synchronously
 //! when `state.extensions` is read; each call's fields replace the ones of

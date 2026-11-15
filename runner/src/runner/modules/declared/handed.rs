@@ -1,5 +1,5 @@
-//! A declared list the runner keeps where an implementation is bound: the
-//! runner hands it over. An
+//! A declared list the runner keeps where an implementation is bound (LLP
+//! 1133.033 §13, Charlie's 2026-10-27 ruling "Runner hands it over"). An
 //! interface whose `substitute` is `"runner"` keeps its list forms (`list`,
 //! `update`, `unlist`, `listed`) here even when the host binds its
 //! implementation; its other names go to the implementation as any bound

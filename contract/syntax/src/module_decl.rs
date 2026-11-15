@@ -1,4 +1,4 @@
-//! A native module's sources and sends.
+//! A native module's sources and sends (LLP 1133.001 D1, LLP 1133.002 D13).
 //! Contract never declares one: the loader reads them from a package's
 //! `exact.json`, and `use` brings them in as it brings a shape.
 
@@ -10,9 +10,10 @@ use crate::{Field, Span, TypeExpr};
 pub enum ModuleKind {
     /// A source: `resource r = name(…)`.
     Source,
-    /// A send: `send m = name(…)`, or a statement when it answers nothing.
+    /// A send: `send m = name(…)`, or a statement when it answers nothing
+    /// (LLP 1133.004 D5).
     Send,
-    /// An event: `name=action` on the root component's
+    /// An event (LLP 1133.004 D6): `name=action` on the root component's
     /// outermost node.
     Event,
 }
@@ -32,19 +33,19 @@ pub struct ModuleDecl {
     /// Read or sent.
     pub kind: ModuleKind,
     /// Its keyword arguments. One typed `option<T>` may be omitted, and then
-    /// stays the platform's own default; any other is
+    /// stays the platform's own default (LLP 1133.002 D2); any other is
     /// required.
     pub options: Vec<Field>,
     /// Each platform's words for it, by the key a call writes (`apple`).
     pub words: Vec<PlatformWords>,
     /// What it answers; `None` for a send that answers nothing, which is a
-    /// statement, and for an event.
+    /// statement (LLP 1133.004 D5), and for an event.
     pub answers: Option<TypeExpr>,
     /// An event's arguments, in order; its handler takes a prefix of them.
     pub args: Vec<TypeExpr>,
     /// An event's origin rule: `activation`, a person's act on the
     /// platform's UI that only the host raises; `emit`, the device's; or
-    /// `wake`, raised by the host at the platform's call.
+    /// `wake`, raised by the host at the platform's call (LLP 1133.017 D5).
     pub raised: String,
     /// How many of an event's deliveries are held before a handler hears
     /// them; past it the oldest is dropped.
@@ -59,21 +60,27 @@ pub struct ModuleDecl {
     /// Whether a call may show the platform's prompt: `always`,
     /// `when-prompt` (a source, while the state is `prompt`) or `never`.
     pub request: String,
-    /// Its synchronous form's name, where it has one.
+    /// Its synchronous form's name, where it has one (LLP 1133 D6 rule 4).
     pub sync: Option<String>,
-    /// Callable from data code alone (`"contract": false`): a Contract `use`
-    /// of it is refused, so its answer never
+    /// Callable from data code alone (`"contract": false`, LLP 1133.011
+    /// D10 item 1): a Contract `use` of it is refused, so its answer never
     /// becomes a mutation's value in `state`.
     pub data_only: bool,
-    /// The agent's substitute as the package declares it, a JSON object:
-    /// `default`, `from`, `ticket`, `short`, `fill`,
+    /// The app's TypeScript data code imports its package, so the module is
+    /// in the plan though no Contract file reads one of its names.
+    pub imported: bool,
+    /// Read only to type a package view, with no explicit Contract or data
+    /// import. Its names enter the plan only if the expanded root uses it.
+    pub view_only: bool,
+    /// The agent's substitute as the package declares it, a JSON object
+    /// (LLP 1133.002 §6): `default`, `from`, `ticket`, `short`, `fill`,
     /// `cancel`, `timeout`, and the interface's `permission`.
     pub substitute: String,
     /// The declaration, in the package's `exact.json`.
     pub span: Span,
 }
 
-/// One platform's words on a module name (tier 2), as the
+/// One platform's words on a module name (LLP 1133 D2, tier 2), as the
 /// implementation that owns them declares them. Every word is optional, and
 /// one a call omits stays distinct from one it writes.
 #[derive(Debug, Clone, PartialEq)]

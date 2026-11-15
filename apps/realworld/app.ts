@@ -1,7 +1,7 @@
 import type { Answer, Overlay, Sources, Result } from './app.contract.d.ts';
 
-// RealWorld's hosted API (docs.realworld.show). The token is a store secret:
-// localStorage on the web, the Keychain on Apple.
+// RealWorld's hosted API (docs.realworld.show). The token is a store secret
+// (LLP 1018): localStorage on the web, the Keychain on Apple.
 export const appId = 'com.exact.realworld';
 export const grants = 'net.fetch https://api.realworld.show\nsecret.keep realworld.jwt';
 const API = 'https://api.realworld.show/api';
@@ -66,7 +66,9 @@ export const overlay: Overlay = (source, _args, answer, writes) => {
   }
   return undefined;
 };
-const forget = () => { favs.clear(); follows.clear(); wrote(); };
+// Pending presses are forgotten too, so a previous reader's late reply cannot
+// fill the maps again.
+const forget = () => { favs.clear(); follows.clear(); presses.clear(); wrote(); };
 function joined<T extends Fav>(a: T): T {
   const f = favs.get(a.slug);
   return f ? { ...a, favorited: f.favorited, favoritesCount: f.favoritesCount } : a;
@@ -97,8 +99,8 @@ async function api(store: Store, path: string, method = 'GET', body?: unknown, f
   if (token) headers.Authorization = `Token ${token}`;
   if (body !== undefined) headers['Content-Type'] = 'application/json';
   // A read needs no FIFO order, so natively (the render server, Apple,
-  // Linux) a page's sources fetch together, as a browser's do. A mutation
-  // stays on the ordered lane.
+  // Linux) a page's sources fetch together, as a browser's do (LLP 1041
+  // §8.4). A mutation stays on the ordered lane.
   const read = method === 'GET' ? { exactIndependentHttp: { maxResponseBytes: 4 << 20 } } : {};
   if (method !== 'GET') wrote(favorite);
   let response: Response;
@@ -162,9 +164,15 @@ const emptyArticle: Article = { found: false, slug: '', title: '', description: 
 const emptyProfile: Profile = { found: false, username: '', bio: '', image: AVATAR, following: false };
 
 async function currentUser(store: Store): Promise<User> {
-  if (!store.get('realworld.jwt')) return anonymous;
+  const token = store.get('realworld.jwt');
+  if (!token) return anonymous;
   try { return user((await api(store, '/user')).user); } catch (e) {
-    if (e instanceof Failure && e.status === 401) store.forget('realworld.jwt');
+    // A 401 refuses only the token it was sent with: a sign-in may have
+    // replaced it while the request was out.
+    if (e instanceof Failure && e.status === 401 && store.get('realworld.jwt') === token) {
+      store.forget('realworld.jwt');
+      forget();
+    }
     return anonymous;
   }
 }

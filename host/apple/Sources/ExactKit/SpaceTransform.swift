@@ -1,4 +1,4 @@
-// CSS's 3D transforms on both Apple platforms: `rotate` about
+// CSS's 3D transforms on both Apple platforms (LLP 1077 D8): `rotate` about
 // an axis, `translate`'s z, a parent's `perspective` about its
 // `perspective-origin`, and `backface-visibility`. Core Animation's layer
 // transform is CSS's matrix (WebKit draws CSS 3D with it); its sublayers
@@ -103,7 +103,7 @@ extension NodeView {
         return q
     }
 
-    /// The 3D rows go on again when any of them changed.
+    /// The 3D rows (LLP 1077 D8) go on again when any of them changed.
     func applySpace(changedFrom old: NodeStyle) {
         let rows = ["rotate_axis", "translate_z", "perspective", "perspective_origin", "backface_visibility"]
         if rows.contains(where: { style[$0] != old[$0] }) { applyTransform(); applyPerspective() }
@@ -151,8 +151,8 @@ extension NodeView {
 // AppKit's geometry knows nothing of a layer's transform: its hit test and
 // its conversions place every box at its frame. A transformed box — moved,
 // turned, scaled, or in space — is drawn elsewhere, so these carry a point
-// through each such box's plane, as the web's hit test does (Linux maps
-// through the same plane).
+// through each such box's plane, as the web's hit test does (LLP 1077 D8;
+// Linux maps through the same plane).
 extension NodeView {
     /// A hit-test point (in the superview's coordinates, AppKit's
     /// convention) moved to where AppKit's flat geometry finds what is drawn
@@ -212,7 +212,7 @@ extension NodeView {
     /// `p` in this node's coordinates where it is drawn in `top`'s (the
     /// window's when nil): through each transformed box (UIKit's conversion
     /// carries them; AppKit's does not, so `ascend`), and through the
-    /// placement of a child a canvas's surface placed, the
+    /// placement of a child a canvas's surface placed (LLP 1014 D5), the
     /// canvas then carried out the same way — `local` the other way.
     func drawnPoint(_ p: CGPoint, in top: SpaceView? = nil) -> CGPoint {
         func out(_ v: NodeView, _ p: CGPoint, _ top: SpaceView?) -> CGPoint {
@@ -222,7 +222,7 @@ extension NodeView {
             return v.ascend(p, to: top)
             #endif
         }
-        guard let placed = placedAncestor, let h = placed.placement, let canvas = placed.superview?.superview as? NodeView else {
+        guard let placed = placedAncestor, let h = placed.placement, let canvas = placed.superview?.canvasOverlayOwner else {
             return out(self, p, top)
         }
         return canvas.drawnPoint(NodeView.map(h, out(self, p, placed)), in: top)

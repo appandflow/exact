@@ -1,18 +1,18 @@
-// @exact/speech-synthesis on Apple: the session's
+// @exact/speech-synthesis on Apple (LLP 1133.012 D2–D6, §9): the session's
 // `AVSpeechSynthesizer`, answered in the interface's shapes.
 //
-// - An utterance is an id, kept with its state and outcome until the
+// - An utterance is an id (D2), kept with its state and outcome until the
 //   session ends. The queue is this implementation's: the synthesizer is
 //   given one utterance at a time, the next when the last ends, so a
 //   canceled or dropped utterance never reaches it, and the state's
 //   `queue`, `utterance` and last boundary are values.
-// - Spoken audio claims the host's audio session with the queue's
+// - Spoken audio claims the host's audio session (D4) with the queue's
 //   strongest type while it speaks and is not paused, as the mode word
 //   `speech-<type>`; the owner decides when the session can take it. An
 //   unsaid type is `playback` in an app whose `audio_session` is
-//   `playback`, else `transient`. The synthesizer plays in the
+//   `playback`, else `transient` (D3). The synthesizer plays in the
 //   application's session (`usesApplicationAudioSession`, iOS).
-// - Unsaid options are the platform's: no voice set is the person's
+// - Unsaid options are the platform's (D3): no voice set is the person's
 //   default; `prefersAssistiveTechnologySettings` is true unless written.
 // - An interruption pauses the queue (`interrupted`), and only
 //   `resumeSpeech` resumes it. Headphones removed pause a `playback` queue
@@ -22,10 +22,10 @@
 //   iOS until the app returns.
 // - The delegate is called on a queue the synthesizer chooses; each call
 //   hops to main and names its utterance by identity.
-// - Tier 3: `SpeechSynthesisModule.synthesizerHatch` is given the
+// - Tier 3 (D5): `SpeechSynthesisModule.synthesizerHatch` is given the
 //   synthesizer once, before its first utterance; `utteranceHatch` each
 //   utterance, after the module set its words.
-// - Under the agent nothing is spoken, as on the web: each utterance
+// - Under the agent nothing is spoken (§9), as on the web: each utterance
 //   is spoken on the session clock at 170 words a minute times `rate`, a
 //   `word` boundary at each word's start, and `end` after the last; a
 //   paused queue's clock stands still.
@@ -34,7 +34,7 @@ import ExactPackage
 import Foundation
 
 public final class SpeechSynthesisModule: NSObject, ExactPackage, AVSpeechSynthesizerDelegate {
-    /// The app's access hatch: the session's synthesizer, once, before its first `speak`.
+    /// The app's access hatch (D5): the session's synthesizer, once, before its first `speak`.
     public static var synthesizerHatch: ((AVSpeechSynthesizer) -> Void)?
     /// Each utterance after the module set its words, before it is spoken.
     public static var utteranceHatch: ((AVSpeechUtterance) -> Void)?
@@ -181,13 +181,13 @@ public final class SpeechSynthesisModule: NSObject, ExactPackage, AVSpeechSynthe
 
     struct Refusal: Error { let word: String }
 
-    /// The type an utterance claims: the written one, or the app's.
+    /// The type an utterance claims: the written one, or the app's (D3).
     static func resolved(_ written: String?) -> String {
         if let written, strength.contains(written) { return written }
         return Bundle.main.object(forInfoDictionaryKey: "ExactAudioSession") as? String == "playback" ? "playback" : "transient"
     }
 
-    /// The platform's utterance for `u`, or why it cannot be spoken. Made on `voiceQueue`.
+    /// The platform's utterance for `u` (D3), or why it cannot be spoken. Made on `voiceQueue`.
     private static func spoken(_ u: Utterance, _ args: [String: Any]) -> Result<AVSpeechUtterance, Refusal> {
         let apple = args["apple"] as? [String: Any] ?? [:]
         let s: AVSpeechUtterance
@@ -235,7 +235,7 @@ public final class SpeechSynthesisModule: NSObject, ExactPackage, AVSpeechSynthe
         current = u.id; u.state = "speaking"; u.began = at; u.paused = nil
         boundary = Self.noBoundary; heldBoundary = nil
         if context.agent, let fail { u.failure = fail; self.fail = nil }
-        // The claim before the synthesizer, so the owner has activated the session when it speaks.
+        // The claim before the synthesizer, so the owner has activated the session when it speaks (D4).
         reclaim()
         if let s = u.spoken { made().speak(s) }
     }
@@ -260,7 +260,7 @@ public final class SpeechSynthesisModule: NSObject, ExactPackage, AVSpeechSynthe
         reclaim()
     }
 
-    /// Under the agent, the queue moved to the session clock's now.
+    /// Under the agent, the queue moved to the session clock's now (§9).
     private func advance() {
         guard context.agent else { return }
         let t = context.now()
@@ -275,7 +275,7 @@ public final class SpeechSynthesisModule: NSObject, ExactPackage, AVSpeechSynthe
         }
     }
 
-    // MARK: the claim
+    // MARK: the claim (D4)
 
     /// The strongest type among the utterances not yet ended, `auto` for none.
     private func strongest() -> String {
@@ -285,7 +285,7 @@ public final class SpeechSynthesisModule: NSObject, ExactPackage, AVSpeechSynthe
     }
 
     /// Claim while the queue speaks and is not paused; the type chosen again whenever the queue changes. A paused
-    /// queue holds no claim.
+    /// queue holds no claim (D4).
     private func reclaim() {
         let want = (current != nil || !queue.isEmpty) && reasons.isEmpty ? strongest() : "auto"
         guard want != claimed else { return }
@@ -297,13 +297,13 @@ public final class SpeechSynthesisModule: NSObject, ExactPackage, AVSpeechSynthe
         if claim == nil { say("the audio session refused the \(want) claim; speaking in the session as it stands") }
     }
 
-    /// What the owner tells a claim: an interruption pauses the queue until `resumeSpeech`.
+    /// What the owner tells a claim: an interruption pauses the queue until `resumeSpeech` (D4).
     private func heard(_ event: String) {
         if event == "interrupted" || event == "reset" { pause("interrupted") }
     }
 
     #if os(iOS) || os(tvOS)
-    /// Headphones removed pause a `playback` queue (Apple's "Responding to audio route changes").
+    /// Headphones removed pause a `playback` queue (D4; Apple's "Responding to audio route changes").
     private func routeChanged(_ note: Notification) {
         guard let raw = note.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt,
               AVAudioSession.RouteChangeReason(rawValue: raw) == .oldDeviceUnavailable,
@@ -383,7 +383,7 @@ public final class SpeechSynthesisModule: NSObject, ExactPackage, AVSpeechSynthe
 
     // MARK: pause, resume, cancel
 
-    /// Every utterance still to end ends: the queued `canceled`, the speaking `interrupted`.
+    /// Every utterance still to end ends: the queued `canceled`, the speaking `interrupted` (D6).
     private func cancelAll() {
         advance()
         for id in queue { if let u = utterances[id] { u.state = "ended"; u.outcome = "error"; u.error = "canceled"; u.spoken = nil } }
@@ -410,7 +410,7 @@ public final class SpeechSynthesisModule: NSObject, ExactPackage, AVSpeechSynthe
         advance()
         reasons.removeAll { lifted.contains($0) }
         if reasons.isEmpty {
-            // The claim again before the synthesizer goes on.
+            // The claim again before the synthesizer goes on (D4).
             reclaim()
             if let held = heldBoundary { boundary = held; heldBoundary = nil }
             if synthesizer?.isPaused == true { synthesizer?.continueSpeaking() }
@@ -448,7 +448,7 @@ public final class SpeechSynthesisModule: NSObject, ExactPackage, AVSpeechSynthe
     }
 
     /// A boundary the synthesizer reports after a pause (iOS delivers the next word's as it stops) is the word
-    /// spoken at resume: it is shown then, so a paused queue's mark holds.
+    /// spoken at resume: it is shown then, so a paused queue's mark holds (D6).
     private func reached(_ b: [String: Any]) {
         if reasons.isEmpty { boundary = b } else { heldBoundary = b }
     }
@@ -459,7 +459,7 @@ public final class SpeechSynthesisModule: NSObject, ExactPackage, AVSpeechSynthe
 
     // MARK: the session
 
-    /// Under the agent: `fail` makes the next utterance to begin end with that error. Each value preferred
+    /// Under the agent: `fail` makes the next utterance to begin end with that error (§9). Each value preferred
     /// arms it once; the queue is first brought to now, so the one speaking is not the one that fails.
     public func preferred(_ values: [String: Any]) {
         let word = values["fail"] as? String
@@ -471,10 +471,11 @@ public final class SpeechSynthesisModule: NSObject, ExactPackage, AVSpeechSynthe
         say("the next utterance fails \(word)")
     }
 
-    /// Utterances whose reply was dropped: never the app's.
+    /// Utterances whose reply was dropped: never the app's (D2).
     public func dispose(_ ids: [String]) {
         advance()
-        for id in ids {
+        // The speaking one last: ending it begins the next queued, which must not be one dropped with it.
+        for id in ids.filter({ $0 != current }) + ids.filter({ $0 == current }) {
             guard let u = utterances[id], u.state != "ended" else { continue }
             say("\(id): its reply was dropped")
             let speaking = current == id
@@ -484,7 +485,7 @@ public final class SpeechSynthesisModule: NSObject, ExactPackage, AVSpeechSynthe
         announce()
     }
 
-    /// A prompt the person can no longer see the reason for is canceled at the background; a `playback`
+    /// A prompt the person can no longer see the reason for is canceled at the background (D4); a `playback`
     /// queue speaks on only where the app may play in the background.
     public func foreground(_ shown: Bool) {
         if shown {
@@ -499,7 +500,7 @@ public final class SpeechSynthesisModule: NSObject, ExactPackage, AVSpeechSynthe
         #endif
     }
 
-    /// The session ends: the synthesizer stops and the claim goes.
+    /// The session ends: the synthesizer stops and the claim goes (D6).
     public func destroy(_ done: @escaping () -> Void) {
         cancelAll()
         synthesizer?.delegate = nil

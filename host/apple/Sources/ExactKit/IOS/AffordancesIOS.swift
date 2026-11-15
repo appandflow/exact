@@ -1,7 +1,7 @@
-// Platform affordances on UIKit: what iOS draws that CSS has no name for.
-// Smart Invert leaving a node's pixels alone, a scroll container's edge
-// effect (iOS 26), the iPad pointer's effect over a node, and
-// a text's numerals rolling as they change.
+// LLP 1077 §5 on UIKit: what iOS draws that CSS has no name for. Smart
+// Invert leaving a node's pixels alone (D18), a scroll container's edge
+// effect (D16, iOS 26), the iPad pointer's effect over a node (D17), and
+// a text's numerals rolling as they change (D15).
 #if os(iOS) || os(tvOS)
 import ObjectiveC
 import UIKit
@@ -9,7 +9,7 @@ import UIKit
 extension NodeView {
     /// Everything here a style change can move.
     func applyAffordances() {
-        // Images, video and canvases are left alone under `auto`.
+        // D18: images, video and canvases are left alone under `auto`.
         let invert = style["smart_invert"]?.string ?? "auto"
         let ignores = invert == "ignore" || ["image", "video", "canvas"].contains(kind)
         if accessibilityIgnoresInvertColors != ignores { accessibilityIgnoresInvertColors = ignores }
@@ -17,7 +17,7 @@ extension NodeView {
         applyHoverEffect()
     }
 
-    /// The edge effect where content meets a bar; `none` hides it.
+    /// D16: the edge effect where content meets a bar; `none` hides it.
     private func applyScrollEdge(_ sv: UIScrollView) {
         guard #available(iOS 26.0, tvOS 26.0, *) else { return }
         let value = style["scroll_edge_effect"]?.string ?? "automatic"
@@ -29,7 +29,7 @@ extension NodeView {
         }
     }
 
-    /// A pointer interaction whose style is the node's effect.
+    /// D17: a pointer interaction whose style is the node's effect.
     private func applyHoverEffect() {
         // tvOS has no pointer interactions.
         #if !os(tvOS)
@@ -48,7 +48,7 @@ extension NodeView {
 }
 
 #if !os(tvOS)
-/// The pointer's style over one node, kept on the node.
+/// The pointer's style over one node (D17), kept on the node.
 final class HoverEffect: NSObject, UIPointerInteractionDelegate {
     var effect = "auto"
     private static var key = 0
@@ -71,7 +71,7 @@ final class HoverEffect: NSObject, UIPointerInteractionDelegate {
 }
 #endif
 
-/// A paragraph whose text changed under `-exact-content-transition: numeric`
+/// D15: a paragraph whose text changed under `-exact-content-transition: numeric`
 /// rolls the way SwiftUI's numeric text does: a rising number comes in from
 /// above, a falling one (and any `numeric-countdown`) from below. The whole
 /// line rolls: the raster is one picture.
@@ -104,14 +104,18 @@ enum NumeralRoll {
 
 #if !os(tvOS)
 extension NodeView {
+    /// The pointer is over an inline hover run or the rest of the paragraph,
+    /// one at a time: sliding off the run onto the paragraph enters the
+    /// paragraph, however the hover began.
     @objc func hovering(_ g: UIHoverGestureRecognizer) {
-        if g.state == .ended || g.state == .cancelled { presenter?.hoverInline(nil) }
-        else if let run = inlineTarget(at: g.location(in: self), handler: "hover") { presenter?.hoverInline(run.id); return }
-        else { presenter?.hoverInline(nil) }
         switch g.state {
-        case .began: presenter?.hover(self, true)
-        case .ended, .cancelled, .failed: presenter?.hover(self, false)
-        default: break
+        case .ended, .cancelled, .failed:
+            presenter?.hoverInline(nil)
+            presenter?.hover(self, false)
+        default:
+            if let run = inlineTarget(at: g.location(in: self), handler: "hover") { presenter?.hoverInline(run.id); return }
+            presenter?.hoverInline(nil)
+            if presenter?.hovered !== self { presenter?.hover(self, true) }
         }
     }
 }

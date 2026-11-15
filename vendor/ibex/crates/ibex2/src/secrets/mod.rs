@@ -1,17 +1,17 @@
 //! Secrets: the platform's credential store behind one trait.
 //!
 //! A secret is small, per-app, kept across launches, and never shown: a
-//! session token is the first one. The platform owns the
+//! session token is the first one (exact2 LLP 1018). The platform owns the
 //! mechanism — the Keychain on Apple platforms, a `0600` file elsewhere —
 //! and Rust owns the semantics: a name is kept, replaced, or forgotten, and
-//! the grant a binding carries (`secret.keep <name>`) is checked
+//! the grant a binding carries (`secret.keep <name>`, LLP 0069 §1) is checked
 //! in `host::Secrets` before any store is asked.
 //!
-//! Synchronous, as every binding is: a Keychain read is bounded
+//! Synchronous, as every binding is (LLP 0068 §2): a Keychain read is bounded
 //! and local, and the consumer that needs a secret needs it before its first
 //! frame.
 //!
-//! Backends: the Keychain, a file per secret, and memory.
+//! @ref LLP 0069#3-the-backends — the Keychain, a file per secret, memory
 
 use std::collections::BTreeMap;
 use std::ffi::OsString;
@@ -139,7 +139,7 @@ impl SecretStore for UnavailableStore {
 /// A file per secret under one directory: the file `0600`, the directory
 /// `0700`, each write whole to a temporary file renamed into place. Not
 /// encrypted — the platform's own secret service arrives as a second
-/// `SecretStore` with the consumer that needs it.
+/// `SecretStore` with the consumer that needs it (LLP 0069 §3).
 #[derive(Debug)]
 pub struct FileStore {
     dir: PathBuf,

@@ -1,16 +1,17 @@
-// The JS target's decision to scroll to a fragment (host/web-js/router.js): a navigation counts only when a
+// The JS target's decision to scroll to a fragment (host/web-js/router.js; LLP 1153 D5): a navigation counts only when a
 // commit that lands assigns its very value to the router, and the scroll waits for every request in flight, a mutation's
 // too, as the runner's `fragment_command` waits on `has_pending`. rt.js and router.js run beside stand-ins for the
 // modules they import, and a fragment.js that records what it is asked.
 import { test, expect } from 'bun:test';
-import { copyFileSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { copyFileSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { standIns } from './stand-ins.mjs';
+import { fileURLToPath } from 'node:url';
 
 const dir = mkdtempSync(resolve(tmpdir(), 'exact-js-fragment-'));
-const REAL = ['rt.js', 'held.js', 'font-family.js', 'observers.js', 'grid.js', 'overlay.js', 'roster.js', 'router.js', 'route-pattern.js', 'schedule.js', 'budget.js', 'elements.js'];
-for (const f of REAL) copyFileSync(resolve(new URL(`../../web-js/${f}`, import.meta.url).pathname), resolve(dir, f));
+const REAL = ['rt.js', 'clock.js', 'resources.js', 'tree.js', 'events.js', 'pieces.js', 'mount.js', 'strings.js', 'request-send.js', 'shape.js', 'held.js', 'font-family.js', 'observers.js', 'grid.js', 'overlay.js', 'roster.js', 'router.js', 'route-pattern.js', 'schedule.js', 'budget.js', 'elements.js'];
+for (const f of REAL) copyFileSync(resolve(fileURLToPath(new URL(`../../web-js/${f}`, import.meta.url))), resolve(dir, f));
 for (const [file, source] of standIns(REAL)) writeFileSync(resolve(dir, file), source);
 writeFileSync(resolve(dir, 'fragment.js'), `const asked = globalThis.fragmentAsked;
 export const arm = (root, op) => asked.push(['arm', op.fragment, op.activation]);
@@ -29,7 +30,7 @@ test('a fragment scrolls for a navigation a landed commit assigns the router, on
     await import(resolve(dir, 'fragment.js')); // loaded, so router.js's own import of it answers in a turn
     rt.routes([['home', '/', null, true, false], ['item', '/item/:id', 0, false, false]]);
     const nav = rt.sig(rt.launch('/item/7#moves'), null, 'nav');
-    rt.router(nav, { apply: op => applied.push(op), project() {}, personScrolls: 0 });
+    rt.router(nav, { apply: op => applied.push(op), project() {}, holdLink() { return null; }, personScrolls: 0 });
     await until(() => asked.length >= 2);
     expect(asked).toEqual([['arm', 'moves', 1], ['scroll', 'moves', 1]]); // the launch's
     const moves = () => rt.x_go(nav(), '/item/7#moves');
@@ -53,8 +54,26 @@ test('a fragment scrolls for a navigation a landed commit assigns the router, on
     expect(asked.slice(2)).toEqual([['arm', 'moves', 2], ['scroll', 'moves', 2]]);
 
     // The app's own scrollIntoView ends a fragment's scroll held or yet to come.
-    (globalThis.exact ??= {}).fragment = { cancel: () => asked.push(['cancel']) };
+    (globalThis.exact ??= {}).fragment = { cancel: (pending = true) => asked.push(['cancel', pending]) };
     rt.Hosts.scrollIntoView('row-1');
-    expect(asked.at(-1)).toEqual(['cancel']);
+    expect(asked.at(-1)).toEqual(['cancel', true]);
+    rt.Hosts.scrollBy('port', 0, 20);
+    expect(asked.at(-1)).toEqual(['cancel', false]);
   } finally { if (page === undefined) delete globalThis.document; else globalThis.document = page; }
+});
+
+// The route corpus's launches (route/tests/corpus.json), as exact-route spends their ids: a query on a root location
+// spends none, so a document rendered at `/?agent=1` is one the runtime at `/` adopts.
+test('a launch spends the ids the route corpus says', async () => {
+  const rt = await import(resolve(dir, 'rt.js'));
+  const corpus = JSON.parse(readFileSync(new URL('../../../route/tests/corpus.json', import.meta.url), 'utf8'));
+  const launches = corpus.sequences.flatMap(s => s.steps.filter(st => st.verb === 'launch').map(st => [s.table, st]));
+  expect(launches.some(([, st]) => st.arg.startsWith('/?'))).toBe(true);
+  for (const [table, { arg, expected }] of launches) {
+    rt.routes(corpus.tables[table].routes.map(r => [r.name, r.pattern, r.parent, r.tab, r.notfound]));
+    const [tab, tabs, next] = rt.launch(arg);
+    const visits = tabs.map(([name, stack]) => ({ name, stack: stack.map(([id, name, url, tab]) => ({ id, name, url, tab })) }));
+    const want = expected.tabs.map(({ name, stack }) => ({ name, stack: stack.map(({ id, name, url, tab }) => ({ id, name, url, tab })) }));
+    expect({ arg, tab, visits, next }).toEqual({ arg, tab: expected.tab, visits: want, next: expected.next });
+  }
 });

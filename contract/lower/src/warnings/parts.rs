@@ -1,4 +1,4 @@
-//! `lower-round-button-label`: a label too long for
+//! `lower-round-button-label` (LLP 1116.011 D2.1): a label too long for
 //! `exact:content`'s `RoundButton`. The part is the Clock's circle, an
 //! 80-point button with 6 points of padding either side: 68 points, about
 //! 7 characters of 17-point type (Start, Stop, Lap, Reset, Resume, Restart;
@@ -14,13 +14,12 @@
 //! warning advises and the author decides: the part keeps its shape, and a
 //! screen's main action of more words is the prominent `button`.
 //!
-//! `lower-empty-state-in-list`: an `EmptyState` inside a
+//! `lower-empty-state-in-list` (LLP 1116.020 D5): an `EmptyState` inside a
 //! `list`, which draws it as a row, a card among the sections, where UIKit's
-//! content-unavailable view takes the screen's place. Read the same way: a
-//! part wrapped in a
+//! content-unavailable view takes the screen's place. Five of round 18's
+//! apps showed their empty state so. Read the same way: a part wrapped in a
 //! component of the author's own is the benefit of the doubt.
 
-use super::miswiring::arms;
 use crate::LowerError;
 use contract_syntax::{Expr, Node};
 use contract_types::Checked;
@@ -64,7 +63,7 @@ pub(super) fn round_button_label(checked: &Checked<'_>) -> Vec<LowerError> {
                     }
                 }
             }
-            for arm in arms(node).into_iter().rev() {
+            for arm in node.child_lists().into_iter().rev() {
                 stack.extend(arm.iter().rev());
             }
         }
@@ -99,7 +98,7 @@ pub(super) fn empty_state_in_list(checked: &Checked<'_>) -> Vec<LowerError> {
                 }
             }
             let in_list = in_list || matches!(node, Node::Element { tag, .. } if tag == "list");
-            for arm in arms(node).into_iter().rev() {
+            for arm in node.child_lists().into_iter().rev() {
                 stack.extend(arm.iter().rev().map(|n| (n, in_list)));
             }
         }
@@ -110,10 +109,10 @@ pub(super) fn empty_state_in_list(checked: &Checked<'_>) -> Vec<LowerError> {
 /// The `SummaryCard` part's props, in its order.
 const SUMMARY_PROPS: [&str; 5] = ["label", "value", "detail", "progress", "symbol"];
 
-/// `lower-summary-card-in-list`: a `SummaryCard`
+/// @ref LLP 1116.021 D7 — `lower-summary-card-in-list`: a `SummaryCard`
 /// written in a grouped list's section that has its card, which draws it as
-/// a grey card inside a white cell, its edge on the cell's. A card-less
-/// first section
+/// a grey card inside a white cell, its edge on the cell's (round 19's
+/// expense-tracker, habit-tracker). A card-less first section
 /// (`background-color="transparent"`) is the place the one-screen pattern
 /// gives it. Read as `empty_state_in_list` reads its part.
 pub(super) fn summary_card_in_list(checked: &Checked<'_>) -> Vec<LowerError> {
@@ -171,7 +170,7 @@ pub(super) fn summary_card_in_list(checked: &Checked<'_>) -> Vec<LowerError> {
                 }
                 _ => at,
             };
-            for arm in arms(node).into_iter().rev() {
+            for arm in node.child_lists().into_iter().rev() {
                 stack.extend(arm.iter().rev().map(|n| (n, at)));
             }
         }

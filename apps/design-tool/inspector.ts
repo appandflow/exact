@@ -1,4 +1,4 @@
-// The inspector's view of a selection, apart from the
+// The inspector's view of a selection (LLP 1122 D5, D6), apart from the
 // client's state: what a selection was made under, when it stops being
 // current, and each row as the panel shows it.
 import { holdView, type Holding } from './holds';
@@ -16,7 +16,7 @@ export type Selected = { e: any; at: string; axes: string; scheme: string; stale
 let lastSelected = '', visits = 0;
 export const visitOf = (e: any) => { const k = [e.build, e.node, e.site, JSON.stringify(e.instance ?? [])].join('|'); if (k !== lastSelected) { lastSelected = k; visits++; } return visits; };
 
-// An `:active` part's rows as their press paint carries them, by the part's spelling.
+// An `:active` part's rows as their press paint carries them (LLP 1121 D8), by the part's spelling.
 const ACTIVE: Record<string, string> = { press_background_color: 'background-color', press_color: 'color', press_opacity_to: 'opacity', press_scale: '-exact-press-scale' };
 const SOURCES: Record<string, string> = { authored: 'set here', dynamic: 'a dynamic expression', inherited: 'inherited', initial: 'initial' };
 // The wire's row names that authors spell otherwise (contract/lower's
@@ -28,10 +28,10 @@ const CSS: Record<string, string> = {
     'symbol_effect', 'press_haptic', 'content_transition', 'scroll_edge_effect', 'hover_effect', 'smart_invert', 'animation_trigger', 'control_size', 'fit', 'mode']
     .map(n => [n, `-exact-${n.replace(/_/g, '-')}`])),
 };
-// The rows lowering writes itself with no source place, at their own defaults: a symbol's
+// The rows lowering writes itself with no source place, at their own defaults (stage 15 D4 batch 1 #5): a symbol's
 // tint as `currentcolor` (contract/lower symbols/ink.rs). Folded with the rows nothing sets, never named as editable.
 const LOWERED: Record<string, string> = { tint_color: 'currentcolor' };
-// (Only a row with no source place: the join's own words for one, scripts/tamber-inspect.mjs `editableOf`; an authored
+// (Only a row with no source place: the join's own words for one, scripts/forma-inspect.mjs `editableOf`; an authored
 // row of the same value, a package's read-only one among them, has a place and another reason.)
 // A class's `color` lowers to the tint too, in its class: "a style's row (Name) the map gives no place for".
 const UNPLACED = /^(a value|a style's row \([^)]*\)) the map gives no place for: the source's to edit$/;
@@ -72,7 +72,7 @@ export const shownValue = (name: string, value: unknown) => typeof value === 'st
  * moves them. */
 export const buildKey = (b: Build) => b ? JSON.stringify([b.status?.revision ?? null, b.status?.scheme ?? null, b.status?.mode ?? null, b.plan ?? null, b.design ?? null, b.pinRevision]) : '';
 
-/** Why the page's selection itself is no longer current, or '' (a move up from it would be
+/** Why the page's selection itself is no longer current, or '' (the Apple pass's #5, #6: a move up from it would be
  * refused): its build gone, its page loaded again (registered again: no status where it had one), or rebuilt (another
  * plan, by its digest: a dev generation that keeps the plan, an asset one, is no rebuild). A pin, a scheme or a mode
  * moving keeps it: the page still holds it, and a move up from it is taken. */
@@ -98,9 +98,9 @@ export const placeOf = (axes: Axis[], col: Column) => `${col.dark ? 'dark' : 'li
 
 const noHold = { can: false, state: '', held: false, status: '' };
 /** A state rung as the inspector offers it: `set-state`'s target, `style|state|row|file`, and its words. */
-// The template or style rung's: `set-row`'s address, as the join gave it, its words and the value as
+// The template or style rung's (T5): `set-row`'s address, as the join gave it, its words and the value as
 // written; a template row's promotion to a param or token (`component` the one whose view it is in; a token
-// only for an unconditional value), and a param row's detach to its template.
+// only for an unconditional value, D6), and a param row's detach to its template.
 const at = (x: any) => (x.rung === 'style' ? { style: x.style, row: x.row, file: x.file } : { file: x.file, at: x.at, sha256: x.sha256, row: x.row, ...(x.state ? { state: x.state } : {}) });
 const rowOf = (x: any, component: string) => x?.rung === 'template' || x?.rung === 'style'
   ? { edit: JSON.stringify(at(x)), editLabel: x.rung === 'style' ? `Edit style ${x.style}` : `Edit this template · ${x.instances === 1 ? '1 instance' : `${x.instances} instances`}`, editText: String(x.text ?? ''),
@@ -117,12 +117,12 @@ function libraryOf(library: any, partsOf: (identity: string) => { name: string; 
   return { libraryIdentity: library.identity, libraryPart: part, libraryParts: (partsOf(library.identity) ?? []).map(p => ({ name: p.name, here: p.name === part, slot: p.slot })) };
 }
 /** The selection as the inspector shows it: each row's source, and its edit
- * on the branch that won for the copy (its modes' column and scheme), its
+ * on the branch that won for the copy (D6: its modes' column and scheme), its
  * token link or why it is read-only; nothing to do while stale. */
 export function selectionView(s: Selected | null, stale: string, read: Axis[] | null, columns: Column[], inspecting: boolean, holding: Holding = { can: false, hold: null, held: null }, note = '', partsOf: (identity: string) => { name: string; slot: boolean }[] | null = () => null) {
   if (!s) return { ...noSelection, inspecting };
   // (`read`: the app design's axes, null until its first read; a design that declares none has an empty list, and its
-  // copies sit on its light or dark column.)
+  // copies sit on its light or dark column, stage 15 D4's batch 1 #1.)
   const axes = read ?? [], e = s.e, dark = s.scheme === 'dark';
   // On a light copy an under-dark axis is its default; any other the copy
   // names. With no axes read yet, or one it does not name, it is not placed.
@@ -142,7 +142,7 @@ export function selectionView(s: Selected | null, stale: string, read: Axis[] | 
     source: r.source && typeof r.source === 'object' ? `${r.state ? `:${r.state} part at ` : ''}${partAt(r.source)}` : `${SOURCES[r.source] ?? String(r.source)}${r.source === 'inherited' && r.fromAt?.line != null ? ` from ${r.fromAt.component ?? 'a node'} (${String(r.fromAt.file).split('/').pop()}:${r.fromAt.line})` : r.source === 'inherited' && r.from != null ? ` from #${r.from}` : ''}${r.origin ? ` (${r.origin})` : ''}${r.token?.implied ? ' · a mode boundary' : ''}`,
     rung: usable ? String(r.editable?.rung ?? '') : '', token: usable ? String(r.editable?.token ?? r.editable?.link ?? '') : '',
     param: usable ? String(r.editable?.param ?? '') : '', short: usable ? String(r.editable?.short ?? r.editable?.param ?? '') : '',
-    // The state rung, or beneath a token rung: `set-state`'s target.
+    // The state rung, or beneath a token rung (T4): `set-state`'s target.
     ...stateOf(usable && r.editable?.rung === 'state' ? r.editable : null),
     ...rowOf(usable ? r.editable : null, String(e.source?.component ?? '')),
     reason: String(r.editable?.reason ?? ''), column: col?.id ?? '',
@@ -150,17 +150,18 @@ export function selectionView(s: Selected | null, stale: string, read: Axis[] | 
   return {
     // (With the build's facts it was made under: a pin, a reload or a new plan since makes another copy.)
     key: [e.build, e.node, e.site, JSON.stringify(e.instance ?? []), s.at].join('|'), visit: `${s.visit ?? 0}`, arrival: `${s.arrival ?? 0}`, files: s.files ?? '',
-    // (Not current for the page itself, latched apart from the rows' staleness: a move up is refused then.)
+    // (Not current for the page itself, latched apart from the rows' staleness: a move up is refused then. The Apple
+    // pass's #5, #6.)
     pageStale: s.pageStale ?? '',
     has: true, stale: stale || (col ? '' : !s.scheme ? 'the scheme it is shown in is not known' : !read ? "the app's design is not read yet" : "its modes are not a column of the app's design"), build: String(e.build), node: Number(e.node ?? 0), readOnly: String(e.readOnly ?? ''),
     source: at(e.source, String(e.source?.file).split('/').pop()), chain: (e.source?.chain ?? []).map((x: any, i: number) => ({ text: x?.slot === true ? `${x.component}'s slot (${String(x.file).split('/').pop()}:${x.line})` : at(x), up: i + 1, component: String(x?.component ?? ''), slot: x?.slot === true })), component: String(e.source?.component ?? ''), movedUp: Number.isSafeInteger(e.moved?.up) ? e.moved.up : -1, movedStepped: Number.isSafeInteger(e.moved?.stepped) ? e.moved.stepped : -1, modes: col?.label ?? '', place: col ? placeOf(axes, col) : '', trimmed: !!e.trimmed, inspecting,
-    // A node of an exported library component's own view: the component by its declaring
+    // A node of an exported library component's own view (stage 12 D4, LLP 1139 D5): the component by its declaring
     // identity, the part this node is or none, and its parts as the server lists them, this one and the slot's marked.
     ...libraryOf(e.source?.library, partsOf),
     hold: shown,
-    // The rows the state held here shows, or why they are not
+    // The rows the state held here shows (stage 8 E), or why they are not
     // known: a host that reports none, or says it can't name their tokens,
-    // leaves the held look read-only.
+    // leaves the held look read-only (D8).
     heldState: shown.held && reported ? String(e.held.state) : '',
     heldRows: shown.held && reported ? (e.held.rows ?? []).map(row) : [],
     // (Its page asked to report them again, the answer not in yet: `asking`.)

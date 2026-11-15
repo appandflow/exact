@@ -5,17 +5,20 @@ use crate::emit::{surface_type_json, value_js};
 use exact_plan::{Plan, Value};
 use std::fmt::Write as _;
 
-/// The reserved sources facts.js answers: each declared
+/// The reserved sources facts.js answers (LLP 1071 §7): each declared
 /// record's fields checked against the runner's names and passed by name;
-/// `exactSurface` readers with their surface and shape. Returns the import.
+/// `exactSurface` readers with their surface and shape. `exactTime`'s
+/// readers too, though the entry answers it (build.mjs). Returns the import.
 pub fn reserved(plan: &Plan, body: &mut String) -> Result<String, String> {
-    use exact_runner::{delivery, page, surface_record, viewport};
+    use exact_runner::{delivery, page, surface_record, time, viewport};
     let mut imports = Vec::new();
     for (source, fields, name) in [
         ("exactViewport", viewport::FIELDS, "viewport"),
+        ("exactTime", time::FIELDS, "time"),
         ("exactPage", page::FIELDS, "page"),
         ("exactDelivery", &delivery::FIELDS[..], "delivery"),
         ("exactSurface", &[][..], "surfaces"),
+        ("exactCanvasPerformance", &[][..], "canvasPerformance"),
         (
             "exactActivities",
             &["activities", "frequentPushesEnabled", "linked"][..],
@@ -35,16 +38,35 @@ pub fn reserved(plan: &Plan, body: &mut String) -> Result<String, String> {
             if t.kind != exact_plan::TypeKind::Record {
                 return Err(format!("resource {resource}: `{source}` answers a record"));
             }
-            let entry = if source == "exactSurface" {
+            let entry = if matches!(source, "exactSurface" | "exactCanvasPerformance") {
+                if source == "exactCanvasPerformance" {
+                    exact_runner::canvas_performance::validate(plan, r.ty)?;
+                }
                 let surface = surface_record::surface_name(plan, r).ok_or_else(|| {
-                    format!(
-                        "resource {resource}: `exactSurface` takes one string-literal surface name"
-                    )
+                    format!("resource {resource}: `{source}` takes one string-literal surface name")
                 })?;
+                let keep = if r.keep
+                    && !r.transient
+                    && source == "exactSurface"
+                    && plan.surfaces.iter().any(|s| plan.str(s.name) == surface)
+                {
+                    surface_record::keep_signature(plan, r.ty)
+                        .map(|signature| {
+                            let hex = signature
+                                .to_bytes()
+                                .iter()
+                                .map(|b| format!("{b:02x}"))
+                                .collect::<String>();
+                            serde_json::to_string(&hex).unwrap()
+                        })
+                        .unwrap_or_else(|| "false".into())
+                } else {
+                    "false".into()
+                };
                 format!(
-                    "{},{}",
+                    "{},{},{keep}",
                     serde_json::to_string(surface).unwrap(),
-                    surface_type_json(plan, r.ty)
+                    surface_type_json(plan, r.ty),
                 )
             } else {
                 let mut names = Vec::new();
@@ -53,12 +75,28 @@ pub fn reserved(plan: &Plan, body: &mut String) -> Result<String, String> {
                     if !fields.contains(&field) {
                         return Err(format!("resource {resource}: `{source}` has no `{field}`"));
                     }
+                    if source == "exactViewport" && field == "segments" {
+                        let list = plan.type_(plan.field(f).ty);
+                        let record = list.elem.map(|t| plan.type_(t)).filter(|t| list.kind == exact_plan::TypeKind::List && t.kind == exact_plan::TypeKind::Record)
+                            .ok_or_else(|| format!("resource {resource}: exactViewport.segments needs a list of rectangle records"))?;
+                        for nested in record.fields.iter() {
+                            let nested = plan.field(nested);
+                            let name = plan.str(nested.name);
+                            if !["x", "y", "width", "height"].contains(&name)
+                                || plan.type_(nested.ty).kind != exact_plan::TypeKind::Number
+                            {
+                                return Err(format!("resource {resource}: exactViewport.segments has no numeric field `{name}`"));
+                            }
+                        }
+                    }
                     names.push(serde_json::to_string(field).unwrap());
                 }
                 let baked = plan.bytes(r.initial);
                 if source == "exactDelivery" && !baked.is_empty() {
                     let v = Value::from_bytes(baked).map_err(|e| e.to_string())?;
                     format!("[{}],{}", names.join(","), value_js(&v))
+                } else if source == "exactViewport" {
+                    format!("[{}],{}", names.join(","), surface_type_json(plan, r.ty))
                 } else {
                     format!("[{}]", names.join(","))
                 }
@@ -82,28 +120,81 @@ pub fn reserved(plan: &Plan, body: &mut String) -> Result<String, String> {
     Ok(facts + &modules(plan, body) + &crate::calls::tools(plan, body))
 }
 
-/// The extensions the plan's module names and package views belong to, each
-/// once, in order.
-pub fn extensions(plan: &Plan) -> Vec<String> {
-    let mut out: Vec<String> = Vec::new();
-    let named = plan.modules.iter().map(|m| m.extension);
-    for e in named.chain(plan.views.iter().map(|v| v.extension)) {
-        let e = plan.str(e).to_owned();
-        if !out.contains(&e) {
-            out.push(e);
-        }
+/// The declared sources' registration (`fetches`) as an exported
+/// `prepareSources`, which the app calls first and a `pages=` enumeration
+/// calls without booting the app (build.mjs `__pages`): the import, the
+/// function and its call. A plan with none adds nothing to the module.
+pub(super) fn prepared_sources(plan: &Plan) -> (String, String, &'static str) {
+    let mut body = String::new();
+    let import = fetches(plan, &mut body);
+    if body.is_empty() {
+        return (import, String::new(), "");
     }
-    out
+    let prepare = format!("export function prepareSources(){{{body}}}");
+    (import, prepare, "prepareSources();")
 }
 
-/// A native module's sources and sends, which
+/// The sources declared in Contract (LLP 1162.001), which fetches.js answers
+/// as the runner's `fetches.rs` does: each by its name, `[method, url,
+/// origin, parameter names, headers, body, document, pointer, parameter
+/// types, answer type, its grant]`, the grant `net.fetch <origin>`
+/// normalized as the build normalizes a module's (admission's
+/// `createGrantSet` takes no other). Returns the import, empty for a plan
+/// with none.
+fn fetches(plan: &Plan, body: &mut String) -> String {
+    if plan.fetches.is_empty() {
+        return String::new();
+    }
+    let json = |s: &str| serde_json::to_string(s).unwrap();
+    let rows: Vec<String> = (plan.fetches.iter())
+        .map(|row| {
+            let signature = &plan.sources[row.source.0 as usize];
+            let names: Vec<String> = plan.fetch_parts(row.params).map(|(n, _)| json(n)).collect();
+            let headers: Vec<String> = (plan.fetch_parts(row.headers))
+                .map(|(n, v)| format!("[{},{}]", json(n), json(v)))
+                .collect();
+            let types: Vec<String> = (signature.params.iter())
+                .map(|p| crate::emit::type_json(plan, plan.source_params[p.0 as usize].ty))
+                .collect();
+            let grant = format!("net.fetch {}", plan.str(row.origin));
+            format!(
+                "{}:[{},{},{},[{}],[{}],{},{},{},[{}],{},{}]",
+                json(plan.str(signature.name)),
+                json(plan.str(row.method)),
+                json(plan.str(row.url)),
+                json(plan.str(row.origin)),
+                names.join(","),
+                headers.join(","),
+                json(plan.str(row.body)),
+                json(plan.str(row.document)),
+                json(plan.str(row.pointer)),
+                types.join(","),
+                crate::emit::type_json(plan, signature.ty),
+                exact_runner::grants::normalized_json(&grant),
+            )
+        })
+        .collect();
+    let _ = write!(body, "$fetches({{{}}});", rows.join(","));
+    "import{fetches as $fetches}from\"./fetches.js\";".into()
+}
+
+/// The extensions the plan's module names, events and package views belong to, each
+/// once, in order.
+pub fn extensions(plan: &Plan) -> Vec<String> {
+    plan.package_extensions()
+        .keys()
+        .map(|e| (*e).to_owned())
+        .collect()
+}
+
+/// A native module's sources and sends (LLP 1133.002 D13, §6), which
 /// modules.js answers as the runner's `modules.rs` does: each by its
 /// source's name, `[extension.name, send, its substitute, its type, when it
 /// asks for permission, its options record's type or null, live]`, an enum's
 /// members spelled out, so a preferred value outside them is refused; then a
 /// loader of each extension's web implementation (`ext-<name>.js`, which
-/// the build writes beside the app); then each package
-/// view, by its tag, `[extension, displayed, binding props]` (views.js);
+/// the build writes beside the app, LLP 1133.002 D15); then each package
+/// view, by its tag, `[extension, displayed, binding props, agent vocabulary]` (views.js);
 /// then the events the root hears.
 fn modules(plan: &Plan, body: &mut String) -> String {
     if plan.modules.is_empty() && plan.views.is_empty() && plan.module_events.is_empty() {
@@ -144,18 +235,19 @@ fn modules(plan: &Plan, body: &mut String) -> String {
         .map(|v| {
             let binds: Vec<&str> = plan.str(v.binds).split_whitespace().collect();
             format!(
-                "{}:[{},{},{}]",
+                "{}:[{},{},{},{}]",
                 serde_json::to_string(plan.str(v.tag)).unwrap(),
                 serde_json::to_string(plan.str(v.extension)).unwrap(),
                 v.displayed,
-                serde_json::to_string(&binds).unwrap()
+                serde_json::to_string(&binds).unwrap(),
+                plan.str(v.agent)
             )
         })
         .collect();
-    // Each event the root hears: its action, taken when
+    // Each event the root hears (LLP 1133.004 D6): its action, taken when
     // the event is heard (the actions are declared after this call), how it
     // is raised, its hold, its parameters' types, its name and a wake's
-    // budget.
+    // budget (LLP 1133.017 D5).
     let events: Vec<String> = (plan.module_events.iter())
         .map(|e| {
             let action = plan.action(e.action);
@@ -190,7 +282,7 @@ fn modules(plan: &Plan, body: &mut String) -> String {
     "import{modules as $modules}from\"./modules.js\";".into()
 }
 
-/// The plan's viewport comparisons for the renderers:
+/// The plan's viewport comparisons for the renderers (LLP 1048.007 D2):
 /// `[[query, v => v.<fact> <op> <constant>], …]`, each predicate read
 /// against the viewport a render saw; `[]` for a plan that reads no viewport,
 /// or that reads it in a way no media query tells (`activation`'s `kept`).
@@ -226,15 +318,63 @@ pub fn viewport_media(plan: &Plan) -> String {
     format!("[{}]", rows.join(","))
 }
 
-/// What an undeclared route's inferred activation asks of a render
-/// (`exact_runner::activation`), for `render.mjs`.
+/// What an undeclared route's inferred activation asks of a render (LLP
+/// 1048.007 D1, `exact_runner::activation`), for `render.mjs`.
 pub fn activation(plan: &Plan) -> String {
     use exact_runner::activation::{runtime_kept, REPLAYED, WOKEN};
     let waits: Vec<&str> = REPLAYED.iter().chain(&WOKEN).map(|k| k.name()).collect();
     format!(
-        "{{waits:{},kept:{},viewport:{}}}",
+        "{{waits:{},kept:{},viewport:{},tools:{}}}",
         serde_json::to_string(&waits).unwrap(),
         runtime_kept(plan) || exact_runner::activation::wake(plan).is_none(),
-        exact_runner::viewport_reads::Reads::of(plan).any()
+        exact_runner::viewport_reads::Reads::of(plan).any(),
+        exact_runner::activation::offers_tools(plan)
     )
+}
+
+#[test]
+fn a_view_carries_its_agent_vocabulary_without_module_names() {
+    let mut plan = exact_plan::builder::PlanBuilder::new(0, 0)
+        .finish()
+        .unwrap();
+    plan.add_view(
+        "words-panel",
+        ("words", "@fixture/words"),
+        false,
+        &[],
+        r#"{"heard":"string"}"#,
+    );
+    let mut body = String::new();
+    modules(&plan, &mut body);
+    assert!(body.contains(r#""words-panel":["words",false,[],{"heard":"string"}]"#));
+    assert!(body.contains(r#""words":()=>import("./ext-words.js")"#));
+}
+
+#[test]
+fn event_only_extensions_have_web_loaders() {
+    let mut b = exact_plan::builder::PlanBuilder::new(0, 0);
+    let body = b.code(exact_plan::asm::Asm::new());
+    let action = b.action("hear", &[], &[], body);
+    b.module_event(("bell", "@fixture/bell"), "chime", action, "emit", 4, 0);
+    let plan = b.finish().unwrap();
+    assert_eq!(extensions(&plan), ["bell"]);
+    let mut body = String::new();
+    let imports = modules(&plan, &mut body);
+    assert!(imports.contains("./modules.js"));
+    assert!(body.contains("./ext-bell.js"), "{body}");
+}
+
+#[test]
+fn frozen_is_a_valid_page_field_and_unknown_names_refuse() {
+    let source = "shape Page\n  frozen: bool\ncomponent App\n  resource page = exactPage() as shape Page\n  view\n    text `${page.frozen}`\n";
+    let plan = contract::compile(source).unwrap();
+    let mut body = String::new();
+    assert!(reserved(&plan, &mut body)
+        .unwrap()
+        .contains("page as $page"));
+    assert!(body.contains("frozen"));
+    let plan = contract::compile(&source.replace("frozen", "freezing")).unwrap();
+    assert!(reserved(&plan, &mut String::new())
+        .unwrap_err()
+        .contains("has no `freezing`"));
 }

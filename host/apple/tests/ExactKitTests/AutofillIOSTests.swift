@@ -3,7 +3,7 @@ import UIKit
 import XCTest
 @testable import ExactKit
 
-/// HTML's `autocomplete` as UIKit's text content type: the
+/// HTML's `autocomplete` as UIKit's text content type (LLP 1102 §3.6): the
 /// last field token names it over the one `type` implies, `off` clears even
 /// that, and `on` or a token UIKit has no type for leave `type`'s.
 final class AutofillIOSTests: XCTestCase {

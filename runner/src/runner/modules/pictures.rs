@@ -1,4 +1,4 @@
-//! Pictures by a package's `img` scheme. An
+//! Pictures by a package's `img` scheme (LLP 1133.019 D2, D11 item 1). An
 //! interface that declares `"images": {"scheme", "grants", "permission"?,
 //! "owned"?}` serves `img` sources that begin `<scheme>:`. A host's raster
 //! loader, given one, asks [`Runner::admit_picture`] before it asks the
@@ -10,7 +10,7 @@
 //! `permission` is `granted`, as the runner holds it. On a target that
 //! `owned` names, a picture is let through under that grant line alone,
 //! with `owned: true`, and the implementation draws it only where the
-//! platform says it is the app's own (Android's own photos). Refused: a
+//! platform says it is the app's own (D6: Android's own photos). Refused: a
 //! scheme no package serves, an app that declares none of `grants`, a
 //! scheme with no implementation bound, a permission not granted.
 
@@ -36,6 +36,16 @@ impl<D: DataSource> Runner<D> {
     /// picture, or `{"error", "message"}`, which the host shows as an
     /// unresolved image. `None` for a source of no package's scheme.
     pub fn admit_picture(&mut self, source: &str, target: &str) -> Option<Json> {
+        self.picture_admission(source, target, true)
+    }
+
+    /// Admission without counting a draw: hosts recheck refused pictures
+    /// after commits that may have changed admission.
+    pub fn check_picture(&mut self, source: &str, target: &str) -> Option<Json> {
+        self.picture_admission(source, target, false)
+    }
+
+    fn picture_admission(&mut self, source: &str, target: &str, count: bool) -> Option<Json> {
         let scheme = source.split_once(':')?.0;
         let row = (self.plan.modules.iter())
             .find(|m| self.substitute(m)["images"]["scheme"] == scheme)?
@@ -43,30 +53,34 @@ impl<D: DataSource> Runner<D> {
         let extension = self.plan.str(row.extension).to_owned();
         let images = self.substitute(&row)["images"].clone();
         let decided = self.picture_decision(&row, &images, target);
-        let counts = self
-            .extensions
-            .pictures
-            .counts
-            .entry(extension.clone())
-            .or_default();
-        match &decided {
-            Ok(_) => counts.0 += 1,
-            Err(why) => {
-                counts.1 += 1;
-                // One line per change of reason, not per cell of a grid.
-                let last = self
-                    .extensions
-                    .pictures
-                    .last_refusal
-                    .insert(extension.clone(), why.clone());
-                if last.as_deref() != Some(why.as_str()) {
-                    self.log(format!("{extension}: picture refused, {why}"));
+        if count {
+            let counts = self
+                .extensions
+                .pictures
+                .counts
+                .entry(extension.clone())
+                .or_default();
+            match &decided {
+                Ok(_) => counts.0 += 1,
+                Err(why) => {
+                    counts.1 += 1;
+                    // One line per change of reason, not per cell of a grid.
+                    let last = self
+                        .extensions
+                        .pictures
+                        .last_refusal
+                        .insert(extension.clone(), why.clone());
+                    if last.as_deref() != Some(why.as_str()) {
+                        self.log(format!("{extension}: picture refused, {why}"));
+                    }
                 }
             }
         }
         Some(match decided {
             Ok(owned) => {
-                self.extensions.pictures.last_refusal.remove(&extension);
+                if count {
+                    self.extensions.pictures.last_refusal.remove(&extension);
+                }
                 let agent = self.route(&row) == Route::Agent;
                 let mut out = json!({ "extension": extension, "scheme": scheme, "agent": agent });
                 if owned {
@@ -164,7 +178,7 @@ impl<D: DataSource> Runner<D> {
     }
 
     /// Whether a call of `row` is let through as a read of the app's own
-    /// item: on a target its `owned` names, the
+    /// item (LLP 1133.019 D11 item 4): on a target its `owned` names, the
     /// app declares that line, and its permission is not granted.
     pub(in crate::runner) fn owned_call(&self, row: &exact_plan::ModulesRow) -> bool {
         let Some(target) = self.extensions.pictures.target.as_deref() else {

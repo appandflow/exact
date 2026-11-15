@@ -10,7 +10,7 @@ import AppKit
 /// scripts/fixtures/iframe-pdf.contract: an `app:/` PDF frame is a PDF view
 /// in the node, its hatch's platform object, and `tree` shows its pages; a
 /// capture from an action writes the file and its `FrameCapture` reaches
-/// the action.
+/// the action (LLP 1020.002 D7, D10, §9).
 final class IframeCaptureSessionTests: XCTestCase {
     func testAPDFFramesViewHatchTreeAndCapture() throws {
         guard let module = ProcessInfo.processInfo.environment["EXACT_TEST_WEB_MODULE"] else {
@@ -49,7 +49,7 @@ final class IframeCaptureSessionTests: XCTestCase {
         let mounted = try XCTUnwrap(node("doc"))
         // A missing local PDF starts on the PDF's view, as named (its read fails later).
         XCTAssertTrue(try XCTUnwrap(node("gone")).web is PDFView, "\(String(describing: node("gone")?.web))")
-        // A sandboxed local PDF stays WebKit's: a web view from its mount, never a PDF's view first.
+        // A sandboxed local PDF stays WebKit's: a web view from its mount, never a PDF's view first (D10).
         XCTAssertTrue(try XCTUnwrap(node("boxed")).web is WKWebView, "\(String(describing: node("boxed")?.web))")
         mounted.props["hatch"] = "frame"
         session.presenter.elements.created(mounted)

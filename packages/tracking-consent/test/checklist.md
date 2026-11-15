@@ -1,10 +1,10 @@
-# Tracking consent on a device
+# Tracking consent on a device (LLP 1133.028 §9 stages 1 and 2)
 
 What the agent cannot drive: the person's answer to App Tracking
 Transparency's alert. The package's fixture (`test/fixture`, made by
 `test/fixture.mjs`) is the consumer. Each step names what to see; a step that
 shows something else is a finding. A person runs them, never an agent on a
-phone. No account is needed beyond a development team.
+phone (LLP 1133.020). No account is needed beyond a development team.
 
 ## iPhone (iOS 17 or newer)
 
@@ -13,7 +13,7 @@ phone. No account is needed beyond a development team.
    host/apple/build.mjs --ios --device trackingfixture-apple --run`. "Status:
    notDetermined (prompt)", "Identifier: zeros".
 2. "Ask About Tracking": the fixture's own screen with one "Continue" and no
-   way to close it. Continue: the system's alert, with the purpose
+   way to close it (LLP 1133.002 D11). Continue: the system's alert, with the purpose
    string from `strings/en.json`.
 3. "Allow": "Answered: authorized", "Status: authorized (granted)",
    "Identifier: set".
@@ -25,7 +25,7 @@ phone. No account is needed beyond a development team.
    off: a fresh install reads denied and the request shows no alert.
 8. On a fresh install, tap Continue and at once pull down Control Center, so
    the app is inactive when the request arrives; dismiss Control Center: the
-   alert shows then, not while the app was inactive (the hold).
+   alert shows then, not while the app was inactive (D13's hold).
 
 ## Apple TV (tvOS 17 or newer)
 

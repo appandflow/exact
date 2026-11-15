@@ -1,5 +1,5 @@
 //! Bake the first frame through the exact candidate Rust Wasm artifact.
-//! No compiler or bake implementation is linked into an app.
+//! No compiler or bake implementation is linked into an app. LLP 1029.000.
 use exact_runner::{DataError, DataSource, Value};
 use sha2::{Digest, Sha256};
 use std::io::{BufRead, Read, Write};

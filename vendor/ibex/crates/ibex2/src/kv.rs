@@ -1,15 +1,16 @@
 //! KV: durable, unremarkable state behind one trait.
 //!
 //! What a consumer keeps that is not a secret: a cursor, a cache of settled
-//! data, a preference — durable client state that a plan or a log
-//! may show. The platform owns where it lives — a directory the
+//! data, a preference — durable client state (exact2 LLP 1018) that a plan or
+//! a log may show. The platform owns where it lives — a directory the
 //! platform gives the app — and Rust owns the semantics: bytes under a key,
-//! keys under a scope, and the grant a binding carries (`storage.kv <scope>`)
-//! is checked in `host::Kv` before any store is asked.
+//! keys under a scope, and the grant a binding carries (`storage.kv <scope>`,
+//! LLP 0070 §1) is checked in `host::Kv` before any store is asked.
 //!
-//! Synchronous, as every binding is: a read is one local file,
-//! and the consumer's executor is its own. Backends: a file per key, and
-//! memory.
+//! Synchronous, as every binding is (LLP 0068 §2): a read is one local file,
+//! and the consumer's executor is its own.
+//!
+//! @ref LLP 0070#3-the-backends — a file per key, memory
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -181,7 +182,8 @@ impl KvStore for UnavailableStore {
 /// never spell a path — the file `0600`, the directories `0700`, each write
 /// whole to a temporary created fresh and renamed into place. The same
 /// posture as the secrets `FileStore`, without the claim: this is owner-only,
-/// not encrypted, and holds nothing a plan or a log may not show.
+/// not encrypted, and holds nothing a plan or a log may not show (LLP 0070
+/// §4).
 #[derive(Debug)]
 pub struct FileStore {
     dir: PathBuf,
@@ -221,7 +223,7 @@ impl FileStore {
     /// directory should be is refused — a kv grant must not be a way to
     /// read or write wherever a planted link points — and so is a scope
     /// directory stored under another spelling, which only a
-    /// case-insensitive filesystem can produce.
+    /// case-insensitive filesystem can produce (LLP 0070 §3).
     fn scope_dir(&self, scope: &str) -> Result<PathBuf, HostError> {
         check_scope(scope)?;
         if let Ok(meta) = std::fs::symlink_metadata(&self.dir) {
@@ -305,7 +307,7 @@ fn failed(what: &str, path: &Path, e: std::io::Error) -> HostError {
 /// stored spelling? On a case-insensitive filesystem a lookup resolves any
 /// case variant of a name, so opening the canonical path can reach a file
 /// `keys()` would refuse; the stored name is the one that decides
-/// An entry that vanished under us counts as canonical — the
+/// (LLP 0070 §3). An entry that vanished under us counts as canonical — the
 /// caller's next step sees `NotFound` and answers for itself.
 fn occupies_canonical_name(path: &Path) -> bool {
     match std::fs::canonicalize(path) {

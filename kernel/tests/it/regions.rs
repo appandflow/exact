@@ -1,4 +1,4 @@
-//! The layout regions: `env(-exact-<region>-inset-<edge>)`
+//! The layout regions (LLP 1123 D10): `env(-exact-<region>-inset-<edge>)`
 //! resolves against the insets the host reports for each region, and against
 //! the safe area on a host that reports none; a change lays out again only
 //! the nodes that read the environment.
@@ -92,7 +92,7 @@ fn every_region_and_edge_is_a_length_by_its_name() {
         for (e, edge) in edges.iter().enumerate() {
             let text = format!("env({}{edge})", region.prefix());
             let want = Dimension::Region(region, Edge::from_index(e as u8).unwrap(), 0.0);
-            assert_eq!(env::parse(&text), Ok(Some(want)), "{text}");
+            assert_eq!(env::parse(&text), Ok(Some(want.clone())), "{text}");
             assert_eq!(
                 Dimension::parse_env(&format!(" env( {}{edge} ) ", region.prefix())),
                 Some(want)
@@ -103,11 +103,11 @@ fn every_region_and_edge_is_a_length_by_its_name() {
             );
         }
     }
-    // Every family is a spelling Exact owns
+    // Every family is a spelling Exact owns (LLP 1081 D8)
     for region in Region::ALL {
         assert!(ENV_NAMES
             .iter()
-            .any(|(n, kind)| *n == region.prefix() && *kind == "exact"));
+            .any(|(n, kind)| *n == region.prefix() && kind.starts_with("exact ")));
     }
 }
 
@@ -230,7 +230,7 @@ fn region_lengths_travel_the_wire() {
     let env = Env::default().with_regions(Some(reported()));
     // The calculation tree keeps its region term: the margins' top is 11,
     // under 4vh of a 1000-high viewport
-    let Dimension::Compare(c) = node.style.margin_top else {
+    let Dimension::Compare(ref c) = node.style.margin_top else {
         panic!("a calculation: {:?}", node.style.margin_top)
     };
     let mut text = String::new();
@@ -241,7 +241,7 @@ fn region_lengths_travel_the_wire() {
         ..env
     };
     assert_eq!(
-        Dimension::Compare(c).resolve(&tall),
+        Dimension::Compare(c.clone()).resolve(&tall),
         Dimension::Points(11.0)
     );
 }
@@ -272,7 +272,7 @@ fn a_browser_reads_each_region_as_its_safe_area() {
         style
             .set_dynamic(StyleId::PaddingLeft, &StyleValue::Text(text.into()))
             .unwrap();
-        let Dimension::Compare(c) = style.padding_left else {
+        let Dimension::Compare(c) = style.padding_left.clone() else {
             panic!("a calculation: {text}: {:?}", style.padding_left);
         };
         let mut out = String::new();

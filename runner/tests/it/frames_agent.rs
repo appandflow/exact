@@ -1,4 +1,4 @@
-//! The kernel's half of `layout agree`: every live
+//! @ref LLP 1080.001 D2 — the kernel's half of `layout agree`: every live
 //! node's parent-relative frame in preorder, its own `display: none` and
 //! a transform row away from its initial value as bits, and a cap that says the list is incomplete.
 use exact_kernel::*;
@@ -23,36 +23,32 @@ fn frames_answer_each_node_in_preorder_with_its_bits() {
         "/",
     )
     .unwrap();
-    let mut root = StyleProps {
-        width: Dimension::Points(600.),
-        height: Dimension::Points(400.),
-        ..Default::default()
-    };
+    let mut root = StyleProps::default().with_rows(|rows| {
+        rows.width = Dimension::Points(600.);
+        rows.height = Dimension::Points(400.);
+    });
     root.mask.set(StyleId::Width);
     root.mask.set(StyleId::Height);
-    let mut moved = StyleProps {
-        width: Dimension::Points(100.),
-        height: Dimension::Points(50.),
-        ..Default::default()
-    };
+    let mut moved = StyleProps::default().with_rows(|rows| {
+        rows.width = Dimension::Points(100.);
+        rows.height = Dimension::Points(50.);
+    });
     moved.mask.set(StyleId::Width);
     moved.mask.set(StyleId::Height);
     moved.translate = Vec2 { x: 10., y: 0. };
     moved.mask.set(StyleId::Translate);
     // Declared, but the initial value: `translate: 0` moves nothing.
-    let mut still = StyleProps {
-        width: Dimension::Points(100.),
-        height: Dimension::Points(50.),
-        ..Default::default()
-    };
+    let mut still = StyleProps::default().with_rows(|rows| {
+        rows.width = Dimension::Points(100.);
+        rows.height = Dimension::Points(50.);
+    });
     still.mask.set(StyleId::Width);
     still.mask.set(StyleId::Height);
     still.mask.set(StyleId::Translate);
     still.mask.set(StyleId::Scale);
-    let mut gone = StyleProps {
-        display: exact_kernel::Display::None,
-        ..Default::default()
-    };
+    let mut gone = StyleProps::default().with_rows(|rows| {
+        rows.display = exact_kernel::Display::None;
+    });
     gone.mask.set(StyleId::Display);
     let ops = [
         Op::CreateView {
@@ -125,21 +121,19 @@ fn a_blocks_root_is_answered_in_its_block() {
     )
     .unwrap();
     let sized = |w: f32, h: f32| {
-        let mut s = StyleProps {
-            width: Dimension::Points(w),
-            height: Dimension::Points(h),
-            ..Default::default()
-        };
+        let mut s = StyleProps::default().with_rows(|rows| {
+            rows.width = Dimension::Points(w);
+            rows.height = Dimension::Points(h);
+        });
         s.mask.set(StyleId::Width);
         s.mask.set(StyleId::Height);
         s
     };
-    let mut half = StyleProps {
-        width: Dimension::Percent(50.),
-        ..Default::default()
-    };
+    let mut half = StyleProps::default().with_rows(|rows| {
+        rows.width = Dimension::Percent(50.);
+    });
     half.mask.set(StyleId::Width);
-    let mut ops: Vec<Op> = (2..=5)
+    let mut ops: Vec<Op> = (2..=6)
         .map(|id| Op::CreateView {
             id,
             node_type: NodeType::View,
@@ -151,6 +145,7 @@ fn a_blocks_root_is_answered_in_its_block() {
         (3, sized(100., 50.)),
         (4, sized(80., 40.)),
         (5, half),
+        (6, sized(20., 10.)),
     ] {
         ops.push(Op::SetStyle {
             id,
@@ -165,7 +160,7 @@ fn a_blocks_root_is_answered_in_its_block() {
         },
         Op::SetChildren {
             id: 3,
-            children: vec![4, 5],
+            children: vec![4, 5, 6],
         },
         Op::SetChildren {
             id: 1,
@@ -176,6 +171,7 @@ fn a_blocks_root_is_answered_in_its_block() {
     let kernel = runner.kernel_mut();
     kernel.apply(0, 0, &ops).unwrap();
     let sheet = HostBlock {
+        tactic: Default::default(),
         width: BlockAxis::AtMost(300.),
         height: BlockAxis::AtMost(200.),
     };
@@ -185,7 +181,25 @@ fn a_blocks_root_is_answered_in_its_block() {
         .unwrap();
     let json = agent::handle(&runner, r#"{"op":"frames"}"#);
     assert!(
-        json.contains(r#"[3,1,0,50,100,50,0],[4,3,0,0,80,40,0],[5,3,0,0,300,0,0]]"#),
+        json.contains(
+            r#"[3,1,0,50,100,50,0],[4,3,0,0,80,40,0],[5,3,0,0,300,0,0],[6,3,0,0,20,10,0]]"#
+        ),
         "the sheet and the popover each at its block's origin, not 50 above it: {json}"
     );
+    for (id, y, w, h, absolute_y) in [
+        (1, 0, 600, 400, 0),
+        (3, 50, 100, 50, 50),
+        (4, 0, 80, 40, 0),
+        (5, 0, 300, 0, 0),
+        (6, 0, 20, 10, 50),
+    ] {
+        let reply = agent::handle(&runner, &format!(r#"{{"op":"node","id":{id}}}"#));
+        let node: serde_json::Value = serde_json::from_str(&reply).unwrap();
+        assert_eq!(
+            node["frame"],
+            serde_json::json!({"x": 0, "y": y, "w": w, "h": h}),
+            "node #{id}: {reply}"
+        );
+        assert_eq!(node["absolute"]["y"], absolute_y, "node #{id}: {reply}");
+    }
 }

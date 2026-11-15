@@ -3,7 +3,7 @@
   "class" : "hdr",
   "file" : "pq.avif",
   "id" : "F12",
-  "note" : "10-bit: SDR rendition 8-bit, kept in a deep plan reserved from the header's depth. PQ neutrals at [0, 100, 203, 400, 1000, 4000] cd\/m²; HDR display: linear = nits \/ 203. SDR: ImageIO's tone map",
+  "note" : "10-bit: SDR rendition 8-bit, kept in a deep plan reserved from the header's depth. PQ neutrals at [0, 100, 203, 400, 1000, 4000] cd\/m²; HDR display (stage 3): linear = nits \/ 203. SDR: ImageIO's tone map",
   "patches" : [
     {
       "h" : 64,

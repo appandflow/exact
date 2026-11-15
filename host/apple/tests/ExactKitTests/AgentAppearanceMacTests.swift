@@ -3,9 +3,9 @@ import AppKit
 import XCTest
 @testable import ExactKit
 
-/// On AppKit, the agent's system appearance is the one the
+/// LLP 1069.007 D2 on AppKit: the agent's system appearance is the one the
 /// runtime reads as `prefers-color-scheme`, whenever it changes, so a
-/// `prefer` re-tells nothing it does not name.
+/// `prefer` re-tells nothing it does not name (issue X58).
 final class AgentAppearanceMacTests: XCTestCase {
     /// The scheme's own subtree: a node that mounts again when it changes.
     private static let plan: Result<Data, Error> = Result {

@@ -1,14 +1,14 @@
-// @exact/alarms on Android: the fixture app (`test/fixture`) built as the Canvas reader's
-// APK, which compiles the package's Kotlin and merges its manifest fragment under the allow-list. The build is
-// checked for what the grant derives, the fragment's three components (unexported, `directBootAware`, the service
+// @exact/alarms on Android (LLP 1133.030 §14 stage 2): the fixture app (`test/fixture`) built as the Canvas reader's
+// APK, which compiles the package's Kotlin and merges its manifest fragment under the allow-list (D9). The build is
+// checked for what the grant derives (D7), the fragment's three components (unexported, `directBootAware`, the service
 // `systemExempted`) and the roster binding the implementation.
 //
 // With `--emulator <serial>` it then drives the APK on that running emulator under the agent with the implementation
 // bound (`--bind alarms`), on the wall clock, since the system's alarms run on it: the status before asking, a request
 // answered through the system's notification dialog and the exact-alarm Settings page, a one-minute countdown that
 // `dumpsys alarm` lists as an alarm clock, pause and resume, the ring with its notification's Stop and Snooze, and a
-// revocation that ends the alarm. That half has never run: no emulator booted on the Mac that built it, so its first
-// run is its test. What needs a person or a phone is checklist.md's.
+// revocation that ends the alarm. That half has never run: no emulator booted on the Mac that built it (LLP 1133.030
+// §14), so its first run is its test. What needs a person or a phone is checklist.md's.
 //
 // usage: bun packages/alarms/test/android.mjs [--emulator <serial>]
 //   (an NDK of clang 18 or newer in ANDROID_NDK_HOME, and a JDK 17 or newer in JAVA_HOME)
@@ -17,6 +17,8 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { checker } from '../../camera/test/fixture.mjs';
+import { ensureShells } from '../../../scripts/app-shells.mjs';
+import { apkBuildDir } from '../../../scripts/agent-android.mjs';
 
 const here = import.meta.dir, pkg = resolve(here, '..'), root = resolve(pkg, '../..');
 const argv = process.argv.slice(2), emulator = argv.includes('--emulator') ? argv[argv.indexOf('--emulator') + 1] : null;
@@ -29,7 +31,7 @@ const { check, failed } = checker();
 
 const dir = mkdtempSync(join(tmpdir(), 'exact-alarms-')), name = 'alarmfixture', app = join(dir, name);
 try {
-  run('bun', [resolve(root, 'scripts/exact.mjs'), 'new', app], root);
+  run('bun', [resolve(root, 'scripts/exact.mjs'), 'new', app, '--with', 'android'], root);
   for (const f of ['app.contract', 'app.ts']) cpSync(join(here, 'fixture', f), join(app, f));
   rmSync(join(app, 'app.test.contract'), { force: true });
   const strings = resolve(app, 'strings/en.json');
@@ -41,21 +43,14 @@ try {
   manifest.dependencies = { ...manifest.dependencies, '@exact/alarms': `file:${pkg}` };
   writeFileSync(join(app, 'package.json'), JSON.stringify(manifest, null, 2));
   run('bun', ['install'], app);
-  // `exact new` writes no Canvas library: Weatherlight's, by path into this checkout.
-  const template = resolve(root, 'apps/weatherlight/android'), crate = resolve(app, 'android');
-  mkdirSync(resolve(crate, 'src'), { recursive: true });
-  writeFileSync(resolve(crate, 'Cargo.toml'), readFileSync(resolve(template, 'Cargo.toml'), 'utf8')
-    .replace('name = "weatherlight-android"', `name = "${name}-android"`).replaceAll('"../../../', `"${root}/`));
-  writeFileSync(resolve(crate, 'build.rs'), readFileSync(resolve(template, 'build.rs'), 'utf8').replace('"bake Weatherlight"', '"bake the fixture"'));
-  writeFileSync(resolve(crate, 'src/lib.rs'), readFileSync(resolve(template, 'src/lib.rs'), 'utf8'));
-  const workspace = resolve(app, 'Cargo.toml');
-  writeFileSync(workspace, readFileSync(workspace, 'utf8').replace('members = ["apple", "linux", "web"]', 'members = ["android", "apple", "linux", "web"]'));
-  run('bun', ['exact.mjs', 'lock'], app);
-  const env = { ...process.env, EXACT_APP_DIR: app, EXACT2: root, HERMES_LEAN_SYS_OFFLINE: '1' };
+  // The native workspace written before the build starts: one the build wrote
+  // is newer than the build, and the driver refuses the build as stale.
+  ensureShells(app);
+  const env = { ...process.env, EXACT_APP_DIR: app, EXACT: root, HERMES_LEAN_SYS_OFFLINE: '1' };
   const built = spawnSync('bun', [resolve(root, 'scripts/agent-android.mjs'), 'build', name, '--apk'], { cwd: root, env, encoding: 'utf8', maxBuffer: 1 << 28 });
   check('android', 'the fixture builds as an APK', built.status === 0, (built.stdout + built.stderr).slice(-3000));
 
-  const out = resolve(root, 'host/android/app/build', name);
+  const out = apkBuildDir(app);
   const roster = existsSync(resolve(out, 'extensions/exact/app/ExactExtensions.kt')) ? readFileSync(resolve(out, 'extensions/exact/app/ExactExtensions.kt'), 'utf8') : '';
   check('android', 'the roster binds the implementation', roster.includes('"alarms" to { c -> exact.alarms.AlarmsModule(c) }'), roster);
   const merged = existsSync(out) && readdirSync(out, { recursive: true }).find((f) => String(f).includes('merged_manifests/release/') && String(f).endsWith('AndroidManifest.xml'));

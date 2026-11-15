@@ -1,15 +1,15 @@
-// @exact/altimeter on Android: the default `TYPE_PRESSURE` sensor, answered in the
+// @exact/altimeter on Android (LLP 1133.026 D13, D15, D17): the default `TYPE_PRESSURE` sensor, answered in the
 // interface's shapes. Under the agent the runner's declared substitute answers and nothing here runs.
 //
 // - One registration serves every reader group (a name with one `history`), at the shortest sampling period one asks:
 //   `android.samplingPeriodUs`, else one from `frequency`, else `SENSOR_DELAY_NORMAL`, as the environment sensors'
 //   guide registers it. Each group keeps a ring of its numbered samples, answered from the cursor `after`.
 // - Pressure is hPa as Android gives it. A group's height is `SensorManager.getAltitude` of the latest pressure less
-//   that of its first sample, its zero, taken once for the group's life: weather moves it about 8 m per hPa.
+//   that of its first sample, its zero, taken once for the group's life (D13): weather moves it about 8 m per hPa.
 // - Android needs no permission for the sensor: the status reads `granted` wherever there is one.
 // - The registration is removed in the background and made again on return; the zero is kept, and each group's next
 //   answer reads `interrupted`. A poll while hidden answers what the group holds, with an empty batch.
-// - Tier 3: `AltimeterModule.hatch` is given the manager once, when the module is made.
+// - Tier 3 (D17): `AltimeterModule.hatch` is given the manager once, when the module is made.
 package exact.altimeter
 
 import android.content.Context
@@ -31,7 +31,7 @@ class AltimeterModule(context: ExtensionContext) : ExactExtension(context) {
         /** `SENSOR_DELAY_NORMAL`'s 200,000 µs (`SensorManager.getDelay`). */
         private const val NORMAL_US = 200_000
 
-        /** The app's access hatch: given the manager once, when the module is made. */
+        /** The app's access hatch (D17): given the manager once, when the module is made. */
         @JvmStatic var hatch: ((SensorManager) -> Unit)? = null
     }
 

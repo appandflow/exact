@@ -1,4 +1,4 @@
-# Expose's pages as documents: its TypeScript module, baked
+# Expose's pages as documents (LLP 1048.000 D9): its TypeScript module, baked
 # for native, run by the render host. The web build finds the entry here, as
 # `expose-render` in `expose-linux`.
 [package]

@@ -1,7 +1,7 @@
-//! What the runner keeps for desktop processes: the
+//! What the runner keeps for desktop processes (LLP 1133.007): the
 //! admission of what data code asks of a child by the origin of the commit
-//! that asks it, and the clock a host's process work keeps under the
-//! agent.
+//! that asks it (D13), and the clock a host's process work keeps under the
+//! agent (§7).
 use super::super::{DataSource, Request, Runner, Target};
 use super::admit::held_to_app;
 use super::CallOrigin;
@@ -23,7 +23,7 @@ pub(in crate::runner) struct Processes {
     /// The arguments of each resource a tool, a wake or the device asked a
     /// child of: while it ran, or when its start was refused. Asked again
     /// with them, by any origin, the resource keeps what it has, or its
-    /// start is refused. A refused commit puts the list back.
+    /// start is refused (D13). A refused commit puts the list back.
     refused: Refused,
 }
 
@@ -33,9 +33,9 @@ pub(in crate::runner) type Refused = Vec<(Target, Vec<Value>)>;
 
 /// The refusal a host never sees: a program from any origin but the app's.
 const PERSON_REQUIRED: &str =
-    "person-required: only a person's input or the app's own code starts a program";
+    "person-required: only a person's input or the app's own code starts a program (LLP 1133.007 D13)";
 
-/// What `state.streams` shows of a child process.
+/// What `state.streams` shows of a child process (LLP 1133.007 D2).
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(crate) struct ChildState {
     /// The program as its grant line names it.
@@ -46,7 +46,7 @@ pub(crate) struct ChildState {
     pub pid: Option<u64>,
     /// The current incarnation, from 1.
     pub incarnation: u32,
-    /// Restarts so far.
+    /// Restarts so far (D4).
     pub restarts: u32,
     /// Bytes read from its stdout and stderr.
     pub bytes_out: u64,
@@ -59,8 +59,8 @@ pub(crate) struct ChildState {
 }
 
 impl<D: DataSource> Runner<D> {
-    /// Hand the host's process work its clock under the agent:
-    /// each advance runs what is due on it, its next deadline
+    /// Hand the host's process work its clock under the agent (LLP
+    /// 1133.007 §7): each advance runs what is due on it, its next deadline
     /// is a due time `clock settle` reaches, and outcomes it owes keep a
     /// settle waiting. `None` (the default) leaves that work on the wall.
     pub fn set_work_clock(&mut self, clock: Option<Arc<dyn WorkClock>>) {
@@ -84,7 +84,7 @@ impl<D: DataSource> Runner<D> {
     /// The refusal of process request `request` by its kind and origin,
     /// said; a host never sees a refused one. A `spawn` is a two-way
     /// stream and nothing else is; a person-required refusal in a tool's
-    /// call ends the call `person-required`.
+    /// call ends the call `person-required` (LLP 1111 D4a).
     pub(in crate::runner) fn process_refusal(&mut self, request: &Request) -> Option<&'static str> {
         if !request.is_process() {
             return None;
@@ -104,14 +104,14 @@ impl<D: DataSource> Runner<D> {
                 self.call_person_required();
                 PERSON_REQUIRED
             }
-            false => "process: a call @exact/child-process does not declare",
+            false => "process: a call @exact/child-process does not declare (LLP 1133.007 D12)",
         })
     }
 
     /// [`Self::process_refusal`] of `target`'s request asked at `args`: a
     /// resource asked again at arguments a tool, a wake or the device asked
     /// is refused from any origin, and a person-required refusal of a
-    /// resource's ask keeps its arguments refused, until they change.
+    /// resource's ask keeps its arguments refused, until they change (D13).
     pub(in crate::runner) fn ask_refusal(
         &mut self,
         target: Target,
@@ -120,7 +120,7 @@ impl<D: DataSource> Runner<D> {
     ) -> Option<&'static str> {
         if request.is_process() && self.args_refused(target, args) {
             let (kind, _) = crate::process::summary(&request.body);
-            self.log(format!("process refused, person-required: {kind} at arguments a tool, a wake or the device asked"));
+            self.log(format!("process refused, person-required: {kind} at arguments a tool, a wake or the device asked (LLP 1133.007 D13)"));
             self.call_person_required();
             return Some(PERSON_REQUIRED);
         }
@@ -131,7 +131,7 @@ impl<D: DataSource> Runner<D> {
         Some(why)
     }
 
-    /// Whether resource `target` was refused at `args`.
+    /// Whether resource `target` was refused at `args` (D13).
     fn args_refused(&self, target: Target, args: &[Value]) -> bool {
         let refused = &self.extensions.processes.refused;
         refused.iter().any(|(t, a)| *t == target && a == args)
@@ -158,12 +158,12 @@ impl<D: DataSource> Runner<D> {
     }
 
     /// Whether resource `i`, which settlement would ask again at `args`
-    /// (`forced` for a refresh), keeps what it has instead.
-    /// A tool's, a wake's or the device's ask would let go of the
+    /// (`forced` for a refresh), keeps what it has instead (LLP 1133.007
+    /// D13). A tool's, a wake's or the device's ask would let go of the
     /// child a person's input or the app's own code started, ending its
     /// group, whatever the new answer is: the child keeps running under its
-    /// ticket, said, and a tool's call ends `person-required`.
-    /// The arguments it asked stay refused, by any origin and after
+    /// ticket, said, and a tool's call ends `person-required` (LLP 1111
+    /// D4a). The arguments it asked stay refused, by any origin and after
     /// the child ends, until the arguments change ([`Self::forget_refused`]).
     pub(in crate::runner) fn keeps_resource(
         &mut self,
@@ -191,21 +191,28 @@ impl<D: DataSource> Runner<D> {
             ["re-ask", "refresh"][usize::from(forced)],
         );
         self.log(format!(
-            "process {running} ({resource}): kept running, its {what} refused, person-required ({} origin): letting it go would end its group",
+            "process {running} ({resource}): kept running, its {what} refused, person-required ({} origin): letting it go would end its group (LLP 1133.007 D13)",
             origin.word()
         ));
         true
     }
 
     /// Settlement asks resource `i` at `args`: arguments refused earlier
-    /// stay refused only while they are asked.
+    /// stay refused only while they are asked (D13).
     pub(in crate::runner) fn forget_refused(&mut self, i: usize, args: &[Value]) {
         let target = Target::Resource(i);
         (self.extensions.processes.refused).retain(|(t, a)| *t != target || a == args);
     }
 
+    /// Resource `i`'s refused arguments, whatever they are, go: its row is
+    /// a new member's.
+    pub(in crate::runner) fn forget_refused_row(&mut self, i: usize) {
+        let target = Target::Resource(i);
+        (self.extensions.processes.refused).retain(|(t, _)| *t != target);
+    }
+
     /// Whether `target`'s request in flight is a child this commit's origin
-    /// may not let go: a tool's, a wake's or the device's would end
+    /// may not let go (D13): a tool's, a wake's or the device's would end
     /// its group. Every path that lets a ticket go asks first; a kept child
     /// is said, and a tool's call ends `person-required`.
     pub(in crate::runner) fn holds_child(&mut self, target: Target) -> bool {
@@ -219,7 +226,7 @@ impl<D: DataSource> Runner<D> {
         self.call_person_required();
         let resource = self.target_name(target);
         self.log(format!(
-            "process {running} ({resource}): kept running, person-required ({} origin): letting it go would end its group",
+            "process {running} ({resource}): kept running, person-required ({} origin): letting it go would end its group (LLP 1133.007 D13)",
             origin.word()
         ));
         true
@@ -317,7 +324,7 @@ impl<D: DataSource> Runner<D> {
 
 /// Why `name` of `@exact/child-process` is refused from `origin`: a name
 /// its declaration does not list, or one whose `origin` is `app` called
-/// from a tool, a wake or the device (`person-required`).
+/// from a tool, a wake or the device (`person-required`, LLP 1133.007 D13).
 fn refusal(name: &str, origin: CallOrigin) -> Result<(), String> {
     static NAMES: std::sync::OnceLock<serde_json::Value> = std::sync::OnceLock::new();
     let declaration = NAMES.get_or_init(|| serde_json::from_str(DECLARATION).unwrap_or_default());
@@ -325,9 +332,12 @@ fn refusal(name: &str, origin: CallOrigin) -> Result<(), String> {
         (declaration["data"].as_array().into_iter().flatten()).find(|d| d["data"] == name);
     match declared {
         None => Err(format!("{name}: not a call @exact/child-process declares")),
-        Some(d) if held_to_app(d, &serde_json::json!({})) && origin != CallOrigin::App => Err(
-            format!("person-required ({} origin): {name}", origin.word()),
-        ),
+        Some(d) if held_to_app(d, &serde_json::json!({})) && origin != CallOrigin::App => {
+            Err(format!(
+                "person-required ({} origin): {name} (LLP 1133.007 D13)",
+                origin.word()
+            ))
+        }
         Some(_) => Ok(()),
     }
 }

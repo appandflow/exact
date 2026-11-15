@@ -1,4 +1,4 @@
-// Pictures of a package's `img` scheme: a
+// Pictures of a package's `img` scheme (LLP 1133.019 D2, D11 item 1): a
 // source such as `photos:<id>`, whose scheme an interface declares
 // (`images`), is never opened as a file. The raster loader asks the runner
 // to admit it when a view loads it (a read: never a ticket), and a refusal
@@ -44,10 +44,11 @@ final class PackagePictures: @unchecked Sendable {
         return !hostSchemes.contains(String(scheme))
     }
 
-    /// The runner's admission of `source` when a view loads it, main thread:
-    /// nil to load it (admitted, or no package's scheme), else why not.
-    func admit(_ source: String, session: ExactSession) -> String? {
-        guard Self.mayServe(source), let answer = session.runtime.picture(source) else { return nil }
+    /// The runner's admission of `source`, main thread: nil to load it
+    /// (admitted, or no package's scheme), else why not. A retry checks
+    /// without counting a new view/source admission.
+    func admit(_ source: String, session: ExactSession, count: Bool = true) -> String? {
+        guard Self.mayServe(source), let answer = session.runtime.picture(source, count: count) else { return nil }
         guard let name = answer["extension"] as? String else {
             return answer["message"] as? String ?? answer["error"] as? String ?? "refused"
         }
@@ -114,7 +115,7 @@ private let packageImageDone: @convention(c) (UnsafeMutableRawPointer?, UnsafeMu
 
 extension NodeView {
     /// A revoked picture leaves the view: its raster goes, and the box is
-    /// drawn empty, as no failed load of an ordinary image does.
+    /// drawn empty (D2), as no failed load of an ordinary image does.
     func withdrawPicture() {
         raster = nil
         applyImageLayer()

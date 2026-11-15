@@ -1,4 +1,4 @@
-// `wakelock` on the JS target, bundled only for a plan
+// @ref LLP 1125 D11 — `wakelock` on the JS target, bundled only for a plan
 // that says it. After each commit's tree update the lock follows the
 // displayed holders, by the wasm host's rule over the same DOM
 // (wakelock-glue.js); a computed word outside the two is journaled as the

@@ -1,10 +1,10 @@
-// The build channel: a development
+// The build channel (LLP 1122 D4, LLP 1121 stage 4 commit 5): a development
 // build registers with its dev stream's nonce, reports its effective facts
-// and the digest of the plan it runs (tamber/1.9), and takes `pin` from the
+// and the digest of the plan it runs (forma/1.9), and takes `pin` from the
 // design server's clients, and `inspect` and `outline` where inspect mode is
-// compiled in (T2c, Inspect.swift); `hold` is reserved, answered
+// compiled in (T2c, Inspect.swift); `hold` is reserved (stage 8), answered
 // unsupported. The server's half
-// is scripts/tamber-builds.mjs; the web page's, host/web/dev.js. A pin sets
+// is scripts/forma-builds.mjs; the web page's, host/web/dev.js. A pin sets
 // what the agent's `prefer` sets (Agent.swift), by the same means.
 #if os(macOS)
 import AppKit
@@ -12,7 +12,7 @@ import AppKit
 import UIKit
 #endif
 
-/// A pin as the server sends it (scripts/tamber-builds.mjs `pinRefused`).
+/// A pin as the server sends it (scripts/forma-builds.mjs `pinRefused`).
 struct BuildPin: Equatable {
     var scheme: String?, contrast: String?, mode: [String: String]?, rootFontSize: Double?
 
@@ -43,7 +43,7 @@ struct BuildPin: Equatable {
     }
 }
 
-/// The channel's state: the process's (one app), as the agent's
+/// The channel's state: the process's (one app, D11), as the agent's
 /// preferences are.
 enum BuildChannel {
     /// A production build (`ExactEnv.productionBake`) neither registers
@@ -132,7 +132,7 @@ final class BuildHeld {
     /// The system appearance as it was: a pin's are set again over it.
     func restoreAppearance() {
         #if os(macOS)
-        let following = NSApp.appearance == nil || NSApp.appearance === Agent.systemAppearance
+        let following = Agent.followsSystem
         Agent.systemAppearance = appearance.system
         if following { NSApp.appearance = appearance.app }
         DisplayPreferences.changed()

@@ -3,6 +3,7 @@
 //   launch time = (constructor − process start) + (didFinishLaunching − delegate init)
 //   time to first render = first vsync after the first tree's commit − didFinishLaunching
 // Time to first render assumes the render server shows a commit at the next vsync.
+import CExact
 import CExactLaunch
 import Foundation
 import QuartzCore
@@ -16,7 +17,7 @@ public final class ExactLaunch: NSObject {
     public static let shared = ExactLaunch()
 
     public enum Mark: String, CaseIterable {
-        case process, constructor, main, delegateInit, didFinishLaunching, scene, boot, commit, present, activated, interactive
+        case process, constructor, main, delegateInit, didFinishLaunching, scene, boot, commit, present, world, activated, interactive
     }
 
     let facts = exact_launch_constructor_facts()
@@ -58,7 +59,7 @@ public final class ExactLaunch: NSObject {
     /// The screen changed since its last presented frame.
     private var contentDirty = false
     /// The vsync at which a settled screen becomes interactive, unless work reappears.
-    private var candidate: Double?
+    private(set) var candidate: Double?
     private var evaluateScheduled = false
     /// The app's `aria-busy` elements were the last outstanding work.
     private var declaredLast = false
@@ -79,13 +80,27 @@ public final class ExactLaunch: NSObject {
     /// constructor and here is every other image's initializers.
     public func main() {
         if marks[.main] == nil { marks[.main] = CACurrentMediaTime() }
+        // The app's preloads leave now, before UIKit. iOS prewarming runs this
+        // long before a person opens the app, and then they wait (LLP 1162.000 D4).
+        exact_preloads_begin(facts.prewarm != 0 ? 1 : 0)
     }
 
     /// Called from the app delegate's init, inside `UIApplicationMain` and after
     /// any prewarm pause. Observe calls this mark "main".
     public func delegateInit() {
         if marks[.delegateInit] == nil { marks[.delegateInit] = CACurrentMediaTime() }
+        // The first code of a prewarmed process's real launch: what `main` deferred leaves here.
+        exact_preloads_launched()
     }
+
+    /// A person has opened the app: the preloads that wait for that leave
+    /// (`"when": "foreground"`, LLP 1162.000 D4). On iOS this is the scene
+    /// entering the foreground: a background start can connect a scene that is
+    /// never drawn.
+    public func opened() { exact_preloads_opened() }
+
+    /// macOS has no prewarming: its `main` begins the preloads.
+    public static func beginPreloads() { exact_preloads_begin(0) }
 
     /// Called as `didFinishLaunching` returns, after the session is made.
     /// `hidden` means macOS launched the app hidden, as a login item does.
@@ -150,7 +165,24 @@ public final class ExactLaunch: NSObject {
     /// What activation spent, seconds: the app's Swift module load, each
     /// `dataReady` call (the last one runs the data module's start), how
     /// long and how often it said pending, and applying its first batch.
-    private var data: (module: Double, waited: Double, polls: Int, ready: Double, apply: Double, first: Double?) = (0, 0, 0, 0, 0, nil)
+    /// The marks, as `CACurrentMediaTime`: activation's start, the module's
+    /// evaluation on the owner when the draw posted it (LLP 1027.008 D3),
+    /// and the end of the `dataReady` that activated, by which its requests
+    /// are with the executor.
+    private var data: (module: Double, waited: Double, polls: Int, ready: Double, apply: Double, first: Double?,
+                       evaluation: (from: Double, to: Double)?, asked: Double?) = (0, 0, 0, 0, 0, nil, nil, nil)
+
+    /// The draw posted the module's evaluation to the owner: activation starts now.
+    func evaluating(_ session: ExactSession) {
+        guard session === launchSession, ttiOutcome == nil else { return }
+        if data.first == nil { data.first = CACurrentMediaTime() }
+        scheduleEvaluate()
+    }
+
+    func evaluated(_ session: ExactSession, from: Double, to: Double) {
+        guard session === launchSession, ttiOutcome == nil, data.evaluation == nil else { return }
+        data.evaluation = (from, to)
+    }
 
     func modulePrepared(_ session: ExactSession, seconds: Double) {
         guard session === launchSession, ttiOutcome == nil else { return }
@@ -168,6 +200,7 @@ public final class ExactLaunch: NSObject {
         } else {
             data.ready = ready
             data.waited = now - ready - data.module - (data.first ?? now)
+            data.asked = now
         }
     }
 
@@ -183,22 +216,43 @@ public final class ExactLaunch: NSObject {
         scheduleEvaluate()
     }
 
-    /// Re-reads outstanding work after this run-loop turn and its commit finish.
-    func applied(_ session: ExactSession, changed: Bool, what: () -> String = { "" }) {
+    /// Work ended (`ExactSession.workEnded`): re-reads outstanding work after
+    /// this run-loop turn and its commit finish.
+    func workEnded(_ session: ExactSession) {
         guard session === launchSession, ttiOutcome == nil else { return }
+        scheduleEvaluate()
+    }
+
+    /// Records a batch that changed the screen, including an orientation change the presenter resolved.
+    func applied(_ session: ExactSession, _ batch: Batch, orientationChanged: Bool = false) {
+        guard session === launchSession, ttiOutcome == nil, batch.changesScreen || orientationChanged else { return }
         // Nothing outstanding, but the screen still changing: TTI waits for
         // a frame with no change, so this is what holds it then (a fresh
         // answer replacing a kept one, a fade). Its span: first to last.
-        if changed, lastOutstanding.isEmpty, marks[.present] != nil {
+        if lastOutstanding.isEmpty, marks[.present] != nil {
             let now = CACurrentMediaTime(), item = "screen:changing"
             if spans[item] == nil { spanOrder.append(item) }
             spans[item] = (spans[item]?.from ?? now, now)
             if changes.count < 12, let p = marks[.process] {
-                changes.append("\(String(format: "%.0f", (now - p) * 1000)) \(what())")
+                changes.append("\(String(format: "%.0f", (now - p) * 1000)) \(Self.summary(batch, session.presenter))")
             }
         }
-        if changed { contentDirty = true; candidate = nil }
-        scheduleEvaluate()
+        contentDirty = true; candidate = nil
+    }
+
+    /// A batch's op kinds and a few of the views it touched (test ID, else
+    /// kind), or what it changed with no ops, for the TTI trace.
+    private static func summary(_ batch: Batch, _ presenter: Presenter) -> String {
+        if batch.ops.isEmpty { return [batch.controls ? "controls" : nil, batch.facts ? "facts" : nil, batch.orientation != nil ? "orientation" : nil].compactMap { $0 }.joined(separator: " ") }
+        var kinds: [String: Int] = [:], names: [String] = []
+        for op in batch.ops {
+            kinds[op.op.rawValue, default: 0] += 1
+            guard op.nodeID != nil, names.count < 4 else { continue }
+            let view = presenter.views[op.id]; let name = view?.props["testId"] ?? view?.kind ?? op.kind
+            if !names.contains(name) { names.append(name) }
+        }
+        let ops = kinds.sorted { $0.value > $1.value }.prefix(3).map { "\($0.key)×\($0.value)" }.joined(separator: " ")
+        return names.isEmpty ? ops : "\(ops) (\(names.joined(separator: ", ")))"
     }
 
     // MARK: Commit and vsync
@@ -214,8 +268,27 @@ public final class ExactLaunch: NSObject {
         resolvePresent()
     }
 
-    @objc private func tick(_ link: CADisplayLink) {
-        vsync = Vsync(link)
+    private var firstWorldPresentation: Double?
+
+    /// Keep the first gpu_on_presented notice until the tree presents, so the
+    /// present → world → interactive marks cannot date the world before first pixel.
+    public func worldPresented() {
+        guard launchSession != nil, firstWorldPresentation == nil else { return }
+        firstWorldPresentation = CACurrentMediaTime()
+        resolveWorldPresentation()
+    }
+
+    private func resolveWorldPresentation() {
+        guard marks[.world] == nil, let at = firstWorldPresentation,
+              let present = marks[.present] else { return }
+        marks[.world] = max(at, present)
+    }
+
+    @objc private func tick(_ link: CADisplayLink) { frame(Vsync(link)) }
+
+    /// A display-link callback's sample (a test's own, as its timestamps are read-only).
+    func frame(_ sample: Vsync) {
+        vsync = sample
         resolvePresent()
         if marks[.present] != nil, ttiOutcome != nil || suppressed != nil || ExactEnv.agentMode { stopWatching(); return }
         confirmCandidate()
@@ -227,6 +300,7 @@ public final class ExactLaunch: NSObject {
     private func resolvePresent() {
         guard let commit = marks[.commit], marks[.present] == nil, let present = vsync?.next(after: commit) else { return }
         marks[.present] = present
+        resolveWorldPresentation()
         loadServices(.afterFirstPixel)
         if ttiOutcome != nil || suppressed != nil || ExactEnv.agentMode { loadServices(.afterStartup) }
         scheduleEvaluate()
@@ -239,24 +313,35 @@ public final class ExactLaunch: NSObject {
         evaluateScheduled = true
         DispatchQueue.main.async { [weak self] in
             self?.evaluateScheduled = false
-            self?.evaluate()
+            guard let self else { return }
+            if let session = self.launchSession { session.afterBootOwner { [weak self] in self?.evaluate() } }
+            else { self.evaluate() }
         }
     }
 
     /// The launch session's outstanding work, from the runner and the host.
-    /// Empty when the screen can be used.
+    /// Empty when the screen can be used. While the data source is prepared
+    /// on the owner, the ledger's read would wait there for the module's
+    /// evaluation (LLP 1027.008 D2), and only activation is outstanding.
     private func outstandingNow() -> [String]? {
-        guard let session = launchSession, let ledger = Self.ledger(session) else { return nil }
+        guard let session = launchSession else { return nil }
+        if session.dataPreparing { return ["activation"] }
+        guard let ledger = Self.ledger(session) else { return nil }
         if ledger.poisoned { finish("logic_failed"); return nil }
         failedResources = ledger.failed
         return ledger.items + (activation != "ready" ? ["activation"] : [])
     }
 
     /// A session's outstanding work from the runner and the host, as
-    /// `kind:name` items, plus failed resources and whether the runner is poisoned.
+    /// `kind:name` items, plus failed resources and whether the runner is
+    /// poisoned. Nil when there is none to read: a destroyed session, or a
+    /// runner that answers with an error (busy, gone), whose missing lists
+    /// would otherwise read as nothing outstanding. The runner's call comes
+    /// first and waits for the owner, so work sent there before it has
+    /// published its batch when `hostOutstanding` reads the published queue.
     static func ledger(_ session: ExactSession) -> (items: [String], failed: [String], poisoned: Bool)? {
-        guard let data = session.agent("{\"op\":\"outstanding\"}").data(using: .utf8),
-              let o = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
+        guard session.state != .destroyed, let data = session.agent("{\"op\":\"outstanding\"}").data(using: .utf8),
+              let o = try? JSONSerialization.jsonObject(with: data) as? [String: Any], o["error"] == nil else { return nil }
         var out: [String] = []
         for key in ["requests", "streams", "awaiting", "oneShots", "busy"] {
             out += (o[key] as? [String] ?? []).map { "\(key):\($0)" }
@@ -265,7 +350,7 @@ public final class ExactLaunch: NSObject {
         return (out, o["failed"] as? [String] ?? [], o["poisoned"] as? Bool == true)
     }
 
-    /// Runs the turn after an apply or activation. With nothing outstanding,
+    /// Runs the turn after work ended or activation. With nothing outstanding,
     /// the interactive mark is the next vsync if the screen changed, else now.
     /// It is never earlier than the first render.
     private func evaluate() {
@@ -284,7 +369,11 @@ public final class ExactLaunch: NSObject {
         guard outstanding.isEmpty, marks[.present] != nil else { candidate = nil; return }
         let now = CACurrentMediaTime()
         if contentDirty {
-            candidate = vsync?.next(after: now)
+            // A candidate stands until work reappears or a batch changes the
+            // screen (`applied`): work that ends showing nothing new, after
+            // its vsync and before the callback that confirms it, would
+            // otherwise move it a frame later each time.
+            if candidate == nil { candidate = vsync?.next(after: now) }
         } else {
             interactive(at: now)
         }
@@ -339,13 +428,18 @@ public final class ExactLaunch: NSObject {
     private func load(_ s: (module: String, when: ExactServiceLoad, config: [String: Any], handoff: () -> Data)) {
         loaded.insert(s.module)
         DispatchQueue.main.async {
-            let config = (try? JSONSerialization.data(withJSONObject: s.config)) ?? Data("{}".utf8)
-            guard let service = ExactService.load(module: s.module, config: config, handoff: s.handoff()) else {
-                self.failed.insert(s.module)
-                return ExactJournal.shared.loadEnded(s.module, nil)
-            }
-            ExactJournal.shared.attach(service)
+            if let session = self.launchSession { session.afterBootOwner { self.loadService(s) } }
+            else { self.loadService(s) }
         }
+    }
+
+    private func loadService(_ s: (module: String, when: ExactServiceLoad, config: [String: Any], handoff: () -> Data)) {
+        let config = (try? JSONSerialization.data(withJSONObject: s.config)) ?? Data("{}".utf8)
+        guard let service = ExactService.load(module: s.module, config: config, handoff: s.handoff()) else {
+            self.failed.insert(s.module)
+            return ExactJournal.shared.loadEnded(s.module, nil)
+        }
+        ExactJournal.shared.attach(service)
     }
 
     private func stopWatching() {
@@ -420,8 +514,14 @@ public final class ExactLaunch: NSObject {
             // From the first commit to the first node's draw receipt, which
             // starts activation (the render server's first draw).
             let receipt = marks[.commit].flatMap { c in data.first.map { ms(max(0, $0 - c)) } }
-            out["data"] = ["appModule": ms(data.module), "waited": ms(max(0, data.waited)), "polls": data.polls,
-                           "ready": ms(data.ready), "apply": ms(data.apply), "receipt": receipt as Any]
+            var report: [String: Any] = ["appModule": ms(data.module), "waited": ms(max(0, data.waited)), "polls": data.polls,
+                                         "ready": ms(data.ready), "apply": ms(data.apply), "receipt": receipt as Any]
+            // After activation's start: the evaluation's start and end, and the asks.
+            if let first = data.first {
+                if let (from, to) = data.evaluation { report["evaluation"] = [ms(from - first), ms(to - first)] }
+                if let asked = data.asked { report["asked"] = ms(asked - first) }
+            }
+            out["data"] = report
         }
         if let p = marks[.process], !spans.isEmpty {
             let ms = { (t: Double) in ((t - p) * 1000 * 10).rounded() / 10 }
@@ -433,6 +533,8 @@ public final class ExactLaunch: NSObject {
             }
         }
         if !NavigationMarks.shared.recent.isEmpty { out["navigation"] = NavigationMarks.shared.recent }
+        let preloads = preloadMarks()
+        if !preloads.isEmpty { out["preloads"] = preloads }
         if let session { out["launchSession"] = session === launchSession }
         if facts.traced != 0 { out["debugger"] = true }
         if let p = marks[.process] {
@@ -440,6 +542,30 @@ public final class ExactLaunch: NSObject {
         }
         out["metrics"] = metrics()
         return out
+    }
+
+    /// Each preload's marks in ms from process start (from the delegate's
+    /// initializer on a prewarmed launch, whose process start is the prewarm):
+    /// handed to the client, reply complete, and the commit that first carried
+    /// its content, with that commit's place after the first (LLP 1162.000 D4).
+    func preloadMarks() -> [[String: Any]] {
+        let origin = facts.prewarm != 0 ? marks[.delegateInit] : marks[.process]
+        guard let origin else { return [] }
+        let ms = { (t: Double) in ((t - origin) * 1000 * 10).rounded() / 10 }
+        return (0..<exact_preloads_count()).map { index in
+            let mark = exact_preloads_mark(index)
+            var bytes = [UInt8](repeating: 0, count: exact_preloads_name(index, nil, 0))
+            _ = exact_preloads_name(index, &bytes, bytes.count)
+            var row: [String: Any] = ["name": String(decoding: bytes, as: UTF8.self)]
+            if mark.handed > 0 { row["handed"] = ms(mark.handed) }
+            if mark.completed > 0 { row["completed"] = ms(mark.completed) }
+            if mark.committed > 0 {
+                row["committed"] = ms(mark.committed)
+                row["sequence"] = mark.sequence
+                if let first = marks[.commit] { row["afterFirstCommit"] = ((mark.committed - first) * 1000 * 10).rounded() / 10 }
+            }
+            return row
+        }
     }
 
     func metrics() -> [String: Double] {
@@ -462,7 +588,13 @@ extension ExactLaunch {
         let marks = self.marks[.process].map { p in
             Mark.allCases.compactMap { m in self.marks[m].map { "\(m.rawValue) \(String(format: "%.1f", ($0 - p) * 1000))" } }.joined(separator: " · ")
         } ?? ""
-        return "\(launchType ?? "?") \(bootPath ?? "?") tti \(ttiOutcome ?? "pending")\(lastOutstanding.isEmpty ? "" : " outstanding \(lastOutstanding)") \(suppressed.map { "suppressed: \($0) " } ?? "")activation \(activation); \(metrics.isEmpty ? "no metrics" : metrics); marks \(marks); ledger \(trace.joined(separator: " → "))"
+        let line = "\(launchType ?? "?") \(bootPath ?? "?") tti \(ttiOutcome ?? "pending")\(lastOutstanding.isEmpty ? "" : " outstanding \(lastOutstanding)") \(suppressed.map { "suppressed: \($0) " } ?? "")activation \(activation); \(metrics.isEmpty ? "no metrics" : metrics); marks \(marks); ledger \(trace.joined(separator: " → "))"
+        // Each preload: handed to the client, reply complete, the commit that carried it (LLP 1162.000 D4).
+        let preloads = preloadMarks().map { row -> String in
+            let part = { (key: String) in (row[key] as? Double).map { " \(key) \(String(format: "%.1f", $0))" } ?? "" }
+            return " · preload \(row["name"] as? String ?? "?")" + part("handed") + part("completed") + part("committed") + part("afterFirstCommit")
+        }.joined()
+        return line + preloads
     }
 }
 
@@ -482,17 +614,19 @@ struct Vsync {
     let at: Double
     let interval: Double
 
-    init(_ link: CADisplayLink) {
-        // On ProMotion, `duration` can stay nominal while the real cadence changes.
-        let interval = link.targetTimestamp - link.timestamp
-        at = link.timestamp
-        self.interval = interval > 0 ? interval : link.duration
-    }
-
     /// The first vsync strictly after `t`, on this sample's grid.
     func next(after t: Double) -> Double? {
         guard interval > 0 else { return nil }
         let g = at + ((t - at) / interval).rounded(.up) * interval
         return g <= t ? g + interval : g
+    }
+}
+
+// An extension, so the struct keeps its memberwise initializer.
+extension Vsync {
+    init(_ link: CADisplayLink) {
+        // On ProMotion, `duration` can stay nominal while the real cadence changes.
+        let interval = link.targetTimestamp - link.timestamp
+        self.init(at: link.timestamp, interval: interval > 0 ? interval : link.duration)
     }
 }

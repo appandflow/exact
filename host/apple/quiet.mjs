@@ -1,4 +1,4 @@
-// Exact's own Swift warnings, left out of an app's build output. A builder of
+// Exact's own Swift warnings, left out of an app's build output (LLP 1116.021 D3). A builder of
 // an app outside this checkout can do nothing about a warning in host/apple/Sources, and a cold
 // iOS build printed some forty of them, re-sent with the rest of the context at every later
 // step. The app's own Swift, every error and everything else the toolchain says are kept, and

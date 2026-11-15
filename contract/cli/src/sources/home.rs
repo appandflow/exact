@@ -1,11 +1,11 @@
-//! A source's identity and the named package that owns its
-//! assets: where a file is alone, never the route a `use`
+//! A source's identity (LLP 1121 D15) and the named package that owns its
+//! assets (stage 13): where a file is alone, never the route a `use`
 //! reached it by.
 
 use crate::resolve::Origin;
 use std::path::{Path, PathBuf};
 
-/// A source's file as a component's identity names it,
+/// A source's file as a component's identity names it (LLP 1121 D15),
 /// from where the file is alone, never the route a `use` reached it by: a
 /// file in a package (the nearest directory above it, below the app's own
 /// and no higher than a linked package's root, whose `package.json` has a
@@ -20,7 +20,8 @@ pub(super) fn home(path: &Path, origin: &Origin, app_root: &Path) -> Option<Stri
 }
 
 /// [`home`], and the named package it is under, by its name and directory:
-/// the package that owns the file's assets, a vendored package's own whichever route reached it; none for
+/// the package that owns the file's assets (LLP 1121 stage 13 round 2,
+/// Astra 1), a vendored package's own whichever route reached it; none for
 /// the app's own file.
 #[allow(clippy::type_complexity)]
 pub(super) fn named_home(

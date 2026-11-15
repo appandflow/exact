@@ -1,10 +1,10 @@
-//! The terminal profile: a terminal entry is checked against
+//! The terminal profile (LLP 1101 D2): a terminal entry is checked against
 //! the schema's `terminal` column before it compiles, so a row a terminal
 //! cannot draw is an error the author sees while writing, never a silent
 //! degradation at run time.
 //!
 //! Each style row the schema marks `cell` takes lengths only in cells (`ch`
-//! a column, `lh` a row), a percentage, `auto` or 0; `admit` and
+//! a column, `lh` a row), a percentage, `auto` or 0 (D3); `admit` and
 //! `quantize` rows take what they take everywhere; a row with no mark is
 //! refused. The tags a terminal draws nothing for are refused by name.
 
@@ -79,7 +79,7 @@ fn refusal(id: &str, message: String, span: Span) -> CompileError {
 }
 
 /// Whether one written length is a terminal length: a base scale name is,
-/// cells in the terminal's column.
+/// cells in the terminal's column (LLP 1121 stage 11 B2).
 fn cell_length(part: &str) -> bool {
     let part = part.trim();
     matches!(
@@ -118,7 +118,7 @@ fn check_attrs(tag: &str, attrs: &[contract_syntax::Attr], errors: &mut Vec<Comp
                     errors.push(refusal(
                         "terminal-refused",
                         format!(
-                            "`{}` on `{tag}`: a terminal entry cannot draw `{}`",
+                            "`{}` on `{tag}`: a terminal entry cannot draw `{}` (LLP 1101 §4)",
                             a.name,
                             row.name().replace('_', "-")
                         ),
@@ -133,7 +133,7 @@ fn check_attrs(tag: &str, attrs: &[contract_syntax::Attr], errors: &mut Vec<Comp
                         errors.push(refusal(
                             "terminal-length",
                             format!(
-                                "`{}={first}` on `{tag}`: a terminal length is in cells — `Nch` (columns), `Nlh` (rows), a percentage, `auto` or 0; a number is pixels",
+                                "`{}={first}` on `{tag}`: a terminal length is in cells — `Nch` (columns), `Nlh` (rows), a percentage, `auto` or 0; a number is pixels (LLP 1101 D3)",
                                 a.name
                             ),
                             a.span,
@@ -148,39 +148,21 @@ fn check_attrs(tag: &str, attrs: &[contract_syntax::Attr], errors: &mut Vec<Comp
 }
 
 fn walk(nodes: &[Node], errors: &mut Vec<CompileError>) {
-    for n in nodes {
-        match n {
-            Node::Element {
-                tag,
-                attrs,
-                children,
-                span,
-                ..
-            } => {
-                if let Some(why) = refused_tag(tag) {
-                    errors.push(refusal(
-                        "terminal-tag",
-                        format!("`{tag}` in a terminal entry: {why}"),
-                        *span,
-                    ));
-                }
-                check_attrs(tag, attrs, errors);
-                walk(children, errors);
-            }
-            Node::Use { children, .. } => walk(children, errors),
-            Node::When {
-                then, otherwise, ..
-            } => {
-                walk(then, errors);
-                walk(otherwise, errors);
-            }
-            Node::Each { body, .. } => walk(body, errors),
-            Node::Match { some, none, .. } => {
-                walk(&some.1, errors);
-                walk(none, errors);
-            }
-            Node::Children { .. } => {}
+    for n in Node::walk(nodes) {
+        let Node::Element {
+            tag, attrs, span, ..
+        } = n
+        else {
+            continue;
+        };
+        if let Some(why) = refused_tag(tag) {
+            errors.push(refusal(
+                "terminal-tag",
+                format!("`{tag}` in a terminal entry: {why}"),
+                *span,
+            ));
         }
+        check_attrs(tag, attrs, errors);
     }
 }
 
@@ -214,7 +196,7 @@ mod tests {
     #[test]
     fn cells_pass_and_pixels_shadows_and_canvases_are_refused() {
         let ok = "component A\n  view\n    column padding=\"0 1ch\" gap=\"1lh\" width=\"50%\" min-height=0 color=\"#fff\" font-weight=700\n      text \"hi\" margin-left=\"auto\"\n";
-        // The base scale's names are cells in the terminal's column.
+        // The base scale's names are cells in the terminal's column (stage 11 B2).
         assert_eq!(ids("component A\n  view\n    column padding=\"space.lg\" gap=\"space.sm\"\n      text \"hi\"\n"), Vec::<String>::new());
         assert_eq!(ids(ok), Vec::<String>::new());
         let bad = "component A\n  view\n    column padding=16 box-shadow=\"0 1px #000\"\n      text \"hi\" font-size=20 margin=\"1lh 2px\"\n      canvas width=\"1ch\"\n";

@@ -1,4 +1,4 @@
-//! Sampled sensors a canvas takes as input: every sample a
+//! Sampled sensors a canvas takes as input (LLP 1133.013 D6): every sample a
 //! host delivers reaches the tick whose window holds its stamp, the latest
 //! holds through ticks that receive none, and an end takes it away. A tilt
 //! stick steers by the gravity sensor against a neutral. What the samples
@@ -105,9 +105,9 @@ fn degrees(component: f32, length: f32) -> f32 {
     crate::math::asin((component / length).clamp(-1., 1.)) * (180. / std::f32::consts::PI)
 }
 
-/// A tilt stick's reading for gravity `g` against neutral `n`: the roll and
-/// pitch from the neutral in degrees, `(−(asin(g.x/|g|) − asin(n.x/|n|)),
-/// −(asin(g.y/|g|) − asin(n.y/|n|))) / max_degrees`, then the
+/// A tilt stick's reading for gravity `g` against neutral `n` (LLP 1133.013
+/// D6): the roll and pitch from the neutral in degrees, `(−(asin(g.x/|g|) −
+/// asin(n.x/|n|)), −(asin(g.y/|g|) − asin(n.y/|n|))) / max_degrees`, then the
 /// radial dead zone of `dead_zone / max_degrees` and the rescaling a pad's
 /// stick takes, so the edge of the zone reads zero and `max_degrees` reads
 /// one, clamped to the unit circle. Zero for a zero or non-finite vector.
@@ -187,8 +187,13 @@ impl Input {
             Ok(i) => readings[i].sample = sample,
             Err(i) => readings.insert(i, Reading { sensor, sample }),
         }
-        if sensor == SensorKind::Gravity && self.sensors.first_gravity.is_none() {
-            self.sensors.first_gravity = Some([values[0], values[1], values[2]]);
+        // Only a vector can be a neutral: a zero or non-finite sample leaves the slot for the next.
+        let g = [values[0], values[1], values[2]];
+        if sensor == SensorKind::Gravity
+            && self.sensors.first_gravity.is_none()
+            && gravity(g).is_some()
+        {
+            self.sensors.first_gravity = Some(g);
         }
         self.tick_samples.push(TickSample { sensor, sample });
     }

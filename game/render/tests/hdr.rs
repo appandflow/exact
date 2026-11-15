@@ -1,4 +1,4 @@
-//! The tone curve reaches the frame's headroom.
+//! LLP 1100 D12b: the tone curve reaches the frame's headroom.
 #![cfg(not(target_arch = "wasm32"))]
 #[path = "fixture/device.rs"]
 mod test_device;

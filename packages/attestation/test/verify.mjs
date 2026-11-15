@@ -1,6 +1,6 @@
-// The auth fixture server's verifier of @exact/attestation's tokens:
-// what an app's own server does with them, for the fixture, not a
-// library for apps. It keeps each attested key and its counter.
+// The auth fixture server's verifier of @exact/attestation's tokens (LLP
+// 1133.028 §8.1): what an app's own server does with them, for the fixture,
+// not a library for apps (D2). It keeps each attested key and its counter.
 //
 // - `apple-appattest`: Apple's validation steps, offline
 //   (https://developer.apple.com/documentation/devicecheck/validating-apps-that-connect-to-your-server):
@@ -14,7 +14,7 @@
 // - `play-integrity`: Google's `decodeIntegrityToken`, with the service
 //   account whose key file `EXACT_PLAY_INTEGRITY_KEY` names, then the
 //   request hash. The verdicts are Google's to give.
-// - `exact-substitute`: the agent path's token, only when the server
+// - `exact-substitute`: the agent path's token (§7), only when the server
 //   was started with `--substitute`.
 import { X509Certificate, createSign, verify as verifySignature } from 'node:crypto';
 import { readFileSync } from 'node:fs';
@@ -37,7 +37,7 @@ oyFraWVIyd/dganmrduC1bmTBGwD
 -----END CERTIFICATE-----`;
 
 const NONCE_OID = Buffer.from('06092a864886f763640802', 'hex');
-// Apple's pages disagree on the sandbox's, so both spellings of each are taken.
+// Apple's pages disagree on the sandbox's (D2), so both spellings of each are taken.
 const AAGUIDS = { appattestdevelop: 'development', appattest: 'production' };
 
 const sha256 = (bytes) => new Uint8Array(new Bun.CryptoHasher('sha256').update(bytes).digest());
@@ -207,7 +207,7 @@ export function verifier({ appId, packageName, substitute = false, roots = [APPL
   };
 }
 
-/** The line the fixture's row shows for a verdict: what the server concluded, never the token. */
+/** The line the fixture's row shows for a verdict (§8.1): what the server concluded, never the token. */
 export function said(verdict) {
   if (!verdict.ok) return verdict.error === 'unknown-key' ? 'Unknown key' : `Refused: ${verdict.error}`;
   if (verdict.kind === 'play') {

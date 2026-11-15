@@ -5,12 +5,12 @@ import XCTest
 @testable import ExactSurfaces
 
 /// A transformed box takes the mouse where it is drawn, as CSS hit-tests
-/// through the transform — 2D, or in space, where a hidden back
+/// through the transform — 2D, or in space (LLP 1077 D8), where a hidden back
 /// face takes none.
 /// AppKit's own geometry places every box at its frame, so the host maps the
 /// point through the box's plane (`SpaceTransform.swift`).
 final class SpaceHitMacTests: XCTestCase {
-    override class func setUp() { super.setUp(); ExactSurfaces.install() }
+    override class func setUp() { super.setUp(); ExactSurfaces.install() } // LLP 1047.001 D4
     private var window: NSWindow?
     override func tearDown() { window?.close(); window = nil }
 
@@ -162,7 +162,7 @@ final class SpaceHitMacTests: XCTestCase {
         XCTAssertTrue(box.hitTest(sup.convert(NSPoint(x: 180, y: 80), from: box)) === button, "where it is drawn")
         XCTAssertFalse(box.hitTest(sup.convert(NSPoint(x: 80, y: 80), from: box)) === button, "placed, but not translated")
         // A point that misses every placed child is the canvas's, unless the
-        // canvas lets the pointer through.
+        // canvas lets the pointer through (Grok's batch 2 review).
         let canvas = try XCTUnwrap(p.views[2])
         XCTAssertTrue(box.hitTest(sup.convert(NSPoint(x: 180, y: 150), from: box)) === canvas)
         canvas.applyStyle(["pointer_events": "none"])

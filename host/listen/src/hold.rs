@@ -1,4 +1,4 @@
-//! Within one process, an address is held by one listener at a time,
+//! D2: within one process, an address is held by one listener at a time,
 //! by the rule between processes. Each address keeps its listeners in
 //! order, the holder last. Without `takeover` a newcomer waits just below
 //! the holder; with it, the newcomer holds and the holder is displaced,

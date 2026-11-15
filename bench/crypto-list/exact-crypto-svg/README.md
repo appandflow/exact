@@ -5,8 +5,8 @@ The crypto list benchmark (`../SPEC.md`) on exact2, built from the checkout this
 (`crypto-svgi@9fdf7e564`), with its Contract brought to current main (the `writes` clause on `tick` removed).
 
 - `app.contract` is the whole screen. `CoinRow` is the row; `Chart` is an `svg` (96 × 32, `viewBox="0 0 96 32"`,
-  `overflow="visible"`) with a `polyline` whose `points` the view maps from the row's 48 prices (`chartPoints`),
-  `pathLength=1` and `stroke-dasharray="1"` with `animation="draw 600ms ease-out both"` over
+  `overflow="visible"`) with a `polyline` whose `points` the view maps from the row's 48 prices (`chartPoints`,
+  LLP 1017.003), `pathLength=1` and `stroke-dasharray="1"` with `animation="draw 600ms ease-out both"` over
   `stroke-dashoffset` 1 → 0; a ring disc (`breathe`: `r` 3 → 9, opacity 0.5 → 0, 1,200 ms ease-out, 600 ms delay,
   infinite) and the dot (`shown 600ms step-end both`: absent during the draw-in). Under `BENCH_FREEZE` the ring is
   static at r 6, opacity 0.25.
@@ -21,7 +21,7 @@ The crypto list benchmark (`../SPEC.md`) on exact2, built from the checkout this
 - `Cargo.toml` is its own workspace with exact2's `[patch.crates-io]` lines. Its `Cargo.lock` is not committed:
   `../prepare.sh` copies the root's, which build.mjs then resolves for this workspace.
 
-On iOS the draw-in, pulse and flash run in Core Animation: no display link at rest for them.
+On iOS the draw-in, pulse and flash run in Core Animation (LLP 1055 D7): no display link at rest for them.
 
 ## Build and run
 

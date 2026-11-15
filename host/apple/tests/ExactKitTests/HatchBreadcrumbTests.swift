@@ -1,7 +1,7 @@
 import XCTest
 @testable import ExactKit
 
-/// The crash breadcrumb: what a process that
+/// The crash breadcrumb (LLP 1075.003.000.001 §4.4): what a process that
 /// died inside a hatch call left is read by the next launch; a call that
 /// returned leaves nothing; nesting past 8 is counted; each session's slot
 /// is its own; a record torn by the death is passed over for the last whole
@@ -77,5 +77,23 @@ final class HatchBreadcrumbTests: XCTestCase {
         try file.close()
         XCTAssertEqual(HatchBreadcrumb.read(directory: directory),
                        ["the last run ended while inside hatch route home (built, call 1); if it repeats, launch with EXACT_HATCHES=off"])
+    }
+
+    /// A session's end frees its slot on every platform: nine sessions, each
+    /// held after its end, each take the slot the one before gave back.
+    func testASessionsEndFreesItsSlot() throws {
+        let connect: HatchConnectFn = { _, _ in }
+        let module = try XCTUnwrap(UnsafeMutableRawPointer(bitPattern: 1))
+        var ended: [ExactSession] = [], slots: [Int?] = []
+        for i in 1...9 {
+            let session = ExactApp.shared.makeSession(label: "crumb-\(i)")
+            session.natives.openHatches(connect, module)
+            slots.append(session.natives.crumbSlot)
+            session.destroy()
+            ended.append(session)
+        }
+        XCTAssertNotNil(slots[0])
+        XCTAssertEqual(slots, Array(repeating: slots[0], count: 9))
+        XCTAssertTrue(ended.allSatisfy { $0.natives.crumbSlot == nil })
     }
 }

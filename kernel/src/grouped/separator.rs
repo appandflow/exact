@@ -1,4 +1,4 @@
-//! The platform's separator under a grouped list's row.
+//! @ref LLP 1084 D7 — the platform's separator under a grouped list's row.
 //!
 //! A row spans its card, `border-box`, with the platform's insets as its
 //! padding, so a full-width row stays inside the card. The line under it is

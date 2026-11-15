@@ -1,17 +1,17 @@
-// @exact/calendar on Android: the person's calendars, read and written through the Calendar Provider,
+// @exact/calendar on Android (LLP 1133.018): the person's calendars, read and written through the Calendar Provider,
 // and an event added through the calendar app's insert screen. Under the agent it asks the provider for nothing and
-// answers from the agent's calendars (AgentCalendar.kt); the runner holds the permission and editor tickets and
+// answers from the agent's calendars (AgentCalendar.kt, §10); the runner holds the permission and editor tickets and
 // answers the status. Otherwise the provider answers (EventStore.kt).
 //
 // - `calendarEvents` answers the occurrences overlapping `[start, end)`, at most four years, in one order on every
-//   target: `utcStart`, `utcEnd`, `id`, `recurrenceId`. Its cursor is the last occurrence's place in that order.
-// - Android has no write-only access: the write-only line derives both permissions, and `access` is `full`
+//   target: `utcStart`, `utcEnd`, `id`, `recurrenceId` (D3). Its cursor is the last occurrence's place in that order.
+// - Android has no write-only access (D11): the write-only line derives both permissions, and `access` is `full`
 //   once they are granted, so `requestFullCalendarAccess` answers the status as it is.
 // - The editor's `save` adds the event to the store; Android's calendar apps report nothing, so it answers
-//   `unknown`, as production does unless the calendar app returns `RESULT_OK`.
-// - A change is announced, coalesced: while the re-asks one announcement caused are in flight, further changes
-//   set a mark, and one more announcement follows them landing.
-// - Tier 3: `insertIntentHatch` sees the editor's `Intent` after the module's extras, before it starts, on the
+//   `unknown`, as production does unless the calendar app returns `RESULT_OK` (D15).
+// - With list readers, changes are coalesced (D7): while the re-asks one announcement caused are in flight,
+//   further changes set a mark, and one more announcement follows them landing.
+// - Tier 3 (D10): `insertIntentHatch` sees the editor's `Intent` after the module's extras, before it starts, on the
 //   main thread, never under the agent.
 package exact.calendar
 
@@ -26,7 +26,7 @@ import org.json.JSONObject
 
 class CalendarModule(context: ExtensionContext) : ExactExtension(context) {
     companion object {
-        /** The app's editor hatch: the insert `Intent`, which it may add extras to (`Events.RRULE`). */
+        /** The app's editor hatch (D10): the insert `Intent`, which it may add extras to (`Events.RRULE`). */
         @JvmStatic var insertIntentHatch: ((Intent) -> Unit)? = null
 
         internal fun error(code: String, message: String? = null) = JSONObject().put("error", code).apply { if (message != null) put("message", message) }
@@ -38,9 +38,9 @@ class CalendarModule(context: ExtensionContext) : ExactExtension(context) {
     private val book by lazy { AgentCalendar(context.application.assets) }
     /** The Calendar Provider, outside the agent. */
     private val real by lazy { EventStore(context, ::say, ::changedStore) }
-    /** The live names read and not released, which observing follows. */
+    /** The list names read and not released, which observing follows. */
     private val readers = HashSet<String>()
-    /** Coalescing: an announcement's re-asks in flight; a change since. */
+    /** Coalescing (D7): an announcement's re-asks in flight; a change since. */
     private var awaiting = false
     private var dirty = false
     private var rounds = 0
@@ -120,15 +120,18 @@ class CalendarModule(context: ExtensionContext) : ExactExtension(context) {
 
     override fun foreground(shown: Boolean) {
         if (!shown) return
-        // Access may have changed in Settings meanwhile.
+        // Access may have changed in Settings meanwhile (D5).
         if (!context.agent) real.refresh()
         changedStore()
     }
 
-    // Announcing
+    // Announcing (D7)
 
     private fun changedStore() {
-        if (readers.isEmpty()) return
+        if (readers.isEmpty()) {
+            context.changed("calendar.calendarStatus")
+            return
+        }
         if (awaiting) { dirty = true; return }
         announce()
     }
@@ -154,7 +157,7 @@ class CalendarModule(context: ExtensionContext) : ExactExtension(context) {
         }
     }
 
-    // The agent's answers
+    // The agent's answers (§10)
 
     private fun status() = JSONObject().put("available", true).put("state", "prompt").put("access", book.access).put("editor", true)
         .put("apple", JSONObject.NULL).put("android", JSONObject.NULL)
@@ -199,7 +202,7 @@ class CalendarModule(context: ExtensionContext) : ExactExtension(context) {
         val asked = args.text("calendar")
         return when (book.access) {
             "write-only" -> {
-                // Saved to the calendar the person chose, and never readable again.
+                // Saved to the calendar the person chose, and never readable again (D11).
                 if (asked != null) return error("NotAllowedError", "write-only")
                 val calendar = book.defaultCalendar ?: return error("NotFoundError")
                 val saved = book.stored(event, null, calendar)

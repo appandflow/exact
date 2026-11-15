@@ -6,7 +6,7 @@
 # pinned nightly (CHARON_TOOLCHAIN, default the one ~/tools/charon pins),
 # AENEAS_DIR (default ~/tools/aeneas, with bin/aeneas built and its Lean
 # library built), and elan's lake. A missing tool skips the check, naming it,
-# with exit status 77 (neither a pass nor a failure).
+# with exit status 77 (the async lane's UNAVAILABLE: neither a pass nor a failure).
 set -u
 here=$(cd "$(dirname "$0")" && pwd)
 aeneas_dir=${AENEAS_DIR:-$HOME/tools/aeneas}

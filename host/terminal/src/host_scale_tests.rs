@@ -1,5 +1,5 @@
-//! The base scale in the terminal: the host says its column, a base spacing
-//! lands on the cell grid, and a base radius is 0.
+//! The base scale in the terminal (LLP 1121 stage 11 B2): the host says its
+//! column, a base spacing lands on the cell grid, and a base radius is 0.
 use super::*;
 use exact_kernel::style::{metrics, scale};
 use exact_kernel::StyleId;
@@ -40,7 +40,7 @@ fn a_base_spacing_is_cells_and_a_base_radius_is_none() {
     }
 }
 
-/// The kernel lays a terminal's spaces out in whole
+/// LLP 1121 stage 11 (c): the kernel lays a terminal's spaces out in whole
 /// cells, so px and the painter's rows agree. A list with gap space.sm (half
 /// a row) puts item k on row k, where its px frame is; revealing item 30 in
 /// a ten-row scroller brings it on screen.

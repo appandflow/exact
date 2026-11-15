@@ -1,6 +1,6 @@
-//! `input type="checkbox"` (and `switch`) is the kernel's `Control`, controlled
-//! like HTML, its `input`/`change` carrying a bool; a text field's `input` is
-//! per keystroke and `change` is commit.
+//! LLP 1069.001 slice 1: `input type="checkbox"` (and `switch`) is the
+//! kernel's `Control`, controlled like HTML, its `input`/`change` carrying a
+//! bool; a text field's `input` is per keystroke and `change` is commit.
 
 use exact_kernel::{Kernel, NodeType, PropId};
 use exact_runner::{ControlValue, DataError, DataSource, Event, Runner, RunnerError, Value};
@@ -77,11 +77,65 @@ fn a_checkbox_is_a_control_with_a_role() {
     assert_eq!(checked(&r, "muted"), (Some(false), Some(false)));
 }
 
-/// A checkbox, a radio and a range have no margin of their own on any host
-/// (Chrome's UA sheet gives them `3px 3px 3px 4px`, `3px 3px 0 5px` and `2px`,
-/// which lowering wrote into every plan). The rows are unset, so the space
-/// beside a label is the author's `gap`, and a margin the author writes is the
-/// control's.
+#[test]
+fn view_binders_preserve_positional_words() {
+    let mut compiled = Vec::new();
+    let mut errors = Vec::new();
+    for (tag, word, attrs, prop, expected) in [
+        (
+            "input",
+            "switch",
+            "type=\"checkbox\" checked=true",
+            PropId::AccessibilityRole,
+            exact_kernel::PropValue::Str("switch".into()),
+        ),
+        (
+            "input",
+            "multiple",
+            "type=\"file\"",
+            PropId::Multiple,
+            exact_kernel::PropValue::Bool(true),
+        ),
+        (
+            "scroll",
+            "document",
+            "height=10",
+            PropId::ScrollDocument,
+            exact_kernel::PropValue::Bool(true),
+        ),
+    ] {
+        for prefix in ["", "component App\n  view\n    Child()\n"] {
+            let source = format!(
+                "{prefix}component Child\n  state {word} = 0\n  view\n    column\n      for {word} in [\"a\"] key={word}\n        {tag} {word} {attrs} testId={word}\n        text {word} testId=\"value\"\n"
+            );
+            match contract::compile(&source) {
+                Ok(plan) => compiled.push((plan, prop, expected.clone())),
+                Err(error) => errors.push(format!("{word} ({prefix:?}): {error}")),
+            }
+        }
+    }
+    assert!(errors.is_empty(), "{}", errors.join("\n"));
+    for (plan, prop, expected) in compiled {
+        let r = Runner::boot(
+            plan,
+            NoData,
+            Kernel::with_monospace(),
+            Default::default(),
+            "/",
+        )
+        .unwrap();
+        let node = r.kernel().node(view_of(&r, "a")).unwrap();
+        assert_eq!(node.props.get(prop), Some(&expected));
+        let value = r.kernel().node(view_of(&r, "value")).unwrap();
+        assert_eq!(value.props.str(PropId::Text), Some("a"));
+    }
+}
+
+/// LLP 1115.000 D10.1: a checkbox, a radio and a range have no margin of
+/// their own on any host (Chrome's UA sheet gives them `3px 3px 3px 4px`,
+/// `3px 3px 0 5px` and `2px`, which lowering wrote into every plan). The
+/// rows are unset, so the space beside a label is the author's `gap`, and a
+/// margin the author writes is the control's.
 #[test]
 fn a_checkbox_a_radio_and_a_range_have_no_margin_of_their_own() {
     use exact_kernel::{Dimension, StyleId};
@@ -220,6 +274,37 @@ fn the_compiler_names_what_a_control_takes() {
     assert!(contract::compile(&app("input type=\"CHECKBOX\" checked=on change=set")).is_ok());
 }
 
+/// A prop read twice in one attribute is evaluated once, under a `let`
+/// around the attribute's choice; the choice is still the one the compiler
+/// classifies: a text field's kind, a style row's length or keyword, an
+/// enum prop's members.
+#[test]
+fn a_choice_reading_a_prop_twice_is_classified_as_the_choice() {
+    let app = |line: &str| {
+        format!(
+            "component App\n  state n = 1\n  view\n    Probe(shown=n > 0)\n\
+             component Probe\n  props\n    shown: bool\n  view\n    {line}\n\
+             component Kind\n  props\n    kind: enum<\"a\", \"b\">\n  view\n    text kind\n"
+        )
+    };
+    for line in [
+        "input type=(shown && shown ? \"text\" : \"password\")",
+        "row margin=(shown && shown ? 8 : \"auto\")",
+        "Kind(kind=(shown && shown ? \"a\" : \"b\"))",
+    ] {
+        if let Err(e) = contract::compile(&app(line)) {
+            panic!("{line}: {e}");
+        }
+    }
+    let e = contract::compile(&app("input type=(shown && shown ? \"text\" : \"submit\")"))
+        .unwrap_err()
+        .to_string();
+    assert!(
+        e.contains("lower-input-type") && e.contains("non-text control"),
+        "{e}"
+    );
+}
+
 const RADIOS: &str = r#"component App
   state color = "red"
   state tries = 0
@@ -245,7 +330,7 @@ fn a_radio_is_a_control_of_its_name_whose_change_carries_its_value() {
     assert_eq!(node.node_type, NodeType::Control);
     assert_eq!(node.props.str(PropId::AccessibilityRole), Some("radio"));
     assert_eq!(node.props.str(PropId::Name), Some("color"));
-    // No margin of its own (Chrome's is `3px 3px 0 5px`).
+    // No margin of its own (LLP 1115.000 D10.1; Chrome's is `3px 3px 0 5px`).
     assert!(!node.style.mask.has(exact_kernel::StyleId::MarginLeft));
     assert_eq!(node.style.margin_left, exact_kernel::Dimension::Points(0.0));
     let green = view_of(&r, "green");
@@ -461,7 +546,7 @@ fn a_select_carries_the_chosen_value_and_refuses_what_no_option_has() {
         RunnerError::InvalidEvent { event: "change" }
     ));
     // An action that writes nothing leaves `value` where it was: the host
-    // shows the committed option again.
+    // shows the committed option again (D4).
     let fixed = view_in(&r, "fixed");
     r.dispatch(fixed, Event::Input("system".into())).unwrap();
     assert_eq!(
@@ -489,7 +574,7 @@ fn option_and_select_keep_htmls_content_model() {
 
 #[test]
 fn autocomplete_names_a_field_to_autofill() {
-    // HTML's attribute, kept as written; each host reads its last field token.
+    // LLP 1102 §3.6: HTML's attribute, kept as written; each host reads its last field token.
     let r = boot(
         r#"component App
   state kind = "one-time-code"
@@ -518,7 +603,7 @@ fn autocomplete_names_a_field_to_autofill() {
 
 #[test]
 fn a_number_fields_bounds_take_numbers_as_a_ranges_do() {
-    // `min`, `max` and `step` as numbers; the field's value stays its text.
+    // LLP 1102 §3.12: `min`, `max` and `step` as numbers; the field's value stays its text.
     let mut r = boot(
         r#"component App
   state n = "3"
@@ -545,9 +630,9 @@ fn a_number_fields_bounds_take_numbers_as_a_ranges_do() {
     }
 }
 
-/// A negative literal is a number as a positive one is, in a field's bounds (the
-/// decimal pad's ± key comes of a negative `min`) and in a style (`margin-top=-8`
-/// is -8 px), and a text field's bounds take numbers.
+/// LLP 1116.010 D3: a negative literal is a number as a positive one is, in
+/// a field's bounds (the decimal pad's ± key comes of a negative `min`) and in a
+/// style (`margin-top=-8` is -8 px), and a text field's bounds take numbers.
 #[test]
 fn a_negative_literal_is_a_number_as_a_positive_one_is() {
     let r = boot(
@@ -639,7 +724,7 @@ fn a_range_carries_a_number_clamped_and_snapped_as_html_does() {
     assert_eq!(node.props.str(PropId::Min), Some("0"));
     assert_eq!(node.props.str(PropId::Step), Some("5"));
     assert_eq!(node.props.str(PropId::Value), Some("40"));
-    // No margin of its own (Chrome's is `2px`).
+    // No margin of its own (LLP 1115.000 D10.1; Chrome's is `2px`).
     assert!(!node.style.mask.has(exact_kernel::StyleId::MarginTop));
     assert_eq!(node.style.margin_top, exact_kernel::Dimension::Points(0.0));
     // `input` moves, `change` commits; each payload a number on the step.
@@ -728,9 +813,108 @@ fn a_date_carries_htmls_value_format_within_min_and_max() {
     assert!(r.dispatch(at, Event::Change(true.into())).is_err());
 }
 
+#[test]
+fn date_and_time_bounds_compare_values_across_precisions() {
+    let mut failures = Vec::new();
+    for (kind, min, max, accepted, refused) in [
+        (
+            "time",
+            "09:00:00",
+            "17:00",
+            vec!["09:00", "09:00:00.000", "17:00:00", "17:00:00.0", ""],
+            vec!["08:59", "08:59:59.999", "17:00:00.001", "17:01"],
+        ),
+        (
+            "datetime-local",
+            "2026-01-01T09:00:00",
+            "2026-12-31T17:00",
+            vec!["2026-01-01T09:00", "2026-12-31T17:00:00", ""],
+            vec!["2026-01-01T08:59", "2026-12-31T17:00:00.001"],
+        ),
+        (
+            "time",
+            "09:00:00.1",
+            "09:00:00.12",
+            vec!["09:00:00.10", "09:00:00.100", "09:00:00.120"],
+            vec!["09:00:00.099", "09:00:00.121"],
+        ),
+        (
+            "time",
+            "22:00",
+            "06:00:00",
+            vec!["23:00", "05:00", "22:00:00", "06:00", "00:00", ""],
+            vec!["12:00", "06:00:00.001", "21:59:59.999"],
+        ),
+        (
+            "time",
+            "09:00:00",
+            "09:00",
+            vec!["09:00", "09:00:00", "09:00:00.000", ""],
+            vec!["08:59:59.999", "09:00:00.001", "12:00"],
+        ),
+        (
+            "date",
+            "9999-12-31",
+            "10000-01-02",
+            vec!["9999-12-31", "10000-01-01", "10000-01-02"],
+            vec!["9999-12-30", "10000-01-03"],
+        ),
+        (
+            "datetime-local",
+            "2026-12-31T22:00",
+            "2026-01-01T06:00",
+            vec![""],
+            vec!["2026-12-31T23:00", "2026-01-01T05:00"],
+        ),
+        (
+            "time",
+            "invalid",
+            "17:00",
+            vec!["00:00", "17:00:00", ""],
+            vec!["17:00:00.001"],
+        ),
+        (
+            "time",
+            "09:00:00",
+            "",
+            vec!["09:00", "23:59", ""],
+            vec!["08:59:59.999"],
+        ),
+    ] {
+        let mut r = boot(&format!(
+            "component App\n  state chosen = \"\"\n  action set(value: string)\n    chosen = value\n  view\n    input type=\"{kind}\" value=chosen min=\"{min}\" max=\"{max}\" input=set change=set testId=\"control\"\n"
+        ));
+        let view = view_of(&r, "control");
+        for event in [Event::Input, Event::Change] {
+            for text in &accepted {
+                if let Err(error) = r.dispatch(view, event((*text).into())) {
+                    failures.push(format!("{kind} {min}..{max} refused {text:?}: {error:?}"));
+                    continue;
+                }
+                assert_eq!(
+                    r.kernel().node(view).unwrap().props.str(PropId::Value),
+                    Some(*text)
+                );
+            }
+            for text in &refused {
+                let previous = r.kernel().node(view).unwrap().props.clone();
+                let result = r.dispatch(view, event((*text).into()));
+                if !matches!(result, Err(RunnerError::InvalidValue { .. })) {
+                    failures.push(format!("{kind} {min}..{max} allowed {text:?}: {result:?}"));
+                }
+                assert_eq!(
+                    r.kernel().node(view).unwrap().props.str(PropId::Value),
+                    previous.str(PropId::Value)
+                );
+            }
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
 /// `spellcheck` and `autocorrect` are HTML's enumerated attributes whose IDL
 /// attributes are bools: a bool is written as their words, a string as
-/// itself, so `spellcheck=false` is not refused as no string.
+/// itself (shop diary F7: `spellcheck=false` was refused as no string).
 #[test]
 fn spellcheck_and_autocorrect_take_a_bool_as_their_words() {
     let mut r = boot(
@@ -894,9 +1078,10 @@ fn input_change_and_select_hand_on_the_targets_input_event() {
     );
 }
 
-/// `progress` with no `value` is HTML's indeterminate progress, the kernel's
-/// `Control` of type `progress` with ARIA's role and busy state; a measured
-/// leaf of 20 × 20 (UIKit's medium activity indicator) until CSS sizes it.
+/// LLP 1069.001, amended 2026-10-07: `progress` with no `value` is HTML's
+/// indeterminate progress, the kernel's `Control` of type `progress` with
+/// ARIA's role and busy state; a measured leaf of 20 × 20 (UIKit's medium
+/// activity indicator) until CSS sizes it.
 #[test]
 fn an_indeterminate_progress_is_a_busy_control_of_twenty_points() {
     let mut r = boot(
@@ -927,9 +1112,9 @@ fn an_indeterminate_progress_is_a_busy_control_of_twenty_points() {
     assert_eq!(size(&r, "row"), (20.0, 20.0), "a flex item keeps its size");
 }
 
-/// `progress value=… max=…` is HTML's determinate bar: the
+/// LLP 1116 D8: `progress value=… max=…` is HTML's determinate bar: the
 /// same `Control`, its `value` and `max` HTML's strings (a bound number
-/// follows its state), not busy. It is as wide as what
+/// follows its state), not busy. LLP 1115.000 D10.2: it is as wide as what
 /// holds it and `1em` tall, `width` and `height` winning, and `10em` wide
 /// where the author says `auto`.
 #[test]
@@ -974,10 +1159,11 @@ fn a_progress_with_a_value_is_the_determinate_bar() {
     assert_eq!(size(&r, "auto"), (200.0, 20.0), "`10em` by `1em`");
 }
 
-/// A range and a determinate `progress` are full width by a row lowering
-/// implies, `width: 100%`, which is not the author's: the mask has it and the
-/// written bit does not. A `width` the author writes replaces it, written; an
-/// indeterminate `progress` and every other control keep their own size.
+/// LLP 1115.000 D10.2: a range and a determinate `progress` are full width
+/// by a row lowering implies, `width: 100%`, which is not the author's (LLP
+/// 1115.000 D2): the mask has it and the written bit does not. A `width` the
+/// author writes replaces it, written; an indeterminate `progress` and every
+/// other control keep their own size.
 #[test]
 fn a_range_and_a_determinate_progress_are_full_width_by_an_implied_row() {
     use exact_kernel::{Dimension, StyleId};
@@ -1002,7 +1188,10 @@ fn a_range_and_a_determinate_progress_are_full_width_by_an_implied_row() {
     let row = |r: &Runner<NoData>, id: &str| {
         let style = r.kernel().node(view_of(r, id)).unwrap().style;
         (
-            style.mask.has(StyleId::Width).then_some(style.width),
+            style
+                .mask
+                .has(StyleId::Width)
+                .then_some(style.width.clone()),
             style.written.has(StyleId::Width),
         )
     };
@@ -1026,6 +1215,38 @@ fn a_range_and_a_determinate_progress_are_full_width_by_an_implied_row() {
     // Where the percentage has nothing to resolve against, its own 129.
     assert_eq!(width(&r, "fit"), 129.0);
     assert_eq!(width(&r, "fit-range"), 129.0);
+}
+
+/// LLP 1115.000 D10.4 (expo/exact#395): a `select` is no wider than what
+/// holds it, by a row lowering implies, `max-width: 100%`; one its author
+/// writes replaces it. Its longest option no longer runs it past a phone.
+#[test]
+fn a_select_is_no_wider_than_what_holds_it() {
+    use exact_kernel::{Dimension, StyleId};
+    let long = "option \"All Sources\" value=\"all\"\n        option \"Commentaries and Dictionaries\" value=\"library\"";
+    let mut r = boot(&format!(
+        "component App\n  state v = \"all\"\n  action pick(s: string)\n    v = s\n  view\n    column width=30 testId=\"root\"\n      select value=v change=pick aria-label=\"Scope\" align-self=\"flex-start\" testId=\"held\"\n        {long}\n      select value=v change=pick aria-label=\"Scope\" align-self=\"flex-start\" max-width=\"none\" testId=\"free\"\n        {long}\n"
+    ));
+    let row = |r: &Runner<NoData>, id: &str| {
+        let style = r.kernel().node(view_of(r, id)).unwrap().style;
+        (
+            style
+                .mask
+                .has(StyleId::MaxWidth)
+                .then_some(style.max_width.clone()),
+            style.written.has(StyleId::MaxWidth),
+        )
+    };
+    assert_eq!(row(&r, "held"), (Some(Dimension::Percent(100.0)), false));
+    assert!(row(&r, "free").1, "an authored maximum is written");
+    let root = view_of(&r, "root");
+    r.kernel_mut()
+        .compute_layout(root, exact_kernel::Offer::definite(320.0, 480.0))
+        .unwrap();
+    let width = |r: &Runner<NoData>, id: &str| r.kernel().node(view_of(r, id)).unwrap().frame.width;
+    // Its own width here is the 46 a select with no host to measure it has.
+    assert_eq!(width(&r, "free"), 46.0);
+    assert_eq!(width(&r, "held"), 30.0);
 }
 
 #[test]

@@ -1,17 +1,18 @@
-//! The views packages serve. A tag is declared, not imported: the bake finds
-//! it in the `exact.json` of each package the app depends on directly, as it
-//! finds the app's own in `app.json` `modules`. An interface declares each
-//! view, its props and events, whether it hears that it is displayed
-//! (`"displayed": true`) and which props bind a device (`"binds": true`); an
-//! implementation lists the tags it serves, or declares a view of its own
-//! the same way.
+//! The views packages serve (LLP 1133.001 D1, LLP 1133.008 D8 item 1). A
+//! tag is declared, not imported: the bake finds it in the `exact.json` of
+//! each package the app depends on directly, as it finds the app's own in
+//! `app.json` `modules`. An interface declares each view, its props and
+//! events, whether it hears that it is displayed (`"displayed": true`) and
+//! which props bind a device (`"binds": true`); an implementation lists the
+//! tags it serves, or declares a view of its own the same way.
 //!
 //! The app's direct dependencies are the `dependencies` of the nearest
 //! `package.json` above it: its own for an app `exact new` made, the
 //! repository's for an app in it.
 
+use contract_syntax::{Attr, Expr, Span};
 use serde_json::{Map, Value};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 /// One package view, as the plan's `views` table carries it.
@@ -21,18 +22,52 @@ pub struct PackageView {
     /// The extension whose implementation makes it in each session: the
     /// interface's name after its scope.
     pub extension: String,
-    /// The package that declares it, for a refusal's message.
+    /// The full interface identity.
     pub package: String,
     pub displayed: bool,
     pub binds: Vec<String>,
+    /// The interface's agent vocabulary, including interfaces with no names.
+    pub agent: String,
     /// Its declared props' types and its events beyond the nine, which the
-    /// lowering holds the tag's attributes to.
+    /// lowering holds the tag's attributes to (LLP 1133.021 §9 items 1, 2).
     pub declared: contract_lower::DeclaredView,
 }
 
-/// Every view the app's direct dependencies declare, by tag; two packages
-/// declaring one tag is `Err` naming both (`bake-view-twice`).
-pub fn declared(app_root: &Path) -> Result<BTreeMap<String, PackageView>, String> {
+/// Tags in the lowered program, including deferred branches but excluding
+/// components never instantiated. Declarations alone do not link a view.
+pub(crate) fn placed(plan: &exact_plan::Plan) -> BTreeSet<String> {
+    use exact_plan::{BindingKind, Opcode, StrId};
+    plan.nodes
+        .iter()
+        .flat_map(|n| n.bindings.iter())
+        .filter_map(|id| {
+            let binding = plan.binding(id);
+            if binding.kind != BindingKind::Prop
+                || binding.id != exact_kernel::PropId::NativeViewModuleName as u16
+            {
+                return None;
+            }
+            match exact_runner::vm::instructions(plan.read_code(plan.code(binding.expr)).0)
+                .collect::<Result<Vec<_>, _>>()
+                .as_deref()
+            {
+                Ok([value, end]) if value.op == Opcode::Str && end.op == Opcode::Return => {
+                    Some(plan.str(StrId(value.args[0] as u32)).to_owned())
+                }
+                _ => None,
+            }
+        })
+        .collect()
+}
+
+pub struct DeclarationError {
+    pub id: &'static str,
+    pub message: String,
+}
+
+/// Every view the app's direct dependencies declare, by tag. Layout prop
+/// names and two packages declaring one tag are refused.
+pub fn declared(app_root: &Path) -> Result<BTreeMap<String, PackageView>, DeclarationError> {
     let mut out: BTreeMap<String, PackageView> = BTreeMap::new();
     for name in dependencies(app_root) {
         let Some((root, json)) = located(app_root, &name) else {
@@ -42,9 +77,19 @@ pub fn declared(app_root: &Path) -> Result<BTreeMap<String, PackageView>, String
         match json["kind"].as_str() {
             Some("interface") => {
                 let extension = extension_of(json["name"].as_str().unwrap_or(&name));
-                found.extend(views(&json, &extension, &name));
+                found.extend(views(
+                    &json,
+                    &extension,
+                    json["name"].as_str().unwrap_or(&name),
+                    &json["agent"],
+                )?);
                 for implementation in carried(&root) {
-                    found.extend(views(&implementation, &extension, &name));
+                    found.extend(views(
+                        &implementation,
+                        &extension,
+                        json["name"].as_str().unwrap_or(&name),
+                        &json["agent"],
+                    )?);
                 }
             }
             Some("implementation") => {
@@ -55,19 +100,38 @@ pub fn declared(app_root: &Path) -> Result<BTreeMap<String, PackageView>, String
                 } else {
                     interface
                 };
-                found.extend(views(&json, &extension_of(interface), &name));
+                let declaration = located(app_root, interface)
+                    .map(|(_, json)| json)
+                    .unwrap_or_default();
+                let agent = &declaration["agent"];
+                let extension = extension_of(interface);
+                let shared = views(&declaration, &extension, interface, agent)?;
+                for view in views(&json, &extension, interface, agent)? {
+                    // A served tag takes its interface's declaration regardless
+                    // of which dependency is read first.
+                    found.push(
+                        shared
+                            .iter()
+                            .find(|decl| decl.tag == view.tag)
+                            .cloned()
+                            .unwrap_or(view),
+                    );
+                }
             }
             _ => {}
         }
         for view in found {
             match out.get(&view.tag) {
                 // An interface's tag its implementation lists is the one view.
-                Some(seen) if seen.extension == view.extension => {}
+                Some(seen) if seen.package == view.package => {}
                 Some(seen) => {
-                    return Err(format!(
-                        "`{}` is declared by {} and by {}: a tag is one per document, so the app depends on one of them",
-                        view.tag, seen.package, view.package
-                    ))
+                    return Err(DeclarationError {
+                        id: "bake-view-twice",
+                        message: format!(
+                            "`{}` is declared by {} and by {}: a tag is one per document, so the app depends on one of them",
+                            view.tag, seen.package, view.package
+                        ),
+                    })
                 }
                 None => {
                     out.insert(view.tag.clone(), view);
@@ -81,7 +145,7 @@ pub fn declared(app_root: &Path) -> Result<BTreeMap<String, PackageView>, String
 /// The tag a standard module serves, for the line `exact add` writes, and
 /// that module's short name.
 pub fn standard_with(tag: &str) -> Option<String> {
-    let packages = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../packages");
+    let packages = crate::root::sdk_root().join("packages");
     let mut names: Vec<_> = std::fs::read_dir(packages).ok()?.flatten().collect();
     names.sort_by_key(|e| e.file_name());
     names.into_iter().find_map(|entry| {
@@ -98,23 +162,41 @@ fn extension_of(package: &str) -> String {
 
 /// The views `json` declares: an object of declarations, or a list of the
 /// tags it serves, which declare nothing of their own.
-fn views(json: &Value, extension: &str, package: &str) -> Vec<PackageView> {
-    let made = |tag: &str, decl: Option<&Map<String, Value>>| PackageView {
-        tag: tag.to_owned(),
-        extension: extension.to_owned(),
-        package: package.to_owned(),
-        displayed: decl.is_some_and(|d| d.get("displayed") == Some(&Value::Bool(true))),
-        binds: decl
-            .and_then(|d| d.get("props"))
-            .and_then(Value::as_object)
-            .map(|props| {
-                (props.iter())
-                    .filter(|(_, p)| p["binds"] == true)
-                    .map(|(name, _)| name.clone())
-                    .collect()
-            })
-            .unwrap_or_default(),
-        declared: decl.map(declared_view).unwrap_or_default(),
+fn views(
+    json: &Value,
+    extension: &str,
+    package: &str,
+    agent: &Value,
+) -> Result<Vec<PackageView>, DeclarationError> {
+    let agent = crate::declaration::agent_words(agent).map_err(|message| DeclarationError {
+        id: "contract-use-declaration",
+        message: format!("{package}: {message}"),
+    })?;
+    let made = |tag: &str, decl: Option<&Map<String, Value>>| {
+        Ok(PackageView {
+            tag: tag.to_owned(),
+            extension: extension.to_owned(),
+            package: package.to_owned(),
+            agent: agent.clone(),
+            displayed: decl.is_some_and(|d| d.get("displayed") == Some(&Value::Bool(true))),
+            binds: decl
+                .and_then(|d| d.get("props"))
+                .and_then(Value::as_object)
+                .map(|props| {
+                    (props.iter())
+                        .filter(|(_, p)| p["binds"] == true)
+                        .map(|(name, _)| name.clone())
+                        .collect()
+                })
+                .unwrap_or_default(),
+            declared: contract_lower::DeclaredView {
+                extension: extension.to_owned(),
+                ..decl
+                    .map(|d| declared_view(d, tag, package))
+                    .transpose()?
+                    .unwrap_or_default()
+            },
+        })
     };
     match &json["views"] {
         Value::Object(map) => map
@@ -127,23 +209,48 @@ fn views(json: &Value, extension: &str, package: &str) -> Vec<PackageView> {
             .filter(|tag| contract_lower::is_module_tag(tag))
             .map(|tag| made(tag, None))
             .collect(),
-        _ => Vec::new(),
+        _ => Ok(Vec::new()),
     }
 }
 
 /// A view declaration's props, each `"type"` or `{"type": …}`, and its
 /// events written `{"event": name, "args": [types]}`.
-fn declared_view(decl: &Map<String, Value>) -> contract_lower::DeclaredView {
-    let props = (decl
+fn declared_view(
+    decl: &Map<String, Value>,
+    tag: &str,
+    package: &str,
+) -> Result<contract_lower::DeclaredView, DeclarationError> {
+    let mut props = BTreeMap::new();
+    for (name, p) in decl
         .get("props")
         .and_then(Value::as_object)
         .into_iter()
-        .flatten())
-    .filter_map(|(name, p)| {
-        let ty = p.as_str().or_else(|| p["type"].as_str())?;
-        Some((name.clone(), ty.to_owned()))
-    })
-    .collect();
+        .flatten()
+    {
+        // Resolve shorthands through the attribute table; layout membership
+        // comes from the schema's generated StyleIds. A string selects CSS
+        // where an attribute name can also name a handler (`resize`).
+        let attr = Attr {
+            name: name.clone(),
+            value: Expr::Str(String::new(), Span::default()),
+            span: Span::default(),
+            written: true,
+        };
+        if contract_lower::tags::rows(&attr)
+            .iter()
+            .any(|row| row.affects_layout())
+        {
+            return Err(DeclarationError {
+                id: "bake-view-prop-layout",
+                message: format!(
+                    "{package} declares prop `{name}` for view `{tag}`, but `{name}` is a layout attribute of the box; give the view prop another name"
+                ),
+            });
+        }
+        if let Some(ty) = p.as_str().or_else(|| p["type"].as_str()) {
+            props.insert(name.clone(), ty.to_owned());
+        }
+    }
     let events = (decl
         .get("events")
         .and_then(Value::as_array)
@@ -157,7 +264,11 @@ fn declared_view(decl: &Map<String, Value>) -> contract_lower::DeclaredView {
         Some((name.to_owned(), args))
     })
     .collect();
-    contract_lower::DeclaredView { props, events }
+    Ok(contract_lower::DeclaredView {
+        props,
+        events,
+        ..Default::default()
+    })
 }
 
 /// The nearest `package.json` above `app_root`: its `dependencies`' names.

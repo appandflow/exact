@@ -1,4 +1,6 @@
-//! The Caltrain data source: the app's data logic, in Rust.
+//! The Caltrain data source.
+//!
+//! @ref LLP 1004 D4 (app data logic is a Rust data source)
 //!
 //! What exact1's `data.ts` did in TypeScript: a seeded corridor model —
 //! stations with positions, clock-face departures in both directions — and
@@ -247,7 +249,7 @@ impl DataSource for Caltrain {
         "com.exact.caltrain"
     }
 
-    /// The line map is a Canvas 2D surface.
+    /// The line map is a Canvas 2D surface (LLP 1056).
     fn canvas_surfaces(&self) -> Vec<(String, usize)> {
         vec![("map".into(), 4)]
     }

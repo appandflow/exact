@@ -1,5 +1,6 @@
-// @exact/language-model over Foundation Models: the availability and its reasons, a `ModelSession` built from
-// the module's transcript as a cache, constrained decoding from the supported subset,
+// @exact/language-model over Foundation Models (LLP 1133.016 D5, D6, D8,
+// D9): the availability and its reasons, a `ModelSession` built from
+// the module's transcript as a cache, constrained decoding from D8's subset,
 // one `Tool` per declared tool whose call goes to the app's handler, and the
 // errors in the interface's names. Outside the agent only, on iOS and macOS
 // 26 and later; below, the framework is weak-linked and never touched.
@@ -58,7 +59,7 @@ extension LanguageModelModule {
 #if canImport(FoundationModels)
 @available(iOS 26.0, macOS 26.0, *)
 extension LanguageModelModule {
-    /// The app's access hatch: given the `SystemLanguageModel` a
+    /// The app's access hatch (D12): given the `SystemLanguageModel` a
     /// session will use, before each platform session is built, it may
     /// return another (a use case's, a guardrails setting's, an adapter's).
     /// Main thread. Never called under the agent.
@@ -71,13 +72,13 @@ extension LanguageModelModule {
 @available(iOS 26.0, macOS 26.0, *)
 final class AppleModel {
     private weak var module: LanguageModelModule?
-    /// The reason last read while `model-not-ready`, re-read each 10 s of the session clock.
+    /// The reason last read while `model-not-ready`, re-read each 10 s of the session clock (D5).
     private var watching = false
     private var last: String?
 
     init(_ m: LanguageModelModule) { module = m }
 
-    // MARK: availability
+    // MARK: availability (D5)
 
     func availability(_ args: [String: Any]) -> [String: Any] {
         let model = SystemLanguageModel.default
@@ -113,7 +114,7 @@ final class AppleModel {
         return out
     }
 
-    /// While `model-not-ready`, the availability is asked again each 10 s of the session clock.
+    /// While `model-not-ready`, the availability is asked again each 10 s of the session clock (D5).
     private func watch() {
         guard !watching, let m = module else { return }
         watching = true
@@ -129,7 +130,7 @@ final class AppleModel {
         tick()
     }
 
-    // MARK: the platform session
+    // MARK: the platform session (D6)
 
     func model(for s: ModelSession) -> SystemLanguageModel {
         let base = SystemLanguageModel(useCase: s.options["useCase"] as? String == "contentTagging" ? .contentTagging : .general,
@@ -150,7 +151,7 @@ final class AppleModel {
         return made
     }
 
-    /// The module's turns as a `Transcript`, tool exchanges included, all but the input being prompted.
+    /// The module's turns as a `Transcript`, tool exchanges included (D6), all but the input being prompted.
     private func transcript(_ s: ModelSession, tools: [AppleTool], excluding turn: ModelTurn) -> Transcript {
         var entries: [Transcript.Entry] = []
         let definitions = tools.map { Transcript.ToolDefinition(name: $0.name, description: $0.description, parameters: $0.parameters) }
@@ -174,7 +175,7 @@ final class AppleModel {
         (try? platform(s, prompting: turn))?.prewarm()
     }
 
-    // MARK: generation
+    // MARK: generation (D6, D7, D8)
 
     func begin(_ r: ModelResponse) {
         r.task = Task { @MainActor [weak self] in await self?.generate(r) }
@@ -184,7 +185,7 @@ final class AppleModel {
     private func generate(_ r: ModelResponse) async {
         guard let m = module, r.state == "generating" else { return }
         let s = r.session, input = r.turn.input ?? ""
-        // The model's own count of the input where it has one (26.4), so the eviction runs before the prompt.
+        // The model's own count of the input where it has one (26.4), so D6's eviction runs before the prompt.
         var measured: Int?
         if #available(iOS 26.4, macOS 26.4, *) {
             if let n = try? await model(for: s).tokenCount(for: input) {
@@ -194,6 +195,7 @@ final class AppleModel {
         }
         guard r.state == "generating", m.admitInput(r, extra: measured) else { return }
         if r.overflowed { s.stale = true }
+        m.disclose()
         var output = false
         while r.live {
             do {
@@ -206,12 +208,14 @@ final class AppleModel {
                         guard r.live else { return }
                         output = true
                         r.text = snapshot.rawContent.jsonString
+                        m.disclose()
                     }
                 } else {
                     for try await snapshot in session.streamResponse(to: input, options: options) {
                         guard r.live else { return }
                         output = true
                         r.text = snapshot.content
+                        m.disclose()
                     }
                 }
                 guard r.live else { return }
@@ -220,10 +224,11 @@ final class AppleModel {
                 return
             } catch {
                 guard r.live else { return }
-                // 26.0 to 26.3 cannot count: an overflow before the first output evicts the oldest turn and asks again.
+                // 26.0 to 26.3 cannot count: an overflow before the first output evicts the oldest turn and asks again (D6).
                 if case FoundationModels.LanguageModelSession.GenerationError.exceededContextWindowSize = error, !output, r.calls.isEmpty, s.turns.first !== r.turn {
                     s.turns.removeFirst()
                     s.overflowed = true; r.overflowed = true; s.stale = true
+                    m.disclose()
                     m.say("\(r.id): over the context window; the oldest turn evicted, asked again")
                     continue
                 }
@@ -241,7 +246,7 @@ final class AppleModel {
         }
     }
 
-    /// Foundation Models' error as the name and reason.
+    /// Foundation Models' error as D2's name and reason.
     static func code(_ error: Error) -> (String, String?) {
         if error is CancellationError { return ("AbortError", nil) }
         if let e = error as? LanguageModelSchema.Unsupported { return ("NotSupportedError", e.why) }
@@ -259,7 +264,7 @@ final class AppleModel {
         }
     }
 
-    /// The prompt's Apple words, each the platform's choice where unsaid.
+    /// The prompt's Apple words (D11), each the platform's choice where unsaid (D4).
     private static func options(_ words: [String: Any]) -> GenerationOptions {
         var sampling: GenerationOptions.SamplingMode?
         switch words["sampling"] as? String {
@@ -273,7 +278,7 @@ final class AppleModel {
                                  maximumResponseTokens: LanguageModelSchema.number(words["maximumResponseTokens"]).map { Int($0) })
     }
 
-    // MARK: tools
+    // MARK: tools (D9)
 
     /// The model called `name` on session `id`'s responding response: the app's handler through the runner, its answer the text the model reads.
     func called(_ id: String, _ name: String, _ arguments: GeneratedContent, reply: @escaping (String) -> Void) {
@@ -290,7 +295,7 @@ final class AppleModel {
 }
 
 /// One declared tool as Foundation Models calls it: its `Arguments` are the
-/// generated content of its own `parameters`, and its call waits for
+/// generated content of its own `parameters` (D9), and its call waits for
 /// the app's handler, on the main thread.
 @available(iOS 26.0, macOS 26.0, *)
 final class AppleTool: Tool, @unchecked Sendable {

@@ -1,9 +1,9 @@
-// The two inspection forms of `layout`, the part both
+// @ref LLP 1080.001 — the two inspection forms of `layout`, the part both
 // Apple presenters share: the request's validation, the kernel's frames
 // (the private `frames` message), and the agreement report's envelope.
 // `layout <target> native` dumps the platform views under a node, as
 // observation; `layout agree` walks what the session mounted and reports
-// only the disagreements the code lets it judge soundly: `stray`,
+// only the disagreements the code lets it judge soundly (D2): `stray`,
 // `parked-visible`, `leaving-interactive`, `frame`, `hidden`. The walks are
 // the platform's (`AgentNativeIOS.swift`, `AgentNativeMac.swift`).
 import Foundation
@@ -44,7 +44,7 @@ final class AgreementReport {
     var incomplete: [String] = []
     var walked: [String] = [], excluded: [String] = []
     var judged = 0, opaque = 0, views = 0
-    /// Of the opaque, those inside a view a hatch's region binds, by its sentence.
+    /// Of the opaque, those inside a view a hatch's region binds, by its sentence (LLP 1075.003.000.001 §3.4).
     var opaqueBy: [String: Int] = [:]
     var parkedRoots = 0, leaving = 0
     var compared = 0, sizeOnly = 0
@@ -122,7 +122,7 @@ extension Agent {
         return Int(d)
     }
 
-    /// The inspection forms of `layout`, validated
+    /// The inspection forms of `layout` (LLP 1080.001 D1, D2), validated
     /// strictly; nil for an ordinary `layout` request.
     func inspectLayout(_ req: [String: Any]) -> [String: Any]? {
         let pick = req["world"] != nil || req["x"] != nil || req["y"] != nil
@@ -170,7 +170,7 @@ extension Agent {
     }
 
     /// The runner's half of `layout <id>`, or its refusal: liveness first,
-    /// so only a retired id is ever called stale.
+    /// so only a retired id is ever called stale (D1).
     func runnerNode(_ id: UInt32, plan: Bool = false) -> [String: Any] {
         guard let d = session.agent("{\"op\":\"node\",\"id\":\(id),\"plan\":\(plan)}").data(using: .utf8),
               let node = (try? JSONSerialization.jsonObject(with: d)) as? [String: Any] else { return ["error": "node #\(id): unreadable"] }

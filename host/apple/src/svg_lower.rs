@@ -1,4 +1,5 @@
-//! CSS animations lowered to Core Animation keyframe specs.
+//! CSS animations lowered to Core Animation keyframe specs (LLP 1055 D7,
+//! LLP 1055.000 D6 and D15).
 //!
 //! Each lowered property of each playing animation becomes one
 //! `CAKeyframeAnimation` spec: key times, values and one cubic per segment,
@@ -265,7 +266,7 @@ pub(crate) fn specs(
 }
 
 /// [`specs`] for a box whose border box is `size`: a `translate` given as a
-/// percentage of it is resolved to points here, and the
+/// percentage of it is resolved to points here (LLP 1115.003 D4), and the
 /// host sends the box's specs again when it resizes.
 pub(crate) fn specs_in(
     engine: &Engine,
@@ -362,8 +363,8 @@ fn spec(
         curves,
         a.fill as u8,
     );
-    // A play waiting for the first presented frame is held where it waits:
-    // Core Animation never runs ahead of the engine.
+    // A play waiting for the first presented frame is held where it waits
+    // (LLP 1003.001 D4): Core Animation never runs ahead of the engine.
     match play.hold.or(play.pending.map(|begin| begin - play.start)) {
         Some(h) => {
             let _ = write!(s, "{h}");
@@ -425,7 +426,7 @@ fn track_json(
 }
 
 /// Per node, whether Core Animation can play its lowered animations as
-/// CSS does; a node it cannot is sampled by the engine.
+/// CSS does (LLP 1055.000 D15, LLP 1055.001); a node it cannot is sampled by the engine.
 /// An inherited property animated on a container reaches its descendants,
 /// which only a sampled scene shows; a colour lowers only when every colour
 /// in the track, its underlying one included, has one alpha (then Core
@@ -463,20 +464,23 @@ pub(crate) fn eligibility(
             )
         };
         // A `light-dark()` keyframe plays the appearance its animation
-        // started under, which a lowered track cannot say.
-        let paired = animations
-            .0
-            .iter()
-            .any(|a| a.keyframes.0.iter().any(|f| !f.dark.is_empty()));
+        // started under (LLP 1062 D9), and a modern colour's moves in Oklab
+        // (CSS Color 4 §12.1), neither of which a lowered track can say.
+        let paired = animations.0.iter().any(|a| {
+            a.keyframes
+                .0
+                .iter()
+                .any(|f| !f.dark.is_empty() || f.values.iter().any(|(_, v)| v.oklab))
+        });
         let svg = n.node_type.is_svg_element() || n.node_type == NodeType::Svg;
         let boxed = box_motion && props.iter().any(|p| super::svg::BOX_LOWERED.contains(p));
-        // A drag timeline's consumer runs on the drag,
+        // A drag timeline's consumer (LLP 1057.003 D2) runs on the drag,
         // not Core Animation's clock: the engine samples it in the frame
         // (and the hold's reply) that moves its source.
         let moves = props
             .iter()
             .any(|p| matches!(p, Property::Cx | Property::Cy));
-        // A percentage of the box is resolved by the
+        // A percentage of the box (chess diary #4) is resolved by the
         // presenter against the box as it stands. A lowered box's track
         // resolves it when its spec is made and is made again when the box
         // resizes (`svg.rs`); an SVG element's scene samples it.
@@ -489,15 +493,26 @@ pub(crate) fn eligibility(
                         .any(|(p, v)| *p == Property::Translate && (v.z != 0.0 || v.w != 0.0))
                 })
             });
+        // CSS plays an animation of no duration or no iterations at once
+        // and fills with its last or first frame; Core Animation plays
+        // neither (`SvgScene.swift` refuses the spec).
+        let instant = animations
+            .0
+            .iter()
+            .any(|a| a.duration <= 0.0 || a.iterations <= 0.0);
         let sampled = if paired
+            || instant
+            // An inline run has no layer to play a spec on: its paragraph
+            // paints the engine's sample.
+            || n.is_inline_run()
             || (percent && !(boxed && !svg))
             || engine.timeline_bound(*node)
             || under_box_filter(kernel, &n)
             // A glass group ignores the opacity Core Animation plays between
             // it and its glass; the host isolates on what it is told.
             || (props.contains(&Property::Opacity) && in_glass_group(kernel, &n))
-            // What the host paints over the node's own (a press, a look)
-            // composes on the engine's sample.
+            // What the host paints over the node's own (a press, a look: LLP
+            // 1061 D7, LLP 1121 D8) composes on the engine's sample.
             || props.iter().any(|p| crate::looks::paints_over(&n, *p))
             // Drawn into an island's pixels, which Core Animation does not
             // animate (except a live filter picture on iOS).
@@ -547,7 +562,7 @@ pub(crate) fn eligibility(
     }
 }
 
-/// Each running `d` transition Core Animation can play as
+/// LLP 1115.003 D4: each running `d` transition Core Animation can play as
 /// CSS does goes to it ([`Engine::play_transition`]): the engine presents the
 /// target, and the shape's scene carries a `path` animation between the two
 /// ends (`svg.rs`), so the morph plays on the render server whatever the
@@ -636,13 +651,13 @@ const BOX_PLAYED: [Property; 5] = [
     Property::Rotate,
 ];
 
-/// On iOS each running opacity transition of a box, and
+/// LLP 1055.001 §3 — on iOS each running opacity transition of a box, and
 /// each eligible transform or background-colour one, goes to Core Animation
-/// ([`Engine::play_transition`]) as a box's keyframes are lowered:
+/// ([`Engine::play_transition`]) as LLP 1055.001 lowers a box's keyframes:
 /// the engine presents the target, the box's specs carry the transition
 /// ([`transition_specs`]), and nothing samples it, so a fade keeps no
-/// display link awake. One waiting for its first frame goes at that frame,
-/// and none goes unless `new` (the display drives the
+/// display link awake. One waiting for its first frame goes at that frame
+/// (LLP 1003.001 D4), and none goes unless `new` (the display drives the
 /// clock). Every batch, a played transition that no longer qualifies
 /// ([`playable`]: an ancestor gained a filter, the box a border), or any once
 /// `new` is off (the agent took the clock), comes back to the engine at the
@@ -740,10 +755,10 @@ fn background_on_layer(kernel: &Kernel, n: &exact_kernel::NodeRef<'_>) -> bool {
     use exact_kernel::{ColorValue, Dimension};
     let s = n.style;
     let radii: Vec<Option<f32>> = [
-        s.border_radius_top_left,
-        s.border_radius_top_right,
-        s.border_radius_bottom_right,
-        s.border_radius_bottom_left,
+        s.border_radius_top_left.clone(),
+        s.border_radius_top_right.clone(),
+        s.border_radius_bottom_right.clone(),
+        s.border_radius_bottom_left.clone(),
     ]
     .iter()
     .map(|d| match d {
@@ -930,7 +945,7 @@ fn marked(kernel: &Kernel, n: &exact_kernel::NodeRef<'_>) -> bool {
 }
 
 /// Whether an SVG element's `translate`, `rotate` and `scale` animations
-/// play on its transform pair's outer layer (iOS; as a box's are):
+/// play on its transform pair's outer layer (iOS; LLP 1055.001 as a box's):
 /// an element, not the `svg` (a box), with nothing drawn for one scale: no
 /// non-scaling stroke, filter or mask.
 fn svg_turns(n: &exact_kernel::NodeRef<'_>, props: &[Property]) -> bool {
@@ -967,7 +982,7 @@ fn circle_moves(n: &exact_kernel::NodeRef<'_>, props: &[Property]) -> bool {
         && !served(&s.stroke)
 }
 
-/// Whether an element is inside a glass group: an
+/// Whether an element is inside a glass group (LLP 1053.000.000 D4): an
 /// ancestor, not itself, has `glassGroup`. The group's own opacity reaches
 /// its glass; a descendant's must come to the host as a value.
 fn in_glass_group(kernel: &Kernel, n: &exact_kernel::NodeRef<'_>) -> bool {
@@ -981,36 +996,44 @@ fn in_glass_group(kernel: &Kernel, n: &exact_kernel::NodeRef<'_>) -> bool {
     false
 }
 
-/// Every running opacity animation inside a glass
-/// group is sampled, not only the ones a commit touched, so a group set on
-/// an ancestor after the animation started reaches it too. Returns the views
-/// whose Core Animation specs must be withdrawn. A node that leaves every
-/// group stays sampled: its pixels are right, at a little more work.
-pub(crate) fn glass_sampling(kernel: &Kernel, engine: &mut Engine) -> Vec<exact_kernel::ViewId> {
+/// Every lowered animation that Core Animation can no longer play as CSS
+/// does because of an ancestor is switched to sampling, not only the ones a
+/// commit touched ([`eligibility`]): an opacity animation in a glass group
+/// (LLP 1053.000.000 D4), anything under a filtered box, and an SVG element
+/// drawn into a picture (`live` as for [`in_picture`]). An ancestor that
+/// gains a group or a filter touches none of its descendants. Returns the
+/// views whose Core Animation specs must be withdrawn. A node that leaves
+/// the group or the filter stays sampled: its pixels are right, at a little
+/// more work.
+pub(crate) fn resample(
+    kernel: &Kernel,
+    engine: &mut Engine,
+    live: bool,
+) -> Vec<exact_kernel::ViewId> {
     let lowered: Vec<u64> = engine
         .animated_nodes()
-        .filter(|&node| {
-            !engine.node_sampled(node)
-                && engine.animation_plays(node).iter().any(|play| {
-                    play.animation
-                        .keyframes
-                        .properties()
-                        .into_iter()
-                        .any(|p| p == Property::Opacity)
-                })
-        })
+        .filter(|&node| !engine.node_sampled(node))
         .collect();
     let mut switched = Vec::new();
     for node in lowered {
-        let key = NodeKey {
-            index: node as u32,
-            generation: (node >> 32) as u32,
+        let Some(n) = kernel.node_by_key(exact_kernel::motion::node_key(node)) else {
+            continue;
         };
-        if let Some(n) = kernel.node_by_key(key) {
-            if in_glass_group(kernel, &n) {
-                engine.set_node_sampled(node, true);
-                switched.push(n.id);
-            }
+        let svg = n.node_type.is_svg_element() || n.node_type == NodeType::Svg;
+        let opacity = || {
+            engine.animation_plays(node).iter().any(|play| {
+                play.animation
+                    .keyframes
+                    .properties()
+                    .contains(&Property::Opacity)
+            })
+        };
+        if under_box_filter(kernel, &n)
+            || (svg && in_picture(kernel, &n, live))
+            || (opacity() && in_glass_group(kernel, &n))
+        {
+            engine.set_node_sampled(node, true);
+            switched.push(n.id);
         }
     }
     switched

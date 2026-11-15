@@ -1,4 +1,4 @@
-// linux: a table's column widths are the kernel's grid tracks, not CSS 2.1 §17.5's
+// linux: a table's column widths are the kernel's grid tracks, not CSS 2.1 §17.5's (LLP 1153 D7.3)
 // The declared deviation, compared between the web's two targets only. On
 // 2026-10-30 the Linux host's boxes against Chrome 156's: a `colspan=2` cell
 // 92 px wide over columns of 52 and 32 shares its extra 6 px equally in the
@@ -6,7 +6,7 @@
 // and 34.30); a table 120 px wide over columns of 22 to 62 and 22 to 82 px
 // shares what is above their least equally in the grid (57 and 57) and in
 // proportion to what each could grow in Chrome (50 and 64). A `layout`
-// comparison would fail a `--strict` run on every commit, and
+// comparison would fail the lane's strict run on every commit, and
 // conform.mjs keeps no list of known Linux differences, so the kernel's
 // `a_spans_extra_width_is_shared_equally` and
 // `a_narrow_tables_columns_share_the_rest_equally` assert these distances.

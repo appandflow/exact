@@ -1,4 +1,5 @@
-// A page whose build was reaped loads again into the build in place, once (generation-reload.js). A drive's page is never given the handler (rt.js `mount`).
+// A page whose build was reaped loads again into the build in place, once (generation-reload.js; theme2's ruling on
+// the build-swap pair). A drive's page is never given the handler (rt.js `mount`).
 import { expect, test } from 'bun:test';
 import { reloadOnGone } from './generation-reload.js';
 

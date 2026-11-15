@@ -1,8 +1,7 @@
 # Recipe: motion
 
-Motion is CSS's: `transition` for a value that changes, `keyframes` and `animation` for an
-entrance or a loop, `-exact-exit-animation` for a node leaving, `-exact-layout-transition` for
-a box that moves or resizes.
+`transition` handles changes; `keyframes` and `animation` handle entrances or loops;
+`-exact-exit-animation` for removal, `-exact-layout-transition` for layout.
 
 ```contract
 keyframes rise
@@ -11,10 +10,6 @@ keyframes leave
   to opacity=0 scale=0.96 animation-timing-function="ease-in"
 keyframes breathe
   50% opacity=0.4
-
-style Row
-  -exact-layout-transition="320ms cubic-bezier(.32,.72,0,1)"
-  -exact-exit-animation="leave 200ms ease-in both"
 
 shape Media
   prefersReducedMotion: bool
@@ -32,35 +27,37 @@ component App
     column padding=16 gap=8
       button press=toggle testId="toggle"
         text "Details"
-      text "Shown" opacity=(open ? 1 : 0) translate=(open ? "0px 0px" : "0px -8px")
-        transition="opacity 200ms ease, translate -exact-spring(240, 26, 1)"
+      text "Saving…" animation=(still ? "none" : "breathe 1.6s ease-in-out infinite")
+      column height=(open ? "auto" : "0px") overflow="hidden" inert=(not open)
+        -exact-layout-transition=(still ? "none" : "320ms ease")
+        text "Shown" opacity=(open ? 1 : 0) transition=(still ? "none" : "opacity 200ms ease")
       for name, i in items key=name
-        row class=Row gap=8 animation=(still ? "none" : `rise 300ms ${i * 60}ms both`)
+        row gap=8 animation=(still ? "none" : `rise 300ms ${i * 60}ms both`)
+          -exact-layout-transition=(still ? "none" : "320ms ease")
+          -exact-exit-animation=(still ? "none" : "leave 200ms ease-in both")
           text name flex=1
           button press=remove(name) testId=`remove-${name}`
             text "Remove"
-      text "Saving…" animation=(still ? "none" : "breathe 1.6s ease-in-out infinite")
 ```
 
-- **What animates:** translate, scale, rotate, opacity, colours, `box-shadow`, SVG geometry,
-  a numeric `height`, `font-weight`, `font-stretch`, `font-variation-settings`. Other
-  layout properties (`width`, `top`) are refused, naming `-exact-layout-transition`. A
-  native `button` animates only opacity and transforms.
-- **`-exact-spring(stiffness, damping, mass)`** is a transition's timing, with no duration;
-  an `animation` refuses it.
-- **Keyframes** take literals or the app's own `fn` on constants.
-- **Exit:** `-exact-exit-animation` names keyframes and must end (`infinite` is refused). It
-  plays when an `if` arm turns false or a `for` row leaves: the node leaves layout at once,
-  inert, and the rest move by their layout transition. Not inside a screen being popped,
-  nor on Linux.
-- **Layout transition** is a transition without a property. It moves the box and resizes its
-  surface (background, border, shadow); children jump to their place, unscaled. With
-  `sharedElement=` a node flies from the old one's place on iOS, macOS and the web, not Linux.
-- **One after another:** delays (`"a 200ms both, b 300ms 200ms both"`, the stagger above by
-  `i`). A state change when it ends is a gated task's `after(ms, action)`. A `sequence`
-  is sound and haptics, not motion.
-- **Reduced motion:** transitions and keyframes run unless the app gates them on
-  `exactViewport()`, as above (a shared-element flight on iOS and macOS lands at once); drive it
-  with `prefer prefers-reduced-motion reduce`.
-- **Check it:** `clock settle` ends the motion; `screenshot .exact/m.png over 600 every 50`
-  films it.
+- **Animates:** translate, scale, rotate, opacity, colours, `box-shadow`, SVG geometry,
+  numeric `height`, `font-weight`, `font-stretch`, `font-variation-settings`. Other layout
+  properties are refused; use `-exact-layout-transition`. A native `button` animates
+  only opacity and transforms.
+- **Spring:** `-exact-spring(stiffness, damping, mass)` is transition timing without
+  duration; `animation` refuses it.
+- **Hover/focus scale:** `:hover` and `:focus-visible` accept `scale=1.08`. Set
+  `transition="scale 150ms ease"` on the node. Paint and hits grow; layout stays fixed.
+  Leaving restores it.
+- **Keyframes:** literals or app `fn` on constants.
+- **Exit:** an `if` arm or `for` row leaves layout at once, inert; siblings use their layout
+  transitions. The exit must end. Unsupported in a screen being popped, and on Linux.
+- **Layout:** moves/resizes the surface; children jump, unscaled.
+  `sharedElement=` flies on iOS, macOS, Android and web, not Linux.
+  Android: in-page only; no native dialogs or presentation zooms.
+- **Expand/collapse:** keep content mounted in a clipped wrapper; toggle `height` between `"0px"` and `"auto"`. An `if` row appears at full size; siblings slide over it.
+- **JS target:** bound exit/layout values must be binding literals.
+- **Stagger:** use delays. After motion, use gated `after(ms, action)`.
+- **Reduced motion:** gate on `exactViewport()`; drive `prefer prefers-reduced-motion reduce`.
+  Apple and Android shared-element flights land at once.
+- **Check:** `clock settle` ends it; `screenshot .exact/m.png over 600 every 50` films it.

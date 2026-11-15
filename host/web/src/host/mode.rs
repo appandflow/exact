@@ -1,23 +1,23 @@
-//! The window's app modes: the agent's `prefer mode`, which
+//! The window's app modes (LLP 1121 D5): the agent's `prefer mode`, which
 //! the glue says as the runner's `setMode`.
 
 use super::*;
 
-// The live table, beside the modes it sets rows as.
+// The live table (LLP 1121 stage 4), beside the modes it sets rows as.
 #[path = "live.rs"]
 mod live;
-// A node's state looks as page rules.
+// A node's state looks as page rules (LLP 1121 D8, stage 8 B).
 #[path = "looks.rs"]
 pub(crate) mod looks;
 // What the page has of each view.
 #[path = "mirror.rs"]
 pub(crate) mod mirror;
-// MIDI's messages from the page, told as a fact is.
+// MIDI's messages from the page (LLP 1125 D6–D8), told as a fact is.
 #[path = "midi.rs"]
 mod midi;
 
 impl<D: DataSource> Host<D> {
-    /// App modes (the agent's `prefer mode`): the window's
+    /// App modes (LLP 1121 D5, the agent's `prefer mode`): the window's
     /// slice set again in one batch, which paints; the batch says the
     /// window's modes after it.
     pub fn set_modes(&mut self, pins: &[(&str, &str)]) -> String {

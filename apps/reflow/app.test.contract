@@ -1,4 +1,4 @@
-// Reflow's tests: the agent API's operations and `expect` lines
+// Reflow's tests (LLP 1017 P7): the agent API's operations and `expect` lines
 // over their replies, run on any host with
 // `bun scripts/agent.mjs <host> --app reflow --test apps/reflow/app.test.contract`.
 

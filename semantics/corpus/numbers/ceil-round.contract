@@ -1,4 +1,4 @@
-// ceil and round: ceil toward +Infinity; round is
+// ceil and round (LLP 1102 §3.2): ceil toward +Infinity; round is
 // JavaScript's Math.round, a half up (-2.5 is -2, never Rust's -3), the
 // largest double below a half rounds to 0, and a zero result keeps the
 // sign (1 / round(-0.4) is -Infinity). NaN and the infinities are their own.

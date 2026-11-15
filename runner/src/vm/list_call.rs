@@ -4,14 +4,15 @@
 use super::{step, Extents, Trap};
 use exact_plan::{Opcode, Stdlib, Value};
 
-/// `concat`, `split`, `sum`, `range`, `flat`, and `slice`, `includes` and `indexOf` over a list,
-/// on this evaluation's budget as `join` is: the list steps
+/// `concat`, `split`, `sum`, `range`, `flat`, and `slice`, `includes` and `indexOf` over a list
+/// (LLP 1088 §9.1), on this evaluation's budget as `join` is: the list steps
 /// first — one per item `concat`, `slice`, `split` and `range` keep or `sum` adds, one
 /// per outer item `flat` reads and one per item it keeps, one
 /// per item `includes` and `indexOf` scan up to the match — then a list they
-/// build measured as `Opcode::List` measures one. `None` for
+/// build measured as `Opcode::List` measures one (LLP 1090 D3). `None` for
 /// `slice`, `includes` and `indexOf` over text. `sortBy`'s items were each
-/// stepped by the `Map` that computed their keys, so it takes no step here.
+/// stepped by the `Map` that computed their keys, so it takes no step here
+/// (LLP 1116.016 §5).
 pub(super) fn list_call(
     f: Stdlib,
     args: &[Value],
@@ -35,7 +36,7 @@ pub(super) fn list_call(
         extents.remember(&v, e);
         return Ok(Some(v));
     }
-    // `range(n)`: `n` a whole
+    // @ref LLP 1017.003 §Refused (2026-10-17) — `range(n)`: `n` a whole
     // number at least 0, or the arguments do not fit.
     if f == Stdlib::Range {
         let n = match args.first() {

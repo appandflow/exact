@@ -1,17 +1,20 @@
-// @exact/passkeys on Android: Credential Manager (`androidx.credentials`
-// 1.6, in the app's one locked Gradle graph) over the resumed activity, in WebAuthn's JSON forms, which Credential
-// Manager takes and answers as they are. The build makes one per host when the app binds the extension, outside the
-// agent; under the agent the runner's substitute answers and none is made.
+// @exact/passkeys on Android (LLP 1133.011 D1, D3-D6, D10, D11, D13): Credential Manager (`androidx.credentials`
+// 1.6, in the app's one locked Gradle graph) over the activity that shows the app, in WebAuthn's JSON forms, which
+// Credential Manager takes and answers as they are. The build makes one per host when the app binds the extension,
+// outside the agent; under the agent the runner's substitute answers and none is made.
 //
 // - Credential Manager writes the response's origin itself, `android:apk-key-hash:<the signing certificate's
-//   SHA-256>`, which the relying party must accept.
-// - Conditional `get` (API 35): the request is set on each field the reader made whose `autocomplete` ends in
-//   `webauthn` (`webauthnField`), and the field's suggestions offer the passkeys; below API 35, or with
+//   SHA-256>`, which the relying party must accept (D6).
+// - Conditional `get` (D3, API 35): the request is set on each field the reader made whose `autocomplete` ends in
+//   `webauthn` (`webauthnField`, D10 item 4), and the field's suggestions offer the passkeys; below API 35, or with
 //   no such field, the capability reads false and the call fails `NotSupportedError`.
-// - No answer carries a PRF output: `clientExtensionResults.prf.results` is removed. A lock's user handle (beginning
-//   `exact-lock:`) is never registered, delivered or signalled from here.
-// - One ceremony at a time: a newer one ends a pending conditional `get` with `AbortError`.
-// - The hatches are given each request and return a replacement, since both are immutable; one that changes the
+// - No answer carries a PRF output (D10): `clientExtensionResults.prf.results` is removed. A lock's user handle (§7
+//   item 3, beginning `exact-lock:`) is never registered, delivered or signalled from here.
+// - The sheet is an activity Credential Manager starts from the app's (`startIntentSender`), which Android allows
+//   while the app's activity shows, resumed or paused under a dialog (a permission dialog's answer comes before
+//   `onResume`): a ceremony then starts at once. With no activity showing it fails `NotAllowedError`.
+// - One ceremony at a time (D9): a newer one ends a pending conditional `get` with `AbortError`.
+// - The hatches (D5) are given each request and return a replacement, since both are immutable; one that changes the
 //   options' JSON, which the module owns, is not used, and a development build says so.
 package exact.passkeys
 
@@ -51,7 +54,7 @@ import org.json.JSONObject
 
 class PasskeysModule(context: ExtensionContext) : ExactExtension(context) {
     companion object {
-        /** The app's hatches: each request, after the module's words are set; the replacement is used. */
+        /** The app's hatches (D5): each request, after the module's words are set; the replacement is used. */
         @JvmStatic var createRequest: ((CreatePublicKeyCredentialRequest) -> CreatePublicKeyCredentialRequest)? = null
         @JvmStatic var getRequest: ((GetCredentialRequest) -> GetCredentialRequest)? = null
         private val MARK = "exact-lock:".toByteArray()
@@ -61,9 +64,9 @@ class PasskeysModule(context: ExtensionContext) : ExactExtension(context) {
     /** A pending conditional `get`: the fields it is set on, and how it ends. */
     private var conditional: Pair<PendingGetCredentialRequest, (JSONObject) -> Unit>? = null
     private val fields = LinkedHashSet<EditText>()
-    /** No `*ProviderConfigurationException` on the last call. */
+    /** No `*ProviderConfigurationException` on the last call (D4's `android.providerConfigured`). */
     private var configured = true
-    /** Each registration's RP ID by credential id, for `dispose`. */
+    /** Each registration's RP ID by credential id, for `dispose` (D11). */
     private val made = HashMap<String, String>()
     private val signals = mutableSetOf<CancellationSignal>()
 
@@ -105,7 +108,7 @@ class PasskeysModule(context: ExtensionContext) : ExactExtension(context) {
         done()
     }
 
-    // Capabilities
+    // Capabilities (D13)
 
     private fun capabilities(): JSONObject {
         val newer = Build.VERSION.SDK_INT >= 35
@@ -122,7 +125,7 @@ class PasskeysModule(context: ExtensionContext) : ExactExtension(context) {
             .put("signalCurrentUserDetails", newer)
             .put("signalUnknownCredential", newer)
             .put("preferImmediatelyAvailableCredentials", true)
-            // Which providers evaluate an extension, Credential Manager does not say.
+            // Which providers evaluate an extension, Credential Manager does not say (D13).
             .put("extensions", JSONObject().put("prf", JSONObject.NULL).put("largeBlob", JSONObject.NULL).put("credProps", JSONObject.NULL))
             .put("android", JSONObject().put("providerConfigured", configured))
     }
@@ -131,7 +134,7 @@ class PasskeysModule(context: ExtensionContext) : ExactExtension(context) {
 
     private fun refused(reply: (JSONObject) -> Unit): Boolean {
         if (context.origin != "app") { reply(JSONObject().put("error", "NotAllowedError").put("message", "person-required")); return true }
-        if (context.activity == null || !context.resumed) { reply(JSONObject().put("error", "NotAllowedError").put("message", "the app is not in front")); return true }
+        if (context.activity == null || !context.visible) { reply(JSONObject().put("error", "NotAllowedError").put("message", "the app is not in front")); return true }
         return false
     }
 
@@ -143,7 +146,7 @@ class PasskeysModule(context: ExtensionContext) : ExactExtension(context) {
         endConditional("a newer ceremony replaced this conditional one")
         val json = options.toString()
         val ours = CreatePublicKeyCredentialRequest(json)
-        val request = createRequest?.invoke(ours)?.let { if (it.requestJson == json) it else { context.log("passkeys: the create hatch changed the options' JSON, which the module owns; not used"); ours } } ?: ours
+        val request = createRequest?.invoke(ours)?.let { if (it.requestJson == json) it else { context.log("passkeys: the create hatch changed the options' JSON, which the module owns; not used (LLP 1133.011 D5)"); ours } } ?: ours
         val signal = CancellationSignal().also { signals.add(it) }
         val activity = context.activity!!
         manager.createCredentialAsync(activity, request, signal, activity.mainExecutor, object : CredentialManagerCallback<CreateCredentialResponse, CreateCredentialException> {
@@ -178,7 +181,7 @@ class PasskeysModule(context: ExtensionContext) : ExactExtension(context) {
             .build()
         val request = getRequest?.invoke(ours)?.let { r ->
             val same = r.credentialOptions.size == 1 && (r.credentialOptions[0] as? GetPublicKeyCredentialOption)?.requestJson == json
-            if (same) r else { context.log("passkeys: the get hatch changed the credential options, which the module owns; not used"); ours }
+            if (same) r else { context.log("passkeys: the get hatch changed the credential options, which the module owns; not used (LLP 1133.011 D5)"); ours }
         } ?: ours
         val answered = { result: GetCredentialResponse ->
             configured = true
@@ -187,7 +190,7 @@ class PasskeysModule(context: ExtensionContext) : ExactExtension(context) {
             else {
                 val answer = withheld(JSONObject(credential.authenticationResponseJson))
                 val handle = answer.optJSONObject("response")?.optString("userHandle")
-                // A lock's assertion, or a discoverable one with no user handle, is never delivered.
+                // A lock's assertion, or a discoverable one with no user handle, is never delivered (§7 item 3).
                 if (marked(handle) || (discoverable && handle.isNullOrEmpty())) reply(JSONObject().put("error", "NotAllowedError")) else reply(answer)
             }
         }
@@ -219,7 +222,7 @@ class PasskeysModule(context: ExtensionContext) : ExactExtension(context) {
 
     private fun signal(request: SignalCredentialStateRequest, args: JSONObject, reply: (JSONObject) -> Unit) {
         if (marked(args.optString("userId"))) return reply(JSONObject().put("error", "NotAllowedError"))
-        // Where Android has no signal, there is nothing to tell.
+        // Where Android has no signal, there is nothing to tell (D13).
         if (Build.VERSION.SDK_INT < 35) return reply(JSONObject())
         manager.signalCredentialStateAsync(request, context.application.mainExecutor, object : CredentialManagerCallback<SignalCredentialStateResponse, SignalCredentialStateException> {
             override fun onResult(result: SignalCredentialStateResponse) = reply(JSONObject())
@@ -228,7 +231,7 @@ class PasskeysModule(context: ExtensionContext) : ExactExtension(context) {
         })
     }
 
-    /** The code for a Credential Manager exception, with its own type beside it. */
+    /** D1's code for a Credential Manager exception, with its own type beside it (D4). */
     private fun failure(e: Exception, type: String, message: CharSequence?, dom: String?, cancelled: Boolean, unconfigured: Boolean): JSONObject {
         if (unconfigured) configured = false
         val name = when {
@@ -242,7 +245,7 @@ class PasskeysModule(context: ExtensionContext) : ExactExtension(context) {
         return JSONObject().put("error", name).put("message", "${message ?: e.javaClass.simpleName} (${e.javaClass.simpleName})").put("android", android)
     }
 
-    /** No PRF output leaves the implementation. */
+    /** No PRF output leaves the implementation (D10). */
     private fun withheld(answer: JSONObject): JSONObject {
         answer.optJSONObject("clientExtensionResults")?.optJSONObject("prf")?.remove("results")
         return answer

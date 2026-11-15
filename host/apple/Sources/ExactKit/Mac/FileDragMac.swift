@@ -151,8 +151,8 @@ extension Field {
 }
 
 extension Agent {
-    /// `tap <target> drop <path…>`, `dragenter <path…>` and `dragleave`:
-    /// the drag a Finder drag would bring to the window
+    /// `tap <target> drop <path…>`, `dragenter <path…>` and `dragleave`
+    /// (studio diary R19): the drag a Finder drag would bring to the window
     /// point `p` over `v`, through the same chain, minting and events (no
     /// `dragleave` after a drop that lands). Nil for any other tap.
     func fileDragTap(_ req: [String: Any], _ v: NodeView, at p: NSPoint, in win: NSWindow, reply at: [Double]) -> [String: Any]? {

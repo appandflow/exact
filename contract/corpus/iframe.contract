@@ -1,5 +1,5 @@
-// Accept fixture: HTML's `iframe` tag, attributes, and events. The guest
-// message is a string recorded by the action.
+// Accept fixture: HTML's `iframe` tag, attributes, and events (`@ref LLP
+// 1020 D1/D2`). The guest message is a string recorded by the action.
 component Frame
   state loaded = false
   state received = ""

@@ -8,7 +8,7 @@ import XCTest
 /// makes the web host's sequence: recognize past the slop, catch at zero
 /// travel, follow, drop once, keep the pin until the source finishes.
 final class ReorderMacTests: XCTestCase {
-    override class func setUp() { super.setUp(); ExactDrag.install() }
+    override class func setUp() { super.setUp(); ExactDrag.install() } // LLP 1047.001 D4
     private var window: NSWindow?
     override func tearDown() { window?.close(); window = nil }
 

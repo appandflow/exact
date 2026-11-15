@@ -274,7 +274,7 @@ fn thai_line_break_words_are_the_only_breaks_inside_a_run() {
     );
     assert_eq!(missing, 0);
 }
-/// A path breaks where Chrome's does, never after a `/` before a letter
+/// #128: a path breaks where Chrome's does, never after a `/` before a letter
 /// (CFStringTokenizer's and CoreText's): after a `-`, a space, and inside `--`
 /// as Chromium's Latin-1 table has it.
 #[test]

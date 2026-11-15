@@ -36,6 +36,8 @@ pub(crate) struct Skinning {
     pub weights: Buffer,
     pub reallocations: u64,
     pub pipeline_creations: u64,
+    /// Bytes the palette, local pose and job buffers grow to at least.
+    pub(crate) reserve: [u64; 3],
     pub palette: Buffer,
     meta: Buffer,
     poses: Buffer,
@@ -76,6 +78,7 @@ impl Skinning {
             weights: buffer("game vertex joints weights"),
             reallocations: 0,
             pipeline_creations: 0,
+            reserve: [0; 3],
             palette: buffer("game skin palette"),
             meta: buffer("game skin hierarchy"),
             poses: buffer("game skin locals"),
@@ -146,19 +149,21 @@ impl Skinning {
                 label: Some("game local skin compute"),
                 source: wgpu::ShaderSource::Wgsl(include_str!("shaders/skin.wgsl").into()),
             });
-            let pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-                label: Some("game local skin compute"),
-                layout: Some(
-                    &device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                        label: None,
-                        bind_group_layouts: &[Some(&layout)],
-                        immediate_size: 0,
-                    }),
-                ),
-                module: &shader,
-                entry_point: Some("skin"),
-                compilation_options: Default::default(),
-                cache: self.cache.as_ref(),
+            let pipeline = crate::perf::pipeline(|| {
+                device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+                    label: Some("game local skin compute"),
+                    layout: Some(
+                        &device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                            label: None,
+                            bind_group_layouts: &[Some(&layout)],
+                            immediate_size: 0,
+                        }),
+                    ),
+                    module: &shader,
+                    entry_point: Some("skin"),
+                    compilation_options: Default::default(),
+                    cache: self.cache.as_ref(),
+                })
             });
             self.layout = Some(layout);
             self.pipeline = Some(pipeline);
@@ -237,6 +242,14 @@ impl Skinning {
     /// Joint count of one skin template: its palette span per skinned record.
     pub(crate) fn joints(&self, skin: u32) -> u32 {
         self.templates[skin as usize].joints as u32
+    }
+    /// Local pose floats one entity drawing a skin template's model takes.
+    pub(crate) fn pose_floats(&self, skin: u32) -> u64 {
+        self.templates[skin as usize].rest.len() as u64 * 2
+    }
+    /// The palette, local pose and job buffers' sizes in bytes.
+    pub(crate) fn capacity(&self) -> [u64; 3] {
+        [&self.palette, &self.poses, &self.jobs].map(|b| b.raw.size())
     }
     pub(crate) fn mark_fresh(&mut self, skins: &[u32]) {
         for &id in skins {
@@ -378,13 +391,16 @@ impl Skinning {
                 "skin palette/pose buffer exceeds device limit".into(),
             ));
         }
-        self.reallocations += u64::from(self.palette.grow(device, queue, (matrices * 64) as u64));
-        self.reallocations += u64::from(self.poses.grow(device, queue, (pose * 4) as u64));
+        let [palette_bytes, pose_bytes, job_bytes] = self.reserve;
+        let palette_bytes = ((matrices * 64) as u64).max(palette_bytes);
+        self.reallocations += u64::from(self.palette.grow(device, queue, palette_bytes));
+        let pose_bytes = ((pose * 4) as u64).max(pose_bytes);
+        self.reallocations += u64::from(self.poses.grow(device, queue, pose_bytes));
         self.pose_words.resize(pose, 0.);
         self.reallocations += u64::from(self.jobs.grow(
             device,
             queue,
-            (self.jobs_words.len() * 4) as u64,
+            ((self.jobs_words.len() * 4) as u64).max(job_bytes),
         ));
         self.jobs.write(queue, 0, bytes(&self.jobs_words));
         self.active = self.job_records.len() as u32;
@@ -588,12 +604,11 @@ impl Skinning {
         }
         self.primed.retain(|(e, _, _)| w.contains(*e));
     }
-    /// Dispatch only the jobs of records drawn this frame (`hidden[record]`
-    /// false): a crowd's far levels cost no skinning.
-    pub fn activate(&mut self, queue: &wgpu::Queue, hidden: &[bool]) {
+    /// Dispatch only the jobs of records drawn this frame.
+    pub fn activate(&mut self, queue: &wgpu::Queue, drawn: impl Fn(usize) -> bool) {
         self.active_words.clear();
         for (job, &record) in self.job_records.iter().enumerate() {
-            if !hidden.get(record).copied().unwrap_or(false) {
+            if drawn(record) {
                 self.active_words
                     .extend_from_slice(&self.jobs_words[job * 4..job * 4 + 4]);
             }
@@ -973,8 +988,8 @@ pub(crate) mod tests {
             skin.pack(w, &[e], true);
             skin.feed(&gpu.queue, w, &[e], false);
             let mut attachments = crate::world::scene::Attachments::default();
-            attachments.feed(w, true, true, false, false);
-            attachments.feed(w, false, false, false, false);
+            attachments.feed(w, true, true, None, false);
+            attachments.feed(w, false, false, None, false);
             for alpha in [0., 0.5, 1.] {
                 let mut values = [0f32; 20];
                 values[19] = alpha;
@@ -1104,7 +1119,7 @@ pub(crate) mod tests {
         .unwrap();
         skin.pack(w, &[e], true);
         let mut attachments = crate::world::scene::Attachments::default();
-        attachments.feed(w, true, true, false, false);
+        attachments.feed(w, true, true, None, false);
         sim.run(17.);
         let w = sim.world_mut();
         skin.feed(&gpu.queue, w, &[e], false);
@@ -1132,7 +1147,7 @@ pub(crate) mod tests {
             actual[12] > 0.7,
             "a lerp of composed matrices would give 0.5"
         );
-        attachments.feed(w, false, true, false, false);
+        attachments.feed(w, false, true, None, false);
         attachments.frame(0.5);
         let displayed = attachments
             .output
@@ -1152,7 +1167,7 @@ pub(crate) mod tests {
             displayed.distance(Vec3::new(0.5, 0.5, 0.)) > 0.2,
             "endpoint interpolation is the negative control"
         );
-        attachments.feed(w, false, false, false, true);
+        attachments.feed(w, false, false, None, true);
         attachments.frame(0.5);
         assert!(
             attachments.output[0].pose.position.distance(joint) < 1e-4,
@@ -1162,7 +1177,7 @@ pub(crate) mod tests {
             Transform::default(),
             exact_game::SocketFollow::new(e, "tip"),
         ));
-        attachments.feed(w, false, false, false, false);
+        attachments.feed(w, false, false, None, false);
         attachments.frame(0.5);
         assert!(
             attachments
@@ -1178,7 +1193,7 @@ pub(crate) mod tests {
         );
         // Different attachments resolve different joints; invalid targets use their authored pose.
         let second = w.spawn((Transform::default(), exact_game::SocketFollow::new(e, "")));
-        attachments.feed(w, false, false, false, false);
+        attachments.feed(w, false, false, None, false);
         attachments.frame(0.5);
         assert_eq!(
             attachments
@@ -1191,7 +1206,7 @@ pub(crate) mod tests {
             Vec3::ZERO
         );
         w.get_mut::<exact_game::SocketFollow>(charm).unwrap().joint = "missing".into();
-        attachments.feed(w, false, false, false, false);
+        attachments.feed(w, false, false, None, false);
         attachments.frame(0.5);
         assert!(!attachments.output.iter().any(|a| a.entity == charm));
         assert_eq!(

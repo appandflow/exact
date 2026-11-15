@@ -1,12 +1,13 @@
-//! An icon token's SVG, read at build: for
+//! @ref LLP 1121 D10 (stage 6 F) — an icon token's SVG, read at build: for
 //! v1 one monochrome shape, its `<path>`s each filled under its own viewBox,
 //! as a template, as the roles' paths are drawn; their `d`s travel joined by
-//! `;`, which no path data holds. Each is filled nonzero, or even-odd
-//! where its `fill-rule` says so: one rule for the whole icon, so
+//! `;`, which no path data holds. Each is filled nonzero, or (stage 14 C2)
+//! even-odd where its `fill-rule` says so: one rule for the whole icon, so
 //! paths that mix rules are no template.
 //! Anything else (several colours, a gradient, an image, text, a stroke, a
 //! transform, a shape that is not a path) is no template: the web may draw
-//! it as the file, and a shipped target that is not the web refuses it.
+//! it as the file, as Linux does; iOS, macOS and tvOS rasterize it into
+//! their catalog. Other shipped targets require a template or a native source.
 
 /// An SVG read as an icon.
 #[derive(Debug, Clone, PartialEq)]
@@ -48,85 +49,7 @@ type Open = (
     bool,
 );
 
-/// A tag's name and attributes, entities decoded; `None` for a closing tag.
-#[allow(clippy::type_complexity)]
-fn tag(text: &str) -> Result<Option<(&str, Vec<(&str, String)>)>, String> {
-    if text.starts_with('/') {
-        return Ok(None);
-    }
-    let text = text.strip_suffix('/').unwrap_or(text);
-    let name_end = text.find(|c: char| c.is_whitespace()).unwrap_or(text.len());
-    let (name, mut rest) = (&text[..name_end], &text[name_end..]);
-    let mut attrs = Vec::new();
-    loop {
-        rest = rest.trim_start();
-        if rest.is_empty() {
-            return Ok(Some((name, attrs)));
-        }
-        let eq = rest
-            .find('=')
-            .ok_or_else(|| format!("`<{name}>` has an attribute with no value"))?;
-        let key = rest[..eq].trim();
-        let value = rest[eq + 1..].trim_start();
-        let q = value
-            .chars()
-            .next()
-            .filter(|q| *q == '"' || *q == '\'')
-            .ok_or_else(|| format!("`<{name}>`'s `{key}` is not quoted"))?;
-        let end = value[1..]
-            .find(q)
-            .ok_or_else(|| format!("`<{name}>`'s `{key}` is not closed"))?;
-        if key.is_empty() || key.contains(char::is_whitespace) {
-            return Err(format!("`<{name}>` has a malformed attribute"));
-        }
-        attrs.push((key, decode(&value[1..1 + end])));
-        rest = &value[end + 2..];
-        if !rest.is_empty() && !rest.starts_with(char::is_whitespace) {
-            return Err(format!("`<{name}>`'s attributes are not apart"));
-        }
-    }
-}
-
-/// An attribute value with its entities decoded.
-fn decode(v: &str) -> String {
-    if !v.contains('&') {
-        return v.to_string();
-    }
-    let mut out = String::new();
-    let mut rest = v;
-    while let Some(at) = rest.find('&') {
-        out.push_str(&rest[..at]);
-        let tail = &rest[at..];
-        let end = tail.find(';').unwrap_or(0);
-        let entity = &tail[1..end.max(1)];
-        let ch = match entity {
-            "amp" => Some('&'),
-            "lt" => Some('<'),
-            "gt" => Some('>'),
-            "quot" => Some('"'),
-            "apos" => Some('\''),
-            e if e.starts_with("#x") => u32::from_str_radix(&e[2..], 16)
-                .ok()
-                .and_then(char::from_u32),
-            e if e.starts_with('#') => e[1..].parse().ok().and_then(char::from_u32),
-            _ => None,
-        };
-        match ch.filter(|_| end > 0) {
-            Some(c) => {
-                out.push(c);
-                rest = &tail[end + 1..];
-            }
-            None => {
-                out.push('&');
-                rest = &tail[1..];
-            }
-        }
-    }
-    out.push_str(rest);
-    out
-}
-
-/// The fix for a template's `style`: a template reads only
+/// The fix for a template's `style` (C2, closed): a template reads only
 /// its presentation attributes.
 const FIX_STYLE: &str = "write the paint as attributes (`fill=\"currentColor\"`, `fill-rule=\"evenodd\"`) and drop the `style` attribute or the `<style>` block: a template reads neither";
 
@@ -141,7 +64,7 @@ const FIX_COLOR: &str =
     "remove `color`: a template is drawn in the host's colour; write `fill=\"currentColor\"`";
 
 /// A presentation attribute a template reads, and its value refused unless
-/// it is one of the few a template takes, exactly: `fill` is
+/// it is one of the few a template takes, exactly (C2, closed): `fill` is
 /// `currentColor`, `none`, `#rgb` or `#rrggbb`; `fill-rule` is `nonzero` or
 /// `evenodd`; case as before, ASCII whitespace trimmed, no other character,
 /// keyword (`inherit`) or function. `color` is refused whatever it says. The
@@ -175,8 +98,8 @@ fn attribute_refused(attrs: &[(&str, String)]) -> Option<(String, &'static str)>
 /// A property's value on an element: its `style` declaration first, else
 /// its presentation attribute (SVG's cascade). A declaration's
 /// `!important` is CSS's; a presentation attribute takes no `!important`
-/// (SVG reads `fill-rule="evenodd !important"` as invalid), so its value is
-/// kept whole.
+/// (SVG reads `fill-rule="evenodd !important"` as invalid, C2 round 1,
+/// Astra 6), so its value is kept whole.
 fn property(attrs: &[(&str, String)], name: &str) -> Option<String> {
     // The last declaration wins, an `!important` one over any other.
     let styled = attrs
@@ -185,7 +108,7 @@ fn property(attrs: &[(&str, String)], name: &str) -> Option<String> {
         .and_then(|(_, s)| {
             let declared = s.split(';').filter_map(|d| {
                 let (k, v) = d.split_once(':')?;
-                // A property's name in any case, as CSS reads it.
+                // A property's name in any case, as CSS reads it (round 2, R2-5).
                 (k.trim().eq_ignore_ascii_case(name)).then(|| (importance(v).0, clean(v)))
             });
             declared.fold(
@@ -211,7 +134,7 @@ fn clean(v: &str) -> String {
 }
 
 /// Whether a declared value is `!important`, in any case and with space
-/// after the `!` as CSS reads it, and the value lowercase
+/// after the `!` as CSS reads it (round 3, R3-2), and the value lowercase
 /// without it.
 fn importance(v: &str) -> (bool, String) {
     let v = v.trim().to_ascii_lowercase();
@@ -251,64 +174,30 @@ pub(crate) fn read(text: &str) -> Result<Svg, String> {
     // Each path's fill rule after the cascade, in order: `true` even-odd.
     let mut rules: Vec<bool> = Vec::new();
     let mut stack: Vec<Open> = Vec::new();
-    let mut rest = text;
-    while let Some(open) = rest.find('<') {
-        rest = &rest[open..];
-        // Comments, CDATA, declarations and processing instructions draw nothing.
-        let skip = [
-            ("<!--", "-->"),
-            ("<![CDATA[", "]]>"),
-            ("<?", "?>"),
-            ("<!", ">"),
-        ]
-        .into_iter()
-        .find(|(start, _)| rest.starts_with(start));
-        if let Some((start, end)) = skip {
-            // A CDATA section or a DOCTYPE (whose internal subset's default
-            // attributes a parser would apply) is no template; no repo
-            // template has either.
-            if start == "<![CDATA[" {
-                note(&mut why, || {
-                    ("it has a CDATA section".to_string(), FIX_PLAIN)
-                });
-            } else if start == "<!"
-                && rest
-                    .get(..9)
-                    .is_some_and(|d| d.eq_ignore_ascii_case("<!doctype"))
-            {
-                note(&mut why, || ("it has a DOCTYPE".to_string(), FIX_PLAIN));
+    let tokens = exact_svg_file::xml::tokenize(text).map_err(|e| e.to_string())?;
+    if tokens.has_cdata {
+        note(&mut why, || {
+            ("it has a CDATA section".to_string(), FIX_PLAIN)
+        });
+    }
+    if tokens.has_doctype {
+        note(&mut why, || ("it has a DOCTYPE".to_string(), FIX_PLAIN));
+    }
+    for event in tokens.events {
+        use exact_svg_file::xml::Event;
+        let (name, attrs, empty) = match &event {
+            Event::Start {
+                name, attrs, empty, ..
+            } => (name.as_str(), attrs, *empty),
+            Event::End { .. } => {
+                stack.pop();
+                continue;
             }
-            let close = rest[start.len()..]
-                .find(end)
-                .ok_or("an SVG comment or declaration is not closed")?;
-            rest = &rest[start.len() + close + end.len()..];
-            continue;
-        }
-        // The tag ends at the first `>` outside its attributes' quotes.
-        let mut quote = None;
-        let end = rest
-            .char_indices()
-            .find(|&(_, c)| match quote {
-                Some(q) if c == q => {
-                    quote = None;
-                    false
-                }
-                Some(_) => false,
-                None if c == '"' || c == '\'' => {
-                    quote = Some(c);
-                    false
-                }
-                None => c == '>',
-            })
-            .map(|(i, _)| i)
-            .ok_or("an SVG tag is not closed")?;
-        let raw = &rest[1..end];
-        rest = &rest[end + 1..];
-        let Some((name, attrs)) = tag(raw)? else {
-            stack.pop();
-            continue;
+            Event::Text(_) => continue,
         };
-        // Namespaces: a prefixed element or attribute,
+        let attrs: Vec<(&str, String)> =
+            attrs.iter().map(|(k, v)| (k.as_str(), v.clone())).collect();
+        // Namespaces (C2, the last gaps): a prefixed element or attribute,
         // or any namespace declaration but the root's default SVG one, is no
         // template (`<s:style xmlns:s=…>`, `<g xmlns="…xhtml">`). No repo
         // template uses another (none writes `xlink`).
@@ -341,12 +230,12 @@ pub(crate) fn read(text: &str) -> Result<Svg, String> {
             .unwrap_or((None, None, None, None, false));
         let fill_here = property(&attrs, "fill").or(inherited_fill);
         let stroke_here = property(&attrs, "stroke").or(inherited_stroke);
-        // What `currentColor` is here: the nearest `color`; `inherit` and
-        // `currentColor` keep the parent's.
+        // What `currentColor` is here: the nearest `color` (round 3, R3-1);
+        // `inherit` and `currentColor` keep the parent's (re-check, RE-2).
         let color_here = property(&attrs, "color")
             .filter(|c| c != "inherit" && c != "currentcolor")
             .or(inherited_color);
-        // Its fill rule: its own, or its parent's (`inherit`
+        // Its fill rule (stage 14 C2): its own, or its parent's (`inherit`
         // keeps the parent's, as CSS reads it); nonzero at the root.
         let rule_here = property(&attrs, "fill-rule")
             .filter(|r| r != "inherit")
@@ -355,14 +244,14 @@ pub(crate) fn read(text: &str) -> Result<Svg, String> {
             in_defs || matches!(name, "defs" | "symbol" | "clipPath" | "mask" | "pattern");
         // A `<style>` block, or a `style` attribute holding more than plain
         // declarations, anywhere (in `<defs>` too: an exporter's class
-        // rules live there), is no template.
+        // rules live there), is no template (C2 round 2).
         if name == "style" {
             note(&mut why, || {
                 ("it has a `<style>` block".to_string(), FIX_STYLE)
             });
         }
         // Any `style` attribute, anywhere: a template reads only its
-        // presentation attributes.
+        // presentation attributes (C2, closed).
         if attrs.iter().any(|(k, _)| *k == "style") {
             note(&mut why, || {
                 (format!("its `<{name}>` has a `style`"), FIX_STYLE)
@@ -387,7 +276,7 @@ pub(crate) fn read(text: &str) -> Result<Svg, String> {
             .chain(["display", "visibility"])
             .find(|p| {
                 property(&attrs, p).is_some_and(|v| match *p {
-                    // Either rule, or the parent's; no other value.
+                    // Either rule, or the parent's (stage 14 C2); no other value.
                     "fill-rule" => !matches!(v.as_str(), "nonzero" | "evenodd" | "inherit"),
                     "opacity" | "fill-opacity" => v.parse::<f64>().map_or(true, |o| o < 1.0),
                     "display" => v == "none",
@@ -429,8 +318,8 @@ pub(crate) fn read(text: &str) -> Result<Svg, String> {
                     return Err("a `<path>`'s `d` is not path data".into());
                 }
                 let painted = fill_here.clone().unwrap_or_else(|| "black".into());
-                // `currentColor` paints the element's `color`: two under two
-                // colours are two, one under red is
+                // `currentColor` paints the element's `color` (round 3,
+                // R3-1): two under two colours are two, one under red is
                 // red as an explicit red fill is; with no `color` set, the
                 // host's colour, as on main.
                 let painted = match (painted.as_str(), &color_here) {
@@ -489,7 +378,7 @@ pub(crate) fn read(text: &str) -> Result<Svg, String> {
                 });
             }
         }
-        if !raw.ends_with('/') {
+        if !empty {
             stack.push((fill_here, stroke_here, color_here, rule_here, in_defs));
         }
     }
@@ -508,7 +397,7 @@ pub(crate) fn read(text: &str) -> Result<Svg, String> {
     if paths.is_empty() && why.is_empty() {
         return Err("it has no `<path>`".into());
     }
-    // One rule for the icon: paths that mix them
+    // One rule for the icon (stage 14 C2, theme2's Q1): paths that mix them
     // are named, by their place in the file.
     let even_odd = rules.first().copied().unwrap_or(false);
     if rules.iter().any(|r| *r != even_odd) {
@@ -522,7 +411,7 @@ pub(crate) fn read(text: &str) -> Result<Svg, String> {
                 .join(", ")
         };
         let (odd, nonzero) = (named(true), named(false));
-        // Numbered among the drawn paths (those not in `<defs>`).
+        // Numbered among the drawn paths (those not in `<defs>`, C2 round 1).
         note(&mut why, || {
             (
                 format!("its paths mix fill rules (evenodd: drawn path {odd}; nonzero: drawn path {nonzero})"),
@@ -559,6 +448,31 @@ mod tests {
     use super::read;
 
     #[test]
+    fn malformed_xml_and_declared_entities_are_refused() {
+        for (svg, reason) in [
+            (
+                "<svg viewBox='0 0 24 24'>\n<g><path d='M0 0h1'/></svg>",
+                "closes `<g>`",
+            ),
+            (
+                "<svg viewBox='0 0 24 24'><path d='M0 0h1'/>",
+                "never closed",
+            ),
+            (
+                "<!DOCTYPE svg [<!ENTITY a 'x'>]><svg viewBox='0 0 24 24'><path d='M0 0h1'/></svg>",
+                "entity declaration",
+            ),
+            (
+                "<svg viewBox='0 0 24 24' aria-label='&missing;'><path d='M0 0h1'/></svg>",
+                "&missing;",
+            ),
+        ] {
+            let error = read(svg).expect_err("malformed SVG must be refused");
+            assert!(error.contains(reason), "{error}");
+        }
+    }
+
+    #[test]
     fn a_material_symbol_is_one_path_under_its_viewbox() {
         let svg = read(r#"<svg xmlns="http://www.w3.org/2000/svg" height="24" viewBox="0 -960 960 960" width="24"><path d="M280-80 120-240Z"/></svg>"#).unwrap();
         assert_eq!(svg.view_box, "0 -960 960 960");
@@ -589,7 +503,7 @@ mod tests {
         ] {
             assert_eq!(read(svg).unwrap().not_template, None, "{svg}");
         }
-        // `color` is refused whatever it says: a template is
+        // `color` is refused whatever it says (C2, closed): a template is
         // drawn in the host's colour.
         let color = read(
             r#"<svg viewBox="0 0 24 24" color="red"><path fill="currentColor" d="M0 0h1"/></svg>"#,
@@ -623,7 +537,7 @@ mod tests {
         assert_eq!(svg.fix.matches("Stroke to Path").count(), 1);
     }
 
-    /// Comments and CDATA draw nothing; an inherited fill is
+    /// Review round 1: comments and CDATA draw nothing; an inherited fill is
     /// the path's; a transform, a stroke and an unfilled path are no
     /// template; `|` is no path data; `defs` draw nothing; entities are
     /// decoded; attributes are apart.
@@ -685,7 +599,25 @@ mod tests {
         assert!(read(r#"<svg viewBox="0 0 24 24"><path d="M0 0"fill="red"/></svg>"#).is_err());
     }
 
-    /// A path's `fill-rule` from its attribute or inherited from
+    #[test]
+    fn numeric_references_may_have_leading_zeroes() {
+        for zero in ["&#00000000000048;", "&#x00000000000030;"] {
+            let svg = read(&format!(
+                r#"<svg viewBox="0 0 24 24"><path d="M{zero} 0h1"/></svg>"#
+            ))
+            .unwrap();
+            assert_eq!(svg.not_template, None);
+            assert_eq!(svg.path, "M0 0h1");
+        }
+        for invalid in ["&#0000001114112;", "&#x00000000d800;", "&unknown;"] {
+            assert!(read(&format!(
+                r#"<svg viewBox="0 0 24 24"><path d="M{invalid} 0h1"/></svg>"#
+            ))
+            .is_err());
+        }
+    }
+
+    /// Stage 14 C2: a path's `fill-rule` from its attribute or inherited from
     /// `<g>` and `<svg>`; even-odd is a template, one rule for the icon; a mix
     /// is refused naming the drawn paths.
     #[test]
@@ -743,12 +675,13 @@ mod tests {
         }
     }
 
-    /// A template reads no `style` at all and its presentation values
-    /// exactly. Every known bypass is refused, each naming what it found.
+    /// C2, closed (theme2): a template reads no `style` at all and its
+    /// presentation values exactly. Every bypass from every round is refused,
+    /// each naming what it found.
     #[test]
     fn every_bypass_from_every_round_is_refused() {
         let cases = [
-            // The comment override; attribute `!important`.
+            // Round 1: the comment override; attribute `!important`.
             (
                 r#"<path fill-rule="evenodd" style="/* x */ fill-rule:nonzero" d="M0 0h1"/>"#,
                 "its `<path>` has a `style`",
@@ -757,7 +690,7 @@ mod tests {
                 r#"<path fill-rule="evenodd !important" d="M0 0h1"/>"#,
                 "its `<path>` has `fill-rule=\"evenodd !important\"`, not a value a template reads",
             ),
-            // A quoted `/*`; an escaped name.
+            // Round 2: a quoted `/*`; an escaped name.
             (
                 r#"<path fill-rule="evenodd" style="--x:'/*'; fill-rule:nonzero; --y:'*/'" d="M0 0h1"/>"#,
                 "its `<path>` has a `style`",
@@ -766,7 +699,7 @@ mod tests {
                 r#"<path fill-rule="evenodd" style="fill-\72 ule:nonzero" d="M0 0h1"/>"#,
                 "its `<path>` has a `style`",
             ),
-            // Parentheses, brackets, `all`.
+            // Round 3: parentheses, brackets, `all`.
             (
                 r#"<path fill-rule="nonzero" style="--x:(;fill-rule:evenodd;)" d="M0 0h1"/>"#,
                 "its `<path>` has a `style`",
@@ -791,7 +724,7 @@ mod tests {
                 r#"<g style="all:inherit"><path d="M0 0h1"/></g>"#,
                 "its `<g>` has a `style`",
             ),
-            // Parentheses inside a declaration, and more.
+            // Round 4.
             (
                 r#"<path style="display:(;fill-rule:evenodd;display:)" d="M0 0h1"/>"#,
                 "its `<path>` has a `style`",
@@ -843,7 +776,7 @@ mod tests {
                 r#"<defs><style>.cls-1{fill:#000}</style></defs><path class="cls-1" d="M0 0h4v4H0Z"/>"#,
                 "it has a `<style>` block",
             ),
-            // Namespaces, CDATA (a DOCTYPE below: it precedes the root).
+            // Round 5: namespaces, CDATA (a DOCTYPE below: it precedes the root).
             (
                 r#"<s:style xmlns:s="http://www.w3.org/2000/svg">path{fill-rule:nonzero}</s:style><path fill-rule="evenodd" d="M0 0h1"/>"#,
                 "its `<s:style>` has a namespace prefix",
@@ -958,8 +891,8 @@ mod tests {
 
     /// The in-repo packages' icon SVGs (`packages/*/assets/`) are each a
     /// template the lint accepts, their path the file's `d`, and none is
-    /// even-odd: the ones that could be (ComposeFrame's three, the Attie
-    /// mark, the badges' paths) fill the same nonzero, so they are
+    /// even-odd: the ones that were (stage 14 C: ComposeFrame's three, the
+    /// Attie mark, the badges' paths) fill the same nonzero, so they are
     /// written so, and no app using the packages takes `iconFillRules`.
     #[test]
     fn every_package_icon_svg_is_a_nonzero_template() {

@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
-// What a host draws for a padding and a corner radius, against what it
-// should: a plan driven on each host by the agent, its boxes
+// What a host draws for a padding and a corner radius, against what it should
+// (LLP 1121 stage 11 C): a plan driven on each host by the agent, its boxes
 // read with `layout` and its corners from `screenshot`. A padding is where a
 // named child sits in its box, on both axes. A radius is fitted to where the
 // box's fill begins along its top-left corner's first rows (antialiased
@@ -17,10 +17,11 @@
 //                   {"padding": {"ios": 16, "macos": 10, "default": 16}}. A box may also expect a `gap`
 //                   between two children (`"between": ["a", "b"]`) and a `height`. A value may name a length
 //                   (`"radius": "radius.full"`): a base name from kernel/tables/schema.json's scale in the host's
-//                   column, or the plan's own design's token (`contract tamber ir`), which wins. `"then": [{"steps":
+//                   column, or the plan's own design's token (`contract forma ir`), which wins. `"then": [{"steps":
 //                   ["tap flip"], "boxes": […]}]` checks boxes again after steps, each from a fresh launch.
 //   --host: web, linux, macos, ios, android (as scripts/agent.mjs names them), or terminal (the terminal
-//   host headless, its own `layout` and `plan` verbs: corners read from its reply); default linux. The Android
+//   host headless, its own `layout` and `plan` verbs: corners read from its reply; it runs the plan's source
+//   compiled for the terminal, `contract build --surface terminal`); default linux. The Android
 //   reader runs an app's APK with the plan pushed to it: `--app` names one whose data the plan does not ask
 //   (unsaid), built with `bun scripts/agent-android.mjs build <app> --apk`.
 //   Each drive starts from a fresh scratch store (`--storage scale-check --reset-storage`).
@@ -106,11 +107,11 @@ export function fitRadius(starts, limit) {
 
 /** A box's expected radius once CSS reduces it to the box. */
 export const reduced = (radius, w, h) => Math.min(radius, w / 2, h / 2);
-// A length in whole cells as the terminal paints it:
+// A length in whole cells as the terminal paints it (LLP 1121 stage 11 (c)):
 // to the nearest cell, a tie toward zero.
 export const cellsOf = (px, cell) => (Math.sign(px) * Math.max(0, Math.ceil(Math.abs(px / cell) - 0.5))) || 0;
 
-/** A host's column in the base scale's table: every
+/** A host's column in the base scale's table (LLP 1121 stage 11 B): every
  * web build and the Linux desktop draw the neutral look; `terminal` is the
  * terminal host, driven here (`exact-terminal`), not through the agent. */
 const COLUMN = { web: 'neutral', linux: 'neutral', ios: 'ios', macos: 'mac', android: 'material', terminal: 'terminal' };
@@ -131,7 +132,7 @@ export function baseLength(schema, overrides, name, host, grid = null) {
   const row = schema.scale.find(r => r[0] === name), column = COLUMN[host];
   if (!row || !column) return undefined;
   let cell = row[SCALE_CELL[column]];
-  // A stretch reads its metric as `=metric` does.
+  // A stretch reads its metric as `=metric` does (stage 13 D5).
   if (typeof cell?.stretch === 'string') cell = cell.stretch;
   if (typeof cell === 'string' && cell.startsWith('=')) {
     const metric = schema.metrics.find(r => r[0] === cell.slice(1));
@@ -148,7 +149,7 @@ export function baseLength(schema, overrides, name, host, grid = null) {
 }
 
 /** The design's own lengths, from the compiler's reading of it (`contract
- * tamber ir`, which finds the design as a build does): each length token whose
+ * forma ir`, which finds the design as a build does): each length token whose
  * value is one px length in every tuple. One whose value varies, or is not px,
  * is refused when it is a base name (one length is what a box is held to). */
 export function overridesOf(ir, names) {
@@ -251,7 +252,7 @@ export function check(host, layout, image, expect, base = () => undefined) {
       else {
         row.padding = [child.x - box.x, child.y - box.y];
         // In a grid of cells (the terminal's), the kernel lays each space out
-        // in whole cells on its axis: across, then down.
+        // in whole cells on its axis (LLP 1121 stage 11 (c)): across, then down.
         const wantPx = layout.cell ? [cellsOf(padding, layout.cell.w) * layout.cell.w, cellsOf(padding, layout.cell.h) * layout.cell.h] : [padding, padding];
         row.expectedPadding = layout.cell ? wantPx : padding;
         if (row.padding.some((p, i) => Math.abs(p - wantPx[i]) > 0.5)) fail(`padding ${row.padding.join(', ')}, expected ${wantPx.join(', ')}`);
@@ -266,7 +267,7 @@ export function check(host, layout, image, expect, base = () => undefined) {
           const [b, c] = [box.cells, child.cells];
           row.margins = { top: c.y - b.y, bottom: b.y + b.h - (c.y + c.h), left: c.x - b.x, right: b.x + b.w - (c.x + c.w) };
           if (want.even && (row.margins.top !== row.margins.bottom || row.margins.left !== row.margins.right)) fail(`its padding paints ${row.margins.top}/${row.margins.right}/${row.margins.bottom}/${row.margins.left} cells (top/right/bottom/left): not equal rows above and below and columns left and right`);
-          // Each edge a length in whole cells on its axis:
+          // Each edge a length in whole cells on its axis (stage 11 (c)):
           // the leading edges always, the far ones for a box `even`.
           if (layout.cell) {
             const [down, across] = [cellsOf(padding, layout.cell.h), cellsOf(padding, layout.cell.w)];
@@ -353,7 +354,7 @@ export function drive(host, plan, png, steps = [], app = null) {
   // SHA-256), the steps, then `layout` (its reply carries each corner's
   // radius: it draws none a picture could be measured by, so there is none).
   const run = host === 'terminal'
-    ? spawnSync('cargo', ['run', '-q', '-p', 'exact-terminal', '--', plan, '--size', '64x64', 'plan', ...steps.flatMap(terminalVerb), 'layout'], { cwd: ROOT, encoding: 'utf8', timeout: 900_000 })
+    ? spawnSync('cargo', ['run', '-q', '-p', 'exact-terminal', '--', plan, '--size', '64x64', '--drive', 'plan', ...steps.flatMap(terminalVerb), 'layout'], { cwd: ROOT, encoding: 'utf8', timeout: 900_000 })
     : spawnSync(process.execPath, [join(ROOT, 'scripts/agent.mjs'), host, ...launch, '--storage', 'scale-check', '--reset-storage', '--json', 'perf', ...steps, 'layout', `screenshot ${png}`], { cwd: ROOT, encoding: 'utf8', timeout: 900_000 });
   const ran = (run.stdout ?? '').split('\n').map(l => /"plan":"([0-9a-f]{64})"/.exec(l)?.[1]).find(Boolean);
   const want = createHash('sha256').update(readFileSync(plan)).digest('hex');
@@ -364,6 +365,17 @@ export function drive(host, plan, png, steps = [], app = null) {
   const line = layouts.at(-1);
   if (run.error || run.status !== 0 || !line) throw new Error(`the drive failed${run.error ? ` (${run.error.message})` : run.signal ? ` (${run.signal})` : ''}\n${run.stdout ?? ''}${run.stderr ?? ''}`);
   return Object.assign(JSON.parse(line), { earlier: layouts.slice(0, -1).map(l => JSON.parse(l)) });
+}
+
+/** `source` compiled for the terminal into `out`: the terminal host runs
+ * only a plan whose header says `terminal` (LLP 1101.003 D9), so a GUI
+ * source is measured there by its terminal lowering (`--surface terminal`,
+ * which reports what a terminal entry refuses as warnings). Throws with the
+ * compiler's output when it fails. */
+export function terminalPlan(source, out) {
+  const r = spawnSync('cargo', ['run', '-q', '-p', 'contract', '--', 'build', source, '-o', out, '--surface', 'terminal', '--errors-only'], { cwd: ROOT, encoding: 'utf8', timeout: 900_000 });
+  if (r.error || r.status !== 0) throw new Error(`${source} did not compile for the terminal${r.error ? ` (${r.error.message})` : ''}\n${r.stdout ?? ''}${r.stderr ?? ''}`);
+  return out;
 }
 
 /** An agent step as the terminal's verbs take it: a verb's text tail (`type
@@ -414,22 +426,27 @@ if (import.meta.main) {
   // A length named is read from the kernel's table and the plan's own design,
   // as the compiler reads it, never a copy.
   const schema = JSON.parse(readFileSync(join(ROOT, 'kernel/tables/schema.json'), 'utf8'));
-  const ir = spawnSync('cargo', ['run', '-q', '-p', 'contract', '--', 'tamber', 'ir', opts.source], { cwd: ROOT, encoding: 'utf8', timeout: 900_000 });
+  const ir = spawnSync('cargo', ['run', '-q', '-p', 'contract', '--', 'forma', 'ir', opts.source], { cwd: ROOT, encoding: 'utf8', timeout: 900_000 });
   let overrides = {};
   try {
     // (A plan with no design has none of its own.)
     if (ir.status === 0) overrides = overridesOf(JSON.parse(ir.stdout), schema.scale.map(r => r[0]));
-    else if (!/^contract tamber: \S+ has no design \(an app\.tamber, or the file app\.json's "tamber" names\)$/m.test(`${ir.stdout}${ir.stderr}`)) throw new Error(`contract tamber ir: ${ir.stdout}${ir.stderr}`);
+    else if (!/^contract forma: \S+ has no design \(an app\.forma, or the file app\.json's "forma" names\)$/m.test(`${ir.stdout}${ir.stderr}`)) throw new Error(`contract forma ir: ${ir.stdout}${ir.stderr}`);
   } catch (e) { console.error(e.message); process.exit(1); }
   const base = (name, host, grid) => baseLength(schema, overrides, name, host, grid);
   // The first frame, then each `then`'s steps from a fresh launch.
   const phases = [{ steps: [], boxes: expect.boxes }, ...(expect.then ?? [])];
   const rows = [];
   for (const host of opts.hosts) {
+    let hostPlan = plan;
+    if (host === 'terminal') {
+      try { hostPlan = terminalPlan(opts.source, join(opts.out, 'scale-terminal.plan')); }
+      catch (e) { rows.push({ host, testId: '*', ok: false, why: e.message }); continue; }
+    }
     for (const [k, phase] of phases.entries()) {
       const png = join(opts.out, `${host}${k ? `-${k}` : ''}.png`);
       try {
-        const layout = drive(host, plan, png, phase.steps ?? [], opts.app);
+        const layout = drive(host, hostPlan, png, phase.steps ?? [], opts.app);
         const image = host === 'terminal' ? null : decodePng(readFileSync(png));
         rows.push(...check(host, layout, image, { ...expect, boxes: phase.boxes, calibrate: expect.boxes }, base).map(r => (k ? { ...r, testId: `${r.testId} (after ${phase.steps.join(', ')})` } : r)));
       }

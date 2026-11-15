@@ -1,7 +1,7 @@
 // The iOS floor: an empty UIKit app (a scene, a window, a view controller),
 // the bytes an iOS app costs before any of Exact's. `scripts/metrics.mjs
-// --long` links it as it links the hello app and reports the difference:
-// `swiftc -Osize -target <the app's> -o <out>
+// --long` links it as it links the hello app and reports the difference
+// (LLP 1047.001 D8): `swiftc -Osize -target <the app's> -o <out>
 // host/apple/ios/floor.swift`, then `strip`.
 import UIKit
 

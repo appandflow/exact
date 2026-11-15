@@ -1,24 +1,24 @@
-// @exact/geolocation on Apple: CoreLocation
+// @exact/geolocation on Apple (LLP 1133.002 D3, D5, D10, D15): CoreLocation
 // through one `CLLocationManager`, answered in the interface's shapes. The
 // app's composed module calls it outside the agent, through `ExactPackage`'s
 // shape; under the agent the runner's substitute answers and no manager is
 // created, unless the drive binds it (`--bind geolocation`).
 //
-// - An option the call omits stays CoreLocation's: `desiredAccuracy`
+// - An option the call omits stays CoreLocation's (D2): `desiredAccuracy`
 //   is set only from `apple.desiredAccuracy` or a written
 //   `enableHighAccuracy` (WebKit's mapping: `Best`, `HundredMeters`).
-// - The approximate line is a ceiling: iOS 27 opens the prompt with
+// - The approximate line is a ceiling (D7): iOS 27 opens the prompt with
 //   Precise on despite the line's `NSLocationDefaultAccuracyReduced`, so
 //   under the line every request asks for `kCLLocationAccuracyReduced`,
 //   which CoreLocation honours whatever the person granted.
-// - The state is a fact: `authorizationStatus` and
+// - The state is a fact (D8): `authorizationStatus` and
 //   `accuracyAuthorization`, announced when they change.
-// - A request while `notDetermined` asks first; a source asks only for
+// - A request while `notDetermined` asks first (D9); a source asks only for
 //   `watchPosition` (`request: when-prompt`).
 // - One watch (`startUpdatingLocation`) serves every reader; it stops at
-//   `release`, when the runner's last reader goes. A one-shot during a
+//   `release`, when the runner's last reader goes (D5). A one-shot during a
 //   watch takes the next update, since `requestLocation` does nothing then.
-// - Tier 3: `GeolocationModule.hatch` receives the manager once made,
+// - Tier 3 (D4): `GeolocationModule.hatch` receives the manager once made,
 //   and the delegate it returns hears every delegate call, after the
 //   module's own handling of the three it handles. The module owns the
 //   delegate and, while a reader runs, the options it writes; a development
@@ -28,7 +28,7 @@ import ExactPackage
 import Foundation
 
 public final class GeolocationModule: NSObject, CLLocationManagerDelegate, ExactPackage {
-    /// The app's access hatch: given the manager once, before its first
+    /// The app's access hatch (D4): given the manager once, before its first
     /// request; a delegate returned hears every delegate call after the module.
     public static var hatch: ((CLLocationManager) -> CLLocationManagerDelegate?)?
 
@@ -60,7 +60,7 @@ public final class GeolocationModule: NSObject, CLLocationManagerDelegate, Exact
     /// The authorization last answered: CoreLocation also calls
     /// `locationManagerDidChangeAuthorization` when a manager is made.
     private var said: (CLAuthorizationStatus, CLAccuracyAuthorization)?
-    /// Whether the build carries the approximate line; macOS has no such key.
+    /// Whether the build carries the approximate line (D7); macOS has no such key.
     private let approximate = Bundle.main.object(forInfoDictionaryKey: "NSLocationDefaultAccuracyReduced") as? Bool == true
 
     public init(context: ExactPackageContext) {
@@ -78,13 +78,13 @@ public final class GeolocationModule: NSObject, CLLocationManagerDelegate, Exact
         forward?.responds(to: selector) == true ? forward : super.forwardingTarget(for: selector)
     }
 
-    /// A development build's line for each change to what the module owns.
+    /// A development build's line for each change to what the module owns (D4).
     private func checkOwned() {
-        if manager.delegate !== self { log("geolocation: the locationManager hatch replaced the delegate, which the module owns; its answers stop") }
+        if manager.delegate !== self { log("geolocation: the locationManager hatch replaced the delegate, which the module owns; its answers stop (LLP 1133.002 D4)") }
         guard watching, let w = wrote else { return }
         let changes = [("desiredAccuracy", manager.desiredAccuracy != w.accuracy), ("distanceFilter", manager.distanceFilter != w.filter), ("activityType", manager.activityType != w.activity)]
         for (name, changed) in changes where changed {
-            log("geolocation: the locationManager hatch changed \(name), which the module owns while a reader runs")
+            log("geolocation: the locationManager hatch changed \(name), which the module owns while a reader runs (LLP 1133.002 D4)")
         }
     }
 
@@ -101,7 +101,7 @@ public final class GeolocationModule: NSObject, CLLocationManagerDelegate, Exact
         }
     }
 
-    /// The synchronous forms: a cheap read, never a prompt.
+    /// The synchronous forms (LLP 1133 D6 rule 4): a cheap read, never a prompt.
     public func call(_ name: String, _ args: [String: Any]) throws -> [String: Any] {
         switch name {
         case "geolocationStatusSync": return status()
@@ -156,7 +156,7 @@ public final class GeolocationModule: NSObject, CLLocationManagerDelegate, Exact
     }
 
     /// `then`, once the platform allows it: asked first while undetermined
-    ///; refused while denied.
+    /// (D9); refused while denied.
     private func whenAllowed(_ reply: @escaping ([String: Any]) -> Void, then: @escaping () -> Void) {
         if granted {
             then()
@@ -177,7 +177,7 @@ public final class GeolocationModule: NSObject, CLLocationManagerDelegate, Exact
     public func locationManagerDidChangeAuthorization(_ m: CLLocationManager) {
         if let said, said != (authorization, m.accuracyAuthorization) {
             changed("geolocation.geolocationStatus")
-            // A watch's readers too: denied, they fail; granted again, they resume.
+            // A watch's readers too: denied, they fail; granted again, they resume (D5).
             if watching {
                 last = nil
                 changed("geolocation.watchPosition")
@@ -193,7 +193,7 @@ public final class GeolocationModule: NSObject, CLLocationManagerDelegate, Exact
 
     // MARK: positions
 
-    /// Apple's own word, else the written web option; unsaid, CoreLocation's.
+    /// Apple's own word, else the written web option (D2); unsaid, CoreLocation's.
     private func configure(_ args: [String: Any]) {
         let apple = args["apple"] as? [String: Any] ?? [:]
         let accuracies: [String: CLLocationAccuracy] = [
@@ -224,7 +224,7 @@ public final class GeolocationModule: NSObject, CLLocationManagerDelegate, Exact
     private var cached: CLLocation? { approximate ? delivered : manager.location }
 
     /// A cached fix is eligible only when `maximumAge` is above 0 and it is
-    /// younger.
+    /// younger (D2).
     private func eligible(_ fix: CLLocation, _ args: [String: Any]) -> Bool {
         guard let age = args["maximumAge"] as? Double, age > 0 else { return false }
         return -fix.timestamp.timeIntervalSinceNow * 1000 <= age
@@ -261,7 +261,7 @@ public final class GeolocationModule: NSObject, CLLocationManagerDelegate, Exact
         guard !approximate, manager.accuracyAuthorization == .reducedAccuracy, let key = args["purposeKey"] as? String else {
             return reply(status())
         }
-        // Declined or dismissed is no failure: the call answers the status.
+        // Declined or dismissed is no failure: the call answers the status (D10).
         manager.requestTemporaryFullAccuracyAuthorization(withPurposeKey: key) { [self] _ in
             DispatchQueue.main.async { reply(self.status()) }
         }
@@ -321,7 +321,7 @@ public final class GeolocationModule: NSObject, CLLocationManagerDelegate, Exact
         }
     }
 
-    /// A fix in the interface's `GeolocationPosition`: the ellipsoidal
+    /// A fix in the interface's `GeolocationPosition` (D1): the ellipsoidal
     /// altitude, as the web's; mean sea level under `apple`.
     private func position(_ fix: CLLocation) -> [String: Any] {
         let vertical = fix.verticalAccuracy >= 0

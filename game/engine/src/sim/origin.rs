@@ -1,4 +1,4 @@
-//! A world's message carries what caused it.
+//! A world's message carries what caused it (LLP 1133.022 D6, D10 item 6).
 //!
 //! A message the runner posts from a commit that was not a person's or the
 //! app's own (a tool invocation, a wake, a package's event) arrives with

@@ -1,4 +1,4 @@
-// UIKit's focus search, answered for exact2's own views.
+// UIKit's focus search, answered for exact2's own views (LLP 1008 §9).
 // On an iPad with a hardware keyboard UIKit runs a focus system. While no
 // item holds UIKit focus — exact2's keyboard focus is the first responder's
 // (Tab is its own key command) and none of its views is a UIKit focus item
@@ -30,11 +30,12 @@ enum FocusSearch {
     /// `view` joins one of exact2's containers.
     static func joined(_ view: UIView) {
         // exact2's own views, an image and a material's backdrop are never
-        // focus items; a route's navigation container holds exact2's nodes,
-        // whose own foreign views join the nodes themselves.
+        // focus items; a route's container (a navigation controller or a
+        // plain tab) holds exact2's nodes, whose own foreign views join the
+        // nodes themselves.
         if view is NodeView || view is PlainView || view is ScrollView || view is MetalView
-            || view is UIImageView || view is UIVisualEffectView || view.next is UINavigationController || view.next is HeldStack
-            || view is NativeButtonIOS { return } // a native button's node keeps the focus
+            || view is UIImageView || view is UIVisualEffectView || view.next is UINavigationController || view.next is PlainTab
+            || view is NativeButtonIOS { return } // a native button's node keeps the focus (LLP 1069.011 D4)
         candidates.add(view)
     }
 
@@ -45,7 +46,12 @@ enum FocusSearch {
         return candidates.allObjects.filter { view in
             guard view.window === window, view.isDescendant(of: container) else { return false }
             var v: UIView? = view
-            while let current = v, current !== container { if current.isHidden || current.alpha < 0.01 { return false }; v = current.superview }
+            // Under a canvas child its surface places, a view is where the
+            // surface draws it, not at its own frame, where the search looks.
+            while let current = v, current !== container {
+                if current.isHidden || current.alpha < 0.01 || (current as? NodeView)?.drawnBySurface == true { return false }
+                v = current.superview
+            }
             return container.convert(view.bounds, from: view).intersects(rect)
         }
     }
@@ -54,9 +60,9 @@ enum FocusSearch {
 final class Viewport: ScrollView {
     /// The route whose document this viewport scrolls; the session's viewport has no route.
     weak var documentNode: NodeView?
-    /// Its bands past the page's area (`Presenter.pageMargins`).
+    /// Its bands past the page's area (`Presenter.pageMargins`, LLP 1130 D1).
     var pageMargins = UIEdgeInsets.zero
-    /// The control bars over its page's scrollers, each by its edge (`ControlBars.sync`).
+    /// The control bars over its page's scrollers, each by its edge (`ControlBars.sync`, LLP 1131).
     var controlBars: [ObjectIdentifier: ControlBars.Weak] = [:]
     /// Its tint as UIKit last gave it undimmed (its window's, or an embedder's), which a dimmed
     /// view cannot read (`NodeView.carriedTint`)
@@ -70,7 +76,7 @@ final class Viewport: ScrollView {
         #if os(iOS)
         // The page's own scroller takes the keyboard down with a drag that
         // reaches it, as a scroller's unsaid `keyboardDismissMode` does
-        // (`NodeView.keyboardDismissal`).
+        // (`NodeView.keyboardDismissal`, LLP 1115.000 D9.1).
         keyboardDismissMode = .interactive
         #endif
     }
@@ -79,12 +85,12 @@ final class Viewport: ScrollView {
     /// bar, 1 page"), which a page that does not scroll on that axis has
     /// none of, as a hand-built view controller's root has none: a route
     /// that holds a list showed three pairs where UIKit's list shows one.
-    /// Each axis has its indicator while its content reaches past the port.
+    /// Each axis it scrolls has its indicator while its content reaches past the port.
     package override func layoutSubviews() {
         super.layoutSubviews()
         let inset = adjustedContentInset
-        let x = contentSize.width + inset.left + inset.right > bounds.width + 0.5
-        let y = contentSize.height + inset.top + inset.bottom > bounds.height + 0.5
+        let x = scrollsX && contentSize.width + inset.left + inset.right > bounds.width + 0.5
+        let y = scrollsY && contentSize.height + inset.top + inset.bottom > bounds.height + 0.5
         if showsHorizontalScrollIndicator != x { showsHorizontalScrollIndicator = x }
         if showsVerticalScrollIndicator != y { showsVerticalScrollIndicator = y }
     }
@@ -94,13 +100,35 @@ final class Viewport: ScrollView {
     override func focusItems(in rect: CGRect) -> [any UIFocusItem] { FocusSearch.items(self, in: rect) }
     #endif
 }
+#if os(tvOS)
+extension NodeView {
+    /// A canvas child its surface places offers nothing of its subtree to
+    /// UIKit's focus search, which finds focus items through each focus
+    /// environment's `focusItemContainer` and its `focusItems(in:)` ("the
+    /// child focus items within the specified rectangle", UIFocusItemContainer):
+    /// it would find them at their own frames, not where the surface draws
+    /// them, a native control inside (a select's button, a field) included.
+    /// tvOS only: on iOS the viewport's search (`FocusSearch.items`) skips
+    /// them, and a node class answering this is logged at each init (above).
+    package override func focusItems(in rect: CGRect) -> [any UIFocusItem] { drawnBySurface ? [] : super.focusItems(in: rect) }
+}
+#endif
 /// Bound focus search to a native route or modal presentation, as the
-/// document viewport does.
+/// document viewport does (LLP 1123 D2).
 final class PresentationMount: UIView {
     #if os(iOS)
     /// Relay a modal presentation's events to its logical ancestors (`MountRelay`).
     var relay: MountRelay?
     #endif
+    // UIKit's views over the ranked route (`keepPlatformViewsOver`).
+    override func didAddSubview(_ subview: UIView) {
+        super.didAddSubview(subview)
+        keepPlatformViewsOver()
+    }
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        keepPlatformViewsOver()
+    }
     #if !os(tvOS)
     override func focusItems(in rect: CGRect) -> [any UIFocusItem] { FocusSearch.items(self, in: rect) }
     #endif

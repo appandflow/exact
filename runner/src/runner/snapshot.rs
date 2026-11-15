@@ -1,12 +1,26 @@
-//! Snapshot refresh is separate from rendering.
+//! Snapshot refresh is separate from rendering (LLP 1126 D3/D8).
 use super::{DataSource, Runner};
 use crate::{Answer, Dispatch, Outcome, Request, Store, Value, Work};
 use std::time::Instant;
 
 impl<D: DataSource> Runner<D> {
-    /// A snapshot refresh never writes the store: it returns props only, so there is
+    /// Stage 1 never writes the store: refresh returns props only, so there is
     /// no second writer. Each awaited request uses the host's existing carrier.
     pub fn snapshot_timeline(
+        &mut self,
+        now: f64,
+        snapshot: Vec<(String, Vec<u8>)>,
+        deadline: Instant,
+        execute: impl FnMut(Request, Option<Work>) -> Result<Outcome, String>,
+    ) -> Result<String, String> {
+        let result = self.refresh_snapshot(now, snapshot, deadline, execute);
+        // What the module journaled since its last answer or reply, however
+        // the refresh ended: the host closes the session after it.
+        self.take_data_logs();
+        result
+    }
+
+    fn refresh_snapshot(
         &mut self,
         now: f64,
         snapshot: Vec<(String, Vec<u8>)>,
@@ -32,6 +46,9 @@ impl<D: DataSource> Runner<D> {
             return Err("widget refresh timed out".into());
         }
         let mut answer = self.data.answer(&mut store, &name, &args);
+        // The module's journal, its `console` lines with it, as each answer
+        // and reply ends (LLP 1027.009 D2), not held through a request.
+        self.take_data_logs();
         let result = (|| {
             // Bound chains too: an immediate continuation must not spin forever.
             for _ in 0..128 {
@@ -45,7 +62,7 @@ impl<D: DataSource> Runner<D> {
                             self.data.discard(token);
                         }
                     }
-                    return Err("snapshot refresh cannot write the store".into());
+                    return Err("snapshot refresh cannot write the store in stage 1".into());
                 }
                 match step {
                     Answer::Now(value) => {
@@ -83,6 +100,7 @@ impl<D: DataSource> Runner<D> {
                                         &args,
                                         Dispatch::again_outcome(),
                                     );
+                                    self.take_data_logs();
                                     continue;
                                 }
                                 _ => {
@@ -107,6 +125,7 @@ impl<D: DataSource> Runner<D> {
                             return Err("widget refresh timed out".into());
                         }
                         answer = self.data.parse(&mut store, &name, &args, outcome);
+                        self.take_data_logs();
                     }
                 }
             }

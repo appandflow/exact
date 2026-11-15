@@ -44,7 +44,7 @@ take() {
     give; echo "$(date +%T) cooling ${COOL:-300} s (thermal $s)"; sleep ${COOL:-300}
   done
 }
-# GATE=1 (the iPhone's thermal gate): a take (one app's scenarios, <= 10 min)
+# GATE=1 (the iPhone, the coordinator's thermal ruling of 2026-09-30 18:35): a take (one app's scenarios, <= 10 min)
 # starts only when the probe's own reading is 0 (nominal) or 1 (fair) — a `rest` run of the static UIKit heavy list
 # (BENCH_PING_APP, ~20 s), which then stays in front as the keeper — and at least COOL (300) s after the previous
 # hold's give. Every result carries the state it ran at (the probe's fields; also logged per run to

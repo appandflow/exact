@@ -1,5 +1,5 @@
-// The JSON Schema subset on Android: the checks every target shares (web/schema.js and
-// LanguageModelSchema.swift say the same), and the validation Android's structured output is (ML Kit takes a
+// D8's JSON Schema subset on Android (LLP 1133.016): the checks every target shares (web/schema.js and
+// LanguageModelSchema.swift say the same), and the validation Android's structured output is (D8: ML Kit takes a
 // schema only from KSP-generated classes, so the schema goes into the prompt and the answer is checked here).
 //
 // An object's keys keep the order org.json read them in; an instance is written in the order of its schema's
@@ -35,8 +35,8 @@ object LanguageModelSchema {
         val top = root ?: s
         if (s.has("\$ref")) return if (resolve(s.opt("\$ref"), top) != null) null else "$at: `${s.opt("\$ref")}` names nothing in `\$defs`"
         val type = s.optString("type")
-        val allowed = KEYS[type] ?: return "$place: type `${type.ifEmpty { "none" }}` is outside the supported subset"
-        for (k in keys(s).sorted()) if (k !in allowed && k !in ANY) return "$place: `$k` is outside the supported subset"
+        val allowed = KEYS[type] ?: return "$place: type `${type.ifEmpty { "none" }}` is outside D8's subset"
+        for (k in keys(s).sorted()) if (k !in allowed && k !in ANY) return "$place: `$k` is outside D8's subset"
         s.optJSONObject("\$defs")?.let { defs -> for (name in keys(defs).sorted()) refusal(defs.opt(name), top, "\$defs.$name")?.let { return it } }
         if (type == "object") s.optJSONObject("properties")?.let { p ->
             for (name in keys(p).sorted()) refusal(p.opt(name), top, if (at.isEmpty()) name else "$at.$name")?.let { return it }
@@ -90,7 +90,7 @@ object LanguageModelSchema {
         }
     }
 
-    /** The agent model's first instance as JSON text: each required property in order, a string's first `enum` value or `""`, a
+    /** §9's first instance as JSON text: each required property in order, a string's first `enum` value or `""`, a
      * number's `minimum` or 0, `false`, and an array of `minItems` first instances. */
     fun firstInstance(schema: JSONObject, root: JSONObject? = null): String {
         val top = root ?: schema

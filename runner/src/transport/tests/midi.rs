@@ -1,4 +1,4 @@
-//! MIDI through a runner: access and its grant, `sendMIDI`
+//! MIDI through a runner (LLP 1125 D6–D8): access and its grant, `sendMIDI`
 //! and its refusals, a sequence's notes with a track's offset and the seek
 //! rule, an edit's and a stop's retractions, overlapping notes, clock out,
 //! and `midimessage` with coalescing and every listener's own commit.
@@ -447,7 +447,7 @@ fn every_listener_hears_a_message_in_its_own_commit_and_controls_coalesce() {
     assert_eq!(text(&r, "beatSeen"), 0.5);
 }
 
-/// A `reload` while a note sounds ends it: its
+/// Review round 1, A1: a `reload` while a note sounds ends it: its
 /// note-off is handed at once and nothing is left waiting.
 #[test]
 fn a_reload_ends_every_sounding_note() {
@@ -466,7 +466,7 @@ fn a_reload_ends_every_sounding_note() {
         .all(|e| e.by.is_some() || e.at - 50.0 <= 600.0));
 }
 
-/// A queue full of messages far ahead does not block a
+/// Review round 1, A2: a queue full of messages far ahead does not block a
 /// note that is due, and the clock moves on.
 #[test]
 fn a_full_queue_never_blocks_a_due_note() {
@@ -488,7 +488,7 @@ fn a_full_queue_never_blocks_a_due_note() {
     );
 }
 
-/// A restart's Start reaches the device after the old
+/// Review round 1, A3: a restart's Start reaches the device after the old
 /// clock's Stop, in time order, not only in the journal's.
 #[test]
 fn a_restart_starts_after_its_stop() {
@@ -513,7 +513,7 @@ fn a_restart_starts_after_its_stop() {
     assert!(stop > 510.0);
 }
 
-/// A Start an edit takes back before it is handed is
+/// Review round 1, A4: a Start an edit takes back before it is handed is
 /// sent again.
 #[test]
 fn a_start_taken_back_is_sent_again() {
@@ -530,7 +530,7 @@ fn a_start_taken_back_is_sent_again() {
     assert!(s.contains(&("fa".into(), 300.0, None)), "{s:?}");
 }
 
-/// A full queue does not hang a note a track's positive
+/// Review round 2: a full queue does not hang a note a track's positive
 /// offset keeps beyond the hold; its fill wakes when the note enters the
 /// hold, never again where it stood.
 #[test]
@@ -557,7 +557,7 @@ fn a_full_queue_and_a_positive_offset_still_move_on() {
     );
 }
 
-/// A runner ended on a live clock ends at the host's time,
+/// Review round 2: a runner ended on a live clock ends at the host's time,
 /// not its last commit's: a note-on the output handed since is not taken
 /// back, and its note-off comes after it.
 #[test]
@@ -581,7 +581,7 @@ fn ending_a_runner_takes_the_host_s_time() {
     );
 }
 
-/// A Start the app sent itself, taken back at a stop, does
+/// Review round 2: a Start the app sent itself, taken back at a stop, does
 /// not stand for the clock's: the clock still sends Stop.
 #[test]
 fn an_app_s_own_start_does_not_suppress_the_clock_s_stop() {
@@ -595,7 +595,7 @@ fn an_app_s_own_start_does_not_suppress_the_clock_s_stop() {
     assert!(s.iter().any(|e| e.0 == "fc" && e.2.is_none()), "{s:?}");
 }
 
-/// An edit while a full queue parks a note the fill never
+/// Review round 3: an edit while a full queue parks a note the fill never
 /// issued still issues it: an output the fill did not reach is not taken
 /// for one handed.
 #[test]
@@ -618,7 +618,7 @@ fn an_edit_keeps_a_note_a_full_queue_parked() {
     );
 }
 
-/// A parked note issued after a tempo
+/// The final confirmation of round 3: a parked note issued after a tempo
 /// edit ends in the segment its end falls in, not the newest: at 120 BPM a
 /// 0.05-beat note at offset 100 sounds from 100 to 125 though the tempo
 /// moved to 30 at 40.
@@ -723,7 +723,7 @@ fn sent_lists_what_went_out_and_is_answered_as_each_goes() {
 
 /// `sent` is in the order messages went (time, then id), not the order
 /// they were queued; it outlives the queue's record; and Timing Clock is
-/// never listed nor answered for, whoever sent it.
+/// never listed nor answered for, whoever sent it (review round 1).
 #[test]
 fn sent_is_in_time_order_outlives_the_queue_and_leaves_out_clock() {
     let mut r = granted(&sent_source());
@@ -761,7 +761,7 @@ fn sent_is_in_time_order_outlives_the_queue_and_leaves_out_clock() {
     );
 }
 
-/// `""` is no output. What a
+/// LLP 1125 D6 (2026-10-20, second amendment): `""` is no output. What a
 /// sequence plays to it and what `sendMIDI("")` sends is queued, taken back
 /// and listed in `sent` as any message is, with `output: ""`, whether or
 /// not MIDI access was asked for, and no host is handed it: euxy's activity

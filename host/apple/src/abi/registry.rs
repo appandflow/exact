@@ -1,4 +1,4 @@
-//! The runtimes an app's exports address by handle: each an
+//! The runtimes an app's exports address by handle (LLP 1031 D2): each an
 //! entry of its bridge and the hooks it was created with.
 
 use super::{escape, Bridge, Hooks};
@@ -15,7 +15,7 @@ pub struct Entry<D: DataSource> {
     pub hooks: Hooks,
 }
 
-/// Every live runtime on this thread, by handle. Handles come
+/// Every live runtime on this thread, by handle (LLP 1031 D2). Handles come
 /// from one process-wide counter — never 0, never reused, unique across
 /// threads even though each thread keeps its own registry — so a late call
 /// on a destroyed runtime is refused, never confused with a successor, and
@@ -63,7 +63,7 @@ impl<D: DataSource> Registry<D> {
     }
 
     /// Drop a runtime: its runner, executor sender, buffers, and journal go
-    /// with it. `false` when there was no such runtime.
+    /// with it (LLP 1031 D2). `false` when there was no such runtime.
     pub fn destroy(&mut self, rt: u32) -> bool {
         self.entries.remove(&rt).is_some()
     }
@@ -105,7 +105,7 @@ pub fn refuse(rt: u32, why: &str, busy: bool) -> u32 {
     })
 }
 
-/// The same refusal in the agent API's shape (`{"error":…}`),
+/// The same refusal in the agent API's shape (`{"error":…}`, LLP 1012),
 /// for `exact_agent` on a dead or busy runtime.
 pub fn refuse_agent(rt: u32, why: &str) -> u32 {
     REFUSAL.with(|r| {
@@ -155,7 +155,7 @@ pub fn with_runtime<D: DataSource, T>(
         }
     };
     let hooks = guard.hooks;
-    // Its session's role overrides, as `with_entry`'s.
+    // Its session's role overrides, as `with_entry`'s (LLP 1121 stage 5).
     let roles = guard.bridge.roles();
     let _roles = roles.as_ref().map(exact_kernel::style::roles::bind);
     let out = f(&mut guard.bridge, hooks);
@@ -173,8 +173,8 @@ pub fn with_entry<D: DataSource>(
     let entry = registry.with(|r| r.borrow().get(rt));
     if let Some(entry) = entry {
         if let Ok(mut e) = entry.try_borrow_mut() {
-            // Its session's role overrides, not another's on this thread:
-            // an embedded session's resolve as its own.
+            // Its session's role overrides, not another's on this thread
+            // (LLP 1121 stage 5): an embedded session's resolve as its own.
             let roles = e.bridge.roles();
             let _roles = roles.as_ref().map(exact_kernel::style::roles::bind);
             f(&mut e);

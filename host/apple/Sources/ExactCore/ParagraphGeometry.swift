@@ -1,8 +1,20 @@
-// Every consumer uses fragment origins and band bounds.
+// @ref LLP 1043.000 §3 D7 — every consumer uses fragment origins and band bounds.
 import Foundation
 import CoreText
 
 extension TextEngine {
+    package static func selectionSegments(_ line: CTLine, range: NSRange) -> [TextSelectionSpan] {
+        TextSelectionRun.segments(range, runs: TextSelectionRun.capture(line)) {
+            CTLineGetOffsetForStringIndex(line, $0, nil)
+        }
+    }
+
+    package static func selectionSpans(_ line: CTLine, range: NSRange) -> [ClosedRange<CGFloat>] {
+        TextSelectionRun.spans(range, runs: TextSelectionRun.capture(line)) {
+            CTLineGetOffsetForStringIndex(line, $0, nil)
+        }
+    }
+
     /// A broken line as CSS finishes it, for every Apple path that makes one
     /// from a range (layout, rasters, regions). A line that ends at a soft
     /// hyphen (U+00AD) shows a hyphen there, as the browser does; CoreText
@@ -10,7 +22,8 @@ extension TextEngine {
     /// `text-align: justify` at that width) every line but the paragraph's
     /// last and one ending in a forced break fills the width
     /// (`text-align-last: auto`). Indices stay the source's, so hit testing,
-    /// selection and later layouts read the same ranges.
+    /// selection and later layouts read the same ranges. The reader diary
+    /// found both missing only on Apple.
     package static func finishedLine(_ line: CTLine, source: NSAttributedString, range: CFRange, justify width: Double?) -> CTLine {
         let line = inkedSoftHyphen(line, source: source, range: range)
         return width.map { justified(line, source: source, range: range, width: $0) } ?? line
@@ -19,12 +32,19 @@ extension TextEngine {
     /// What a line's trailing white space adds to its width that CSS does
     /// not count. Collapsible spaces at a line's end are removed (CSS Text 3
     /// §4.1.2, Phase II rule 3). `pre-wrap`'s (`whiteSpace` 1) hang at a soft
-    /// wrap and, before a forced break, which the end of the block also is,
-    /// conditionally hang: only as far as they would not fit in `room`
-    /// (rule 4). CSS Text 3 §8.2 counts conditionally hanging spaces in a max-content
+    /// wrap and, before a forced break, which the end of the block also is
+    /// (§5), conditionally hang: only as far as they would not fit in `room`
+    /// (rule 4). §8.2 counts conditionally hanging spaces in a max-content
     /// size, so a `pre-wrap` "Say " is as wide as "Say" and its space, as
     /// Chrome measures it. `pre`'s (4) count.
     package static func uncountedTrailingWidth(_ line: CTLine, whiteSpace: Int, source: NSAttributedString, room: CGFloat) -> CGFloat {
+        // The start room of a run the next line starts with (`exactBreakRoom`).
+        let range = CTLineGetStringRange(line)
+        return trailingSpaces(line, whiteSpace: whiteSpace, source: source, room: room)
+            + breakRoom(endingAt: range.location + range.length, in: source)
+    }
+
+    private static func trailingSpaces(_ line: CTLine, whiteSpace: Int, source: NSAttributedString, room: CGFloat) -> CGFloat {
         if whiteSpace == 4 { return 0 }
         let trailing = CGFloat(CTLineGetTrailingWhitespaceWidth(line))
         guard whiteSpace == 1 else { return trailing }
@@ -39,7 +59,7 @@ extension TextEngine {
     /// The part of a line's trailing white space that its width counts
     /// (`uncountedTrailingWidth` leaves the rest out), in a box `room` wide.
     package static func countedTrailingWidth(_ line: CTLine, whiteSpace: Int, source: NSAttributedString, room: CGFloat) -> CGFloat {
-        max(0, CGFloat(CTLineGetTrailingWhitespaceWidth(line)) - uncountedTrailingWidth(line, whiteSpace: whiteSpace, source: source, room: room))
+        max(0, CGFloat(CTLineGetTrailingWhitespaceWidth(line)) - trailingSpaces(line, whiteSpace: whiteSpace, source: source, room: room))
     }
 
     package static func inkedSoftHyphen(_ line: CTLine, source: NSAttributedString, range: CFRange) -> CTLine {
@@ -70,6 +90,102 @@ extension TextEngine {
     }
 }
 
+package struct TextSelectionSpan {
+    package let extent: ClosedRange<CGFloat>
+    package let rtl: Bool
+    package let containsStart: Bool
+    package let containsEnd: Bool
+}
+
+/// A bidi boundary has two carets. A selection takes the edge of the run it
+/// reaches; interior carets retain CoreText's placement within ligatures.
+/// Only numeric geometry crosses from a reader worker to its snapshot.
+package struct TextSelectionRun: Sendable {
+    private let range: NSRange
+    private let start: CGFloat
+    private let end: CGFloat
+    private let rtl: Bool
+    /// The string indices of the run's first and last glyphs, and the extent
+    /// of the glyphs at the last. A run's string range can hold characters
+    /// with no glyph before or after them (a U+200F that ends a word), and
+    /// CoreText places their carets elsewhere on the line.
+    private let glyphs: ClosedRange<Int>
+    private let last: ClosedRange<CGFloat>
+
+    package static func capture(_ line: CTLine) -> [Self] {
+        (CTLineGetGlyphRuns(line) as! [CTRun]).compactMap { run in
+            let count = CTRunGetGlyphCount(run)
+            guard count > 0 else { return nil }
+            let range = CTRunGetStringRange(run)
+            var indices = [CFIndex](repeating: 0, count: count)
+            var positions = [CGPoint](repeating: .zero, count: count)
+            var advances = [CGSize](repeating: .zero, count: count)
+            CTRunGetStringIndices(run, CFRange(), &indices)
+            CTRunGetPositions(run, CFRange(), &positions)
+            CTRunGetAdvances(run, CFRange(), &advances)
+            let first = indices.min()!, final = indices.max()!
+            var left = CGFloat.infinity, right = -CGFloat.infinity
+            var lastLeft = CGFloat.infinity, lastRight = -CGFloat.infinity
+            // Cursive attachment and combining marks can advance backwards.
+            for i in 0..<count {
+                let a = positions[i].x, b = a + advances[i].width
+                left = min(left, a, b); right = max(right, a, b)
+                if indices[i] == final { lastLeft = min(lastLeft, a, b); lastRight = max(lastRight, a, b) }
+            }
+            let rtl = CTRunGetStatus(run).contains(.rightToLeft)
+            return Self(range: NSRange(location: range.location, length: range.length),
+                        start: rtl ? right : left, end: rtl ? left : right, rtl: rtl,
+                        glyphs: first...final, last: lastLeft...lastRight)
+        }
+    }
+
+    /// One piece for each run the selection reaches. A piece of characters
+    /// with no glyph paints nothing and is dropped unless every piece is one;
+    /// a selection endpoint in it moves to the nearest piece that paints.
+    package static func segments(_ selection: NSRange, runs: [Self], offset: (Int) -> CGFloat) -> [TextSelectionSpan] {
+        var pieces: [(lo: Int, hi: Int, extent: ClosedRange<CGFloat>, rtl: Bool)] = []
+        for run in runs {
+            let lo = max(selection.location, run.range.location)
+            let hi = min(NSMaxRange(selection), NSMaxRange(run.range))
+            guard hi > lo else { continue }
+            let a = run.offset(at: lo, caret: offset)
+            let b = run.offset(at: hi, caret: offset)
+            pieces.append((lo, hi, min(a, b)...max(a, b), run.rtl))
+        }
+        let painted = pieces.filter { $0.extent.upperBound > $0.extent.lowerBound }
+        let kept = painted.isEmpty ? pieces : painted
+        let starts = pieces.contains { $0.lo == selection.location }, first = kept.map(\.lo).min()
+        let ends = pieces.contains { $0.hi == NSMaxRange(selection) }, last = kept.map(\.hi).max()
+        return kept.map {
+            TextSelectionSpan(extent: $0.extent, rtl: $0.rtl, containsStart: starts && $0.lo == first, containsEnd: ends && $0.hi == last)
+        }.sorted { $0.extent.lowerBound < $1.extent.lowerBound }
+    }
+
+    private func offset(at index: Int, caret: (Int) -> CGFloat) -> CGFloat {
+        if index <= glyphs.lowerBound { return start }
+        if index == NSMaxRange(range) { return end }
+        let x = caret(index)
+        // Past the last glyph's first character only a ligature's own caret
+        // falls inside that glyph; anything else has only glyphless
+        // characters after it in the run.
+        if index > glyphs.upperBound, !(x > last.lowerBound && x < last.upperBound) { return end }
+        // An invisible directional control can belong to this run's string
+        // range while CoreText places its caret across a neighbouring run.
+        return min(max(x, min(start, end)), max(start, end))
+    }
+
+    package static func spans(_ selection: NSRange, runs: [Self], offset: (Int) -> CGFloat) -> [ClosedRange<CGFloat>] {
+        var merged: [ClosedRange<CGFloat>] = []
+        for segment in segments(selection, runs: runs, offset: offset) {
+            let piece = segment.extent
+            if let last = merged.last, piece.lowerBound <= last.upperBound {
+                merged[merged.count - 1] = last.lowerBound...max(last.upperBound, piece.upperBound)
+            } else { merged.append(piece) }
+        }
+        return merged
+    }
+}
+
 extension TextEngine {
     /// Where a line starts in a box `room` wide, flush `flush` (0 left, 0.5
     /// centre, 1 right). The line aligns as its ink and the trailing spaces
@@ -80,11 +196,11 @@ extension TextEngine {
     /// not its "y", at the right edge, as in Chrome. CoreText draws a
     /// right-to-left line's trailing spaces left of its pen, so there the
     /// pen moves right by them. A line wider than its box is start-aligned
-    /// and overflows its end edge, as CSS Text 3 §6.1 has it ("the contents are
+    /// and overflows its end edge, as §6.1 has it ("the contents are
     /// start-aligned") and Chrome draws it. CoreText flushes the overlong
     /// line the other way, so a right-aligned column at an accessibility
-    /// text size spilled left over its neighbour (a weather table's "High"
-    /// header ran into "Low") where the web spills right.
+    /// text size spilled left over its neighbour (round 13's weather: the
+    /// "High" header ran into "Low") where the web spills right.
     package static func penOffset(_ line: CTLine, flush: CGFloat, room: Double, rtl: Bool, whiteSpace: Int = 0, source: NSAttributedString? = nil) -> CGFloat {
         // A left-aligned left-to-right line starts at its box's start edge
         if flush == 0 && !rtl { return 0 }
@@ -92,7 +208,11 @@ extension TextEngine {
         // The room beside the line's ink (CoreText's offset for a right flush)
         let slack = CGFloat(CTLineGetPenOffsetForFlush(line, 1, room))
         guard slack - counted >= 0 else { return rtl ? slack : 0 }
-        return CGFloat(CTLineGetPenOffsetForFlush(line, flush, room)) - counted * flush + (rtl ? counted : 0)
+        // The start room of the run the next line starts with is kerned on
+        // this line's last glyph, and is the next line's (`exactBreakRoom`).
+        let range = CTLineGetStringRange(line)
+        let leaves = rtl ? 0 : source.map { breakRoom(endingAt: range.location + range.length, in: $0) } ?? 0
+        return CGFloat(CTLineGetPenOffsetForFlush(line, flush, room)) - counted * flush + (rtl ? counted : 0) + leaves * flush
     }
 }
 
@@ -100,7 +220,7 @@ extension TextEngine {
 /// puts on the right): CSS `text-indent` on the first line, and a Markdown
 /// list item's head indent on each of its lines, the first one's less the
 /// marker hung before it — the `padding-left` and outside marker the web
-/// lays the same item out with. Measure, layout, paint, hits
+/// lays the same item out with (LLP 1045 D4). Measure, layout, paint, hits
 /// and raster workers all start lines here.
 package struct LineInsets {
     package var textIndent: CGFloat = 0
@@ -108,12 +228,16 @@ package struct LineInsets {
     /// The indented paragraphs (each ends after its newline), UTF-16
     /// [start, end), in order: the first line's inset and the others'.
     package var heads: [(start: Int, end: Int, first: CGFloat, rest: CGFloat)] = []
+    /// Where a later run with an inline box's start room begins, the room a
+    /// line starting there takes (`TextEngine.kernInlineEdges`).
+    package var edgeStarts: [Int: CGFloat] = [:]
 
     package init() {}
     /// `spec`'s; `marker` is the width of a hung run's UTF-16 range, as
     /// the paragraph's own source shapes it.
     package init(_ spec: Spec, marker: (CFRange) -> CGFloat) {
-        textIndent = spec.textIndent; rtl = spec.direction == 1
+        textIndent = spec.firstLineIndent; rtl = spec.direction == 1
+        edgeStarts = Self.edgeStarts(spec.runs)
         guard spec.runs.contains(where: { $0.indent != 0 }) else { return }
         var open: (start: Int, first: CGFloat, rest: CGFloat)?
         var at = 0
@@ -140,7 +264,7 @@ package struct LineInsets {
     /// The inset of the line that starts at UTF-16 `location`: how far
     /// right its start moves (`left`) and how much room it gives (`width`).
     package func at(_ location: Int) -> (left: CGFloat, width: CGFloat) {
-        var width: CGFloat = location == 0 ? textIndent : 0
+        var width: CGFloat = location == 0 ? textIndent : edgeStarts[location] ?? 0
         var lo = 0, hi = heads.count
         while lo < hi { let mid = (lo + hi) / 2; if heads[mid].start <= location { lo = mid + 1 } else { hi = mid } }
         if lo > 0, location < heads[lo - 1].end {
@@ -214,6 +338,27 @@ extension Paragraph {
     /// `selectionRects`, each with the line it is on: what paints a
     /// selection's glyphs as well as its fill.
     package func selectedLines(_ range: NSRange, align: Int, in bounds: CGRect, dirty: CGRect) -> [(line: Int, rect: CGRect)] {
+        selectionBands(range, align: align, in: bounds, dirty: dirty).flatMap { band in
+            TextEngine.selectionSpans(lines[band.line], range: range).map { span in
+                (band.line, CGRect(x: band.rect.minX + span.lowerBound, y: band.rect.minY,
+                                   width: max(1, span.upperBound - span.lowerBound), height: band.rect.height))
+            }
+        }
+    }
+
+    /// UIKit needs each run's direction and logical endpoints, even where
+    /// adjacent highlights merge into one painted rectangle.
+    package func selectionSegments(_ range: NSRange, align: Int, in bounds: CGRect, dirty: CGRect)
+        -> [(line: Int, rect: CGRect, span: TextSelectionSpan)] {
+        selectionBands(range, align: align, in: bounds, dirty: dirty).flatMap { band in
+            TextEngine.selectionSegments(lines[band.line], range: range).map { span in
+                (band.line, CGRect(x: band.rect.minX + span.extent.lowerBound, y: band.rect.minY,
+                                   width: max(1, span.extent.upperBound - span.extent.lowerBound), height: band.rect.height), span)
+            }
+        }
+    }
+
+    private func selectionBands(_ range: NSRange, align: Int, in bounds: CGRect, dirty: CGRect) -> [(line: Int, rect: CGRect)] {
         guard range.location >= 0, range.length > 0 else { return [] }
         var rects: [(line: Int, rect: CGRect)] = []
         for i in lines.indices {
@@ -225,8 +370,7 @@ extension Paragraph {
             let y = bounds.minY + (baselines[i] * lineScale).rounded() / lineScale
             guard y + below >= dirty.minY, y - above <= dirty.maxY else { continue }
             let x = bounds.minX + origin(i, align: align, width: bounds.width)
-            let x0 = CTLineGetOffsetForStringIndex(line, lo, nil), x1 = CTLineGetOffsetForStringIndex(line, hi, nil)
-            rects.append((i, CGRect(x: x + min(x0, x1), y: y - above, width: max(1, abs(x1 - x0)), height: above + below)))
+            rects.append((i, CGRect(x: x, y: y - above, width: 0, height: above + below)))
         }
         return rects
     }
@@ -373,7 +517,7 @@ extension MeasuredGlyphs.Line {
 extension Spec {
     package var reusesMeasuredGlyphs: Bool {
         lineClamp == 0 && !ellipsis && align != 3 && shadow == nil && runs.allSatisfy {
-            !$0.hidden && !$0.fixedInk && ($0.color == nil || $0.color == color) && $0.decoration.isEmpty
+            $0.opacity.isEmpty && !$0.hidden && !$0.fixedInk && ($0.color == nil || $0.color == color) && $0.decoration.isEmpty
                 && $0.underlineColor == nil && $0.strikeColor == nil && $0.background == nil && $0.shadow == nil && $0.stroke == nil && $0.href.isEmpty
         }
     }

@@ -1,5 +1,5 @@
-// `concat`, `slice` and `includes` over lists are JavaScript's:
-// `slice` clamps as text's does (negative from the end, NaN is 0,
+// `concat`, `slice` and `includes` over lists are JavaScript's (LLP 1088
+// §9.1): `slice` clamps as text's does (negative from the end, NaN is 0,
 // fractions truncate, an omitted end is the end), and `includes` is
 // SameValueZero (NaN is found, -0 is 0). HN's collapsed comments and mail's
 // selection, as session state.

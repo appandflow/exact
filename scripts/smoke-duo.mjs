@@ -1,4 +1,4 @@
-// The iPhone Duo suite: `bun scripts/smoke.mjs duo`. Drives
+// The iPhone Duo suite (LLP 1078 D9): `bun scripts/smoke.mjs duo`. Drives
 // `apps/duo-lab` and the `insets` and `keyboard-bar` corpus fixtures, with
 // UIKit's bars and real touches (`--chrome platform`, `--touch platform`; the web
 // leg has the agent's), on the Duo simulator fully open, partially folded and
@@ -21,7 +21,8 @@
 // `bun host/apple/build.mjs --ios duo-lab` (and `--ios --host` for the host
 // fixture). Without the Duo it prints `duo: unsupported — …` and the smoke
 // exits 0, the convention for a missing carrier. The device is turned by the
-// same helper (CoreDevice's orientation commands do not turn the Duo): the suite starts it upright, and the rotate, resize and web legs turn it.
+// same helper (CoreDevice's orientation commands do not turn the Duo, LLP 1008
+// §9): the suite starts it upright, and the rotate, resize and web legs turn it.
 // `--only insets,keyboard-bar,lab,arrangement,reading,navigation,navigation-gestures,host-navigation,host,rotate,resize,web` runs the named legs; the keyboard checks
 // run only when a probe shows a software keyboard on this simulator.
 import { spawn, spawnSync } from 'node:child_process';
@@ -32,8 +33,9 @@ import { appleArtifacts } from '../host/apple/build.mjs';
 import { logEntry, logStream } from '../host/apple/cloak.mjs';
 import { simulator, simulators } from '../host/apple/devices.mjs';
 import { HOST_DEV, resolveApp } from './app.mjs';
+import { fileURLToPath } from 'node:url';
 
-const ROOT = resolve(new URL('..', import.meta.url).pathname);
+const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const byTestId = (t, id) => t.nodes.find((n) => n.props.testId === id);
 const box = (l, id) => l.nodes.find((n) => n.testId === id);
@@ -50,7 +52,7 @@ const onGrid = (a, b) => near(a, b, 1 / 3 + 0.01);
 /** Whether box `b` lies within segment `seg` (`[x, y, w, h]`) from left to right. */
 const within = (b, seg) => !!b && b.x >= seg[0] - 0.01 && b.x + b.w <= seg[0] + seg[2] + 0.01;
 
-// The matrix, and the Duo's geometry under iOS 27.1: the
+// The matrix, and the Duo's geometry under iOS 27.1 (LLP 1008 §9): the
 // cover panel 466×678, the inner panel 951×669, the division (455.5, 0, 40, 669)
 // active when partially folded, so the segments are (0, 0, 455.5, 669) and
 // (495.5, 0, 455.5, 669).
@@ -60,7 +62,7 @@ const within = (b, seg) => !!b && b.x >= seg[0] - 0.01 && b.x + b.w <= seg[0] + 
 // not report the recorded inner panel, the panel sizes are checked against
 // what the device reports and the segments against `layout.env`'s own rects.
 // One hinge angle stands for each state Apple names: partially folded is one state whatever the angle (the same
-// posture and segments at 130° as at 90°), so a pose's checks run once per state.
+// posture and segments at 130° as at 90°, LLP 1127 §1), so a pose's checks run once per state.
 const POSES = [['fully-open', 180], ['partially-folded', 130], ['closed', 0]];
 const folded = (deg) => deg > 0 && deg < 180;
 const RECORDED = { inner: { w: 951, h: 669 }, cover: { w: 466, h: 678 } };
@@ -446,7 +448,7 @@ async function suite({ open: openSession, check: record }, reset) {
    * below the note's header, with Dismiss and the textarea above that end. Under UIKit's bars it first reads the layout
    * again until its keyboard inset equals the native state's `overlap`. It returns the layout it checked. Given `top`,
    * the lower segment's before the keyboard, the fold keeps its two segments, the lower one's top there and ending where
-   * the viewport does, never below zero (the keyboard). */
+   * the viewport does, never below zero (LLP 1078, the keyboard). */
   const onKeyboard = async (s, l, tag, top) => {
     const uikit = s.chrome !== 'agent';
     let native;
@@ -499,7 +501,7 @@ async function suite({ open: openSession, check: record }, reset) {
   }
   const labBundle = appleArtifacts(lab, { destination: 'ios-simulator' }).bundle;
   if (!check(existsSync(labBundle), 'duo: build the simulator bundle first: bun host/apple/build.mjs --ios duo-lab')) return;
-  // A bundle linked against the 27.0 SDK finds neither UIKit 27.1 class and reports flat: the fold needs the iOS 27.1 SDK.
+  // A bundle linked against the 27.0 SDK finds neither UIKit 27.1 class and reports flat (LLP 1078 §As built, Apple): the fold needs the iOS 27.1 SDK.
   const sdk = JSON.parse(readFileSync(resolve(labBundle, 'receipt.json'), 'utf8')).sdk ?? '';
   const sdkVersion = Number(/iPhoneSimulator(\d+\.\d+)\.sdk/.exec(sdk)?.[1] ?? 0);
   if (!check(sdkVersion >= 27.1, `duo: the duo-lab bundle was built with ${sdk || 'an unknown SDK'}; the fold needs the iOS 27.1 SDK — DEVELOPER_DIR=<Xcode 27.1> bun host/apple/build.mjs --ios duo-lab`)) return;
@@ -511,8 +513,8 @@ async function suite({ open: openSession, check: record }, reset) {
   // `AutomaticMinimizationEnabled = 1`, the software keyboard minimized behind the
   // hardware keyboard a simulator always has, what "Connect Hardware Keyboard" set —
   // and the key stays after the window closes, per device, so a session that raised
-  // the keyboard found none minutes later, and a pushed route raised no keyboard.
-  // The key is causal
+  // the keyboard at 14:24 found none at 14:37 on 2026-10-02 (LLP 1078 §As built) —
+  // the "pushed route raises no keyboard" the queue carried. The key is causal
   // (written, the keyboard goes; deleted, it is back) and read in well under a
   // second with `simctl spawn <udid> defaults read`; backboardd's "Hardware keyboard
   // attached" is not the state (every booted simulator gets it at once, and a fresh
@@ -590,7 +592,7 @@ async function suite({ open: openSession, check: record }, reset) {
         if (await rose(s, kb, tag)) {
           check(kb > 100, `${tag}: the software keyboard rose: keyboard-inset-height ${kb}`);
           check(kb > 0 && note.y + note.h <= l2.viewport.h - kb + 0.01 && note.y < noteBefore.y, `${tag}: the field is revealed above the keyboard ${JSON.stringify(note)} kb ${kb} (was ${JSON.stringify(noteBefore)})`);
-          // A fold's segments keep their tops, and the last row ends at the visual viewport's end, the keyboard's top (the keyboard).
+          // A fold's segments keep their tops, and the last row ends at the visual viewport's end, the keyboard's top (LLP 1078, the keyboard).
           const [was, now, end, cols] = [l.env['viewport-segments'] ?? [], l2.env['viewport-segments'] ?? [], l2.viewport.h - kb, l2.env['horizontal-viewport-segments']];
           check(now.length === was.length && was.every(([, y, , h], i) => near(now[i][1], y) && near(now[i][3], i < was.length - cols ? h : Math.max(0, Math.min(y + h, end) - y), 0.02)), `${tag}: the keyboard ends the last row of segments at the visual viewport's end ${end}: ${JSON.stringify(now)} (were ${JSON.stringify(was)})`);
         }
@@ -930,7 +932,7 @@ async function suite({ open: openSession, check: record }, reset) {
           const layout = await s.layout();
           if (overflow) {
             check(box(layout, 'app')?.h > layout.viewport.h, `${name}: the document has page overflow`);
-            // No scroll view holds native navigation that fills the screen, so the page does not scroll under it.
+            // No scroll view holds native navigation that fills the screen (LLP 1123 D1), so the page does not scroll under it.
             await s.tap('app', { wheel: [0, 100] }); await settle(s);
             check(!(await s.layout('app')).node.scroll.some((scroll) => scroll.viewport && scroll.sy > 0), `${name}: the page stays still under native navigation`);
           }
@@ -1303,7 +1305,7 @@ async function suite({ open: openSession, check: record }, reset) {
       return true;
     };
     /** After the Duo closes, SpringBoard can take the first turn that reaches it once its display swap is over to end
-     * its fold transition, and turn no app (iOS 27.1). So, from SpringBoard's log, the swap's orientation
+     * its fold transition, and turn no app (iOS 27.1; QUEUE). So, from SpringBoard's log, the swap's orientation
      * deferrals end, the Duo turns upside down, which an app on the cover panel does not take, and SpringBoard sees
      * that pose, before the turns the leg checks. `since` is when the Duo began to close. */
     const spend = async (s, since) => {
@@ -1380,7 +1382,7 @@ async function suite({ open: openSession, check: record }, reset) {
       const chosen = await chooseSecond(s);
       await orient('landscape-right', s);
       // The scene turns after CoreDevice reports it, and a session asked for before then is refused. Twice in about ten
-      // probes no scene turned until the hinge next moved, so the hinge moves once if the turn is lost.
+      // probes no scene turned until the hinge next moved (QUEUE), so the hinge moves once if the turn is lost.
       if (!await turned(10000)) {
         console.log(`duo resize: the turn reached no scene within 10 s; folding and opening again to let it through`);
         await pose(s, 130); await pose(s, 180);
@@ -1419,7 +1421,7 @@ async function suite({ open: openSession, check: record }, reset) {
       }
     } catch (e) { if (!['no session', 'no turn'].includes(e.message)) check(false, `${where}: ${e.message}`); } finally {
       // Whatever failed, the session is asked to end, then made to, and the device is left open and upright for the next
-      // run: a session left open once cost the simulator its turns until it rebooted
+      // run: a session left open once cost the simulator its turns until it rebooted (QUEUE)
       await shot(s);
       for (const signal of ['SIGINT', 'SIGTERM', 'SIGKILL']) {
         if (!live()) break;
@@ -1439,7 +1441,7 @@ async function suite({ open: openSession, check: record }, reset) {
   // the tabs keep to the trailing segment; folded like a laptop, the note screen, which hides the tablist, keeps its
   // sheet to the lower segment, and the sheet rides on the keyboard once it is up with its textarea above it, as the
   // rotate leg checks under UIKit's bars. Its taps are the agent's: the agent refuses a real touch on the tablist this
-  // chrome shows in place of UIKit's tab bar.
+  // chrome shows in place of UIKit's tab bar (LLP 1080.000 D7, stage 3).
   if (leg('web')) {
     const s = await open({ host: 'ios', app: 'duo-lab', plan: plans['duo-lab-tall'], chrome: 'agent', touch: 'agent' });
     try {

@@ -1,4 +1,4 @@
-//! Kept instances interleaved with composition and image-slot markers.
+//! Kept instances interleaved with composition and image-slot markers. @ref LLP 1149 D4.
 use crate::instance::{Bindings, Instance, TextureId};
 use std::ops::Range;
 

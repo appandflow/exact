@@ -1,14 +1,14 @@
 //! A separately linked app capability at the data seam, after first pixel.
-//! Native computation beside TypeScript; host grants.
+//! @ref LLP 1027 D8 / D10 — native computation beside TypeScript; host grants.
 
 use crate::NativeStorage;
 use serde_json::Value;
 /// The JSON a native module takes and answers, for a module that names
-/// `exact_js` alone.
+/// `exact_js` alone (LLP 1154 D3).
 pub use serde_json::{json, Value as Json};
 use std::sync::Arc;
 
-/// How a native module says a device topic changed: every
+/// How a native module says a device topic changed (LLP 1016.002): every
 /// answer that called `native.watch(topic)` is asked again. Any thread.
 pub type Changed = Arc<dyn Fn(&str) + Send + Sync>;
 

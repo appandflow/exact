@@ -1,5 +1,5 @@
-//! A `symbol:` image source names a role; it also answers to the other
-//! spellings of one: Apple's name for the role, dotted or dashed, and the
+//! A `symbol:` image source names a role (LLP 1035.004.000); it also answers to the other
+//! spellings of one (LLP 1116.007 D3.1): Apple's name for the role, dotted or dashed, and the
 //! schema's aliases. The lowering rewrites a literal source to its role, so the plan and every
 //! host see the role, which is what each draws by.
 
@@ -12,7 +12,7 @@ use exact_kernel::generated::{symbol_role, SYMBOL_ROLES};
 pub(crate) use ink::symbol_ink;
 pub(crate) use tint::tints;
 
-/// The role whose Apple name an SF Symbol is, exactly (`symbol:sf/chevron.backward`
+/// The role whose Apple name an SF Symbol is, exactly (LLP 1121 D10: `symbol:sf/chevron.backward`
 /// draws `back` where no SF Symbol is).
 pub(crate) fn role_by_apple_name(sf: &str) -> Option<&'static str> {
     SYMBOL_ROLES
@@ -33,7 +33,7 @@ fn role_of(source: &str) -> Option<(&str, &'static str)> {
 }
 
 /// A literal source written as the plan holds it: a role by another spelling as the role, an icon
-/// token (by name, or `sf/<name>` by its `sf`) as its source form.
+/// token (by name, or `sf/<name>` by its `sf`) as its source form (LLP 1121 D10).
 /// An icon whose `sf` a source's SF Symbol is comes before the role whose Apple name it is, as a
 /// host resolves a computed one.
 fn literal(source: &str) -> Option<String> {
@@ -82,7 +82,7 @@ pub(crate) fn roles(e: &Expr) -> Option<Expr> {
 }
 
 /// A template's text when every part of it is a literal.
-fn constant(parts: &[TemplatePart]) -> Option<String> {
+pub(crate) fn constant(parts: &[TemplatePart]) -> Option<String> {
     parts.iter().try_fold(String::new(), |mut out, part| {
         match part {
             TemplatePart::Text(t) => out.push_str(t),
@@ -95,7 +95,7 @@ fn constant(parts: &[TemplatePart]) -> Option<String> {
 }
 
 /// An image source's warnings: a symbol by another spelling (`aliases`). An SVG file draws
-/// as a picture on every host, so none names one.
+/// as a picture on every host (LLP 1011.001), so none names one.
 pub(crate) fn image_source(e: &Expr, platform: &mut Vec<LowerError>) -> Vec<LowerError> {
     aliases(e, platform)
 }
@@ -121,7 +121,7 @@ pub(crate) fn aliases(e: &Expr, platform: &mut Vec<LowerError>) -> Vec<LowerErro
                 message,
                 span: *span,
             };
-            // An SF Symbol an icon token names, or one no host but Apple's draws.
+            // @ref LLP 1121 D10 — an SF Symbol an icon token names, or one no host but Apple's draws.
             if let Some(sf) = s.strip_prefix("symbol:sf/") {
                 if let Some(icon) = crate::icons::named(&format!("sf/{sf}")) {
                     return vec![alias(format!(
@@ -175,7 +175,7 @@ pub(crate) fn aliases(e: &Expr, platform: &mut Vec<LowerError>) -> Vec<LowerErro
             platform.push(LowerError {
                 id: "lower-symbol-platform",
                 message: format!(
-                    "symbol `sf/{sf}` draws only on Apple, and the app ships {}, where it is blank. {role}{}eclare an icon token for them: in app.tamber's `icons` (a new app.tamber's first line is `tamber <name>`), `icon.{token} = icon(sf \"{sf}\", svg \"icons/{token}.svg\")`, with `assets/icons/{token}.svg` drawn as {} (a Material Symbols SVG is), and write `symbol:icon.{token}`{}",
+                    "symbol `sf/{sf}` draws only on Apple, and the app ships {}, where it is blank. {role}{}eclare an icon token for them: in app.forma's `icons` (a new app.forma's first line is `forma <name>`), `icon.{token} = icon(sf \"{sf}\", svg \"icons/{token}.svg\")`, with `assets/icons/{token}.svg` drawn as {} (a Material Symbols SVG is), and write `symbol:icon.{token}`{}",
                     targets.iter().map(|t| t.described()).collect::<Vec<_>>().join(" and "),
                     if role.is_empty() { "D" } else { "d" },
                     crate::icons::TEMPLATE,
@@ -204,8 +204,8 @@ pub(crate) fn literals(e: &Expr) -> Vec<&str> {
 }
 
 /// A source that is not a role (or `sf/` and a name) is refused, naming the role one spelling
-/// edit away and where the roles are listed (the hundred roles repeated in every refusal would
-/// cost a builder 1.3 KB each time); `e` is already written with roles (see [`roles`]).
+/// edit away and where the roles are listed (LLP 1116.021 D3: the hundred roles repeated in every
+/// refusal cost a builder 1.3 KB each time); `e` is already written with roles (see [`roles`]).
 pub(crate) fn check(e: &Expr, span: Span) -> Result<(), LowerError> {
     // A template of literals is checked as the literal it folds to, in
     // either arm of a choice too.
@@ -222,7 +222,7 @@ pub(crate) fn check(e: &Expr, span: Span) -> Result<(), LowerError> {
         };
         // An icon the design declares and the build refused said why already.
         // An empty name is no symbol, as an empty `sf/` one is: a computed
-        // source whose caller passes "" under its own `if`.
+        // source whose caller passes "" under its own `if` (stage 9 H).
         if !role.is_empty()
             && !role.starts_with("sf/")
             && !role.starts_with("icon|")
@@ -235,7 +235,7 @@ pub(crate) fn check(e: &Expr, span: Span) -> Result<(), LowerError> {
             return err(
                 "lower-attr-value",
                 format!(
-                    "symbol `{role}` is not a role; {near}`contract vocab symbol` lists the roles; or name any SF Symbol as `symbol:sf/<name>` (`symbol:sf/{}`), drawn on Apple and blank elsewhere, so a tab or button that must show everywhere takes a role or an icon token (`icons` in app.tamber)",
+                    "symbol `{role}` is not a role; {near}`contract vocab symbol` lists the roles; or name any SF Symbol as `symbol:sf/<name>` (`symbol:sf/{}`), drawn on Apple and blank elsewhere, so a tab or button that must show everywhere takes a role or an icon token (`icons` in app.forma)",
                     role
                 ),
                 span,

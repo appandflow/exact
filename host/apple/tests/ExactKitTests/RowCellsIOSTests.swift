@@ -3,7 +3,7 @@ import UIKit
 import XCTest
 @testable import ExactKit
 
-/// On iOS, rows of a list Contract marked (`listRows`) are
+/// LLP 1115.000 D16 on iOS: rows of a list Contract marked (`listRows`) are
 /// drawn as a plain list's cells, to what a `UICollectionView` plain list
 /// measured on iOS 27 (`RowCellsIOS.swift` has the numbers): UIKit's
 /// separator under each row from the row's text and above the first, the

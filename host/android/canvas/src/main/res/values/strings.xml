@@ -1,7 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- A date or time picker's button that empties the control, as Chrome's on
+    <!-- A date or time picker's button that empties the control (LLP 1115.001.000 D1), as Chrome's on
          Android offers. The platform has no string for it and Material 3's are not public, so the reader
          carries its own, in the languages Android ships. -->
     <string name="exact_clear">Clear</string>
+    <!-- The channel a notification without a declared one takes (LLP 1133.004.000 D1), as a hand-built app names
+         its general channel. -->
+    <string name="exact_default_channel">Notifications</string>
+    <!-- The channel a silent post takes below Android 12 (LLP 1133.004.000 D2). -->
+    <string name="exact_silent_channel">Silent notifications</string>
 </resources>

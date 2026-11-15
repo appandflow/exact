@@ -36,7 +36,7 @@ final class SurfaceControlTests: XCTestCase {
             XCTAssertTrue(try XCTUnwrap(GpuModule.verify(path: path, compat: compat, artifact: artifact)).message.contains("digest mismatch"))
         }
     }
-    override class func setUp() { super.setUp(); ExactSurfaces.install() }
+    override class func setUp() { super.setUp(); ExactSurfaces.install() } // LLP 1047.001 D4
     func fixture() -> (ExactSession, NodeView, NodeView) {
         #if os(macOS)
         _ = NSApplication.shared
@@ -121,7 +121,7 @@ final class SurfaceControlTests: XCTestCase {
         withExtendedLifetime(window) {}
     }
     func testR15PointerButtonReturnsSpaceToCanvasAndKeyboardKeepsFocus() {
-        keyboardNavigation(true) // Tab reaches the button below
+        keyboardNavigation(true) // Tab reaches the button below (LLP 1115.000 D7.2)
         let (s, canvas, button) = fixture(); defer { s.destroy() }
         button.props.removeValue(forKey:"action"); button.handlers.insert("press")
         let window=NSWindow(contentRect:NSRect(x:0,y:0,width:400,height:200),styleMask:[.borderless],backing:.buffered,defer:false)
@@ -173,7 +173,7 @@ final class SurfaceControlTests: XCTestCase {
         XCTAssertTrue(controlEvents.contains { $0["code"] as? String == "KeyX" && $0["down"] as? Bool == true })
         withExtendedLifetime(window) {}
     }
-    /// Space presses the focused button, and the press
+    /// Space presses the focused button (LLP 1115.000 D7.3), and the press
     /// that removes it hands the keys back to its canvas; Return presses no
     /// merely focused button, so it stays.
     func testDetachedKeyboardButtonReturnsSpaceToOriginalCanvasAndReturnPressesNothing() {
@@ -374,9 +374,9 @@ final class SurfaceControlTests: XCTestCase {
         XCTAssertEqual(m.deliveryClock(fresh,now:300)["now"] as? Double,300)
     }
     #if os(macOS)
-    /// A key the agent types at a world's canvas takes the keyboard's
-    /// route, as on the web — the canvas's `key` handlers hear it, and
-    /// one that prevents it keeps it from the world.
+    /// The platformer's diary, R8: a key the agent types at a world's canvas
+    /// takes the keyboard's route, as on the web — the canvas's `key`
+    /// handlers hear it, and one that prevents it keeps it from the world.
     func testAgentCanvasKeyReachesKeyHandlersAndPreventedOnesStopThere() {
         let (s, canvas, _) = fixture(); defer { s.destroy() }
         let window=NSWindow(contentRect:NSRect(x:0,y:0,width:200,height:200),styleMask:[.borderless],backing:.buffered,defer:false)

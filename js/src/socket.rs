@@ -1,5 +1,5 @@
-//! A mutation's, a mapper call's or an answer's socket operations.
-//! The prelude's handle checks and copies each `send` and
+//! A mutation's, a mapper call's or an answer's socket operations (LLP
+//! 1016.000 D7). The prelude's handle checks and copies each `send` and
 //! `close` while the mutation's source, the socket's own mapper or a turn of
 //! an answer runs, and hands them through the door: a mutation's when its
 //! answer is given now and a mapper call's as it returns (op 14), an
@@ -35,7 +35,7 @@ pub(crate) fn op_from_json(text: &str) -> Result<SocketOp, String> {
                 .unwrap_or("")
                 .to_string(),
         }),
-        // A child's (js/src/process.js), by incarnation.
+        // A child's (LLP 1133.007 D2; js/src/process.js), by incarnation.
         Some(op @ ("write" | "end" | "kill")) if j.get("incarnation").is_some() => {
             let incarnation = (j.get("incarnation").and_then(Json::as_u64))
                 .and_then(|n| u32::try_from(n).ok())
@@ -56,7 +56,7 @@ pub(crate) fn op_from_json(text: &str) -> Result<SocketOp, String> {
             };
             Ok(SocketOp::Process { incarnation, op })
         }
-        // A listener's, to one connection.
+        // A listener's, to one connection (LLP 1133.005 D6).
         Some(op @ ("line" | "end")) => {
             let connection = (j.get("connection").and_then(Json::as_u64))
                 .ok_or("listen: a connection that is not a number")?;
@@ -121,8 +121,8 @@ impl Module {
         Ok(owned)
     }
 
-    /// Stage what a turn of `source`'s answer sent, whatever it answered.
-    /// The prelude refuses a handle whose
+    /// Stage what a turn of `source`'s answer sent, whatever it answered
+    /// (the amendment of 2026-10-18). The prelude refuses a handle whose
     /// stream it saw end, so a ticket this module no longer streams on is a
     /// turn that outlived its socket: the whole batch is refused, and said.
     pub(crate) fn stage_answer(
@@ -135,8 +135,9 @@ impl Module {
             Ok(owned) => owned
                 .into_iter()
                 .for_each(|(resource, op)| store.stage_answer_socket(resource, op)),
-            Err(why) => (self.logs).push(format!(
-                "answer `{source}` failed: {why}; socket frames were refused"
+            Err(why) => (self.logs).push((
+                None,
+                format!("answer `{source}` failed: {why}; socket frames were refused"),
             )),
         }
     }

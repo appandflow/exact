@@ -9,7 +9,7 @@ struct Uniforms {
 }
 
 @group(0) @binding(0) var<uniform> u: Uniforms;
-// The canvas's children — laid out by the kernel,
+// The canvas's children (LLP 1014) — laid out by the kernel,
 // painted by the host — premultiplied, the canvas's box at its scale.
 @group(0) @binding(1) var children: texture_2d<f32>;
 @group(0) @binding(2) var children_sampler: sampler;

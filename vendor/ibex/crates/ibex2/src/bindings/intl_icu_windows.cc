@@ -1,6 +1,7 @@
 // Binds the shims' icu.dll pointer table (intl_icu_windows.h).
 //
-// Rust's `intl_os` loads System32's icu.dll by full path, checks GetModuleFileNameW, and only then
+// @ref LLP 0057.000#511-windows-intl-uses-the-os-icu — Rust's `intl_os` loads
+// System32's icu.dll by full path, checks GetModuleFileNameW, and only then
 // passes the module here. This file resolves the pointers from exactly that
 // module; nothing else in the process decides which icu.dll the shims call.
 

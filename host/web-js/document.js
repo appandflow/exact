@@ -1,6 +1,6 @@
-// What a view says about its page's document, for rt.js: its
-// head and the element that scrolls it; and which routes of its
-// navigation roots it shows.
+// What a view says about its page's document (LLP 1048.003), for rt.js: its
+// head (D1) and the element that scrolls it (D4); and which routes of its
+// navigation roots it shows (LLP 1038 D6).
 //
 // The head is the runner's (runner/src/head.rs): the innermost active `head`
 // wins field by field, a deeper head over a shallower one and, at one depth,
@@ -14,8 +14,8 @@
 // fields to the next; the page's title and description follow it as the web
 // host's `documentHead` writes them (document-glue.js). Where no head sets a
 // title it is the selected route's header's heading, else the app's name
-// (navigation.js `pageTitle`, both web targets').
-import { unselected, unselectedForHead, pageTitle, panelsOf, viewChildren } from "./navigation.js";
+// (navigation.js `pageTitle`, both web targets': LLP 1115.000 D4.1).
+import { unselected, unselectedForHead, pageTitle, panelsOf, viewChildren, overPage } from "./navigation.js";
 import { scope, owner, onEnd, adopting } from "./rt.js";
 
 /** The active head's fields by prop name (`headTitle` …): what a renderer
@@ -121,14 +121,15 @@ function publish() {
  * rt.js `After`), as the web host projects after every batch; Escape on a
  * modal route presses its back, and `navigate` takes a popstate's location
  * (unheard, `hostBack` and `hostGo` are the router's own). */
-export function projectRoots(history, navigate, say, after, hostBack, hostGo, routeMatches) {
+export function projectRoots(history, navigate, say, after, hostBack, hostGo, routeMatches, canonical) {
   const root = document.getElementById("exact-root"), project = () => history.project(root, say);
-  history.connect(root, navigate, say, hostBack, hostGo, routeMatches, true);
+  history.connect(root, navigate, say, hostBack, hostGo, routeMatches, true, canonical);
   after.push(project, markDocument); history.activate(root, say);
 }
 
-/** Project route visibility before startup. A modal keeps the underlying page
- * and intervening sheets visible but inert, as navigation.js `project` does. */
+/** Project route visibility before startup. A modal, or a full-screen route
+ * that paints its own background, keeps the underlying page and intervening
+ * sheets visible but inert, as navigation.js `project` does. */
 export function markRoutes(root) {
   for (const nav of [...root.getElementsByTagName("*")].filter(e => e.hasAttribute("navigationBack"))) {
     const key = nav.getAttribute("navigationKey"), panels = panelsOf(nav);
@@ -139,15 +140,15 @@ export function markRoutes(root) {
     panels.forEach((p, i) => mark(p, i !== at, i !== at));
     stacks.forEach((routes, i) => {
       const shown = i === at ? routes.findIndex(r => r.getAttribute("navigationKey") === key) : routes.length - 1;
-      const sheet = routes[shown]?.getAttribute("navigationPresentation") === "modal";
-      const beneath = routes.findLastIndex((r, j) => j < shown && r.getAttribute("navigationPresentation") !== "modal");
+      const sheet = overPage(routes[shown]);
+      const beneath = routes.findLastIndex((r, j) => j < shown && !overPage(r));
       routes.forEach((r, j) => mark(r, j !== shown && !(sheet && j >= beneath && j < shown), j !== shown));
     });
   }
 }
 
 /** The elements that may be the page's scroller: `<html data-scrolldocument>`
- * while one is, which the shell's rule reads, as the web host's glue.
+ * while one is (D4), which the shell's rule reads, as the web host's glue.
  * One in a route or panel the projection hid is `data-exact-offpage`, an inner
  * scroller again, so a covered route's content leaves the page's height. When
  * the page's one scroller changes, it is given the page's scroll it last had:
@@ -179,7 +180,7 @@ export function markDocument() {
   if (page && Page !== page) { if (scrolls && (Page?.isConnected || Scrolled.has(page))) scrollTo(...(Scrolled.get(page) ?? [0, 0])); Page = page; }
 }
 
-// A navigation tab is built the first time it is
+// @ref LLP 1075.003 §3.7 — a navigation tab is built the first time it is
 // selected, as the runner builds it (runner/src/instance/tabs.rs): a panel the
 // compiler names (emit.rs, `panel_sites`) is made empty, and its contents are
 // made after the tree update of the commit whose tree first selects it (rt.js

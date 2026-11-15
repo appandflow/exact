@@ -1,4 +1,4 @@
-//! What moves decides the rate a display runs it at: a change
+//! What moves decides the rate a display runs it at (LLP 1061 D4): a change
 //! of place or size wants the panel's full rate; a fade does not.
 
 use crate::keyframed;

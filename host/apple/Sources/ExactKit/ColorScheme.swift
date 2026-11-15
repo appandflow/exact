@@ -1,10 +1,10 @@
-// `color-scheme` on a subtree: a node view's own appearance,
+// `color-scheme` on a subtree (LLP 1034 §8): a node view's own appearance,
 // which the platform's appearance inheritance carries to every view below.
 #if os(iOS) || os(tvOS)
 import UIKit
 
 extension NodeView {
-    /// `color-scheme` on a subtree: the view's own
+    /// `color-scheme` on a subtree (LLP 1034 §8): the view's own
     /// appearance, which UIKit's trait inheritance carries to every view
     /// below — so `light-dark()`, platform colours and materials there
     /// resolve in it — and each re-resolves through its trait-change
@@ -40,6 +40,7 @@ extension NodeView {
         ColorSchemes.changed(self)
     }
 
+    /// Its computed `color-scheme` (inherited, so a node under one that sets it has it too).
     var colorScheme: UIUserInterfaceStyle {
         switch style["color_scheme"]?.string {
         case "dark": .dark
@@ -107,7 +108,7 @@ enum ColorSchemes {
 import AppKit
 
 extension NodeView {
-    /// `color-scheme` on a subtree: the view's own
+    /// `color-scheme` on a subtree (LLP 1034 §8): the view's own
     /// appearance, which AppKit's `effectiveAppearance` carries to every view
     /// below, so `light-dark()`, platform colours and materials there resolve
     /// in it; each re-resolves through `viewDidChangeEffectiveAppearance`.

@@ -1,4 +1,4 @@
-//! Type and family tokens' entries. A type
+//! Type and family tokens' entries (LLP 1121 D3, D6; stage 6 C). A type
 //! token is CSS `font` syntax, `[style] [weight] size[/line-height]
 //! [family]`, and names only the longhands it writes; `font="type.body"`
 //! lowers to one row a longhand, each naming the token, and each reads its

@@ -1,4 +1,4 @@
-//! A presence secret in a session: a launch that
+//! A presence secret in a session (LLP 1133.010 D5, D12): a launch that
 //! begins locked shows no kept answer and holds no bytes, a locked write
 //! goes to the backend and not the host's plain store, `get` fails the
 //! answer that reads a locked name, and `unlock` answers on the store's own
@@ -213,7 +213,7 @@ fn unlock_answers_behind_the_agent_s_ticket_and_never_for_a_tool() {
     let unlock = Request::native(
         br#"{"presence":"unlock","name":"token","reason":"reason.unlock"}"#.to_vec(),
     );
-    // A tool's call fails before anything is asked.
+    // A tool's call fails before anything is asked (D12).
     let refused = r.as_origin(super::modules::CallOrigin::Tool, |r| run(r, &unlock));
     assert!(
         body(&refused).contains("person-required"),

@@ -1,8 +1,8 @@
-// The Siri Remote on tvOS. UIKit's focus engine
+// The Siri Remote on tvOS (LLP 1008 §9). UIKit's focus engine
 // moves the focus among exact2's nodes — what a keyboard can focus, and any
 // enabled press target — and reports each move as focus and blur. Select
 // presses the focused node. Menu presses the active route's Back control
-// while a route can pop, else a shown button that declares
+// (LLP 1075 D1) while a route can pop, else a shown button that declares
 // `aria-keyshortcuts="Escape"` (the key macOS presses it with). With neither,
 // its recognizer is removed, so Menu reaches tvOS and leaves the app, as
 // tvOS requires at an app's root. A keyboard's Space presses no node here:
@@ -16,11 +16,12 @@ import UIKit
 
 extension NodeView {
     /// An explicit negative `tabindex` is no remote stop, as it is no Tab
-    /// stop; the remote's order stays UIKit's geometry.
+    /// stop (LLP 1088 D7.3); the remote's order stays UIKit's geometry.
     package override var canBecomeFocused: Bool {
-        if isNativeButton { return false } // UIKit owns the single focus stop.
+        if isNativeButton { return false } // UIKit owns the single focus stop (LLP 1104 D6).
         if let index = explicitTabIndex, index < 0 { return false }
         if cssVisibilityHidden { return false } // no remote stop, nor Select (e28279b3b)
+        if placedAncestor != nil { return false } // the focus engine would find it at its own frame, not where the surface draws it
         return canBecomeFirstResponder || (!disabled && !inert && handlers.contains("press")) || focusableScroller
     }
 

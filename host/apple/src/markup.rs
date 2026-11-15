@@ -1,4 +1,4 @@
-//! Markdown into display pieces for the Swift text engine.
+//! Markdown into display pieces for the Swift text engine (LLP 1045 D3, D4).
 //!
 //! The kernel hands a `markup="markdown"` node's source to the measurer as
 //! one run with the request's `markup` flag set. Swift expands it here, with
@@ -37,11 +37,11 @@ pub struct CPiece {
     pub href: *const u8,
     /// Its length.
     pub href_len: usize,
-    /// CSS px: the head indent of the paragraph it is in.
+    /// CSS px: the head indent of the paragraph it is in (LLP 1045 D4).
     pub indent: f32,
     /// 1 for a list marker, hung before the indent with its end at it.
     pub hang: u8,
-    /// An inline atom's detail as JSON: `{kind, role,
+    /// An inline atom's detail as JSON (LLP 1045.000 D6): `{kind, role,
     /// icon, title, href, source, start, end, color, background}`, its text
     /// the label, its colours its face's in the colour wire form (null for
     /// the kind's); null for any other piece.
@@ -84,7 +84,7 @@ fn next_handle() -> u64 {
 }
 
 /// A node's `atoms` and `atomFaces` JSON, parsed once for the calls that
-/// take its handle. Freed by [`free`]; invalid UTF-8 reads
+/// take its handle (LLP 1045.000 D2). Freed by [`free`]; invalid UTF-8 reads
 /// as none.
 pub fn atoms(kinds: *const u8, kinds_len: usize, faces: *const u8, faces_len: usize) -> u64 {
     let text = |p, n| {
@@ -105,14 +105,14 @@ fn atoms_of(handle: u64) -> std::rc::Rc<exact_markdown::Atoms> {
         .unwrap_or_default()
 }
 
-/// A face's `color` or `backgroundColor`, as the runner
+/// A face's `color` or `backgroundColor` (LLP 1045.000 D2), as the runner
 /// wrote it (`atom_face_paint`), in the presenters' colour wire form, which
 /// they resolve for the appearance they draw in; null where the kind's
 /// paint stands.
 fn face_paint(text: &str) -> serde_json::Value {
     // No session's overrides: the runner resolved the session's into the text.
     let _roles = exact_kernel::style::roles::bind(&Default::default());
-    // Nor any plan's profiles, whatever scope the caller is in:
+    // Nor any plan's profiles, whatever scope the caller is in (LLP 1100 §11):
     // the runner refuses a declared one's colour on a face.
     let _profiles = exact_kernel::style::profiled::declarations(std::iter::empty());
     exact_runner::decorations::face_color(text)
@@ -218,15 +218,15 @@ pub fn pieces(
 /// "l":[[open,open_end,start,end]…]}`.
 /// Kinds: paragraph 0 body 1 heading 2 bullet 3 ordered 4 task 5 rule 6 fence
 /// 7 code 8 footnote 9 table 10 embed 11 image 12 video; replaced 0 bullet
-/// 1 box 2 checked box 3 rule 4 footnote. `a` is each inline atom:
-/// `[start,end,kind,label,icon,title,role,href,ink,background,
+/// 1 box 2 checked box 3 rule 4 footnote. `a` is each inline atom (LLP
+/// 1045.000): `[start,end,kind,label,icon,title,role,href,ink,background,
 /// direction,ariaLabel]`: its face's paint in the colour wire form (null for
 /// the kind's), its face's direction, `ltr`, `rtl` or empty for its line's,
 /// and its face's accessible name, empty for its label; no hidden range lies
 /// inside one and no atom link is in `l`.
 /// `l` is each link's opener and its `](target)`, which the editor hides
 /// whatever the selection, as the web editor does
-/// (`exact_markdown_editor::link_destinations`). Writes the
+/// (`exact_markdown_editor::link_destinations`, LLP 1045 D5). Writes the
 /// text's address and length; returns a handle to free. Zero for invalid
 /// input.
 #[allow(clippy::too_many_arguments)]
@@ -363,7 +363,7 @@ pub fn edit(
 }
 
 /// Shared toolbar facts, serialized as JSON; no offsets cross into app state.
-/// The selected atom's source is `atom`.
+/// The selected atom's source is `atom` (LLP 1045.000 D3).
 pub fn selection(
     text: *const u8,
     len: usize,
@@ -388,9 +388,10 @@ pub fn selection(
 }
 
 /// Copy the UTF-16 range `start..end` of Markdown as plain UTF-8 text, each
-/// atom the whole source recognizes inside it as its label, or, `spoken`, as
-/// its accessible name (`Atoms::spoken`); the caller frees
-/// the returned handle.
+/// atom the whole source recognizes inside it as its label; or, `spoken`,
+/// the whole source as a reader draws it, each atom its accessible name
+/// (`exact_markdown::spoken`, LLP 1045.000 D8), the range unread. The
+/// caller frees the returned handle.
 #[allow(clippy::too_many_arguments)]
 pub fn plain(
     text: *const u8,
@@ -406,20 +407,16 @@ pub fn plain(
         return 0;
     };
     let atoms = atoms_of(atoms);
-    let atoms = if spoken {
-        std::rc::Rc::new(atoms.spoken())
+    let text = if spoken {
+        exact_markdown::spoken(&exact_markdown::pieces_with(source, &atoms))
     } else {
-        atoms
+        exact_markdown::plain_range(source, exact_markdown::Range::new(start, end), &atoms)
     };
-    hold_json(
-        exact_markdown::plain_range(source, exact_markdown::Range::new(start, end), &atoms),
-        out,
-        count,
-    )
+    hold_json(text, out, count)
 }
 
 /// Each source line's direction under a Markdown editor's `paragraphDirs`
-/// `auto`, as the web editor decides it
+/// `auto` (LLP 1045 D11), as the web editor decides it
 /// (`exact_markdown_editor::auto_directions`): one ASCII digit per line, `0`
 /// none, `1` left to right, `2` right to left. Writes the text's address and
 /// length; returns a handle to free. Zero for invalid input.
@@ -529,7 +526,8 @@ macro_rules! markup_exports {
             $crate::markup::selection(text, len, atoms, start, end, out, count)
         }
         /// Copy a range of Markdown as plain UTF-8 text; `spoken` 1 reads
-        /// each atom as its accessible name.
+        /// the whole source as a reader draws it, each atom its accessible
+        /// name.
         #[no_mangle]
         #[allow(clippy::too_many_arguments)]
         pub extern "C" fn exact_markup_plain(
@@ -584,7 +582,7 @@ mod tests {
         );
         free(handle);
         free(handle);
-        // A list item's paragraph attribute crosses too.
+        // A list item's paragraph attribute crosses too (LLP 1045 D4).
         let source = "- a";
         let handle = pieces(source.as_ptr(), source.len(), 0, &mut out, &mut count);
         let flat = unsafe { std::slice::from_raw_parts(out, count) };
@@ -595,7 +593,7 @@ mod tests {
         assert_eq!(count, 0);
     }
 
-    /// `auto` crosses as one digit a line.
+    /// LLP 1045 D11: `auto` crosses as one digit a line.
     #[test]
     fn auto_directions_cross_as_one_digit_a_line() {
         let source = "Hello\n[^n] مرحبا\n- مرحبا\n42";
@@ -713,7 +711,7 @@ mod tests {
         free(revealed);
     }
 
-    /// A face's colour as the runner wrote it crosses in
+    /// LLP 1045.000 D2: a face's colour as the runner wrote it crosses in
     /// the presenters' wire form: a role as its platform colour, resolved
     /// with no session's overrides even while two sessions live on the
     /// thread (each would be a guess); a colour in a standard space the
@@ -739,7 +737,7 @@ mod tests {
         drop((a, b));
     }
 
-    /// A node's atoms, parsed once, reach styling, pieces,
+    /// LLP 1045.000: a node's atoms, parsed once, reach styling, pieces,
     /// selection facts and plain copy through one handle.
     #[test]
     fn atoms_cross_the_seam_through_one_handle() {

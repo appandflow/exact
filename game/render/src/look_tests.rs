@@ -1,4 +1,4 @@
-//! `state world:<entity> visible` on one scene with an entity
+//! `state world:<entity> visible` (LLP 1127.000 D4) on one scene with an entity
 //! in each primitive state: drawn, frustum, occluded, hidden, hidden-ancestor,
 //! opacity 0 and outside-cascade. Model states (asset-pending, lod-hidden) are
 //! in `tests/visibility`, custom-material in `tests/hooks.rs`.

@@ -3,7 +3,7 @@
   "class" : "hdr",
   "file" : "pq-cicp.png",
   "id" : "F12p",
-  "note" : "16-bit PNG: SDR rendition 16-bit. PQ neutrals at [0, 100, 203, 400, 1000, 4000] cd\/m²; HDR display: linear = nits \/ 203. SDR: ImageIO's tone map",
+  "note" : "16-bit PNG: SDR rendition 16-bit. PQ neutrals at [0, 100, 203, 400, 1000, 4000] cd\/m²; HDR display (stage 3): linear = nits \/ 203. SDR: ImageIO's tone map",
   "patches" : [
     {
       "h" : 64,

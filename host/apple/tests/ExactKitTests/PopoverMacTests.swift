@@ -196,7 +196,7 @@ final class PopoverMacTests: XCTestCase {
 
     private var windows: [NSWindow] = []
     override func tearDown() { windows.forEach { $0.close() }; windows.removeAll() }
-    /// Tab leaves a popover's form for the page's buttons: Keyboard Navigation on.
+    /// Tab leaves a popover's form for the page's buttons: Keyboard Navigation on (LLP 1115.000 D7.2).
     override func setUp() { super.setUp(); keyboardNavigation(true) }
 
     private func fixture() -> Presenter {
@@ -273,7 +273,7 @@ final class PopoverMacTests: XCTestCase {
         p.menus.reset()
     }
     /// A painted menu's focused row chooses on Return as on Space, and the
-    /// menu closes as its row says (as an `NSMenu`'s
+    /// menu closes as its row says (LLP 1115.000 D7.3, as an `NSMenu`'s
     /// highlighted item takes Return); a focused button that is no row
     /// still does nothing with Return.
     func testReturnChoosesAFocusedMenuRowAndClosesTheMenuAsSpaceDoes() throws {
@@ -307,6 +307,108 @@ final class PopoverMacTests: XCTestCase {
         }
         p.menus.reset()
     }
+    func testMenuButtonsTakeReturnAndEscapeRestoresFocusAfterAClick() throws {
+        let p = fixture(), pop = try XCTUnwrap(p.views[3]), window = try XCTUnwrap(p.viewport.window)
+        defer { p.menus.reset() }
+        let source = try XCTUnwrap(p.views[2]), row = try XCTUnwrap(p.views[5])
+        p.apply(wireBatch([
+            ["op": "props", "id": 3, "set": ["accessibilityRole": "menu"]],
+        ]))
+        row.handlers.insert("press")
+        var pressed: [UInt32] = []
+        p.onPress = { pressed.append($0) }
+        for code: UInt16 in [36, 53] {
+            // A Mac click does not focus its button. Opening from empty
+            // ground must still give a keyboard dismissal somewhere to land.
+            window.makeFirstResponder(nil)
+            p.press(source.id)
+            XCTAssertTrue(window.makeFirstResponder(row))
+            pressed.removeAll()
+            let chars = code == 36 ? "\r" : "\u{1b}"
+            for type: NSEvent.EventType in [.keyDown, .keyUp] {
+                let event = try XCTUnwrap(NSEvent.keyEvent(with: type, location: .zero, modifierFlags: [], timestamp: 0,
+                    windowNumber: window.windowNumber, context: nil, characters: chars,
+                    charactersIgnoringModifiers: chars, isARepeat: false, keyCode: code))
+                if !p.routeKey(event, focused: true, in: window) { window.sendEvent(event) }
+            }
+            XCTAssertEqual(pressed, code == 36 ? [row.id] : [])
+            XCTAssertFalse(p.menus.isOpen(pop))
+            XCTAssertTrue(window.firstResponder === p.keyView(of: source))
+            p.menus.close(pop)
+        }
+    }
+
+    func testReturnDoesNotPressAButtonInANonMenuPopoverNestedInsideAMenu() throws {
+        let p = fixture(), menu = try XCTUnwrap(p.views[3]), window = try XCTUnwrap(p.viewport.window)
+        defer { p.menus.reset() }
+        p.apply(wireBatch([
+            ["op": "props", "id": 3, "set": ["accessibilityRole": "menu"]],
+            ["op": "create", "id": 7, "kind": "view", "props": ["popover": "auto", "id": "nested"]],
+            ["op": "create", "id": 8, "kind": "button", "handlers": ["press"]],
+            ["op": "create", "id": 9, "kind": "button", "props": ["popovertarget": "nested"]],
+            ["op": "create", "id": 10, "kind": "input"],
+            ["op": "children", "id": 7, "ids": [10, 8]],
+            ["op": "children", "id": 3, "ids": [4, 5, 7, 9]],
+            ["op": "frame", "id": 7, "x": 0, "y": 0, "w": 200, "h": 100],
+            ["op": "frame", "id": 8, "x": 10, "y": 50, "w": 80, "h": 30],
+            ["op": "frame", "id": 9, "x": 100, "y": 80, "w": 80, "h": 30],
+            ["op": "frame", "id": 10, "x": 10, "y": 10, "w": 180, "h": 30],
+        ]))
+        let nested = try XCTUnwrap(p.views[7]), button = try XCTUnwrap(p.views[8])
+        p.press(2)
+        p.press(9)
+        XCTAssertTrue(p.menus.isOpen(menu))
+        XCTAssertTrue(p.menus.isOpen(nested))
+        XCTAssertFalse(nested.isMenu)
+        XCTAssertFalse(nested.menuShaped)
+        XCTAssertTrue(button.owningMenu === menu, "authored ancestry crosses the open popover")
+        XCTAssertTrue(window.makeFirstResponder(button))
+        var pressed: [UInt32] = []
+        p.onPress = { pressed.append($0) }
+        for (chars, code) in [("\r", UInt16(36)), (" ", 49)] {
+            for type: NSEvent.EventType in [.keyDown, .keyUp] {
+                let event = try XCTUnwrap(NSEvent.keyEvent(with: type, location: .zero, modifierFlags: [], timestamp: 0,
+                    windowNumber: window.windowNumber, context: nil, characters: chars,
+                    charactersIgnoringModifiers: chars, isARepeat: false, keyCode: code))
+                if !p.routeKey(event, focused: true, in: window) { window.sendEvent(event) }
+            }
+            XCTAssertEqual(pressed, code == 36 ? [] : [button.id], "only Space presses the form's button")
+            XCTAssertTrue(p.menus.isOpen(nested))
+        }
+    }
+
+    func testMenuDismissalKeepsAuthoredFocusAndSkipsAnUnfocusableInvoker() throws {
+        let p = fixture(), pop = try XCTUnwrap(p.views[3]), window = try XCTUnwrap(p.viewport.window)
+        defer { p.menus.reset() }
+        let outside = try XCTUnwrap(p.views[6]), row = try XCTUnwrap(p.views[5]), root = try XCTUnwrap(p.views[1])
+        let source = try XCTUnwrap(p.views[2])
+        pop.props["accessibilityRole"] = "menu"
+        row.handlers.insert("press")
+        XCTAssertTrue(window.makeFirstResponder(outside))
+        p.press(source.id)
+        XCTAssertTrue(window.makeFirstResponder(row))
+        XCTAssertTrue(p.menus.key(key(window)))
+        _ = p.menus.key(key(window, up: true))
+        XCTAssertFalse(p.menus.isOpen(pop))
+        XCTAssertTrue(window.firstResponder === p.keyView(of: source), "the invoker wins over a different previous responder")
+
+        XCTAssertTrue(window.makeFirstResponder(outside))
+        p.press(source.id)
+        XCTAssertTrue(window.makeFirstResponder(row))
+        p.onPress = { _ in window.makeFirstResponder(outside) }
+        p.press(row.id)
+        XCTAssertFalse(p.menus.isOpen(pop))
+        XCTAssertTrue(window.firstResponder === outside, "the action's focus wins")
+
+        // showPopover's explicit source need not be a focusable control.
+        XCTAssertFalse(root.acceptsFirstResponder)
+        p.menus.show(pop, from: root)
+        XCTAssertTrue(window.makeFirstResponder(row))
+        XCTAssertTrue(p.menus.key(key(window)))
+        XCTAssertFalse(p.menus.isOpen(pop))
+        XCTAssertTrue(window.firstResponder === outside, "an unfocusable source falls back to the previous responder")
+    }
+
     func testToggleShowHideAndAppActionRefreshAreOrdered() {
         let p = fixture(), pop = p.views[3]!
         p.views[2]!.handlers = ["press"]
@@ -332,7 +434,7 @@ final class PopoverMacTests: XCTestCase {
     }
     /// A painted popover with no authored placement whose invoker is at the
     /// bottom-left opens above it from its left edge (the web's default flip),
-    /// as a chat app's emoji picker does over its composer.
+    /// as Harmony's emoji picker does over its composer.
     func testAPopoverFromTheBottomLeftOpensAboveItsInvoker() {
         let p = fixture(), pop = p.views[3]!
         p.apply(wireBatch([["op": "frame", "id": 2, "x": 10, "y": 360, "w": 80, "h": 30]]))
@@ -376,7 +478,7 @@ final class PopoverMacTests: XCTestCase {
         XCTAssertFalse(p.menus.isOpen(pop))
         XCTAssertTrue(window.firstResponder === p.views[6])
     }
-    /// A press in an open popover with no pointer node of
+    /// LLP 1005 §Events: a press in an open popover with no pointer node of
     /// its own goes to the innermost authored ancestor that hears one, as on
     /// the web, though the popover's view is in the top layer; a
     /// popover that hears one keeps the press.
@@ -393,7 +495,7 @@ final class PopoverMacTests: XCTestCase {
         XCTAssertEqual(log, ["down 1", "up 1"])
         XCTAssertFalse(p.menus.isOpen(pop), "the row's own press still ran")
         // A popover hearing a pointer event holds the moves; the down and up
-        // bubble past it to its authored ancestors.
+        // bubble past it to its authored ancestors (Charlie, 2026-10-15).
         pop.handlers = ["pointermove", "pointerdown"]
         p.press(2)
         row.mouseDown(with: mouse(p, .leftMouseDown, row))
@@ -625,7 +727,7 @@ final class PopoverMacTests: XCTestCase {
 
     /// A double click and a free move in an open popover reach its authored
     /// ancestors' `dblclick` and `pointermove`, as on the web, and never a
-    /// page node only under it.
+    /// page node only under it (#281).
     func testADoubleClickAndAFreeMoveInAPopoverReachItsAuthoredAncestors() throws {
         let p = fixture(), root = try XCTUnwrap(p.views[1]), pop = try XCTUnwrap(p.views[3]), under = try XCTUnwrap(p.views[6])
         p.press(2)
@@ -854,7 +956,7 @@ final class PopoverMacTests: XCTestCase {
         p.apply(wireBatch([["op": "create", "id": 8, "kind": "native"], ["op": "children", "id": 5, "ids": [8]]]))
         XCTAssertFalse(p.menus.isMenuShaped(pop), "custom content inside a button must keep its pixels")
     }
-    /// HTML's `hr` is a menu row: the separator between items.
+    /// HTML's `hr` (LLP 1021 D1) is a menu row: the separator between items.
     func testAnHrRowIsTheMenusSeparator() {
         let p = fixture(), pop = p.views[3]!
         p.views[5]!.handlers.insert("press")
@@ -1103,7 +1205,7 @@ final class PopoverMacTests: XCTestCase {
     /// batch unmounts the invoker the menu was popped up in. It presses
     /// once, after the tracking has ended.
     func testAPickThatUnmountsTheInvokerPressesOnceAfterTheMenuEnds() throws {
-        try XCTSkipIf(ExactEnv.agentMode, "the agent keeps every popover painted")
+        try XCTSkipIf(ExactEnv.agentMode, "the agent keeps every popover painted (LLP 1021 D4)")
         let (p, _) = menuFixture()
         try XCTUnwrap(windows.last).orderFrontRegardless()
         var pressed: [UInt32] = []

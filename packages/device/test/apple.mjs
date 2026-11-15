@@ -1,4 +1,4 @@
-// @exact/device's conformance suite on Apple: the
+// @exact/device's conformance suite on Apple (LLP 1133.031 §12 stage 2): the
 // fixture app made as the web suite makes it, built for macOS or an iOS
 // simulator, and driven by the agent with the Apple implementation bound
 // (`--bind device`), so the platform answers and not the substitute. This
@@ -31,7 +31,7 @@ const { check, failed } = checker();
 }
 
 const { app } = makeFixture(), name = basename(app);
-Object.assign(process.env, { EXACT_APP_DIR: app, EXACT2: root, HERMES_LEAN_SYS_OFFLINE: '1' });
+Object.assign(process.env, { EXACT_APP_DIR: app, EXACT: root, HERMES_LEAN_SYS_OFFLINE: '1' });
 const { open } = await import(resolve(root, 'scripts/agent.mjs'));
 
 /** The text at `testId` once `want` holds, or the last seen; the platform answers on its own time. */
@@ -56,7 +56,7 @@ for (const host of hosts.length ? hosts : ['macos', 'ios']) {
     const battery = await until(s, 'battery', (t) => /^(0(\.\d+)?|1) (true|false)$/.test(t ?? ''));
     const level = Number(battery?.split(' ')[0]);
     check(where, 'getBattery answers a level in hundredths and charging', level >= 0 && level <= 1 && Math.round(level * 100) === level * 100, battery);
-    if (host === 'ios') check(where, 'the simulator answers the specification\'s no-battery values', battery === '1 true', battery);
+    if (host === 'ios') check(where, 'the simulator answers the specification\'s no-battery values (D1)', battery === '1 true', battery);
     const network = await until(s, 'network', (t) => !!t && TYPES.includes(t.split(' ')[0]) && t.split(' ')[0] !== 'unknown');
     check(where, 'connection answers the path\'s type and Low Data Mode', TYPES.includes(network?.split(' ')[0]) && /(true|false)$/.test(network ?? ''), network);
     const power = await until(s, 'power', (t) => /^(true|false) (nominal|fair|serious|critical)$/.test(t ?? ''));

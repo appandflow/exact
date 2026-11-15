@@ -1,5 +1,5 @@
 //! Executor-independent cancellation shared by Rust consumers and transports.
-//! The consumer owns execution; cancellation is carried explicitly.
+//! @ref LLP 0068#2-synchronous-and-why — consumer owns execution; cancellation is carried explicitly
 use crate::boundary::HostError;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, Weak};

@@ -1,4 +1,4 @@
-//! CSS `zoom` on an `iframe`, against Chrome 155 headless
+//! CSS `zoom` on an `iframe` (LLP 1020.002 D6), against Chrome 155 headless
 //! (2026-10-21): a frame's own absolute lengths grow by the zoom, and a
 //! frame sized by its container keeps its size. The kernel zooms the box;
 //! the host zooms the guest's page.

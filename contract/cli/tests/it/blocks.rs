@@ -1,7 +1,7 @@
-//! Geometry reads where a host shows a block's subtree: a block's root placed
-//! among its siblings or lifted to the top layer, its clip, what it inherits
-//! for hit testing, and the modal boundary a presentation draws for structural
-//! reads.
+//! Geometry reads where a host shows a block's subtree (LLP 1115.002 D8.2,
+//! LLP 1123 D2): a block's root placed among its siblings or lifted to the
+//! top layer, its clip, what it inherits for hit testing, and the modal
+//! boundary a presentation draws for structural reads.
 
 use exact_kernel::{Kernel, Offer};
 use exact_runner::{DataError, DataSource, Runner, Value};
@@ -42,6 +42,7 @@ fn block(r: &mut Runner<NoData>, view: exact_kernel::ViewId, width: f32, height:
         .set_host_block(
             view,
             Some(exact_kernel::HostBlock {
+                tactic: Default::default(),
                 width: is(width),
                 height: is(height),
             }),
@@ -56,11 +57,11 @@ fn lay_out(r: &mut Runner<NoData>) {
         .unwrap();
 }
 
-/// A subtree a host lays out in a containing block of its own and presents
-/// above the page, as iOS presents a sheet's route: its frames are in the
-/// block's space, and the host reports where the block's root is shown as it
-/// reports a dialog's (`exact_top_layer`). `frame` and `elementFromPoint`
-/// answer where a person sees the boxes.
+/// A subtree a host lays out in a containing block of its own (LLP 1115.002
+/// D8.2) and presents above the page, as iOS presents a sheet's route (LLP
+/// 1123 D2): its frames are in the block's space, and the host reports where
+/// the block's root is shown as it reports a dialog's (`exact_top_layer`).
+/// `frame` and `elementFromPoint` answer where a person sees the boxes.
 #[test]
 fn a_subtree_in_a_host_block_is_read_where_its_host_shows_it() {
     let plan = contract::compile(
@@ -99,7 +100,7 @@ fn a_subtree_in_a_host_block_is_read_where_its_host_shows_it() {
 }
 
 /// A subtree a host lays out in a block of its own and shows in place, as
-/// iOS shows a stack's route in its controller's view: the host
+/// iOS shows a stack's route in its controller's view (LLP 1123 D2): the host
 /// reports where the block's root is in the page, and the root keeps its
 /// place among its siblings. `frame` reads the subtree there, scaled when
 /// the rectangle is another size than the block, and `elementFromPoint`
@@ -507,7 +508,7 @@ fn a_block_clips_what_is_reached_in_it() {
     );
 }
 
-/// A block lifted to the top layer, as a sheet's route is,
+/// A block lifted to the top layer, as a sheet's route is (LLP 1123 D2),
 /// escapes its logical ancestors' clips and transforms but not their
 /// `inert`: with `inert` on the logical root above it, `elementFromPoint`
 /// at its button finds nothing, as UIKit reaches nothing there (HTML's
@@ -609,14 +610,14 @@ fn a_lifted_block_inherits_visibility_and_pointer_events() {
     );
 }
 
-/// A modal presentation lifted to the top layer, as a sheet's route is (every
-/// presentation is modal), makes the document behind it inert to point reads,
-/// as UIKit's dimming view and the host's `inertBehind` do: a root-level toast
-/// is not found outside the sheet nor under it, and `elementsFromPoint` stops
-/// at the sheet. The host says where the presentation begins in the top layer.
-/// A non-popover `dialog` there is also a modal boundary. For a lifted box that
-/// is not such a dialog, a host modal index of none leaves the document
-/// reachable.
+/// A modal presentation lifted to the top layer, as a sheet's route is
+/// (LLP 1123 D2: every presentation is modal), makes the document behind it
+/// inert to point reads, as UIKit's dimming view and the host's
+/// `inertBehind` do: a root-level toast is not found outside the sheet nor
+/// under it, and `elementsFromPoint` stops at the sheet. The host says
+/// where the presentation begins in the top layer. A non-popover `dialog`
+/// there is also a modal boundary. For a lifted box that is not such a
+/// dialog, a host modal index of none leaves the document reachable.
 #[test]
 fn a_modal_presentation_makes_the_document_behind_it_inert_to_point_reads() {
     let source = r#"component App
@@ -752,6 +753,7 @@ fn a_block_of_no_height_holds_its_root_by_its_frame() {
         .set_host_block(
             route,
             Some(exact_kernel::HostBlock {
+                tactic: Default::default(),
                 width: exact_kernel::BlockAxis::Is(300.0),
                 height: exact_kernel::BlockAxis::Is(0.0),
             }),

@@ -1,10 +1,11 @@
 //! What holds the launch's date: every state, derive and resource whose
 //! value is made from, or decided by, an `exactTime()` resource. The bake
-//! leaves out the answer of a resource asked with any of it:
-//! the bake's date is unknown, zero, and a launch whose
+//! leaves out the answer of a resource asked with any of it (LLP
+//! 1027.000.000 D2): the bake's date is unknown, zero, and a launch whose
 //! source is not ready shows a compiled answer whatever its arguments, so a
 //! library stamped at 1970 would stand until the source answered (and a
 //! task could keep it).
+//! @ref LLP 1027.000.000 D2
 use super::{DataSource, Runner};
 use crate::instance::Input;
 use crate::machine::Instruction;
@@ -62,7 +63,7 @@ impl<D: DataSource> Runner<D> {
     /// action's write of it or under a condition that reads it). The bake
     /// asks once and leaves those answers out of the plan; the launch shows
     /// each one's placeholder until the device's source answers. An `else
-    /// source()` row is the bake's for every launch and is
+    /// source()` row is the bake's for every launch (LLP 1048.003 D6) and is
     /// never one.
     pub fn resources_reading_clock(&self) -> Vec<bool> {
         let plan = &self.plan;
@@ -89,7 +90,7 @@ impl<D: DataSource> Runner<D> {
             .actions
             .iter()
             .map(|a| {
-                crate::vm::instructions(plan.code(a.body))
+                crate::vm::instructions(plan.read_code(plan.code(a.body)).0)
                     .map_while(Result::ok)
                     .collect()
             })

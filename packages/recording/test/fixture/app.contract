@@ -1,4 +1,4 @@
-// The conformance fixture: every name of
+// The conformance fixture (LLP 1133.001 D7, LLP 1133.009 §11): every name of
 // @exact/media-capture's audio half and of @exact/recording, read and sent as
 // an app would, each answer shown by testId for the suites.
 use getUserMedia, stopTrack, setTrackEnabled, mediaStreamTrack, enumerateDevices, microphoneStatus, MediaStream, MediaStreamTrack, MediaDeviceList, MicrophoneStatus from "@exact/media-capture"

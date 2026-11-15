@@ -128,7 +128,7 @@ final class InspectRevealMacTests: XCTestCase {
         outline(glyph)
         XCTAssertEqual(top(), still, accuracy: 0.5, "no other copy is scrolled to")
         glyphs[k].isHidden = false
-        // CSS `visibility: hidden` (its box kept, nothing drawn) shows nowhere too.
+        // CSS `visibility: hidden` (its box kept, nothing drawn) shows nowhere too (Astra's round 2).
         glyphs[k].style["visibility"] = .string("hidden")
         outline(glyph)
         XCTAssertEqual(top(), still, accuracy: 0.5, "a CSS-hidden copy is scrolled to no more than a hidden one")

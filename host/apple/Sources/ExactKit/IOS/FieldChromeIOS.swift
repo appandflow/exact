@@ -1,4 +1,4 @@
-// Real UIKit measurements, shared by the two text engines.
+// @ref LLP 1104 D4–D5: real UIKit measurements, shared by the two text engines.
 #if os(iOS) || os(tvOS)
 import UIKit
 import CExact
@@ -39,8 +39,8 @@ final class FieldChromeCache: @unchecked Sendable {
     // separator stroke, checked beside a roundedRect field in the fixture.
     static let textareaRadius: CGFloat = 5
     static let textareaStroke: CGFloat = 0.5
-    /// The request's bit for a field in a grouped list's row: borderless
-    /// in its cell, which is the field, as a hand-built
+    /// The request's bit for a field in a grouped list's row (LLP 1116.005
+    /// D2): borderless in its cell, which is the field, as a hand-built
     /// settings form's `UITextField` is; the kind is in the low two bits.
     static let cell: UInt8 = 4
 
@@ -106,7 +106,7 @@ final class FieldChromeCache: @unchecked Sendable {
             #if os(tvOS)
             let field = UITextField(frame: .zero)
             #else
-            // A search field is `UISearchTextField`'s shape: its
+            // A search field is `UISearchTextField`'s shape (LLP 1115): its
             // text clears the magnifier, and the clear button's room is kept
             // whether or not it shows, so editing never moves the text.
             let field: UITextField
@@ -146,7 +146,7 @@ extension TextEngine {
         let id = platformControlID ?? UInt16((catalog.keys.max() ?? 7) + 1)
         platformControlID = id; platformControlFont = font
         platformControlName = font.familyName.data(using: .utf8)! as NSData
-        fonts.removeAll(keepingCapacity: true)
+        clearFonts()
         return id
     }
     func controlFont(size: CGFloat, weight: Int, family: Int, italic: Bool) -> UIFont? {
@@ -159,8 +159,7 @@ extension TextEngine {
             if italic, let d = descriptor.withSymbolicTraits(descriptor.symbolicTraits.union(.traitItalic)) { descriptor = d }
             return UIFont(descriptor: descriptor, size: size)
         }
-        fonts[key] = font
-        return font
+        return cacheFont(font, for: key)
     }
     static func controlWeight(_ font: UIFont) -> Int {
         if let weight = TextEngine.cssWeight(of: font) { return weight }

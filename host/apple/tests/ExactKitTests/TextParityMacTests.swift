@@ -11,7 +11,7 @@ import CExact
 final class TextParityMacTests: XCTestCase {
     override func setUp() {
         super.setUp()
-        ExactMarkdown.install() // the capability this tests
+        ExactMarkdown.install() // LLP 1047.001 D4: the capability this tests
     }
 
     // A 1x display's: line boxes in whole points.
@@ -40,7 +40,7 @@ final class TextParityMacTests: XCTestCase {
         ])
     }
 
-    // A Retina display's: the same texts in Chrome 156 at
+    // A Retina display's (LLP 1008 §3): the same texts in Chrome 156 at
     // device scale 2, each face's ascent and descent and each half-leading
     // rounded in half points.
     func testNormalLineHeightIsChromesAt2x() {
@@ -70,7 +70,7 @@ final class TextParityMacTests: XCTestCase {
         ], scale: 2)
     }
 
-    // A page zoom's: Chrome 156 at 125% on a 2x display,
+    // A page zoom's (LLP 1021 §5.3.1): Chrome 156 at 125% on a 2x display,
     // whose device scale is then 2.5 (`devicePixelRatio`), rounds each line
     // box to 0.4 px, one of those device pixels.
     func testNormalLineHeightIsChromesAt2xZoomedTo125() {
@@ -139,7 +139,7 @@ final class TextParityMacTests: XCTestCase {
 
     func testIntrinsicWidthsAreChromes() { assertChromeWidths() }
 
-    /// A paragraph in a multi-column flow breaks once, at the
+    /// LLP 1093 D6: a paragraph in a multi-column flow breaks once, at the
     /// column width, and the kernel cuts between its line boxes. Chrome 154
     /// on this Mac, `column-count: 3; column-gap: 24px; width: 600px; font:
     /// 14px/20px system-ui`: the first paragraph's lines, four in each of two
@@ -161,7 +161,7 @@ final class TextParityMacTests: XCTestCase {
         XCTAssertEqual(p.lineBottoms, (1...8).map { CGFloat($0 * 20) })
     }
 
-    /// A reader's book typography, against Chrome 154 on this Mac at
+    /// The reader diary's book typography, against Chrome 154 on this Mac at
     /// scale 1 (`font: 16px/24px system-ui`, Range client rects): justified
     /// lines end at the box's edge but the last; a line broken at a soft
     /// hyphen shows one; an installed family's italic and bold are its faces.
@@ -248,7 +248,7 @@ final class TextParityMacTests: XCTestCase {
     /// A Markdown list as Chrome 154 lays out `<ul>` (`padding-inline-start:
     /// 40px`, an outside marker) at 16/24 px system-ui, each character's
     /// client rect: every line of an item starts at its level's indent, the
-    /// first one's marker hung before it.
+    /// first one's marker hung before it (LLP 1045 D4).
     func testAMarkdownListItemsLinesStartAtItsIndentAsChromes() {
         let engine = TextEngine(resolve: { _ in nil })
         let base = Run(text: "", size: 16, weight: 400, family: 0, italic: false, lineHeight: 24, letterSpacing: 0)

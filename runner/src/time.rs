@@ -6,6 +6,7 @@
 //! without reading either from ambient state. `formatLocale` is the regional
 //! format where the platform keeps one apart from the language (macOS and
 //! iOS's Region, POSIX `LC_TIME`): what the device's own formatters use.
+//! @ref LLP 1027.000.000 (Draft; the Bluesky client is its consumer)
 
 use exact_plan::Value;
 
@@ -22,12 +23,68 @@ pub const FIELDS: &[&str] = &[
     "seed",
 ];
 
-/// The launch seed is a whole number below this, 2^32, on every host,
-/// so `%` and `>>> 0` take all of it. A source mixes a
+/// The launch seed is a whole number below this, 2^32, on every host
+/// (LLP 1116.005 D5), so `%` and `>>> 0` take all of it. A source mixes a
 /// round into it in 32-bit steps (`Math.imul`, `>>> 0`), as
 /// docs/recipes/random-and-shuffle.md shows: a multiply by a large constant
 /// still passes 2^53.
 pub const SEED_LIMIT: f64 = 4_294_967_296.0;
+
+/// The drive's seed as given (default 1), refused unless it is a whole
+/// number below 2^32, the range every host draws (LLP 1116.005 D5).
+pub fn agent_seed(value: Option<String>) -> Result<f64, String> {
+    let Some(value) = value else { return Ok(1.0) };
+    value.parse::<u32>().map(f64::from).map_err(|_| {
+        format!(
+            "EXACT_AGENT_SEED: a whole number from 0 through 2^32 - 1 (4294967295), not {value:?}"
+        )
+    })
+}
+
+/// POSIX message and date locales as BCP 47 (LLP 1101.003 D6).
+/// Each category takes the first non-empty of `LC_ALL`, its variable, and
+/// `LANG`. An absent date locale leaves `formatLocale` following `locale`.
+pub fn posix_locales(env: impl Fn(&str) -> Option<String>) -> (String, String) {
+    let category = |name| {
+        ["LC_ALL", name, "LANG"]
+            .into_iter()
+            .find_map(|key| env(key).filter(|s| !s.is_empty()))
+            .map(|value| posix_locale(&value))
+    };
+    (
+        category("LC_MESSAGES").unwrap_or_else(|| "en-US".into()),
+        category("LC_TIME").unwrap_or_default(),
+    )
+}
+
+fn posix_locale(value: &str) -> String {
+    let (head, modifier) = value.split_once('@').unwrap_or((value, ""));
+    let tag = head.split('.').next().unwrap_or("");
+    if tag.is_empty() || matches!(tag, "C" | "POSIX") {
+        return "en-US".into();
+    }
+    let mut parts = tag.split(['_', '-']);
+    let language = parts.next().unwrap_or("").to_ascii_lowercase();
+    let region = parts.next().map(|part| {
+        if part.len() == 2 {
+            part.to_ascii_uppercase()
+        } else {
+            part.to_string()
+        }
+    });
+    // A glibc script modifier is a BCP 47 script subtag (`sr_RS@latin` is `sr-Latn-RS`).
+    let script = match modifier {
+        "latin" => Some("Latn"),
+        "cyrillic" => Some("Cyrl"),
+        _ => None,
+    };
+    [Some(language), script.map(str::to_string), region]
+        .into_iter()
+        .flatten()
+        .chain(parts.map(str::to_string))
+        .collect::<Vec<_>>()
+        .join("-")
+}
 
 /// What the host said about the date. Zero until it says: the bake, and a
 /// host that has not supplied it, answer an unknown date as `0`.
@@ -56,14 +113,21 @@ pub struct Launch {
     /// Where a live clock reads as the boot starts. A fresh runner's clock
     /// starts there, not at zero, so what its boot arms (`after(ms)`) is
     /// due `ms` from now however long the host ran before it (the timers
-    /// RFC). `None`: a seek clock's boot, at zero.
+    /// RFC, D1). `None`: a seek clock's boot, at zero.
     pub clock: Option<f64>,
-    /// A cold share's tokens and what each has so far, set
+    /// A cold share's tokens and what each has so far (LLP 1133.024 D3), set
     /// with the boot's other facts so the first frame is the share's route.
     pub shared: Vec<(String, crate::share_in::SharedFiles)>,
     /// The claims that cold share drew from, so a later share this launch
     /// draws its tokens and file names past them.
     pub claims: Option<crate::share_in::Claims>,
+    /// The window's name, which the page's `name` reads as `window.name`:
+    /// `main` when none is told, the first window on every host (LLP
+    /// 1030.004 D2).
+    pub window_name: Option<String>,
+    /// The router launches rooted: the launch location's screen alone, as a
+    /// window opened at a route shows it (LLP 1030.004 D2).
+    pub rooted: bool,
 }
 
 impl Launch {
@@ -74,6 +138,8 @@ impl Launch {
         clock: None,
         shared: Vec::new(),
         claims: None,
+        window_name: None,
+        rooted: false,
     };
 }
 
@@ -112,6 +178,8 @@ pub fn launching_with<T>(launch: Launch, boot: impl FnOnce() -> T) -> T {
             .filter(|t| (0.0..=crate::MAX_CLOCK_MS).contains(t)),
         shared: launch.shared,
         claims: launch.claims,
+        window_name: launch.window_name,
+        rooted: launch.rooted,
     };
     let _restore = Restore(Some(LAUNCH.with(|l| l.replace(launch))));
     boot()
@@ -149,6 +217,18 @@ pub(crate) fn launch_shared() -> Vec<(String, crate::share_in::SharedFiles)> {
 /// The claims a cold share drew from, when a boot under [`launching_with`] was told.
 pub(crate) fn launch_claims() -> Option<crate::share_in::Claims> {
     LAUNCH.with(|l| l.borrow().claims.clone())
+}
+
+/// The window's name a boot under [`launching_with`] was told, else `main`.
+pub(crate) fn launch_window_name() -> String {
+    LAUNCH
+        .with(|l| l.borrow().window_name.clone())
+        .unwrap_or_else(|| "main".into())
+}
+
+/// Whether a boot under [`launching_with`] launches its router rooted.
+pub(crate) fn launch_rooted() -> bool {
+    LAUNCH.with(|l| l.borrow().rooted)
 }
 
 /// Where the viewer is, when a boot under [`launching_with`] was told.
@@ -190,8 +270,8 @@ pub struct Place {
     pub time_zone: String,
     /// A whole number below 2^32 ([`SEED_LIMIT`]) from the platform's
     /// secure random source, drawn once per launch: the explicit entropy a
-    /// source mixes with the date and a counter for ids. Zero until the
-    /// host says.
+    /// source mixes with the date and a counter for ids (LLP 1027.000's
+    /// seed, supplied). Zero until the host says.
     pub seed: f64,
     /// BCP 47, the regional format the platform's own date and number
     /// formatters use (macOS and iOS's `Locale.current` with the hour cycle
@@ -264,6 +344,56 @@ impl Place {
             "timeZone" => Some(Value::str(&self.time_zone)),
             "seed" => Some(Value::Number(self.seed)),
             _ => None,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn posix_locales_drop_codesets_and_modifiers() {
+        for (value, expected) in [
+            ("sr_RS@latin", "sr-Latn-RS"),
+            ("sr_RS.UTF-8@cyrillic", "sr-Cyrl-RS"),
+            ("ca_ES@valencia", "ca-ES"),
+            ("de_DE.UTF-8@euro", "de-DE"),
+            ("de-DE", "de-DE"),
+            ("zh-Hant-TW", "zh-Hant-TW"),
+            ("en-US-u-hc-h23", "en-US-u-hc-h23"),
+            ("C@calendar=gregorian", "en-US"),
+            ("POSIX", "en-US"),
+        ] {
+            assert_eq!(posix_locale(value), expected);
+        }
+    }
+
+    #[test]
+    fn locale_environment_precedence_and_posix_normalization() {
+        for (all, messages, lang, expected) in [
+            ("fr_CA.UTF-8", "de_DE.UTF-8", "en_US.UTF-8", "fr-CA"),
+            ("", "de_DE.UTF-8", "en_US.UTF-8", "de-DE"),
+            ("", "", "en_US.UTF-8", "en-US"),
+            ("C.UTF-8", "fr_FR", "en_US", "en-US"),
+            ("POSIX", "", "", "en-US"),
+            ("", "", "sr_RS.UTF-8@latin", "sr-Latn-RS"),
+            ("", "", "", "en-US"),
+        ] {
+            assert_eq!(
+                posix_locales(|key| Some(
+                    match key {
+                        "LC_ALL" => all,
+                        "LC_MESSAGES" => messages,
+                        "LC_TIME" => "",
+                        "LANG" => lang,
+                        _ => unreachable!(),
+                    }
+                    .into()
+                ))
+                .0,
+                expected
+            );
         }
     }
 }

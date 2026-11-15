@@ -1,9 +1,9 @@
-//! `map`, `filter` and `join` and `sortBy`: the roster's list operations,
-//! typed here because a callback is not a value the roster table can
-//! describe; and `concat`, `slice`, `includes` and `indexOf`, whose types
-//! follow their first argument's: a list's
+//! `map`, `filter` and `join` (LLP 1017.003 D4) and `sortBy` (LLP 1116.016
+//! §5): the roster's list operations, typed here because a callback is not
+//! a value the roster table can describe; and `concat`, `slice`, `includes` and `indexOf`
+//! (LLP 1088 §9.1), whose types follow their first argument's: a list's
 //! item type, or text for all but `concat`, the web's same-named methods;
-//! and `range`, whose literal count is
+//! and `range` (LLP 1017.003 §Refused, 2026-10-17), whose literal count is
 //! checked where it is written, and `flat`, a list of lists' items; and
 //! `x.length`, which reads a record's field of that name.
 
@@ -12,8 +12,8 @@ use contract_syntax::{Expr, Span, UnOp};
 use exact_plan::Stdlib;
 use std::collections::BTreeSet;
 
-/// How each `x.length` resolved, by its span: the parser writes `length(x)`
-/// for it, and the checker
+/// How each `x.length` resolved, by its span (@ref LLP 1116.015 D2, as
+/// amended 2026-10-17): the parser writes `length(x)` for it, and the checker
 /// reads a record's `length` field instead when the receiver is a record whose
 /// shape has one. What writes the expression out again without types (the
 /// Lean embedding, `contract lean`) asks [`Shapes::reads_length_field`];
@@ -358,7 +358,7 @@ pub(crate) fn infer_call(
     }
     let (body, inner) = callback(name, second, item, scope)?;
     // `map(items, i => Row(item=i))`: the JSX habit. A declared shape's
-    // name builds a record (`F(x=i)`, `F(f, x=…)`), a
+    // name builds a record (`F(x=i)`, `F(f, x=…)`; LLP 1035.005.000 D3), a
     // value a callback may return.
     if let Expr::Call(callee, _, at) = body {
         if callee.starts_with(|c: char| c.is_ascii_uppercase())
@@ -400,7 +400,7 @@ pub(crate) fn infer_call(
 
 /// A callback's body and the scope it reads: the item (of type `item`) and
 /// its index bound to its parameters, which are at most two and distinct.
-fn callback<'a>(
+pub(crate) fn callback<'a>(
     name: &str,
     arrow: &'a Expr,
     item: Ty,
@@ -441,8 +441,8 @@ fn callback<'a>(
     Ok((body, inner))
 }
 
-/// `sortBy(xs, x => key)` and `sortBy(xs, x => key, "desc")`: a list's
-/// items in a stable order of one key, a number or a
+/// `sortBy(xs, x => key)` and `sortBy(xs, x => key, "desc")` (@ref LLP
+/// 1116.016 §5): a list's items in a stable order of one key, a number or a
 /// string, the direction a literal `"asc"` (the default) or `"desc"`.
 fn infer_sort_by(
     args: &[Expr],

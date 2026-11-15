@@ -1,4 +1,4 @@
-# The Canvas gallery on the web: one wasm with the runner, the
+# The Canvas gallery on the web (LLP 1056 §4): one wasm with the runner, the
 # kernel and the baked plan; its TypeScript module runs in the page's realm.
 [package]
 name = "canvas-gallery-web"
@@ -14,10 +14,12 @@ test = false
 bench = false
 
 [dependencies]
+canvas-gallery-data = { path = "../data" }
 exact-logic = { path = "../../../logic" }
 exact-web = { path = "../../../host/web" }
 exact-web-capabilities = { path = "../../../host/web-capabilities" }
 exact-js-web = { path = "../../../js/web" }
 
 [build-dependencies]
+canvas-gallery-data = { path = "../data" }
 exact-js-bake = { path = "../../../js/bake" }

@@ -1,6 +1,6 @@
 // One node: its box at the kernel's frame, its children at theirs (in
 // document order: the vocabulary's paint order), and the platform's
-// presentation where the author was silent.
+// presentation where the author was silent (D5).
 #if canImport(WidgetKit)
 import SwiftUI
 import WidgetKit
@@ -45,7 +45,7 @@ struct SnapshotNodeView: View {
         content
             .frame(width: node.frame.width, height: node.frame.height, alignment: .topLeading)
             .modifier(Clip(outline: style.clips ? paint.paddingOutline(in: bounds) : nil))
-            // The root's background is the container's, never drawn twice.
+            // The root's background is the container's (D5), never drawn twice.
             .background {
                 if !isRoot {
                     if redactPaint {
@@ -59,6 +59,7 @@ struct SnapshotNodeView: View {
             .modifier(Privacy(word: environment.placeholder || !leaf ? nil : privateContent ? "private" : "public"))
             .modifier(Semantics(node: node))
             .modifier(Linked(url: link))
+            .modifier(Accent(node: node))
     }
 
     @ViewBuilder
@@ -87,6 +88,33 @@ enum SnapshotData {
     }
 }
 
+/// An `accent-color` as its subtree's tint (LLP 1116.001 D2), as the iOS
+/// host sets a view's `tintColor` (`NodeView.applyAccentTint`): a bar, an
+/// indicator and the tint's roles (`AccentColor`, `LinkText`) beneath take
+/// it. `auto`, or an accent that is a tint role, leaves the tint in effect.
+@available(iOS 17.0, macOS 14.0, watchOS 10.0, visionOS 26.0, *)
+struct Accent: ViewModifier {
+    let node: HeadlessSession.Node?
+    @Environment(\.colorScheme) private var scheme
+
+    func body(content: Content) -> some View {
+        if let node, let color = SnapshotTint.accent(SnapshotStyle(node).color("accent_color"), dark: scheme == .dark) {
+            content.tint(color).environment(\.snapshotTint, color)
+        } else {
+            content
+        }
+    }
+}
+
+/// A tint that replaces the one in effect, where there is one: none leaves
+/// that tint (`.tint(nil)` would clear it).
+struct OwnTint: ViewModifier {
+    let color: Color?
+    func body(content: Content) -> some View {
+        if let color { content.tint(color) } else { content }
+    }
+}
+
 @available(iOS 17.0, macOS 14.0, watchOS 10.0, visionOS 26.0, *)
 struct Clip: ViewModifier {
     let outline: RoundedOutline?
@@ -104,7 +132,7 @@ struct PathClip: ViewModifier {
 }
 
 /// `data-privacy` (the node's `dataset`), in a widget and in a Live Activity
-/// alike: `public` is not account content, so it stays while the Lock
+/// alike (D8): `public` is not account content, so it stays while the Lock
 /// Screen redacts the rest; `private` is redacted inside a public container.
 /// Apply it at leaves: an ancestor marked public must not remove the privacy
 /// redaction reason before a private descendant receives it. The placeholder
@@ -120,7 +148,7 @@ struct Privacy: ViewModifier {
     }
 }
 
-/// A nested link's content opens its URL in the families that take a
+/// A nested link's content opens its URL (D7) in the families that take a
 /// `Link`; the root's, or the one link of a small or accessory family, is
 /// the widget's URL (`SnapshotView`).
 private struct Linked: ViewModifier {
@@ -130,7 +158,7 @@ private struct Linked: ViewModifier {
     }
 }
 
-/// Accessibility carries over from the node: its label, hint and
+/// Accessibility carries over from the node (D5): its label, hint and
 /// value, a heading with its level, a paragraph as one element, a
 /// decorative image hidden, `aria-hidden` hiding the subtree.
 struct Semantics: ViewModifier {

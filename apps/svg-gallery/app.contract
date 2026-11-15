@@ -1,4 +1,4 @@
-// SVG gallery — one page per stage of SVG support, every picture
+// SVG gallery — the LLP 1055.000 fixture: one page per stage, every picture
 // literal, so every host draws the same thing and Chrome (the web host) is the
 // reference. `bun scripts/smoke.mjs svg` crops each `fx-*` box on every host
 // and compares it with Chrome's.
@@ -37,7 +37,7 @@ keyframes flash
   from color="#16a34a"
   to color="#000000"
 
-// Stage 10b's geometry keyframes.
+// Stage 10b's geometry keyframes (LLP 1055.000 D15).
 keyframes slide
   from cx=20
   to cx=100
@@ -285,7 +285,7 @@ component StageThree
       rect x=14 y=16 width=40 height=48 fill="#fbbf24" stroke="#78350f" stroke-width=10 paint-order="stroke"
       circle cx=88 cy=40 r=22 fill="url(#nowhere) #22c55e" stroke="url(#nowhere)" stroke-width=6
     // One component twice, each declaring id="shade": each instance's
-    // own gradient, and a sprite from another svg.
+    // own gradient (LLP 1055.000 D3), and a sprite from another svg.
     Badge(tint="#f43f5e")
     Badge(tint="#14b8a6")
     svg testId="fx-sprite" class=Tile viewBox="0 0 120 80" color="#a855f7"
@@ -363,7 +363,7 @@ component StageFive
         tspan "↑" dx=2 dy=-3 fill="#16a34a"
       text "SVG" x=60 y=66 text-anchor="middle" font-size=28 font-weight=800 fill="#fef3c7" stroke="#b45309" stroke-width=1.5
 
-// Stage 6: presses on SVG elements. A tap on a tile's
+// Stage 6: presses on SVG elements (LLP 1055.000 D17). A tap on a tile's
 // centre lands on the element there; the agent's `tap fx-hit at 60 40` is
 // that tap (a plain `tap fx-hit` names the svg, and is refused).
 component StageSix
@@ -385,7 +385,7 @@ component StageSix
       polyline points="10,70 60,20 110,60" fill="none" stroke="#0f172a" stroke-width=3 press=pick("line")
     text picked testId="picked-label" font-size=13
 
-// Stage 7: markers.
+// Stage 7: markers (LLP 1055.000 D9).
 component StageSeven
   view
     // An arrowhead scaled by the stroke; dots at every vertex of a line
@@ -412,7 +412,7 @@ component StageSeven
       polygon points="20,50 50,70 14,74" fill="#bbf7d0" stroke="#16a34a" marker-mid="url(#tick)" marker-start="url(#tick)"
       polyline points="70,70 90,52 110,70" fill="none" stroke="#a855f7" marker="url(#still)"
 
-// Stage 8: masks and patterns, islands on native hosts.
+// Stage 8: masks and patterns (LLP 1055.000 D7, D10), islands on native hosts.
 component StageEight
   view
     // A luminance mask: a white disc with a black hole over a bar chart,
@@ -460,8 +460,8 @@ component StageEight
         pattern id="hatch2" href="#hatch" patternTransform="rotate(-30)"
       rect x=6 y=6 width=50 height=68 fill="url(#hatch)"
       ellipse cx=90 cy=40 rx=24 ry=30 fill="url(#hatch2)" stroke="url(#hatch)" stroke-width=6
-    // Not a parity fixture: `foreignObject` is the web's alone; native hosts
-    // refuse it by name and draw the rest.
+    // Not a parity fixture: `foreignObject` is the web's (LLP 1055.000 D13,
+    // §8 ruling 5); native hosts refuse it by name and draw the rest.
     svg testId="web-foreign" class=Tile viewBox="0 0 120 80"
       rect width=120 height=80 fill="#e0f2fe"
       foreignObject x=10 y=10 width=100 height=60
@@ -469,7 +469,7 @@ component StageEight
           text "HTML in SVG" font-size=12 font-weight=600
           text "a box, laid out by the page" font-size=9 color="#475569"
 
-// Stage 9: filters, islands on native hosts.
+// Stage 9: filters (LLP 1055.000 D14), islands on native hosts.
 component StageNine
   view
     // Gaussian blur: three box blurs past σ 2, a true kernel below it.
@@ -648,8 +648,8 @@ component StageNine
       circle cx=30 cy=40 r=24 fill="#ffffff" filter="url(#matte)"
       rect x=64 y=16 width=48 height=48 rx=10 fill="#be123c" filter="url(#shine)"
 
-// Stage 10c: mix-blend-mode and isolation. Not drawn
-// blended on iOS, so the smoke leaves this tile to the other
+// Stage 10c: mix-blend-mode and isolation (LLP 1055.000 D19). Not drawn
+// blended on iOS (§8 ruling 6), so the smoke leaves this tile to the other
 // hosts there.
 component StageTenBlend
   view

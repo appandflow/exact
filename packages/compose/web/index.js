@@ -1,4 +1,4 @@
-// @exact/compose on the web: a `mailto:` URL composed from
+// @exact/compose on the web (LLP 1133.024 D15): a `mailto:` URL composed from
 // the fields, percent-encoded as RFC 6068 §2 says, which opens the person's mail
 // app and answers `opened`. The web carries no attachment, and offers no
 // message: a desktop browser has no `sms:` handler and fails silently, and the

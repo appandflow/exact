@@ -1,9 +1,9 @@
-//! The photo library's admission in the runner, through this checkout's
-//! `@exact/photos` installed beside the app, its implementation played by the
-//! test as the host's native slot under the agent: two permissions answered by
-//! one status, a ticket's `limited` choice, the selection ticket, the narrowest
-//! permission an add asks, pictures admitted only while the read is granted,
-//! and the origin rule.
+//! The photo library's admission in the runner (LLP 1133.019 D4–D7, D11),
+//! through this checkout's `@exact/photos` installed beside the app, its
+//! implementation played by the test as the host's native slot under the
+//! agent: two permissions answered by one status, a ticket's `limited`
+//! choice, the selection ticket, the narrowest permission an add asks,
+//! pictures admitted only while the read is granted, and the origin rule.
 
 use exact_runner::{CallOrigin, Dispatch, Outcome, Reply, Response, Runner, Work};
 use serde_json::{json, Value as Json};
@@ -195,9 +195,9 @@ fn answer(
     (capability, hold.choices)
 }
 
-/// One status answers both permissions, each in its field; reading is granted
-/// with `limited`, a choice beyond allow and deny, and Apple's read-write grant
-/// includes adding.
+/// One status answers both permissions, each in its field; reading is
+/// granted with `limited`, a choice beyond allow and deny, and Apple's
+/// read-write grant includes adding (D4, D5, D11 items 2 and 3).
 #[test]
 fn a_read_ticket_offers_limited_and_the_status_answers_both() {
     let (_app, mut r, calls) = boot("limited", BOTH, true);
@@ -223,9 +223,9 @@ fn a_read_ticket_offers_limited_and_the_status_answers_both() {
     assert_eq!(told["preferred"]["photoLibraryStatus"]["access"], "limited");
 }
 
-/// The selection sheet is a ticket under limited access, whose typed ids become
-/// the agent's `selection` and reach the implementation, which then answers the
-/// call.
+/// The selection sheet is a ticket under limited access, whose typed ids
+/// become the agent's `selection` and reach the implementation, which then
+/// answers the call (§10, D11 item 3).
 #[test]
 fn the_selection_ticket_sets_the_agent_s_selection() {
     let (_app, mut r, calls) = boot("selection", BOTH, false);
@@ -268,8 +268,9 @@ fn the_selection_ticket_sets_the_agent_s_selection() {
     assert_eq!(sent(&calls, "managePhotoSelection"), 2, "{}", logs(&r));
 }
 
-/// An add asks add-only access where the app declares that line; a tool cannot
-/// add; a tool's copy while the read is `prompt` raises no ticket.
+/// An add asks add-only access where the app declares that line; a tool
+/// cannot add; a tool's copy while the read is `prompt` raises no ticket
+/// (D4, D7).
 #[test]
 fn an_add_asks_the_narrowest_permission_and_tools_cannot_add() {
     let (_app, mut r, calls) = boot("add", BOTH, false);
@@ -333,7 +334,7 @@ fn an_add_only_app_asks_add_only() {
         logs(&r)
     );
     // On Android the app's own photo is read under the add line, with no
-    // dialog; MediaStore decides whether it is the app's.
+    // dialog; MediaStore decides whether it is the app's (D6).
     r.set_module_target("android");
     r.act("copy", Vec::new()).unwrap();
     pump(&mut r, &mut parked);
@@ -342,8 +343,9 @@ fn an_add_only_app_asks_add_only() {
 }
 
 /// A picture is a read admitted without a ticket: refused while the read is
-/// `prompt` or `denied`, or without the line; admitted once granted; on Android
-/// an add-only app's own photo goes through as `owned`.
+/// `prompt` or `denied`, or without the line; admitted once granted; on
+/// Android an add-only app's own photo goes through as `owned` (D2, D6, D11
+/// items 1 and 4).
 #[test]
 fn pictures_are_admitted_only_while_the_read_is_granted() {
     let (_app, mut r, _calls) = boot("pictures", BOTH, false);
@@ -355,8 +357,29 @@ fn pictures_are_admitted_only_while_the_read_is_granted() {
     assert_eq!(refused["error"], "NotAllowedError");
     assert_eq!(refused["message"], "permission photos is prompt");
     assert!(r.device_holds().is_empty(), "a draw never asks");
+    let counted = state(&r)["photos"]["pictures"].clone();
+    for _ in 0..3 {
+        assert_eq!(
+            r.check_picture("photos:agent-1", "ios"),
+            Some(refused.clone())
+        );
+    }
+    r.extension_agent(r#"{"op":"prefer","permission":{"photos":"denied"}}"#)
+        .unwrap()
+        .1
+        .unwrap();
+    assert_eq!(
+        r.check_picture("photos:agent-1", "ios").unwrap()["message"],
+        "permission photos is denied"
+    );
+    assert_eq!(state(&r)["photos"]["pictures"], counted);
     let granted = r#"{"op":"prefer","permission":{"photos":"granted"}}"#;
     r.extension_agent(granted).unwrap().1.unwrap();
+    assert_eq!(
+        r.check_picture("photos:agent-1", "ios").unwrap()["extension"],
+        "photos"
+    );
+    assert_eq!(state(&r)["photos"]["pictures"], counted);
     let admitted = r.admit_picture("photos:agent-1", "ios").unwrap();
     assert_eq!(
         admitted,

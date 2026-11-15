@@ -1,4 +1,4 @@
-//! `openAuthSession`: a request to `exact-auth:` whose body
+//! `openAuthSession` (LLP 1069.006): a request to `exact-auth:` whose body
 //! names an authorization URL, the callback it returns to and the `state` it
 //! carries. Every host's arm asks this module first, so one rule checks the
 //! grants, holds the request for the agent, accepts a callback, and keeps the
@@ -6,12 +6,12 @@
 //! `ASWebAuthenticationSession`, a popup, a loopback receiver) and reports
 //! what came back.
 //!
-//! The grants are `auth.session` and `auth.callback`. A callback matches the
-//! host's own scheme, host and path; there is one sheet per window, and a new
-//! request supersedes the open one. Under the agent the substitute is a hold
-//! the agent answers with a callback URL, checked the same way. A loopback
-//! callback may have several requests open at once, one per port, each with
-//! exactly one `code` or `error`.
+//! @ref LLP 1069.006 D1 (the request and its statuses) / D2 (`auth.session`
+//! and `auth.callback`) / D3 (the host's own scheme, host and path match;
+//! one sheet per window; supersession) / D7 (the substitute: a hold the
+//! agent answers with a callback URL, checked the same way)
+//! @ref LLP 1133.005 D9 (a loopback callback: several at once, one per
+//! port; exactly one `code` or `error`)
 //!
 //! The reply is HTTP-shaped: 200 carries the callback URL (delivery, not a
 //! sign-in), 499 `cancelled`, 403 the grant, 409 `already open`, 428 `popup
@@ -25,7 +25,7 @@ use crate::{DataSource, Outcome, RequestOut, Response, Runner};
 /// The reserved URL of an auth session request.
 pub const AUTH_URL: &str = "exact-auth:";
 
-/// The path of the web's callback page, on the app's own origin.
+/// The path of the web's callback page, on the app's own origin (D4).
 pub const WEB_CALLBACK_PATH: &str = "/.exact/auth/callback";
 
 /// One request's session: what the host opens and what it accepts back.
@@ -40,7 +40,7 @@ pub struct Session {
     /// Ask for no shared cookies (`prefersEphemeralWebBrowserSession`).
     pub ephemeral: bool,
     /// The sentence a loopback callback's page shows under its heading, in
-    /// place of the host's own.
+    /// place of the host's own (LLP 1133.005 D9).
     pub message: Option<String>,
 }
 
@@ -114,7 +114,7 @@ impl Session {
         s
     }
 
-    /// The hold's inspection summary: the authorization URL's origin
+    /// The hold's inspection summary (D7): the authorization URL's origin
     /// and path, its query's parameter names, and the values of `client_id`
     /// and `request_uri` only (a URL can carry an `id_token_hint`); the
     /// callback, `state` and `ephemeral`.
@@ -154,8 +154,8 @@ impl Session {
         s.push_str(&shown);
         // The drive's declared fixture server (its app's own server, named
         // by the authored test's driver): its URL is shown whole, so the
-        // test's `authorize` can follow it. Any other URL,
-        // loopback included, keeps the agent's redaction.
+        // test's `authorize` can follow it (LLP 1146 D4). Any other URL,
+        // loopback included, keeps D7's redaction.
         if !origin.is_empty() && fixture == Some(origin.as_str()) {
             s.push_str(",\"url\":");
             quote(&self.url, &mut s);
@@ -277,8 +277,8 @@ fn same(a: &str, b: &str) -> bool {
     a.len() == b.len() && a.bytes().zip(b.bytes()).fold(0u8, |d, (x, y)| d | (x ^ y)) == 0
 }
 
-/// The auth fixture an agent drive declared (`EXACT_AUTH_FIXTURE`): a
-/// loopback origin only, and only under the agent, which reads it.
+/// The auth fixture an agent drive declared (`EXACT_AUTH_FIXTURE`, LLP 1146
+/// D4): a loopback origin only, and only under the agent, which reads it.
 fn fixture_origin() -> Option<String> {
     let agent = std::env::var_os("EXACT_AGENT").is_some();
     declared_fixture(std::env::var("EXACT_AUTH_FIXTURE").ok(), agent)
@@ -307,7 +307,7 @@ fn loopback(url: &Url<'_>) -> bool {
 /// `net.fetch`'s grammar for one `auth.session` target: an origin, or
 /// `scheme://*.domain` (a subdomain of a domain of two or more labels).
 /// The refusal of the first `auth.session` line that is not an origin, for
-/// the bake to report. A sign-in URL's origin is matched against the grant, so
+/// the bake to report. D2 matches a sign-in URL's origin against the grant, so
 /// a line with a path (an issuer, say) admits no sign-in at all.
 pub fn session_grant_refusal(grants: &str) -> Option<String> {
     grants.lines().find_map(|line| {
@@ -375,7 +375,7 @@ pub fn callbacks(grants: &str) -> Vec<String> {
         .collect()
 }
 
-/// This carrier's callback, known before PAR: on the web
+/// This carrier's callback, known before PAR (D2): on the web
 /// `<origin>/.exact/auth/callback`; natively the first private-use scheme
 /// the app grants, else its first claimed https callback that is not the
 /// web's page. `None` when the grants name none.
@@ -406,7 +406,7 @@ fn bent_http(raw: &str) -> bool {
         && raw.contains(['\\', '\t', '\n', '\r'])
 }
 
-/// The grant checks: the authorization URL is on a granted `auth.session`
+/// D2's checks: the authorization URL is on a granted `auth.session`
 /// origin, and the callback is a granted `auth.callback` — or, on a
 /// loopback development page, that page's own callback. `Err` is the 403
 /// text, naming the grant it lacks.
@@ -437,7 +437,7 @@ pub fn check_grants(
     }) {
         return Err(format!("outside the app's grants (auth.session {origin})"));
     }
-    // A loopback callback is granted at any port; on a
+    // A loopback callback (LLP 1133.005 D9) is granted at any port; on a
     // native host an `http:` callback is one or nothing.
     let looped = loopback_callback(&session.callback);
     let http = Url::parse(&session.callback).is_some_and(|u| u.scheme == "http");
@@ -467,8 +467,8 @@ pub fn check_grants(
     Ok(())
 }
 
-/// A loopback callback's host (`127.0.0.1` or `[::1]`), port and path:
-/// `http://127.0.0.1:<port>/<path>` with a port of 1 to
+/// A loopback callback's host (`127.0.0.1` or `[::1]`), port and path
+/// (LLP 1133.005 D9): `http://127.0.0.1:<port>/<path>` with a port of 1 to
 /// 65535 as a browser writes it in `Host` (no sign or leading zero, not the
 /// default 80, which `Host` leaves out), no query and no fragment.
 /// `localhost` is none: RFC 8252 §8.3.
@@ -504,7 +504,7 @@ fn loopback_admits(grant: &str, callback: &str) -> bool {
         && g.fragment.is_none()
 }
 
-/// The callback match, on every host: `got`'s scheme, host and path equal
+/// D3's match, on every host: `got`'s scheme, host and path equal
 /// `session.callback`'s exactly (no userinfo; the same port), and its query
 /// carries `state` exactly once, equal to the request's. `Err` says which
 /// check failed, never the URL.
@@ -536,9 +536,9 @@ pub fn accept(session: &Session, got: &str) -> Result<(), String> {
     }
 }
 
-/// A loopback callback's further check: it is an
+/// A loopback callback's further check (LLP 1133.005 D9): it is an
 /// authorization response, so its query carries exactly one non-empty
-/// `code` and no `error`, or the reverse (RFC 6749 §4.1.2). The
+/// `code` and no `error`, or the reverse (RFC 6749 §4.1.2, §4.1.2.1). The
 /// receiver answers anything else 400 and keeps listening, so a stray
 /// request with the right `state` does not end the sign-in.
 pub fn one_code_or_error(got: &str) -> Result<(), String> {
@@ -568,7 +568,7 @@ struct Live {
 }
 
 impl Live {
-    /// The callback match, and for a loopback receiver its further check.
+    /// D3's match, and for a loopback receiver its further check.
     fn accept(&self, got: &str) -> Result<(), String> {
         accept(&self.session, got)?;
         if self.listened {
@@ -610,9 +610,11 @@ pub enum Arm {
 pub enum Browser {
     /// An authentication session (Apple).
     Native,
+    /// A Custom Tab or the default browser, returning by a custom-scheme intent.
+    Android,
     /// A popup to the app's callback page, on this origin (the web).
     Web,
-    /// None (Linux).
+    /// None (Linux, D5).
     None,
 }
 
@@ -634,14 +636,14 @@ pub fn settle<D: DataSource>(runner: &mut Runner<D>, ticket: u64, status: u16, b
     let line = match status {
         200 => "callback accepted".to_string(),
         499 => "cancelled".to_string(),
-        // A refusal's body is its reason, which never carries the URL.
+        // A refusal's body is its reason, which never carries the URL (D3).
         other if !body.is_empty() => format!("answered {other}: {body}"),
         other => format!("answered {other}"),
     };
     runner.log(format!("auth {ticket}: {line}"));
 }
 
-/// A host's report of how the session for `ticket` ended:
+/// A host's report of how the session for `ticket` ended (D3, D4):
 /// `Ok(url)` a callback (accepted here, or 502 with the failed check),
 /// `Err((status, message))` a cancellation (499) or a failure. Nothing
 /// happens for a ticket with no live session (superseded, or answered).
@@ -663,6 +665,60 @@ pub fn complete<D: DataSource>(
     }
 }
 
+/// Consume a declared Android callback endpoint before navigation, including
+/// stale and cold callbacks. Only a matching state selects a live session;
+/// its remaining checks can settle 502 without ending another sign-in.
+pub fn receive_callback<D: DataSource>(runner: &mut Runner<D>, url: &str) -> bool {
+    // A malformed response query still belongs to this endpoint, never to navigation.
+    let endpoint = url.split(['?', '#']).next().unwrap_or(url);
+    let Some(got) = Url::parse(endpoint) else {
+        return false;
+    };
+    // Recognize the endpoint even with userinfo, then reject it in `complete`.
+    let endpoint_matches = |callback: &str| {
+        Url::parse(callback).is_some_and(|want| {
+            !matches!(want.scheme.as_str(), "http" | "https")
+                && want.scheme == got.scheme
+                && want.authority.map(str::to_ascii_lowercase)
+                    == got
+                        .authority
+                        .map(|a| a.rsplit('@').next().unwrap_or(a).to_ascii_lowercase())
+                && want.path == got.path
+        })
+    };
+    if !callbacks(runner.data().grants())
+        .iter()
+        .any(|callback| endpoint_matches(callback))
+    {
+        return false;
+    }
+    // Read state even if another part of the response is malformed: `complete`
+    // must reject that response rather than leave the matching sign-in waiting.
+    let query = url
+        .split('#')
+        .next()
+        .unwrap_or(url)
+        .split_once('?')
+        .map_or("", |(_, q)| q);
+    let states: Vec<_> = query_pairs(query)
+        .filter_map(|(name, value)| (name == "state").then_some(value))
+        .collect();
+    let tickets: Vec<_> = runner
+        .auth_mut()
+        .live
+        .iter()
+        .filter(|live| {
+            endpoint_matches(&live.session.callback)
+                && states.iter().any(|state| same(state, &live.session.state))
+        })
+        .map(|live| live.ticket)
+        .collect();
+    if let Some(ticket) = tickets.into_iter().find(|t| runner.holds(*t)) {
+        complete(runner, ticket, Ok(url));
+    }
+    true
+}
+
 impl Sessions {
     fn find(&self, ticket: u64) -> Option<&Live> {
         self.live.iter().find(|l| l.ticket == ticket)
@@ -679,7 +735,7 @@ impl Sessions {
     }
 }
 
-/// One request, on every host: refuse what the grants or
+/// D1–D3 and D7 for one request, on every host: refuse what the grants or
 /// the host can't admit (settled now), hold it under the agent, or hand the
 /// host the session to open. `web_origin` is the page's origin on the web.
 pub fn arm<D: DataSource>(
@@ -690,6 +746,15 @@ pub fn arm<D: DataSource>(
     web_origin: Option<&str>,
 ) -> Arm {
     let ticket = out.ticket;
+    if out.request.reach.origin == crate::CallOrigin::Action {
+        settle(
+            runner,
+            ticket,
+            403,
+            "auth sessions are refused during a background action",
+        );
+        return Arm::Settled;
+    }
     let body = String::from_utf8_lossy(&out.request.body).into_owned();
     let session = match Session::from_json(&body) {
         Ok(s) => s,
@@ -708,7 +773,7 @@ pub fn arm<D: DataSource>(
         settle(runner, ticket, 403, &why);
         return Arm::Settled;
     }
-    // A loopback callback other than the page's own: a
+    // A loopback callback (LLP 1133.005 D9) other than the page's own: a
     // receiver listens for it, which a page cannot.
     let page = web_origin.map(|o| format!("{}{WEB_CALLBACK_PATH}", o.trim_end_matches('/')));
     let listened = loopback_callback(&session.callback).is_some()
@@ -734,7 +799,7 @@ pub fn arm<D: DataSource>(
         listened,
     };
     // One sheet per window: another target's sheet or popup refuses this
-    // one. A loopback sign-in shows none, so several wait at once, each
+    // one (D3). A loopback sign-in shows none, so several wait at once, each
     // on its own address; a second on one address fails as its bind would.
     let auth = runner.auth_mut();
     if live.address().is_some() && auth.live.iter().any(|l| l.address() == live.address()) {
@@ -752,10 +817,17 @@ pub fn arm<D: DataSource>(
     }
     runner.auth_mut().live.push(live);
     // Under the agent the hold comes first, on every host: a fixture sign-in
-    // needs no browser, so a headless Linux drive can complete one.
+    // needs no browser, so a headless Linux drive can complete one (LLP 1146 D4).
     if agent {
         runner.hold_request(ticket, "auth", &out.target, &session.summary());
         return Arm::Held;
+    }
+    if browser == Browser::Android
+        && Url::parse(&session.callback)
+            .is_some_and(|u| matches!(u.scheme.as_str(), "http" | "https"))
+    {
+        settle(runner, ticket, 501, "Android auth requires a custom-scheme callback; App Links and loopback callbacks are not supported");
+        return Arm::Settled;
     }
     if browser == Browser::None {
         runner.auth_mut().live.retain(|l| l.ticket != ticket);
@@ -768,7 +840,7 @@ pub fn arm<D: DataSource>(
 }
 
 /// A host that decides agent mode itself (the Apple session, as for
-/// `share`) holds a session it was handed instead of opening it.
+/// `share`) holds a session it was handed instead of opening it (D7).
 pub fn hold_opened<D: DataSource>(runner: &mut Runner<D>, ticket: u64) {
     let auth = runner.auth_mut();
     let Some(at) = auth.opened.iter().position(|t| *t == ticket) else {
@@ -801,7 +873,7 @@ pub fn take_any_settled<D: DataSource>(runner: &mut Runner<D>) -> Option<(u64, O
 
 /// Sessions a host opened whose tickets the runner no longer holds
 /// (superseded, the resource gone, a reload): the host cancels each and
-/// drops its late completion. Asked after every commit.
+/// drops its late completion (D3). Asked after every commit.
 pub fn forgotten<D: DataSource>(runner: &mut Runner<D>) -> Vec<u64> {
     let opened = std::mem::take(&mut runner.auth_mut().opened);
     let (keep, gone): (Vec<u64>, Vec<u64>) = opened.into_iter().partition(|t| runner.holds(*t));
@@ -814,7 +886,7 @@ pub fn forgotten<D: DataSource>(runner: &mut Runner<D>) -> Vec<u64> {
     gone
 }
 
-/// The agent's answer to an auth hold: `type @t <callback URL>` is
+/// The agent's answer to an auth hold (D7): `type @t <callback URL>` is
 /// checked as a host checks a completion, before the hold is spent, so a
 /// wrong URL can be corrected; `tap @t cancel` is 499.
 pub(crate) fn check_answer<D: DataSource>(
@@ -887,8 +959,9 @@ mod tests {
     }
 
     /// A held sign-in to the drive's declared fixture shows its URL whole,
-    /// for `authorize`; any other keeps the agent's redaction, a loopback one
-    /// included, and only a loopback origin under the agent is a fixture.
+    /// for `authorize`; any other keeps D7's redaction, a loopback one
+    /// included, and only a loopback origin under the agent is a fixture
+    /// (LLP 1146 D4).
     #[test]
     fn a_declared_fixture_s_sign_in_shows_its_url_whole_and_no_other_does() {
         let at = |url: &str| Session {
@@ -1134,8 +1207,8 @@ mod tests {
         );
     }
 
-    /// A loopback callback's page says the app's sentence when it gives one:
-    /// one line of plain text.
+    /// A loopback callback's page says the app's sentence when it gives one
+    /// (LLP 1133.005 D9): one line of plain text.
     #[test]
     fn a_session_carries_the_callback_page_s_message() {
         let mut given = session("http://127.0.0.1:1455/auth/callback");

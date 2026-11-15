@@ -57,10 +57,76 @@ fn the_css_grammar_and_its_canonical_form() {
             "radial-gradient(at bottom, #000 0% 50%, #fff)",
             "radial-gradient(ellipse farthest-corner at 50% 100%, #000000ff 0%, #000000ff 50%, #ffffffff 100%)",
         ),
+        // Explicit radii, the shape keyword omitted, before or after them.
+        (
+            "radial-gradient(120% 90% at 8% 0%, #FFCFA8 0%, #FFCFA800 58%)",
+            "radial-gradient(ellipse 120% 90% at 8% 0%, #ffcfa8ff 0%, #ffcfa800 58%)",
+        ),
+        (
+            "radial-gradient(40px 0, #000, #fff)",
+            "radial-gradient(ellipse 40px 0px at 50% 50%, #000000ff 0%, #ffffffff 100%)",
+        ),
+        (
+            "radial-gradient(20px circle at left, #000, #fff)",
+            "radial-gradient(circle 20px at 0% 50%, #000000ff 0%, #ffffffff 100%)",
+        ),
+        (
+            "radial-gradient(30px, #000, #fff)",
+            "radial-gradient(circle 30px at 50% 50%, #000000ff 0%, #ffffffff 100%)",
+        ),
+        (
+            "radial-gradient(ellipse 50% 10px, #000, #fff)",
+            "radial-gradient(ellipse 50% 10px at 50% 50%, #000000ff 0%, #ffffffff 100%)",
+        ),
     ] {
         let parsed = BackgroundImage::check(css).unwrap_or_else(|e| panic!("{css}: {e}"));
         assert_eq!(parsed.css(), canonical, "{css}");
         assert_eq!(BackgroundImage::parse(&parsed.css()), Some(parsed), "{css}");
+    }
+}
+
+#[test]
+fn a_first_stop_is_never_read_as_a_radius() {
+    // A colour may start with `-` (a role, a platform colour) or carry a
+    // length after it: only a number starts a radius.
+    for css in [
+        "radial-gradient(-exact-system-blue, transparent)",
+        "radial-gradient(-exact-system-blue 20px, transparent)",
+        "radial-gradient(-exact-platform-color(web color(display-p3 1 0 0), #ff0000), transparent)",
+        "radial-gradient(red 20px, blue)",
+        "radial-gradient(#fff 10%, #000)",
+        "radial-gradient(rgb(0 0 0) 5px, #fff)",
+        "radial-gradient(light-dark(#000, #fff), red)",
+    ] {
+        let g = BackgroundImage::check(css)
+            .unwrap_or_else(|e| panic!("{css}: {e}"))
+            .gradient()
+            .cloned()
+            .unwrap();
+        assert!(
+            matches!(
+                g.kind,
+                GradientKind::Radial {
+                    circle: false,
+                    size: RadialSize::Extent(Extent::FarthestCorner),
+                    ..
+                }
+            ),
+            "{css}: {:?}",
+            g.kind
+        );
+    }
+    for (css, says) in [
+        ("radial-gradient(+10px, #000, #fff)", "circle 10px"),
+        ("radial-gradient(.5px, #000, #fff)", "circle 0.5px"),
+        ("radial-gradient(-.5px 2px, #000, #fff)", "not negative"),
+    ] {
+        let got = BackgroundImage::check(css).map(|g| g.css());
+        let text = match &got {
+            Ok(t) => t.as_str(),
+            Err(e) => e,
+        };
+        assert!(text.contains(says), "{css}: {got:?}");
     }
 }
 
@@ -105,10 +171,15 @@ fn what_is_not_drawn_is_refused_by_name() {
         ("linear-gradient(red, blurple)", "stop's colour"),
         ("linear-gradient(reddish, blue)", "stop's colour"),
         ("linear-gradient(to middle, #000, #fff)", "side or corner"),
-        (
-            "radial-gradient(circle 20px, #000, #fff)",
-            "explicit radial size",
-        ),
+        ("radial-gradient(circle 20%, #000, #fff)", "circle's radius"),
+        ("radial-gradient(50%, #000, #fff)", "circle's radius"),
+        ("radial-gradient(circle 10px 20px, #000, #fff)", "one radius"),
+        ("radial-gradient(ellipse 10px, #000, #fff)", "two radii"),
+        ("radial-gradient(10px 20px 30px, #000, #fff)", "starts with"),
+        ("radial-gradient(10px ellipse 20px, #000, #fff)", "starts with"),
+        ("radial-gradient(10px closest-side, #000, #fff)", "not both"),
+        ("radial-gradient(-10px, #000, #fff)", "not negative"),
+        ("radial-gradient(2em 1em, #000, #fff)", "other lengths"),
         (
             "radial-gradient(at right 10px top 5px, #000, #fff)",
             "three or four",
@@ -122,7 +193,7 @@ fn what_is_not_drawn_is_refused_by_name() {
     }
     let many = (0..65).map(|_| "#000").collect::<Vec<_>>().join(", ");
     assert!(BackgroundImage::check(&format!("linear-gradient({many})")).is_err());
-    // What a computed value's own text already names.
+    // What a computed value's own text already names (studio diary R15).
     for (css, says) in [
         (
             "repeating-linear-gradient(0deg,  0 1px, transparent 1px)",
@@ -204,6 +275,14 @@ fn a_radial_extent_is_measured_from_its_centre() {
         close(c, (50.0, 10.0)) && close(r, (150.0, 150.0)),
         "{c:?} {r:?}"
     );
+    // Explicit radii: a percentage of the box's side on its own axis.
+    let (c, r) = ellipse("radial-gradient(120% 90% at 8% 0%, #000, #fff)");
+    assert!(
+        close(c, (16.0, 0.0)) && close(r, (240.0, 90.0)),
+        "{c:?} {r:?}"
+    );
+    let (_, r) = ellipse("radial-gradient(circle 30px, #000, #fff)");
+    assert!(close(r, (30.0, 30.0)), "{r:?}");
 }
 
 #[test]
@@ -282,7 +361,7 @@ fn generated_patch_codec_round_trips_and_refuses_bad_wire_data() {
     );
 }
 
-/// `conic-gradient()` from an angle at a position, stops in
+/// LLP 1077 D5: `conic-gradient()` from an angle at a position, stops in
 /// percentages or angles; and up to four layers, the first on top.
 #[test]
 fn conic_gradients_and_layers_parse_and_round_trip() {
@@ -330,6 +409,7 @@ fn conic_gradients_and_layers_parse_and_round_trip() {
     assert!(BackgroundImage::check_mask("conic-gradient(#000, #fff)").is_ok());
 }
 
+/// LLP 1100 D2.
 #[test]
 fn a_gradient_interpolates_in_the_space_css_says() {
     let g = |css: &str| {
@@ -506,4 +586,89 @@ fn a_gradient_read_through_its_captured_values_resolves_as_through_the_table() {
             g.resolved(dark)
         );
     }
+}
+
+/// A component missing at one end of a segment is the other end's along the
+/// whole segment, its end included (CSS Color 4 §12.4), and a stop with one
+/// is two colours where two segments meet; missing from both, it is 0.
+#[test]
+fn a_missing_component_is_the_other_ends_along_the_whole_segment() {
+    let ramp = |css: &str| parse(css).interpolated(false).unwrap();
+    for (_, c, a) in ramp("linear-gradient(in srgb, color(srgb none 0 0), color(srgb 1 0 0))") {
+        assert_eq!((c, a), ([1.0, 0.0, 0.0], 1.0), "no fade from black");
+    }
+    for (_, _, a) in
+        ramp("linear-gradient(in srgb, color(srgb 1 0 0 / none), color(srgb 0 0 1 / 0.5))")
+    {
+        assert!((a - 0.5).abs() < 1e-12, "{a}");
+    }
+    // Red, then a red-less stop between red and blue: red up to it, black after.
+    let r = ramp(
+        "linear-gradient(in srgb, color(srgb 1 0 0), color(srgb none 0 0) 50%, color(srgb 0 0 1))",
+    );
+    let at_half: Vec<[f64; 3]> = r.iter().filter(|s| s.0 == 0.5).map(|s| s.1).collect();
+    assert_eq!(at_half, [[1.0, 0.0, 0.0], [0.0, 0.0, 0.0]]);
+    assert!(r
+        .iter()
+        .filter(|s| s.0 < 0.5)
+        .all(|s| s.1 == [1.0, 0.0, 0.0]));
+    // An inset end stop extends the colour it has in the segment it ends,
+    // not its `none` as 0: each of these is solid red (CSS Images 4 §3.5.2).
+    // Chrome 157 draws the first fading from black over 0–25%, which is not
+    // the first stop's colour.
+    for css in [
+        "linear-gradient(in srgb, color(srgb none 0 0) 25%, red 100%)",
+        "linear-gradient(in srgb, red 0%, color(srgb none 0 0) 75%)",
+        "linear-gradient(in srgb, color(srgb none 0 0) 25%, red 75%)",
+    ] {
+        let r = ramp(css);
+        assert_eq!((r[0].0, r[r.len() - 1].0), (0.0, 1.0), "{css}");
+        for (at, c, a) in r {
+            assert_eq!((c, a), ([1.0, 0.0, 0.0], 1.0), "{css} at {at}");
+        }
+    }
+    // Missing from both ends: 0, not what a conversion made of it.
+    for (_, c, _) in
+        ramp("linear-gradient(in display-p3, color(srgb none 1 0), color(display-p3 none 0 1))")
+    {
+        let p3 = exact_color::MixSpace::DisplayP3.from_linear_srgb(c);
+        assert!(p3[0].abs() < 1e-9, "{p3:?}");
+    }
+}
+
+/// `rgb()`, `hsl()` and `hwb()` stops interpolate as written: a gray's hsl
+/// hue is its own, a `none` takes the other end's (legacy colours in sRGB),
+/// and the text reads back the same gradient. Chrome 156: `color-mix(in hsl,
+/// hsl(30 0% 50%), hsl(120 50% 50%))` is `color(srgb 0.5625 0.625 0.375)`.
+#[test]
+fn legacy_stops_interpolate_as_written() {
+    let g = parse("linear-gradient(in hsl, hsl(30 0% 50%), hsl(120 50% 50%))");
+    let mid = g.interpolated(false).unwrap()[8].1;
+    let srgb = exact_color::MixSpace::Srgb.from_linear_srgb(mid);
+    for (got, want) in srgb.iter().zip([0.5625, 0.625, 0.375]) {
+        assert!((got - want).abs() < 1e-6, "{srgb:?}");
+    }
+    assert!(g.css().contains("hsl(30 0% 50%)"), "{}", g.css());
+    assert_eq!(&parse(&g.css()), &g, "the text round-trips");
+    let none = parse("linear-gradient(rgb(none 0 0), white)");
+    assert_eq!(
+        none.interpolation(false).map(|i| i.space),
+        Some(exact_color::MixSpace::Srgb)
+    );
+    let ramp = none.interpolated(false).unwrap();
+    assert_eq!(ramp[0].1, [1.0, 0.0, 0.0]);
+    // So are a `light-dark()`'s halves, in either appearance: solid red, as
+    // Chrome 157 draws it, not a fade from black.
+    let pair = parse("linear-gradient(in srgb, light-dark(rgb(none 0 0), rgb(none 0 0)), red)");
+    assert!(pair.css().contains("rgb(none 0 0)"), "{}", pair.css());
+    for dark in [false, true] {
+        for (at, c, _) in pair.interpolated(dark).unwrap() {
+            assert_eq!(c, [1.0, 0.0, 0.0], "dark {dark} at {at}");
+        }
+    }
+    // Its bytes are all a hex or a whole rgb() says: unsampled, as before.
+    assert_eq!(
+        parse("linear-gradient(rgb(255 0 0), #00f)").interpolation(false),
+        None
+    );
 }

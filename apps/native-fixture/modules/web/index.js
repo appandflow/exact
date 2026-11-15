@@ -1,4 +1,4 @@
-// The native-module fixture on the web: the module table's
+// The native-module fixture (LLP 1024 D8) on the web: the module table's
 // names as exports (host/web/native-glue.js). The host defines each roster
 // tag and hands this module the element; the fixture renders into its shadow
 // root. `exact-fixture` echoes each props object it accepts as a `message`,
@@ -27,7 +27,7 @@ export function create(tag, element, json, event) {
   const h = { tag, box, event, emit: props.emit ?? '0' };
   size(h, props);
   box.style.backgroundColor = props.tint ?? 'gray';
-  // The web's form of a native screen: its own element.
+  // The web's form of a native screen (LLP 1075.003 §3.6): its own element.
   if (tag === 'exact-screen') { box.textContent = 'A native screen'; box.style.cssText += ';display:grid;place-items:center;background:#f2f2f7'; }
   if (tag === 'exact-fixture') { event(8, echo(props)); event(7); }
   return h;
@@ -56,10 +56,10 @@ export function destroy(h) {
   if (h.tag === 'exact-fixture') setTimeout(() => h.event(8, 'late'), 50);
 }
 
-// The hatches on the web: the badge takes a context menu of
+// The hatches on the web (LLP 1075.003.000): the badge takes a context menu of
 // its own, an interaction Exact leaves to the app; each row's dot hatch does
 // nothing; every call is counted where the smoke reads it. Each also says what
-// it did through its diagnostics: a counter per
+// it did through its diagnostics (LLP 1075.003.000.001 §3.2): a counter per
 // moment, and for the badge a line, a span from its mount to its end and a
 // snapshot of its last tone.
 const calls = (globalThis.exactFixtureHatches ??= {});
@@ -70,12 +70,12 @@ export function element(e) {
   const moment = e.isNew ? 'built' : 'changed';
   count(e, moment);
   e.diagnostics.count(moment);
-  // What a hatch asks of an authored node, each queued: `feed` replaces
+  // What a hatch asks of an authored node (§2.5), each queued: `feed` replaces
   // its field's value, `presser` clicks its own button once when armed and on
   // every change while looping.
   if (e.hatch === 'feed' && !e.isNew && e.data.feed) e.input(e.data.feed);
   if (e.hatch === 'presser' && !e.isNew && (e.data.loop !== 'off' || e.data.armed === 'true')) e.click();
-  // The frame clock: a ticket while the node says to run.
+  // The frame clock (§2.4): a ticket while the node says to run.
   if (e.hatch === 'clock') {
     const run = e.data.run === 'true';
     if (run && !clockStop) startClock(e);
@@ -83,7 +83,7 @@ export function element(e) {
     if (!e.isNew && e.data.presses === '65') e.click();
   }
   if (e.hatch !== 'badge') return;
-  // Regions and parts: the badge draws a seal over itself and
+  // Regions and parts (§3.4, §3.5): the badge draws a seal over itself and
   // says so; with `data-tone` busy the seal goes, and its region stays a
   // while as a tombstone.
   let seal = e.element.querySelector('[data-fixture-seal]');
@@ -108,7 +108,7 @@ export function element(e) {
   e.element.addEventListener('contextmenu', (event) => event.preventDefault());
 }
 
-// The frame clock, as the Swift module's: each
+// The frame clock (LLP 1075.003.000.001 §2.4), as the Swift module's: each
 // tick counts itself and whether the node's `data-frames`, which a frame task
 // advances, is the tick's own number; the first chains `after`s; the third
 // presses the node 65 times.
@@ -142,7 +142,7 @@ export function route() { tally('route:built'); }
 export function routeEnded() { tally('route:ended'); }
 export function tabs() { tally('tabs:built'); }
 
-// The app and window scopes: each moment is
+// The app and window scopes (LLP 1075.003.000.001 §2.1): each moment is
 // counted and published for the smoke, as the Swift module does.
 let scheme = 'light', own = null;
 const publishScopes = (moment) => {

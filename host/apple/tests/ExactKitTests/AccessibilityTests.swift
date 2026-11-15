@@ -4,7 +4,7 @@ import XCTest
 @testable import ExactKit
 
 final class AccessibilityTests: XCTestCase {
-    /// These cases walk Tab through buttons: Keyboard Navigation on.
+    /// These cases walk Tab through buttons: Keyboard Navigation on (LLP 1115.000 D7.2).
     override func setUp() { super.setUp(); keyboardNavigation(true) }
     private func fixture() -> (Presenter, NSWindow, NodeView, NodeView) {
         _ = NSApplication.shared
@@ -97,7 +97,7 @@ final class AccessibilityTests: XCTestCase {
         heading.applyProps(set: ["text": "Palo Alto", "accessibilityRole": "heading", "accessibilityHeadingLevel": "1"], clear: [])
         let body = NodeView(id: 14, kind: "text", presenter: p)
         body.applyProps(set: ["text": "Northbound"], clear: [])
-        // An `aria-level` with no `role="heading"` is not a heading.
+        // LLP 1115.000 D12.5: an `aria-level` with no `role="heading"` is not a heading.
         let levelled = NodeView(id: 15, kind: "text", presenter: p)
         levelled.applyProps(set: ["text": "Departures", "accessibilityHeadingLevel": "2"], clear: [])
         for n in [logo, spacer, heading, body, levelled] {
@@ -143,7 +143,7 @@ final class AccessibilityTests: XCTestCase {
         XCTAssertFalse(reached.contains(caption), "a button's text is its name, not a second stop")
         XCTAssertFalse(reached.contains(spacer))
     }
-    /// A heading inside a button is the button's child, as Chrome keeps
+    /// X74: a heading inside a button is the button's child, as Chrome keeps
     /// `<button><h2>` (button › heading). The button keeps its name, state
     /// and press; its text and images stay its name, not children, so a
     /// button holding only those is still a leaf, and `aria-hidden` hides.
@@ -208,7 +208,7 @@ final class AccessibilityTests: XCTestCase {
         XCTAssertTrue(text.canBecomeKeyView, "a key handler makes text focusable, as tabindex=0 does")
         XCTAssertTrue(first.nextKeyView === text)
     }
-    /// HTML's `tabindex`: an explicit value makes a plain box
+    /// HTML's `tabindex` (LLP 1088 D7.3): an explicit value makes a plain box
     /// focusable and, ≥ 0, a Tab stop, positive values first; a negative one
     /// takes a click but leaves Tab, a key handler's node included; absent is
     /// never `0`; a disabled button, inert and hidden boxes stay out, while a
@@ -284,8 +284,8 @@ final class AccessibilityTests: XCTestCase {
         XCTAssertNil(button.accessibilityValue())
         withExtendedLifetime(w) {}
     }
-    /// A drawn `role="progressbar"` is AppKit's progress
-    /// indicator, its value `aria-valuenow` between `aria-valuemin`
+    /// LLP 1116 D8: a drawn `role="progressbar"` is AppKit's progress
+    /// indicator (#278), its value `aria-valuenow` between `aria-valuemin`
     /// and `aria-valuemax` (ARIA's 0 and 100 where unsaid), `aria-valuetext`
     /// its description, and its children unread.
     func testARangeRoleIsOneElementWithItsValue() {
@@ -313,6 +313,14 @@ final class AccessibilityTests: XCTestCase {
         XCTAssertEqual(bar.rangeValueText, "25%", "what UIKit speaks")
         bar.applyProps(set: ["accessibilityRole": "slider"], clear: [])
         XCTAssertEqual(bar.accessibilityRole(), .slider)
+        // A spin button has no bounds unless it says them (WAI-ARIA 1.2), and
+        // its value is its number on iOS too.
+        bar.applyProps(set: ["accessibilityRole": "spinbutton", "accessibilityValueNow": "3"], clear: ["accessibilityValueMax"])
+        XCTAssertEqual(bar.accessibilityRole(), .incrementor)
+        XCTAssertEqual(bar.accessibilityValue() as? NSNumber, 3)
+        XCTAssertNil(bar.accessibilityMinValue())
+        XCTAssertNil(bar.accessibilityMaxValue())
+        XCTAssertEqual(bar.rangeValueText, "3", "what UIKit speaks")
         withExtendedLifetime(w) {}
     }
     private final class Opened: ExactSessionDelegate {
@@ -321,7 +329,7 @@ final class AccessibilityTests: XCTestCase {
             if name == "openURL" { urls += args.compactMap { $0 as? String } }
         }
     }
-    /// A link carries its URL, as an `NSTextView` link run and a SwiftUI
+    /// X78: a link carries its URL, as an `NSTextView` link run and a SwiftUI
     /// `Link` do. A `link` node's `AXURL` is its `href`. A paragraph's `href`
     /// run is one element from one ask to the next, and a hit test returns
     /// it (one made per ask is invalid to another process, VoiceOver's);
@@ -429,7 +437,7 @@ final class AccessibilityTests: XCTestCase {
         XCTAssertEqual(pressed, [1])
         withExtendedLifetime(w) {}
     }
-    /// A status paragraph's words and link are kept from one
+    /// X78 with #278: a status paragraph's words and link are kept from one
     /// ask to the next like any paragraph's runs, and made again when its
     /// runs change, when it stops being a group, or (with no runs) when its
     /// text changes.
@@ -469,9 +477,9 @@ final class AccessibilityTests: XCTestCase {
     func testALabelNamesATextAndAnEmptyLabelNamesNothing() {
         let (p, w, button, _) = fixture()
         let purse = NodeView(id: 30, kind: "text", presenter: p)
-        purse.applyProps(set: ["text": "20¢", "accessibilityRole": "status", "accessibilityLabel": "20 coins"], clear: [])
-        XCTAssertEqual(purse.authoredLabel, "20 coins")
-        XCTAssertEqual(purse.accessibleName, "20 coins")
+        purse.applyProps(set: ["text": "20¢", "accessibilityRole": "status", "accessibilityLabel": "20 sheckles"], clear: [])
+        XCTAssertEqual(purse.authoredLabel, "20 sheckles")
+        XCTAssertEqual(purse.accessibleName, "20 sheckles")
         button.applyProps(set: ["text": "Play", "accessibilityLabel": ""], clear: [])
         XCTAssertNil(button.authoredLabel)
         XCTAssertEqual(button.accessibleName, "Play")
@@ -488,7 +496,7 @@ final class AccessibilityTests: XCTestCase {
         XCTAssertEqual(first.liveText, "Quiet")
         withExtendedLifetime(w) {}
     }
-    /// `status` and `alert` are live regions by their roles, as WebKit
+    /// #278: `status` and `alert` are live regions by their roles, as WebKit
     /// serves them: a group whose subrole is the role, named only by its
     /// author, a paragraph's words a static text inside it, a container's
     /// its children; live with no `aria-live`, and `off` silences one.
@@ -605,7 +613,7 @@ final class AccessibilityTests: XCTestCase {
         XCTAssertEqual(error.livePoliteness, "assertive", "its aria-live over its role's")
         withExtendedLifetime(w) {}
     }
-    /// ⌘V, ⌘C and ⌘X at a focused node are its
+    /// Spreadsheet F4, F14: ⌘V, ⌘C and ⌘X at a focused node are its
     /// `paste`, `copy` and `cut` — the nearest handler's — and with none the
     /// Edit menu's action is not this node's, so the chain goes on.
     func testEditActionsAreClipboardEventsAtTheNearestHandler() {
@@ -625,7 +633,7 @@ final class AccessibilityTests: XCTestCase {
         XCTAssertEqual(heard, ["1:34:a\tb", "1:32:"])
         withExtendedLifetime(w) {}
     }
-    /// A click's modifiers ride with its press, as the
+    /// Gallery F20: a click's modifiers ride with its press, as the
     /// `MouseEvent` a press action may take; any other press holds none.
     func testAPressCarriesTheModifiersHeld() {
         let (p, w, button, _) = fixture()

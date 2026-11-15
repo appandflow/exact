@@ -1,5 +1,5 @@
-//! A build-time answer shown for other arguments is a stand-in:
-//! a launch whose persisted state changed a resource's arguments shows
+//! A build-time answer shown for other arguments is a stand-in (LLP 1048.003
+//! D6): a launch whose persisted state changed a resource's arguments shows
 //! the bake's answer for the bake's arguments until its source is ready, and
 //! `pending(x)` is true until then. A task gated on `not pending(x)` acts on
 //! the answer for the persisted arguments, not on the stand-in: the

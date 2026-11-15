@@ -4,7 +4,7 @@ import { resolve } from 'node:path';
 import { open } from '../../scripts/agent.mjs';
 import { webCompiler } from './module.mjs';
 
-// The agent's `layout` reports each scroller's range beside its offset (`rx`/`ry`), in `nodes` and in
+// The agent's `layout` reports each scroller's range beside its offset (LLP 1012 `rx`/`ry`), in `nodes` and in
 // `layout <target>`'s scroll chain: a scroller that hides `overflow-x` keeps the programmatic range the browser gives
 // it, and the viewport's entry is there while the page has a range, though it is not scrolled.
 test('a scroller\'s range and the page\'s are in layout and in the scroll chain', async () => {
@@ -45,6 +45,57 @@ test('a scroller\'s range and the page\'s are in layout and in the scroll chain'
   } finally {
     await browser?.close();
     server?.stop(true);
+    rmSync(dir, { recursive: true, force: true });
+  }
+}, 120_000);
+
+// LLP 1008: the emitted CSS lets the browser settle both axes and explore oversized areas.
+test('mandatory snap centers both axes and leaves oversized areas free', async () => {
+  if (webCompiler().cmd === 'cargo') throw new Error('build the compiler first: cargo build -p exact-web-js');
+  const root = resolve(import.meta.dir, '../..');
+  const dir = mkdtempSync(resolve(root, 'target/scroll-snap-test-'));
+  let browser, server;
+  try {
+    writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ name: 'Scroll Snap Test', app: { id: 'test.scroll-snap', name: 'Scroll Snap Test' }, host: { web: {} } }));
+    writeFileSync(resolve(dir, 'app.contract'), `component App
+  view
+    column
+      scroll testId="x" width=300 height=100 overflow-x="scroll" overflow-y="hidden" scroll-snap-type="x mandatory"
+        row
+          for n in range(3) key=n
+            view width=150 height=100 flex-shrink=0 scroll-snap-align="center"
+          view width=600 height=100 flex-shrink=0 scroll-snap-align="center"
+      scroll testId="y" width=100 height=300 scroll-snap-type="y mandatory"
+        for n in range(3) key=n
+          view width=100 height=150 scroll-snap-align="center"
+        view width=100 height=600 scroll-snap-align="center"
+`);
+    const dist = resolve(dir, 'dist');
+    const build = Bun.spawn([process.execPath, 'host/web-js/build.mjs', 'scroll-snap-test', '--out', dist, '--render', 'none'], {
+      cwd: root, env: { ...process.env, EXACT_APP_DIR: dir }, stdout: 'pipe', stderr: 'pipe',
+    });
+    const [status, stdout, stderr] = await Promise.all([build.exited, new Response(build.stdout).text(), new Response(build.stderr).text()]);
+    expect({ status, error: status ? stdout + stderr : '' }).toEqual({ status: 0, error: '' });
+    server = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch(req) {
+      const path = new URL(req.url).pathname;
+      if (path.startsWith('/shared/')) return new Response(Bun.file(resolve(root, 'host/web', path.slice('/shared/'.length))));
+      const file = resolve(dist, path === '/' ? 'index.html' : path.slice(1));
+      return existsSync(file) ? new Response(Bun.file(file)) : new Response('Not found', { status: 404 });
+    } });
+    browser = await open({ host: 'web', url: server.url.href, size: [800, 800] });
+    for (const axis of ['x', 'y']) {
+      // Enter the oversized area's boundary before exploring its free interval; both cases require snapping.
+      for (const [projection, rest] of [[190, 225], [430, 450], [560, 560]]) {
+        const actual = await browser.carrier.evaluate(`(() => {
+          const n = document.querySelector('[data-testid="${axis}"]');
+          n.scrollTo({ ${axis === 'x' ? 'left' : 'top'}: ${projection}, behavior: 'instant' });
+          return { type: getComputedStyle(n).scrollSnapType, rest: n.${axis === 'x' ? 'scrollLeft' : 'scrollTop'} };
+        })()`);
+        expect(actual).toEqual({ type: `${axis} mandatory`, rest });
+      }
+    }
+  } finally {
+    await browser?.close(); server?.stop(true);
     rmSync(dir, { recursive: true, force: true });
   }
 }, 120_000);

@@ -1,11 +1,11 @@
-//! A resource's two-way socket. A mutation's source
+//! A resource's two-way socket (LLP 1016.000 D7). A mutation's source
 //! stages operations on a socket handle it kept from a resource's mapper,
 //! and the mapper itself may stage replies on its own socket as it answers
 //! the socket's `open` or a `message`. The runner addresses them to the
 //! stream ticket of the resource that owns the socket now, and hands them
 //! to the host only once the commit that staged them stands. A refused
 //! commit takes them back with everything else (`commit.rs`'s checkpoint).
-//! An answer in flight sends too: each turn's
+//! An answer in flight sends too (the amendment of 2026-10-18): each turn's
 //! operations are one batch, sent once the commit that ran the turn stands
 //! whatever the answer turns out to be.
 use super::*;
@@ -36,7 +36,7 @@ pub struct SocketState {
     pub sent: u64,
     /// The transport's buffered bytes as of the last turn or publication.
     pub buffered: u64,
-    /// A local listener's address, where it stands.
+    /// A local listener's address, where it stands (LLP 1133.005 D2).
     pub listen: Option<crate::listen::Standing>,
 }
 
@@ -54,7 +54,7 @@ impl<D: DataSource> Runner<D> {
     /// stages), with the batches of earlier turns the host has not taken.
     /// Without a reader, the count the last publication left.
     pub(super) fn snapshot_sockets(&mut self) {
-        let mut snapshot = Vec::new();
+        let (mut snapshot, mut open) = (Vec::new(), Vec::new());
         for p in &mut self.pending {
             let (Target::Resource(i), Some(socket)) =
                 (p.target, p.stream.as_mut().and_then(|s| s.socket.as_mut()))
@@ -70,13 +70,64 @@ impl<D: DataSource> Runner<D> {
                     .filter(|(t, ..)| *t == p.ticket)
                     .map(|(.., op)| op.size() as u64);
                 snapshot.push((i, socket.buffered + held.sum::<u64>()));
+                open.push((i, p.ticket));
             }
         }
         self.store.set_socket_buffered(snapshot);
+        self.store.set_socket_open(open);
+    }
+
+    /// The answer to a mutation's send (`target`), which may send on its module's open sockets
+    /// through a Rust handle (LLP 1016.003 D4).
+    pub(super) fn answer_mutation(
+        &mut self,
+        target: Target,
+        source: &str,
+        args: &[Value],
+    ) -> Result<Answer, DataError> {
+        self.store.set_socket_call(crate::SocketCall::Mutation);
+        let answer = self.data.answer_for(target, &mut self.store, source, args);
+        self.store.end_socket_call(answer)
+    }
+
+    /// `p`'s source parses `outcome`. Answering a message of a resource's
+    /// own two-way socket (`open` or a frame) it is the socket's mapper, and
+    /// a Rust handle may send on that socket (LLP 1016.003 D4).
+    pub(super) fn parse_frame(
+        &mut self,
+        p: &PendingReq,
+        message: bool,
+        outcome: Outcome,
+    ) -> Result<Option<Answer>, DataError> {
+        let socket = p.stream.and_then(|s| s.socket);
+        let call = match p.target {
+            Target::Resource(i) if message && socket.is_some_and(|s| s.listen.is_none()) => {
+                crate::SocketCall::Mapper(crate::Socket::new(i, p.ticket))
+            }
+            _ => crate::SocketCall::None,
+        };
+        self.store.set_socket_call(call);
+        let parsed = self.data.parse_fetch_for(
+            p.target,
+            p.fetch,
+            &mut self.store,
+            &p.source,
+            &p.args,
+            outcome,
+        );
+        let parsed = parsed.map(|answer| {
+            answer.map(|mut answer| {
+                if let Answer::Later(request) = &mut answer {
+                    request.module = p.module.clone();
+                }
+                answer
+            })
+        });
+        self.store.end_socket_call(parsed)
     }
 
     /// Read each long poll's backoff wait from the host with `reader`, for
-    /// `state.streams`.
+    /// `state.streams` (LLP 1016.000 D8).
     pub fn set_retry_reader(&mut self, reader: crate::RetryReader) {
         self.retry_reader = Some(reader);
     }
@@ -178,7 +229,7 @@ impl<D: DataSource> Runner<D> {
         }
         let own = match p.target {
             Target::Resource(i) => Some(i),
-            Target::Mutation(_) => None,
+            Target::Mutation(_) | Target::Sent(..) => None,
         };
         if staged.iter().any(|(i, _)| Some(*i) != own) {
             return Err("a mapper sends only on its own socket".into());
@@ -196,9 +247,9 @@ impl<D: DataSource> Runner<D> {
     }
 
     /// `batch` for publication once its commit stands. A write to, an end
-    /// of or a signal to a child from an origin that may not
-    /// is dropped and said, and a tool's call ends `person-required`;
-    /// the batch's other operations go, and the commit
+    /// of or a signal to a child from an origin that may not (LLP 1133.007
+    /// D13) is dropped and said, and a tool's call ends `person-required`
+    /// (LLP 1111 D4a); the batch's other operations go, and the commit
     /// stands either way.
     fn push_batch(&mut self, mut batch: SocketSend) {
         let mut dropped = Vec::new();
@@ -248,7 +299,7 @@ impl<D: DataSource> Runner<D> {
     /// What the host made of a batch [`Runner::take_socket_sends`] gave it:
     /// for each socket, the frames it accepted and the bytes its transport
     /// buffers now; or why it refused the whole batch, which sent nothing
-    /// (the commit stood, and acceptance is not server acknowledgement).
+    /// (D7: the commit stood, and acceptance is not server acknowledgement).
     pub fn socket_published(
         &mut self,
         batch: &SocketSend,
@@ -294,7 +345,7 @@ pub(super) fn refused(origin: &SocketOrigin, why: &str) -> String {
     )
 }
 
-/// A child's operation dropped from its batch.
+/// A child's operation dropped from its batch (LLP 1133.007 D13).
 pub(super) fn refused_op(origin: &SocketOrigin, why: &str) -> String {
     let (verb, name) = origin.words();
     exact_num::text!(
@@ -320,8 +371,8 @@ pub(super) fn stream_count(request: &crate::Request) -> Option<StreamCount> {
 }
 
 /// A delivered message's effect on its socket's state: `open` (a
-/// listener's `listening`) opens it, as a child's first `spawn` does,
-/// which stays open across its restarts.
+/// listener's `listening`) opens it, as a child's first `spawn` does (LLP
+/// 1133.007 D2), which stays open across its restarts.
 pub(super) fn socket_message(count: &mut StreamCount, message: &crate::Message) {
     if let Some(socket) = count.socket.as_mut() {
         let opens = if socket.listen.is_some() {

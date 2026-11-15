@@ -1,4 +1,4 @@
-//! Duo Lab on Linux: flat unless an agent `prefer`s a posture or
+//! Duo Lab on Linux (LLP 1078 D8): flat unless an agent `prefer`s a posture or
 //! segments — how the six checks exercise the fold without a Duo.
 
 include!(concat!(env!("OUT_DIR"), "/module.rs"));

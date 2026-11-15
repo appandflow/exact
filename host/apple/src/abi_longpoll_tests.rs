@@ -1,7 +1,7 @@
-//! A long poll on work that is no HTTP request, through the bridge.
+//! A long poll on work that is no HTTP request, through the bridge (LLP 1016.000 D8).
 use super::*;
 
-/// Through Apple's bridge, a long poll attached to work that
+/// LLP 1016.000 D8 through Apple's bridge: a long poll attached to work that
 /// is no HTTP request (here a continuation) is refused before its work runs,
 /// and the source parses the refusal.
 #[derive(Clone, Default)]

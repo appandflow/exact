@@ -1,4 +1,4 @@
-// A search's scope bar: a filter tablist right after a header
+// A search's scope bar (LLP 1134): a filter tablist right after a header
 // whose search field the bar projects is that search bar's scope buttons, as
 // a hand-built iPhone screen with a large title, a search and a filter has
 // it, riding the bar as the title collapses.
@@ -34,7 +34,7 @@ extension NavigationHost {
 import UIKit
 
 extension NavigationHost {
-    /// The tablist the search bar takes as its scope bar, hidden
+    /// D1, D2: the tablist the search bar takes as its scope bar, hidden
     /// and covered whole as the header is; the one it took before shown
     /// again (its cover goes with the next `reportCovers`).
     func scope(_ c: RouteController, shape: HeaderShape?) {
@@ -44,11 +44,11 @@ extension NavigationHost {
             c.scoped = next
             next?.isHidden = true
         }
-        // Under a large title with no search, the item's subtitle views.
+        // LLP 1135: under a large title with no search, the item's subtitle views.
         if #available(iOS 26.0, *) { subtitles(c, shape?.search == nil ? next : nil) }
     }
 
-    /// `list` as the segmented control under the large title
+    /// LLP 1135 D2: `list` as the segmented control under the large title
     /// and under the inline one, or neither.
     @available(iOS 26.0, *)
     private func subtitles(_ c: RouteController, _ list: NodeView?) {
@@ -74,12 +74,12 @@ extension NavigationHost {
         segments.apply(list)
     }
 
-    /// The next child the author shows in flow after a header the bar
+    /// D1: the next child the author shows in flow after a header the bar
     /// replaces whole whose search it projects, when it is a filter: two to
     /// five text tabs, one selected, none disabled, naming no panel, and no
     /// look of the author's on it or them.
     private func scopeFilter(after shape: HeaderShape, in c: RouteController) -> NodeView? {
-        // A search's scope bar, or a large title's subtitle views.
+        // A search's scope bar (LLP 1134), or a large title's subtitle views (LLP 1135 D1).
         // Not under a title the bar draws with more than its words (a subtitle, an
         // avatar, segments), whose subtitle views it would take.
         let large: Bool = {
@@ -96,7 +96,7 @@ extension NavigationHost {
         let shown = { (v: NodeView) in v.style["display"]?.string != "none" && Self.inFlow(v) }
         guard let at = kids.firstIndex(where: { $0 === shape.header }),
               let list = kids[(at + 1)...].first(where: shown),
-              // Under a large title it is the list's filter, right above it.
+              // Under a large title it is the list's filter, right above it (LLP 1135 D1).
               shape.search != nil || kids.firstIndex(where: { $0 === list }).flatMap({ kids[($0 + 1)...].first(where: shown) })?.scrollView != nil,
               list.props["accessibilityRole"] == "tablist", list.props["accessibilityOrientation"] != "vertical", !Self.writesLook(list) else { return nil }
         // One that takes no input stays the page's, where it shows so (SegmentHost's `available`).
@@ -126,7 +126,7 @@ extension NavigationHost {
 }
 
 extension HeaderSearch {
-    /// The scope bar is `list`'s tabs, or none.
+    /// D2–D4: the scope bar is `list`'s tabs, or none.
     func scope(_ list: NodeView?) {
         let bar = controller.searchBar
         let tabs = list.map { $0.container.subviews.compactMap { $0 as? NodeView }.filter { $0.style["display"]?.string != "none" } } ?? []
@@ -144,7 +144,7 @@ extension HeaderSearch {
         if bar.scopeButtonTitles != titles { bar.scopeButtonTitles = titles; scopeSettled = nil }
         showScopes()
         let selected = tabs.firstIndex { $0.props["accessibilitySelected"] == "true" } ?? 0
-        // A finger's choice not yet reported stays; the settled index is
+        // A finger's choice not yet reported stays (D3); the settled index is
         // written first, so a delegate call setting it raises presses nothing.
         let pending = scopeControl?.isTracking == true || scopeSettled.map({ $0 != bar.selectedScopeButtonIndex }) == true
         if !pending, bar.selectedScopeButtonIndex != selected {
@@ -194,7 +194,7 @@ extension HeaderSearch {
         return find(nav.navigationBar)
     }
 
-    /// A person's choice presses that segment's tab.
+    /// D3: a person's choice presses that segment's tab.
     func searchBar(_ bar: UISearchBar, selectedScopeButtonIndexDidChange index: Int) {
         guard index != scopeSettled, scopeTabs.indices.contains(index), let presenter = host?.presenter else { return }
         scopeSettled = index
@@ -204,7 +204,7 @@ extension HeaderSearch {
     }
     func didPresentSearchController(_ search: UISearchController) { showScopes() }
 }
-/// A filter as the segmented controls under a large title and
+/// LLP 1135: a filter as the segmented controls under a large title and
 /// under the inline title it collapses to, kept in step.
 @available(iOS 26.0, *)
 final class SubtitleSegments: NSObject {
@@ -212,7 +212,7 @@ final class SubtitleSegments: NSObject {
     private(set) var tabs: [UInt32] = []
     private weak var host: NavigationHost?
     private weak var list: NodeView?
-    /// The segment last chosen or set.
+    /// The segment last chosen or set (LLP 1134 D3).
     private var settled = UISegmentedControl.noSegment
     init(host: NavigationHost, route: RouteController) {
         self.host = host
@@ -262,6 +262,7 @@ final class SubtitleSegments: NSObject {
             if !pending, control.selectedSegmentIndex != selected { settled = selected; control.selectedSegmentIndex = selected }
             control.accessibilityLabel = list.props["accessibilityLabel"]
             control.segmentIDs = members.map { $0.props["testId"] }
+            control.segmentOwners = members.map(\.id)
         }
         if !pending, large.selectedSegmentIndex == selected { settled = selected }
     }
@@ -280,7 +281,7 @@ final class SubtitleSegments: NSObject {
 
 private var subtitleSegmentsKey: UInt8 = 0
 extension RouteController {
-    /// The scope controls, while the route's filter is them.
+    /// LLP 1135's controls, while the route's filter is them.
     @available(iOS 26.0, *)
     var subtitleSegments: SubtitleSegments? {
         get { objc_getAssociatedObject(self, &subtitleSegmentsKey) as? SubtitleSegments }

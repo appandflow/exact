@@ -3,8 +3,10 @@
 //!
 //! Arithmetic uses `f64` and narrows once at the result. Precision is
 //! implementation-defined; exceptional values follow §10.9. Compact expressions
-//! stay in `Dimension`; other trees are interned so it remains `Copy` and equal
-//! styles share a handle. Percentages resolve during layout against their basis.
+//! stay in `Dimension`; other trees share an owned entry, so equal
+//! styles share a handle until its last owner releases it. Percentages resolve
+//! during layout against their basis.
+//! @ref LLP 1001 §2
 
 mod parse;
 mod simplify;
@@ -16,9 +18,10 @@ pub use parse::nonnegative_row;
 pub(crate) use parse::{grid, is_env, names_math, parse, refusal, signed, substitutes, Refused};
 
 use super::env::{self, Edge, Env, Region, SegmentVar, TitleBarVar};
+use super::intern::{Table, Value};
 use super::{Dimension, StyleId, ViewportUnit};
-use std::collections::HashMap;
-use std::sync::Mutex;
+use std::sync::Arc;
+use std::sync::{LazyLock, Mutex};
 
 /// The values CSS Values 4 §10.8 has a UA support in one calculation, as
 /// written, and the levels of parentheses and functions: the kernel's
@@ -67,11 +70,16 @@ pub enum EnvTerm {
     Inset(Edge),
     /// `env(viewport-segment-<var> <x> <y>)`.
     Segment(SegmentVar, u8, u8),
-    /// `env(-exact-<region>-inset-<edge>)`.
+    /// `env(-exact-<region>-inset-<edge>)` (LLP 1123 D10).
     Region(Region, Edge),
     /// `env(titlebar-area-<var>)` (Window Controls Overlay). No compact
     /// [`Dimension`] holds it: a length that reads it is always a tree.
     TitleBar(TitleBarVar),
+    /// `var(--exact-safe-area-inset-<edge>)` (LLP 1123 D5, D9): the local
+    /// inset of the content owner a node is in, which a host sets per
+    /// owner, so it resolves per node ([`Env::local_inset`]). A
+    /// substitution, as `env()` is; always a tree.
+    Local(Edge),
 }
 
 impl EnvTerm {
@@ -83,7 +91,27 @@ impl EnvTerm {
             EnvTerm::Segment(var, x, y) => env::resolve_wide(var, x, y, env),
             EnvTerm::Region(region, edge) => Some(f64::from(env.region_inset(region, edge))),
             EnvTerm::TitleBar(var) => env.titlebar(var).map(f64::from),
+            EnvTerm::Local(edge) => Some(f64::from(env.local_inset(edge))),
         }
+    }
+}
+
+/// `node` with every local inset (`EnvTerm::Local`) replaced by its points
+/// under `env`.
+fn localize(node: &Node, env: &Env) -> Node {
+    let all = |c: &[Node]| c.iter().map(|n| localize(n, env)).collect();
+    match node {
+        Node::Env(EnvTerm::Local(edge)) => Node::Value(f64::from(env.local_inset(*edge)), Unit::Px),
+        Node::Value(..) | Node::Env(..) => node.clone(),
+        Node::Sum(c) => Node::Sum(all(c)),
+        Node::Product(c) => Node::Product(all(c)),
+        Node::Min(c) => Node::Min(all(c)),
+        Node::Max(c) => Node::Max(all(c)),
+        Node::Negate(c) => Node::Negate(Box::new(localize(c, env))),
+        Node::Invert(c) => Node::Invert(Box::new(localize(c, env))),
+        Node::Clamp(c) => Node::Clamp(Box::new(
+            c.each_ref().map(|n| n.as_ref().map(|n| localize(n, env))),
+        )),
     }
 }
 
@@ -218,15 +246,21 @@ fn pick(a: f64, b: f64, max: bool) -> f64 {
     }
 }
 
+/// The largest length a calculation's result is censored to, as Chrome's
+/// layout holds it (2^25 px): §10.9.2 leaves the largest value to the
+/// context, and one whose sums stay finite keeps a frame and a radius sum
+/// (two `calc(infinity * 1px)` lengths) finite.
+pub(crate) const LARGEST: f64 = 33_554_432.0;
+
 /// A top-level calculation's result as the `f32` a length holds, censored
-/// as §10.9.2 has it: NaN is 0, an infinity or a value past what an `f32`
-/// holds is the largest it does, and `-0` is `0`. The arithmetic before it
-/// is `f64`; this is the final conversion to layout precision.
+/// as §10.9.2 has it: NaN is 0, an infinity or a value past [`LARGEST`] is
+/// it, and `-0` is `0`. The arithmetic before it is `f64`; this is the final
+/// conversion to layout precision.
 pub(crate) fn narrow(v: f64) -> f32 {
     if v.is_nan() {
         0.0
     } else {
-        v.clamp(-f64::from(f32::MAX), f64::from(f32::MAX)) as f32 + 0.0
+        v.clamp(-LARGEST, LARGEST) as f32 + 0.0
     }
 }
 
@@ -268,7 +302,7 @@ fn env_dimension(term: EnvTerm, plus: f32) -> Option<Dimension> {
         EnvTerm::Inset(edge) => Dimension::Env(edge, plus),
         EnvTerm::Segment(var, x, y) => Dimension::Segment(var, x, y, plus),
         EnvTerm::Region(region, edge) => Dimension::Region(region, edge, plus),
-        EnvTerm::TitleBar(_) => return None,
+        EnvTerm::TitleBar(_) | EnvTerm::Local(_) => return None,
     })
 }
 
@@ -278,8 +312,8 @@ pub(crate) fn lone_env(term: EnvTerm) -> Dimension {
 }
 
 /// A calculation a row holds: a handle to its interned entry.
-#[derive(Clone, Copy, PartialEq, Eq, Hash)]
-pub struct Comparison(u32);
+#[derive(Clone)]
+pub struct Comparison(Arc<Value<Arc<[u8]>, Entry>>);
 
 /// What a handle names: a simplified tree, or a text whose `env()` has a
 /// fallback, which CSS Environment Variables 1 §3 substitutes before the
@@ -290,16 +324,35 @@ pub(crate) enum Entry {
     Text { text: String, row: StyleId },
 }
 
-/// The interned entries, by handle, and each one's wire bytes to its
-/// handle, so equal entries (bit for bit) share one.
-struct Table {
-    entries: Vec<Entry>,
-    handles: HashMap<Vec<u8>, u32>,
+static TABLE: LazyLock<Mutex<Table<Arc<[u8]>, Entry>>> = LazyLock::new(|| Mutex::new(Table::new()));
+
+impl PartialEq for Comparison {
+    fn eq(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.0, &other.0)
+    }
+}
+impl Eq for Comparison {}
+impl std::hash::Hash for Comparison {
+    fn hash<H: std::hash::Hasher>(&self, h: &mut H) {
+        self.0.id.hash(h);
+    }
 }
 
-static TABLE: Mutex<Option<Table>> = Mutex::new(None);
-
 impl Comparison {
+    /// Read a serialized calculation tree's CSS. Serialization can add
+    /// parentheses, so author limits apply to the simplified tree instead.
+    /// Parsing is bounded by the wire's node and depth limits.
+    pub fn from_css(text: &str) -> Option<Self> {
+        let tree = parse::tree(text)?;
+        if !wire::within_author_limits(&tree) {
+            return None;
+        }
+        match dimension(tree) {
+            Dimension::Compare(c) => Some(c),
+            _ => None,
+        }
+    }
+
     /// The handle of a simplified tree, interned.
     pub(crate) fn intern(tree: Node) -> Comparison {
         Self::intern_entry(Entry::Tree(tree))
@@ -322,34 +375,27 @@ impl Comparison {
             // for its own row: it keys the entry here
             w.u16(*row as u16);
         }
-        let mut table = TABLE.lock().unwrap_or_else(|e| e.into_inner());
-        let table = table.get_or_insert_with(|| Table {
-            entries: Vec::new(),
-            handles: HashMap::new(),
-        });
-        let next = table.entries.len() as u32;
-        let handle = *table.handles.entry(w.into_vec()).or_insert(next);
-        if handle == next {
-            table.entries.push(entry);
-        }
-        Comparison(handle)
+        Comparison(Table::intern(&TABLE, Arc::from(w.into_vec()), entry))
     }
 
-    fn with<T>(self, f: impl FnOnce(&Entry) -> T) -> T {
-        let table = TABLE.lock().unwrap_or_else(|e| e.into_inner());
-        f(&table.as_ref().expect("a handle was interned").entries[self.0 as usize])
+    pub(super) fn identity(&self) -> usize {
+        self.0.id
+    }
+
+    fn with<T>(&self, f: impl FnOnce(&Entry) -> T) -> T {
+        f(&self.0.value)
     }
 
     /// The points this resolves to under `env`, its percentages of `basis`,
     /// censored as a top-level calculation is ([`narrow`]); `None` where it
     /// is invalid or a percentage has no basis.
-    pub fn value(self, env: &Env, basis: Option<f32>) -> Option<f32> {
+    pub fn value(&self, env: &Env, basis: Option<f32>) -> Option<f32> {
         self.wide(env, basis.map(f64::from)).map(narrow)
     }
 
     /// [`Comparison::value`] before it is censored: what a caller that adds
     /// to it censors after.
-    pub(crate) fn wide(self, env: &Env, basis: Option<f64>) -> Option<f64> {
+    pub(crate) fn wide(&self, env: &Env, basis: Option<f64>) -> Option<f64> {
         match self.tree(|t| t.value(env, basis)) {
             Some(v) => v,
             None => substitute::value(self.substituted(env)?, env, basis),
@@ -357,7 +403,7 @@ impl Comparison {
     }
 
     /// `f` of the tree, or `None` for a text, without copying either.
-    fn tree<T>(self, f: impl FnOnce(&Node) -> T) -> Option<T> {
+    fn tree<T>(&self, f: impl FnOnce(&Node) -> T) -> Option<T> {
         self.with(|e| match e {
             Entry::Tree(t) => Some(f(t)),
             Entry::Text { .. } => None,
@@ -369,13 +415,13 @@ impl Comparison {
     /// defines is its own, an undefined one's fallback stands in its place;
     /// `None` when the result is no value of the row, invalid at
     /// computed-value time. A tree is itself.
-    pub(crate) fn substituted(self, env: &Env) -> Option<Dimension> {
+    pub(crate) fn substituted(&self, env: &Env) -> Option<Dimension> {
         let text = self.with(|e| match e {
             Entry::Tree(_) => None,
             Entry::Text { text, row } => Some((text.clone(), *row)),
         });
         match text {
-            None => Some(Dimension::Compare(self)),
+            None => Some(Dimension::Compare(self.clone())),
             Some((text, row)) => {
                 let text = substitute::substitute(&text, env)?;
                 // Read as an author's value of the row is, by the one
@@ -400,17 +446,22 @@ impl Comparison {
     /// taking its initial value: a segment a tree reads is undefined,
     /// whichever argument it is in, or a text substituted is no value of its
     /// row (CSS Environment Variables 1 §3).
-    pub(crate) fn undefined(self, env: &Env) -> bool {
-        self.tree(|t| t.any(&|n| matches!(n, Node::Env(term) if term.value(env).is_none())))
-            .unwrap_or_else(|| {
-                self.substituted(env)
-                    .is_none_or(|d| d.undefined_segment(env))
-            })
+    pub(crate) fn undefined(&self, env: &Env) -> bool {
+        // A local inset is always defined, and only a node's environment has it
+        let undefined = |n: &Node| match n {
+            Node::Env(EnvTerm::Local(_)) => false,
+            Node::Env(term) => term.value(env).is_none(),
+            _ => false,
+        };
+        self.tree(|t| t.any(&undefined)).unwrap_or_else(|| {
+            self.substituted(env)
+                .is_none_or(|d| d.undefined_segment(env))
+        })
     }
 
     /// The CSS text: a tree's as §10.13 serializes it, a text as written,
     /// for a host whose browser resolves it.
-    pub fn css(self, out: &mut String) {
+    pub fn css(&self, out: &mut String) {
         self.with(|e| match e {
             Entry::Tree(t) => text::math_function(t, out),
             Entry::Text { text, .. } => out.push_str(text),
@@ -418,12 +469,12 @@ impl Comparison {
     }
 
     /// Whether it reads the safe-area inset at `edge` under `env`, or the
-    /// corner-adapted safe area's there, which is never less:
+    /// corner-adapted safe area's there, which is never less (LLP 1123 D10):
     /// a text once substituted.
-    pub fn reads(self, edge: Edge, env: &Env) -> bool {
+    pub fn reads(&self, edge: Edge, env: &Env) -> bool {
         self.tree(|t| {
             t.any(&|n| {
-                matches!(n, Node::Env(EnvTerm::Inset(e) | EnvTerm::Region(Region::SafeAreaCorners, e)) if *e == edge)
+                matches!(n, Node::Env(EnvTerm::Inset(e) | EnvTerm::Local(e) | EnvTerm::Region(Region::SafeAreaCorners, e)) if *e == edge)
             })
         })
         .unwrap_or_else(|| match self.substituted(env) {
@@ -434,7 +485,7 @@ impl Comparison {
     }
 
     /// Append the wire form ([`wire::encode`]).
-    pub(crate) fn encode(self, w: &mut crate::wire::codec::Writer) {
+    pub(crate) fn encode(&self, w: &mut crate::wire::codec::Writer) {
         self.with(|e| wire::encode(e, w));
     }
 
@@ -446,13 +497,45 @@ impl Comparison {
         wire::decode(r, row)
     }
 
-    pub(crate) fn is_length_percentage(self) -> bool {
+    pub(crate) fn is_length_percentage(&self) -> bool {
         self.tree(|t| !t.any(&|n| matches!(n, Node::Env(_) | Node::Value(_, Unit::Viewport(_)))))
             .unwrap_or(false)
     }
 
+    /// Whether it reads a local inset (`var(--exact-safe-area-inset-*)`,
+    /// LLP 1123 D9), which resolves per node: in a tree, at a leaf; a text
+    /// whose `env()` has a fallback, wherever it names one.
+    pub(crate) fn reads_local(&self) -> bool {
+        self.with(|e| match e {
+            Entry::Tree(t) => t.any(&|n| matches!(n, Node::Env(EnvTerm::Local(_)))),
+            Entry::Text { text, .. } => text.contains(env::LOCAL_PREFIX),
+        })
+    }
+
+    /// Whether it reads the local inset at `edge`.
+    pub(crate) fn reads_local_edge(&self, edge: Edge) -> bool {
+        self.with(|e| match e {
+            Entry::Tree(t) => t.any(&|n| matches!(n, Node::Env(EnvTerm::Local(e)) if *e == edge)),
+            Entry::Text { text, .. } => {
+                text.contains(&format!("{}{}", env::LOCAL_PREFIX, edge.name()))
+            }
+        })
+    }
+
+    /// The tree with its local insets as `env` has them, in points, as the
+    /// dimension that holds it; `None` when it reads none. A tree handed to
+    /// layout, where only the window's environment is known, is localized
+    /// first (LLP 1123 D5).
+    pub(crate) fn localized(&self, env: &Env) -> Option<Dimension> {
+        self.tree(|t| {
+            t.any(&|n| matches!(n, Node::Env(EnvTerm::Local(_))))
+                .then(|| dimension(simplify::simplify(localize(t, env))))
+        })
+        .flatten()
+    }
+
     /// Whether a `rem` stands in it, which the root font size resolves.
-    pub(crate) fn reads_rem(self) -> bool {
+    pub(crate) fn reads_rem(&self) -> bool {
         self.tree(|t| t.any(&|n| matches!(n, Node::Value(_, Unit::Rem))))
             .unwrap_or(false)
     }
@@ -460,7 +543,7 @@ impl Comparison {
     /// Whether a percentage stands in it: in a tree, at a leaf, which
     /// simplification keeps (a percentage combines only with another); a
     /// text is checked once substituted, as the row reads it.
-    pub(crate) fn has_percent(self) -> bool {
+    pub(crate) fn has_percent(&self) -> bool {
         self.tree(|t| t.any(&|n| matches!(n, Node::Value(_, Unit::Percent))))
             .unwrap_or(false)
     }
@@ -474,30 +557,70 @@ impl std::fmt::Debug for Comparison {
     }
 }
 
-/// Whether a row takes no negative length in CSS: sizes, padding, radii, an
-/// SVG radius and a column's width (margins and insets take one). A math
-/// function's result is clamped to 0 there (CSS Values 4 §9.1).
-pub(super) fn no_negative_lengths(style: StyleId) -> bool {
-    matches!(
-        style,
-        StyleId::Width
-            | StyleId::Height
-            | StyleId::MinWidth
-            | StyleId::MinHeight
-            | StyleId::MaxWidth
-            | StyleId::MaxHeight
-            | StyleId::PaddingTop
-            | StyleId::PaddingRight
-            | StyleId::PaddingBottom
-            | StyleId::PaddingLeft
-            | StyleId::FlexBasis
-            | StyleId::BorderRadiusTopLeft
-            | StyleId::BorderRadiusTopRight
-            | StyleId::BorderRadiusBottomRight
-            | StyleId::BorderRadiusBottomLeft
-            | StyleId::R
-            | StyleId::Rx
-            | StyleId::Ry
-            | StyleId::ColumnWidth
-    )
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn detached_calculations_own_entries_and_release_their_index_keys() {
+        let env = Env::default();
+        let detached = Dimension::parse_calc("min(17px, 53%)").unwrap();
+        let Dimension::Compare(comparison) = detached.clone() else {
+            unreachable!()
+        };
+        let id = comparison.identity();
+        let mut released = Vec::new();
+        // The lowering test uses 51%; these keys must have no other live owners.
+        for i in 0..200_000 {
+            let Dimension::Compare(c) = Dimension::parse_calc(&format!("min({i}px, 54%)")).unwrap()
+            else {
+                unreachable!()
+            };
+            released.push(c.identity());
+        }
+        let table = TABLE.lock().unwrap();
+        assert!(released.into_iter().all(|id| table.get(id).is_none()));
+        assert!(table.get(id).is_some());
+        drop(table);
+        assert_eq!(detached.at_basis(&env, 100.), 17.);
+        drop(detached);
+        assert_eq!(comparison.value(&env, Some(100.)), Some(17.));
+        let key = comparison.0.key.clone();
+        drop(comparison);
+        let table = TABLE.lock().unwrap();
+        assert!(table.get(id).is_none());
+        assert!(!table.contains(&key));
+    }
+
+    #[test]
+    fn canonical_css_enforces_tree_limits_and_bounds_parsing() {
+        let nested = |depth| {
+            let mut text = "1%".to_string();
+            for _ in 0..depth {
+                text = format!("clamp(none, {text}, none)");
+            }
+            text
+        };
+        assert!(Comparison::from_css(&nested(MAX_DEPTH)).is_some());
+        assert!(Comparison::from_css(&nested(MAX_DEPTH + 1)).is_none());
+        for count in [MAX_VALUES, MAX_VALUES + 1] {
+            let args = (0..count)
+                .map(|i| format!("{i}%"))
+                .collect::<Vec<_>>()
+                .join(", ");
+            assert_eq!(
+                Comparison::from_css(&format!("min({args})")).is_some(),
+                count == MAX_VALUES
+            );
+        }
+        // Redundant functions and sums simplify away, but parsing them is bounded too.
+        let too_deep = format!(
+            "{}min(12px, 57%){}",
+            "calc(".repeat(wire::MAX_LEVELS),
+            ")".repeat(wire::MAX_LEVELS)
+        );
+        assert!(Comparison::from_css(&too_deep).is_none());
+        let too_many = format!("calc({}min(12px, 57%))", "1px + ".repeat(wire::MAX_NODES));
+        assert!(Comparison::from_css(&too_many).is_none());
+    }
 }

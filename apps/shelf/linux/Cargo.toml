@@ -1,7 +1,7 @@
 # Shelf on the Linux host: one executable with the runner, the kernel, the
 # baked plan and the app's TypeScript data module as Hermes bytecode (both
 # written by build.rs, never committed). Its tools' calls and its desktop
-# entry's actions are driven here headless.
+# entry's actions (LLP 1133.023 §11) are driven here headless.
 [package]
 name = "shelf-linux"
 version.workspace = true
@@ -18,8 +18,10 @@ test = false
 bench = false
 
 [dependencies]
+ibex2-sqlite = { path = "../../../vendor/ibex/crates/ibex2-sqlite" }
 exact-logic = { path = "../../../logic" }
 exact-linux = { path = "../../../host/linux" }
+exact-painted = { path = "../../../host/painted" }
 exact-js = { path = "../../../js" }
 
 [build-dependencies]

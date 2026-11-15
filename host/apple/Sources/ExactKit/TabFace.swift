@@ -1,8 +1,8 @@
-// What a root tab shows, read from the
+// @ref LLP 1075.003 §3.7, §9.9 — what a root tab shows, read from the
 // authored tab: its symbol, if it has one, its label (a text-only tab is a
 // title alone), whether it is disabled, and its badge. UIKit's tab bar item
 // is made from it (NavigationTabsIOS.swift) and AppKit's sidebar row
-// (SidebarMac.swift). Which tabs a root has is
+// (LLP 1115.002 D3, SidebarMac.swift). Which tabs a root has is
 // NavigationTabs.swift's.
 #if canImport(AppKit)
 import AppKit
@@ -13,7 +13,7 @@ import UIKit
 struct TabFace: Equatable {
     /// The symbol without a `.fill` ending: a bar chooses the variant it
     /// draws (UIKit's the filled one for the selected tab). An svg-only
-    /// icon's path token (`FaceSymbol`) has no variant.
+    /// icon's path token (`FaceSymbol`, stage 9 A2) has no variant.
     /// `accessibilityDisabled`: `aria-disabled`, which reads as disabled
     /// and still presses.
     let base: String?, title: String, disabled: Bool, accessibilityDisabled: Bool
@@ -21,7 +21,7 @@ struct TabFace: Equatable {
     /// where the tab has no symbol: drawn as the item's template glyph.
     let raster: String?
     /// A filled box holding a text among the tab's children: the item's
-    /// badge, as the web paints it on the tab.
+    /// badge (LLP 1075.003 §9.9), as the web paints it on the tab.
     let badge: String?
     /// An svg-only icon's token name (`icon.reply`) where the face says it:
     /// the agent's name for a path `base`.
@@ -30,10 +30,12 @@ struct TabFace: Equatable {
         var icon: String?, raster: String?
         var symbol: String?, label = tab.props["accessibilityLabel"] ?? "", badges: [String] = []
         if tab.isNativeButton, let face = tab.face {
-            // A native button's children are its face.
+            // A native button's children are its face (LLP 1069.011.000 D1).
             symbol = face.symbol
             icon = face.symbolIcon
             if let title = face.title, !title.isEmpty { label = title }
+            // Its children are its face and draw no views: the kernel reads its badge.
+            if let badge = face.badge { badges.append(badge) }
         }
         for case let child as NodeView in tab.container.subviews {
             if child.kind == "image", let name = child.faceSymbol { symbol = name }
@@ -52,7 +54,7 @@ struct TabFace: Equatable {
     }
     /// `symbol` without a `.fill` ending (`base`); a path token as it is.
     static func base(_ symbol: String) -> String {
-        symbol.hasSuffix(".fill") && !FaceSymbol.isPath(symbol) ? String(symbol.dropLast(5)) : symbol
+        symbol.hasSuffix(".fill") && !FaceSymbol.isCustom(symbol) ? String(symbol.dropLast(5)) : symbol
     }
     /// A source the bar can read without fetching: the app's own file or a
     /// bundled asset, never a `symbol:`, `data:` or remote one.
@@ -64,14 +66,14 @@ struct TabFace: Equatable {
     /// A tab bar's selected glyph for `base`: its `.fill` variant, nil for a
     /// path or a symbol without one.
     static func filled(_ base: String) -> UIImage? {
-        FaceSymbol.isPath(base) ? nil : UIImage(systemName: base + ".fill")
+        FaceSymbol.isCustom(base) ? nil : UIImage(systemName: base + ".fill")
     }
-    /// The raster at `url` as a tab bar item's glyph: fitted in `points`
-    /// square at the screen's scale and template-rendered, so the bar tints
-    /// it as it tints an SF Symbol (UIKit renders a tab's image as a
-    /// template whatever its mode). Nil for a file that is no image.
-    static func rasterImage(at url: URL, points: CGFloat) -> UIImage? {
-        guard points > 0, let image = UIImage(contentsOfFile: url.path), image.size.width > 0, image.size.height > 0 else { return nil }
+    /// `image` as a tab bar item's glyph: fitted in `points` square at the
+    /// screen's scale and template-rendered, so the bar tints it as it tints
+    /// an SF Symbol (UIKit renders a tab's image as a template whatever its
+    /// mode). Nil for an empty image.
+    static func rasterImage(_ image: UIImage, points: CGFloat) -> UIImage? {
+        guard points > 0, image.size.width > 0, image.size.height > 0 else { return nil }
         let fit = min(points / image.size.width, points / image.size.height)
         let size = CGSize(width: (image.size.width * fit).rounded(), height: (image.size.height * fit).rounded())
         let format = UIGraphicsImageRendererFormat.default()

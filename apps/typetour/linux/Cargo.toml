@@ -1,6 +1,6 @@
 # Type Tour on Linux: one executable with the runner, the kernel, the data
 # crate, the baked plan (written by build.rs, never committed), and the
-# host's painter — the painted form controls' consumer.
+# host's painter — the painted form controls' consumer (LLP 1069.001 D7).
 [package]
 name = "typetour-linux"
 version.workspace = true
@@ -17,9 +17,11 @@ test = false
 bench = false
 
 [dependencies]
+ibex2-sqlite = { path = "../../../vendor/ibex/crates/ibex2-sqlite" }
 exact-logic = { path = "../../../logic" }
 typetour-data = { path = "../data" }
 exact-linux = { path = "../../../host/linux" }
+exact-painted = { path = "../../../host/painted" }
 
 [build-dependencies]
 typetour-data = { path = "../data" }

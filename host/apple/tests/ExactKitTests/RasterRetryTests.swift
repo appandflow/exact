@@ -6,7 +6,7 @@ import Darwin
 @testable import ExactKit
 
 /// A remote picture whose download failed in a way asking again may mend is
-/// asked again while it is on screen (the Linux host's rules):
+/// asked again while it is on screen (LLP 1011 §4, the Linux host's rules):
 /// the ladder in milliseconds here (`RasterRetry.scale`).
 final class RasterRetryTests: XCTestCase {
     override func setUp() { RasterRetry.scale = 0.01; RasterRetry.wholeScale = 1 }
@@ -136,6 +136,7 @@ final class RasterRetryTests: XCTestCase {
         pump(1)
         XCTAssertEqual(server.times.count, asked, "nothing is asked while it is off screen")
         XCTAssertEqual(images(loader).first?["held"] as? Bool, true, "and no error yet")
+        XCTAssertFalse(loader.loading(inside: node), "a retry waiting for the screen cannot hold a fragment's alignment")
         node.frame = shown; loader.resized(node)
         // (Between retries it is neither held nor failed: a download is under way.)
         settle { images(loader).first?["held"] as? Bool == false && images(loader).first?["failure"] as? String == "HTTP 503" }

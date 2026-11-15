@@ -1,5 +1,5 @@
-//! A keyed list whose entries are registrations a wake runs for:
-//! `"list": {"state", "key", "kind", "tap": {"event", "as":
+//! A keyed list whose entries are registrations a wake runs for (LLP
+//! 1133.017 §10): `"list": {"state", "key", "kind", "tap": {"event", "as":
 //! "wake", "due", "args"}}`. Under the agent no wake fires by itself; a
 //! drive raises each.
 //!
@@ -14,7 +14,7 @@
 //! - **`--wake '<entry>'`** hands a relaunched app one entry as
 //!   `state.backgroundSync` printed it: listed again, and raised as a cold
 //!   wake, due or not, since the platform chose to wake it.
-//! - **After the invocation,** by the web's rules: a periodic entry
+//! - **After the invocation,** by the web's rules (D1): a periodic entry
 //!   that completed, or was superseded, ran; a one-shot that completed is
 //!   retired unless its handler registered it again, which waits out a
 //!   backoff of 5 minutes doubling to an hour; one that expired or was
@@ -32,7 +32,7 @@ use super::Listed;
 use crate::runner::modules::WakeHow;
 use serde_json::{json, Map};
 
-/// The first backoff, and the longest.
+/// The first backoff, and the longest (D1).
 const BACKOFF_MS: f64 = 5.0 * 60_000.0;
 const LONGEST_MS: f64 = 60.0 * 60_000.0;
 
@@ -159,8 +159,8 @@ impl<D: DataSource> Runner<D> {
                 fields.insert(k.clone(), v.clone());
             }
         }
-        // A transition the host kept for a launch with a view:
-        // delivered in the window, not as a wake with none.
+        // A transition the host kept for a launch with a view (LLP 1133.021
+        // §12): delivered in the window, not as a wake with none.
         let at_launch = entry["deliver"] == "launch";
         let reference = self.next_ticket;
         self.next_ticket += 1;

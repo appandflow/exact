@@ -1,6 +1,6 @@
-// Held states in the inspector: a host-known state held
-// on the selected node so its look shows without input (`hold`),
-// one hold a build, a new one replacing the last; what the
+// Held states in the inspector (LLP 1122 D8, T4): a host-known state held
+// on the selected node so its look shows without input (`hold`, LLP 1121
+// stage 8 E), one hold a build, a new one replacing the last; what the
 // server and the build said of it; and the rows the held state shows.
 
 /** A build's hold as its listing and the events give it: whether it can
@@ -52,7 +52,7 @@ const STATES: Record<string, string> = { active: 'pressed', hover: 'hovered', 'f
 /** What the inspector says of holds on the selected copy's build: whether
  * it can hold, what is held here and whether the build says so, and why
  * the last one went. A press holds on the node the press resolves to: the
- * build names it (`held.site`) when it is another node. */
+ * build names it (stage 9 E's `held.site`) when it is another node. */
 export function holdView(e: any, h: Holding, note: string, stale: boolean) {
   const state = h.hold?.state ?? '';
   // The selection's own report of this hold (its state), naming the node held.

@@ -1,12 +1,13 @@
-// @exact/oauth against the fixture's provider profiles, in Bun: the protocol
-// alone, with `openAuthSession` standing in for the browser (it follows the
-// authorization URL to its redirect). What Exact adds (a let-go answer, the
-// store asking readers again) is tested by the cases in an app
-// (`cases.template.contract`).
+// @exact/oauth against the fixture's provider profiles, in Bun (LLP 1146
+// D6): the protocol alone, with `openAuthSession` standing in for the
+// browser (it follows the authorization URL to its redirect). What Exact adds
+// (a let-go answer, the store asking readers again) is tested by the cases
+// in an app (`cases.template.contract`).
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from 'bun:test';
 import { exclusiveSecret } from '../../../host/web/storage-environment.js';
 import { handle, PROFILES } from './fixture.ts';
 import { oauth, OAuthError, type OAuthAuthorization, type OAuthConfig, type OAuthEvent, type OAuthStore } from '../index.ts';
+import { fileURLToPath } from 'node:url';
 
 let server: ReturnType<typeof Bun.serve>;
 let origin = '';
@@ -57,6 +58,65 @@ async function counts(profile: string): Promise<Record<string, number>> {
 function memory(): OAuthStore & { map: Map<string, string> } {
   const map = new Map<string, string>();
   return { map, get: (k) => map.get(k) ?? null, set: (k, v) => void map.set(k, v), forget: (k) => void map.delete(k) };
+}
+
+// A store whose `exclusive` keeps a native host's marker (LLP 1146 §5, "One at a time"). A POST sent through `send`
+// while a work holds the lease marks the secret, a work that resolves clears the mark, and the next lease forgets a
+// secret that is still marked.
+function marking(): OAuthStore & { map: Map<string, string>; send: (url: string, init: RequestInit) => Promise<Response> } {
+  const store = memory(), marked = new Set<string>();
+  let lane: Promise<unknown> = Promise.resolve(), holder = '';
+  return Object.assign(store, {
+    exclusive: <T>(name: string, work: () => Promise<T>): Promise<T> => {
+      const run = lane.then(async () => {
+        if (marked.delete(name)) store.forget(name);
+        holder = name;
+        const value = await work();
+        marked.delete(name);
+        return value;
+      }).finally(() => { holder = ''; });
+      lane = run.catch(() => undefined);
+      return run;
+    },
+    send: (url: string, init: RequestInit): Promise<Response> => {
+      if (holder && init.method === 'POST') marked.add(holder);
+      return fetch(url, init);
+    },
+  });
+}
+
+// The browser's `localStorage` and Web Locks over one map, `disk`, for the web host's `exclusiveSecret`: `realm` makes
+// a JS realm's store over them, and `restore` puts the globals back
+function browserStorage(): { disk: Map<string, string>; realm: () => OAuthStore & { map: Map<string, string> }; restore: () => void } {
+  const descriptors = ['navigator', 'localStorage'].map(k => [k, Object.getOwnPropertyDescriptor(globalThis, k)] as const);
+  const disk = new Map<string, string>(), locks = new Map<string, Promise<unknown>>();
+  Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: {
+    getItem: (k: string) => disk.get(k) ?? null, setItem: (k: string, v: string) => disk.set(k, v), removeItem: (k: string) => disk.delete(k),
+  } });
+  Object.defineProperty(globalThis, 'navigator', { configurable: true, value: { locks: {
+    request: (name: string, work: () => Promise<unknown>) => {
+      const run = (locks.get(name) ?? Promise.resolve()).then(work);
+      locks.set(name, run.catch(() => {}));
+      return run;
+    },
+  } } });
+  const realm = () => {
+    const map = new Map<string, string>(), pending = new Map<string, string | null>();
+    const store = { map, pending,
+      get: (k: string) => map.get(k) ?? null,
+      set: (k: string, v: string) => { map.set(k, v); pending.set(k, v); },
+      forget: (k: string) => { map.delete(k); pending.set(k, null); },
+      persist: () => { for (const [k, v] of pending) { if (v === null) disk.delete(k); else disk.set(k, v); } pending.clear(); },
+      exclusive: <T>(name: string, work: () => Promise<T>): Promise<T> => exclusiveSecret(store, '', name, work),
+    };
+    return store;
+  };
+  const restore = (): void => {
+    for (const [key, descriptor] of descriptors) {
+      if (descriptor) Object.defineProperty(globalThis, key, descriptor); else delete (globalThis as any)[key];
+    }
+  };
+  return { disk, realm, restore };
 }
 
 function config(profile: string, extra: Partial<OAuthConfig> = {}): OAuthConfig {
@@ -115,7 +175,7 @@ describe.each(Object.keys(PROFILES))('%s', (profile) => {
 // A native host hardens the realm, freezing `Error.prototype`, before the
 // module loads; an error the package throws is still its own.
 test('an OAuthError is made where Error.prototype is frozen', () => {
-  const index = new URL('../index.ts', import.meta.url).pathname;
+  const index = fileURLToPath(new URL('../index.ts', import.meta.url));
   const made = Bun.spawnSync([process.execPath, '-e', `Object.freeze(Error.prototype);
     const { OAuthError } = await import(${JSON.stringify(index)});
     const e = new OAuthError('network', 'no reply', 0, true);
@@ -157,29 +217,7 @@ describe('one session, several callers', () => {
   });
 
   test('independent realms reload and rotate a shared session under the host lock', async () => {
-    const descriptors = ['navigator', 'localStorage'].map(k => [k, Object.getOwnPropertyDescriptor(globalThis, k)] as const);
-    const disk = new Map<string, string>(), locks = new Map<string, Promise<unknown>>();
-    Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: {
-      getItem: (k: string) => disk.get(k) ?? null, setItem: (k: string, v: string) => disk.set(k, v), removeItem: (k: string) => disk.delete(k),
-    } });
-    Object.defineProperty(globalThis, 'navigator', { configurable: true, value: { locks: {
-      request: (name: string, work: () => Promise<unknown>) => {
-        const run = (locks.get(name) ?? Promise.resolve()).then(work);
-        locks.set(name, run.catch(() => {}));
-        return run;
-      },
-    } } });
-    const realm = () => {
-      const map = new Map<string, string>(), pending = new Map<string, string | null>();
-      const store = { map, pending,
-        get: (k: string) => map.get(k) ?? null,
-        set: (k: string, v: string) => { map.set(k, v); pending.set(k, v); },
-        forget: (k: string) => { map.delete(k); pending.set(k, null); },
-        persist: () => { for (const [k, v] of pending) { if (v === null) disk.delete(k); else disk.set(k, v); } pending.clear(); },
-        exclusive: <T>(name: string, work: () => Promise<T>): Promise<T> => exclusiveSecret(store, '', name, work),
-      };
-      return store;
-    };
+    const { disk, realm, restore } = browserStorage();
     try {
       const second = await import('../index.ts?independent-realm');
       const a = oauth(configFor('auth0')), b = second.oauth(configFor('auth0')), one = realm(), two = realm();
@@ -195,9 +233,7 @@ describe('one session, several callers', () => {
       expect([got.refresh, got.reuse ?? 0]).toEqual([1, 0]);
       expect(two.get('auth0.session')).toBe(disk.get('auth0.session'));
     } finally {
-      for (const [key, descriptor] of descriptors) {
-        if (descriptor) Object.defineProperty(globalThis, key, descriptor); else delete (globalThis as any)[key];
-      }
+      restore();
     }
   });
 
@@ -290,18 +326,30 @@ describe('spec edge cases', () => {
     expect((await counts('auth0')).reuse ?? 0).toBe(0);
   });
 
-  test('503, 429 and lost replies on refresh keep the session', async () => {
-    const p = oauth(configFor('spec')), store = memory();
-    await p.signIn(store);
-    for (const action of [{ action: 'fail-token', status: 503 }, { action: 'fail-token', status: 429 }, { action: 'drop-token' }]) {
-      await control({ action: 'expire-access', profile: 'spec' });
-      await control({ ...action, profile: 'spec' });
-      const e = await p.fetch(store, `${origin}/p/spec/api/me`).catch((x) => x);
-      expect([action.action, e.retryable, e.signedOut]).toEqual([action.action, true, false]);
-      expect((await p.session(store)).signedIn).toBe(true);
+  test('a 403 that is not an OAuth reply, a 503, a 429 and a lost reply on refresh keep the session, under a host lease too', async () => {
+    const native = marking(), browser = browserStorage();
+    try {
+      for (const [host, store, send] of [['memory', memory(), undefined], ['native', native, native.send], ['web', browser.realm(), undefined]] as const) {
+        const p = oauth(config('spec', { fetch: send }));
+        await p.signIn(store);
+        for (const action of [
+          { action: 'fail-token', status: 403, code: 'invalid_response' },
+          { action: 'fail-token', status: 503, code: 'server' },
+          { action: 'fail-token', status: 429, code: 'server' },
+          { action: 'drop-token', code: 'network' },
+        ]) {
+          await control({ action: 'expire-access', profile: 'spec' });
+          await control({ action: action.action, status: action.status, profile: 'spec' });
+          const e = await p.fetch(store, `${origin}/p/spec/api/me`).catch((x) => x);
+          expect([host, action.action, e.code, e.retryable, e.signedOut]).toEqual([host, action.action, action.code, true, false]);
+          expect((await p.session(store)).signedIn).toBe(true);
+        }
+        // The next try, with the token kept, succeeds
+        expect([host, (await p.fetch(store, `${origin}/p/spec/api/me`)).status]).toEqual([host, 200]);
+      }
+    } finally {
+      browser.restore();
     }
-    // The next try, with the token kept, succeeds.
-    expect((await p.fetch(store, `${origin}/p/spec/api/me`)).status).toBe(200);
   });
 
   test('invalid_grant on refresh signs out with a reason', async () => {
@@ -543,16 +591,32 @@ describe('spec edge cases', () => {
     expect((await p.signIn(memory())).error).toMatch(/no ID token/);
   });
 
-  test('a refresh reply refused after the provider rotated keeps the new refresh token', async () => {
-    const p = oauth(configFor('auth0')), store = memory();
-    await p.signIn(store);
-    await control({ action: 'expire-access', profile: 'auth0' });
-    await control({ action: 'omit-token-type', profile: 'auth0' });
-    const e = await p.fetch(store, `${origin}/p/auth0/api/me`).catch((x) => x);
-    expect([e.code, e.retryable, e.signedOut]).toEqual(['invalid_response', true, false]);
-    expect((await p.fetch(store, `${origin}/p/auth0/api/me`)).status).toBe(200);
-    const c = await counts('auth0');
-    expect([c.refresh, c.reuse ?? 0]).toEqual([2, 0]);
+  test('a refresh reply refused after the provider rotated keeps the new refresh token, under a host lease too', async () => {
+    const native = marking(), browser = browserStorage();
+    try {
+      for (const [host, store, send] of [['memory', memory(), undefined], ['native', native, native.send], ['web', browser.realm(), undefined]] as const) {
+        await control({ action: 'reset' });
+        const p = oauth({ ...configFor('auth0'), fetch: send });
+        await p.signIn(store);
+        await control({ action: 'expire-access', profile: 'auth0' });
+        await control({ action: 'omit-token-type', profile: 'auth0' });
+        const e = await p.fetch(store, `${origin}/p/auth0/api/me`).catch((x) => x);
+        expect([host, e.code, e.retryable, e.signedOut]).toEqual([host, 'invalid_response', true, false]);
+        expect([host, (await p.fetch(store, `${origin}/p/auth0/api/me`)).status]).toEqual([host, 200]);
+        const c = await counts('auth0');
+        expect([host, c.refresh, c.reuse ?? 0]).toEqual([host, 2, 0]);
+      }
+    } finally {
+      browser.restore();
+    }
+  });
+
+  test('a session that keeps no token endpoint ends at its refresh', async () => {
+    const p = oauth(config('spec')), store = memory();
+    store.set('spec.session', JSON.stringify({ accessToken: 'unknown', refreshToken: 'unknown', scopes: [] }));
+    const e = await p.fetch(store, `${origin}/p/spec/api/me`).catch((x) => x);
+    expect([e.code, e.signedOut]).toEqual(['config', true]);
+    expect(await p.session(store)).toMatchObject({ signedIn: false, error: 'The session keeps no token endpoint. Sign in again.', ended: true });
   });
 
   test('with an issuer template, a callback naming another issuer is refused', async () => {
@@ -855,7 +919,7 @@ const withSession = (sso: string, edit: (location: string) => string = (l) => l,
     return edit(reply.headers.get('location') ?? '');
   };
 
-// An app that signs the person in with its own screens:
+// An app that signs the person in with its own screens (LLP 1146 D8):
 // ForgeRock's authentication tree, then the authorization request with its
 // SSO token, which the app sends; the package keeps everything else.
 describe('a first-party sign-in', () => {
@@ -893,6 +957,27 @@ describe('a first-party sign-in', () => {
     expect(await counts('forgerock')).toMatchObject({ authenticate: 2, exchange: 1, refresh: 1 });
     expect((await p.signOut(store)).ok).toBe(true);
     expect(p.claims(store)).toBeNull();
+  });
+
+  test('the ID token is handed out for a service that takes it, and the session refreshes when asked', async () => {
+    const p = oauth(configFor('forgerock')), store = memory();
+    expect(p.idToken(store)).toBeNull();
+    expect(await p.refresh(store)).toMatchObject({ ok: false, retryable: false });
+    const send = withSession(await tree());
+    expect((await p.signIn(store, { authorize: (request) => send(request) })).ok).toBe(true);
+    const first = p.idToken(store);
+    expect(first!.split('.').length).toBe(3);
+    const refreshes = async () => (await counts('forgerock')).refresh ?? 0, before = await refreshes();
+    expect(await p.refresh(store)).toEqual({ ok: true, code: '', error: '', retryable: false, status: 0 });
+    expect(await refreshes()).toBe(before + 1);
+    expect(p.idToken(store)!.split('.').length).toBe(3);
+    expect(p.claims(store)).toMatchObject({ sub: 'user-1' });
+    // A session kept without an ID token hands none out.
+    const bare = memory();
+    bare.set('forgerock.session', JSON.stringify({ ...JSON.parse(store.get('forgerock.session')!), idToken: undefined }));
+    expect(p.idToken(bare)).toBeNull();
+    expect((await p.signOut(store)).ok).toBe(true);
+    expect(p.idToken(store)).toBeNull();
   });
 
   test('configured as the docs say, with no auth.callback grant: callback set, and the token in a header', async () => {
@@ -1239,7 +1324,7 @@ describe('what an app hears and sends', () => {
     let release = (): void => undefined, sent = (): void => undefined;
     const held = new Promise<void>((done) => { release = done; }), going = new Promise<void>((done) => { sent = done; });
     const tokens: string[] = [];
-    // The read with that token is refused once the person has signed in again; one with the new token is answered
+    // The read with that token is refused once another caller has refreshed it; one with the new token is answered
     const answer = (url: string, init: RequestInit | undefined): Promise<Response> | undefined => {
       if (url !== forbidden) return undefined;
       tokens.push(new Headers(init?.headers).get('authorization') ?? '');
@@ -1250,13 +1335,13 @@ describe('what an app hears and sends', () => {
     await withFetch(answer, async () => {
       const read = p.fetch(store, forbidden);
       await going;
-      await p.signIn(store);
+      expect((await p.refresh(store)).ok).toBe(true);
       release();
       expect((await read).status).toBe(200);
     });
     expect(tokens).toHaveLength(2);
     expect(tokens[1]).not.toBe(tokens[0]);
-    expect((await counts('forgerock')).refresh ?? 0).toBe(before);
+    expect((await counts('forgerock')).refresh ?? 0).toBe(before + 1);
   });
 
   test('a token whose expiry is unknown, refused right after its refresh, refreshes again a minute after that refusal', async () => {
@@ -1352,6 +1437,52 @@ describe('what the library asks of the host', () => {
     expect([e.code, e.retryable]).toEqual(['config', false]);
     expect(e.message).toContain(`add \`net.fetch ${origin}\` to grants`);
   });
+});
+
+test('the access-token getter reads the store synchronously before and after shared refresh', async () => {
+  const browser = browserStorage(), native = marking();
+  try {
+    for (const [host, store, send] of [['memory', memory(), fetch], ['native', native, native.send], ['web', browser.realm(), fetch]] as const) {
+      await control({ action: 'reset' });
+      let bearer = '';
+      const p = oauth({ ...configFor('auth0'), fetch: (url, init) => {
+        if (url.endsWith('/api/me')) bearer = new Headers(init.headers).get('Authorization') ?? '';
+        return send(url, init);
+      } });
+      expect(p.accessToken(store), host).toBeNull();
+      expect((await p.signIn(store)).ok, host).toBe(true);
+      const kept = JSON.parse(store.get('auth0.session')!), token = p.accessToken(store);
+      expect(token, host).toBe(kept.accessToken);
+      expect(token, host).not.toBe(kept.refreshToken);
+      expect(token, host).not.toBe(p.idToken(store));
+      expect((await p.fetch(store, `${origin}/p/auth0/api/me`)).status, host).toBe(200);
+      expect(bearer, host).toBe(`Bearer ${token}`);
+      await control({ action: 'expire-access', profile: 'auth0' });
+      expect(p.accessToken(store), host).toBe(token);
+      expect((await counts('auth0')).refresh ?? 0, host).toBe(0);
+      await control({ action: 'hold-token', profile: 'auth0' });
+      const first = p.refresh(store);
+      await control({ action: 'await', held: 1 });
+      const second = p.refresh(store), request = p.fetch(store, `${origin}/p/auth0/api/me`);
+      await control({ action: 'await', profile: 'auth0', least: { api: 2 } });
+      expect(p.accessToken(store), host).toBe(token);
+      await control({ action: 'release-token' });
+      const [a, b, response] = await Promise.all([first, second, request]);
+      expect([a.ok, b.ok, response.status], host).toEqual([true, true, 200]);
+      const renewed = p.accessToken(store);
+      expect(renewed, host).not.toBe(token);
+      expect(bearer, host).toBe(`Bearer ${renewed}`);
+      expect((await counts('auth0')).refresh, host).toBe(1);
+      await control({ action: 'fail-token', profile: 'auth0', status: 503 });
+      expect(await p.refresh(store), host).toMatchObject({ ok: false, retryable: true, status: 503 });
+      expect(p.accessToken(store), host).toBe(renewed);
+      // A failed refresh must also leave the session readable by the next lease.
+      expect((await p.refresh(store)).ok, host).toBe(true);
+      expect(p.accessToken(store), host).not.toBe(renewed);
+      expect((await p.signOut(store)).ok, host).toBe(true);
+      expect(p.accessToken(store), host).toBeNull();
+    }
+  } finally { await control({ action: 'release-token' }); browser.restore(); }
 });
 
 // What `index.d.ts` declares is what `index.ts` implements, as the type checker sees the two (`types.ts`).

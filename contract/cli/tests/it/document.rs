@@ -1,5 +1,6 @@
-//! Documents in Contract: the `head`, a node that takes no space, whose fields
-//! the innermost active head sets field by field; `scroll document`.
+//! Documents in Contract (LLP 1048.003 part A): the `head` (D1), a node that
+//! takes no space, whose fields the innermost active head sets field by field;
+//! `scroll document` (D4).
 
 use exact_kernel::{Kernel, NodeType, Offer, PropId};
 use exact_plan::{ActivatePolicy, RenderPolicy};
@@ -78,7 +79,7 @@ fn the_innermost_active_head_wins_field_by_field() {
     assert_eq!(missing.status, Some(404));
     assert_eq!(missing.title, some("Not found"));
     assert_eq!(missing.robots, some("noindex"));
-    // A view of failed data declares 503.
+    // A view of failed data declares 503 (LLP 1048.003 D1).
     let failed = contract::compile(
         "component A\n  view\n    column\n      head status=503\n      text \"Unavailable\"\n",
     )
@@ -93,7 +94,7 @@ fn the_innermost_active_head_wins_field_by_field() {
     .unwrap()
     .head();
     assert_eq!(failed.status, Some(503));
-    // A document with unsaved changes marks its window:
+    // A document with unsaved changes marks its window (LLP 1069.010 D6):
     // the innermost active head's `edited`, which a deeper `false` clears.
     let edited = |src: &str| {
         let plan = contract::compile(src).unwrap();
@@ -117,8 +118,8 @@ fn the_innermost_active_head_wins_field_by_field() {
     assert!(!edited(
         "component A\n  view\n    column\n      head title=\"plan\"\n"
     ));
-    // Any other element's `title` is HTML's global attribute, its tooltip,
-    // never the document's.
+    // Any other element's `title` is HTML's global attribute, its tooltip
+    // (studio diary R24), never the document's.
     let tip = contract::compile("component A\n  view\n    column\n      button title=\"Zoom In\" testId=\"z\" width=20 height=20\n").unwrap();
     let r = Runner::boot(
         tip,
@@ -317,7 +318,8 @@ fn routes_declare_their_render_and_activation_policies() {
     let decoded = exact_plan::Plan::decode(&interaction.encode()).unwrap();
     assert_eq!(decoded.routes[0].activate, ActivatePolicy::Interaction);
     assert_eq!(decoded.routes[0].paint, exact_plan::PaintPolicy::Settled);
-    // A route served per request may paint its boot document first.
+    // @ref LLP 1048.005 — a route served per request may paint its boot
+    // document first.
     let boot = contract::compile("routes nav\n  tab home \"/\" render=request paint=boot\ncomponent A\n  view\n    text \"a\"\n").unwrap();
     let decoded = exact_plan::Plan::decode(&boot.encode()).unwrap();
     assert_eq!(decoded.routes[0].paint, exact_plan::PaintPolicy::Boot);
@@ -367,6 +369,7 @@ fn routes_declare_their_render_and_activation_policies() {
 
 #[test]
 fn a_parameterized_route_lists_its_pages_with_a_source() {
+    // @ref LLP 1048.000 D2, LLP 1048.003 D5
     let src = "routes nav\n  tab home \"/\"\n    post \"/post/:post\" render=build pages=posts(\"public\", 50)\n  person \"/people/:person\" render=cached pages=people()\ncomponent A\n  view\n    text \"a\"\n";
     let plan = contract::compile(src).unwrap();
     let row = |name: &str| {

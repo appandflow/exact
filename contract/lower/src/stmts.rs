@@ -1,10 +1,11 @@
 //! Action bodies: assignments, commands, `send`, `refresh`, `if`/`else` and
-//! `match`, and `let`. A branch is a
+//! `match` (LLP 1017 P2), and `let` (LLP 1035.005.000 D2). A branch is a
 //! forward jump over the arm not taken, as the ternary and the inline
 //! `match` are in `expr.rs`; a `match` binds a local for its `some` block,
 //! and a `let` binds one for the rest of its block, dropped where the
-//! block ends. A call is its callee's statements in a block of their own.
-//! Still no loops or recursion; a body always terminates.
+//! block ends. A call is its callee's statements in a block of their own
+//! (LLP 1089 D8). Still no loops or recursion; a body always terminates
+//! (LLP 1005 §2).
 
 use crate::{expr, LowerError, Lowerer};
 use contract_syntax::{Expr, Node, Span, Stmt};
@@ -104,7 +105,7 @@ impl Lowerer<'_> {
                     .unwrap()];
                 asm.refresh(r);
             }
-            // A call: its callee's statements, its parameters'
+            // A call (LLP 1089 D8): its callee's statements, its parameters'
             // `let`s first, as a block of their own, whose locals drop before
             // the next statement. No call opcode: the plan never sees one.
             Stmt::Call { body, .. } => self.block(asm, body, scope, locals)?,
@@ -217,7 +218,7 @@ impl Lowerer<'_> {
     }
 }
 
-/// `share(files=["#id"])`: a literal `#id` that no element of
+/// `share(files=["#id"])` (LLP 1125 D12): a literal `#id` that no element of
 /// the whole expanded view carries is refused here. Where some element's id
 /// is computed, or a node is not expanded or draws elements of its own
 /// (Markdown's headings), any id may exist, and the runner refuses a
@@ -288,36 +289,16 @@ fn share_pictures(view: &[Node], args: &[Expr]) -> Result<(), LowerError> {
 
 pub(crate) fn canvas_targets(nodes: &[Node]) -> BTreeSet<String> {
     let mut out = BTreeSet::new();
-    for node in nodes {
-        match node {
-            Node::Element {
-                tag,
-                attrs,
-                children,
-                ..
-            } => {
-                if tag == "canvas" {
-                    for a in attrs.iter().filter(|a| a.name == "surface") {
-                        if let Expr::Ident(name, _) | Expr::Call(name, _, _) = &a.value {
-                            out.insert(name.clone());
-                        }
-                    }
+    for node in Node::walk(nodes) {
+        let Node::Element { tag, attrs, .. } = node else {
+            continue;
+        };
+        if tag == "canvas" {
+            for a in attrs.iter().filter(|a| a.name == "surface") {
+                if let Expr::Ident(name, _) | Expr::Call(name, _, _) = &a.value {
+                    out.insert(name.clone());
                 }
-                out.extend(canvas_targets(children));
             }
-            Node::Use { children, .. } => out.extend(canvas_targets(children)),
-            Node::When {
-                then, otherwise, ..
-            } => {
-                out.extend(canvas_targets(then));
-                out.extend(canvas_targets(otherwise));
-            }
-            Node::Each { body, .. } => out.extend(canvas_targets(body)),
-            Node::Match { some, none, .. } => {
-                out.extend(canvas_targets(&some.1));
-                out.extend(canvas_targets(none));
-            }
-            Node::Children { .. } => {}
         }
     }
     out

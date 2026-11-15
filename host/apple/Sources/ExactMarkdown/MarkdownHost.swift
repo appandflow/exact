@@ -1,4 +1,4 @@
-// The Markdown capability: an app's composition
+// The Markdown capability (LLP 1047.001 D4; LLP 1045): an app's composition
 // links this module only when its plan has `markup="markdown"`, and
 // installs it before any session is made.
 #if canImport(UIKit)

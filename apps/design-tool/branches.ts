@@ -1,4 +1,4 @@
-// A design read's columns and a cell's branch, and what a
+// A design read's columns and a cell's branch (LLP 1122 D6), and what a
 // value names: pure functions of `describe`'s axes and `explain`'s whens.
 export type Axis = { name: string; values: string[]; under: string | null };
 export type Column = { id: string; label: string; tuple: number; dark: boolean; values: string[] };
@@ -24,7 +24,7 @@ export function columnsOf(axes: Axis[]): Column[] {
   return out;
 }
 
-/** The branch a cell shows (the edit's target branch), as the checker
+/** The branch a cell shows (LLP 1122 D6's target branch), as the checker
  * picks it: of the `when`s whose every condition holds at the column's
  * tuple, the one naming the most axes; on a light column a `when` naming an
  * `under scheme=dark` axis is passed over (it sets the dark side only). Two
@@ -32,7 +32,7 @@ export function columnsOf(axes: Axis[]): Column[] {
  * has none; said, if one comes. And "only this mode": a `when` naming every
  * axis at this tuple, which holds here alone; on a light column with an
  * under-dark axis such a `when` would set the dark side only, so there is
- * none to offer ("" ). A token of another kind has no
+ * none to offer ("" ). A token of another kind (LLP 1121 stage 6) has no
  * sides and may not vary on an under-dark axis, so its own `when` names the
  * other axes only (none, with no other axis); a duration or an easing
  * varies on no axis, so it has none. */

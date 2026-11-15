@@ -1,9 +1,11 @@
 //! A bytecode assembler for the expression VM.
 //!
-//! The opcode table is the one authority. Emits opcodes with their declared
-//! operand layouts and resolves forward jumps by label, so a compiler never
-//! writes a raw byte. The result of [`Asm::finish`] is a code body ending in
-//! `Return`, the shape `Plan::check_code` verifies.
+//! @ref LLP 1004 D2 (the opcode table is the one authority)
+//!
+//! Emits opcodes with their declared operand layouts and resolves forward
+//! jumps by label, so a compiler never writes a raw byte. The result of
+//! [`Asm::finish`] is a code body ending in `Return`, the shape
+//! `Plan::check_code` verifies.
 
 use crate::bytes::Writer;
 use crate::generated::{Opcode, Operand, Stdlib};
@@ -141,7 +143,7 @@ impl Asm {
         self.op(Opcode::List, &[Arg::U32(n)])
     }
 
-    /// A native module's props: the top `n` (key, value)
+    /// A native module's props (LLP 1024 D1): the top `n` (key, value)
     /// pairs, keys in canonical order, as one JSON object string.
     pub fn native_props(&mut self, n: u32) -> &mut Self {
         self.op(Opcode::NativeProps, &[Arg::U32(n)])
@@ -162,7 +164,7 @@ impl Asm {
         self.op(Opcode::Command, &[Arg::Str(name), Arg::U16(n)])
     }
 
-    /// Send a mutation to `source` with `n` arguments from the stack.
+    /// Send a mutation to `source` with `n` arguments from the stack (LLP 1016).
     pub fn send(&mut self, m: MutationsId, source: StrId, n: u16) -> &mut Self {
         self.op(
             Opcode::Send,
@@ -201,9 +203,15 @@ impl Asm {
     }
 
     /// Push `none`, or `some` of why a resource's latest request for its
-    /// current arguments failed.
+    /// current arguments failed (LLP 1109 D3).
     pub fn failure_resource(&mut self, r: ResourcesId) -> &mut Self {
         self.op(Opcode::FailureResource, &[Arg::Idx(r.0)])
+    }
+
+    /// Push whether a resource shows an answer to its current call arguments
+    /// (LLP 1161.001 D1).
+    pub fn current_resource(&mut self, r: ResourcesId) -> &mut Self {
+        self.op(Opcode::CurrentResource, &[Arg::Idx(r.0)])
     }
 
     /// Pop into the locals stack.
@@ -256,7 +264,7 @@ impl Asm {
     }
 
     /// Pop a list and run the callback body that follows, up to `end`, once
-    /// per item: `Map` or `Filter`.
+    /// per item (LLP 1017.003 D5): `Map` or `Filter`.
     pub fn each_item(&mut self, op: Opcode, end: Label) -> &mut Self {
         assert!(
             matches!(op, Opcode::Map | Opcode::Filter),

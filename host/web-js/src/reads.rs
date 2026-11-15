@@ -1,6 +1,6 @@
-//! What an emitted closure reads of a row: the fields of the
-//! row's item a binding reads, for its effect's mask, and whether a key
-//! reads nothing but the row's item and index. Both read the emitted
+//! What an emitted closure reads of a row (LLP 1071.000): the fields of the
+//! row's item a binding reads, for its effect's mask (D3), and whether a key
+//! reads nothing but the row's item and index (D2). Both read the emitted
 //! JavaScript, whose item reads are `i<r>()` and field reads `[k]` (code.rs);
 //! string literals are skipped, and anything else is read conservatively.
 
@@ -46,6 +46,10 @@ pub fn field_mask(code: &str) -> Option<u32> {
     let mut item: Option<&str> = None;
     let mut mask = 0u32;
     for (w, rest) in words(code) {
+        // A shared derive can read item fields outside this closure.
+        if w.starts_with("d_") {
+            return None;
+        }
         if !is_item(w) {
             continue;
         }
@@ -105,6 +109,7 @@ mod tests {
         assert_eq!(field_mask("()=>i0()[31]"), None);
         assert_eq!(field_mask("()=>i0()[1]+i4()[1]"), None);
         assert_eq!(field_mask("()=>d_1()[2]"), None);
+        assert_eq!(field_mask("()=>i0()[0]+d_1()"), None);
         // `i10` is not `i1`.
         assert_eq!(field_mask("()=>i10()[3]"), Some(8));
     }

@@ -6,7 +6,7 @@ import AppKit
 /// AppKit's responsive scrolling asks for overdraw (`prepareContent(in:)`):
 /// it may carry only the rows the collection has built, so a concurrent
 /// scroll pauses at their edge until the main thread builds more, rather
-/// than carrying the background into view.
+/// than carrying the background into view (LLP 1050.000 D5).
 package final class FlippedView: NSView {
     package override var isFlipped: Bool { true }
     /// A finger came down on the trackpad over this document, while it
@@ -56,7 +56,7 @@ final class KnobDrag {
     /// the document, and the end is still what they were reading.
     private var shownAtEnd = false
     private weak var scroll: NSScrollView?
-    /// A row list's knob is the horizontal scroller's.
+    /// A row list's knob is the horizontal scroller's (LLP 1070 §3.3).
     var horizontal = false
     private var observers: [NSObjectProtocol] = []
     var currentEventType: () -> NSEvent.EventType? = { NSApp.currentEvent?.type }
@@ -150,6 +150,17 @@ final class KnobDrag {
 }
 
 extension Presenter {
+    /// A batch that says only where lists stand (a report's answer that
+    /// moved no view: in a fling, the measurement a slice's rows sent, half
+    /// its batches) and nothing of the page's. It changes no view, so none of
+    /// a batch's passes over the views runs (`apply`): each list takes its
+    /// snapshot and its corrections as in any batch, and its table the rows
+    /// the snapshot places.
+    static func onlySnapshots(_ batch: Batch) -> Bool {
+        !batch.ops.isEmpty && batch.ops.allSatisfy { $0.op == .collections } && batch.error == nil && batch.wakelock == nil
+            && batch.orientation == nil && !batch.layoutProvisional && !batch.controls
+    }
+
     /// Charge the report (decode, layout and apply) to the
     /// rows it created. Cheap rows share those fixed costs in the next report.
     /// Grow at most twofold and retain recent expensive samples conservatively.
@@ -180,7 +191,7 @@ extension CollectionHost {
     /// document's coordinates and across its full cross size. Padding
     /// before the first item or after the last counts as covered. Nil when
     /// no run reaches the port's start: a gap shows there. A row list's run
-    /// is along x.
+    /// is along x (LLP 1070 §5.5).
     func preparedCover(_ id: UInt32) -> NSRect? {
         guard let entry = entries[id], let node = presenter?.views[id], let scroll = node.scroll,
               let document = scroll.documentView else { return nil }
@@ -237,7 +248,7 @@ extension CollectionHost {
         return shortfall > 0 ? UInt32(min(64, (shortfall / mean).rounded(.up))) : 0
     }
     /// After a batch: each collection's document offers responsive scrolling
-    /// only what its rows cover.
+    /// only what its rows cover (D5).
     func limitPrepared() {
         for id in entries.keys {
             guard let document = presenter?.views[id]?.scroll?.documentView as? FlippedView else { continue }
@@ -271,7 +282,7 @@ extension CollectionHost {
         pointer(view)
     }
 
-    /// A list's facts on its own axes.
+    /// A list's facts on its own axes (LLP 1070 H1).
     package func geometry(_ id: UInt32) -> CollectionFacts? {
         guard let node = presenter?.views[id], let scroll = node.scroll,
               !node.isHiddenOrHasHiddenAncestor else { return nil }
@@ -291,7 +302,7 @@ extension CollectionHost {
             guard cross.isFinite else { return nil }
             let start = max(0, node.padding("left")), end = max(0, node.padding("right"))
             // From the first item: negative in the padding before it, down
-            // to that padding.
+            // to that padding (LLP 1010 §6.9).
             return CollectionFacts(offset: Double(max(-start, at.x - content.minX)),
                 portMain: Double(max(0, bounds.width)), portCross: Double(max(0, bounds.height)),
                 cross: Double(cross), measurements: [], focus: nil, interaction: nil,
@@ -393,8 +404,8 @@ extension CollectionHost {
         (at > maximum + 0.5 && wanted >= maximum - 0.5) || (at < -0.5 && wanted <= 0.5)
     }
     /// While a `scrollIntoView` is under way on `id`, its document takes the
-    /// trackpad's touches, and a finger coming down is the reader's gesture.
-    /// AppKit carries a second gesture, a resting catch
+    /// trackpad's touches, and a finger coming down is the reader's gesture
+    /// (LLP 1070.000 §2.5). AppKit carries a second gesture, a resting catch
     /// and a click on within the live scroll still running, with no scroll
     /// event or start notification of their own: a touch beginning is a
     /// sign the main thread gets. Off otherwise, so an ordinary scroll
@@ -420,7 +431,7 @@ extension CollectionHost {
         fit(node, scroll, extent: extent, horizontal: horizontal)
         // The anchor stays put, except under a knob held at the end (`KnobDrag`).
         // A `scrollIntoView`'s move is made whatever the knob or a rubber band
-        // holds; the reader's motion after it takes over.
+        // holds (LLP 1070.000 §2.6); the reader's motion after it takes over.
         let holdsEnd = !authored && KnobDrag.of(scroll)?.holdsEnd == true
         let at = horizontal ? clip.bounds.minX : clip.bounds.minY
         let wanted = CGFloat(top) + (horizontal ? content.minX : content.minY)
@@ -429,9 +440,10 @@ extension CollectionHost {
         if !authored && !holdsEnd && !animating.contains(id) && Self.leavesRubberBand(at: at, wanted: wanted, maximum: maximum) { return }
         let along = holdsEnd ? maximum : min(maximum, max(0, wanted))
         let target = horizontal ? NSPoint(x: along, y: clip.bounds.minY) : NSPoint(x: clip.bounds.minX, y: along)
-        // A smooth correction is AppKit's scroll animation, as UIKit's is on iOS; one already running goes on and
+        // A smooth correction is AppKit's scroll animation (LLP 1070.000
+        // §6.2), as UIKit's is on iOS; one already running goes on and
         // takes this target when it lands. Under Reduce Motion it lands at
-        // once, as an element's reveal does.
+        // once, as an element's reveal does (§14).
         if smooth && !ExactEnv.agentFreezes && !DisplayPreferences.reducedMotion && !holdsEnd && node.window != nil {
             if animating.contains(id) { owedTargets[id] = target; return }
             guard clip.bounds.origin != target else { return }
@@ -457,7 +469,7 @@ extension CollectionHost {
         return nil
     }
     /// The reader's hand on a list, heard before the app's handlers can make a
-    /// request in answer: a press or a wheel; a key is not
+    /// request in answer (LLP 1070.000 §2.5): a press or a wheel; a key is not
     /// heard, what it scrolls is motion like any other. `ExactView`'s own
     /// monitor calls this first for presses: AppKit runs local monitors in no
     /// set order. This host's monitor (`startTracking`) calls it for a wheel

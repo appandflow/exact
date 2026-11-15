@@ -1,5 +1,5 @@
-// `exact contract build`'s app.ts check, supervised (a `build.mjs --check` once spun 4.7 days with nothing
-// to stop it). It runs in its caller's process group; the builder runs under
+// `exact contract build`'s app.ts check, supervised (the design tool's `build.mjs --check` spun 4.7 days with nothing
+// to stop it, found 2026-10-26). It runs in its caller's process group; the builder runs under
 // scripts/check-leader.mjs, outside that group, in a process group of its own, its output this process's (which the
 // caller collects whole, as it did the builder's). The whole builder group, the builder and any `tsc` under it, is
 // killed (scripts/check-group.mjs) when it outlasts the bound (checkBound in js/bake/src/typescript.mjs), when this

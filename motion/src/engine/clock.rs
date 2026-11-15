@@ -1,10 +1,10 @@
-//! Clock timelines in the engine: animations that share a phase.
+//! Clock timelines in the engine: animations that share a phase (LLP 1055.002).
 //!
 //! A node whose `animation-timeline` is `-exact-clock(Name)` plays its animations on
 //! the clock as any node does, from a start chosen so that every animation on
-//! `Name` is in step: the most recent cycle boundary on the timeline at
+//! `Name` is in step (D4): the most recent cycle boundary on the timeline at
 //! or before the moment it starts. A timeline is one number, its origin, set
-//! when an animation joins it idle. Nothing here runs per frame: a start
+//! when an animation joins it idle (D3). Nothing here runs per frame: a start
 //! is chosen once, when a play starts, resumes or moves onto a clock, and
 //! every executor plays from it as it plays any other start (Core
 //! Animation's `beginTime`).
@@ -27,8 +27,8 @@ pub(super) struct Clocks {
     origins: BTreeMap<String, f64>,
     joining: BTreeMap<u64, Joining>,
     held: bool,
-    // Origins set while every member waits for the first presented frame,
-    // each with the time it was set: unchanged until the
+    // Origins set while every member waits for the first presented frame
+    // (LLP 1003.001 D8), each with the time it was set: unchanged until the
     // frame moves it, and every play that joins meanwhile waits with it.
     pending: BTreeMap<String, f64>,
 }
@@ -50,7 +50,7 @@ enum Joining {
 impl Engine {
     /// Put `node`'s animations on the clock timeline `clock` (or with
     /// `None`, on their own starts again). Moving onto one, its running
-    /// plays join it as new ones would; a kept start would be a member
+    /// plays join it as new ones would (D4); a kept start would be a member
     /// out of phase.
     pub fn set_animation_clock(&mut self, node: u64, clock: Option<&str>) {
         (self.links.set_animation_clock)(self, node, clock)
@@ -86,7 +86,7 @@ impl Engine {
     }
 
     /// Join the plays that started, resumed or moved onto a clock since the
-    /// joins were held, and stop holding them.
+    /// joins were held (D3, D4), and stop holding them.
     pub fn join_clocks(&mut self) {
         (self.links.join_clocks)(self)
     }
@@ -152,7 +152,7 @@ impl Engine {
                 continue;
             };
             for (i, play) in plays.iter_mut().enumerate() {
-                // A held play rejoins when it resumes; an ended one
+                // A held play rejoins when it resumes (D6); an ended one
                 // stays ended, not restarted by the move.
                 let picked = match what {
                     Joining::Node => true,
@@ -201,7 +201,7 @@ impl Engine {
     }
 
     /// `node` moved onto its clock, or off a drag timeline while on one:
-    /// every play it has joins, now or at the end of the commit.
+    /// every play it has joins (D4), now or at the end of the commit.
     pub(super) fn join_clock_node(&mut self, node: u64) {
         if self.clocks.of.contains_key(&node) {
             self.clocks.joining.insert(node, Joining::Node);

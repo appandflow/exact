@@ -1,4 +1,4 @@
-# Photos by a person
+# Photos by a person (LLP 1133.019 §11 drive 9)
 
 What no tool can do here: grant the photo library on a Mac or a phone,
 answer the system's prompt, choose a limited selection, open a photo held
@@ -23,7 +23,7 @@ should see.
 
 `bun host/apple/build.mjs photo-editor-apple --bundle`, open the `.app`, tap
 Show under "Recent photos": the system asks for access to your photos.
-Write down which text it shows: the read key's, "Shows
+Write down which text it shows (D4 asks for it): the read key's, "Shows
 your recent photos, so you can open one to edit.", is expected. Allow it,
 and the strip shows your newest photos. Save an edit: it is added with no
 second prompt. In System Settings > Privacy & Security > Photos, turn Photo Editor
@@ -59,7 +59,7 @@ off: on return the strip is gone and the denied line shows.
 5. Turn photo access off in Settings > Photo Editor: on return the strip is
    gone and the editor says it can't see your photos, with Open Settings.
 
-## Android, in the fixture app
+## Android, in the fixture app (stage 3)
 
 `apps/photos-fixture` is the library's consumer on Android (the photo editor
 has no Android port). `bun packages/photos/test/android.mjs` builds its APK
@@ -86,7 +86,7 @@ orientation 6).
    Photos Fixture to access photos and media". Allow: the status reads
    `granted full granted`, the grid shows the device's photos newest first,
    agent-3 upright. Record whether `ACCESS_MEDIA_LOCATION` showed a dialog
-   of its own.
+   of its own (D4).
 2. **API 33** (`READ_MEDIA_IMAGES`): one dialog, "Allow … to access photos
    and videos"; the same grid. Deny twice: the status reads `denied none
    granted` and the launch asks nothing.
@@ -114,10 +114,10 @@ orientation 6).
 8. A build whose grants are `device.photos-add` alone (edit
    `apps/photos-fixture/data/src/lib.rs`): no read dialog at launch; Add the
    copy of a photo already in `app:/tmp`, then the added photo's picture
-   draws and copies with no prompt (the `owned` path), with its location
+   draws and copies with no prompt (the `owned` path, D6), with its location
    kept. Another app's id fails `NotFoundError`.
 
-### The codec: what the drive leaves
+### The codec (D16): what the drive leaves
 
 9. The orientation-6 checks (agent-3 upright at 360×480, its top half at
    360×240 and at 24×16) are the drive's. Left: an Ultra HDR JPEG from a

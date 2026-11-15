@@ -1,4 +1,4 @@
-//! The bake's two refusals for `orientationlock`: a lock
+//! The bake's two refusals for `orientationlock` (LLP 1133.029 D3): a lock
 //! written inside a `dialog` or popover, which counts on no host because
 //! whether the box is open is the host's state; and a literal type whose
 //! orientations share none with the manifest's `orientation`, which no
@@ -30,19 +30,11 @@ fn locks(file: &File) -> Vec<(&Expr, Span, bool)> {
                     }
                     walk(children, boxed, out);
                 }
-                Node::Use { children, .. } => walk(children, boxed, out),
-                Node::When {
-                    then, otherwise, ..
-                } => {
-                    walk(then, boxed, out);
-                    walk(otherwise, boxed, out);
+                node => {
+                    for list in node.child_lists() {
+                        walk(list, boxed, out);
+                    }
                 }
-                Node::Each { body, .. } => walk(body, boxed, out),
-                Node::Match { some, none, .. } => {
-                    walk(&some.1, boxed, out);
-                    walk(none, boxed, out);
-                }
-                Node::Children { .. } => {}
             }
         }
     }

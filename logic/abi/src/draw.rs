@@ -1,4 +1,4 @@
-//! Canvas 2D draws across the module seam:
+//! Canvas 2D draws across the module seam (LLP 1056 D1, D4; LLP 1071 §7):
 //! a host whose runner is not Rust (the web's JS target) asks the module to
 //! draw one surface and replays the lists it answers. Its own export,
 //! [`crate::export_draw!`], so a module whose source draws nothing links
@@ -59,7 +59,7 @@ pub fn draw_request(r: &DrawRequest<'_>) -> Result<Vec<u8>, String> {
         }
         None => w.u8(0),
     }
-    // Bit 0 `rtl`, bit 1 a `display-p3` canvas.
+    // Bit 0 `rtl`, bit 1 a `display-p3` canvas (LLP 1100 D12a).
     w.u8(u8::from(r.rtl) | (u8::from(r.p3) << 1));
     finish(w)
 }
@@ -160,7 +160,7 @@ impl<D: DataSource> super::Session<D> {
         }
         let ctx = slot.2.clone();
         // No text engine or image table crosses this seam: a draw's
-        // `measureText` and images are the runner's.
+        // `measureText` and images are the runner's (LLP 1056 D8, D9).
         ctx.set_env(Env {
             canvas,
             text: None,

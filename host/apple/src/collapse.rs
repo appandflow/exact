@@ -1,4 +1,4 @@
-//! CSS white space collapsing for the Swift painter.
+//! CSS white space collapsing for the Swift painter (LLP 1053 §0 G5).
 //!
 //! The measurer collapses a request's runs in Rust before the callback
 //! (`measure.rs`); the presenter builds its own paint runs from node rows and

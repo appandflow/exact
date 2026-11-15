@@ -1,5 +1,5 @@
 //! Chromium's pair table for Latin-1 line breaks.
-//! Pretext's corpora showed where the walker and Chrome disagree.
+//! @ref LLP 1043 §4 C — Pretext's corpora showed where the walker and Chrome disagree.
 //!
 //! Blink decides a break between two characters in U+0021..=U+00FF from a
 //! generated table, `kFastLineBreakTable` (Chromium
@@ -57,7 +57,7 @@ pub(crate) fn breaks(before: char, after: char) -> bool {
 
 /// The walker's choice between `before` and `after` where it does not defer
 /// to UAX #14: `None` defers. The host's ordinary paragraphs give this to
-/// their line breaker so both paths break alike: a break
+/// their line breaker so both paths break alike (LLP 1085.000 G6): a break
 /// follows a space and never precedes one; `-` before a digit breaks only
 /// after a letter or digit (a URL, not a negative number); otherwise
 /// Chrome's Latin-1 pair table. Hard breaks and dictionary scripts defer.
@@ -89,9 +89,9 @@ pub fn chrome_break(before_before: Option<char>, before: char, after: char) -> O
 mod tests {
     use super::*;
 
-    /// The host's ordinary paragraphs break as the walker does: after a space,
-    /// never before one, Chrome's table between Latin-1 characters, a URL's
-    /// `-2` but not a negative number's.
+    /// The host's ordinary paragraphs break as the walker does (LLP
+    /// 1085.000 G6): after a space, never before one, Chrome's table between
+    /// Latin-1 characters, a URL's `-2` but not a negative number's.
     #[test]
     fn chrome_break_is_the_walkers_rule() {
         assert_eq!(chrome_break(Some('a'), ' ', 'b'), Some(true));

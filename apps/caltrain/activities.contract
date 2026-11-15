@@ -1,6 +1,6 @@
-// Live Activities: one state and eight independently sized placements.
+// @ref LLP 1126.001 WP8 — one state and eight independently sized placements.
 // Each placement says `data-privacy="public"`: a train's departure or a service
-// alert is not account content, so a locked phone shows it.
+// alert is not account content, so a locked phone shows it (LLP 1126 D8; WP10).
 shape DepartureState
   station: string
   headsign: string

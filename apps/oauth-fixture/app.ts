@@ -1,4 +1,4 @@
-// The OAuth fixture's data module: one `@exact/oauth` provider
+// The OAuth fixture's data module (LLP 1146): one `@exact/oauth` provider
 // per fixture profile, each as its provider's documentation says to
 // configure it (`packages/oauth/test/PROVIDERS.md`).
 import type { Answer, Sources } from './app.contract.d.ts';
@@ -34,7 +34,7 @@ const CONFIGS: Record<string, OAuthConfig> = {
   forgerock: { ...common('forgerock'), issuer: at('forgerock'), scopes: ['openid', 'profile'], expiredStatus: [401, 403] },
 };
 const providers = new Map<string, OAuthProvider>();
-// `here`: the app's own sign-in screens, with the redirect URI the provider registered and no browser
+// `here`: the app's own sign-in screens (LLP 1146 D8), with the redirect URI the provider registered and no browser
 const provider = (profile: string, here = false): OAuthProvider => {
   let p = providers.get(`${profile}${here ? ' here' : ''}`);
   if (!p) {

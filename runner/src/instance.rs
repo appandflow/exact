@@ -1,6 +1,6 @@
 //! The instance tree, and the ops that keep the kernel equal to it.
 //!
-//! Instances are managed by key, never by reconciling trees.
+//! @ref LLP 0485 §8.2 (keyed instance management, never reconciliation of trees; research)
 //!
 //! The plan's nodes and regions are *sites*. An instance realizes a site as a
 //! kernel view, an active `if`/`match` arm, or a `for` row per key. Updates
@@ -43,23 +43,23 @@ use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::rc::Rc;
 
-/// List engine entries, reached only through
+/// List engine entries (LLP 1047 D3; LLP 1047.000 §9), reached only through
 /// [`LISTS`]. `RunnerLinks::ALL` and the web collections capability name it;
-/// artifacts without virtualized lists carry no engine. Admission
+/// artifacts without virtualized lists carry no engine. Admission (D6)
 /// refuses virtualized lists when this table is absent.
 pub struct ListLinks {
     create: CreateList,
     update: UpdateList,
     typography: ListTypography,
     pub(crate) collections_json: fn(&Tree) -> String,
-    /// `scrollIntoView`: a request begun on its list.
+    /// `scrollIntoView` (LLP 1070.000): a request begun on its list.
     pub(crate) into_view: IntoViewLink,
     /// A logical row needed for a host's keyboard focus traversal.
     pub(crate) reveal_index: RevealIndexLink,
     pub(crate) scroll_anchor: ScrollAnchorLink,
     /// `state.scrollIntoView`: each list's latest request.
     pub(crate) into_view_json: fn(&Tree) -> String,
-    /// `state.kept`: inner lists' kept positions.
+    /// `state.kept`: inner lists' kept positions (LLP 1070 §4.2).
     pub(crate) kept_json: fn(&Tree) -> String,
     /// What the platform covers of a list's port, where no row is aligned.
     pub(crate) covered: fn(&mut Tree, ViewId, [f64; 2]) -> bool,
@@ -81,14 +81,16 @@ type CreateList = fn(
     ViewId,
     &[Frame],
 ) -> Result<Option<Box<collection::Collection>>, InstanceError>;
-/// A list's data update, given whether it follows its end and its
+/// A list's data update, given its end-follow policy, scroll behavior and
 /// `keep-mounted` value.
 type UpdateList = fn(
     &mut collection::Collection,
     &mut Update<'_>,
     &[Frame],
     bool,
+    bool,
     Option<&Value>,
+    [Option<&Value>; 2],
 ) -> Result<(), InstanceError>;
 type ListTypography = fn(&mut [Child], &mut Update<'_>, &[Frame]) -> Result<(), InstanceError>;
 
@@ -109,10 +111,13 @@ pub static LISTS: ListLinks = ListLinks {
 /// A list engine's state where the plan has no way to reach it: admission
 /// refused the plan, so this is the runner's defect, named rather than trapped on.
 fn unlinked() -> InstanceError {
-    InstanceError::Collection("a list engine is in use but this artifact doesn't link lists".into())
+    InstanceError::Collection(
+        "a list engine is in use but this artifact doesn't link lists (LLP 1047 D6)".into(),
+    )
 }
 
-mod errors;
+pub(crate) mod errors;
+use errors::invalid;
 pub use errors::InstanceError;
 
 /// One realized node.
@@ -132,12 +137,12 @@ pub struct NodeInst {
     /// What few nodes keep, behind one pointer: `Child` is 112 bytes, a
     /// class of Apple's allocator, and most child vectors hold one.
     rare: Option<Box<rare::Rare>>,
-    /// The app tuple its rows and children are in.
+    /// The app tuple its rows and children are in (LLP 1121 D5).
     tuple: u32,
     /// Which of its bindings' text read a token.
     themed: theme::Themed,
     /// One of its inherited colour rows was set since its children last
-    /// took the text they inherit: they are visited again.
+    /// took the text they inherit (D7): they are visited again.
     colour_moved: bool,
     /// The tuple around it when its rows were last set.
     around: u32,
@@ -199,7 +204,7 @@ struct Row {
     dup: u32,
     frame: Frame,
     roots: Vec<Child>,
-    /// The row's own slots: the `state` a child component
+    /// The row's own slots (LLP 1017 P4c): the `state` a child component
     /// declared, one value per row, kept across reorders with the key,
     /// dropped with the row, initialized when the row is created.
     /// Ordinary stateless rows omit it unless nested state needs the identity.
@@ -208,8 +213,8 @@ struct Row {
 
 /// One step of the instance path from the plan's roots to a view: the
 /// region crossed and, for a `for` row, its key; for an `if`/`match`
-/// region, the active arm (what identifies *this* instance of a repeated
-/// site).
+/// region, the active arm (LLP 1035.002 D6 — what identifies *this*
+/// instance of a repeated site).
 #[derive(Debug, Clone, PartialEq)]
 pub enum InstanceStep {
     /// A keyed row of a `for`.
@@ -236,9 +241,9 @@ pub struct Ids {
     /// Every instance node's view and site, destroyed ones kept till [`Ids::retain`] drops them.
     sites: exact_kernel::id::IdMap<ViewId, NodesId>,
     /// Each plan site's work across its instances' lifetimes, by node
-    /// index; empty while nothing is measured.
+    /// index; empty while nothing is measured (LLP 1079 D1).
     pub(crate) work: crate::perf::Work,
-    /// Every row that read a theme token.
+    /// Every row that read a theme token (LLP 1121 D7).
     pub theme: theme::ThemeIndex,
     pub(crate) tabs: tabs::Tabs, // tab panels waiting for their first selection (tabs.rs)
 }
@@ -313,7 +318,7 @@ pub fn value_json(value: &Value, out: &mut String) {
 }
 
 /// A canvas node's surface inputs, evaluated against state: the runner's
-/// side-output for the host's GPU module. Published only
+/// side-output for the host's GPU module (LLP 1009 D2). Published only
 /// after the commit that produced it applied.
 #[derive(Debug, Clone, PartialEq)]
 pub struct SurfaceUpdate {
@@ -371,7 +376,8 @@ pub struct InstanceWork {
     pub derives_evaluated: usize,
     /// Store bytes copied so a refusal could put the store back.
     pub store_bytes_copied: usize,
-    /// Retiring list rows rebound to another item instead of building one.
+    /// Retiring list rows rebound to another item instead of building one
+    /// (LLP 1078).
     pub rows_rebound: usize,
 }
 
@@ -415,7 +421,8 @@ pub struct Update<'a> {
     /// Journal lines for what the data got wrong and the tree absorbed: an
     /// invalid style or prop value, a repeated key. Written with the commit.
     pub notes: Vec<String>,
-    /// A nested `scrollIntoView`'s inner part a report refused, by the inner list's `id` and why: journaled and kept for
+    /// A nested `scrollIntoView`'s inner part a report refused (LLP 1070.000
+    /// §2.6), by the inner list's `id` and why: journaled and kept for
     /// `state` as the command's refusals are.
     pub refused: Vec<(String, String)>,
     /// No kernel mirrors the tree (a detached kernel's runner, LLP
@@ -426,32 +433,32 @@ pub struct Update<'a> {
     /// kept update would have written as a style op: what tells a list its
     /// rows' typography changed ([`Tree::update`]).
     text_styled: bool,
-    /// The views of list rows rebound to another item, every one
+    /// The views of list rows rebound to another item (LLP 1078), every one
     /// a fresh mount to motion and to the host: the commit's receipt names
     /// them `renewed`.
     pub renewed: Vec<ViewId>,
-    /// List rows mounted out of their port, and those that showed.
+    /// List rows mounted out of their port, and those that showed (LLP 1055 D13).
     pub shown: collection::shown::RowsShown,
-    /// Rebind retiring list rows to new items, as the runner was
+    /// Rebind retiring list rows to new items (LLP 1078), as the runner was
     /// told ([`crate::Runner::set_row_reuse`]).
     pub reuse: bool,
     /// Reuse operand and local storage while visiting this update's bindings.
     scratch: vm::Scratch,
     /// Empty lexical-frame buffers, reused within this update only.
     frame_buffers: Vec<Vec<Frame>>,
-    /// Resolved CSS alignment insets, top/right/bottom/left.
+    /// Resolved CSS alignment insets, top/right/bottom/left (LLP 1010 §6.9).
     pub scroll_padding: Option<&'a dyn Fn(ViewId) -> [f64; 4]>,
     /// Resolved CSS target outsets, top/right/bottom/left.
     pub scroll_margin: Option<&'a dyn Fn(ViewId) -> [f64; 4]>,
     /// Row margins as the kernel lays them out, under a terminal's rule.
     pub cell_margins: Option<&'a dyn Fn(ViewId) -> [f64; 4]>,
-    /// The app modes around the nodes being visited.
+    /// The app modes around the nodes being visited (LLP 1121 D5).
     pub theme: theme::Around,
 }
 impl<'a> Update<'a> {
     /// A context over `env` with no ops yet.
     pub fn new(env: Env<'a>, sites: &'a SiteIndex, ids: &'a mut Ids) -> Self {
-        // A visit starts in the window's modes.
+        // A visit starts in the window's modes (LLP 1121 D5).
         let theme = theme::Around {
             tuple: ids.theme.window,
             retheme: std::mem::take(&mut ids.theme.moved),
@@ -528,7 +535,7 @@ impl<'a> Update<'a> {
         code: exact_plan::Code,
         frames: &[Frame],
     ) -> Result<Value, Trap> {
-        self.sites.projections[binding.0 as usize].eval(
+        self.sites.data.projections[binding.0 as usize].eval(
             self.env.plan.code(code),
             &self.env,
             frames,
@@ -544,7 +551,7 @@ impl<'a> Update<'a> {
     /// [`Update::stale`] for reads made `shift` scopes further in (a key or
     /// a row body seen from its region), counting only enclosing frames.
     fn stale_outside(&self, reads: &Reads, shift: u32) -> bool {
-        // A changed tuple sets every themed row again.
+        // A changed tuple sets every themed row again (LLP 1121 D7).
         self.full || self.theme.retheme || self.changed_outside(reads, shift)
     }
 
@@ -559,7 +566,7 @@ impl<'a> Update<'a> {
         reads.opaque
             || reads.bits.intersects(changed)
             // Only the innermost frame, seen from inside it: only if a field
-            // read is a field that changed.
+            // read is a field that changed (LLP 1017.003 D6).
             || (frames == 1 && shift == 0 && reads.fields & self.dirty_fields != 0)
             || (frames != 0 && (frames != 1 || shift != 0))
             || (reads.row_slots
@@ -603,98 +610,9 @@ impl<'a> Update<'a> {
     }
 }
 
-type SiteParent = (Option<NodesId>, Option<ArmsId>);
-
-/// Ordered child sites, built once from the runner's immutable plan.
-#[derive(Debug)]
-pub struct SiteIndex {
-    groups: Vec<(SiteParent, std::ops::Range<usize>)>,
-    sites: Vec<(u32, Site)>,
-    /// What every binding and site reads.
-    deps: Deps,
-    /// The plan's `@keyframes`, parsed once.
-    keyframes: bridge::KeyframesTable,
-    /// How an `animation` list's names resolve, when linked.
-    resolve_keyframes: bridge::KeyframesLink,
-    /// A binding that reads nothing (a literal style row in a list row's
-    /// template) has one value for the plan's life: evaluated once, by
-    /// binding index, instead of once per instance; kept for the bindings
-    /// evaluated (a plan has thousands, a screen evaluates hundreds).
-    constants: RefCell<BTreeMap<u32, Value>>,
-    projections: Vec<vm::Prepared>,
-}
-
-impl SiteIndex {
-    /// Index the exact parent/arm pair, preserving authored order and rank
-    /// ties, with every capability linked.
-    pub fn new(plan: &Plan) -> Self {
-        Self::linked(plan, crate::RunnerLinks::ALL.keyframes)
-    }
-
-    /// [`SiteIndex::new`], resolving keyframes as `keyframes` links.
-    pub fn linked(plan: &Plan, keyframes: bridge::KeyframesLink) -> Self {
-        let mut entries = Vec::with_capacity(plan.nodes.len() + plan.regions.len());
-        for (i, n) in plan.nodes.iter().enumerate() {
-            entries.push(((n.parent, n.arm), n.order, Site::Node(NodesId(i as u32))));
-        }
-        for (i, r) in plan.regions.iter().enumerate() {
-            entries.push((
-                (r.parent, r.arm),
-                r.order,
-                Site::Region(RegionsId(i as u32)),
-            ));
-        }
-        let key = |i: usize| (entries[i].0, entries[i].1, entries[i].2.rank());
-        let order = stable_order(entries.len(), &|i, j| key(i) < key(j));
-        let mut groups: Vec<(SiteParent, std::ops::Range<usize>)> = Vec::new();
-        let mut sites = Vec::with_capacity(entries.len());
-        for (parent, order, site) in order.into_iter().map(|i| entries[i]) {
-            let end = sites.len() + 1;
-            if let Some((previous, range)) = groups
-                .last_mut()
-                .filter(|(previous, _)| *previous == parent)
-            {
-                debug_assert_eq!(*previous, parent);
-                range.end = end;
-            } else {
-                groups.push((parent, sites.len()..end));
-            }
-            sites.push((order, site));
-        }
-        groups.shrink_to_fit();
-        let mut index = Self {
-            groups,
-            sites,
-            deps: Deps::default(),
-            keyframes: bridge::keyframes(plan),
-            resolve_keyframes: keyframes,
-            constants: RefCell::default(),
-            projections: plan
-                .bindings
-                .iter()
-                .map(|b| vm::Prepared::new(plan.code(b.expr)))
-                .collect(),
-        };
-        index.deps = Deps::new(plan, &index);
-        index
-    }
-
-    /// What every binding, site, derive and resource argument reads.
-    pub(crate) fn deps(&self) -> &Deps {
-        &self.deps
-    }
-
-    /// What a region's row body reads outside its own item and position.
-    pub fn row_dependencies(&self, region: RegionsId) -> RowDependencies {
-        self.deps.row_dependencies(region.0 as usize)
-    }
-
-    fn children(&self, parent: Option<NodesId>, arm: Option<ArmsId>) -> &[(u32, Site)] {
-        self.groups
-            .binary_search_by_key(&(parent, arm), |(key, _)| *key)
-            .map_or(&[], |i| &self.sites[self.groups[i].1.clone()])
-    }
-}
+mod index;
+pub(crate) use index::SiteData;
+pub use index::SiteIndex;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Site {
@@ -713,7 +631,7 @@ impl Site {
 
 /// The indices `0..n` in the order a stable sort by `less` gives. A bottom-up
 /// merge sort written once, so each caller doesn't link its own
-/// instantiation of core's sort.
+/// instantiation of core's sort (LLP 1047 §6).
 fn stable_order(n: usize, less: &dyn Fn(usize, usize) -> bool) -> Vec<usize> {
     let mut a: Vec<usize> = (0..n).collect();
     let mut b = a.clone();
@@ -814,7 +732,7 @@ fn update_all(
     children: &mut [Child],
     frames: &[Frame],
 ) -> Result<bool, InstanceError> {
-    let deps = &u.sites.deps;
+    let deps = &u.sites.data.deps;
     let mut roots = false;
     for c in children.iter_mut() {
         match c {
@@ -892,7 +810,8 @@ impl NodeInst {
             colour_moved: false,
             around: u.theme.tuple,
         };
-        inst.emit_bindings(u, frames, true)?;
+        inst.emit_bindings(u, frames, true)
+            .map_err(|e| e.at_view(view, node))?;
         // Its children are created in what it sets: nothing to visit again.
         inst.colour_moved = false;
         let saved = inst.enter(u, inst.tuple);
@@ -909,7 +828,9 @@ impl NodeInst {
             Ok(())
         })();
         u.theme = saved;
-        realized.map(|()| inst)
+        realized
+            .map_err(|e: InstanceError| e.at_view(view, node))
+            .map(|()| inst)
     }
 
     fn emit_bindings(
@@ -921,9 +842,9 @@ impl NodeInst {
         let plan = u.env.plan;
         let row = plan.node(self.node);
         let mut patch: Option<Box<StyleProps>> = None;
-        let deps = &u.sites.deps;
+        let deps = &u.sites.data.deps;
         // A pin is read first: the node's other rows are in the tuple it
-        // makes. Without a theme, nothing here runs.
+        // makes (LLP 1121 D5). Without a theme, nothing here runs.
         let themed_plan = !plan.theme.is_empty();
         let mode = themed_plan
             .then(|| theme::binding_of(plan, &row, exact_kernel::StyleId::Mode))
@@ -1010,7 +931,6 @@ impl NodeInst {
             if u.discard {
                 if binding.kind == BindingKind::Style
                     && !fresh
-                    && !matches!(value, Value::Option(None))
                     && exact_kernel::StyleId::from_bit(binding.id as u32)
                         .is_some_and(|style| exact_kernel::StyleMask::TEXT.has(style))
                 {
@@ -1105,14 +1025,14 @@ impl NodeInst {
                     };
                     match styled {
                         // Unlinked, the plan names no rule: it was refused at
-                        // boot.
+                        // boot (LLP 1047.001 D5).
                         Ok(exact_kernel::StyleId::Animation) => {
                             if let Some(resolve) = u.sites.resolve_keyframes {
                                 u.notes
                                     .extend(resolve(&u.sites.keyframes, &mut p.animation));
                             }
                         }
-                        // An exit names keyframes as `animation` does.
+                        // An exit names keyframes as `animation` does (LLP 1063).
                         Ok(exact_kernel::StyleId::ExitAnimation) => {
                             if let Some(resolve) = u.sites.resolve_keyframes {
                                 u.notes.extend(resolve(
@@ -1176,8 +1096,10 @@ impl NodeInst {
         }) {
             let s = plan.surface(surface);
             let mut values = Vec::with_capacity(s.args.len as usize);
-            for a in s.args.iter() {
-                values.push(u.eval(plan.surface_arg(a).expr, frames)?);
+            for (k, a) in s.args.iter().enumerate() {
+                values.push(u.eval_named(plan.surface_arg(a).expr, frames, || {
+                    format!("surface argument {}", k + 1)
+                })?);
             }
             if self.rare.as_ref().and_then(|r| r.last_surface.as_ref()) != Some(&values) {
                 u.surfaces.push(SurfaceUpdate {
@@ -1213,11 +1135,12 @@ impl NodeInst {
     fn update(&mut self, u: &mut Update<'_>, frames: &[Frame]) -> Result<(), InstanceError> {
         u.work.nodes_visited += 1;
         let before = self.tuple;
-        self.emit_bindings(u, frames, false)?;
+        self.emit_bindings(u, frames, false)
+            .map_err(|e| e.at_view(self.view, self.node))?;
         let saved = self.enter(u, before);
         let updated = self.update_children(u, frames);
         u.theme = saved;
-        updated
+        updated.map_err(|e| e.at_view(self.view, self.node))
     }
 
     fn update_children(
@@ -1240,6 +1163,18 @@ impl NodeInst {
         let keep = self
             .collection()
             .and_then(|_| self.bound_prop(plan, u.sites, exact_kernel::PropId::KeepMounted));
+        let smooth = self.collection().is_some()
+            && self
+                .bound_style(plan, u.sites, exact_kernel::StyleId::ScrollBehavior)
+                .is_some_and(|value| value.as_str() == Some("smooth"));
+        // Its estimate and its gap, read again as they change (`sizing.rs`).
+        use exact_kernel::PropId::{EstimatedItemHeight, EstimatedItemWidth};
+        let estimate = (self
+            .collection()
+            .map(|_| self.bound_prop(plan, u.sites, EstimatedItemWidth)))
+        .and_then(|w| w.or_else(|| self.bound_prop(plan, u.sites, EstimatedItemHeight)));
+        let gap = (self.collection())
+            .and_then(|_| self.bound_style(plan, u.sites, exact_kernel::StyleId::ColumnGap));
         if let Some(collection) = self.collection_mut() {
             collection.around = theme::Around {
                 retheme: false,
@@ -1250,7 +1185,9 @@ impl NodeInst {
                 u,
                 frames,
                 follow,
+                smooth,
                 keep.as_ref(),
+                [estimate.as_ref(), gap.as_ref()],
             )?;
         } else if update_all(u, &mut self.children, frames)? {
             self.emit_children(u);
@@ -1266,14 +1203,7 @@ impl NodeInst {
     }
 }
 
-/// The journal line for a value a row refused.
-fn invalid(view: ViewId, row: &str, value: &Value) -> String {
-    let mut shown = String::new();
-    crate::agent::untyped_json(value, &mut shown);
-    format!("view {view}: invalid {row} value {shown}; unset")
-}
-
-/// A face's colour that is no colour, as written; `then`
+/// A face's colour that is no colour (LLP 1045.000 D2), as written; `then`
 /// says what is drawn instead.
 pub(crate) fn invalid_face(view: ViewId, text: String, then: &str) -> String {
     let shown = serde_json::Value::String(text);
@@ -1300,7 +1230,7 @@ impl Tree {
             has_collections: u.env.plan.bindings.iter().any(|b| {
                 b.kind == BindingKind::Prop
                     && b.id == exact_kernel::PropId::Virtualized as u16
-                    && u.env.plan.code(b.expr)
+                    && u.env.plan.read_code(u.env.plan.code(b.expr)).0
                         != [
                             exact_plan::Opcode::Bool as u8,
                             0,
@@ -1322,14 +1252,24 @@ impl Tree {
     pub fn update(&mut self, u: &mut Update<'_>) -> Result<(), InstanceError> {
         // New views cannot change the typography of already measured rows.
         let last_existing_view = u.ids.next;
-        u.changed = Some(u.sites.deps.changed(&self.seen, &u.env));
+        u.changed = Some(u.sites.data.deps.changed(&self.seen, &u.env));
         let roots = update_all(u, &mut self.children, &[]);
         u.changed = None;
         if roots? {
             self.emit_roots(u);
         }
         self.open_tabs(u)?;
-        if self.has_collections && (u.text_styled || u.ops.iter().any(|op| matches!(op, Op::SetStyle { id, patch } if *id <= last_existing_view && patch.mask.intersects(exact_kernel::StyleMask::TEXT)))) {
+        if self.has_collections
+            && (u.text_styled
+                || u.ops.iter().any(|op| {
+                    let (id, mask) = match op {
+                        Op::SetStyle { id, patch } => (id, &patch.mask),
+                        Op::ClearStyle { id, mask, .. } => (id, mask),
+                        _ => return false,
+                    };
+                    *id <= last_existing_view && mask.intersects(exact_kernel::StyleMask::TEXT)
+                }))
+        {
             if let Some(lists) = u.env.lists {
                 (lists.typography)(&mut self.children, u, &[])?;
             }
@@ -1366,12 +1306,12 @@ impl Tree {
     }
 
     /// The site owning `view` and the instance path to it: the regions
-    /// crossed, with the row key or the active arm at each.
+    /// crossed, with the row key or the active arm at each (LLP 1035.002).
     pub fn site(&self, view: ViewId) -> Option<(NodesId, Vec<InstanceStep>)> {
         self.site_in(view).map(|(node, _, path)| (node, path))
     }
 
-    /// The app tuple `view`'s node is in: the window's,
+    /// The app tuple `view`'s node is in (LLP 1121 D5): the window's,
     /// overridden by the pins above it, for an inspected node's report.
     pub fn tuple_of(&self, view: ViewId) -> Option<u32> {
         self.site_in(view).map(|(_, tuple, _)| tuple)

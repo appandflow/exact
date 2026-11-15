@@ -1,4 +1,4 @@
-// The macOS driver's trackpad: a gesture's scroll-wheel events
+// The macOS driver's trackpad (LLP 1142 D3): a gesture's scroll-wheel events
 // posted to one process through the window server, paced by a CVDisplayLink
 // on the target display, so AppKit tracks the gesture and runs its scrolling,
 // momentum and rubber band. `scripts/agent-wheel.mjs` builds and runs it with

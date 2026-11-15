@@ -3,7 +3,7 @@ import AppKit
 import XCTest
 @testable import ExactKit
 
-/// `-webkit-font-smoothing: antialiased` reaches the
+/// LLP 1019 D12, Fields: `-webkit-font-smoothing: antialiased` reaches the
 /// text AppKit draws for a field. An input's cell and a textarea's text view
 /// draw with less ink than an `auto` one, its editor too; the window's one
 /// field editor draws the next `auto` field as AppKit does.

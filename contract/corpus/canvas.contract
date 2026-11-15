@@ -1,7 +1,7 @@
-// Accept fixture: a `canvas` bound to a surface in the app's GPU module.
-// The surface's arguments are state; the runner publishes
+// Accept fixture: a `canvas` bound to a surface in the app's GPU module
+// (LLP 1009 D3). The surface's arguments are state; the runner publishes
 // them, evaluated, whenever they change. A canvas holds children, laid out
-// in its box.
+// in its box (LLP 1014 D1).
 component Map
   state zoom = 1
   state label = ""

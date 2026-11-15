@@ -1,5 +1,5 @@
 // Storage completions belong to an answer checkpoint, not an arbitrary browser
-// microtask: host work returns through the data seam.
+// microtask. @ref LLP 1027 D10: host work returns through the data seam.
 import { agentReads, agentStorageRefusal, directories, emptyRead, storageKey } from './storage-environment.js';
 let fileFactory, sqliteFactory, toldAgent = false;
 
@@ -11,7 +11,7 @@ export function createStorage(win, admitted, scope, key = storageKey(admitted.ap
   let fsLoading, sqliteLoading;
   const queues = new Map(), waiters = new Map(), retired = new WeakSet();
   // Each issued operation's owner, in a cell its completion reads when it
-  // lands, not at issue: an answer that replies before its
+  // lands, not at issue (LLP 1097 D7): an answer that replies before its
   // storage lands hands it to the background (`rehome`), so a completion
   // still in flight finds its new owner and is never dropped as retired.
   const issued = new Map();
@@ -70,8 +70,8 @@ export function createStorage(win, admitted, scope, key = storageKey(admitted.ap
     const queue = queues.get(owner) || []; queue.push({complete, cleanup, fail}); queues.set(owner, queue);
     waiters.get(owner)?.(); waiters.delete(owner);
   };
-  // Host work an answer waits on that is not storage (a browser digest)
-  // completes the same way; it needs no store, so the agent's
+  // Host work an answer waits on that is not storage (a browser digest, LLP
+  // 1069.005 D1) completes the same way; it needs no store, so the agent's
   // storage refusal does not apply.
   function work(promise) {
     if (disposed) return win.Promise.reject(unavailable());
@@ -106,13 +106,22 @@ export function createStorage(win, admitted, scope, key = storageKey(admitted.ap
   // Cloning stays synchronous, but its failure belongs to the reserved
   // cell's checkpoint, even when another answer's turn issued the call.
   const failed = e => enqueue(() => { throw e; }, undefined, undefined, false);
-  // The first refused read or write is said once, as on every host: the page's console reaches the driver's logs.
+  // The first refused read or write is said once, as on every host (trivia F7): the page's console reaches the driver's logs.
   function tellAgent() { if (!toldAgent) { toldAgent = true; console.warn(`storage refused (agent): ${agentStorageRefusal}`); } }
   function method(raw, name, args, convert, discard) {
     let captured;
     try { captured = structuredClone(args); } catch (e) { return failed(e); }
     return enqueue(() => raw[name](...captured), convert, discard, true, name);
   }
+  // A transaction's options read once, as every other host reads them (an
+  // inherited or getter `foreignKeys` included), as a record a clone keeps:
+  // other keys by name, a `foreignKeys` that is no string as `null`, and
+  // options that are a function or symbol as a string. storage-sqlite.js
+  // validates the record.
+  const plainOptions = options => typeof options === 'function' || typeof options === 'symbol' ? typeof options
+    : options === null || typeof options !== 'object' ? options : Object.assign(
+    Object.fromEntries(Object.keys(options).filter(k => k !== 'foreignKeys').map(k => [k, true])),
+    (f => f === undefined ? {} : { foreignKeys: typeof f === 'string' ? f : null })(options.foreignKeys));
   const closeDiscarded = raw => { void raw.close().catch(() => {}); };
   const statement = raw => Object.freeze({
     execute: params => method(raw, 'execute', [params]),
@@ -123,13 +132,13 @@ export function createStorage(win, admitted, scope, key = storageKey(admitted.ap
     execute: (sql, params) => method(raw, 'execute', [sql, params]),
     query: (sql, params) => method(raw, 'query', [sql, params]),
     prepare: sql => method(raw, 'prepare', [sql], statement, closeDiscarded),
-    transaction: commands => method(raw, 'transaction', [commands]),
+    transaction: (commands, options) => { try { options = plainOptions(options); } catch (e) { return failed(e); } return method(raw, 'transaction', [commands, options]); },
     close: () => method(raw, 'close', []),
   });
-  // A document the person chose (`doc:/`) is a handle the
+  // A document the person chose (`doc:/`, LLP 1069.010 D1) is a handle the
   // page keeps (documents-glue.js), reached as a Rust source's storage
   // request reaches it: under the same grants, with no store key. A module
-  // on a worker has no page to keep them: it is refused.
+  // on a worker (LLP 1027.002) has no page to keep them: it is refused.
   let documents;
   const documentFiles = () => documents ??= (typeof window === 'undefined'
     ? Promise.reject(error({message:'storage: the documents the person chose live in the page; a worker-placed module cannot reach them (placement main reaches them)', code:'unsupported'}))
@@ -150,13 +159,13 @@ export function createStorage(win, admitted, scope, key = storageKey(admitted.ap
       return enqueue(async active => { const backend = await fileSystem(); active(); return backend[method](...captured); }, clone, () => {}, true, method);
     };
   }
-  // What the app keeps across launches: the page's
+  // What the app keeps across launches (LLP 1069.010.000 D5): the page's
   // kept handles, which the prelude asks here rather than at the host door.
   files.recentDocuments = () => enqueue(async active => { await documentFiles(); active(); return globalThis.exact.documents.recent(admitted.grantSet); }, clone, () => {}, false);
   files.forgetDocument = path => enqueue(async active => { await documentFiles(); active(); return globalThis.exact.documents.forget(String(path), admitted.grantSet); }, clone, () => {}, false);
   // The prelude hands `compressImage` its options as two numbers, the media
-  // type and its edit's JSON, and
-  // `transformImage` its options' JSON; app files only, so never the
+  // type and its edit's JSON (LLP 1069.002 A1, A1.11; LLP 1133.019 D15), and
+  // `transformImage` its options' JSON (D14); app files only, so never the
   // documents' backend.
   files.compressImage = (from, to, maxDimension, maxBytes, type, edit) =>
     enqueue(async active => { const backend = await fileSystem(); active(); return backend.compressImage(from, to, {...(edit ? JSON.parse(edit) : {}), maxDimension, maxBytes, type}); }, clone, () => {}, true, 'compressImage');
@@ -172,7 +181,7 @@ export function createStorage(win, admitted, scope, key = storageKey(admitted.ap
       this.deliverNow(owner);
     },
     // Until `owner` has a completion waiting (a background round waits here,
-    // outside the realm's turns).
+    // outside the realm's turns, LLP 1097 D7).
     async ready(owner) {
       if (disposed || retired.has(owner)) throw unavailable();
       if (!queues.get(owner)?.length) await new Promise(resolve => waiters.set(owner,resolve));
@@ -216,7 +225,7 @@ export function createStorage(win, admitted, scope, key = storageKey(admitted.ap
     },
     // An answer that replied with storage in flight hands it to `to` (the
     // background), before its owner is retired: every cell still in flight
-    // and every completion queued.
+    // and every completion queued (LLP 1097 D7).
     rehome(owner, to) {
       const cells = issued.get(owner);
       if (cells) {

@@ -1,5 +1,5 @@
 // One display link for the app's life (iOS, tvOS); its users come and go.
-// It ticks only while something moves, at the rate its users ask.
+// @ref LLP 1009 D4 (frames only while something moves); LLP 1061 D4 (rate).
 #if os(iOS) || os(tvOS)
 import UIKit
 
@@ -11,7 +11,7 @@ import UIKit
 /// owed work, deferred heavy leaves, live SVG filters, a textarea's
 /// `resize` drag. Press feedback eases
 /// on the render server and needs none. A development session's
-/// `FrameSampler` keeps its own link: it measures the cadence
+/// `FrameSampler` (LLP 1079) keeps its own link: it measures the cadence
 /// the display delivers, which must not be the clock's own callbacks or
 /// change with the rate the clock asks for.
 /// It asks for the highest rate any user is asking for. Users tick in the
@@ -67,7 +67,7 @@ final class FrameClock: NSObject {
     }
 
     /// The highest of the users' ranges; `.default` when none asks for one.
-    /// `.default` is a timer's: it never raises the rate, so
+    /// `.default` is a timer's (LLP 1061 D4): it never raises the rate, so
     /// motion asks with `full(on:)`.
     var rate: CAFrameRateRange {
         users.values.reduce(CAFrameRateRange.default) { a, u in

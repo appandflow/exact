@@ -1,4 +1,4 @@
-// Probe elapsed spans, charged once to the innermost phase.
+// Probe elapsed spans, charged once to the innermost phase. @ref LLP 1149.001 §3.
 // bun bench/heavy-list/gpui/exclusive.mjs <probe.json.trace.json> [--rest] [--seconds=10] [--json]
 import assert from 'node:assert/strict';
 import { existsSync, readFileSync } from 'node:fs';

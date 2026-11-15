@@ -1,4 +1,4 @@
-// @fixture/vault on the Linux host, headless, and on the web: the package built with its library
+// @fixture/vault on the Linux host, headless, and on the web (LLP 1154 §6 M5): the package built with its library
 // (library.mjs) and the fixture app depending on it (fixture.mjs). On a Mac the Linux host is built for the Mac's
 // target and links the xcframework's macOS framework, as `bun exact.mjs linux` builds it.
 //
@@ -38,7 +38,7 @@ const walk = (at, depth) => {
 };
 walk(join(app, 'target'), 5);
 const module = modules.map(file => readFileSync(file, 'utf8')).find(text => text.includes('exact_native')) ?? '';
-check('linux', 'module.rs joins the shim and writes the factory', module.includes(`#[path = "${realpathSync(join(app, 'node_modules/@fixture/vault/native/lib.rs'))}"]`) && module.includes('Box::new(exact_native_shim::Vault::new(APP))'), modules.join(', ') || 'no module.rs found');
+check('linux', 'module.rs joins the shim and writes the factory', module.includes(`#[path = "${realpathSync(join(app, 'node_modules/@fixture/vault/native/lib.rs'))}"]`) && module.includes('Box::new(exact_native_shim::Vault::new(&APP))'), modules.join(', ') || 'no module.rs found');
 const carried = process.platform === 'darwin' ? 'vault.framework/Versions/A/vault' : 'libvault.so';
 check('linux', `the build carries the library beside the executable (${carried})`, !!binary && existsSync(join(dirname(binary), carried)), binary);
 

@@ -61,6 +61,7 @@ pub fn render(s: &Synth, sample_rate: u32) -> Vec<f32> {
 }
 /// Polynomial band-limited step residual for a unit discontinuity at phase 0,
 /// with `step` the phase advance per sample. Square and saw subtract it at each edge.
+/// @ref LLP 1046.003 §AU4 (band-limited oscillators)
 fn blep(phase: f32, step: f32) -> f32 {
     if step <= 0.0 {
         0.0

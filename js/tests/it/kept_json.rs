@@ -1,5 +1,5 @@
 //! A list element that is deep-frozen plain data keeps its JSON by identity and is spliced into a later reply
-//! (js/src/binary.js `keptReply`): every reply is what a plain `JSON.stringify` of the
+//! (js/src/binary.js `keptReply`, rt1's crossing plan): every reply is what a plain `JSON.stringify` of the
 //! answer gives now, whether its elements were kept, mutated, hooked or frozen only on the outside.
 
 #![cfg(exact_js_engine)]
@@ -209,8 +209,8 @@ fn a_nested_accessor_hook_is_read_once_a_reply_as_plain_json_reads_it() {
     }
 }
 
-/// The wrapper's one divergence from the engine's Proxy, pinned as it is today: Hermes reads an
-/// explicit new target's `prototype` once before the trap runs.
+/// The wrapper's one divergence from the engine's Proxy, pinned as it is today (LLP 1027.001 §3; QUEUE has
+/// the engine-side fix): Hermes reads an explicit new target's `prototype` once before the trap runs.
 #[test]
 fn constructing_the_proxy_with_an_explicit_new_target_reads_its_prototype_once() {
     let mut m = module();

@@ -177,7 +177,7 @@ impl Game for Crates {
     fn tick(_: &mut World, _: &Input, _: &()) {}
 }
 
-// A baked material keeps its glTF name, read through
+// LLP 1139.004 D3: a baked material keeps its glTF name, read through
 // `world().model(..).materials`; the index stays what selects one.
 #[test]
 fn a_baked_material_keeps_its_gltf_name_and_its_index() {

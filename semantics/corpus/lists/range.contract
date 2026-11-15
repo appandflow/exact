@@ -1,4 +1,4 @@
-// `range(n)` (2026-10-17): the whole numbers 0 to
+// `range(n)` (LLP 1017.003 §Refused, 2026-10-17): the whole numbers 0 to
 // n - 1; a count that is not a whole number at least 0 refuses the commit
 // that would make it, and one past the list bound is outside the semantics.
 component App

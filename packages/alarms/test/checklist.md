@@ -1,9 +1,10 @@
 # @exact/alarms: drives by hand
 
 What the agent cannot drive: a real ring through silence and Focus, the
-Lock Screen, a restart before first unlock, and a phone. Use a dedicated
-test phone, never a personal one. Record the date, the OS version, the
-device and what happened beside each step when you run it.
+Lock Screen, a restart before first unlock, and a phone (LLP 1133.030
+§14). Use LLP 1133.020's test phones, never a personal one. Record the
+date, the OS version, the device and what happened beside each step when
+you run it.
 
 ## iPhone (iOS 26 or later): Metronome's practice timer
 
@@ -57,7 +58,7 @@ false below iOS 26.
 ## Android 14 phone, fresh install: the fixture app
 
 The fixture (`packages/alarms/test/fixture`) is the Android acceptance
-drive. Build it
+drive (LLP 1133 D9 item 11 waived, LLP 1133.030 §15 question 6). Build it
 into the reader APK with `bun packages/alarms/test/android.mjs` and install
 the APK it names.
 

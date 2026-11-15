@@ -246,7 +246,7 @@ fn metadata_is_kept_stripped_of_location_or_dropped() {
     assert!(!read.gps && !read.exif_date, "{read:?}");
 
     // `keep` keeps the maker note and XMP too; `no-location` writes the
-    // capture's standard tags and the rights, and none of those three.
+    // capture's standard tags and the rights, and none of those three (D15).
     let all = |gps, maker, xmp| Tags {
         gps,
         maker,

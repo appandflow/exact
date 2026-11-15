@@ -1,9 +1,9 @@
-//! Motion starts at the first frame that shows it.
+//! Motion starts at the first frame that shows it (LLP 1003.001).
 //!
 //! On a host whose display drives the clock, a curve an author's commit
 //! begins between frames is pending: every reading of it is at the time it
-//! began, so it does not move, and the next presented frame starts it there.
-//! The engine keeps two times: `now`, the input clock, which
+//! began, so it does not move, and the next presented frame starts it there
+//! (D1, D2). The engine keeps two times (D5): `now`, the input clock, which
 //! inputs, holds and releases move and check against; and `shown`, the latest
 //! frame it presented. Every sample is at the later of the two.
 
@@ -12,7 +12,7 @@ use crate::property::Property;
 
 impl Engine {
     /// The time every sample is taken at: the input clock, or the latest
-    /// presented frame if that is later.
+    /// presented frame if that is later (LLP 1003.001 D5).
     pub fn sample_time(&self) -> f64 {
         self.now.max(self.shown)
     }
@@ -23,7 +23,7 @@ impl Engine {
         self.start_on_frame
     }
 
-    /// Turn the rule on or off. Off (the agent's takeover), everything
+    /// Turn the rule on or off. Off (the agent's takeover, D7), everything
     /// pending starts at `at`, or at its own begin if that is later, and the
     /// engine forgets the frames it presented: from here it samples on the
     /// agent's clock alone. Returns the nodes whose plays started, for their
@@ -33,7 +33,7 @@ impl Engine {
             Vec::new()
         } else {
             // Sampled where the agent's clock takes over, as Core Animation
-            // is: not at a frame this forgets.
+            // is: not at a frame this forgets (D7).
             // `shown` is forgotten first, so nothing that ends between the
             // takeover and that frame is retired by the start's own sample.
             self.shown = f64::NEG_INFINITY;
@@ -47,7 +47,7 @@ impl Engine {
     }
 
     /// A presented frame at `frame`: raise `shown`, start every pending curve
-    /// that began at or before it, and sample every curve there. Returns
+    /// that began at or before it, and sample every curve there (D2). Returns
     /// the nodes whose plays started, for a lowering host to re-emit.
     /// Idempotent: a second call at the same frame starts only what began
     /// since.
@@ -105,8 +105,8 @@ impl Engine {
             for play in plays.iter_mut() {
                 if let Some((begin, t)) = play.pending.and_then(|b| Some((b, at(b)?))) {
                     // A member that joined a waiting clock origin takes its
-                    // phase at the frame, from the origin that frame started;
-                    // any other play starts at its own frame.
+                    // phase at the frame, from the origin that frame started
+                    // (D8); any other play starts at its own frame.
                     play.start = match clock_origin.filter(|_| play.clock_wait) {
                         Some(origin) => super::clock::boundary(&play.animation, t, origin),
                         None => play.start + (t - begin),
@@ -132,7 +132,7 @@ impl Engine {
     }
 
     /// When a property's running curve starts moving (its begin plus delay),
-    /// or `None` while it is pending or nothing runs (a flight lands from
+    /// or `None` while it is pending or nothing runs (D3: a flight lands from
     /// its curve's own start).
     pub fn curve_start(&self, node: u64, property: Property) -> Option<f64> {
         let curve = self.slots.get(&(node, property))?.running()?;
@@ -141,7 +141,7 @@ impl Engine {
 
     /// When a leaving node's exit ends: the latest end of its last `count`
     /// plays, the ones `play_exit` appended; `None` while any of them is
-    /// pending.
+    /// pending (D3).
     pub fn exit_end(&self, node: u64, count: usize) -> Option<f64> {
         let plays = self.animations.get(&node)?;
         let exit = &plays[plays.len().saturating_sub(count)..];

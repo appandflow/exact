@@ -1,4 +1,4 @@
-// The Material reference: each specimen of `specimens.json` drawn by Compose Material 3 on
+// The Material reference (LLP 1115.001.001 D3, D4): each specimen of `specimens.json` drawn by Compose Material 3 on
 // Robolectric's native graphics, at the pinned SDK and the Pixel's density, with what the oracle compares beside each
 // picture. Nothing links this module; `./gradlew :reference:draw -Preference.out=<dir>` runs it, and
 // `./gradlew :reference:assembleDebug` builds the catalogue a phone shows (`Catalogue.kt`).
@@ -30,7 +30,7 @@ dependencies {
     testImplementation(libs.roborazzi.compose)
 }
 
-// The BOM decides `material3`; the catalogue names the version it decides, and this says when they part.
+// The BOM decides `material3`; the catalogue names the version it decides (D1), and this says when they part.
 val checkPins by tasks.registering {
     val classpath = configurations.named("debugRuntimeClasspath")
     val pinned = libs.versions.material3.get()

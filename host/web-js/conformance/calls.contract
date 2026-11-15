@@ -1,4 +1,4 @@
-// Synthetic conformance plan: action calls. A call is its
+// Synthetic conformance plan: action calls (LLP 1089). A call is its
 // callee's statements expanded by the compiler, so the JS target and the
 // wasm runner run the same plan: a same-component call in a child, a prop
 // call before the child's own write, a chain, and a callee's refusal that

@@ -58,7 +58,7 @@ pub(super) fn set_path(value: &mut Json, path: &str, to: Json) {
 
 /// A module's answer leaves out an option field it has nothing for (a
 /// platform's words where another platform answers, a declared default):
-/// absent is `none`, as an omitted word is.
+/// absent is `none`, as an omitted word is (LLP 1133.002 D2).
 pub(super) fn absent_is_none(json: &mut Json, shape: &exact_js_value::Shape) {
     use exact_js_value::Shape;
     match (json, shape) {

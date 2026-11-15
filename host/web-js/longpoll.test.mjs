@@ -4,7 +4,7 @@ import { resolve } from 'node:path';
 import { open } from '../../scripts/agent.mjs';
 import { webCompiler } from './module.mjs';
 
-// End to end: an app whose
+// LLP 1016.000 D8, end to end (theme2's ruling of 2026-10-22): an app whose
 // `live` resource is a long poll and whose `view` re-reads `with live`,
 // against a stand-in that counts requests and serves an event, a heartbeat,
 // a 503 with Retry-After, a second event, a same-cursor heartbeat, then holds.

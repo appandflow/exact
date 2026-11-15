@@ -1,4 +1,4 @@
-// The UIButton owns tvOS focus, including restoration and guides.
+// @ref LLP 1104 D6: the UIButton owns tvOS focus, including restoration and guides.
 #if os(tvOS)
 import UIKit
 import XCTest

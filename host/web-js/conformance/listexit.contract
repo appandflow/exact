@@ -1,7 +1,7 @@
 // data: sparkline
 // Synthetic conformance plan: a virtualized list's row whose item leaves
 // the data plays its root's `-exact-exit-animation` as its wrapper, where the
-// window placed it (kernel `leaving_with`), on Sparkline's sources
+// window placed it (kernel `leaving_with`, LLP 1063), on Sparkline's sources
 // and wasm (it links collections and the animation grammars): one in view,
 // and one the window built below the port.
 shape Coin

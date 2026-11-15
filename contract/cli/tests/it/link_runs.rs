@@ -1,8 +1,9 @@
-//! A link's unsaid colour is the platform's link role (`LinkText`: the tint on
-//! iOS, `linkColor` on macOS, the accent on the web). A run with an `href` in
-//! its paragraph is a link, and so is a block `link` of text. The author's
-//! `color` wins; a `link` that holds a row or a column, or has a `role`, is the
-//! author's row or button and keeps inheriting, as the bare node it is.
+//! LLP 1115 §3, LLP 1115.000 D3.5: a link's unsaid colour is the platform's
+//! link role (`LinkText`: the tint on iOS, `linkColor` on macOS, the accent
+//! on the web). A run with an `href` in its paragraph is a link, and so is a
+//! block `link` of text. The author's `color` wins; a `link` that holds a
+//! row or a column, or has a `role`, is the author's row or button and keeps
+//! inheriting, as the bare node it is.
 
 use exact_kernel::style::roles::role;
 use exact_kernel::{Color, ColorValue, Kernel, StyleId, StyleMask};
@@ -88,7 +89,7 @@ fn a_link_is_link_text_unless_its_author_colours_it() {
     assert!(block.style.mask.has(StyleId::TextColor), "a row of its own");
     assert!(
         !block.style.written.has(StyleId::TextColor),
-        "implied, not written"
+        "implied, not written (LLP 1115.000 D2)"
     );
     assert_eq!(color(&r, "mixed"), link, "text and images, an `if` of them");
     assert_eq!(color(&r, "authored"), red, "an authored colour wins");
@@ -179,9 +180,10 @@ fn an_href_that_turns_out_empty_is_not_a_link() {
     assert_eq!(color(&r, "red"), red);
 }
 
-/// A terminal entry's block link keeps inheriting: what a terminal shows
-/// for a link is the terminal's own question, not yet decided, so the link
-/// role changes nothing there. Its link run is the role.
+/// A terminal entry's block link is as it was: what a terminal shows for a
+/// link is the terminal's own question, not yet decided (`QUEUE.md`), so
+/// LLP 1115.000 D3.5 changes nothing there. Its link run is the role, as
+/// before.
 #[test]
 fn a_terminal_entrys_block_link_keeps_inheriting() {
     let src = "component App

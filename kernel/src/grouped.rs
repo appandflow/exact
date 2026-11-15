@@ -1,4 +1,4 @@
-//! A grouped list's sections and rows, read from its
+//! A grouped list's sections and rows (LLP 1084 D3, D4), read from its
 //! tree as it now stands, for a host that draws the platform's own list.
 //! Contract shaped the tree: the list's children are sections; a section is
 //! an optional `header`, one group whose children are the rows, an optional
@@ -13,9 +13,33 @@ use crate::generated::{
 };
 use crate::id::ViewId;
 use crate::kernel::{Kernel, NodeRef};
-use crate::style::{ColorValue, Env};
+use crate::style::ColorValue;
+
+/// Box styles a standard cell cannot preserve (LLP 1084 D7, LLP 1115 D1).
+/// A row's minimum height remains UIKit's; a column's alignment is authored.
+/// Lowering uses the same rule before adding the subtitle sheet.
+pub fn authored_row_box(written: StyleMask, column: bool) -> bool {
+    [
+        StyleId::Height,
+        StyleId::BackgroundColor,
+        StyleId::BorderRadiusTopLeft,
+        StyleId::BorderRadiusTopRight,
+        StyleId::BorderRadiusBottomLeft,
+        StyleId::BorderRadiusBottomRight,
+    ]
+    .iter()
+    .any(|&id| written.has(id))
+        || column && (written.has(StyleId::AlignItems) || written.has(StyleId::JustifyContent))
+}
+
+/// A nested subtitle column's minimum height also needs its own views.
+pub fn authored_subtitle_box(written: StyleMask) -> bool {
+    authored_row_box(written, true) || written.has(StyleId::MinHeight)
+}
 
 mod separator;
+#[cfg(test)]
+mod tests;
 pub use separator::GroupedSeparator;
 
 /// A grouped list as a host draws it.
@@ -48,14 +72,16 @@ pub struct GroupedSection {
     /// Whether its rows sit on a card: false when the section's group has a
     /// transparent background (`section background-color="transparent"`).
     pub card: bool,
+    /// The group holding the rows, whose style defines the card.
+    pub card_view: ViewId,
     /// The space above it, in points, when the author wrote a margin at
     /// that boundary (its `margin-top`, or the previous section's
     /// `margin-bottom`): the web's, the two margins collapsed. `None` keeps
-    /// the platform's own gap, which Contract's sheet stands in for.
+    /// the platform's own gap, which Contract's sheet stands in for (§2).
     pub space_above: Option<f32>,
 }
 
-/// What a row shows at its trailing edge.
+/// What a row shows at its trailing edge (D4).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum Accessory {
     /// Nothing.
@@ -69,7 +95,7 @@ pub enum Accessory {
     Toggle(ViewId),
     /// An `input type="radio"` at either end of the row, and whether it is
     /// checked: the platform's checkmark on the chosen row, and a tap on
-    /// the row checks that radio.
+    /// the row checks that radio (LLP 1115.000 D13.2).
     Radio(ViewId, bool),
     /// A trailing button holding only an `info.circle` symbol: the detail
     /// button, which presses that button.
@@ -87,9 +113,11 @@ pub struct GroupedRow {
     /// The leading symbol's Apple name ("" for an icon token with none).
     pub symbol: Option<String>,
     /// The leading symbol's icon token form (after `symbol:`) when it has
-    /// no Apple name but a template path, which the host draws as the
-    /// cell's template image; `None` otherwise.
+    /// no Apple name but an SVG source: a template path or a raster asset
+    /// in the Apple catalog (LLP 1121 D10); `None` otherwise.
     pub icon: Option<String>,
+    /// Whether the leading icon retains its file's colours.
+    pub icon_multicolor: bool,
     /// The title.
     pub title: Option<String>,
     /// The second text: a value beside the title, or a subtitle under it.
@@ -102,7 +130,7 @@ pub struct GroupedRow {
     pub pressable: bool,
     /// Whether it is an action cell: a `button` (no `href`) of a title, a
     /// symbol before it at most, and nothing at its trailing edge, whose
-    /// title the platform's list draws in the tint, as
+    /// title the platform's list draws in the tint (LLP 1116.019 D6), as
     /// the sheet's `grouped-action-color` does (`contract/lower/src/grouped.rs`).
     /// A row with `aria-selected` is a choice, never one.
     pub action: bool,
@@ -125,9 +153,9 @@ pub struct GroupedRow {
 }
 
 /// How a text the platform's list draws is set where its author said so
-/// Author > platform). The defaults are the
+/// (LLP 1116.003 D7: author > platform, LLP 1115). The defaults are the
 /// platform's: every line, wrapped, in the platform's colour and font.
-/// "Said" is the row's own fact: the row that gives the
+/// "Said" is the row's own fact (LLP 1115.000 D2): the row that gives the
 /// text its value was written by the author, on the text or on a box it
 /// inherits from. Contract's sheet stands in for the platform there and
 /// writes nothing, so its rows, like a value no one set, are unsaid.
@@ -161,7 +189,7 @@ pub struct TextFont {
     /// `font-variant-numeric`'s bits (1: `tabular-nums`).
     pub numeric: u8,
     /// Which of the five its author said, by [`TextFont::SAID`]'s bits: the
-    /// host keeps the platform's own for the rest, so a
+    /// host keeps the platform's own for the rest (LLP 1115.000 D2), so a
     /// family written on the page leaves a cell's size and weight UIKit's.
     pub said: u8,
 }
@@ -235,21 +263,21 @@ fn apple_symbol(node: &NodeRef<'_>) -> Option<String> {
         .str(PropId::ImageSource)?
         .strip_prefix("symbol:")?;
     // An icon token's SF Symbol too, or "" for one whose path the host
-    // draws; an empty name is no symbol, as an empty `sf/`
-    // one is.
+    // draws (LLP 1121 D10); an empty name is no symbol, as an empty `sf/`
+    // one is (stage 9 H).
     let name = crate::apple_symbol_name(role);
     (!name.is_empty() || role.is_empty() || role.starts_with("sf/") || drawn_icon(role).is_some())
         .then(|| name.to_owned())
 }
 
-/// The icon token form `role` is when it has no SF Symbol and a template
-/// path: the host draws that path where Apple has no symbol.
+/// An SVG icon with no SF Symbol: Apple draws its template path or its
+/// build-time raster asset.
 fn drawn_icon(role: &str) -> Option<&str> {
     let icon = crate::Icon::parse(role)?;
-    (icon.sf.is_empty() && !icon.path.is_empty()).then_some(role)
+    (icon.sf.is_empty() && (!icon.path.is_empty() || !icon.svg.is_empty())).then_some(role)
 }
 
-/// The icon token form a symbol image draws by its path (`drawn_icon`).
+/// The icon token form a symbol image draws (`drawn_icon`).
 fn icon_of(node: &NodeRef<'_>) -> Option<String> {
     let role = node
         .props
@@ -259,7 +287,7 @@ fn icon_of(node: &NodeRef<'_>) -> Option<String> {
 }
 
 /// A text node's text, its white space collapsed as its `white-space` has
-/// the web collapse it: `normal` makes a line feed a
+/// the web collapse it (LLP 1116.004 D2): `normal` makes a line feed a
 /// space, and `pre-line` keeps it, so a footer the author set `pre-line` is
 /// two lines in UIKit's cell as on the page. `None` when blank.
 pub(crate) fn text_of(node: &NodeRef<'_>) -> Option<String> {
@@ -281,7 +309,16 @@ pub(crate) fn text_of(node: &NodeRef<'_>) -> Option<String> {
 impl GroupedRow {
     /// A standard cell's title and second text, and how each is set: the
     /// second a subtitle under the title, else a value beside it.
+    /// Neither is set when either text is Markdown: the cell's strings are
+    /// plain, so the row keeps its views, which draw the Markdown (LLP 1045 D3).
     fn texts(&mut self, title: &NodeRef<'_>, second: Option<&NodeRef<'_>>, subtitle: bool) {
+        let markdown = |n: &NodeRef<'_>| {
+            crate::text::Markup::from_prop(n.props.str(PropId::Markup))
+                == crate::text::Markup::Markdown
+        };
+        if markdown(title) || second.is_some_and(markdown) {
+            return;
+        }
         self.title = text_of(title);
         self.title_look = TextLook::of(title);
         self.secondary = second.and_then(text_of);
@@ -291,6 +328,24 @@ impl GroupedRow {
 }
 
 impl Kernel {
+    /// The card receiving a grouped section's shadow paint. The section
+    /// retains its own hover and focus predicates (LLP 1084 D7, LLP 1121 D8).
+    pub fn grouped_section_card(&self, view: ViewId) -> Option<ViewId> {
+        let section = self.node(view)?;
+        self.node(section.parent?)?.props.str(PropId::ListStyle)?;
+        section.children().into_iter().find(|id| {
+            self.node(*id).is_some_and(|n| {
+                !matches!(n.props.str(PropId::SemanticTag), Some("header" | "footer"))
+            })
+        })
+    }
+
+    /// The section whose host-state shadow this card paints, if it is a card.
+    pub fn grouped_card_section(&self, view: ViewId) -> Option<ViewId> {
+        let section = self.node(view)?.parent?;
+        (self.grouped_section_card(section) == Some(view)).then_some(section)
+    }
+
     /// The grouped list `view` is, as it now stands; `None` for a node
     /// without `listStyle`.
     pub fn grouped_list(&self, view: ViewId) -> Option<GroupedList> {
@@ -329,6 +384,7 @@ impl Kernel {
                                 .map_or((None, TextLook::default()), |(t, l)| (Some(t), l))
                         }
                         _ => {
+                            out.card_view = part.id;
                             out.card = part.style.background_color.is_none_or(|c| {
                                 c.resolve(false).a() != 0 || c.resolve(true).a() != 0
                             });
@@ -346,8 +402,33 @@ impl Kernel {
         };
         // A section's percentage margin is of the list's content box
         let basis = crate::svg::scene::content_box(self, &self.node(view)?).2;
-        authored_space(&mut list, &shown, self.arena().env(), basis);
+        authored_space(&mut list, &shown, self.arena(), basis);
         Some(list)
+    }
+
+    /// The control a grouped list's standard row shows as its switch
+    /// (`Accessory::Toggle`), for a host that paints the row: the row and
+    /// its switch are one accessibility element there, as the platform's
+    /// list item with a trailing switch is. `None` for any other node.
+    pub fn grouped_toggle(&self, row: ViewId) -> Option<ViewId> {
+        let node = self.node(row)?;
+        let group = self.node(node.parent?)?;
+        if matches!(
+            group.props.str(PropId::SemanticTag),
+            Some("header" | "footer")
+        ) {
+            return None;
+        }
+        let section = self.node(group.parent?)?;
+        self.node(section.parent?)?.props.str(PropId::ListStyle)?;
+        match self.grouped_row(&node) {
+            GroupedRow {
+                custom: false,
+                accessory: Accessory::Toggle(control),
+                ..
+            } => Some(control),
+            _ => None,
+        }
     }
 
     fn grouped_row(&self, row: &NodeRef<'_>) -> GroupedRow {
@@ -373,7 +454,7 @@ impl Kernel {
                 .collect()
         };
         let parts = shown(row);
-        // A row that lays out as a column (a `column`) stacks
+        // A row that lays out as a column (a `column`, LLP 1116 D2) stacks
         // its parts: one or two texts are the subtitle cell's lines, and
         // anything else is its own layout.
         if row.style.display == Display::Flex
@@ -382,7 +463,9 @@ impl Kernel {
                 FlexDirection::Column | FlexDirection::ColumnReverse
             )
         {
-            if (1..=2).contains(&parts.len()) && parts.iter().all(|p| p.node_type == NodeType::Text)
+            if (1..=2).contains(&parts.len())
+                && parts.iter().all(|p| p.node_type == NodeType::Text)
+                && !authored_row_box(row.style.written, true)
             {
                 out.texts(&parts[0], parts.get(1), true);
             }
@@ -445,6 +528,10 @@ impl Kernel {
             if let Some(symbol) = apple_symbol(first) {
                 out.symbol = Some(symbol);
                 out.icon = icon_of(first);
+                let mut rows = StyleMask::EMPTY;
+                rows.set(StyleId::SymbolRendering);
+                out.icon_multicolor = first.computed_style(rows).symbol_rendering
+                    == crate::generated::SymbolRendering::Multicolor;
                 rest = after;
             }
         }
@@ -465,6 +552,7 @@ impl Kernel {
                 let lines = shown(stack);
                 if lines.iter().all(|l| l.node_type == NodeType::Text)
                     && (1..=2).contains(&lines.len())
+                    && !authored_subtitle_box(stack.style.written)
                 {
                     out.texts(&lines[0], lines.get(1), true);
                 } else {
@@ -477,10 +565,10 @@ impl Kernel {
             out.custom = true;
         }
         // UIKit's content configuration draws none of the row's box: a row
-        // whose author wrote an edge of it, or its background image, is its
-        // own views, carried, as every other host draws it.
+        // with an authored box or edge keeps its views (LLP 1084 D7).
         let w = &row.style.written;
         if out.authored_edge
+            || authored_row_box(row.style.written, false)
             || [
                 (StyleId::BorderWidthTop, StyleId::BorderStyleTop),
                 (StyleId::BorderWidthRight, StyleId::BorderStyleRight),
@@ -506,7 +594,8 @@ impl Kernel {
             && !out.subtitle
             && !out.custom;
         if out.custom {
-            // A custom row is its views, accessory and all.
+            // A custom row draws its own controls. Keep a radio's target
+            // so selecting the cell still checks it.
             out = GroupedRow {
                 view: out.view,
                 custom: true,
@@ -515,6 +604,10 @@ impl Kernel {
                 disabled: out.disabled,
                 authored_edge: out.authored_edge,
                 next_authored_top: out.next_authored_top,
+                accessory: match out.accessory {
+                    radio @ Accessory::Radio(..) => radio,
+                    _ => Accessory::None,
+                },
                 ..GroupedRow::default()
             };
         }
@@ -568,23 +661,29 @@ fn inset_inside(arena: &NodeArena, scroll: u32) -> bool {
             == crate::style::Dimension::Points(sheet("-exact-grouped-swipe-margin"))
 }
 
-/// The platform's margins in a box's engine style: a group spans its card,
-/// and a row's unsaid inset at each end moves by what the platform's cell
-/// margin has over the sheet's stand-in, on the box the sheet wrote it on: a
-/// row's left and right paddings (after a leading symbol too), the row
-/// spanning its card; a `delete=` row's content's, its swipe spanning the
-/// card. A native button row is the platform's control: its left margin
-/// and its widest (the card less its insets) move, and it keeps its own
-/// padding. An end the author wrote stays the author's.
-pub(crate) fn apply_margins(arena: &NodeArena, slot: u32, s: &mut taffy::style::Style) {
-    use taffy::style::{LengthPercentage as Lp, LengthPercentageAuto as Lpa};
-    use taffy::util::MaybeResolve;
+/// The host's physical card insets, applied after unsaid sheet sides mirror.
+pub(crate) fn apply_card_margins(arena: &NodeArena, slot: u32, s: &mut taffy::style::Style) {
+    use taffy::style::LengthPercentageAuto as Lpa;
     if !arena.has_grouped_margins() {
         return;
     }
     if let Some(m) = group_margins(arena, slot) {
         s.margin.left = Lpa::length(m.card[0]);
         s.margin.right = Lpa::length(m.card[1]);
+    }
+}
+
+/// The platform's cell margins in a box's engine style: a row's unsaid inset
+/// at each end moves by what the cell margin has over the sheet's stand-in,
+/// on the box the sheet wrote it on: a row's left and right paddings (after a
+/// leading symbol too), the row spanning its card; a `delete=` row's content's,
+/// its swipe spanning the card. A native button row is the platform's control:
+/// its left margin and its widest (the card less its insets) move, and it keeps
+/// its own padding. An end the author wrote stays the author's.
+pub(crate) fn apply_margins(arena: &NodeArena, slot: u32, s: &mut taffy::style::Style) {
+    use taffy::style::{LengthPercentage as Lp, LengthPercentageAuto as Lpa};
+    use taffy::util::MaybeResolve;
+    if !arena.has_grouped_margins() || group_margins(arena, slot).is_some() {
         return;
     }
     let Some(parent) = arena.parent(slot) else {
@@ -625,8 +724,8 @@ pub(crate) fn apply_margins(arena: &NodeArena, slot: u32, s: &mut taffy::style::
         // Its widest, the card less its insets, moves with its inset.
         if let crate::style::Dimension::Calc(percent, points) = arena.style(slot).max_width {
             if !written.has(StyleId::MaxWidth) {
-                s.max_size.width =
-                    crate::style::Dimension::Calc(percent, points - by).floor_lpa(arena.env());
+                s.max_size.width = crate::style::Dimension::Calc(percent, points - by)
+                    .floor_lpa(&arena.env_of(slot));
             }
         }
     } else if !content && !control && !written.has(StyleId::PaddingLeft) {
@@ -646,7 +745,7 @@ pub(crate) fn apply_margins(arena: &NodeArena, slot: u32, s: &mut taffy::style::
     }
 }
 
-/// Whether the margins of a grouped list, or a cells list's,
+/// Whether the margins of a grouped list, or a cells list's (LLP 1138),
 /// reach `slot` where it stands: a list four boxes up at most has them (a
 /// `delete=` row's content is the deepest box `apply_margins` moves).
 pub(crate) fn reached(arena: &NodeArena, slot: u32) -> bool {
@@ -691,13 +790,13 @@ fn sheet(name: &str) -> f32 {
 
 impl NodeArena {
     /// Whether `slot` is a native text field (an unsaid `input` or
-    /// `textarea`) in a grouped list's row, at any depth: the
-    /// field a platform draws in a list's cell, which on
+    /// `textarea`, LLP 1104 D2) in a grouped list's row, at any depth: the
+    /// field a platform draws in a list's cell (LLP 1116.005 D2), which on
     /// iOS is borderless, the cell being the field. A search field keeps its
     /// own chrome, and so does a field in a section drawn with no card (a
     /// transparent `background-color`), where no cell is drawn around it:
-    /// a custom amount field would otherwise be placeholder text alone on the
-    /// grouped background. Read from the tree as it stands: a
+    /// water-tracker's custom amount was placeholder text alone on the
+    /// grouped background (round 33). Read from the tree as it stands: a
     /// list with `listStyle`, a section, its rows' group (not its `header` or
     /// `footer`), a row.
     pub(crate) fn is_cell_field(&self, slot: u32) -> bool {
@@ -731,7 +830,7 @@ impl NodeArena {
 impl NodeRef<'_> {
     /// Whether this is a native text field in a grouped list's row, which a
     /// host draws as its platform draws a field in a list's cell
-    /// (`NodeArena::is_cell_field`).
+    /// (`NodeArena::is_cell_field`, LLP 1116.005 D2).
     pub fn is_cell_field(&self) -> bool {
         self.arena.is_cell_field(self.slot)
     }
@@ -744,22 +843,24 @@ fn collapse(a: f32, b: f32) -> f32 {
 }
 
 /// Each boundary where the author wrote a margin takes the web's space: the
-/// margins that meet there collapsed, as block margins do. A margin
-/// is the author's when its row says so, whatever its
-/// number; the sheet's stands in for the platform's gap.
-fn authored_space(list: &mut GroupedList, shown: &[NodeRef<'_>], env: &Env, basis: f32) {
+/// margins that meet there collapsed, as block margins do (§6.4). A margin
+/// is the author's when its row says so (LLP 1115.000 D2), whatever its
+/// number; the sheet's (LLP 1084 §2) stands in for the platform's gap.
+fn authored_space(list: &mut GroupedList, shown: &[NodeRef<'_>], arena: &NodeArena, basis: f32) {
     use crate::style::Dimension;
     let mut below: Option<(f32, bool)> = None;
     for (section, node) in list.sections.iter_mut().zip(shown) {
-        let points = |d: Dimension| d.at_basis(env, basis);
-        let top = points(node.style.margin_top);
+        // Each section's margins are its own lengths (LLP 1123 D9)
+        let env = arena.env_of(node.key.index);
+        let points = |d: Dimension| d.at_basis(&env, basis);
+        let top = points(node.style.margin_top.clone());
         let authored = node.style.written.has(StyleId::MarginTop);
         section.space_above = match below {
             Some((bottom, mine)) if mine || authored => Some(collapse(top, bottom)),
             None if authored => Some(top),
             _ => None,
         };
-        let bottom = points(node.style.margin_bottom);
+        let bottom = points(node.style.margin_bottom.clone());
         below = Some((bottom, node.style.written.has(StyleId::MarginBottom)));
     }
     list.space_below = below.and_then(|(bottom, mine)| mine.then_some(bottom));

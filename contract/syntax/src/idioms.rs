@@ -1,16 +1,16 @@
 //! What the web's list idioms become in Contract, for the refusals that meet
-//! them: an agent or a web developer writes
+//! them (LLP 1017.003 §Diagnostics): an agent or a web developer writes
 //! `reduce`, `Math.min(...xs)` or `toPrecision` first, and each refusal names
 //! the spelling that works or says what to do instead.
 
 /// Why `now()` is refused (`type-now-renamed`), with both repairs: Contract's
 /// clock is the web's `performance.now()`, so it wears that name, and the
 /// date is the boot instant plus it.
-// `now()` would read as `Date.now()`; it is refused, not deprecated.
+// @ref LLP 1109 D1 — `now()` read as `Date.now()`; deleted, not deprecated.
 pub const NOW_REFUSED: &str = "`now()` is not in Contract: write `performanceNow()` for durations and timers (milliseconds since this launch of the app, restarting at 0 on every launch, the web's `performance.now()`), or `time.epochAtZero + performanceNow()` for the date, with `resource time = exactTime() as shape Clock` declared and `shape Clock` holding `epochAtZero: number`";
 
 /// The roster functions written as a call on their first argument, the web's
-/// method of the same name and meaning: `s.trim()`,
+/// method of the same name and meaning (@ref LLP 1116.015 D2): `s.trim()`,
 /// `xs.map(x => …)`. `length` is the property `xs.length`.
 pub const METHODS: [&str; 19] = [
     "isEmpty",
@@ -75,7 +75,7 @@ pub fn method_fix(name: &str) -> String {
         "replace" => "write `s.replaceAll(find, with)`: the web's `replaceAll` with a string `find`; Contract has no regular expressions".into(),
         // `Date.now()`, `performance.now()`.
         "now" => NOW_REFUSED.into(),
-        // Exact's function, as `sum` is.
+        // @ref LLP 1116.016 §5 — Exact's function, as `sum` is.
         "sortBy" => "write `sortBy(xs, x => key)`: Exact's own function, not a method of the list (a method is TypeScript's, and TypeScript has no `sortBy`)".into(),
         _ => match refusal(name) {
             Some(why) => why,
@@ -132,58 +132,58 @@ pub fn refusal(name: &str) -> Option<String> {
                 _ => "`not xs.map(x => …).includes(false)`",
             };
             format!(
-                "`{name}` is refused (lists have `map`, `filter`, `join`, `concat`, `slice`, `includes` and `indexOf`): write {instead}, or compute it in the data source and hand the view the result"
+                "`{name}` is refused (LLP 1017.003: lists have `map`, `filter`, `join`, `concat`, `slice`, `includes` and `indexOf`): write {instead}, or compute it in the data source and hand the view the result"
             )
         }
-        // A comparator's result is left to each
+        // @ref LLP 1116.016 §5 — a comparator's result is left to each
         // engine when it is inconsistent; one key, stable, is the same everywhere.
         "sort" | "toSorted" => format!(
             "`{name}` is refused: a list is never changed in place, and a comparator is not Contract's; write `sortBy(xs, x => x.name)`, a stable sort by one number or string key (`sortBy(xs, x => x.count, \"desc\")` for descending, equal keys keeping their order, so a second key is an earlier `sortBy`). A locale's collation, a stored or canonical order, and rows the view has not loaded are still the data module's: order the list in the data source and name the order where the view reads it (`resource tasks = loadTasksByDueDate()`)"
         ),
-        // Told only to sort in the data source, a builder writing the view
-        // alone drops the order; named, it keeps it. A list the view holds
-        // reads last to first through `sortBy`.
+        // LLP 1116.016 §7: told only to sort in the data source, a builder
+        // writing the view alone dropped the order; named, it kept it. The
+        // euxy port built a list the view held last to first by hand.
         "reverse" | "toReversed" => format!(
             "`{name}` is refused: a list the view holds reads last to first as `sortBy(xs, (x, i) => i, \"desc\")`, a step an item; a stored order is the data module's: order the list in the data source and name the order where the view reads it (`resource tasks = loadTasksByDueDate()`)"
         ),
         "reduce" | "reduceRight" => format!(
-            "`{name}` is refused: a total is `sum(xs)`, or `sum(xs.map(x => …))` over a field; compute any other fold in the data source and hand the view the result"
+            "`{name}` is refused (LLP 1017.003): a total is `sum(xs)`, or `sum(xs.map(x => …))` over a field; compute any other fold in the data source and hand the view the result"
         ),
-        // `flat` is in the roster at depth 1; `flatMap` is it
+        // `flat` joined the roster at depth 1 (2026-10-17); `flatMap` is it
         // after `map` when the callback returns a list, and `map` alone when
         // it returns one value, which `flatMap` keeps as it is.
-        "flatMap" => "`flatMap` is refused: when the callback returns a list, write `xs.map(x => …).flat()`, which joins them; when it returns one value, `xs.map(x => …)` is the same list".into(),
+        "flatMap" => "`flatMap` is refused (LLP 1017.003): when the callback returns a list, write `xs.map(x => …).flat()`, which joins them; when it returns one value, `xs.map(x => …)` is the same list".into(),
         "findLast" | "forEach" => format!(
-            "`{name}` is refused (lists have `map`, `filter`, `join`, `concat`, `slice`, `includes` and `indexOf`); compute it in the data source and hand the view the result, as the crypto port keeps `lo` and `hi` beside its series"
+            "`{name}` is refused (LLP 1017.003: lists have `map`, `filter`, `join`, `concat`, `slice`, `includes` and `indexOf`); compute it in the data source and hand the view the result, as the crypto port keeps `lo` and `hi` beside its series"
         ),
-        // The web's string and list spellings an agent
+        // @ref LLP 1088 D7.4 — the web's string and list spellings an agent
         // reaches for first, each with what to write today.
         "push" | "append" | "unshift" => format!(
-            "a list is a value in Contract, not changed in place: `{name}` is `concat`, as in `xs = xs.concat([x])`; a router's is `push(nav, location)`"
+            "a list is a value in Contract, not changed in place: `{name}` is `concat`, as in `xs = xs.concat([x])` (LLP 1088 §9.1); a router's is `push(nav, location)`"
         ),
-        // Each edit means what the refused form did, or says what differs.
+        // @ref LLP 1116.016 D5 — each edit means what the refused form did, or says what differs.
         "localeCompare" => "Contract has no locale order (it would differ by device): `a < b` compares by UTF-16 code unit, as TypeScript's `<` does; an order for people to read is the data source's".into(),
         "floor" | "ceil" | "round" | "sin" | "cos" => format!(
             "write `{name}(n)`: `Math.{name}(n)`, written as a function"
         ),
-        // A draw is a pure function of a seed passed in.
-        "random" => "Contract has no ambient randomness: a draw comes from a seed passed to a pure function. For rolls in an expression, copy `roll(seed, k, n)` from docs/recipes/random-rolls.md: `1 + roll(time.seed, rolls, 6)` is a die, with `time` an `exactTime()` resource and `rolls` a counter in state; a deal or a shuffle is the data module's (docs/recipes/random-and-shuffle.md)".into(),
+        // @ref LLP 1027.000 D1 — a draw is a pure function of a seed passed in.
+        "random" => "Contract has no ambient randomness (LLP 1027.000 D1): a draw comes from a seed passed to a pure function. For rolls in an expression, copy `roll(seed, k, n)` from docs/recipes/random-rolls.md: `1 + roll(time.seed, rolls, 6)` is a die, with `time` an `exactTime()` resource and `rolls` a counter in state; a deal or a shuffle is the data module's (docs/recipes/random-and-shuffle.md)".into(),
         "String" => "write `x.toString()`, or a template, `` `${x}` ``".into(),
         "useEffect" | "useState" | "useMemo" | "watch" | "effect" | "onChange" => format!(
-            "Contract has no `{name}`, nor code that runs because a value changed: an action runs on an event and assigns what changes, a `derive` is a value computed from others, and a timer is a gated `task` (`task t when cond` with `after(ms, action)`)"
+            "Contract has no `{name}`, nor code that runs because a value changed (LLP 1116.016 D0): an action runs on an event and assigns what changes, a `derive` is a value computed from others, and a timer is a gated `task` (`task t when cond` with `after(ms, action)`)"
         ),
         "substring" | "substr" => format!(
-            "`{name}` is not in Contract: write `s.slice(start, end)`, the web's `String.prototype.slice`"
+            "`{name}` is not in Contract: write `s.slice(start, end)`, the web's `String.prototype.slice` (LLP 1088 D2)"
         ),
         "padStart" | "padEnd" => format!(
-            "`{name}` is not in Contract: pad in the data module, or align with CSS (`text-align`, a fixed `width`)"
+            "`{name}` is not in Contract (LLP 1088 D2 defers it): pad in the data module, or align with CSS (`text-align`, a fixed `width`)"
         ),
-        // Builders look for `pow`.
+        // Round 2's builders looked for `pow` (LLP 1116.000 D5).
         "pow" | "sqrt" | "abs" => format!(
             "`{name}` is not in Contract: `x * x` is a square and `max(x, -x)` a magnitude; compute other maths in the data source and hand the view the result"
         ),
-        // A repair can change what an unreadable field shows without saying
-        // so; the message names where the two differ.
+        // LLP 1116.018: repairs changed what an unreadable field shows
+        // without saying so; the message names where the two differ.
         "Number" | "parseInt" | "parseFloat" => {
             let differs = match name {
                 "Number" => "`Number` reads `\"\"` as 0",
@@ -191,19 +191,19 @@ pub fn refusal(name: &str) -> Option<String> {
                 _ => "`parseFloat` reads `\"12px\"` as 12 and `\"\"` as `NaN`",
             };
             format!(
-                "write `parseNumber(s)` for `{name}`: `some(n)` for a decimal number in the text (`\" 12.5 \"`, `\"-3\"`, `\"1e3\"`), `none` for anything else (`\"\"`, `\"12px\"`, hex), so `match parseNumber(s) {{ case some(n) => n, case none => 0 }}` says what an unreadable field counts as; {differs}"
+                "write `parseNumber(s)` for `{name}`: `some(n)` for a decimal number in the text (`\" 12.5 \"`, `\"-3\"`, `\"1e3\"`), `none` for anything else (`\"\"`, `\"12px\"`, hex), so `match parseNumber(s) {{ case some(n) => n, case none => 0 }}` says what an unreadable field counts as; {differs} (LLP 1102 §3.1)"
             )
         }
-        "len" | "count" | "size" => "write `x.length`, of text or of a list".into(),
+        "len" | "count" | "size" => format!("`{name}` is not in Contract: write `x.length`, of text or of a list"),
         "min" | "max" => format!(
-            "write `{name}(a, b)` for two numbers; `Math.{name}(...xs)` over a list is refused: compute it in the data source, as the crypto port keeps `lo` and `hi` beside its series"
+            "write `{name}(a, b)` for two numbers; `Math.{name}(...xs)` over a list is refused (LLP 1017.003): compute it in the data source, as the crypto port keeps `lo` and `hi` beside its series"
         ),
-        // The roster's substring search is under the web's name; a hint,
-        // not a second spelling: `contains` does not compile.
+        // The roster's substring search under the web's name since
+        // 2026-09-28; a hint, not a second spelling: `contains` does not compile.
         "contains" => "write `s.includes(t)`, or `xs.includes(x)` for a list: the web's `String.prototype.includes` and `Array.prototype.includes`; `s.startsWith(t)` and `s.endsWith(t)` are the web's too".into(),
-        "toLocaleString" => "`toLocaleString` is not in Contract: `formatNumber(n, \"decimal\")` is `Intl.NumberFormat(\"en-US\")`'s grouped number (`1,234.5`), `formatNumber(n, \"currency\", \"USD\")` its money (`$1,481.47`) and `formatNumber(n, \"percent\")` its percent (`26%`); `formatDate` prints a date".into(),
+        "toLocaleString" => "`toLocaleString` is not in Contract: `formatNumber(n, \"decimal\")` is `Intl.NumberFormat(\"en-US\")`'s grouped number (`1,234.5`), `formatNumber(n, \"currency\", \"USD\")` its money (`$1,481.47`) and `formatNumber(n, \"percent\")` its percent (`26%`); `formatDate` prints a date (LLP 1116 D8)".into(),
         "toPrecision" | "toExponential" => format!(
-            "`{name}` is not in Contract: `x.toFixed(digits)` is the web's fixed-decimal format (`(2.5).toFixed(1)` is `\"2.5\"`), `formatDecimal(cents, 2)` prints a count of cents exactly, and `formatNumber(n, \"compact\")` prints a count as `1.2K`"
+            "`{name}` is not in Contract: `x.toFixed(digits)` is the web's fixed-decimal format (`(2.5).toFixed(1)` is `\"2.5\"`), `formatDecimal(cents, 2)` prints a count of cents exactly, and `formatNumber(n, \"compact\")` prints a count as `1.2K` (LLP 1102 §3.2)"
         ),
         _ => return None,
     })

@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.calculateStartPadding
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CheckboxDefaults
 import androidx.compose.material3.LocalMinimumInteractiveComponentSize
+import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.darkColorScheme
@@ -36,7 +37,7 @@ import org.robolectric.annotation.GraphicsMode
 
 /**
  * Draws each specimen and each defect of `specimens.json` under each scheme, and writes beside each picture what
- * the oracle compares: the layout box, and every semantics node and text box under it, in dp from the
+ * LLP 1115.001.001 D5 compares: the layout box, and every semantics node and text box under it, in dp from the
  * window's corner. The SDK is the pin's (`libs.versions.toml` `referenceSdk`, which the build passes as
  * `reference.sdk`); the window is the Pixel 10 Pro XL's, 1080 × 2404 pixels at 2.4375.
  */
@@ -94,7 +95,7 @@ class DrawTest(private val id: String, private val scheme: String) {
         walk(tagged)
         // An inline control's layout box is its own node's (the tagged box's child), without the 48 dp
         // minimumInteractiveComponentSize puts round it: Exact lays a control out at its drawn size and its padding,
-        // and answers the 48 dp as a touch target apart. Anything else's is the tagged box.
+        // and answers the 48 dp as a touch target apart (LLP 1115.001.001 §5 Q5). Anything else's is the tagged box.
         val control = tagged.children.firstOrNull { it.config.getOrNull(SemanticsProperties.Role) in CONTROLS }
         val facts = JSONObject().put("id", id).put("scheme", scheme).put("density", density.toDouble())
             .put("layout", box((control ?: tagged).boundsInRoot, density)).put("nodes", nodes).put("texts", texts)
@@ -125,8 +126,8 @@ class DrawTest(private val id: String, private val scheme: String) {
 }
 
 /**
- * What crosses to Exact (inputs held equal): each scheme's colours by Material's names, as `0xAARRGGBB`, and the
- * `*Defaults` values the painter reads that are not tokens.
+ * What crosses to Exact (D4: inputs held equal): each scheme's colours by Material's names, as `0xAARRGGBB`, and the
+ * `*Defaults` values the painter reads that are not tokens (D2.2).
  */
 @RunWith(org.robolectric.RobolectricTestRunner::class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
@@ -143,6 +144,7 @@ class InputsTest {
         for (name in listOf("light", "dark")) schemes.put(name, scheme(DrawTest.schemeOf(name)))
         File(out, "schemes.json").writeText(schemes.toString(2))
         val padding = ButtonDefaults.ContentPadding
+        val segment = SegmentedButtonDefaults.ContentPadding
         val defaults = JSONObject()
             .put("TextFieldDefaults.MinHeight", TextFieldDefaults.MinHeight.value)
             .put("TextFieldDefaults.MinWidth", TextFieldDefaults.MinWidth.value)
@@ -154,6 +156,8 @@ class InputsTest {
             .put("ButtonDefaults.ContentPadding.top", padding.calculateTopPadding().value)
             .put("ButtonDefaults.ContentPadding.end", padding.calculateEndPadding(LayoutDirection.Ltr).value)
             .put("ButtonDefaults.ContentPadding.bottom", padding.calculateBottomPadding().value)
+            .put("SegmentedButtonDefaults.ContentPadding.start", segment.calculateStartPadding(LayoutDirection.Ltr).value)
+            .put("SegmentedButtonDefaults.ContentPadding.top", segment.calculateTopPadding().value)
             .put("CheckboxDefaults.StrokeWidth", CheckboxDefaults.StrokeWidth.value)
             .put("LocalMinimumInteractiveComponentSize", touch)
         File(out, "defaults.json").writeText(defaults.toString(2))

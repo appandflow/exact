@@ -1,4 +1,4 @@
-//! The metric table's switch, thrown: a binary of its
+//! The metric table's switch (LLP 1115.002 D6), thrown: a binary of its
 //! own, because the column is the process's and every other test of the
 //! kernel reads a metric in the web's. One test, so nothing here reads a
 //! metric while the switch is moving.
@@ -133,8 +133,8 @@ fn a_host_that_says_its_platform_reads_that_platforms_column() {
         assert_eq!(unchanged.background_color, web.background_color);
         assert_eq!(unchanged.border_color_bottom, web.border_color_bottom);
     }
-    // The neutral look's card is the page's own ground, edged, whatever a theme
-    // does to the grouped card's role.
+    // The neutral look's card is the page's own ground, edged (LLP 1115.000
+    // D4.16), whatever a theme does to the grouped card's role.
     metrics::set_column(Column::Neutral);
     let neutral = read();
     assert_eq!(neutral.background_color, Some(role("-exact-background")));

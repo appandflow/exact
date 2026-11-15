@@ -1,4 +1,4 @@
-// A resource over a list: one
+// A resource over a list (LLP 1017.000 P4c, amended 2026-11-04): one
 // request for each element, keyed as a row is. An element that joins is
 // asked; the others are not asked again; one that leaves takes its answer
 // with it; a repeated key reads the first element's answer; a key that is

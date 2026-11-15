@@ -7,7 +7,8 @@
 //! A header that draws itself (`appearance="none"`) is not warned, here or
 //! as the route's first child (`no_bar`).
 
-use super::{computed, literal, NOT_THE_BAR, OR_NO_BAR};
+use super::header_bar::{NOT_THE_BAR, OR_NO_BAR};
+use super::{computed, literal};
 use crate::LowerError;
 use contract_syntax::Node;
 
@@ -68,8 +69,8 @@ fn hidden(attrs: &[contract_syntax::Attr]) -> bool {
     literal(attrs, "display") == Some("none") || computed(attrs, "display")
 }
 
-/// A header hidden, or drawing itself (`appearance="none"`, as a site's
-/// does; a computed one has the benefit): iOS makes no bar
+/// A header hidden, or drawing itself (`appearance="none"`, LLP 1075.003
+/// §9.10, as a site's does; a computed one has the benefit): iOS makes no bar
 /// of it, not even a pushed route's system Back alone, so it hides nothing.
 pub(super) fn no_bar(attrs: &[contract_syntax::Attr]) -> bool {
     hidden(attrs) || literal(attrs, "appearance") == Some("none") || computed(attrs, "appearance")

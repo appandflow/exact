@@ -1,4 +1,4 @@
-// @exact/geocoding on Android: a fixture `exact new` made outside the repo, calling the
+// @exact/geocoding on Android (LLP 1133.021 §15 stage 3): a fixture `exact new` made outside the repo, calling the
 // three names, built as the Canvas reader's APK, which compiles Geocoding.kt against the platform's `Geocoder` (no
 // Maven library, so no Gradle lock). It checks the build and the roster. No address is looked up: the APK is not
 // installed anywhere (checklist.md's Android part is a person's).

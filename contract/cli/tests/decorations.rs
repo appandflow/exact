@@ -1,5 +1,5 @@
 //! A textarea's paint-only decorations: declarations, the record, and what
-//! the narrowing removed.
+//! the narrowing removed (LLP 1114.007).
 use exact_kernel::{Kernel, PropId, StyleId};
 use exact_runner::{DataError, DataSource, Event, Runner, Value};
 use serde_json::Value as Json;
@@ -53,6 +53,9 @@ component App
         text "Replace"
 "##
     );
+    let plan = contract::compile(&source).unwrap();
+    let entry = contract::web_linked(&plan, &serde_json::json!({}));
+    assert!(entry.contains("shadows"), "{entry}");
     let mut runner = boot(&source);
     let first = prop(&runner, "editor", PropId::Decorations);
     assert_eq!(

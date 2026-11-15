@@ -2,8 +2,8 @@
 // ResizeObserver reports it a frame or more after the observer is attached
 // (observers.js, loaded after first paint), and on a loaded machine later
 // still. The clone's tab bar measures its tabs so (`resize=measureTabs`), and
-// conform's boot step could read the tabs before that report
-// (`slots.tabWidths.0: wasm 63.70 js -12`). An agent's settle waits
+// conform's boot step read the tabs before that report (iosfix's stage 12
+// gate: `slots.tabWidths.0: wasm 63.70 js -12`). An agent's settle now waits
 // for each element's first report (an element with no box waits for none,
 // one of no size 2 s at most). The report is held back here,
 // as a loaded machine holds it.

@@ -1,4 +1,4 @@
-// Per-request rendering, the two renderers side by side (1048.002):
+// Per-request rendering, the two renderers side by side (LLP 1071, 1048.002):
 // a server is started cold, asked for its first page (cold start), then
 // driven at a fixed concurrency with `Cache-Control: no-store` (every
 // request renders); it reports render latency p50/p95, CPU time per page

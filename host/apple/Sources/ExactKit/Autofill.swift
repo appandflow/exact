@@ -6,7 +6,7 @@ import AppKit
 typealias TextContentType = NSTextContentType
 #endif
 
-/// HTML's `autocomplete` on an input or textarea as the
+/// HTML's `autocomplete` on an input or textarea (LLP 1102 §3.6) as the
 /// platform's text content type, which is what its AutoFill reads. The value
 /// is HTML's token list — `section-*`, `shipping`/`billing`, a contact kind
 /// before a contact field, the field name, then `webauthn` — split on ASCII

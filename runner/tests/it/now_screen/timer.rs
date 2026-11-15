@@ -1,6 +1,6 @@
 use super::*;
 
-// The host sees the earliest live deadline,
+// @ref LLP 1043.000 §3 D8 — the host sees the earliest live deadline,
 // including an overdue deadline after bounded catch-up; it drops no commits.
 #[test]
 fn timer_deadline_tracks_ordered_catch_up_and_absence() {
@@ -131,7 +131,7 @@ fn a_one_shot_timer_fires_once_then_owes_no_deadline() {
     assert_eq!(r.advance_timed(4_500.0).receipts.len(), 2);
 }
 
-// A frame task fires once per presented frame, at the
+// @ref LLP 1073 D2–D4 — a frame task fires once per presented frame, at the
 // frame's time and after the timers due by then, and is never caught up; the
 // timeout of a host that presents frames fires none; any other advance fires
 // each virtual frame, every

@@ -1,22 +1,37 @@
-// The runner's evaluation bounds on the JS target (runner/src/vm.rs): an app module imports what it calls from
+// The runner's evaluation bounds on the JS target (LLP 1090; runner/src/vm.rs): an app module imports what it calls from
 // here, beside rt.js, which never does. A metered body counts its own list steps in a local `$s` (code.rs); what is here
 // measures values as the runner's `Extent` does, and checks the strings the roster builds.
 import { Refusal, text, segmentOf, say } from "./rt.js";
 
 /** `MAX_STRING` and `MAX_VALUE_BYTES`, in UTF-8 bytes; `MAX_VALUE_NODES`. */
 const MAX = 67108864, NODES = 16777216;
-/** A trap: the runner's `Trap` at `pc`, journaled as its `Debug` text. */
+/** A trap: the runner's `Trap` at `pc`, journaled as its `Debug` text (D6). */
 export class Trap extends Refusal { constructor(kind, pc) { super(`Trap(${kind} { pc: ${pc} })`); this.kind = kind; this.pc = pc; } }
+const bound = x => ({ IterationLimit: ": past the 65,536 list steps one evaluation may take", CallLimit: ": past the 65,536 derive calls one evaluation may take", CallDepth: ": past 64 derive call levels", StringTooLong: ": past the 64 MiB a string may hold", ValueTooLarge: ": past the 16,777,216 nodes or 64 MiB a value may hold", ValueTooDeep: ": past 64 levels" }[x.kind] ?? "");
+/** A named evaluation refused. Labels are evaluated in the emitted catch only. */
+export function $E(x, label, instance) {
+  if (!(x instanceof Trap) || x.evaluation) throw x;
+  x.evaluation = label;
+  if (instance) throw new Refusal(`Instance(${x.message}) in ${label}${bound(x)}`);
+  x.message += ` in ${label}${bound(x)}`;
+  throw x;
+}
 /** Throw a trap, where an expression stands. */
 export function $T(kind, pc) { throw new Trap(kind, pc); }
 /** Prop or style binding `f` of plan node `site` on element `e`, whose trap unsets its row `row` and the commit goes on
- * (the runner's `instance/trapped.rs`). One journal line when it starts trapping, however many writes
+ * (LLP 1017.003 D3; the runner's `instance/trapped.rs`). One journal line when it starts trapping, however many writes
  * read it: the element keeps which of its rows' bindings trapped last, until one evaluates to a value. */
 export const tg = (e, site, row, f) => () => {
   try { const v = f(); e.$tg?.delete(row); return v; }
-  catch (x) { if (!(x instanceof Trap)) throw x; const t = (e.$tg ??= new Set); if (!t.has(row)) { t.add(row); say(`site ${site}: ${row} trapped ${x.message}; unset`); } return null; }
+  catch (x) { if (!(x instanceof Trap)) throw x; const t = (e.$tg ??= new Set); if (!t.has(row)) { t.add(row); say(`site ${site}: ${row} trapped Trap(${x.kind} { pc: ${x.pc} })${bound(x)}; unset`); } return null; }
 };
-/** A string's UTF-8 bytes, as Rust's `str::len`; a lone surrogate is U+FFFD's 3. */
+/** Enter an at-read body on the reader's list and call budget. */
+export function $enter(b, pc) {
+  if (++b.n > 65536) $T("CallLimit", pc);
+  if (b.d >= 64) $T("CallDepth", pc);
+  b.d++;
+}
+/** A string's UTF-8 bytes, as Rust's `str::len`; a lone surrogate is U+FFFD's 3 (LLP 1088 D2). */
 export function utf8(s, limit = Infinity) {
   let n = s.length;
   for (let i = 0; i < s.length && n <= limit; i++) {
@@ -34,9 +49,9 @@ const long = s => s.length > 22369621 && (s.length > MAX || utf8(s) > MAX);
 const str = (s, pc) => { if (long(s)) throw new Trap("StringTooLong", pc); return s; };
 
 // ---------------------------------------------------------------- extents
-// What the runner counts of a value: a string, number, bool or `none` is one value, a record or list one plus its
+// What the runner counts of a value (D2): a string, number, bool or `none` is one value, a record or list one plus its
 // parts', a `some` nothing (it is erased here); a shared part counts once per place. Bytes are an upper bound, 3 a UTF-16
-// unit, until a sum passes MAX; then the sum is recounted exactly and stays exact, so a trap falls on the
+// unit, until a sum passes MAX; then the sum is recounted exactly and stays exact (D3), so a trap falls on the
 // runner's item. Values are never mutated once compiled code holds them (the router's verbs copy, a data answer is
 // the runtime's), so an array's extent is remembered: one of 64 values or more (the runner's REMEMBERED) here, with
 // whether its bytes are exact, and the last one `K` built.
@@ -90,7 +105,7 @@ export function K(a, pc) {
   return a;
 }
 
-// ---------------------------------------------------------------- lists
+// ---------------------------------------------------------------- lists (LLP 1088 §9.1)
 // `concat`, `split`, `sum`, `range`, `flat`, and `slice`, `includes` and `indexOf` over a list, on the caller's budget as `join` is: each takes
 // the caller's `$s` and traps where the sum passes the bound, before it builds (`vm.rs`, `list_call`), leaving its own
 // steps in `ST`, which the caller adds to its `$s` (code.rs); a list it builds is `K`'s. Over text, `slice`, `includes`
@@ -101,7 +116,7 @@ const step = (s, n, pc) => { ST = n; if (s + n > 65536) throw new Trap("Iteratio
 /** `concat(xs, ys)`: one step an item. */
 export function x_concat(a, b, s, pc) { step(s, a.length + b.length, pc); return K(a.concat(b), pc); }
 /** `slice(v, start, end?)`: the compiler writes an omitted `end` as `Number.MAX_VALUE`, which clamps as `undefined`
- * does; text's result is made well formed once; a list's takes a step an item it keeps. */
+ * does; text's result is made well formed once (LLP 1088 D2); a list's takes a step an item it keeps. */
 export function x_slice(v, a, b, s, pc) {
   if (typeof v === "string") { ST = 0; return v.slice(a, b).toWellFormed(); }
   const at = n => { const i = Math.trunc(n) || 0; return Math.min(v.length, Math.max(0, i < 0 ? v.length + i : i)); };
@@ -132,7 +147,7 @@ export function x_indexOf(v, x, s, pc) {
   step(s, v.length, pc);
   return -1;
 }
-/** `sortBy(xs, x => key, direction)` once a `Map` computed `keys`: the items by key, equal keys in
+/** `sortBy(xs, x => key, direction)` once a `Map` computed `keys` (LLP 1116.016 §5): the items by key, equal keys in
  * input order both ways; numbers by `<` with NaN as +0, strings by `<` (UTF-16 code units). No step: the `Map` took one an
  * item. The runner's bottom-up merge sort (`lists::sort_by`), step for step, never `Array.prototype.sort`. */
 export function x_sortBy(xs, keys, desc, pc) {
@@ -178,7 +193,7 @@ export function x_flat(l, s, pc) {
   step(s, n, pc);
   return K(l.flat(), pc);
 }
-/** `split(t, sep)`: a step a piece; an empty `sep` splits into code units, each made well formed, and
+/** `split(t, sep)`: a step a piece; an empty `sep` splits into code units, each made well formed (LLP 1088 D2), and
  * steps before it splits, as the runner counts first. */
 export function x_split(t, sep, s, pc) {
   if (sep === "") { step(s, t.length, pc); return K(t.split("").map(u => u.toWellFormed()), pc); }
@@ -229,8 +244,8 @@ function jsonBytes(s) {
   }
   return bytes;
 }
-/** A native module's props: key/value pairs to one JSON object of strings, a none left out (`stdlib::native_props`).
- * A key that is `[name, schema]` carries its value as JSON by the schema (a package view's record or list prop). */
+/** A native module's props (LLP 1024 D1): key/value pairs to one JSON object of strings, a none left out (`stdlib::native_props`).
+ * A key that is `[name, schema]` carries its value as JSON by the schema (a package view's record or list prop, LLP 1133.021 §9 item 1). */
 export function NP(p, pc) {
   const o = {};
   for (let i = 0; i < p.length; i += 2) if (p[i + 1] != null) {
@@ -280,13 +295,13 @@ function encodedBytes(v, pc, route) {
   }
 }
 export function x_encodeURIComponent(v, pc) { if (9 * v.length > MAX) encodedBytes(v, pc, false); return encodeURIComponent(v); }
-/** After the route segment's own refusal of `""`, `.` and `..`. */
+/** The route parameter's trap precedes its encoded-size check (D6). */
 export function x_encodeRouteSegment(v, pc) {
-  if (v === "" || v === "." || v === "..") return segmentOf(v);
+  if (v === "" || v === "." || v === "..") throw new Trap("PathParameter", pc);
   if (9 * v.length > MAX) encodedBytes(v, pc, true);
   return segmentOf(v);
 }
-/** `replaceAll(s, find, with)` with a string `find`, built piece by piece through one counter of the
+/** `replaceAll(s, find, with)` with a string `find` (LLP 1088 D2), built piece by piece through one counter of the
  * result's well-formed UTF-8 that carries a high surrogate across pieces (a low one completing it is the pair's 4
  * bytes, anything else settles it as U+FFFD's 3), so a quadratic `` $` `` stops at the bound before it is built. */
 export function x_replaceAll(s, find, w, pc, max = MAX) {
@@ -322,7 +337,7 @@ export function x_replaceAll(s, find, w, pc, max = MAX) {
   if (high && bytes + 3 > max) throw new Trap("StringTooLong", pc);
   return out.join("").toWellFormed();
 }
-/** `toLowerCase(s)` and `toUpperCase(s)`: the browser's whole-string mapping, context rules kept, with bytes
+/** `toLowerCase(s)` and `toUpperCase(s)` (LLP 1088 D2): the browser's whole-string mapping, context rules kept, with bytes
  * checked in chunks before building a large result (a final sigma's two forms are both 2 bytes, and uppercasing has no
  * context rule, so the chunks' bytes are the whole's). */
 function cased(s, map, pc) {

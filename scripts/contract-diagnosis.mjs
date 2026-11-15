@@ -1,4 +1,4 @@
-// A failed app build's Contract errors, all of them. A host
+// A failed app build's Contract errors, all of them (LLP 1054 L9). A host
 // crate's build script compiles the Contract and panics on its first error,
 // somewhere in Cargo's output; on a failure that can be one, ask the compiler
 // for every error and say those alone, last.

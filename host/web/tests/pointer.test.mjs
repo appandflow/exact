@@ -1,18 +1,19 @@
-// `pointerdown`/`pointerup` in a real browser: the input
+import { hostFixtureFile as readFileSync } from './glue-fixture.mjs';
+// `pointerdown`/`pointerup` in a real browser (LLP 1005 §Events): the input
 // glue's `pointer`, driven by CDP mouse events. Down before any press, up
 // wherever the button lifts (heard on the document; no click), both bubbling
 // to every ancestor that hears them, the primary button only,
-// nothing on a disabled node; `pointermove` and the `PointerEvent` record:
-// a held pointer's moves anywhere, a free one's over it.
+// nothing on a disabled node; `pointermove` and the `PointerEvent` record
+// (LLP 1056 §8.6): a held pointer's moves anywhere, a free one's over it.
 import { test, expect } from 'bun:test';
-import { readFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { resolve } from 'node:path';
 import { cdpBrowser, chromium } from '../../../scripts/agent-launch.mjs';
 import { need } from '../../../scripts/coverage.mjs';
 import { readyPage } from './page.mjs';
+import { fileURLToPath } from 'node:url';
 
-const WEB = resolve(new URL('..', import.meta.url).pathname);
+const WEB = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const { unavailable } = chromium();
 const check = need('chrome', unavailable);
 
@@ -100,10 +101,10 @@ check('down before the press, up wherever the button lifts, nothing when disable
     expect(await log()).toEqual(['mic down', 'mic move', 'mic up']);
     const [down, held, up] = await records();
     const box = await evaluate(`(() => { const e = document.getElementById('mic'), r = e.getBoundingClientRect(), s = getComputedStyle(e); return [r.x + parseFloat(s.borderLeftWidth) + parseFloat(s.paddingLeft), r.y + parseFloat(s.borderTopWidth) + parseFloat(s.paddingTop)]; })()`);
-    expect([...down.slice(2, 7), down[9]]).toEqual(['0', '1', '0.5', 'mouse', '1', '']); // no modifier held
+    expect([...down.slice(2, 7), down[9]]).toEqual(['0', '1', '0.5', 'mouse', '1', '']); // no modifier held (gallery F20)
     expect([+down[7], +down[8]]).toEqual(mic);
     expect([+held[0], +held[1]]).toEqual([500 - box[0], 800 - box[1]]);
-    expect([+held[7], +held[8]]).toEqual([500, 800]); // the viewport point
+    expect([+held[7], +held[8]]).toEqual([500, 800]); // the viewport point (LLP 1094 D11)
     expect(held.slice(2, 6)).toEqual(['-1', '1', '0.5', 'mouse']); // a move changes no button
     expect(up.slice(2, 5)).toEqual(['0', '0', '0']);
     // A free pointer moving over it: its move, no button down.
@@ -111,13 +112,13 @@ check('down before the press, up wherever the button lifts, nothing when disable
     await frame();
     expect(await log()).toEqual(['mic move']);
     expect((await records())[0].slice(2, 6)).toEqual(['-1', '0', '0', 'mouse']);
-    // The secondary button's too, as the DOM's: `buttons` says which.
+    // The secondary button's too, as the DOM's (studio diary R22): `buttons` says which.
     await mouse('mousePressed', mic, 'right');
     await mouse('mouseReleased', mic, 'right');
     expect((await log()).filter(l => !l.endsWith('press'))).toEqual(['mic down', 'mic up']);
     expect((await records())[0].slice(2, 4)).toEqual(['2', '2']);
-    // A mouse's back and forward buttons, DOM's `button` 3 and 4 and `buttons` 8 and 16;
-    // the browser, not the glue, steps history at the release.
+    // A mouse's back and forward buttons, DOM's `button` 3 and 4 and `buttons` 8 and 16
+    // (LLP 1115.000 D5.5); the browser, not the glue, steps history at the release.
     for (const [button, number, bit] of [['back', '3', 8], ['forward', '4', 16]]) {
       await mouse('mousePressed', mic, button, bit);
       await mouse('mouseReleased', mic, button, 0);
@@ -130,7 +131,7 @@ check('down before the press, up wherever the button lifts, nothing when disable
     await mouse('mouseReleased', off);
     expect(await log()).toEqual([]);
     // Nested pointer nodes: the down and the up bubble, innermost first
-    // and the up still comes to both lifted elsewhere.
+    // (Charlie, 2026-10-15), and the up still comes to both lifted elsewhere.
     const inner = await centre('inner');
     await mouse('mousePressed', inner);
     await mouse('mouseReleased', inner);
@@ -156,10 +157,21 @@ check('down before the press, up wherever the button lifts, nothing when disable
     await mouse('mouseReleased', dkid);
     expect((await log()).filter(l => !l.endsWith('press'))).toEqual(['dparent down', 'dparent up']);
     // A child hearing only down and up lets a free move by to the ancestor
-    // that hears moves.
+    // that hears moves (Astra's batch 2 review, finding 4).
     await mouse('mouseMoved', await centre('tapkid'), 'none', 0);
     await frame();
     expect(await log()).toEqual(['hoverbox move']);
+    // The first move in a frame goes out in its own event; later ones in that frame wait for the next, which sends
+    // the latest (#543). A move held a frame lands its action two frames after the event.
+    const moves = await evaluate(`new Promise(done => requestAnimationFrame(() => {
+      const box = document.getElementById('hoverbox'), r = box.getBoundingClientRect(), log = window.log;
+      log.length = 0;
+      const move = x => box.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, isPrimary: true, pointerId: 1, clientX: r.x + x, clientY: r.y + 5 }));
+      move(1); const first = log.length; move(2); move(3); const held = log.length;
+      requestAnimationFrame(() => done([first, held, log.length, +window.records.at(-1).split(",")[7] - r.x]));
+    }))`);
+    expect(moves).toEqual([1, 1, 2, 3]);
+    await log(); await records();
     // Held, the innermost holds the moves: its parent hears the down and
     // up, and none of the moves.
     await mouse('mousePressed', await centre('tapkid'));
@@ -178,7 +190,7 @@ check('down before the press, up wherever the button lifts, nothing when disable
     expect((await records()).map(r => [+r[7], +r[8]])).toEqual([[500, 800], [500, 800]]);
     await mouse('mouseReleased', [500, 800]);
     // A pan that takes its contact takes nothing from the pointer events:
-    // its ancestor hears the down and the up.
+    // its ancestor hears the down and the up (Charlie, 2026-10-15).
     await mouse('mousePressed', await centre('panner'));
     await mouse('mouseMoved', [400, 700], 'left', 1);
     await frame();

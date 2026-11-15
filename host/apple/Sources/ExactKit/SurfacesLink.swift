@@ -1,4 +1,4 @@
-// GPU surfaces and Canvas 2D (the Surfaces
+// @ref LLP 1047.001 D4 — GPU surfaces and Canvas 2D (the Surfaces
 // capability) are a linked capability: their implementation is the
 // `ExactSurfaces` module, which an app's composition links only when its
 // plan has a surface or a 2D canvas, and installs here. The core names no
@@ -33,7 +33,7 @@ package protocol SurfacesCapability: AnyObject {
     func replaceShaders(_ sources: [String: Data])
 }
 
-/// The agent's clock over every world.
+/// The agent's clock over every world (LLP 1046.001).
 package struct WorldClock {
     package var pending = false
     package var settleAt: Double?
@@ -70,12 +70,18 @@ package protocol Canvases: AnyObject {
     func surfaceName(_ view: UInt32) -> String?
     func surfaceNames() -> [String]
     func waiting(_ name: String) -> Bool
-    /// A sensor input's event for the live canvas of surface `name`; false when none is live.
+    /// A sensor input's event for the live canvas of surface `name` (LLP 1133.013 D6); false when none is live.
     @discardableResult func sensor(_ name: String, _ event: [String: Any]) -> Bool
-    /// A package's sample for surface `surface`'s canvas input, or its end:
-    /// kept until the next display frame delivers it.
+    /// A package's sample for surface `surface`'s canvas input, or its end
+    /// (LLP 1133.013 D6): kept until the next display frame delivers it.
     func sensorWrite(_ surface: String, _ sensor: String, _ values: [Double], dropped: Int, at: Double, ended: Bool)
     func period(_ ms: Double)
+    /// The display callback this tick runs in, on the frame clock: its own
+    /// timestamp, when it began to run, and the display's fastest period.
+    func hostFrame(raw: Double, callback: Double, fastest: Double)
+    /// The display rate the canvases that want frames are capped at (the
+    /// highest of their caps, `Surface::max_fps`); 0 when any is uncapped.
+    var frameCap: Int { get }
     func tick(now: Double) -> Bool
     func settle(now: Double)
     func cancelMovedControls()
@@ -90,7 +96,7 @@ package protocol Canvases: AnyObject {
     func refreshLifecycle()
     func lifecycleFrame()
     var lifecycleNeedsRetry: Bool { get }
-    // The agent's seams.
+    // The agent's seams (LLP 1046.001).
     func waitUntilReady() -> Bool
     func decorate(_ request: [String: Any], _ reply: [String: Any]) -> [String: Any]
     func worlds(_ request: [String: Any]) -> [[String: Any]]
@@ -123,8 +129,10 @@ package protocol Canvas2DCanvases: AnyObject {
     var textEngine: (() -> TextEngine?)? { get set }
     var assetBytes: ((String) -> Data?)? { get set }
     var onImage: ((String, CGImage?) -> Void)? { get set }
+    var onRelease: ((String) -> Void)? { get set }
     var onHeld: ((UInt32, Bool) -> Void)? { get set }
     var onScale: ((CGFloat) -> Void)? { get set }
+    var onReplayEnded: (() -> Void)? { get set }
     var loadingCount: Int { get }
     func apply(_ id: UInt32, _ payload: [String: Any], layer parent: CALayer?)
     /// Places the bitmap of `id` at `box`, its view's content box, clipped
@@ -133,6 +141,11 @@ package protocol Canvas2DCanvases: AnyObject {
     func forget(_ id: UInt32)
     func load(_ srcs: [String])
     func waitForReplays(timeout: TimeInterval)
+    /// The kept bitmap of canvas `id` encoded as `type` at `quality`, or as a
+    /// PNG where ImageIO cannot write that type; nil when it cannot be encoded
+    /// (LLP 1056 D9, as amended for expo/exact#188 and #504). `snapshot` runs
+    /// the copy synchronously and marks it owned before encoding begins.
+    func capture(_ id: UInt32, lifetime: UInt64, generation: UInt32, sequence: UInt64, width: Int, height: Int, type: String, quality: Double?, snapshot: @escaping (() -> Bool) -> Bool, done: @escaping (Data?) -> Void)
 }
 
 extension Canvas2DCanvases {
@@ -188,6 +201,8 @@ final class NoCanvases: Canvases {
     var isEmpty: Bool { true }
     var status: String { "not linked" }
     var wantsFrames: Bool { false }
+    var frameCap: Int { 0 }
+    func hostFrame(raw: Double, callback: Double, fastest: Double) {}
     var drawn: Int { 0 }
     var awaitingDrawable: Bool { false }
     var frameNow: Double?
@@ -240,12 +255,15 @@ final class NoCanvas2D: Canvas2DCanvases {
     var textEngine: (() -> TextEngine?)?
     var assetBytes: ((String) -> Data?)?
     var onImage: ((String, CGImage?) -> Void)?
+    var onRelease: ((String) -> Void)?
     var onHeld: ((UInt32, Bool) -> Void)?
     var onScale: ((CGFloat) -> Void)?
+    var onReplayEnded: (() -> Void)?
     var loadingCount: Int { 0 }
     func apply(_ id: UInt32, _ payload: [String: Any], layer parent: CALayer?) {}
     func place(_ id: UInt32, in box: CGRect, radii: [CGSize]) {}
     func forget(_ id: UInt32) {}
     func load(_ srcs: [String]) {}
     func waitForReplays(timeout: TimeInterval) {}
+    func capture(_ id: UInt32, lifetime: UInt64, generation: UInt32, sequence: UInt64, width: Int, height: Int, type: String, quality: Double?, snapshot: @escaping (() -> Bool) -> Bool, done: @escaping (Data?) -> Void) { done(nil) }
 }

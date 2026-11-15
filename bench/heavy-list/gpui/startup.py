@@ -1,4 +1,4 @@
-"""Startup cohorts: ten quiet seconds before each launch; during-launch load is reported."""
+"""M10 startup cohorts: ten quiet seconds before each launch; during-launch load is reported."""
 import argparse
 import ctypes
 import hashlib

@@ -1,4 +1,4 @@
-// `formatNumber(n, "decimal" | "percent" | "currency", code)`
+// `formatNumber(n, "decimal" | "percent" | "currency", code)` (LLP 1116 D8)
 // over halves at each style's cut, a carry into a new digit, negative zero,
 // a tie between two shortest forms, every currency's digits and spacing, and
 // the non-finite (printed as ""). Each tap scales every value.

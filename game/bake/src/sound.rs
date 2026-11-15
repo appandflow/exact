@@ -3,6 +3,7 @@
 //! Lewton's `f32` Vorbis decode can differ by ±1 in a 16-bit PCM sample value
 //! across architectures (for example x86_64 and arm64). Proof execution-input
 //! digests bind the exact baked bytes; portable source provenance binds the Ogg.
+//! @ref LLP 1046.003 §AU4 (where decoding happens)
 use exact_game::asset::{SoundData, SOUND_BYTE_BUDGET, SOUND_RATES};
 use std::path::Path;
 

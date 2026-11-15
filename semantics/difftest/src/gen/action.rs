@@ -2,7 +2,7 @@
 //! after a write, which still sees the starting value), `let`, `if`/`else`,
 //! `match` on an option, `send`, the voice table's commands, `sendMIDI`,
 //! and calls of the root's earlier actions
-//! (action *i* calls actions *j < i*, so no call cycles):
+//! (LLP 1089 D9: action *i* calls actions *j < i*, so no call cycles):
 //! anywhere among the statements, and in bodies that only call
 //! ([`Gen::dispatch`]). A program whose statement calls the compiler
 //! refuses is written again with only the latter ([`super::case`]).
@@ -145,16 +145,16 @@ impl Gen<'_> {
         }
     }
 
-    /// One of the voice table's commands or a MIDI message: host
-    /// commands to the semantics, compared as issued. The
+    /// One of the voice table's commands (LLP 1096 D11) or a MIDI message
+    /// (LLP 1125 D7): commands to the semantics, compared as issued. The
     /// source is computed (a program here declares no sound, and a literal
-    /// must name one), so the runner drops the voice; the gain and pan are
-    /// computed too, inside their ranges. A list of literal MIDI bytes is
+    /// must name one), so the runner drops the voice; the gain, pan and
+    /// playback rate are computed too, inside their ranges. A list of literal MIDI bytes is
     /// held to MIDI 1.0 by the checker, so the note is computed through
     /// `floor`, which keeps the list computed: the runner's queue drops a
     /// malformed one after the command is issued.
     fn sound(&mut self, env: &Env, d: usize, pad: &str, out: &mut String) {
-        match self.rng.below(4) {
+        match self.rng.below(5) {
             0 => {
                 let src = self.expr(env, &Ty::Str, d, false);
                 let gain = self.expr(env, &Ty::Num, d, false);
@@ -164,6 +164,14 @@ impl Gen<'_> {
                 ));
             }
             1 => out.push_str(&format!("{pad}stopSounds()\n")),
+            3 => {
+                let group = self.expr(env, &Ty::Str, d, false);
+                let gain = self.expr(env, &Ty::Num, d, false);
+                let rate = self.expr(env, &Ty::Num, d, false);
+                out.push_str(&format!(
+                    "{pad}setSounds(group={group}, gain=min(1, max(0, {gain})), playbackRate=min(4, max(0.25, {rate})))\n"
+                ));
+            }
             2 => {
                 let group = self.expr(env, &Ty::Str, d, false);
                 out.push_str(&format!("{pad}stopSounds(group={group})\n"));
@@ -204,7 +212,7 @@ impl Gen<'_> {
 
     /// A body that only calls: `let`s, then one call, or one in each arm of
     /// an `if`. It writes nothing of its own, so no read in it or its
-    /// callee is made stale by another frame, whatever the
+    /// callee is made stale by another frame (LLP 1089 D3), whatever the
     /// callees read.
     pub(crate) fn dispatch(&mut self, env: &Env, indent: usize) -> String {
         let mut out = String::new();

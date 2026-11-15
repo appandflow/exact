@@ -1,5 +1,5 @@
 // Writes @exact/oauth's app cases for one profile, or all, from
-// `cases.template.contract`.
+// `cases.template.contract` (LLP 1146 D6).
 //
 //   bun cases.mjs <out-dir> [--choose] [<profile>…]
 //

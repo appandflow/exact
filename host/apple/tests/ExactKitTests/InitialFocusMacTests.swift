@@ -1,6 +1,6 @@
-// A new window puts the caret in its first key view, unless the author
-// wrote `autofocus` elsewhere; a canvas that takes input keeps the old
-// rule (nothing focused).
+// @ref LLP 1115.000 D7.5 — a new window puts the caret in its first key
+// view, unless the author wrote `autofocus` elsewhere; a canvas that takes
+// input keeps the old rule (nothing focused).
 #if os(macOS)
 import AppKit
 import XCTest
@@ -213,7 +213,7 @@ final class InitialFocusMacTests: XCTestCase {
 
     /// With no key view nothing is focused, and a first key view in a canvas
     /// that takes input is passed over, as before: its caret would be in the
-    /// canvas's first frame (its readback).
+    /// canvas's first frame (LLP 1014's readback).
     func testNoKeyViewAndACanvasThatTakesInputFocusNothing() throws {
         keyboardNavigation(false)
         _ = NSApplication.shared

@@ -1,4 +1,4 @@
-// @fixture/swatch on Apple:
+// @fixture/swatch on Apple (LLP 1133.001 D1, LLP 1133.008 D8 items 1 and 2):
 // the fixture app made outside the repo, built for macOS, an iOS simulator
 // or the sample host (`--host`, two sessions in one process), and driven by
 // the agent. The package's view is made by its session's instance of the
@@ -16,7 +16,7 @@ import { checker, makeFixture, root, run } from './fixture.mjs';
 const argv = process.argv.slice(2), sim = argv.includes('--sim') ? argv[argv.indexOf('--sim') + 1] : process.env.EXACT_SIM;
 const hosts = argv.filter((a, i) => ['macos', 'ios', 'host'].includes(a) && argv[i - 1] !== '--sim');
 const { app } = makeFixture(), name = basename(app);
-Object.assign(process.env, { EXACT_APP_DIR: app, EXACT2: root, HERMES_LEAN_SYS_OFFLINE: '1' });
+Object.assign(process.env, { EXACT_APP_DIR: app, EXACT: root, HERMES_LEAN_SYS_OFFLINE: '1' });
 const { open } = await import(resolve(root, 'scripts/agent.mjs'));
 const { check, failed } = checker();
 

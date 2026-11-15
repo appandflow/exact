@@ -1,4 +1,4 @@
-//! `requestPermission(id, path, mode)`.
+//! `requestPermission(id, path, mode)` (LLP 1069.010.000 D7).
 
 use super::{err, infer, Scope, Shapes, Ty, TypeError};
 use contract_syntax::{Expr, Span};

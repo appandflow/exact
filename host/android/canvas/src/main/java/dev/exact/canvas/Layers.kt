@@ -4,14 +4,28 @@ import android.graphics.Matrix
 import android.graphics.RenderNode
 import java.nio.IntBuffer
 
+/** Unknown ops must reach the caller: they also disqualify the glyph-only recording path. */
+internal inline fun Structure.walkColorLayer(ops: IntArray, visit: (Int) -> Unit) {
+    val b = IntBuffer.wrap(ops)
+    var i = 0
+    while (i < ops.size) {
+        visit(i)
+        i = when (ops[i]) {
+            1, 2, 4, 5, 6, 7, 9, 19, 40, 45, 46, 47, 49 -> end(b, i)
+            else -> ops.size
+        }
+    }
+}
+
 /**
- * Nodes exact2's reader animates (host/linux/src/lower.rs): each a RenderNode drawn by reference from its row (op 29),
+ * Nodes exact2's reader animates (host/painted/src/lower.rs): each a RenderNode drawn by reference from its row (op 29),
  * recorded from op 30, moved and faded every display frame from its keyframes (op 31) as a browser's compositor plays
  * them, so no row is recorded again for them. The sampling is the engine's (exact2's motion/src/animation.rs:
  * phases, fill, iterations, direction, keyframe intervals and their easings), on the engine's clock (op 33).
  */
 internal class Layers(
-    private val record: (RenderNode, IntArray, Float, Float, PathMemo) -> Unit,
+    /** A layer's drawing recorded again: its node, ops, origin, path memo, and the scale its node is drawn at. */
+    private val record: (RenderNode, IntArray, Float, Float, PathMemo, Float) -> Unit,
     /** A font by its key in the stream (op 10/41), for a text layer recorded again from its kept runs. */
     private val font: (Int) -> android.graphics.fonts.Font? = { null },
 ) {
@@ -116,12 +130,18 @@ internal class Layers(
         var rot = Float.NaN; var sc = Float.NaN
         /** Drawn through a compositing layer while a scale plays ([sample]). */
         var composited = false
+        /** It draws a `pixelated` image (op 49 value 2), whose integer enlargement depends on the node's scale: it is
+         * recorded again as a scale plays, at [recordedScale], and never through a compositing layer, whose bitmap
+         * would be smoothed at the scale. */
+        var pixelated = false
+        var recordedScale = 1f
         /** Where [node] sits in the stream's pixels: its drawing is recorded that far moved, and its pivot is
          * relative to it. */
         var ox = 0f; var oy = 0f
     }
 
     private val layers = HashMap<Int, Layer>()
+    private val structure = Structure()
     private val freeing = ArrayList<Int>()
     /** CLOCK_MONOTONIC (System.nanoTime) at the engine's zero. */
     private var origin = 0L
@@ -162,6 +182,18 @@ internal class Layers(
     fun originX(id: Int) = layers[id]?.ox ?: 0f
     fun originY(id: Int) = layers[id]?.oy ?: 0f
 
+    /** A shared source through the layer as it is displayed, in stream coordinates. */
+    fun mapShared(id: Int, rect: android.graphics.RectF) {
+        val layer = layers[id] ?: return
+        val matrix = Matrix()
+        layer.node.getMatrix(matrix)
+        rect.offset(-layer.ox, -layer.oy)
+        matrix.mapRect(rect)
+        rect.offset(layer.ox, layer.oy)
+    }
+
+    fun sharedOpacity(id: Int): Float = layers[id]?.node?.alpha ?: 1f
+
     /** A snapshot for the worker: one shared by every row recorded until a layer comes or goes (a fast fling records
      * many rows a frame, and copying the map for each cost the main thread ~2%). */
     private var snapshot: Map<Int, RenderNode>? = null
@@ -181,11 +213,19 @@ internal class Layers(
         val dash = b.get(at + 15)
         val recolored = dash == -2
         l.dashAt = if (dash == -1 || recolored) -1 else dash
-        l.ops = if (l.dashAt >= 0 || recolored) IntArray(len - 16) { b.get(at + 16 + it) } else null
+        l.pixelated = pixelated(b, at + 16, at + len)
+        l.recordedScale = 1f
+        l.ops = if (l.dashAt >= 0 || recolored || l.pixelated) IntArray(len - 16) { b.get(at + 16 + it) } else null
         l.glyphColors = null; l.backgroundAt = -1; l.runs = null
         if (recolored) colors(l)
         l.memo = PathMemo()
         l.phase = Float.NaN
+    }
+
+    private fun pixelated(b: IntBuffer, from: Int, to: Int): Boolean {
+        var i = from
+        while (i < to) { if (b.get(i) == 49 && b.get(i + 1) == 2) return true; i = structure.end(b, i) }
+        return false
     }
 
     /** Where a recoloured layer's colours are: every glyph run's (op 9), and the first rounded rect's (op 2, the
@@ -197,30 +237,25 @@ internal class Layers(
         var plain = true
         var values: FloatArray? = null
         fun fl(k: Int) = java.lang.Float.intBitsToFloat(ops[k])
-        var i = 0
-        while (i < ops.size) {
+        structure.walkColorLayer(ops) { i ->
             if (ops[i] != 1 && ops[i] != 9) plain = false
             when (ops[i]) {
                 1 -> {
                     // As Player's op 1 sets them (scaleX, skewX, transX, skewY, scaleY, transY).
                     values = floatArrayOf(fl(i + 1), fl(i + 3), fl(i + 5), fl(i + 2), fl(i + 4), fl(i + 6), 0f, 0f, 1f)
-                    i += 7
                 }
-                2 -> { if (l.backgroundAt < 0) { l.backgroundAt = i + 1; l.backgroundTarget = ops[i + 1]; l.backgroundNow = ops[i + 1] }; i += 14 }
-                4 -> i += 13
-                6 -> i += 1
-                7 -> i += 2
+                2 -> if (l.backgroundAt < 0) {
+                    l.backgroundAt = i + 1
+                    l.backgroundTarget = ops[i + 1]
+                    l.backgroundNow = ops[i + 1]
+                }
                 9 -> {
                     glyphs.add(i + 3)
                     val n = ops[i + 5]; val face = font(ops[i + 1]); val m = values
                     if (face == null || m == null) plain = false
                     else if (n > 0) runs.add(Run(m, face, fl(i + 2), fl(i + 4), IntArray(n) { ops[i + 6 + 3 * it] },
                         FloatArray(2 * n) { fl(i + 6 + 3 * (it / 2) + 1 + it % 2) }))
-                    i += 6 + 3 * n
                 }
-                19 -> i += 26
-                40 -> i += 27
-                else -> i = ops.size
             }
         }
         if (glyphs.isNotEmpty()) { l.glyphColors = glyphs.toIntArray(); l.textTarget = ops[glyphs[0]]; l.textNow = l.textTarget }
@@ -327,7 +362,7 @@ internal class Layers(
                 if (phase != l.phase && (!live || l.row == 0 || rowShows?.shows(l.row) != false)) {
                     l.phase = phase
                     ops[l.dashAt] = java.lang.Float.floatToRawIntBits(phase)
-                    record(l.node, ops, l.ox, l.oy, l.memo)
+                    record(l.node, ops, l.ox, l.oy, l.memo, l.recordedScale)
                 }
             }
             // A colour transition: the layer again in this frame's colour (the target once it ended), when it changed.
@@ -338,7 +373,7 @@ internal class Layers(
                     l.glyphColors?.let { for (at in it) ops[at] = text }
                     if (l.backgroundAt >= 0) ops[l.backgroundAt] = background
                     val runs = l.runs
-                    if (runs != null) recolor(l, runs, text) else record(l.node, ops, l.ox, l.oy, l.memo)
+                    if (runs != null) recolor(l, runs, text) else record(l.node, ops, l.ox, l.oy, l.memo, l.recordedScale)
                 }
             }
             if (l.turns) {
@@ -358,13 +393,14 @@ internal class Layers(
                 if (tx != l.tx || ty != l.ty) { l.tx = tx; l.ty = ty; l.node.translationX = tx; l.node.translationY = ty }
                 if (v[3] != l.rot) { l.rot = v[3]; l.node.rotationZ = v[3] }
                 if (s != l.sc) { l.sc = s; l.node.scaleX = s; l.node.scaleY = s }
+                if (l.pixelated && ops != null && s != l.recordedScale) { l.recordedScale = s; record(l.node, ops, l.ox, l.oy, l.memo, s) }
             }
             // While a scale plays, the layer is drawn once into an offscreen layer and that layer scaled: drawn
             // straight, its text was rasterized again at every scale (a dialog's 0.9 -> 1 entrance left ~5 MB of glyph
             // images in Skia's caches). The layer goes when the scale settles. Not for a layer whose drawing could not
             // be bounded (it holds another layer): its node is 16384 px square, and an offscreen layer that size cost
-            // a Vulkan allocation of over 400 ms at each start (Expo Services' login mark).
-            val offscreen = scaling && !l.flat && l.bounded
+            // a Vulkan allocation of over 400 ms at each start (Expo Services' login mark, LLP 1115.003).
+            val offscreen = scaling && !l.flat && l.bounded && !l.pixelated
             if (offscreen != l.composited) { l.composited = offscreen; l.node.setUseCompositingLayer(offscreen, null) }
         }
         return moving
@@ -421,15 +457,21 @@ internal class Layers(
             return current / jumps
         }
 
-        private fun piecewise(p: FloatArray, x: Double): Double {
+        /** CSS linear(), matching motion/src/easing.rs, including Chrome's rule for duplicate first inputs. */
+        internal fun piecewise(p: FloatArray, x: Double): Double {
             val n = p.size / 2
-            if (x <= p[0]) return p[1].toDouble()
-            if (x >= p[2 * n - 2]) return p[2 * n - 1].toDouble()
-            for (k in 0 until n - 1) {
-                val ai = p[2 * k].toDouble(); val ao = p[2 * k + 1].toDouble(); val bi = p[2 * k + 2].toDouble(); val bo = p[2 * k + 3].toDouble()
-                if (x >= ai && x <= bi) return if (bi == ai) bo else ao + (bo - ao) * (x - ai) / (bi - ai)
+            if (n == 0) return x
+            if (n == 1) return p[1].toDouble()
+            for (k in n - 1 downTo 0) {
+                if (x == p[2 * k].toDouble()) return p[2 * k + 1].toDouble()
             }
-            return p[2 * n - 1].toDouble()
+            var b = 1
+            while (b < n - 1 && p[2 * b] <= x) b++
+            val ai = p[2 * b - 2].toDouble()
+            val ao = p[2 * b - 1].toDouble()
+            val bi = p[2 * b].toDouble()
+            val bo = p[2 * b + 1].toDouble()
+            return if (bi == ai) bo else ao + (bo - ao) * (x - ai) / (bi - ai)
         }
     }
 }

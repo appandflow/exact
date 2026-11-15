@@ -1,13 +1,13 @@
-// @exact/hid on macOS: IOKit's `IOHIDManager` for the devices and their plug events, an
-// `IOHIDDevice` opened once per process and leased to each connection, input reports into a log each reader
+// @exact/hid on macOS (LLP 1133.037 D10–D12): IOKit's `IOHIDManager` for the devices and their plug events, an
+// `IOHIDDevice` opened once per process and leased to each connection (D5), input reports into a log each reader
 // takes a batch from, and output and feature reports through `IOHIDDeviceSetReport`.
 //
-// - Not offered: a device whose every top-level collection is on WebHID's blocklist, any device holding a
+// - Not offered (D6, D11): a device whose every top-level collection is on WebHID's blocklist, any device holding a
 //   game controller's collection (`@exact/gamepad` owns pads), and any device holding a keyboard or keypad
 //   collection, which macOS opens only after the person's Input Monitoring approval, never asked here.
-// - Not built yet: dropping a report of a blocked collection on a device that also has an allowed one (the
+// - Not built yet: dropping a report of a blocked collection on a device that also has an allowed one (D11's
 //   per-report rule); such a device is offered, and its blocked reports are not yet told apart.
-// - `requestDevice` is a sheet listing the matching devices; the chosen ones are remembered in the app's
+// - `requestDevice` is a sheet listing the matching devices (D2); the chosen ones are remembered in the app's
 //   defaults by vendor, product, serial number and location.
 import AppKit
 import ExactPackage
@@ -170,7 +170,7 @@ public final class HIDModule: ExactPackage {
         }
     }
 
-    /// The module's own sheet: the matching devices by name; Cancel answers none, as WebHID's chooser does.
+    /// The module's own sheet (D2): the matching devices by name; Cancel answers none, as WebHID's chooser does.
     private func choose(_ args: [String: Any], reply: @escaping ([String: Any]) -> Void) {
         let found = devices().filter { matches($0, args["filters"] as? [[String: Any]], args["exclusionFilters"] as? [[String: Any]]) }
         let alert = NSAlert()
@@ -202,7 +202,7 @@ public final class HIDModule: ExactPackage {
             shared = Shared(d)
             opened[id] = shared
             let context = Unmanaged.passRetained(shared).toOpaque()
-            // Input reports from every lease's first open to the device's close.
+            // Input reports from every lease's first open to the device's close (D12).
             shared.buffer.withUnsafeMutableBufferPointer { buffer in
                 IOHIDDeviceRegisterInputReportCallback(d, buffer.baseAddress!, buffer.count, { refcon, _, _, _, reportId, report, length in
                     guard let refcon else { return }

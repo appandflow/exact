@@ -1,5 +1,6 @@
 //! One-shot startup sampling. Symbols and stack walking run in a helper process,
 //! so a target holding the loader lock cannot deadlock DbgHelp in the observer.
+//! @ref LLP 1149.001 Stage 1w; LLP 1149 D15.
 use std::{
     io::Write,
     os::windows::process::CommandExt,

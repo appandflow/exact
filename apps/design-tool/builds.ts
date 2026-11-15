@@ -1,5 +1,5 @@
-// The Builds panel's rows: each running build as the server lists it, and the builds gone from that
-// list that may be reloading.
+// The Builds panel's rows (LLP 1122 D4): each running build as the server lists it, and the builds gone from that
+// list that may be reloading (stage 15 D1.2).
 
 /** The build as the panel reads it: the server's record, as app.ts keeps it. */
 type Listed = { id: string; host: string; page: string; status: any; pin: any; pinRevision: number; unsupported: { what: string; detail: string | null } | null };
@@ -7,7 +7,7 @@ type Listed = { id: string; host: string; page: string; status: any; pin: any; p
 const pinText = (pin: any) => pin ? [pin.scheme, pin.contrast && `contrast ${pin.contrast}`, ...Object.entries(pin.mode ?? {}).map(([a, v]) => `${a}=${v}`), pin.rootFontSize && `${pin.rootFontSize}px`].filter(Boolean).join(', ') : '';
 
 /** A build as the panel lists it: its effective scheme, contrast, mode and root font size from its status (an app's
- * own setScheme beats a pin), its pin, whether its status has caught up with the last pin frame it was sent (a
+ * own setScheme beats a pin, D3), its pin, whether its status has caught up with the last pin frame it was sent (a
  * pin, or a hand-back; none before it reports), and the last command it could not apply, as the server keeps it. */
 export const buildRow = (b: Listed) => {
   const st = b.status ?? {};

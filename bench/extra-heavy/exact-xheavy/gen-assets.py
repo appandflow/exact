@@ -6,7 +6,7 @@
 - data/feed.json and data/motion-0N.json: byte copies the data crate includes (`include_bytes!`).
 - icon.png: app.json's 1024 px icon, ../data/images/avatar-00.jpg scaled up (bicubic).
 - assets/embed/<id>.html and <id>-paused.html: embed.html filled in per webview row (SPEC 17).
-  exact2's `iframe` has no `srcdoc`, so an HTML string becomes a bundled page.
+  exact2's `iframe` has no `srcdoc` (LLP 1020 §302), so an HTML string becomes a bundled page.
 - assets/still/<name>.png: frame 0 of each GIF/WebP, for BENCH_FREEZE. As on the web, an
   animated image cannot be paused; a frozen page shows its first frame as a still.
 """

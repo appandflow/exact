@@ -1,4 +1,4 @@
-//! MIDI's export: midi-glue.js's reports and the agent's
+//! MIDI's export (LLP 1125 D6–D8): midi-glue.js's reports and the agent's
 //! MIDI requests, as JSON in the input buffer.
 
 use super::Bridge;
@@ -24,7 +24,7 @@ impl<D: DataSource> Bridge<D> {
 #[macro_export]
 macro_rules! midi_exports {
     () => {
-        /// A MIDI message in the input buffer: the
+        /// A MIDI message in the input buffer (LLP 1125 D6–D8): the
         /// glue's ports and inputs, or the agent's; returns the batch length.
         #[no_mangle]
         pub extern "C" fn exact_midi(len: u32) -> u32 {

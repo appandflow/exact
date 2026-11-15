@@ -3,11 +3,11 @@ import AppKit
 import XCTest
 @testable import ExactKit
 
-/// Exact's menu rule on the Mac: a popover a row of an open menu opens, no menu
-/// itself, opens as if by the menu's own invoker, so it isn't nested in the
-/// menu and the menu closes as an auto popover not its ancestor; only a menu is
-/// a row's submenu. Painted, as the driver shows popovers, so no NSMenu tracks
-/// here.
+/// exact2's menu rule on the Mac (LLP 1021; theme2 2026-10-21 19:47, 22:05):
+/// a popover a row of an open menu opens, no menu itself, opens as if by the
+/// menu's own invoker, so it isn't nested in the menu and the menu closes
+/// as an auto popover not its ancestor; only a menu is a row's submenu.
+/// Painted, as the driver shows popovers, so no NSMenu tracks here.
 final class MenuRowPopoverMacTests: XCTestCase {
     private var windows: [NSWindow] = []
 
@@ -15,7 +15,7 @@ final class MenuRowPopoverMacTests: XCTestCase {
     /// popover of a heading, 7, and a button, 6; More, 11, opening `more`, 5,
     /// a menu of one row, 8), and Grid, 31, opening `grid`, 30, a menu's
     /// shape (one button row) with no role. The picker is no menu's shape, so
-    /// it is painted, not the Mac's menu of its rows.
+    /// it is painted, not the Mac's menu of its rows (D3).
     private func fixture() -> Presenter {
         _ = NSApplication.shared
         let p = Presenter()

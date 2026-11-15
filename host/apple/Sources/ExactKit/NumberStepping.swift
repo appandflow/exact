@@ -1,4 +1,4 @@
-// What the platform's stepping control (`UIStepper`
+// @ref LLP 1116.007 D4 — what the platform's stepping control (`UIStepper`
 // on iOS, `NSStepper` on the Mac) does to an `input type="number"`, by
 // HTML's rules for the web's spin buttons (`stepUp()` and `stepDown()`):
 // the field's text steps, in decimal as the web's does (0.1 and 0.2 make
@@ -6,7 +6,7 @@
 // (`min`, else 0), bounded by `min` and `max`. A whole step gives a whole
 // number: the text is the shortest decimal, `3`, never `3.0`. A value typed
 // past `min` or `max` is brought to the bound it passed when the edit
-// commits.
+// commits (LLP 1116.008 D5).
 import Foundation
 
 struct NumberStepping {
@@ -107,7 +107,7 @@ struct NumberStepping {
         return v
     }
 
-    /// A typed value as the edit commits it: the bound it
+    /// A typed value as the edit commits it (LLP 1116.008 D5): the bound it
     /// passed, as the stepper holds its own to `min` and `max`, the bounds
     /// the web leaves to the browser's validation. Nil when there is nothing
     /// to change: a number within the bounds, or text that reads as no

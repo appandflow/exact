@@ -419,7 +419,7 @@ def list_section(title, d, apps, exname, expect, dev, devname, bench, prior=None
     if inner:
         out += ['', "innerkeep's primary column is `kept (same item, same place ±1 pt)`, the probe's `keptAnchor`: exact2 keeps both "
                 "inner lists 12/12. `raw offset kept` is in the table but not ranked as a loss: exact2's raw offset moves because "
-                "rows above the anchor are measured after the jump (scroll anchoring), while UIKit's app hands "
+                "rows above the anchor are measured after the jump (scroll anchoring, LLP 1070 H4/N2), while UIKit's app hands "
                 "its layout exact heights for all 1,000 messages, so its offset space never changes (the inner lane)."]
     jt = {a: r['jump timeouts'] for a, r in rows.items() if r['jump timeouts']}
     if jt:

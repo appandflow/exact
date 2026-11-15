@@ -1,4 +1,4 @@
-// The agent's calendars: what @exact/calendar reads and
+// The agent's calendars (LLP 1133.018 §10): what @exact/calendar reads and
 // writes under the agent, where it asks EventKit for nothing. It is this
 // checkout's `fixture/calendar.json` (a drive runs on this Mac or its
 // simulators), or another file there the agent's `store` names, changed for
@@ -15,7 +15,7 @@ final class AgentCalendar {
     /// The fixtures, beside this file's directory in the checkout.
     private static let fixtures = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
         .appendingPathComponent("fixture")
-    /// EventKit's predicate spans at most four years.
+    /// EventKit's predicate spans at most four years (D2).
     static let longest = 4 * 365.25 * 86_400_000.0
 
     private(set) var calendars: [[String: Any]] = []

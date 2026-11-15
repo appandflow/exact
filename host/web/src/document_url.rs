@@ -15,7 +15,7 @@ pub fn navigable(href: &str) -> bool {
             true
         } else if is("https") && !rest.starts_with("//") {
             // The base's own scheme reads the rest as relative
-            // unless it starts `; another special scheme's
+            // unless it starts `//`; another special scheme's
             // authority follows whatever slashes there are.
             true
         } else {
@@ -33,7 +33,7 @@ pub fn navigable(href: &str) -> bool {
 /// Whether an iframe in `sandbox` (its attribute, `None` when absent) shows
 /// `src`: a [`navigable`] URL, or a `data:` document in a sandbox without
 /// `allow-same-origin`, whose opaque origin cannot reach the page
-/// (`navigation.js` `frameURL`). The browser splits the
+/// (`navigation.js` `frameURL`, LLP 1020 §10). The browser splits the
 /// sandbox on ASCII whitespace and reads its tokens case-insensitively.
 pub fn frame_navigable(src: &str, sandbox: Option<&str>) -> bool {
     let opaque = sandbox.is_some_and(|s| {
@@ -49,7 +49,7 @@ pub fn frame_navigable(src: &str, sandbox: Option<&str>) -> bool {
 /// the browser sees it (`data-app-src`): the app's own file, or a URL with
 /// no scheme or authority, as the URL parser reads it, whose query has a
 /// value beginning `app:` (raw or percent-escaped), which a bundled page is
-/// given as an object URL. Every such source resolves to
+/// given as an object URL (LLP 1020.001 D7). Every such source resolves to
 /// the page's own origin, so navigation.js `pageGivenFiles` admits it too;
 /// `picker-glue.js` then decides which pages are given which files, and
 /// writes any other source through the host's navigation policy.

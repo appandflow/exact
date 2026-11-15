@@ -73,7 +73,7 @@ impl JobOrigins {
                 )
             };
             let new = match path {
-                // A socket: the same origin as `ws:`/`wss:`.
+                // A socket (LLP 1069.004 slice 3): the same origin as `ws:`/`wss:`.
                 "/api/frames" if request.stream => new.replacen("http", "ws", 1),
                 "/api/frames" => return None,
                 _ => new.to_string(),
@@ -168,7 +168,7 @@ impl Jobs {
 impl Default for Jobs {
     fn default() -> Self {
         // `EXACT_LIVE_JOB_ORIGINS` (the same lines) builds against a local
-        // fixture instead: the smoke's, on loopback.
+        // fixture instead: the smoke's, on loopback (LLP 1069.004 slice 2).
         let origins =
             option_env!("EXACT_LIVE_JOB_ORIGINS").unwrap_or(include_str!("../../job-origins.txt"));
         Self::new(JobOrigins::parse(origins).expect("invalid Exact Live Jobs build configuration"))

@@ -1,11 +1,11 @@
-// Nodes the Contract marks `hatch="word"`: the app
+// @ref LLP 1075.003.000 — nodes the Contract marks `hatch="word"`: the app
 // module's `element` hatch receives each one's view and the platform object
 // of its kind, after the batch that mounts it (`built`), when its `data-*`
 // words change (`changed`), and before its view leaves (`ended`); a cold
 // launch's are replayed once the module connects. A hatched node leaves the
 // fast path, and this says so: on iOS it is never a flat leaf and its list
 // row is never parked (FlatLeavesIOS, NodePoolIOS, by its `hatch` prop),
-// unless its hatch made it `reusable`; the journal names what
+// unless its hatch made it `reusable` (LLP 1075.003.000.000 §8); the journal names what
 // each word gave up, once, and warns once for a word in a list's row;
 // `state.hatches` counts them. Shared by the AppKit and UIKit presenters; the
 // module side is ExactNativeModule.swift, the call NativeHatches.swift.
@@ -58,7 +58,7 @@ final class ElementHatches {
     /// A node the batch created: told once the batch is applied.
     func created(_ node: NodeView) {
         // A word the plan does not give this platform (the Rust host sends it
-        // as `hatchOff`): shown, never called, listed.
+        // as `hatchOff`, LLP 1075.003.000.001 §4.3): shown, never called, listed.
         if let off = node.props["hatchOff"], unhandledByPlan.insert(off).inserted {
             presenter.session?.log("hatch element \(off): the plan does not give it to this platform; its nodes are shown and never called")
         }
@@ -71,7 +71,7 @@ final class ElementHatches {
         guard let known = nodes[node.id], known.node === node, !known.told, presenter.views[node.id] === node,
               let natives = presenter.session?.natives, natives.hatchesConnected, let word = node.props["hatch"] else { return }
         // A word the installed module was not built to handle is never
-        // called: shown, journaled once, listed.
+        // called (LLP 1075.003.000.001 §4.3): shown, journaled once, listed.
         if let handled = natives.handledHatches, !handled.contains(word) {
             if unhandled.insert(word).inserted {
                 presenter.session?.log("hatch element \(word): not handled by this build's module; its nodes are shown and never called")
@@ -110,7 +110,7 @@ final class ElementHatches {
     }
 
     /// A hatched frame's arm is about to make its web view: its hatch hears
-    /// `configuring` with the `WKWebViewConfiguration`.
+    /// `configuring` with the `WKWebViewConfiguration` (LLP 1020.002 §9).
     /// Within a batch or a held leaf's release, so the node may not be in
     /// `presenter.views` yet, nor have a superview.
     func configuring(_ node: NodeView, _ configuration: AnyObject) {
@@ -174,14 +174,14 @@ final class ElementHatches {
         presenter.session?.natives.scopesReset()
     }
 
-    /// The module connected after these were built.
+    /// The module connected after these were built (LLP 1075.003 Q3 (c)).
     func replay() {
         releaseFrames()
         for id in nodes.keys.sorted() { if let entry = nodes[id], !entry.told { build(entry.node) } }
     }
 
     /// The call, and whether the hatch made the node `reusable` (its view
-    /// carries the answer to the node pool).
+    /// carries the answer to the node pool, LLP 1075.003.000.000 §8).
     @discardableResult
     private func call(_ event: RouteHatchEvent, _ entry: Entry) -> Bool {
         let id = entry.node.id
@@ -190,11 +190,11 @@ final class ElementHatches {
         // In a list's row, the first of each moment is journaled; `state`
         // counts the rest, so a fling does not flood the journal.
         let quiet = entry.inList && (calls[word]?[event.name] ?? 0) > 1
-        // A development build notices a recognizer the call added and did not declare.
-        let had = HatchDiagnostics.measuring && event != .ended ? Set((entry.node.gestureRecognizers ?? []).map(ObjectIdentifier.init)) : nil
+        // A development build notices a recognizer the call added and did not declare (§3.4).
+        let had = HatchDiagnostics.measuring && event != .ended ? regions.recognizers(under: entry.node) : nil
         let reusable = presenter.session?.natives.elementHatch(entry.node, event: event.rawValue, platform: Self.platform(of: entry.node, presenter), quiet: quiet) ?? false
         if let had { regions.undeclared(under: entry.node, by: "element \(word)") { had.contains(ObjectIdentifier($0)) } }
-        // A frame's arm says what the call changed of what it owns.
+        // A frame's arm says what the call changed of what it owns (LLP 1020.002 §9).
         if entry.node.kind == "iframe", event != .ended { presenter.session?.webviews.hatched(id) }
         // What the node's hatch registered ends with it; a view lent to another node starts clean.
         if event == .ended { regions.ended(node: id) }
@@ -209,7 +209,7 @@ final class ElementHatches {
         return reusable
     }
 
-    // MARK: Saying so
+    // MARK: Saying so (LLP 1075.003.000 §3.5)
 
     private func say(_ word: String, node: NodeView, inList: Bool, reusable: Bool) {
         let lost = Self.lost(reusable: reusable)
@@ -217,10 +217,10 @@ final class ElementHatches {
             let gave = lost.isEmpty ? "nothing beyond the call on this host"
                 : lost.contains("pool") ? "a view, not a flat leaf; its row is not reused"
                 : "a view, not a flat leaf; its row is reused, its hatch undoing what it adds"
-            presenter.session?.log("hatch element \(word): \(gave)")
+            presenter.session?.log("hatch element \(word): \(gave) (LLP 1075.003.000)")
             if !lost.isEmpty, !lost.contains("pool") { freed.insert(word) }
         } else if !lost.isEmpty, !lost.contains("pool"), freed.insert(word).inserted {
-            presenter.session?.log("hatch element \(word): its hatch undoes what it adds; its row is reused")
+            presenter.session?.log("hatch element \(word): its hatch undoes what it adds; its row is reused (LLP 1075.003.000.000 §8)")
         }
         if inList, warned.insert(word).inserted, let list = Self.list(holding: node) {
             let name = list.props["testId"].map { "list \($0)" } ?? "list #\(list.id)"
@@ -248,7 +248,7 @@ final class ElementHatches {
     }
 
     /// `state.hatches`: under `words`, per word, how many are live, what they
-    /// gave up, and the calls so far (words are
+    /// gave up, and the calls so far (LLP 1075.003.000.001 §3.3: words are
     /// apart from the reply's other fields, so no word can be taken for one).
     func observation(_ diagnostics: HatchDiagnostics?) -> [String: Any] {
         var live: [String: Int] = [:], reused: [String: Int] = [:]
@@ -273,15 +273,15 @@ final class ElementHatches {
         reply["refused"] = refused
         reply["inFlight"] = inFlight
         regions.state(into: &reply)
-        // What the last run left in its crash breadcrumb, if anything.
+        // What the last run left in its crash breadcrumb (§4.4), if anything.
         if !HatchBreadcrumb.lastEnds.isEmpty { reply["lastEnd"] = HatchBreadcrumb.lastEnds }
         return reply
     }
 
     #if os(iOS) || os(tvOS)
     private var reported: Set<String> = []
-    /// Before each batch, in a development build: what Exact owns of each
-    /// hatched node's scroll view,
+    /// Before each batch, in a development build (LLP 1075.003 §3.5,
+    /// 1075.003.000 §3.6): what Exact owns of each hatched node's scroll view,
     /// text field or text view against what it writes, journaled once.
     func checkOwned() {
         guard NavigationHost.checksOwnership, !nodes.isEmpty, presenter.session?.natives.hatchesConnected == true else { return }
@@ -299,11 +299,11 @@ final class ElementHatches {
     }
     #endif
 
-    // MARK: The node's platform object
+    // MARK: The node's platform object (§3.2)
 
     /// The platform object of the node's kind, or nil: a text field or view,
     /// a control (a switch, slider, date picker…), an iframe's `WKWebView` or
-    /// a local PDF's `PDFView`, a scroll view.
+    /// a local PDF's `PDFView` (LLP 1020.002 §9), a scroll view.
     static func platform(of node: NodeView, _ presenter: Presenter) -> AnyObject? {
         #if os(iOS) || os(tvOS)
         node.field ?? node.textArea ?? presenter.controls.controls[node.id] ?? presenter.segments.control(of: node.id) ?? node.web ?? node.scrollView
@@ -312,10 +312,10 @@ final class ElementHatches {
         #endif
     }
 
-    // MARK: Acting on an element
+    // MARK: Acting on an element (LLP 1075.003 §3.4)
 
-    /// What a hatch asks of an element is queued, never run here: it runs
-    /// on a later turn of the main queue,
+    /// What a hatch asks of an element is queued, never run here (LLP
+    /// 1075.003.000.001 §2.5): it runs on a later turn of the main queue,
     /// after the batch being applied and after the session has finished with
     /// it, so a hatch called from a batch or a reset never applies a batch of
     /// its own there. One FIFO a session, at most 256 acts and 1 MB of
@@ -369,7 +369,7 @@ final class ElementHatches {
         presenter.session?.log("hatch \(what): \(line)")
     }
 
-    /// A hatch's `input(text)`: an authored text field's whole value,
+    /// A hatch's `input(text)` (§2.5): an authored text field's whole value,
     /// through the field's own primitive, cut to its limits, reported as a
     /// keystroke's change is, without moving focus. Journaled by length,
     /// never by text. False when refused at the asking; a field that cannot
@@ -460,7 +460,7 @@ extension NodeView {
     /// An iframe's web view, made once the node has its props: the arm then
     /// builds it with the frame's `partition`, and a hatched frame's moment
     /// before construction has the node's word and `data-*`. A hatched one
-    /// waits for the module's hatches.
+    /// waits for the module's hatches (LLP 1020.002 §9).
     func embedFrame(_ presenter: Presenter) {
         guard kind == "iframe", !presenter.elements.waits(self) else { return }
         presenter.leaves.embed(self)

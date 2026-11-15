@@ -1,5 +1,5 @@
-// `visibilityState` on the Mac, read of the machine,
-// and `persisted` and `restores` for a window its close hid.
+// @ref LLP 1069.000 D2 — `visibilityState` on the Mac, read of the machine,
+// and `persisted` and `restores` for a window its close hid (LLP 1069.010 D8).
 #if os(macOS)
 import AppKit
 import XCTest
@@ -38,6 +38,8 @@ final class PageFactsMacTests: XCTestCase {
         wait { only.isMiniaturized && heard.last == true }
         XCTAssertTrue(only.isMiniaturized, "AppKit minimized the window")
         XCTAssertTrue(PageFacts.hidden, "with its only window in the Dock nothing of the app is seen")
+        XCTAssertFalse(PageFacts.frozen, "a hidden Mac window keeps ordinary execution")
+        XCTAssertEqual(PageFacts.bits(nil, readsOnLine: false) & 128, 0)
         XCTAssertEqual(heard.last, true, "the minimize is told to the page: \(heard)")
         XCTAssertFalse(PageFacts.persisted(only), "a minimized page is hidden, not put away: no pagehide")
 
@@ -60,7 +62,7 @@ final class PageFactsMacTests: XCTestCase {
         XCTAssertEqual(PageFacts.bits(nil, page: only, readsOnLine: false) & (1024 | 0xFFFF << 16), 0, "nor a pageshow: nothing put away, no restore")
     }
 
-    /// The one window of an app that keeps running is
+    /// LLP 1069.010 D8: the one window of an app that keeps running is
     /// ordered out by its close, its page kept. The page reads `hidden` and
     /// hears it, and hears the reopen that shows it again. A window ordered
     /// out otherwise, or not yet shown, counts for nothing, so a page boots

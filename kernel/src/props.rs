@@ -129,7 +129,7 @@ impl PropList {
     }
 
     /// Where the node links to: its `href`, unless that turns out empty.
-    /// An empty `href` is no link on any host: no link
+    /// @ref LLP 1115 §3 — an empty `href` is no link on any host: no link
     /// colour, role or pointer, and nothing to follow. It is HTML's `<a>`
     /// with no `href`: the node is still that element, which is what
     /// `Arena::is_button` reads from the row's presence, so its box is laid
@@ -140,7 +140,7 @@ impl PropList {
 
     /// The level of a heading: its `aria-level`, else ARIA's default 2,
     /// which lowering also writes. `None` when the node is no heading.
-    /// Only `role="heading"` makes one, to
+    /// @ref LLP 1115.000 D12.5 — only `role="heading"` makes one, to
     /// assistive technology as to the bar and the heading's style: an
     /// `aria-level` alone is not a heading on any host (`treeitem`, `row`
     /// and `listitem` take a level of their own). Every host asks this.
@@ -319,6 +319,6 @@ mod tests {
         assert_eq!(PropId::Text.kind(), PropKind::Str);
         assert_eq!(PropId::Disabled.kind(), PropKind::Bool);
         assert_eq!(PropId::TabIndex.kind(), PropKind::Int);
-        assert_eq!(PropId::HitSlop.kind(), PropKind::Float);
+        assert_eq!(PropId::Volume.kind(), PropKind::Float);
     }
 }

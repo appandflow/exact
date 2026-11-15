@@ -1,7 +1,8 @@
-import { admitsNetwork, admitsSecret, coversPath, createGrantSet, grantError, hasGrant, rawGrantText, scopedGrantSet, unionGrantSets } from '../web/grant-admission.js';
+import { rt } from './rt-link.js';
+import { admitsNetwork, admitsSecret, coversPath, createGrantSet, grantError, grantWords, hasGrant, rawGrantText, scopedGrantSet, unionGrantSets } from '../web/grant-admission.js';
 import { faultMessage, takeFault } from '../web/faults.js';
-import { redirectFor, reachRefusal } from '../web/address-space.js';
-export { admitsNetwork, admitsSecret, coversPath, createGrantSet, grantError, hasGrant, rawGrantText, sameGrantDeclaration, scopedGrantSet, unionGrantSets } from '../web/grant-admission.js';
+import { redirectFor, reachRefusal, UNATTRIBUTED } from '../web/address-space.js';
+export { socketProtocols, admitsNetwork, admitsSecret, coversPath, createGrantSet, grantError, grantWords, hasGrant, rawGrantText, trimGrant, sameGrantDeclaration, scopedGrantSet, unionGrantSets } from '../web/grant-admission.js';
 
 // Captured while the entry graph loads. App source injection never replaces
 // the page global, so separately loaded host modules retain browser authority.
@@ -27,7 +28,7 @@ function deadlineOf(init) {
 }
 
 // `exactIndependentHttp.maxResponseBytes`: the largest body the fetch takes,
-// checked with Hermes's words (js/src/prelude.js); without it, the ordered
+// checked with Hermes's words (js/src/fetch.js); without it, the ordered
 // lane's 64 MiB, as on native. Browsers have no lanes, so only the bound applies.
 function ceilingOf(init) {
   const independent = init.exactIndependentHttp;
@@ -38,7 +39,7 @@ function ceilingOf(init) {
 }
 
 // Read a response's clone to its end, refused the moment it passes `limit`
-// (a response over its size limit is `refused` on every host).
+// (LLP 1109 D3: a response over its size limit is `refused` on every host).
 // A failed read lets both branches go at once: a branch's cancel settles only
 // when the other's does, so awaiting one would wait on a body that never ends.
 export async function within(response, limit) {
@@ -79,10 +80,10 @@ export function ownWithout(init, skip) {
 export const signalDeadline = { arm: null };
 
 // `read`: how the body is taken before the fetch answers, within the deadline (`exactBodyTo`'s writes it to a file).
-// `origin`: who asked it; a tool's, a wake's or the device's reach to a less public space is checked.
+// `origin`: who asked it (LLP 1133.036 D6); a tool's, a wake's or the device's reach to a less public space is checked.
 // `decided`: `fetchOf` has already armed the signal's deadline before the file work, or found the request has none
 // (ts-fetch.js), so it is not weighed again.
-export async function fetchWith(set, input, init = {}, expires = null, redirect = redirectOf(input, init), read = within, origin = 'app', decided = false) {
+export async function fetchWith(set, input, init = {}, expires = null, redirect = redirectOf(input, init), read = within, origin = 'app', decided = false, forced) {
   let value, asset, deadline, signal, own, armed;
   init ??= {};
   deadline = deadlineOf(init);
@@ -97,20 +98,25 @@ export async function fetchWith(set, input, init = {}, expires = null, redirect 
   const invalid = grantError(set);
   if (invalid) throw new FetchError('Refused', invalid);
   if (!asset && !admitsNetwork(set, value, 'fetch')) throw new FetchError('Refused', refusal('net.fetch'));
-  // A driver fault: the refused connection's failure, never sent.
+  // @ref LLP 1103 D1, D2 — a driver fault: the refused connection's failure, never sent.
   if (!asset && takeFault(value)) throw new FetchError('Network', faultMessage(value));
   const unreached = asset ? null : reachRefusal(value, origin);
   if (unreached) throw new FetchError('Refused', `NotAllowedError: ${unreached}`);
   redirect = redirectFor(origin, redirect);
   try {
-    const rest = ownWithout(init, ['exactTimeout', 'exactIndependentHttp', 'redirect', 'signal']);
+    const rest = ownWithout(init, ['exactTimeout', 'exactIndependentHttp', 'exactPreload', 'exactPrefetch', 'redirect', 'signal']);
+    // A forced ask reloads unless the request stores nothing; Fetch allows only-if-cached same-origin (LLP 1162 D4).
+    const cache = init.cache ?? input?.cache, sent = forced && cache !== 'no-store' ? 'reload' : cache;
+    const mode = init.mode ?? (sent === 'only-if-cached' && 'same-origin');
+    if (sent) rest.cache = sent;
+    if (mode) rest.mode = mode;
     // The caller's signal, read once by name, as `fetch` reads its init's members (an inherited one too), else the
     // input `Request`'s (`null` clears the Request's, `undefined` keeps it, as `fetch` has them).
     const given = init.signal;
     if (given !== undefined) rest.signal = given;
     own = given !== undefined ? given : typeof Request === 'function' && input instanceof Request ? input.signal : undefined;
     if (!decided) armed = signalDeadline.arm?.(own, deadline?.ms);
-    // The signal's deadline replaces an `exactTimeout` no earlier, as natively (prelude.js `timers.left`)
+    // The signal's deadline replaces an `exactTimeout` no earlier, as natively (time.js `timers`: `left`)
     if (armed) deadline = until = null;
     // The deadline reaches the request only until its body is read: a
     // response that arrived in time stays readable after the deadline.
@@ -125,7 +131,12 @@ export async function fetchWith(set, input, init = {}, expires = null, redirect 
     // held the event loop past the deadline fire no timer first.
     if (until && performance.now() >= until.at) throw new FetchError('Timeout', `the request timed out after ${until.ms} ms`);
     const response = await browserFetch(typeof Request === 'function' && input instanceof Request ? input : value, { ...rest, ...(signal ? { signal } : {}), redirect });
-    // A redirect that left the grants names where it led, as
+    // A no-cors response hides its destination; a manual redirect is the browser's opaque-redirect result.
+    if (!response.url && response.type !== 'opaqueredirect') {
+      response.body?.cancel().catch(() => {});
+      throw new FetchError('Refused', "outside the app's grants (net.fetch): response URL is unavailable");
+    }
+    // A redirect that left the grants names where it led (podcast F5), as
     // the native executor does; the browser followed it to this last hop.
     if (response.url && (asset
       ? new URL(response.url).origin !== globalThis.location?.origin
@@ -135,7 +146,7 @@ export async function fetchWith(set, input, init = {}, expires = null, redirect 
     // Its clone is read whole before it answers, as the native executor
     // collects a body: within the deadline, so a stalled body is this fetch's
     // Timeout, and a body the network cuts off is its Network failure
-    // (`failure(x)`'s `offline`); one over its ceiling is
+    // (`failure(x)`'s `offline`, LLP 1109 D3); one over its ceiling is
     // Refused, and the response is let go. The response keeps its URL,
     // type and null body, and its own read is served from what the clone took.
     await read(response, ceiling);
@@ -162,18 +173,33 @@ export function fetchHostAsset(input, init = {}) {
 
 export function createRequestExecutor(appId, sourceSet, readBody = response => response.arrayBuffer()) {
   let storage = null;
-  return async req => {
+  return async (req, signal, controller) => {
     const admitted = scopedGrantSet(sourceSet, req.scope);
     const why = grantError(admitted);
     if (why) return { failed: 2, message: why };
+    if (req.canvas) {
+      if (globalThis.__exactRender) return { refused: 'canvas capture' };
+      const active = controller?.active ?? (() => true), ready = rt.canvasCommitted(req.canvas.surface, active, { type: req.canvas.type, quality: req.canvas.quality });
+      ready.catch(() => {});
+      const { captureCanvas, writeCanvas } = await import('./canvas-capture.js');
+      let status = 200, value;
+      try {
+        value = await captureCanvas(req.canvas.surface, req.canvas.path,
+          (path, bytes) => writeCanvas(appId, admitted, path, bytes, active), ready, active);
+      } catch (e) { status = 400; value = { name: e?.name ?? 'EncodingError', message: String(e?.message ?? e) }; }
+      return { status, headers: [['content-type', 'application/json']], body: new TextEncoder().encode(JSON.stringify(value)) };
+    }
     if (req.storage != null) {
+      if (globalThis.__exactRender) return { refused: 'storage request' };
       storage ??= import(new URL('./storage-request.js', import.meta.url).href).then(m => m.createStorageRequests(appId, sourceSet));
       return { storage: await (await storage).run(req.storage, admitted) };
     }
     try {
       // Its ceiling bounds the read inside `fetchWith` too, so an oversized body that never ends is refused, not awaited.
-      const response = await fetchWith(admitted, req.url, { method: req.method, headers: req.headers, body: ['GET', 'HEAD'].includes(req.method) ? undefined : req.raw,
-        ...(req.maxResponseBytes != null ? { exactIndependentHttp: { maxResponseBytes: req.maxResponseBytes } } : {}) });
+      // It goes out as the asking commit's origin (LLP 1133.036 D6): one it does not carry is not taken for the app's.
+      const init = { method: req.method, headers: req.headers, cache: req.forced && req.cache !== 'no-store' ? 'reload' : req.cache, mode: req.mode, body: ['GET', 'HEAD'].includes(req.method) ? undefined : req.raw,
+        signal, ...(req.maxResponseBytes != null ? { exactIndependentHttp: { maxResponseBytes: req.maxResponseBytes } } : {}) };
+      const response = await fetchWith(admitted, req.url, init, null, redirectOf(req.url, init), within, req.origin ?? UNATTRIBUTED);
       return { status: response.status, headers: [...response.headers], body: new Uint8Array(await readBody(response, req.maxResponseBytes)) };
     } catch (error) {
       return { failed: error?.kind === 'Refused' ? 2 : 1, message: String(error?.message ?? error) };
@@ -198,12 +224,20 @@ export const inOverlay = api => {
   return e;
 };
 const effect = api => { if (overlaying.on) throw inOverlay(api); };
-// The `secret.keep` names whose line carries a presence policy, each with whether the person may
-// leave it plain (`optional`). The web keeps no locked secret: a name that must be locked is never kept here.
+// The `secret.keep` names whose line carries a presence policy (LLP 1133.010 D4), each with whether the person may
+// leave it plain (`optional`). The web keeps no locked secret (D15): a name that must be locked is never kept here.
 const mustLock = (set, name) => (set?.entries ?? []).some(([, source, grant]) => {
-  const words = source.split(/\s+/);
+  const words = grantWords(source);
   return grant?.[0] === 'secret-keep' && words[1] === String(name) && words.length > 2 && words[3] !== 'optional';
 });
+// Each backing store's names with a `keepKey` writing its pair, to the newest call's handle. By store, not facade:
+// every answer has a facade of its own over the one store.
+const keepingByStore = new WeakMap();
+const keeping = store => {
+  let names = keepingByStore.get(store);
+  if (!names) keepingByStore.set(store, names = new Map());
+  return names;
+};
 const unsupported = name => Object.assign(new Error(`NotSupportedError: ${name} is kept locked, and the web keeps no locked secret`), { name: 'NotSupportedError', code: 'NotSupportedError' });
 export function createSecretFacade(store, admitted, keys) {
   const refused = name => {
@@ -211,18 +245,19 @@ export function createSecretFacade(store, admitted, keys) {
     return `secret ${name} is not granted${parse ? ': ' + parse : ''}`;
   };
   const allowed = name => {
-    if (!admitsSecret(admitted, name)) throw Object.assign(new Error(refused(name)), { refuse: true });
+    if (globalThis.__exactRender) throw new Error("a render's store is empty and refuses writes"); // LLP 1048.000 D9
+    if (!admitsSecret(admitted, name)) throw new Error(refused(name));
   };
   const seen = {
     read: false,
     get(name) {
-      effect('store.get()');
-      if (String(name).startsWith('exact.kept.')) return null;
+      effect('store.get()'); name = String(name);
+      if (name.startsWith('exact.kept.')) return null;
       seen.read = true;
-      return admitsSecret(admitted, name) && !mustLock(admitted, name) ? store.get(name) ?? null : null;
+      return !globalThis.__exactRender && admitsSecret(admitted, name) && !mustLock(admitted, name) ? store.get(name) ?? null : null;
     },
-    exclusive(name, work) {
-      effect('store.exclusive()'); allowed(name);
+    async exclusive(name, work) {
+      effect('store.exclusive()'); name = String(name); allowed(name);
       if (mustLock(admitted, name)) return Promise.reject(unsupported(name));
       const context = globalThis.__exact_async_context, owner = context?.current();
       return store.exclusive(name, () => {
@@ -235,9 +270,35 @@ export function createSecretFacade(store, admitted, keys) {
     unlock(name) { try { return Promise.resolve(seen.get(name)); } catch (e) { return Promise.reject(e); } },
     protect(name) { return overlaying.on ? Promise.reject(inOverlay('store.protect()')) : Promise.reject(unsupported(name)); },
     unprotect() { return overlaying.on ? Promise.reject(inOverlay('store.unprotect()')) : Promise.resolve(); },
-    set(name, value) { effect('store.set()'); allowed(name); if (mustLock(admitted, name)) throw unsupported(name); store.set(name, String(value)); },
-    forget(name) { effect('store.forget()'); allowed(name); store.set(name, null); },
-    keepKey(name, pair) { if (overlaying.on) return Promise.reject(inOverlay('store.keepKey()')); allowed(name); const handle = 'exact.key:' + crypto.randomUUID(); store.set(name, handle); return keys().then(service => service.put(handle, pair)); },
+    set(name, value) {
+      effect('store.set()');
+      name = String(name); value = String(value);
+      allowed(name);
+      if (mustLock(admitted, name)) throw unsupported(name);
+      store.set(name, value); keeping(store).delete(name);
+    },
+    forget(name) {
+      effect('store.forget()'); name = String(name); allowed(name);
+      store.set(name, null); keeping(store).delete(name);
+    },
+    // The name holds the new handle only once the key service has the pair, so a refused write leaves the key it
+    // held; a later keepKey, set or forget of the name while the pair is written supersedes it.
+    async keepKey(name, pair) {
+      if (overlaying.on) throw inOverlay('store.keepKey()');
+      name = String(name); allowed(name);
+      if (mustLock(admitted, name)) throw unsupported(name);
+      const handle = 'exact.key:' + crypto.randomUUID(), latest = keeping(store), key = String(name);
+      latest.set(key, handle);
+      try {
+        await keys().then(service => service.put(handle, pair));
+      } catch (e) {
+        if (latest.get(key) === handle) latest.delete(key);
+        throw e;
+      }
+      if (latest.get(key) !== handle) return;
+      latest.delete(key);
+      store.set(name, handle);
+    },
     key(name) { if (overlaying.on) return Promise.reject(inOverlay('store.key()')); const handle = seen.get(name); return handle == null ? Promise.resolve(null) : keys().then(service => service.get(handle) ?? null); },
   };
   return seen;

@@ -1,12 +1,12 @@
-//! Geometry reads: `frame(id)` and `measure(id)`
+//! Geometry reads (LLP 1051.000 D1/D2): `frame(id)` and `measure(id)`
 //! answer a `Geometry`, only inside an action, and `measure`'s id is a string
 //! literal, so the runner can answer it before the action's body runs.
-//! `elementFromPoint(x, y)` and `elementsFromPoint(x, y)`
-//! read the same boxes; `querySelectorAll` reads the
+//! `elementFromPoint(x, y)` and `elementsFromPoint(x, y)` (LLP 1094 D10)
+//! read the same boxes; `querySelectorAll` (LLP 1075.003 §9.1) reads the
 //! mounted tree. All are action reads.
 //!
 //! A derive or a view that read layout would feed layout back into the tree
-//! it lays out, a loop Contract declines. An action reads once, at the
+//! it lays out, the loop LLP 1039 D5 declines. An action reads once, at the
 //! event, and decides.
 
 use super::{err, Scope, Shapes, Ty, TypeError};
@@ -51,7 +51,7 @@ pub(super) fn check_call(
         return err(
             "type-geometry-outside-action",
             format!(
-                "`{}` reads layout, which only an action may do: a derive, a view or a `fn` that read it would feed layout back into the tree it lays out",
+                "`{}` reads layout, which only an action may do: a derive, a view or a `fn` that read it would feed layout back into the tree it lays out (LLP 1051.000 D2, LLP 1039 D5)",
                 f.name()
             ),
             span,
@@ -61,7 +61,7 @@ pub(super) fn check_call(
         if let Some(arg) = args.first().filter(|a| !matches!(a, Expr::Str(..))) {
             return err(
                 "type-measure-literal-id",
-                "`measure`'s id is written as a string literal: the runner answers it before the action runs",
+                "`measure`'s id is written as a string literal: the runner answers it before the action runs (LLP 1051.000 D2)",
                 arg.span(),
             );
         }
@@ -71,7 +71,7 @@ pub(super) fn check_call(
             if !data_selector(selector) {
                 return err(
                     "type-data-selector",
-                    "`querySelectorAll` accepts only `[data-word~=\"value\"]`",
+                    "`querySelectorAll` accepts only `[data-word~=\"value\"]` (LLP 1075.003 §9.1)",
                     *at,
                 );
             }

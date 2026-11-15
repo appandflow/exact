@@ -4,16 +4,17 @@ import XCTest
 @testable import ExactKit
 import ExactGroupedLists
 
-/// The native fixture's Chat and Photo routes: a pressable group around the
-/// heading (an avatar, a subtitle) is the item's title, drawn and tapped;
-/// Chat, pushed while the authored tablist is hidden, hides the tab bar;
-/// its inline title's scroller goes under the bar; Photo, which says it has
-/// no bar, has none, and the bar comes back with Chat. Over
+/// LLP 1075.003 §9.10 over the native fixture's Chat and Photo routes: a
+/// pressable group around the heading (an avatar, a subtitle) is the item's
+/// title, drawn and tapped; Chat, pushed while the authored tablist is
+/// hidden, hides the tab bar; its inline title's scroller goes under the
+/// bar; Photo, which says it has no bar, has none, and the bar comes back
+/// with Chat. LLP 1115.000 D5.2 and D5.3 over
 /// `scripts/fixtures/navigation-bars.contract`: the bar is each route's, a
 /// pushed route with none of its own gets the system Back alone, and no bar
-/// is something a route says. UIKit synthesizes no touches for a unit test:
-/// the title is driven by its control's action, an interactive pop by the
-/// `willShow` UIKit sends.
+/// is something a route says.
+/// UIKit synthesizes no touches for a unit test: the title is driven by its
+/// control's action, an interactive pop by the `willShow` UIKit sends.
 final class NavigationBasicsIOSTests: XCTestCase {
     private var window: UIWindow?
     private var sessions: [ExactSession] = []
@@ -84,10 +85,6 @@ final class NavigationBasicsIOSTests: XCTestCase {
 
     private func node(_ session: ExactSession, _ testId: String) throws -> NodeView {
         try XCTUnwrap(session.presenter.views.values.first { $0.props["testId"] == testId }, "no \(testId)")
-    }
-
-    private func tapNode(_ session: ExactSession, _ testId: String) throws {
-        _ = Agent(session: session).tap(["id": Int(try node(session, testId).id)])
     }
 
     private func journal(_ session: ExactSession) -> String { session.agent(#"{"op":"logs","since":0}"#) }
@@ -414,7 +411,7 @@ final class NavigationBasicsIOSTests: XCTestCase {
         // A tap on the title presses the group, as a tap on it would.
         XCTAssertEqual(text(session, "title-presses"), "title presses 0")
         // (The registered action, sent as a touch up sends it: the test
-        // host does not deliver `sendActions`)
+        // host does not deliver `sendActions`, §9.8.)
         for target in view.allTargets {
             for action in view.actions(forTarget: target, forControlEvent: .touchUpInside) ?? [] {
                 _ = (target as NSObject).perform(Selector(action))
@@ -466,11 +463,11 @@ final class NavigationBasicsIOSTests: XCTestCase {
         XCTAssertFalse(view.accessibilityTraits.contains(.notEnabled))
     }
 
-    /// A heading the header holds directly takes the first text after it
-    /// as its subtitle, UIKit's own on iOS 26 (a drawn title view before).
-    /// A second text is not the bar's: the agent marks it in its tree and
-    /// screenshot and refuses a tap on it, by the rule the bar follows
-    /// (`HeaderShape.presents`).
+    /// LLP 1116 D2 (amending LLP 1075.003 §9.10): a heading the header holds
+    /// directly takes the first text after it as its subtitle, UIKit's own
+    /// on iOS 26 (a drawn title view before). A second text is not the
+    /// bar's: the agent marks it in its tree and screenshot and refuses a
+    /// tap on it, by the rule the bar follows (`HeaderShape.presents`).
     func testAHeadingTheHeaderHoldsDirectlyTakesTheFirstTextAfterItAsItsSubtitle() throws {
         let session = try fixture("basics-direct-subtitle")
         let tabs = try XCTUnwrap(session.presenter.navigation.tabController)
@@ -512,7 +509,7 @@ final class NavigationBasicsIOSTests: XCTestCase {
         if #available(iOS 26.0, *) { XCTAssertNil(home.navigationItem.subtitle, "Home has no text after its heading; the stack: \(nav.viewControllers.map { "\($0.navigationItem.title ?? "?") / \($0.navigationItem.subtitle ?? "none")" })") }
     }
 
-    /// A readout (`role="status"`) after the header's
+    /// LLP 1075.003 §9.15: a readout (`role="status"`) after the header's
     /// buttons is a trailing item with a custom view, as a hand-built bar's
     /// "● Clock" is: its dot and monospaced text drawn as written, read by
     /// VoiceOver as static text, the bar's and not the page's; it follows
@@ -728,19 +725,13 @@ final class NavigationBasicsIOSTests: XCTestCase {
         try assertTabBar(session, visible: true)
     }
 
-    /// The root's tablist hidden
+    /// LLP 1075.003 §3.7, amended 2026-10-05: the root's tablist hidden
     /// hides the bar too, with UIKit's animated `setTabBarHidden`, and shown
     /// brings it back (Signal's chat-list multi-select). Driven through the
     /// fixture's own batches: a hide and a show at the root, a pop back to a
     /// root still hidden (UIKit brings the bar back for its root; Exact
     /// hides it again once the pop settles), another tab's root with its
     /// tablist shown, and a hatch's own value standing between those moments.
-    /// A tap on the bar's item for a tab, as UIKit asks before selecting.
-    private func tapTab(_ tabs: UITabBarController, _ index: Int) {
-        let target = tabs.viewControllers![index]
-        if tabs.delegate?.tabBarController?(tabs, shouldSelect: target) ?? true { tabs.selectedIndex = index }
-    }
-
     func testTheRootsTablistHiddenHidesTheTabBarAndShownBringsItBack() throws {
         guard #available(iOS 18.0, *) else { throw XCTSkip("setTabBarHidden is iOS 18") }
         let session = try fixture("basics-roottabbar")
@@ -836,7 +827,7 @@ final class NavigationBasicsIOSTests: XCTestCase {
         XCTAssertEqual(sv.adjustedContentInset.top, chat.view.safeAreaInsets.top, accuracy: 0.5, "inset to the bar's bottom")
         XCTAssertFalse(nav.isNavigationBarHidden)
         // Its route's last child, it runs to the screen's bottom edge too, and
-        // UIKit insets it by the home indicator: no band of the
+        // UIKit insets it by the home indicator (LLP 1116 D2): no band of the
         // route's background under it.
         XCTAssertTrue(journal(session).contains("scrolls its content to the bottom edge"))
         XCTAssertGreaterThan(chat.view.safeAreaInsets.bottom, 0, "a home indicator to go under")
@@ -851,7 +842,7 @@ final class NavigationBasicsIOSTests: XCTestCase {
         XCTAssertEqual(css(), 80, accuracy: 0.5, "an authored offset lands as the browser's")
     }
 
-    /// The bottom edge: Detail's scroller has the "Open in"
+    /// The bottom edge (LLP 1116 D2): Detail's scroller has the "Open in"
     /// row under it, which keeps its place above the tab bar, the scroller
     /// no inset of UIKit's.
     func testAFooterUnderTheScrollerKeepsTheBottomCover() throws {
@@ -873,7 +864,7 @@ final class NavigationBasicsIOSTests: XCTestCase {
     }
 
     /// The bottom edge's scroller may sit deeper than the route's last child
-    ///: a sheet whose component's root column holds
+    /// (LLP 1116 D2, amended): a sheet whose component's root column holds
     /// its header and then its scroller reaches the edge, as a hand-built
     /// sheet's scroll view pinned to its view's bottom does. A footer, a
     /// padding under it, or a sideways scroller does not.
@@ -946,8 +937,8 @@ final class NavigationBasicsIOSTests: XCTestCase {
 
     /// A route's closed menus and confirmations take no place in its flow, as
     /// a browser lays out neither: one written after its scroller leaves the
-    /// scroller at the bottom edge (a tab clipped at the tab bar by
-    /// its sort menu and its "Restore factory presets?" dialog).
+    /// scroller at the bottom edge (euxy's Patterns tab, clipped at the tab
+    /// bar by its sort menu and its "Restore factory presets?" dialog).
     func testTopLayerBoxesAfterAScrollerLeaveItAtTheBottomEdge() {
         let p = Presenter()
         var next: UInt32 = 0
@@ -975,7 +966,7 @@ final class NavigationBasicsIOSTests: XCTestCase {
     }
 
     /// A route that paints no background shows what the web shows through
-    /// it — the root's (`-exact-grouped-background` on the root
+    /// it — the root's (LLP 1116 D2: `-exact-grouped-background` on the root
     /// under every screen, and under the home indicator) — light and dark,
     /// written again when a batch changes it; its own background wins.
     func testARouteWithoutABackgroundShowsTheRootsUnderIt() throws {
@@ -1002,7 +993,7 @@ final class NavigationBasicsIOSTests: XCTestCase {
         XCTAssertEqual(rgb(.light), [0, 0, 255, 255], "the route's own wins")
     }
 
-    /// No bar is something a route says. Photo, a
+    /// LLP 1115.000 D5.2: no bar is something a route says. Photo, a
     /// full-bleed viewer that draws its own Close, is `navigationBar="none"`.
     func testARouteThatAsksForNoBarHasNoneAndTheBarFollowsAPop() throws {
         let session = try fixture("basics-nobar")
@@ -1038,7 +1029,7 @@ final class NavigationBasicsIOSTests: XCTestCase {
         XCTAssertTrue(chat.navigationItem.titleView is HeaderTitleView)
     }
 
-    /// Over `scripts/fixtures/navigation-bars.contract`:
+    /// LLP 1115.000 D5.3, over `scripts/fixtures/navigation-bars.contract`:
     /// the bar is each route's, never decided once for its stack. A stack
     /// that opens on a route with no header has no bar there, shows the bar
     /// for a pushed route whose header is one, and hides it again when that
@@ -1084,7 +1075,7 @@ final class NavigationBasicsIOSTests: XCTestCase {
         return route
     }
 
-    /// Every pushed route with no bar of its own gets a
+    /// LLP 1115.000 D5.2: every pushed route with no bar of its own gets a
     /// bar that holds the system Back alone, with no title; the button's
     /// title is the route beneath's, as UIKit reads it. A header that is no
     /// bar's (two headings) still paints in the page as written, under it.
@@ -1126,11 +1117,12 @@ final class NavigationBasicsIOSTests: XCTestCase {
         XCTAssertEqual(text(session, "start-backs"), "backs 0", "no Back control was pressed: none is declared")
     }
 
-    /// No bar is something the author says, not something inferred. Own
-    /// draws its own Back control and says nothing: it gets the bar, whose
-    /// Back presses that control. Viewer draws one too and says
-    /// `navigationBar="none"`: no bar, over a route with a bar or without,
-    /// and the edge swipe and its own control still pop it.
+    /// LLP 1115.000 D5.2: no bar is something the author says, not
+    /// something inferred. Own draws its own Back control and says nothing:
+    /// it gets the bar, whose Back presses that control (LLP 1115 D5).
+    /// Viewer draws one too and says `navigationBar="none"`: no bar, over a
+    /// route with a bar or without, and the edge swipe and its own control
+    /// still pop it.
     func testNoBarIsWhatARouteSaysNotAnAuthoredBackControl() throws {
         let (session, nav, start) = try bars("bars-said")
         let own = try push(session, nav, from: "start", "own", depth: 2)
@@ -1181,7 +1173,7 @@ final class NavigationBasicsIOSTests: XCTestCase {
                       "and the stack beneath is as it was")
     }
 
-    /// A sheet whose heading says level 1 has a large title,
+    /// LLP 1141.001 D7: a sheet whose heading says level 1 has a large title,
     /// as its author asked (a Settings sheet's).
     func testASheetsLevelOneTitleIsLarge() throws {
         let (session, _, _) = try bars("bars-titled-sheet")
@@ -1193,7 +1185,7 @@ final class NavigationBasicsIOSTests: XCTestCase {
         XCTAssertEqual(route.navigationItem.largeTitleDisplayMode, .always, "the author's level 1 is a large title")
     }
 
-    /// A sheet's heading of no level is an inline title, as
+    /// LLP 1116.020 D2: a sheet's heading of no level is an inline title, as
     /// UIKit's sheets and Apple's are.
     func testASheetsHeadingOfNoLevelIsInline() throws {
         let (session, _, _) = try bars("bars-glass-title")
@@ -1227,9 +1219,10 @@ final class NavigationBasicsIOSTests: XCTestCase {
 
     private func alpha(_ view: UIView) -> CGFloat? { view.backgroundColor?.resolvedColor(with: view.traitCollection).cgColor.alpha }
 
-    /// A sheet whose route paints nothing leaves its views
+    /// LLP 1141.001 D3: a sheet whose route paints nothing leaves its views
     /// clear below its large detent, so UIKit draws its glass as for a
-    /// hand-built sheet; at the large detent it is the system background.
+    /// hand-built sheet; at the large detent it is the system background
+    /// (LLP 1116.021 D7).
     func testAnUnpaintedSheetIsGlassBelowItsLargeDetent() throws {
         let (session, _, _) = try bars("bars-glass")
         let (sheet, route, presentation) = try openSheet(session, "glass")
@@ -1242,7 +1235,7 @@ final class NavigationBasicsIOSTests: XCTestCase {
         XCTAssertEqual(sheet.view.backgroundColor, .clear, "glass again")
     }
 
-    /// An authored `transparent` is clear at every detent.
+    /// LLP 1141.001 D3: an authored `transparent` is clear at every detent.
     func testATransparentSheetStaysClearAtEveryDetent() throws {
         let (session, _, _) = try bars("bars-clear")
         let (sheet, route, presentation) = try openSheet(session, "clear")
@@ -1254,8 +1247,8 @@ final class NavigationBasicsIOSTests: XCTestCase {
     }
 
 
-    /// A scroller UIKit insets lays its content out between those insets:
-    /// Chat's column, its tall box gone, fills the port
+    /// A scroller UIKit insets lays its content out between those insets
+    /// (LLP 1116.000 D1.2): Chat's column, its tall box gone, fills the port
     /// and its last line rests above the home indicator, with no scroll by
     /// the insets; with the tall box back the end still lands there, and the
     /// scroller still runs to the screen's edge, its content passing under.
@@ -1386,7 +1379,7 @@ final class NavigationBasicsIOSTests: XCTestCase {
         until("Chat's push started") { nav.viewControllers.count == 3 }
         XCTAssertNotNil(nav.transitionCoordinator, "the tab is switched while Chat's push runs")
         tapTab(tabs, 1)
-        until("Second selected") { tabs.selectedIndex == 1 }
+        XCTAssertEqual(tabs.selectedIndex, 1, "Second selected")
         // (Home's push ends here, or, its stack off screen, when it shows again.)
         spin(0.6)
         XCTAssertTrue(barShows(tabs), "Second's root shows the bar, Home's late push notwithstanding")

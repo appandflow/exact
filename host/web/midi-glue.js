@@ -1,4 +1,4 @@
-// The web's MIDI for the runner's queue, one file for
+// @ref LLP 1125 D6–D8. The web's MIDI for the runner's queue, one file for
 // the wasm glue and the JS target, loaded after first paint by a plan that
 // uses MIDI and never under the agent (whose runner answers a request
 // itself). Web MIDI's model: `navigator.requestMIDIAccess({sysex: false})`,
@@ -6,21 +6,21 @@
 // `midimessage`. Where there is none (WebKit, so every iOS browser) the
 // state is `unavailable`.
 //
-// - **Access.** At install, a permission already granted is taken silently;
-//   otherwise nothing is said until the runner asks
+// - **Access.** At install, a permission already granted is taken silently
+//   (rulings #4); otherwise nothing is said until the runner asks
 //   (`request`), and a refusal is `denied`. `onstatechange` reports the
 //   ports again; the runner keeps a port it no longer hears of as
 //   disconnected.
 // - **Sending.** A message is held on the page's timer until 50 ms before
 //   it is due, then handed with `send(data, origin + at)`: Chromium has no
 //   `MIDIOutput.clear()`, so holding is how a retraction takes one back. A
-//   stall of more than 50 ms makes a message late (a declared limit);
+//   stall of more than 50 ms makes a message late (D7, a declared limit);
 //   the late ones are counted.
 // - **Receiving.** Only the inputs the runner opens listen. A message's
 //   runner time is its `timeStamp` less the origin; Active Sensing is left
 //   out, and Timing Clock too unless the input is one a sequence follows
-//   (the open op's `clock`). What arrives in one frame is one
-//   delivery, so the runner coalesces it as one; ticks alone
+//   (the open op's `clock`, LLP 1125 D9). What arrives in one frame is one
+//   delivery, so the runner coalesces it as one (rulings #2); ticks alone
 //   wait up to 50 ms from the oldest, and anything else takes them along at
 //   the next frame.
 const HOLD = 50, BATCH = 50;

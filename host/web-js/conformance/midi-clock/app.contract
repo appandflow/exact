@@ -1,5 +1,5 @@
 // data: metronome
-// Synthetic conformance plan: clock in on the wasm runner, the
+// Synthetic conformance plan: clock in (LLP 1125 D9) on the wasm runner, the
 // JS runtime and the Linux host, all under the driver, on the metronome's
 // data app (which grants `device.midi`): a sequence that follows `clk`
 // waits, hears the tempo from the ticks, counts in from Start, re-anchors at

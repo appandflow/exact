@@ -1,6 +1,6 @@
 //! Cases: a program and the events a host delivers to it.
 //!
-//! A corpus case is a `.contract` file with `test` blocks:
+//! A corpus case is a `.contract` file with `test` blocks (LLP 1017 P7):
 //! each block's inputs and clocks become primitive events, and its
 //! `expect` lines are checked against the runner's observations. A random
 //! case comes from [`crate::gen`].
@@ -27,8 +27,8 @@ pub enum Event {
 /// What a corpus test expects of the runner after the steps before it.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Expect {
-    /// `expect state name == literal`: the observation line's value text.
-    State(String, String),
+    /// `expect state path == literal`: the resolved observation value's text.
+    State(String, contract_syntax::StateComparison, Vec<String>),
     /// `expect text "id" == "value"`.
     Text(String, String),
     /// `expect tree has|missing "id"`.
@@ -69,12 +69,12 @@ pub struct Case {
     /// The file it was read from, when it resolves `use`s.
     pub path: Option<std::path::PathBuf>,
     /// Whether the device's store holds persisted states at launch
-    /// ([`crate::oracle::Oracle::with_store`]); an authored
+    /// (LLP 1116 D5, [`crate::oracle::Oracle::with_store`]); an authored
     /// test's starts empty.
     pub stored: bool,
     /// Whether the host builds every tab panel from boot on, as a page
-    /// rendered ahead of its runtime does
-    /// (`Runner::build_every_tab`); an authored test's panels wait.
+    /// rendered ahead of its runtime does (LLP 1075.003 §9.14,
+    /// `Runner::build_every_tab`); an authored test's panels wait.
     pub prerendered: bool,
     /// Fixed host facts supplied before boot.
     pub launch: exact_runner::time::Launch,
@@ -304,25 +304,44 @@ fn deliver(step: &Step) -> Result<Option<Item>, String> {
             Some(Ok(ms)) if ms.is_finite() && ms >= 0.0 => Item::Event(Event::Clock(ms)),
             _ => return Err("only clock +ms, data, settle and until state are delivered".into()),
         },
-        Step::ExpectState { name, value, .. } => match literal(value) {
-            Some(v) => Item::Expect(Expect::State(name.clone(), v), step.span()),
-            None => return Err(format!("expect state {name} needs a literal")),
-        },
+        Step::ExpectState {
+            name,
+            comparison,
+            value,
+            ..
+        } => {
+            let values = if *comparison == contract_syntax::StateComparison::In {
+                let Expr::List(values, _) = value else {
+                    return Err("state membership needs literals".into());
+                };
+                values.iter().map(literal).collect::<Option<Vec<_>>>()
+            } else {
+                literal(value).map(|value| vec![value])
+            };
+            match values {
+                Some(values) => Item::Expect(
+                    Expect::State(name.clone(), *comparison, values),
+                    step.span(),
+                ),
+                None => return Err(format!("expect state {name} needs a literal")),
+            }
+        }
         Step::ExpectText { target, value, .. } => {
             Item::Expect(Expect::Text(target.clone(), value.clone()), step.span())
         }
         Step::ExpectTree {
             target, present, ..
         } => Item::Expect(Expect::Tree(target.clone(), *present), step.span()),
-        // The voice table is not in Lean: its commands
+        // The voice table is not in Lean (LLP 1096 D11): its commands
         // are, and those are compared; a step that reads the table is
         // the runner's tests' and conformance's.
         Step::ExpectSound { .. } => Item::Observe(step.span()),
-        // Displayed wake-lock holders have no Lean oracle.
+        // Displayed wake-lock holders have no Lean oracle (LLP 1125 D11).
         Step::ExpectWakelock { .. } => Item::Observe(step.span()),
-        // A control's `disabled` is read from the host's tree, which Lean has no model of.
-        Step::ExpectDisabled { .. } => Item::Observe(step.span()),
-        // The media session is the host's: an assertion on
+        // A control's `disabled` and the focus are read from the host's tree (LLP 1116.010 D3), which Lean has no
+        // model of.
+        Step::ExpectDisabled { .. } | Step::ExpectFocused { .. } => Item::Observe(step.span()),
+        // The media session is the host's (LLP 1098 D12): an assertion on
         // it has no oracle, and a test that only asserts it still runs.
         // Its `tap` form is not a press, so it reaches `other` and the
         // block stops at that step.
@@ -343,11 +362,6 @@ fn until(arg: &str, span: contract_syntax::Span) -> Result<Item, String> {
         .strip_prefix("until state ")
         .and_then(|s| s.split_once(" == "))
         .ok_or("clock until needs a state path and a literal")?;
-    if path.contains('.') {
-        return Err(format!(
-            "clock until: {path} needs a field adapter; expect state reads only top-level observation values"
-        ));
-    }
     let (literal, within) = rest
         .rsplit_once(" within ")
         .ok_or("clock until needs a bound")?;
@@ -356,14 +370,6 @@ fn until(arg: &str, span: contract_syntax::Span) -> Result<Item, String> {
         literal: serde_json::from_str(literal).map_err(|e| e.to_string())?,
         within: within.parse::<u64>().map_err(|e| e.to_string())?,
         span,
-    })
-}
-
-/// The same top-level value for expectations and state waits.
-pub(crate) fn state_value<'a>(step: &'a [String], name: &str) -> Option<&'a str> {
-    ["slot", "derive", "resource"].iter().find_map(|kind| {
-        let prefix = format!("{kind} {name} ");
-        step.iter().find_map(|line| line.strip_prefix(&prefix))
     })
 }
 
@@ -379,6 +385,7 @@ fn delivered_kind(kind: &str) -> bool {
             | "ExpectSound"
             | "ExpectWakelock"
             | "ExpectDisabled"
+            | "ExpectFocused"
             | "ExpectMediaSession"
             | "ExpectMediaSessionAction"
     )
@@ -414,14 +421,6 @@ fn kind_name(kind: &str) -> String {
 
 fn step_kind(step: &Step) -> String {
     match step {
-        Step::Clock { arg, .. }
-            if arg.strip_prefix("until state ").is_some_and(|s| {
-                s.split_once(" == ")
-                    .is_some_and(|(path, _)| path.contains('.'))
-            }) =>
-        {
-            "clock until (field path)".into()
-        }
         Step::Clock { arg, .. } => format!("clock {}", arg.split_whitespace().next().unwrap_or("")),
         Step::Tap {
             form, modifiers, ..
@@ -429,6 +428,32 @@ fn step_kind(step: &Step) -> String {
             "tap (not a plain press)".into()
         }
         other => kind_name(other.kind()),
+    }
+}
+
+/// Compare canonical observations with the same literal and numeric rules as the device driver.
+pub(crate) fn state_holds(
+    got: Option<&str>,
+    comparison: contract_syntax::StateComparison,
+    values: &[String],
+) -> bool {
+    use contract_syntax::StateComparison as C;
+    match comparison {
+        C::Equal | C::In => got.is_some_and(|got| values.iter().any(|value| value == got)),
+        C::AtLeast | C::AtMost => got
+            .and_then(crate::property::number)
+            .zip(
+                values
+                    .first()
+                    .and_then(|value| crate::property::number(value)),
+            )
+            .is_some_and(|(got, bound)| {
+                if comparison == C::AtLeast {
+                    got >= bound
+                } else {
+                    got <= bound
+                }
+            }),
     }
 }
 
@@ -580,16 +605,23 @@ mod tests {
     }
 
     #[test]
-    fn until_field_and_index_paths_stop_apart() {
+    fn until_missing_field_and_index_paths_land_then_stop() {
         for path in ["session.phase", "rows.0"] {
             let source = format!("{APP}\ntest \"field\"\n  clock data\n  clock until state {path} == \"ready\" within 100\n  tap \"add\"\n");
             let s = scripted("until", &source, None).unwrap().remove(0);
             assert_eq!(s.delivery.taken, 1);
-            assert_eq!(s.case.events, [Event::Land]);
+            assert_eq!(s.case.events, [Event::Land, Event::Land]);
             assert_eq!(
                 s.delivery.stopped.as_ref().unwrap().1,
-                "clock until (field path)"
+                "clock until (not met)"
             );
+            assert!(s
+                .delivery
+                .stopped
+                .as_ref()
+                .unwrap()
+                .2
+                .contains("<not printed>"));
         }
     }
 

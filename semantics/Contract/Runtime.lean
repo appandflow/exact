@@ -69,7 +69,7 @@ def exec : Nat → Env → Locals → List Stmt → Effects → Result Effects
         | .none => exec fuel env ls nn fx
         | _ => .error (.type "`match` on a value that is not an option")
       exec fuel env ls rest fx
-    -- A call: the arguments in the caller's scope, then the
+    -- A call (LLP 1089 D9): the arguments in the caller's scope, then the
     -- callee's body in a scope of its parameters alone, against the same
     -- starting state and rows, adding to the same effects. A refusal in
     -- it refuses the action. Fuel bounds the nesting: an accepted program
@@ -88,9 +88,9 @@ def exec : Nat → Env → Locals → List Stmt → Effects → Result Effects
 mutual
 /-- Whether a value has a type: what the runner checks at every boundary
 (a slot written, a derive settled, a source's answer, an action's
-argument). A `number` that crosses a boundary is finite: infinities and
-NaN live only inside an evaluation. A record is of the shape it names (the
-runner's records carry no name; here the name selects field indices, so a
+argument). A source's arguments are checked for finiteness too. Infinities
+and NaN live only inside an evaluation. A record is of the shape it names
+(the runner's records carry no name; here the name selects field indices, so a
 record of another name is not of this shape). -/
 def conforms (p : Program) : Value → Ty → Bool
   | _, .unknown => true
@@ -141,6 +141,13 @@ def typedFields (p : Program) : List Value → List Field → Bool
   | _, _ => true
 end
 
+/-- Why a value fails a boundary's check (`conforms`): when it is of the
+type (`typed`), a number in it is not finite, which is refused (`finite`);
+otherwise it is of another type (`wrong`), the type error a checked program
+never makes. -/
+def unfit (isTyped : Bool) (finite wrong : String) : Err :=
+  if isTyped then .refused finite else .type wrong
+
 /-- A hidden parameter: one the expansion adds to a child's lifted action
 for a prop or inject it captures (`@capture:…`; `@` begins no authored
 name). Its argument is the compiler's, not the host's. -/
@@ -181,19 +188,39 @@ structure Oracle where
   /-- Host facts, by resource: what a resource whose source the host
   answers itself (`exactViewport`, `exactPage`, …) holds. -/
   facts : List (String × Value) := []
-  /-- The device's store at launch: each persisted state's
+  /-- The device's store at launch (LLP 1116 D5): each persisted state's
   kept value, by the state's name, as the host read it before boot — the
   device's, like every answer here. A fresh install's is empty. -/
   stored : List (String × Value) := []
+  /-- The sources a native module answers (LLP 1133.002 D13): the runner
+  answers them from the module's substitute, whose state (a permission, a
+  preferred value) is its own, so a call to one with no answer and no fact
+  is outside the semantics, not a refusal. -/
+  modules : List String := []
+  /-- The sources a program declares (LLP 1162.001): the runner makes their
+  HTTP request itself and never asks the oracle, so a call to one with no
+  answer and no fact is outside the semantics, not a refusal. -/
+  fetches : List String := []
   /-- The host built every tab panel at boot and builds each as it is made
-  (a page rendered ahead of its runtime, which the runtime adopts whole;
-  `Runner::build_every_tab`). -/
+  (LLP 1075.003 §9.14: a page rendered ahead of its runtime, which the
+  runtime adopts whole; `Runner::build_every_tab`). -/
   everyTab : Bool := false
   deriving Inhabited
 
-/-- The differential oracle's keys (`difftest/src/oracle.rs`): all NaN
-signs and payloads share an answer, but signed zeros remain distinct.
-The transcript keeps the runner's bits; arithmetic may produce another NaN. -/
+mutual
+/-- Source arguments carry only finite numbers, including in containers (LLP 1027 D2). -/
+private def finiteValue : Value → Bool
+  | .num f => Number.isFinite f
+  | .some v => finiteValue v
+  | .list vs | .record _ vs => finiteValues vs
+  | _ => true
+private def finiteValues : List Value → Bool
+  | [] => true
+  | v :: vs => finiteValue v && finiteValues vs
+end
+
+/-- The differential oracle's numeric keys (`difftest/src/oracle.rs`)
+use canonical bits; signed zeros remain distinct. -/
 private partial def oracleSame : Value → Value → Bool
   | .num a, .num b => Number.canonicalBits a == Number.canonicalBits b
   | .some a, .some b => oracleSame a b
@@ -203,6 +230,7 @@ private partial def oracleSame : Value → Value → Bool
 
 def Oracle.ask (o : Oracle) (src : String) (args : List Value) (resource : String := "") :
     Result Value :=
+  if !finiteValues args then .error (.refused "a source argument contains a non-finite number") else
   match o.answers.find? (fun (s, as, _) =>
       s == src && as.length == args.length && (as.zip args).all fun (a, b) => oracleSame a b) with
   | .some (_, _, v) => .ok v
@@ -211,7 +239,11 @@ def Oracle.ask (o : Oracle) (src : String) (args : List Value) (resource : Strin
     | .some v => .ok v
     | .none =>
       if src = "exactTransport" ∨ src = "exactMIDI" then
-        .error (.unsupported s!"`{src}`: the runner answers it from its transport or its MIDI ports, which change as they play")
+        .error (.unsupported s!"`{src}`: the runner answers it from its transport or its MIDI ports, which change as they play (LLP 1125)")
+      else if o.modules.contains src then
+        .error (.unsupported s!"`{src}`: a native module's, which the runner answers from the module's substitute (LLP 1133.002 D13)")
+      else if o.fetches.contains src then
+        .error (.unsupported s!"`{src}`: a declared source's, whose HTTP request the runner makes itself (LLP 1162.001)")
       else .error (.refused s!"the oracle has no answer for {src}")
 
 /-! ## Settlement -/
@@ -219,9 +251,45 @@ def Oracle.ask (o : Oracle) (src : String) (args : List Value) (resource : Strin
 structure Settled where
   derives : List (String × Value) := []
   resources : List (String × Value) := []
-  /-- The arguments each resource's value answers. -/
+  /-- The arguments each resource's value answers. An idle resource has
+  none: its value answers nothing now. -/
   args : List (String × List Value) := []
+  /-- The resources whose `when` was false (LLP 1161.002 D2). -/
+  idle : List String := []
   deriving Inhabited
+
+/-- `ty`'s zero, what a resource idle before its first answer holds (LLP
+1161.002 D5): `0`, `""`, `false`, `()`, `none`, `[]`, and a record of its
+fields' zeros, as the runner's `zero`. A string enum is a `string` here,
+whose zero is `""` where the runner's is the enum's first member. -/
+def zeroOf (shapes : List Shape) : Nat → Ty → Value
+  | _, .number => .num 0
+  | _, .bool => .bool false
+  | _, .string => .str ""
+  | _, .unit => .unit
+  | _, .option _ => .none
+  | _, .list _ => .list []
+  | _, .unknown => .unit
+  | 0, .record s => .record s []
+  | n + 1, .record s =>
+    match shapes.find? (·.name == s) with
+    | .some sh => .record s (sh.fields.map fun f => zeroOf shapes n f.ty)
+    | .none => .record s []
+
+/-- What an idle resource holds (LLP 1161.002 D2, D5): its previous
+value, else its type's zero. -/
+def idleValue (p : Program) (prev : Settled) (r : ResourceDecl) : Value :=
+  (lookup r.name prev.resources).getD (zeroOf p.shapes (p.shapes.length + 1) r.ty)
+
+/-- Whether a resource's `when` holds (LLP 1161.002 D1): with none it
+always does; a value other than `true` closes it, as the runner reads it. -/
+def gateOpen (env : Env) (r : ResourceDecl) : Result Bool :=
+  match r.gate with
+  | .none => .ok true
+  | .some g => do
+    match ← eval fuel env false [] g with
+    | .bool true => pure true
+    | _ => pure false
 
 /-- The runner's `==` on values (`exact_plan::Value`'s `PartialEq`):
 numbers by IEEE `==` (`-0 = 0`, `NaN ≠ NaN`), the rest structurally. Two
@@ -251,7 +319,7 @@ def rowKey : Value → Result Value
     else .error (.refused "a row key that is not finite")
   | _ => .error (.refused "a row key that is not a string, number or bool")
 
-/-! ### A resource over a list -/
+/-! ### A resource over a list (LLP 1017.000 P4c, amended 2026-11-04) -/
 
 /-- Whether `h`, an element's request as settlement holds it
 (`.list [key, .list args, answer]`), is keyed `k`. -/
@@ -317,7 +385,12 @@ graph is acyclic, and each value is a function of the values it reads).
 
 A resource whose arguments equal (`argsEq`) those its previous value
 answered keeps that value and asks nothing, unless the commit refreshes it
-(`force`): its source is asked only when the question changes. -/
+(`force`): its source is asked only when the question changes.
+
+A resource whose `when` is false is idle (LLP 1161.002 D2): its arguments
+are not read and nothing is asked, even when the commit refreshes it; it
+keeps its previous value, or its type's zero, with no arguments, so the
+settlement that opens the gate asks again (D3). -/
 def settle (p : Program) (o : Oracle) (slots : List (String × Value)) (now : F64)
     (prev : Settled := {}) (force : List String := []) : Result Settled :=
   let rec pass : Nat → Settled → Result Settled
@@ -328,17 +401,19 @@ def settle (p : Program) (o : Oracle) (slots : List (String × Value)) (now : F6
       let mut waiting := false
       for d in p.derives do
         if (lookup d.name st.derives).isSome then continue
-        let env : Env := { prog := p, slots, derives := st.derives, resources := st.resources, now }
+        let env : Env := { prog := p, slots, derives := st.derives, resources := st.resources, now, idle := st.idle }
         match eval fuel env false [] d.body with
         | .ok v =>
-          if !conforms p v d.ty then throw (.refused s!"derive `{d.name}` of the wrong type")
+          if !conforms p v d.ty then
+            throw (unfit (typed p v d.ty) s!"derive `{d.name}` holds a number that is not finite"
+              s!"derive `{d.name}` of the wrong type")
           st := { st with derives := st.derives ++ [(d.name, v)] }
           progress := true
         | .error .pending => waiting := true
         | .error e => throw e
       for r in p.resources do
         if (lookup r.name st.resources).isSome then continue
-        let env : Env := { prog := p, slots, derives := st.derives, resources := st.resources, now }
+        let env : Env := { prog := p, slots, derives := st.derives, resources := st.resources, now, idle := st.idle }
         match r.each with
         | .some e =>
           let held := ((prev.args.find? (·.1 == r.name)).map (·.2)).getD []
@@ -350,6 +425,15 @@ def settle (p : Program) (o : Oracle) (slots : List (String × Value)) (now : F6
           | .error .pending => waiting := true
           | .error err => throw err
         | .none =>
+        match gateOpen env r with
+        | .error .pending => waiting := true
+        | .error e => throw e
+        | .ok false =>
+          if !conforms p (idleValue p prev r) r.ty then
+            throw (.refused s!"resource `{r.name}` of the wrong shape")
+          st := { st with resources := st.resources ++ [(r.name, idleValue p prev r)], idle := st.idle ++ [r.name] }
+          progress := true
+        | .ok true =>
         match evalList fuel env false [] r.args with
         | .ok args =>
           let kept : Option (Value × List Value) :=
@@ -503,7 +587,9 @@ where
             let env := { cx.env with rows := s ++ cx.env.rows }
             let v ← eval fuel env false ls st.init
             if !conforms cx.env.prog v st.ty then
-              throw (.refused s!"slot `{st.name}` initialized with a value of the wrong type")
+              throw (unfit (typed cx.env.prog v st.ty)
+                s!"slot `{st.name}` initialized with a number that is not finite"
+                s!"slot `{st.name}` initialized with a value of the wrong type")
             s := s ++ [(st.name, v)]
         pure s
   /-- A `when` or `match` arm: an instance of its own, named by the arm. -/
@@ -585,6 +671,7 @@ def waitBeatAfter (deadline interval execution : F64) : F64 :=
 host does not present frames, as in a differential run): it is due at
 `virtualFrame base k`, and each fire moves to the next frame. -/
 structure Timer where
+  change : Bool := false
   action : String
   waitKind : Nat := 0
   nominal : F64 := 0
@@ -595,10 +682,10 @@ structure Timer where
   frame : Bool := false
   base : F64 := 0
   k : Nat := 1
-  /-- A gated task's gate and key; `none` for `mount`. -/
+  /-- A gated task's gate and key (LLP 1092 D7); `none` for `mount`. -/
   gate : Option Expr := .none
   key : Option Expr := .none
-  /-- Whether its gate holds; an idle timer's `next` is infinite. -/
+  /-- Whether its gate holds; an idle timer's `next` is infinite (D8). -/
   armed : Bool := true
   /-- The key it was armed with, as `rowKey` reads it. -/
   armedKey : Option Value := .none
@@ -623,7 +710,7 @@ def Timer.precedes (tm b : Timer) : Bool :=
         (if b.waitKind == 0 then b.next else b.nominal))))
 
 /-- What a refused queued send saw: the slots, and the derives and
-resources settled against them. -/
+resources settled against them (LLP 1092 D3). -/
 abbrev Basis := List (String × Value) × Settled
 
 structure Config where
@@ -640,13 +727,13 @@ structure Config where
   whose `then` runs at the next clock advance, due at the commit's time. -/
   armed : List (String × F64) := []
   /-- The sends that wait their turn, oldest first: each a `queue`
-  mutation, its source and its send-time arguments. -/
+  mutation, its source and its send-time arguments (LLP 1092 D2). -/
   queued : List (String × String × List Value) := []
   /-- The `queue` mutations whose head an advance does not ask until a
-  commit changes what its refusal saw. -/
+  commit changes what its refusal saw (LLP 1092 D3). -/
   stalled : List (String × Basis) := []
   /-- Each `queue` mutation's armed `next`, due at the time of the commit
-  after which it was free (the runner's `next_due`). -/
+  after which it was free (the runner's `next_due`, LLP 1092 D3). -/
   nexts : List (String × F64) := []
   deriving Inhabited
 
@@ -680,7 +767,7 @@ def update (p : Program) (o : Oracle) (slots : List (String × Value)) (store : 
     (now : F64) (prev : Settled := {}) (force : List String := []) (view : List VNode := []) :
     Result (Settled × Result (List VNode × RowStore)) := do
   let st ← settle p o slots now prev force
-  let env : Env := { prog := p, slots, derives := st.derives, resources := st.resources, now }
+  let env : Env := { prog := p, slots, derives := st.derives, resources := st.resources, now, idle := st.idle }
   .ok (st, renderTabs fuel
     { env, store, tabs := { opened := Tabs.visited (tabIndex view), every := o.everyTab } })
 
@@ -704,7 +791,7 @@ def armThens (p : Program) (armed : List (String × F64))
       armed.filter (·.1 != m) ++ [(m, now)]
     else armed) armed
 
-/-! ## Gated tasks and queued sends -/
+/-! ## Gated tasks and queued sends (LLP 1092) -/
 
 /-- Two keys the same, as the runner's `key_text` compares them. -/
 def keySame : Option Value → Option Value → Bool
@@ -727,7 +814,7 @@ def gateKey (env : Env) : Option Expr → Result (Option Value)
   | .none => .ok .none
   | .some k => eval fuel env false [] k >>= fun v => rowKey v >>= fun kv => .ok (.some kv)
 
-/-- One timer after a commit: a false gate drops it (an infinite
+/-- One timer after a commit (D8): a false gate drops it (an infinite
 deadline); a gate turned true, or a changed key, arms it from the commit's
 time — a frame task's virtual frames start again there (the runner's
 `gate_step`); anything else leaves it as it was. -/
@@ -765,10 +852,10 @@ theorem gateTimer_action {env : Env} {tm tm' : Timer} (h : gateTimer env tm = .o
     tm'.action = tm.action :=
   (gateTimer_fields h).1
 
-/-- The gate step over a commit's settled state, at its time. -/
+/-- D8's step over a commit's settled state, at its time. -/
 def gateStep (p : Program) (slots : List (String × Value)) (st : Settled) (now : F64)
     (timers : List Timer) : Result (List Timer) :=
-  timers.mapM (gateTimer { prog := p, slots, derives := st.derives, resources := st.resources, now })
+  timers.mapM (gateTimer { prog := p, slots, derives := st.derives, resources := st.resources, now, idle := st.idle })
 
 theorem mapM_gateTimer_actions {env : Env} :
     ∀ {ts ts' : List Timer}, ts.mapM (gateTimer env) = .ok ts' → ts'.map (·.action) = ts.map (·.action)
@@ -829,7 +916,7 @@ def Config.moved (c : Config) (b : Basis) : Bool :=
   !(sameBinds b.1 c.slots && sameBinds b.2.derives c.settled.derives &&
     sameBinds b.2.resources c.settled.resources)
 
-/-- After a commit that stood: the stalls its change lets go. -/
+/-- After a commit that stood: the stalls its change lets go (D3). -/
 def Config.unstall (c : Config) : Config :=
   { c with stalled := c.stalled.filter fun (_, b) => !c.moved b }
 
@@ -838,7 +925,7 @@ def isQueue (p : Program) (m : String) : Bool :=
   p.mutations.any fun md => md.name == m && md.queue
 
 /-- Which of an action's sends are asked in its commit and which wait
-: a send of a `queue` mutation is asked only when nothing of
+(LLP 1092 D2): a send of a `queue` mutation is asked only when nothing of
 it waits, it is not stalled, and no send of it came earlier in the commit;
 otherwise it joins its queue with its arguments. Free is the runner's
 `idle`: neither its `then` nor its `next` armed, and not stalled. -/
@@ -886,12 +973,13 @@ def Config.armNexts (p : Program) (c : Config) : Config :=
 /-- At most this many sends wait per mutation (the runner's `QUEUE_BOUND`). -/
 def queueBound : Nat := 64
 
-/-- The commands a commit tells a host: all but `setMode`, which the
-runner takes out and applies itself in the commit (the
-runner's `take_set_modes`). The window's mode only selects presentation,
-which the semantics does not evaluate. -/
+/-- The runner consumes `setMode` and the seven-argument row form of
+`scrollIntoView` in the commit (LLP 1121 D5; LLP 1070.000 §12–13).
+Their presentation and layout effects are outside the semantics.
+The four-argument element form of `scrollIntoView` reaches the host. -/
 def hostCommands (cs : List (String × List Value)) : List (String × List Value) :=
-  cs.filter (·.1 != "setMode")
+  cs.filter fun (name, args) =>
+    name != "setMode" && !(name == "scrollIntoView" && args.length == 7)
 
 /-- Run an action as one commit. `rows` are the rows in force where the
 event arrived (none for a timer). -/
@@ -906,12 +994,12 @@ def runAction (p : Program) (o : Oracle) (c : Config) (name : String) (args : Li
     if !((a.params.zip args).all fun (q, v) => argOk p q v) then
       refuse (.refused "an argument of the wrong type") else
     let env : Env := { prog := p, slots := c.slots, derives := c.settled.derives,
-                       resources := c.settled.resources, rows := rowSlots c.store rows, now := c.now }
+                       resources := c.settled.resources, rows := rowSlots c.store rows, now := c.now, idle := c.settled.idle }
     let ls : Locals := ((a.params.map (·.1)).zip args).reverse
     match exec fuel env ls a.body {} with
     | .error e => refuse e
     | .ok fx =>
-      -- A queue's send waits its turn unless it may be asked now.
+      -- A queue's send waits its turn unless it may be asked now (LLP 1092 D2).
       let split := splitSends p c fx.sends
       let queued := c.queued ++ split.2
       if split.2.any (fun s => (queued.filter (·.1 == s.1)).length > queueBound) then
@@ -926,7 +1014,8 @@ def runAction (p : Program) (o : Oracle) (c : Config) (name : String) (args : Li
       | .error e => refuse e
       | .ok answered =>
         if !((fx.writes ++ fx.rowWrites).all fun (x, v) => conforms p v (slotTy p x)) then
-          refuse (.refused "a write of the wrong type") else
+          refuse (unfit ((fx.writes ++ fx.rowWrites).all fun (x, v) => typed p v (slotTy p x))
+            "a write of a number that is not finite" "a write of the wrong type") else
         let slots := (answered ++ fx.writes).foldl (fun s (x, v) => setSlot s x v) c.slots
         -- The router slot must hold a valid router after every commit (the
         -- runner's `router_change`): a forged value is refused.
@@ -935,7 +1024,7 @@ def runAction (p : Program) (o : Oracle) (c : Config) (name : String) (args : Li
         match update p o slots store c.now c.settled fx.refreshes c.view with
         | .error e => refuse e
         | .ok (st, r) =>
-          -- The gate step, after settlement and inside the commit: a
+          -- D8's gate step, after settlement and inside the commit: a
           -- refusal there refuses it, before the view is touched.
           match gateStep p slots st c.now c.timers with
           | .error e => refuse e
@@ -965,7 +1054,7 @@ def dueNext (p : Program) (nexts : List (String × F64)) (t : F64) : Option (Str
       | .none => best
     else best) Option.none
 
-/-- A `next` commit: `m`'s oldest waiting send, asked as an action's
+/-- A `next` commit (D3): `m`'s oldest waiting send, asked as an action's
 send is. Its own ask's refusal drops it (it could never be asked); any
 other refusal keeps it and stalls `m` until a commit changes the state.
 A landed answer arms `m`'s `then`; every outcome ends with the scan. -/
@@ -998,7 +1087,7 @@ def nextCommit (p : Program) (o : Oracle) (c : Config) (m : String) : Config × 
           | .error e => ({ c₀ with slots, settled := st, poisoned := true, queued := [], stalled := [],
                                     nexts := [] }, .poisoned e)
 
-/-- A root slot's boot value: for a persisted state, the
+/-- A root slot's boot value (LLP 1116 D5): for a persisted state, the
 store's value when it is one of the state's type; otherwise `v`, the
 initializer's (a value of another shape is ignored, as the runner keeps
 the initializer's and journals it). -/
@@ -1022,7 +1111,9 @@ def initSlots (p : Program) (o : Oracle) : Result (List (String × Value)) := do
         | .error why => throw (.refused s!"router launch refused: {why}")
       let env : Env := { prog := p, slots, now := 0 }
       let v ← eval fuel env false [] st.init
-      if !conforms p v st.ty then throw (.refused s!"slot `{st.name}` initialized with the wrong type")
+      if !conforms p v st.ty then
+        throw (unfit (typed p v st.ty) s!"slot `{st.name}` initialized with a number that is not finite"
+          s!"slot `{st.name}` initialized with the wrong type")
       pure (slots ++ [(st.name, restore p o st v)])) []
   pure (slots ++ p.mutations.map (·.name, Value.none))
 
@@ -1056,14 +1147,14 @@ def startTimers (p : Program) (slots : List (String × Value)) : Result (List Ti
   p.tasks.mapM fun t => do
     -- A frame task's first virtual frame follows boot (at 0); its `ms`
     -- is a placeholder, never read.
-    -- A gated task starts idle; boot's gate step arms it.
+    -- A gated task starts idle; boot's gate step arms it (LLP 1092 D8).
     let gated := t.gate.isSome || t.key.isSome
     if t.kind == .frame then
       return { action := t.action, interval := 0, once := false,
                next := if gated then F64.posInf else virtualFrame 0 1, frame := true, base := 0, k := 1,
                gate := t.gate, key := t.key, armed := !gated }
     let ms ← (← eval fuel { prog := p, slots } false [] t.ms).asNum
-    pure { action := t.action, interval := ms, once := t.kind == .after,
+    pure { action := t.action, interval := ms, once := t.kind == .after || t.kind == .change, change := t.kind == .change,
            waitKind := t.waitKind, maxMs := t.maxMs, nominal := ms,
            next := if gated then F64.posInf else if t.waitKind == 1 then frameAtOrAfter ms else ms, gate := t.gate, key := t.key, armed := !gated }
 
@@ -1072,9 +1163,11 @@ def lateSlots (p : Program) (st : Settled) (slots : List (String × Value)) :
     Result (List (String × Value)) :=
   p.states.foldlM (fun slots decl => do
     if !decl.late || decl.owner.isSome then return slots
-    let env : Env := { prog := p, slots, derives := st.derives, resources := st.resources, now := 0 }
+    let env : Env := { prog := p, slots, derives := st.derives, resources := st.resources, now := 0, idle := st.idle }
     let v ← eval fuel env false [] decl.init
-    if !conforms p v decl.ty then throw (.refused s!"slot `{decl.name}` initialized with the wrong type")
+    if !conforms p v decl.ty then
+      throw (unfit (typed p v decl.ty) s!"slot `{decl.name}` initialized with a number that is not finite"
+        s!"slot `{decl.name}` initialized with the wrong type")
     pure (setSlot slots decl.name v)) slots
 
 /-- The configuration before boot, and after a boot that is refused. -/
@@ -1099,7 +1192,7 @@ def boot (p : Program) (o : Oracle) : Config × Outcome :=
       match gateStep p slots st 0 timers with
       | .error e => (empty, .refused e)
       | .ok timers =>
-      let env : Env := { prog := p, slots, derives := st.derives, resources := st.resources, now := 0 }
+      let env : Env := { prog := p, slots, derives := st.derives, resources := st.resources, now := 0, idle := st.idle }
       match renderTabs fuel { env, store := [], tabs := { every := o.everyTab } } with
       | .ok (view, live) =>
         ({ slots, settled := st, store := live, view, now := 0, timers }, .ok)
@@ -1134,7 +1227,7 @@ def dispatch (p : Program) (o : Oracle) (c : Config) (target : String) (event : 
         (c, .refused (.unsupported s!"a payload for a `{n.control.getD ""}` control")) else
       let env : Env := { prog := p, slots := c.slots, derives := c.settled.derives,
                          resources := c.settled.resources, rows := rowSlots c.store n.rows,
-                         now := c.now }
+                         now := c.now, idle := c.settled.idle }
       match evalList fuel env false n.locals args with
       | .error e => (c, .refused e)
       | .ok vs => runAction p o c a (vs ++ payload.toList) n.rows
@@ -1187,7 +1280,7 @@ time (ties by declaration order), each at its own due time. An armed
 `then` runs, as its own commit, before any timer due at or after its
 time (the answer landed first). A `queue` mutation's armed `next` runs
 before a `then` due at or after its time and before a timer due after it
-(the runner's `advance`). A refusal stops the advance there,
+(LLP 1092 D3; the runner's `advance`). A refusal stops the advance there,
 with the clock at the refusing timer's due time. -/
 def advance (p : Program) (o : Oracle) (c : Config) (t : F64) : Config × Outcome :=
   let due (c : Config) : Option (Timer × Nat) :=
@@ -1224,10 +1317,11 @@ def advance (p : Program) (o : Oracle) (c : Config) (t : F64) : Config × Outcom
       match due c with
       | .none => finish c
       | .some (tm, i) =>
+        if tm.change && n + 1 < timerFireLimit then (c, .ok) else
         let timers := c.timers.set i tm.fired
-        let c := { c with timers, now := tm.next }
+        let c := { c with timers, now := if tm.change && tm.next < c.now then c.now else tm.next }
         match runAction p o c tm.action [] [] with
-        | (c, .ok) => go n c
+        | (c, .ok) => if tm.change then (c, .ok) else go n c
         | (c, out) => (c, out)
   if t < c.now then (c, .ok) else go timerFireLimit c
 

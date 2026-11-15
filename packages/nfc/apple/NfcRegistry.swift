@@ -1,4 +1,4 @@
-// The process's one reader, shared by every session's
+// The process's one reader (LLP 1133.035 D6), shared by every session's
 // `NfcModule`: Core NFC allows one reader session in the whole system. On
 // the Mac and tvOS there is no Core NFC, and the registry refuses what
 // reaches it (the module has already answered `available` false).
@@ -8,7 +8,7 @@ import Foundation
 import CoreNFC
 #endif
 
-/// The app's access hatch, on iOS: told each reader session after it
+/// The app's access hatch (D14), on iOS: told each reader session after it
 /// begins, and each tag before the module reads it, on the session's queue
 /// (the main queue). A tag the hatch connects to is read after it returns.
 public enum NfcHatch {
@@ -71,7 +71,7 @@ final class NfcRegistry: NSObject {
         finishIfIdle(nil)
     }
 
-    /// iOS ends the session when the app leaves the foreground.
+    /// iOS ends the session when the app leaves the foreground (D6).
     func background() {
         #if os(iOS)
         guard session != nil else { return }
@@ -162,7 +162,7 @@ final class NfcRegistry: NSObject {
         present = nil
     }
 
-    /// The session ended itself: Cancel, the timeout, the system.
+    /// The session ended itself (D4, D6): Cancel, the timeout, the system.
     fileprivate func invalidated(_ error: Error) {
         guard session != nil else { return }
         let code = (error as? NFCReaderError)?.code
@@ -183,7 +183,7 @@ final class NfcRegistry: NSObject {
         reset()
     }
 
-    /// Several tags at once are neither read nor written: polling
+    /// Several tags at once are neither read nor written (D5): polling
     /// restarts, as Apple's sample does.
     fileprivate func several() {
         session?.alertMessage = claims.last?.words.alert ?? ""
@@ -195,7 +195,10 @@ final class NfcRegistry: NSObject {
         if let s = session as? NFCTagReaderSession { s.restartPolling() }
     }
 
-    /// Restart polling once `tag` has left the field.
+    /// Restart polling once `tag` has left the field (D11). A session whose
+    /// delegate takes `didDetect tags` detects no further tag until it is
+    /// told to (`restartPolling`), so a read, write or lock that leaves the
+    /// session open ends here.
     private func whenGone(_ available: @escaping () -> Bool) {
         DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(300)) { [weak self] in
             guard let self, self.session != nil else { return }
@@ -248,21 +251,24 @@ final class NfcRegistry: NSObject {
         finishIfIdle(done.last?.words.done)
     }
 
-    /// The steps on `tag` for `c`.
+    /// D7's steps on `tag` for `c`.
     private func write(_ c: NfcClaim, to tag: NFCNDEFTag, serial: String) {
         let fail: (String, String) -> Void = { [weak self] error, cause in
             guard let self else { return }
             self.claims.removeAll { $0 === c }
             c.settle(["error": error, "message": cause])
             let sentence = c.words.errors[cause]
-            if self.claims.isEmpty { self.finishIfIdle(sentence ?? cause, failed: true) }
-            else if let sentence { self.session?.alertMessage = sentence }
+            if self.claims.isEmpty { return self.finishIfIdle(sentence ?? cause, failed: true) }
+            if let sentence { self.session?.alertMessage = sentence }
+            self.whenGone { tag.isAvailable }
         }
         let succeed: () -> Void = { [weak self] in
             guard let self else { return }
             self.claims.removeAll { $0 === c }
             c.settle(["serialNumber": serial])
-            if self.claims.isEmpty { self.finishIfIdle(c.words.done) } else if let done = c.words.done { self.session?.alertMessage = done }
+            if self.claims.isEmpty { return self.finishIfIdle(c.words.done) }
+            if let done = c.words.done { self.session?.alertMessage = done }
+            self.whenGone { tag.isAvailable }
         }
         let records = c.message.compactMap { r -> NFCNDEFPayload? in
             guard case .success(let (tnf, type, id, payload)) = NfcRecords.encode(r, lang: Locale.current.language.languageCode?.identifier ?? "en") else { return nil }
@@ -306,7 +312,7 @@ final class NfcRegistry: NSObject {
         }
     }
 
-    /// A polling scan's tag with no NDEF: `readingerror`, and the
+    /// A polling scan's tag with no NDEF (D8, D11): `readingerror`, and the
     /// sheet's `unreadable` sentence while the scan goes on.
     fileprivate func unreadable(identity: (serial: String, apple: [String: Any]?), handle: AnyObject, available: @escaping () -> Bool) {
         var told = Set<ObjectIdentifier>()
@@ -368,7 +374,7 @@ extension NfcRegistry: NFCTagReaderSessionDelegate {
         }
     }
 
-    /// `serialNumber` and `apple.tag` of a tag the tag session found.
+    /// `serialNumber` and `apple.tag` (D11) of a tag the tag session found.
     static func identity(_ tag: NFCTag) -> ((serial: String, apple: [String: Any]?), NFCNDEFTag)? {
         switch tag {
         case .miFare(let t):

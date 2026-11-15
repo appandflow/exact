@@ -1,4 +1,4 @@
-// The JSON Schema subset on Apple: the checks every target
+// D8's JSON Schema subset on Apple (LLP 1133.016): the checks every target
 // shares (web/schema.js says the same in JavaScript), and the schema
 // Foundation Models constrains decoding with, built from it.
 //
@@ -39,8 +39,8 @@ enum LanguageModelSchema {
         guard let s = schema as? [String: Any] else { return "\(place) is not an object" }
         let root = root ?? s
         if let ref = s["$ref"] { return resolve(ref, root) != nil ? nil : "\(at): `\(ref)` names nothing in `$defs`" }
-        guard let type = s["type"] as? String, let allowed = keys[type] else { return "\(place): type `\(s["type"] ?? "none")` is outside the supported subset" }
-        for k in s.keys.sorted() where !allowed.contains(k) && !any.contains(k) { return "\(place): `\(k)` is outside the supported subset" }
+        guard let type = s["type"] as? String, let allowed = keys[type] else { return "\(place): type `\(s["type"] ?? "none")` is outside D8's subset" }
+        for k in s.keys.sorted() where !allowed.contains(k) && !any.contains(k) { return "\(place): `\(k)` is outside D8's subset" }
         for (name, d) in ((s["$defs"] as? [String: Any]) ?? [:]).sorted(by: { $0.key < $1.key }) {
             if let why = refusal(d, root: root, at: "$defs.\(name)") { return why }
         }
@@ -94,7 +94,7 @@ enum LanguageModelSchema {
         }
     }
 
-    /// The agent model's first instance as JSON text: each required property in order, a
+    /// §9's first instance as JSON text: each required property in order, a
     /// string's first `enum` value or `""`, a number's `minimum` or 0,
     /// `false`, and an array of `minItems` first instances.
     static func firstInstance(_ schema: [String: Any], root: [String: Any]? = nil) -> String {
@@ -144,7 +144,7 @@ extension LanguageModelSchema {
     struct Unsupported: Error { let why: String }
 
     /// The `GenerationSchema` Foundation Models constrains decoding with, from
-    /// a schema `refusal` passed: every `$defs` entry a dependency.
+    /// a schema `refusal` passed (D8's table): every `$defs` entry a dependency.
     static func generation(_ schema: [String: Any], name: String) throws -> GenerationSchema {
         let defs = (schema["$defs"] as? [String: Any]) ?? [:]
         let dependencies = try defs.sorted(by: { $0.key < $1.key }).map { name, d in try dynamic(d as? [String: Any] ?? [:], name: name) }
@@ -189,7 +189,7 @@ extension LanguageModelSchema {
             return DynamicGenerationSchema(arrayOf: items, minimumElements: number(s["minItems"]).map { Int($0) },
                                            maximumElements: number(s["maxItems"]).map { Int($0) })
         default:
-            throw Unsupported(why: "type `\(s["type"] ?? "none")` is outside the supported subset")
+            throw Unsupported(why: "type `\(s["type"] ?? "none")` is outside D8's subset")
         }
     }
 }

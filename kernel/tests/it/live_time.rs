@@ -1,5 +1,5 @@
 //! Width reservation is measured at the element's inherited font, not
-//! at a guessed digit width.
+//! at a guessed digit width. @ref LLP 1126 D6
 use exact_kernel::*;
 
 #[test]

@@ -11,22 +11,29 @@ theorem ask_legit (o : Oracle) (src : String) (args : List Value) (r : String) :
     GoodW Strict (fun _ => True) (o.ask src args r) := by
   unfold Oracle.ask
   split
-  · trivial
+  · exact ⟨trivial, by simp⟩
   · split
     · trivial
     · split
-      · exact ⟨trivial, by simp⟩
-      · exact ⟨trivial, by simp⟩
+      · trivial
+      · split
+        · exact ⟨trivial, by simp⟩
+        · split
+          · exact ⟨trivial, by simp⟩
+          · split
+            · exact ⟨trivial, by simp⟩
+            · exact ⟨trivial, by simp⟩
 
 /-- What settlement's evaluations need: the derives and resources are
 typed in a scope `G`, and an environment of the slots and any well-typed
 settled values satisfies `EnvOK` for `G`. -/
 structure SettleHyps (p : Program) (G : Scope) (slots : List (String × Value)) (now : F64) : Prop where
   prog : ProgOK p
-  derives : ∀ d ∈ p.derives, ∃ t, HasTy p G [] d.body t
+  derives : ∀ d ∈ p.derives, ∃ t, HasTy p G [] d.body t ∧ t.le d.ty = true
   resources : ∀ r ∈ p.resources, ∃ ts, ResTy p G r ts
+  gates : ∀ r ∈ p.resources, ∀ g, r.gate = .some g → ∃ u, HasTy p G [] g u
   env : ∀ st : Settled, SettledOK p st →
-    EnvOK p G { prog := p, slots, derives := st.derives, resources := st.resources, now }
+    EnvOK p G { prog := p, slots, derives := st.derives, resources := st.resources, now, idle := st.idle }
 
 theorem SettledOK.addDerive {p : Program} {st : Settled} {d : DeriveDecl} {v : Value} (h : SettledOK p st)
     (hd : d ∈ p.derives) (hv : conforms p v d.ty = true) :
@@ -48,11 +55,30 @@ theorem SettledOK.addResource {p : Program} {st : Settled} {r : ResourceDecl} {v
     obtain ⟨rfl, rfl⟩ := hx
     exact ⟨r, hr, rfl, hv⟩
 
+theorem SettledOK.addIdle {p : Program} {st : Settled} {r : ResourceDecl} {v : Value} {a}
+    (h : SettledOK p st) (hr : r ∈ p.resources) (hv : conforms p v r.ty = true) :
+    SettledOK p { st with resources := st.resources ++ [(r.name, v)], idle := a } :=
+  h.addResource (a := st.args) hr hv
+
+/-- A resource's `when` holds, does not, or fails only legitimately. -/
+theorem gateOpen_good {p : Program} {G : Scope} {env : Env} {r : ResourceDecl}
+    (hp : ProgOK p) (henv : EnvOK p G env) (hg : ∀ g, r.gate = .some g → ∃ u, HasTy p G [] g u) :
+    GoodR (fun _ => True) (gateOpen env r) := by
+  unfold gateOpen
+  split
+  · trivial
+  · next g hgate =>
+    obtain ⟨u, hu⟩ := hg g hgate
+    refine GoodR.bind ((eval_sound_ty (n := fuel) hp henv LocalsOK.nil hu).mono fun _ _ => trivial)
+      fun v _ => ?_
+    split <;> trivial
+
 /-- A row key is a key or a refusal. -/
 theorem rowKey_legit (v : Value) : GoodR (fun _ => True) (rowKey v) := by
   cases v <;> simp only [rowKey] <;> (try split) <;> simp [GoodR, Legit]
 
-/-- A resource over a list's elements, its key and arguments typed with the element bound at `te`:
+/-- A resource over a list's elements (LLP 1017.000 P4c, amended
+2026-11-04), its key and arguments typed with the element bound at `te`:
 each step fails only legitimately. -/
 theorem settleEachGo_good {p : Program} {o : Oracle} {env : Env} {r : ResourceDecl}
     {e : ResourceEach} {prev : List Value} {forced : Bool} {G : Scope} {te : Ty} {ts : List Ty}
@@ -111,14 +137,22 @@ theorem settle_pass_good {p : Program} {o : Oracle} {slots now prev force} {G : 
       split
       · next v hv =>
         split
-        · simp [bind, Except.bind, throw, throwThe, MonadExceptOf.throw, GoodW, Legit]
+        · simp only [bind, Except.bind, throw, throwThe, MonadExceptOf.throw, GoodW]
+          refine ⟨fun hHy => ?_, by unfold unfit; split <;> simp⟩
+          have HH := hH hHy
+          obtain ⟨t, ht, hle⟩ := HH.derives d hd
+          have := eval_sound_ty (n := fuel) HH.prog (HH.env s.1 hs) LocalsOK.nil ht
+          rw [hv] at this
+          simp only [GoodR] at this
+          rw [unfit_typed (typed_of_valTy v (ValTy.mono this hle))]
+          trivial
         · next hc => exact hs.addDerive hd (by simpa using hc)
       · exact hs
       · next e hne he =>
         simp only [bind, Except.bind, throw, throwThe, MonadExceptOf.throw, GoodW]
         refine ⟨fun hHy => ?_, hne⟩
         have HH := hH hHy
-        obtain ⟨t, ht⟩ := HH.derives d hd
+        obtain ⟨t, ht, -⟩ := HH.derives d hd
         have := eval_sound_ty (n := fuel) HH.prog (HH.env s.1 hs) LocalsOK.nil ht
         rw [he] at this
         exact this
@@ -146,6 +180,18 @@ theorem settle_pass_good {p : Program} {o : Oracle} {slots now prev force} {G : 
           rw [herr] at this
           exact this
       rename_i heach
+      split
+      · exact hs
+      · next e hne he =>
+        simp only [bind, Except.bind, throw, throwThe, MonadExceptOf.throw, GoodW]
+        refine ⟨fun hHy => ?_, hne⟩
+        have HH := hH hHy
+        have := gateOpen_good (r := r) HH.prog (HH.env s.1 hs) (HH.gates r hr)
+        rw [he] at this
+        exact this
+      · split
+        · simp [bind, Except.bind, throw, throwThe, MonadExceptOf.throw, GoodW, Legit]
+        · next hc => exact hs.addIdle hr (by simpa using hc)
       split
       · next args hargs =>
         split

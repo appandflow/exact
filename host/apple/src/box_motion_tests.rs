@@ -1,4 +1,4 @@
-//! On iOS, a box's `translate`, `scale`, `rotate` and
+//! LLP 1055.001 on iOS: a box's `translate`, `scale`, `rotate` and
 //! `background-color` keyframes go to Core Animation where it plays them as
 //! CSS does, and the engine keeps no frames busy for them; the rest are
 //! sampled as before. The host here is flipped to iOS's lowering after boot.
@@ -224,6 +224,37 @@ component A
     assert_eq!(specs(&off, id(&host, "sweep")), Some(Vec::new()), "{off}");
 }
 
+/// A modern colour keyframe moves in Oklab (CSS Color 4 §12.1); a lowered
+/// track interpolates in sRGB, so the engine samples it.
+#[test]
+fn a_modern_colour_keyframe_is_sampled() {
+    let app = r##"keyframes glow
+  from background-color="color(srgb 1 0 0)"
+  to background-color="color(srgb 0 0 1)"
+component A
+  state on = false
+  action go
+    on = not on
+  view
+    column
+      button press=go testId="go"
+        text "Go"
+      box testId="glow" width=64 height=64 animation=(on ? "glow 1s linear infinite" : "none")
+"##;
+    let plan = contract::compile(app).unwrap().encode();
+    let (mut host, _) = Host::boot(
+        &plan,
+        NoData,
+        Box::new(MonospaceMeasurer::default()),
+        390.0,
+        844.0,
+    )
+    .unwrap();
+    ios(&mut host);
+    let on = host.dispatch_at(id(&host, "go"), Event::Press, 100.0);
+    assert!(on.contains("\"motion\":true"), "{on}");
+}
+
 #[test]
 fn hosts_without_box_lowering_sample_them() {
     let plan = contract::compile(APP).unwrap().encode();
@@ -235,7 +266,7 @@ fn hosts_without_box_lowering_sample_them() {
         844.0,
     )
     .unwrap();
-    // watchOS samples box motion; it has no Core Animation presenter.
+    // LLP 1126 D10: watchOS samples box motion; it has no Core Animation presenter.
     assert!(!host.svg.box_motion || cfg!(any(target_os = "ios", target_os = "tvos")));
     let on = host.dispatch_at(id(&host, "go"), Event::Press, 100.0);
     if !cfg!(any(target_os = "ios", target_os = "tvos")) {
@@ -244,7 +275,7 @@ fn hosts_without_box_lowering_sample_them() {
     }
 }
 
-/// A glass group ignores the opacity Core Animation
+/// LLP 1053.000.000 D4: a glass group ignores the opacity Core Animation
 /// plays between it and its glass, so an opacity animation inside a group is
 /// sampled and reaches the host as values; outside one, it is lowered.
 #[test]
@@ -298,7 +329,7 @@ component A
     );
 }
 
-/// An opacity animation still lowered when a group is
+/// LLP 1053.000.000 D4: an opacity animation still lowered when a group is
 /// above it (a group set after it started) is switched to sampling by the
 /// pass over every running animation, and its Core Animation spec withdrawn.
 #[test]
@@ -331,14 +362,123 @@ component A
     let node = exact_kernel::motion::motion_node(host.runner.kernel().node(view).unwrap().key);
     host.engine.set_node_sampled(node, false);
     assert_eq!(
-        svg_lower::glass_sampling(host.runner.kernel(), &mut host.engine),
+        svg_lower::resample(host.runner.kernel(), &mut host.engine, false),
         [view]
     );
     assert!(host.engine.node_sampled(node));
-    assert!(svg_lower::glass_sampling(host.runner.kernel(), &mut host.engine).is_empty());
+    assert!(svg_lower::resample(host.runner.kernel(), &mut host.engine, false).is_empty());
 }
 
-/// A box's `translate` given as a percentage of itself
+/// A filtered box is drawn as a picture that Core Animation's animations
+/// do not reach (`BoxFilter.swift`), as is an SVG group with a filter
+/// reference. An animation running when an ancestor gains such a filter is
+/// switched to sampling in that batch, its Core Animation specs withdrawn,
+/// though the commit did not touch the animated node.
+#[test]
+fn a_lowered_animation_is_sampled_when_an_ancestor_gains_a_filter() {
+    let app = r##"keyframes pulse
+  from opacity=1
+  to opacity=0.2
+keyframes spin
+  from rotate=0
+  to rotate=360
+component A
+  state on = false
+  state blurred = false
+  action go
+    on = not on
+  action blur
+    blurred = not blurred
+  view
+    column
+      button press=go testId="go"
+        text "Go"
+      button press=blur testId="blur"
+        text "Blur"
+      box filter=(blurred ? "blur(0.5px)" : "none")
+        box testId="square" width=40 height=40 background-color="#ff0000" animation=(on ? "pulse 1s linear infinite alternate" : "none")
+        box testId="turning" width=40 height=40 animation=(on ? "spin 1s linear infinite" : "none")
+      svg width=40 height=40 viewBox="0 0 40 40"
+        defs
+          filter id="soft"
+            feGaussianBlur stdDeviation=1
+        g filter=(blurred ? "url(#soft)" : "none")
+          rect testId="shape" x=10 y=10 width=8 height=8 animation=(on ? "pulse 1s linear infinite" : "none")
+"##;
+    for ios_motion in [false, true] {
+        let plan = contract::compile(app).unwrap().encode();
+        let (mut host, _) = Host::boot(
+            &plan,
+            NoData,
+            Box::new(MonospaceMeasurer::default()),
+            390.0,
+            844.0,
+        )
+        .unwrap();
+        if ios_motion {
+            ios(&mut host);
+        }
+        let names: &[&str] = if ios_motion {
+            &["square", "turning", "shape"]
+        } else {
+            &["square", "shape"]
+        };
+        let sampled = |host: &Host<NoData>, name: &str| {
+            host.engine.node_sampled(exact_kernel::motion::motion_node(
+                host.runner.kernel().node(id(host, name)).unwrap().key,
+            ))
+        };
+        // A box's specs come in its `animations` op, a shape's in its scene.
+        let shape = id(&host, "shape");
+        let lowered = |batch: &str, view: u32| {
+            fn find(v: &serde_json::Value, view: u32) -> Option<usize> {
+                if v["id"] == view && v["a"].is_array() {
+                    return v["a"].as_array().map(Vec::len);
+                }
+                let items = v.as_array().into_iter().flatten();
+                let fields = v.as_object().into_iter().flat_map(|o| o.values());
+                items.chain(fields).find_map(|c| find(c, view))
+            }
+            if view == shape {
+                find(&serde_json::from_str(batch).unwrap(), view)
+            } else {
+                specs(batch, view).map(|s| s.len())
+            }
+        };
+        let on = host.dispatch_at(id(&host, "go"), Event::Press, 100.0);
+        for name in names {
+            assert!(!sampled(&host, name), "{name}, ios: {ios_motion}");
+            assert!(
+                lowered(&on, id(&host, name)).is_some_and(|n| n > 0),
+                "{name}: {on}"
+            );
+        }
+        let blurred = host.dispatch_at(id(&host, "blur"), Event::Press, 300.0);
+        for name in names {
+            assert!(sampled(&host, name), "{name}, ios: {ios_motion}");
+            assert_eq!(
+                lowered(&blurred, id(&host, name)),
+                Some(0),
+                "{name}: {blurred}"
+            );
+        }
+        let later = host.tick(600.0);
+        let square = id(&host, "square");
+        let v: serde_json::Value = serde_json::from_str(&later).unwrap();
+        assert!(
+            v["ops"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|op| op["op"] == "present"
+                    && op["id"] == square
+                    && op["property"] == "opacity"),
+            "ios: {ios_motion}: {later}"
+        );
+    }
+}
+
+/// LLP 1115.003 D4: a box's `translate` given as a percentage of itself
 /// lowers too, resolved against its border box when its specs are made, and
 /// its specs are made again when it resizes.
 #[test]
@@ -378,7 +518,7 @@ fn a_percentage_translate_lowers_against_the_box_and_follows_a_resize() {
     assert_eq!(y(&grown), [120.0, 0.0], "{grown}");
 }
 
-/// An opacity animation on a node whose press (`:active`
+/// @ref LLP 1121 D8 — an opacity animation on a node whose press (`:active`
 /// lowered to the press paint) or `:hover` look paints its opacity stays
 /// sampled by the engine on both platforms (Core Animation would add the
 /// host's opacity layers to its own sample); one on a node without either
@@ -428,6 +568,86 @@ component A
             "ios: {ios_motion}"
         );
         assert!(!sampled("plain"), "ios: {ios_motion}");
+    }
+}
+
+/// CSS Animations 1: an animation of zero duration, or of zero iterations,
+/// still occurs, and its fill shows its last (or first) frame. Core
+/// Animation plays neither, so the engine samples the node and presents the
+/// filled frame, on both platforms and for an SVG shape too.
+#[test]
+fn an_animation_of_no_time_is_sampled_and_presents_its_fill() {
+    let app = r##"keyframes dim
+  from opacity=1
+  to opacity=0.25
+keyframes rise
+  from opacity=0.25
+  to opacity=1
+keyframes spin
+  from rotate=0
+  to rotate=90
+component A
+  state on = false
+  action go
+    on = not on
+  view
+    column
+      button press=go testId="go"
+        text "Go"
+      box testId="instant" width=40 height=40 animation=(on ? "dim 0ms linear forwards" : "none")
+      box testId="none" width=40 height=40 animation=(on ? "rise 600ms linear 0 forwards" : "none")
+      box testId="timed" width=40 height=40 animation=(on ? "dim 300ms linear forwards" : "none")
+      box testId="turned" width=40 height=40 animation=(on ? "spin 0ms linear forwards" : "none")
+      svg width=40 height=40 viewBox="0 0 40 40"
+        circle testId="dot" cx=20 cy=20 r=4 fill="#f97316" animation=(on ? "dim 0ms linear forwards" : "none")
+"##;
+    for ios_motion in [false, true] {
+        let plan = contract::compile(app).unwrap().encode();
+        let (mut host, _) = Host::boot(
+            &plan,
+            NoData,
+            Box::new(MonospaceMeasurer::default()),
+            390.0,
+            844.0,
+        )
+        .unwrap();
+        if ios_motion {
+            ios(&mut host);
+        }
+        let on = host.dispatch_at(id(&host, "go"), Event::Press, 100.0);
+        let sampled = |name: &str| {
+            host.engine.node_sampled(exact_kernel::motion::motion_node(
+                host.runner.kernel().node(id(&host, name)).unwrap().key,
+            ))
+        };
+        for name in ["instant", "none", "dot"] {
+            assert!(sampled(name), "{name}, ios: {ios_motion}");
+            assert!(keys(&on, id(&host, name)).is_empty(), "{name}: {on}");
+        }
+        assert!(!sampled("timed"), "ios: {ios_motion}");
+        if ios_motion {
+            assert!(sampled("turned"));
+            assert!(keys(&on, id(&host, "turned")).is_empty(), "{on}");
+        }
+        let later = host.tick(200.0);
+        let presented = |name: &str| -> Option<f64> {
+            let view = id(&host, name);
+            [&on, &later].iter().rev().find_map(|batch| {
+                let v: serde_json::Value = serde_json::from_str(batch).unwrap();
+                v["ops"].as_array().unwrap().iter().rev().find_map(|op| {
+                    (op["op"] == "present" && op["id"] == view && op["property"] == "opacity")
+                        .then(|| op["x"].as_f64().unwrap())
+                })
+            })
+        };
+        // The last frame for a forwards fill; the first for zero iterations.
+        for name in ["instant", "none"] {
+            let x = presented(name);
+            assert!(
+                x.is_some_and(|x| (x - 0.25).abs() < 1e-6),
+                "{name} presented {x:?}, ios: {ios_motion}: {on} | {later}"
+            );
+        }
     }
 }
 
@@ -911,4 +1131,227 @@ fn an_unsupported_filter_transition_is_named() {
     let logs = host.agent("{\"op\":\"logs\"}");
     assert!(logs.contains("invalid transition value"), "{logs}");
     assert!(logs.contains("filter 200ms"), "{logs}");
+}
+
+#[test]
+fn hover_scale_transitions_without_layout_and_returns_to_the_changed_base() {
+    let source = r#"component App
+  state large = false
+  action grow
+    large = true
+  view
+    box testId="card" press=grow width=100 height=40 scale=(large ? 1.1 : 1) transition="scale 150ms linear"
+      :hover
+        scale=1.2
+      :focus-visible
+        scale=1.3
+      text "Hover"
+"#;
+    let plan = contract::compile(source).unwrap().encode();
+    let (mut host, _) = Host::boot(
+        &plan,
+        NoData,
+        Box::new(MonospaceMeasurer::default()),
+        400.,
+        400.,
+    )
+    .unwrap();
+    let view = id(&host, "card");
+    let key = host.runner.kernel().node(view).unwrap().key;
+    let motion = motion_node(key);
+    let frame = host.runner.kernel().node(view).unwrap().frame;
+    let scale = |host: &Host<NoData>| host.engine.value(motion, Property::Scale).unwrap().x;
+    host.look_motion(view, 1, 0.);
+    host.advance(75.);
+    assert!((scale(&host) - 1.1).abs() < 1e-6);
+    assert_eq!(host.runner.kernel().node(view).unwrap().frame, frame);
+    host.dispatch_at(view, Event::Press, 75.);
+    host.advance(150.);
+    assert!(
+        (scale(&host) - 1.2).abs() < 1e-6,
+        "base edits stay under hover"
+    );
+    host.look_motion(view, 3, 150.);
+    host.advance(300.);
+    assert!((scale(&host) - 1.3).abs() < 1e-6, "focus wins over hover");
+    host.look_motion(view, 0, 300.);
+    host.advance(450.);
+    assert!(
+        (scale(&host) - 1.1).abs() < 1e-6,
+        "leave returns to the new base"
+    );
+}
+
+#[test]
+fn hover_scale_clears_on_disable_and_destruction() {
+    let source = r#"component App
+  state blocked = false
+  state shown = true
+  action disable
+    blocked = true
+  action remove
+    shown = false
+  view
+    column
+      button testId="disable" press=disable
+        text "Disable"
+      button testId="remove" press=remove
+        text "Remove"
+      if shown
+        box testId="card" disabled=blocked width=100 height=40 transition="scale 150ms linear"
+          :hover
+            scale=1.1
+"#;
+    let plan = contract::compile(source).unwrap().encode();
+    let (mut host, _) = Host::boot(
+        &plan,
+        NoData,
+        Box::new(MonospaceMeasurer::default()),
+        400.,
+        400.,
+    )
+    .unwrap();
+    let view = id(&host, "card");
+    let motion = motion_node(host.runner.kernel().node(view).unwrap().key);
+    host.look_motion(view, 1, 0.);
+    host.advance(150.);
+    assert!((host.engine.value(motion, Property::Scale).unwrap().x - 1.1).abs() < 1e-6);
+    host.dispatch_at(id(&host, "disable"), Event::Press, 150.);
+    host.advance(300.);
+    assert_eq!(host.engine.value(motion, Property::Scale).unwrap().x, 1.);
+    host.dispatch_at(id(&host, "remove"), Event::Press, 300.);
+    assert_eq!(host.engine.value(motion, Property::Scale), None);
+}
+
+#[test]
+fn authored_translate_velocity_reaches_native_springs_from_panrelease() {
+    let source = r#"component App
+  state x = 0
+  state y = 0
+  state vx = 0
+  state vy = 0
+  state dragging = true
+  action release(sx: number, sy: number)
+    vx = sx
+    vy = sy
+    dragging = false
+    x = 100
+    y = 100
+  view
+    box testId="panel" panrelease=release width=100 height=100 translate=`${x}px ${y}px` -exact-translate-velocity=`${vx} ${vy}` transition=(dragging ? "none" : "translate -exact-spring(260, 24, 1)")
+"#;
+    for (target, vx, vy) in [
+        (100, 800., -600.),
+        (100, -800., 600.),
+        (100, 0., 0.),
+        (0, 800., -600.),
+        (0, -800., 600.),
+    ] {
+        let source = source
+            .replace("x = 100", &format!("x = {target}"))
+            .replace("y = 100", &format!("y = {target}"));
+        let plan = contract::compile(&source).unwrap().encode();
+        let (mut host, _) = Host::boot(
+            &plan,
+            NoData,
+            Box::new(MonospaceMeasurer::default()),
+            400.,
+            400.,
+        )
+        .unwrap();
+        let view = id(&host, "panel");
+        let key = motion_node(host.runner.kernel().node(view).unwrap().key);
+        host.dispatch_at(view, Event::PanRelease(vx, vy), 0.);
+        let spring = host
+            .engine
+            .spring_descriptor(key, Property::Translate)
+            .unwrap();
+        assert_eq!(spring.velocity, exact_motion::Value::new(vx, vy));
+        host.advance(1.);
+        let shown = host.engine.value(key, Property::Translate).unwrap();
+        if vx > 0. {
+            assert!(shown.x > 0. && shown.y < 0.);
+        }
+        if vx < 0. {
+            assert!(shown.x < 0. && shown.y > 0.);
+        }
+        if vx == 0. {
+            assert!(shown.x > 0. && (shown.x - shown.y).abs() < 1e-8);
+        }
+    }
+}
+
+#[test]
+fn clearing_or_refusing_authored_velocity_restores_interruption_inheritance() {
+    let source = r#"component App
+  state x = 0
+  state supplied = true
+  state speed = "800 -600"
+  action release
+    x = 100
+  action clear
+    supplied = false
+    x = -100
+  action refuse
+    supplied = true
+    speed = "bad"
+    x = -200
+  view
+    column
+      button testId="release" press=release
+        text "Release"
+      button testId="clear" press=clear
+        text "Clear"
+      button testId="refuse" press=refuse
+        text "Refuse"
+      box testId="panel" translate=`${x}px 0px` -exact-translate-velocity=(supplied ? speed : none) transition="translate -exact-spring(260, 24, 1)"
+"#;
+    let plan = contract::compile(source).unwrap().encode();
+    let (mut host, _) = Host::boot(
+        &plan,
+        NoData,
+        Box::new(MonospaceMeasurer::default()),
+        400.,
+        400.,
+    )
+    .unwrap();
+    let panel = id(&host, "panel");
+    let key = motion_node(host.runner.kernel().node(panel).unwrap().key);
+    host.dispatch_at(id(&host, "release"), Event::Press, 0.);
+    assert_eq!(
+        host.engine
+            .spring_descriptor(key, Property::Translate)
+            .unwrap()
+            .velocity,
+        exact_motion::Value::new(800., -600.)
+    );
+    for (action, time) in [("clear", 30.), ("refuse", 60.)] {
+        host.dispatch_at(id(&host, action), Event::Press, time);
+        assert!(
+            !host
+                .runner
+                .kernel()
+                .node(panel)
+                .unwrap()
+                .style
+                .mask
+                .has(exact_kernel::StyleId::TranslateVelocity),
+            "{action} clears the row"
+        );
+        let velocity = host
+            .engine
+            .spring_descriptor(key, Property::Translate)
+            .unwrap()
+            .velocity;
+        assert_ne!(
+            velocity,
+            exact_motion::Value::ZERO,
+            "{action} preserves current velocity"
+        );
+        assert_ne!(
+            velocity,
+            exact_motion::Value::new(800., -600.),
+            "{action} does not repeat old release"
+        );
+    }
 }

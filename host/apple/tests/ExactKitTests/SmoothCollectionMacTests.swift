@@ -3,7 +3,7 @@ import AppKit
 import XCTest
 @testable import ExactKit
 
-/// On AppKit, as on UIKit: a smooth correction is the
+/// LLP 1070.000 §6.2 on AppKit, as on UIKit: a smooth correction is the
 /// clip view's animated scroll; while it runs the list reports where it is
 /// headed, a further one is held and taken when it lands, and an ordinary
 /// correction stops it.
@@ -34,7 +34,7 @@ final class SmoothCollectionMacTests: XCTestCase {
     }
     private func sequence(_ p: Presenter) -> String { String(p.collections.entries[1]?.cursor.sequence ?? 0) }
 
-    /// A request that is replaced takes its animation
+    /// LLP 1070.000 §2.5: a request that is replaced takes its animation
     /// with it, stopped where the port is, and so does a list that goes, its
     /// scroller kept, or a host reset; nothing it planned moves the port after.
     func testAnAnimationStopsWhereThePortIsWhenItsRequestOrListGoes() throws {
@@ -89,7 +89,7 @@ final class SmoothCollectionMacTests: XCTestCase {
     }
 
     /// Under Reduce Motion a smooth correction lands at once, as an
-    /// element's reveal does.
+    /// element's reveal does (LLP 1070.000 §14).
     func testUnderReduceMotionASmoothCorrectionLandsAtOnce() throws {
         let p = fixture()
         let before = DisplayPreferences.agent

@@ -1,4 +1,4 @@
-// The UI gallery's data and its canvas surface.
+// The UI gallery's data and its canvas surface (LLP 1100 §10).
 import type { Answer, Ctx2D, Frame, NativeModule } from './app.contract.d.ts';
 
 export const appId = 'com.exact.uigallery';
@@ -137,7 +137,7 @@ export const answer: Answer = ((source: string, args: unknown[], _secrets: unkno
   if (source === 'hostKind') return nativeHost(native) ? 'native' : 'web';
   if (source === 'hdrWhite') return nativeHost(native) ? `color(rec2100-linear ${args[0]} ${args[0]} ${args[0]})` : '#ffffff';
   if (source === 'hdrPictures') return HDR.filter((p) => shows(p.src));
-  // As of Mobile Safari 27.0.
+  // As of Mobile Safari 27.0 (LLP 1100 D8).
   if (source === 'caveat') return safari ? SAFARI_CONSTRAINED : '';
   if (source === 'hidden') {
     const gone = (args[0] === 'hdr' ? HDR : PICTURES).filter((p) => !shows(p.src)).map((p) => p.src.slice(7));

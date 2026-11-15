@@ -263,7 +263,8 @@ final class FieldSelectionMacTests: XCTestCase {
     }
 
     /// ⌘Z takes back a script's range edit, and only it: the person's
-    /// typing before it is the next step.
+    /// typing before it is the next step (the user's ruling of 2026-11-04,
+    /// LLP 1069.001).
     func testRangeTextWhileEditingIsOneUndoStep() throws {
         let p = presenter()
         var replacements = 0, inputs: [String] = []
@@ -321,6 +322,26 @@ final class FieldSelectionMacTests: XCTestCase {
             editor.undoManager?.undo()
             XCTAssertEqual(node.fieldText, "hello")
         }
+    }
+
+    /// `maxlength` stops an edit that grows the editor's own string past it,
+    /// as the text area and iOS do; an authored `value` longer than the
+    /// limit does not let typing back up to its length.
+    func testMaxLengthFollowsTheEditorNotTheValueProp() throws {
+        let p = presenter()
+        let node = try XCTUnwrap(p.views[3])
+        node.props["maxlength"] = "3"
+        let formatter = TextInputFormatter(node)
+        let valid = { (from: String, to: String) -> Bool in
+            var proposed = to as NSString
+            return formatter.isPartialStringValid(&proposed, proposedSelectedRange: nil, originalString: from,
+                                                  originalSelectedRange: NSRange(location: from.utf16.count, length: 0),
+                                                  errorDescription: nil)
+        }
+        XCTAssertTrue(valid("hello", "hell"), "a deletion")
+        XCTAssertTrue(valid("hell", "helx"), "a replacement that does not grow")
+        XCTAssertFalse(valid("hell", "hellx"), "growth past maxlength, though the value prop is longer")
+        XCTAssertTrue(valid("he", "hel"), "growth within maxlength")
     }
 
     func testRangeReplacementDoesNotSwallowTheNextUserDeletion() throws {

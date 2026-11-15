@@ -1,15 +1,15 @@
-//! Action composition: an action calls an action of its own
+//! Action composition (LLP 1089): an action calls an action of its own
 //! component, an `action` prop or an injected action, as a statement, where
-//! any statement may stand. A host command keeps its name. A call is
-//! its callee's statements expanded in place: one commit, every
+//! any statement may stand. A host command keeps its name (D1). A call is
+//! its callee's statements expanded in place (D2): one commit, every
 //! statement reading the state as the action found it, the writes landing
-//! in statement order. A tail call is one case of it.
+//! in statement order. LLP 1017 §11's tail call is one case of it.
 //!
 //! Expansion runs in three steps:
 //!
 //! 1. [`expand_file`], before any component is checked: a call of the same
 //!    component becomes a [`Stmt::Call`] holding the callee's statements,
-//!    each in its own component's scope. Its parameters are `let`s of
+//!    each in its own component's scope (D7). Its parameters are `let`s of
 //!    the call's arguments; every name the callee binds is renamed apart.
 //! 2. [`resolve`], after lifting: a prop or inject call, which lifting marked
 //!    with the action the prop or the `provide` named ([`MARK`]), becomes the
@@ -22,7 +22,7 @@
 //!
 //! A call's body is closed over its caller's names: only the arguments,
 //! and the parameters' `let`s that bind them, are the caller's expressions.
-//! Cycles are refused, and so is a body that grows past [`LIMIT`]
+//! Cycles are refused (D4), and so is a body that grows past [`LIMIT`]
 //! statements, as soon as it does.
 
 use super::subst::{subst_stmts, Subst};
@@ -37,7 +37,7 @@ use std::collections::{BTreeMap, BTreeSet};
 /// [`Stmt::Call`] with no body yet.
 pub const MARK: &str = "@call:";
 
-/// The statements one action may grow to as its calls expand.
+/// The statements one action may grow to as its calls expand (D4).
 pub const LIMIT: usize = 1024;
 
 /// The prefix of a lifted action's capture parameters (`inline.rs`).
@@ -61,7 +61,7 @@ pub fn size(body: &[Stmt]) -> usize {
 
 /// A statement `name(…)` whose name is both a host command and an action,
 /// an `action` prop or an injected action of the component it is written
-/// in. It is refused at every
+/// in (LLP 1089 D1, as amended 2026-10-05). It is refused at every
 /// statement position, whatever its arguments, in a same-named action too:
 /// a host command added later must never silently take a call over.
 /// Declaring or binding such a name stays legal.
@@ -251,9 +251,9 @@ pub(super) fn resolve(
 /// lowering puts it; renamed, no parameter, `let` or `match` binding of the
 /// caller spells one of them.
 ///
-/// `k` is drawn as the tail call drew it, a caller's statements
+/// `k` is drawn as LLP 1017 §11's tail call drew it, a caller's statements
 /// and then each callee's, so a plan built before calls existed keeps its
-/// parameters' names, and its bytes.
+/// parameters' names, and its bytes (LLP 1089 D8).
 pub fn hygiene(actions: &mut [Action], records: &BTreeSet<String>) {
     let mut fresh = 0;
     for action in actions.iter_mut() {
@@ -278,7 +278,7 @@ pub fn hygiene(actions: &mut [Action], records: &BTreeSet<String>) {
     }
 }
 
-/// The names the tail-call resolver drew for the calls in `body`: one for
+/// The names LLP 1017 §11's resolver drew for the calls in `body`: one for
 /// each call's parameters, one for each binder of its body, and its own
 /// calls' in turn.
 fn drawn(body: &[Stmt]) -> u32 {
@@ -600,8 +600,7 @@ impl Cx<'_> {
     }
 }
 
-/// An action's name as its author wrote it: a lifted one's without its
-/// use's number.
+/// A name as its author wrote it, without its component or view suffix.
 pub fn shown(name: &str) -> &str {
     name.split('#').next().unwrap_or(name)
 }

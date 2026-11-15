@@ -1,4 +1,4 @@
-// Raster workers beside a session's two text engines: the
+// Raster workers beside a session's two text engines (LLP 1072 §8.1): the
 // painter on main, the measurer on the owner thread. A worker's job holds
 // line geometry, optional glyph values and its own source copy; neither engine's
 // caches (shapes, paragraphs, residency) are touched off its own thread.

@@ -1,4 +1,4 @@
-// A draft's digests as first reviewed: Apply writes against them, so another client's
+// A draft's digests as first reviewed (the third hands-on pass's #2): Apply writes against them, so another client's
 // write since is refused by name (409, `by`), never silently built on. The pin is the open draft's alone: a new
 // value drafted is a new review (its diff shows the file as it is), and the draft's end (written, cancelled, another
 // file) or a new server run drops it. The person's own writes move it along when it held the files they read: what

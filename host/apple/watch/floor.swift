@@ -1,5 +1,5 @@
 // The watch floor: an empty hand-built SwiftUI watch app, the launch a watch app
-// costs before any of Exact's (the startup budget: Exact's share
+// costs before any of Exact's (LLP 1126.002 §4, the startup budget: Exact's share
 // is the watch app's first frame less this one's, same watch, same build kind).
 // It prints its first frame in ms after the kernel started the process, as the
 // watch app's launch phases line does. To build and run it on a watch:

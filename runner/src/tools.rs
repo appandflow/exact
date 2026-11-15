@@ -1,5 +1,5 @@
-//! A tool call's arguments against the bound action's parameter types:
-//! stricter than decoding, so that a caller's mistake is
+//! A tool call's arguments against the bound action's parameter types (LLP
+//! 1111 D4 step 1): stricter than decoding, so that a caller's mistake is
 //! named rather than guessed at. Unknown fields, missing fields and
 //! non-finite numbers are refused; `null` is `none` for an `option<T>`,
 //! which is still written. The first failing path is reported.
@@ -59,6 +59,18 @@ fn describe(shape: &Shape) -> &'static str {
         Shape::List(_) => "a list",
         Shape::Record(_) => "an object",
     }
+}
+
+/// Whether tool `tool`'s reach sends (LLP 1111 D3): its action, with the
+/// calls of other actions the plan holds inline (LLP 1089), has a `send`.
+/// The rest of the reach, a mutation's `then`, is reached only through a
+/// send. A `reads` tool that sends is not read-only, since what a source
+/// does with a send is the module's.
+pub fn sends(plan: &exact_plan::Plan, tool: usize) -> bool {
+    let body = plan.code(plan.actions[plan.tools[tool].action.0 as usize].body);
+    crate::vm::instructions(plan.read_code(body).0)
+        .flatten()
+        .any(|i| i.op == exact_plan::Opcode::Send)
 }
 
 #[cfg(test)]

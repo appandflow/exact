@@ -1,5 +1,6 @@
 // data: completion-storm
-// Synthetic conformance plan: a mutation's `then` on both executors, on Completion Storm's sources: `settings`
+// Synthetic conformance plan: a mutation's `then` (LLP 1016.001; Charlie,
+// 2026-09-27) on both executors, on Completion Storm's sources: `settings`
 // answers now; `fixtureStats` answers later, a loopback fetch whose failure
 // (no fixture on 127.0.0.1:4320) is the answer the source shapes. The answers
 // that land before the next advance run the `then` once, reading the latest

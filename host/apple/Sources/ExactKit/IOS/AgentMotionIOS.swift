@@ -1,4 +1,4 @@
-// A picture at rest on UIKit: before a screenshot (and a
+// A picture at rest on UIKit (LLP 1116.003 D8): before a screenshot (and a
 // `check`), UIKit's own motion on the wall clock runs to its end — the
 // agent's clock holds the app's Contract motion, but not a segment's thumb or a switch's
 // knob, which a screenshot right after a tap caught on its old side (round
@@ -13,7 +13,7 @@ extension Agent {
     /// UIKit's own motion on the wall clock (a segment's selection, a
     /// switch's knob, a bar's fade) runs to its end before a picture, for at
     /// most `bound` seconds: a screenshot right after a tap showed the old
-    /// segment. At rest is no animation in flight, no
+    /// segment (round 5's polls). At rest is no animation in flight, no
     /// layer's geometry or opacity changing and, over UIKit's own controls,
     /// no pixel changing, for a quiet spell: iOS 26 moves a segment's thumb
     /// in the render server, with nothing on the layers to see, starting a
@@ -52,7 +52,7 @@ extension Agent {
     /// The app's own motion on the wall clock — a `UIView.animate` or a
     /// Core Animation animation on a running layer of its window, a native
     /// module's included — runs to its end, until `deadline`, and then its
-    /// completion: `clock` waits for it, so an overlay a
+    /// completion: `clock` waits for it (LLP 1012 §2), so an overlay a
     /// module fades away is gone after `clock settle`, as it is for a
     /// person. Core Animation's time is the wall's, which the agent's clock
     /// cannot seek. A completion that starts more motion (a second fade) is
@@ -227,7 +227,7 @@ extension Agent {
     static func ownControls(in window: UIWindow) -> CGRect? {
         var union: CGRect? = nil, pending: [UIView] = [window]
         while let v = pending.popLast() {
-            guard !v.isHidden, v.alpha > 0.01 else { continue }
+            guard !v.isHidden, v.alpha > 0.01, (v as? NodeView)?.drawnBySurface != true else { continue }
             #if os(iOS)
             let moves = v is UISegmentedControl || v is UISwitch || v is UISlider || v is UIStepper || v is UITabBar
             #else

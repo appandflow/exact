@@ -1,6 +1,6 @@
 //! CSS shape values, exclusion bands, and arithmetic text flow.
 //!
-//! The host shapes and paints our byte ranges.
+//! @ref LLP 1043.000 §3 D1, D5, D6 — the host shapes and paints our byte ranges.
 //! Preparation owns advances and offsets, never the source string or a font.
 //! CSS-bounded layout calls are allocation-free once caller output has capacity.
 //! Direct programmatic polygons above 64 vertices use temporary geometry scratch.
@@ -10,7 +10,7 @@
 #![deny(missing_docs)]
 
 mod balance;
-pub use balance::{balanced_width, BALANCE_MAX_LINES};
+pub use balance::{balanced_breaks, balanced_width, BALANCE_MAX_LINES};
 mod bands;
 mod chrome;
 pub use chrome::chrome_break;
@@ -40,12 +40,12 @@ fn finite(value: f64) -> f32 {
 }
 
 /// Minimum fragment width in strut ems, clamped to the paragraph width.
-/// Four ems avoid stranded single short words.
+/// @ref LLP 1043.000 §3 D5 — four ems avoid stranded single short words.
 pub const MIN_FRAGMENT_EM: f32 = 4.0;
 
 // Compact heapsort: O(n log n), in-place, with no input-size fallback. Flow's
 // small Copy records do not need std's general sort specialization machinery.
-// Preserve the frame work bound while reducing wasm.
+// @ref LLP 1043.000 §3 D7 — preserve the frame work bound while reducing wasm.
 fn sort_by<T: Copy>(items: &mut [T], cmp: impl Fn(&T, &T) -> std::cmp::Ordering) {
     let sift = |items: &mut [T], mut root: usize, end: usize| {
         while root < end / 2 {

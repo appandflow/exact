@@ -1,4 +1,4 @@
-// @exact/attestation's agent path: the per-account key lifecycle over
+// @exact/attestation's agent path (LLP 1133.028 §7): D3's lifecycle over
 // synthetic keys in the session's private store, with no call to
 // DeviceCheck. A token is `exact-substitute`, the base64url of a JSON object
 // naming the client data's SHA-256, the key id, the kind and the counter,
@@ -63,7 +63,7 @@ final class AgentAttestation {
         var key = keys[account] ?? Key(id: Self.newId(), attested: false, counter: 0)
         keys[account] = key
         if let failed = takeFailure() {
-            // As Apple's errors do: a network failure keeps the key, any
+            // As Apple's errors do (D3): a network failure keeps the key, any
             // other discards one not yet attested.
             if failed["error"] as? String != "NetworkError", !key.attested { keys[account] = nil }
             say("failed \(failed["error"] ?? "")")

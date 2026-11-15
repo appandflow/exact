@@ -1,4 +1,4 @@
-// What Exact paints inside a
+// @ref LLP 1115.002 D5, LLP 1115.000 D3.7 — what Exact paints inside a
 // table's selected row takes the selected item's ink, as a stock table's
 // cell does. Measured on macOS 27.0.1 (a stock `NSTableView`, light and
 // dark alike; the probe and what it printed are with the audit's records,
@@ -15,8 +15,8 @@
 // A painted list's row in a split's list column is drawn selected as a
 // table's is (`drawSelection`, SplitMac.swift), and the same rules hold in it.
 //
-// A row in a table also draws no disclosure chevron: SwiftUI's list of
-// navigation links draws none on the Mac, and the
+// A row in a table also draws no disclosure chevron (LLP 1115.002 D5, §5
+// Q4): SwiftUI's list of navigation links draws none on the Mac, and the
 // table's selection says which row is open. The symbol's node keeps its box
 // (layout is not asked again for a row as it mounts), and its glyph is not
 // drawn while the row is in a cell.

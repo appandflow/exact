@@ -1,6 +1,8 @@
 # The Caltrain app's GPU module: its surfaces and exact-gpu in one artifact
 # the presenter loads on demand — a dylib natively, a wasm (with
 # wasm-bindgen glue) on the web. Never linked into the app's host library.
+#
+# @ref LLP 1009 D2
 [package]
 name = "caltrain-gpu"
 version.workspace = true

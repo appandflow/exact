@@ -1,4 +1,4 @@
-//! The graceful close, off the threads that serve.
+//! The graceful close (LLP 1048.000 D10), off the threads that serve.
 //!
 //! A connection that has its answer closes in two steps: the server's half
 //! at once, so the client reads the answer and the end of the stream, and

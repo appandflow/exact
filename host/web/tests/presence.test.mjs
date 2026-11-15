@@ -1,13 +1,16 @@
+import { glueDeclarations, glueCase } from './glue-fixture.mjs';
+import { hostFixtureFile as readFileSync } from './glue-fixture.mjs';
 // The production presence controller under Chrome's layout and animation
 // clocks, including the host's resize entry and child reconciliation.
 import { beforeAll, afterAll, test, expect } from 'bun:test';
-import { readFileSync, existsSync } from 'node:fs';
+import { existsSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { resolve } from 'node:path';
 import { cdpBrowser, chromium } from '../../../scripts/agent-launch.mjs';
 import { comparePresence } from '../parity.mjs';
 import { need } from '../../../scripts/coverage.mjs';
 import { readyPage } from './page.mjs';
+import { fileURLToPath } from 'node:url';
 
 test('the timeline comparator rejects missing ghosts, drift, and invalid recordings', () => {
   const node = { x: 10, y: 20, w: 100, h: 40, opacity: .5, exiting: true };
@@ -29,12 +32,12 @@ test('the timeline comparator rejects missing ghosts, drift, and invalid recordi
   expect(comparePresence({ samples: [] }, { samples: [] }).length).toBeGreaterThan(0);
 });
 
-const WEB = resolve(new URL('..', import.meta.url).pathname);
+const WEB = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const { unavailable } = chromium();
 const check = need('chrome', unavailable);
 const glue = readFileSync(resolve(WEB, 'glue.js'), 'utf8');
-const children = glue.slice(glue.indexOf('      case "children":'), glue.indexOf('      case "animate":'));
-const resize = glue.slice(glue.indexOf('const mediaChanged ='), glue.indexOf('\nvisualViewport?.'));
+const children = glueCase(glue, 'children');
+const resize = glueDeclarations(glue, ['resizeRunner', 'mediaChanged', 'pageChanged']);
 const page = `<style>
   body { margin:0 } #exact-root { position:relative; padding:20px }
   #card { width:100px; height:40px; background:red; --exact-layout-transition:1000 0 linear }
@@ -44,7 +47,6 @@ const page = `<style>
 <script type="module">
   import { presenceLoader, animationClock, settleValue } from './navigation.js';
   window.exact = {};
-  let incarnation = 1;
   await import('./presence-glue.js');
   const root = document.getElementById('exact-root'), views = new Map();
   const presence = presenceLoader(async () => exact.presence, root, batch => applyBatch(batch), () => {});
@@ -63,8 +65,9 @@ const page = `<style>
     presence.live.after(batch, views);
   }
   const readOut = x => x, now = () => 0, preferences = () => 0;
-  const positionContexts = () => {}, onPreferences = () => {}, foldBits = () => 0, onFold = () => {}; // no fold posture
+  const positionContexts = () => {}, onPreferences = () => {}, foldBits = () => 0, onFold = () => {}; // no fold posture (LLP 1078 D6)
   const wasm = { exact_resize: () => JSON.stringify(window.resizeBatch) };
+  const host = { wasm, incarnation: 1 };
   ${resize}
   window.fixture = html => {
     for (const a of document.getAnimations()) a.cancel();
@@ -81,7 +84,9 @@ const page = `<style>
   window.ready = true;
 </script>`;
 
-let server, suite, evaluate;
+// Register the shared browser's cleanup in the file, outside the beforeAll hook.
+const suite = unavailable ? null : await cdpBrowser({ args: ['--window-size=500,500'] });
+let server, evaluate;
 beforeAll(async () => {
   if (unavailable) return;
   server = createServer((req, res) => {
@@ -96,7 +101,6 @@ beforeAll(async () => {
     res.end(req.url === '/' ? page : readFileSync(req.url.startsWith('/js/') && existsSync(js) ? js : resolve(WEB, path)));
   });
   await new Promise(ok => server.listen(0, '127.0.0.1', ok));
-  suite = await cdpBrowser({ args: ['--window-size=500,500'] });
   const { cdp } = suite, { sessionId } = await suite.page();
   const call = (method, params) => cdp.send(method, params, sessionId);
   evaluate = async expression => {
@@ -161,7 +165,7 @@ check('resize snaps an active move and takes new boxes without a move', async ()
 });
 
 check('an interrupted spring uses the seeked time, including its delay and velocity', async () => {
-  const spring = card.replace('1000 0 linear', '0 100 spring(300, 30, 1)'); // the private row (css.rs layout_transition_css)
+  const spring = card.replace('1000 0 linear', '0 100 spring(300, 30, 1)'); // the private row (css.rs layout_transition_css; LLP 1081 D5)
   await fixture(`<div id="card" style="${spring}"></div>`);
   await style(spring + ';margin-left:100px');
   await evaluate('seek(250)');
@@ -192,6 +196,17 @@ check('a growing surface follows live paint, opacity and pressed transforms', as
   await style(card.replace('40px', '140px') + ';border:2px solid green;border-radius:12px');
   await evaluate('seek(500)');
   expect(await evaluate('getComputedStyle(surface()).borderTopWidth')).toBe('2px');
+});
+
+check('a resizing surface carries the box\'s backdrop filter, which the box drops while the surface draws', async () => {
+  const blurred = card + ';background:#0008;backdrop-filter:blur(20px)';
+  await fixture(`<div id="card" style="${blurred}"></div>`);
+  await style(blurred.replace('40px', '140px'));
+  await evaluate('seek(500)');
+  expect(await evaluate('getComputedStyle(surface()).backdropFilter')).toBe('blur(20px)');
+  expect(await evaluate('getComputedStyle(document.getElementById("card")).backdropFilter')).toBe('none');
+  await evaluate('document.getAnimations().forEach(a => a.finish()); Promise.resolve()');
+  expect(await evaluate('getComputedStyle(document.getElementById("card")).backdropFilter')).toBe('blur(20px)');
 });
 
 check('paint transitions retain their clocks and restore their paint when size motion ends', async () => {

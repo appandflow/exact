@@ -1,8 +1,9 @@
-//! A route whose scroll is a grouped list is on the grouped background, bar
-//! to bottom edge, as a hand-built `UITableViewController`'s screen is. Its
-//! unsaid `background-color` is the role `-exact-grouped-background`, which
-//! each host resolves; an authored one, on the route or on what sits between
-//! the header and the list, wins. Any other scroll leaves the page's.
+//! LLP 1116.007 D5: a route whose scroll is a grouped list is on the grouped
+//! background, bar to bottom edge, as a hand-built `UITableViewController`'s
+//! screen is. Its unsaid `background-color` is the role
+//! `-exact-grouped-background`, which each host resolves; an authored one,
+//! on the route or on what sits between the header and the list, wins.
+//! Any other scroll leaves the page's.
 
 use exact_kernel::style::roles::role;
 use exact_kernel::{ColorValue, Kernel};
@@ -16,9 +17,9 @@ impl DataSource for NoData {
     }
 }
 
-/// A polls screen: a header (the bar), a segmented switcher, and the list that
-/// is the route's scroll. `ROUTE` and `BAND` are the attributes of the route
-/// and of the switcher; `LIST` is the list's tag line.
+/// The polls screen of round 9: a header (the bar), a segmented switcher,
+/// and the list that is the route's scroll. `ROUTE` and `BAND` are the
+/// attributes of the route and of the switcher; `LIST` is the list's tag line.
 const SCREEN: &str = "routes nav
   home \"/\"
 component App

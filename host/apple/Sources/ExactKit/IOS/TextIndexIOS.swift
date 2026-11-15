@@ -1,8 +1,8 @@
 // Paragraphs by where they sit in their scroller's content, so a scroll
 // frame's text passes (`paintVisibleText`, `refreshVisibleText`) visit the
-// ones near each scrollport, not every paragraph of a long list: an inbox
-// can keep ~2,600 that are never rastered, and visiting each, twice a
-// frame, was most of its main thread while scrolling.
+// ones near each scrollport, not every paragraph of a long list: r24's inbox
+// keeps ~2,600 that are never rastered, and visiting each, twice a frame,
+// was most of its main thread while scrolling.
 #if os(iOS) || os(tvOS)
 import UIKit
 
@@ -12,14 +12,17 @@ extension NodeView {
     /// parent changed, a paragraph added or removed. A `TextIndex` built at
     /// another value is built again before it answers.
     static var textGeometry: UInt64 = 0
-    package override var frame: CGRect { didSet { Self.textGeometry &+= 1 } }
-    package override var bounds: CGRect { didSet { Self.textGeometry &+= 1 } }
-    package override var center: CGPoint { didSet { Self.textGeometry &+= 1 } }
+    package override var frame: CGRect { didSet { Self.textGeometry &+= 1; overflowClipGeometryChanged() } }
+    package override var bounds: CGRect { didSet { Self.textGeometry &+= 1; overflowClipGeometryChanged() } }
+    package override var center: CGPoint { didSet { Self.textGeometry &+= 1; overflowClipGeometryChanged() } }
     // A box under a transform is not indexed (`TextIndex.build`), so only
     // putting one on or taking it off moves what the index holds: a sticky
     // header moved each frame by its translation does not rebuild it.
     package override var transform: CGAffineTransform {
-        didSet { if oldValue.isIdentity != transform.isIdentity { Self.textGeometry &+= 1 } }
+        didSet {
+            if oldValue.isIdentity != transform.isIdentity { Self.textGeometry &+= 1 }
+            overflowClipGeometryChanged()
+        }
     }
 }
 
@@ -43,7 +46,7 @@ final class TextIndex {
     /// viewport's place, a route's or a sheet's view: `DocumentMountIOS.swift`,
     /// `PresentationMount`) is a port that does not scroll: what is outside
     /// its bounds is off screen. Without them every paragraph of a list in a
-    /// route was visited every pass (an inbox's 3,300, most of a frame).
+    /// route was visited every pass (r27's inbox: 3,300, most of a frame).
     private final class Port {
         weak var scroller: UIView?
         /// By `minY`.

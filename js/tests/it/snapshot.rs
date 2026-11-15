@@ -1,5 +1,5 @@
 //! A pinned TypeScript module behind the snapshot runner, with real file reads
-//! and a host-supplied fetch response. No UI boot or writes.
+//! and a host-supplied fetch response. No UI boot or writes (LLP 1126.000 WP5).
 #![cfg(exact_js_engine)]
 use exact_js::Module;
 use exact_kernel::Kernel;
@@ -9,7 +9,7 @@ use std::time::{Duration, Instant};
 const HBC: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/snapshot.hbc"));
 const APP: &str = "test.widget-js";
 const GRANTS: &str =
-    "net.fetch https://widget.test\nfs.read app:/data\nfs.write app:/data\nsecret.keep session\n";
+    "net.fetch https://widget.test\nfs.read app:/data\nfs.write app:/data\nsecret.keep session\nfs.read bundle:/Resources/shipped\n";
 fn receipt() -> String {
     let plan = plan().encode();
     serde_json::json!({"version":1,"abi":1,"bytecodeVersion":exact_js::BYTECODE_VERSION,
@@ -21,7 +21,7 @@ fn plan() -> exact_plan::Plan {
     contract::snapshot::compile("shape Props\n  title: string\ncomponent Card\n  props\n    title: string\n  view\n    text title\n", &contract::Widget { requires_secrets: false,
         kind:"card".into(), title:None, description:None, families:vec!["systemSmall".into()], watch_families: vec![],
         component:"Card".into(), props:"Props".into(), refresh:"refresh".into(),
-        preview:serde_json::json!({"title":"preview"})
+        preview:serde_json::json!({"title":"preview"}), configuration: None
     }).unwrap()
 }
 /// The snapshot runner, its turns timed on the ticking clock when `turn`
@@ -109,6 +109,48 @@ fn snapshot_cannot_write_files_or_secrets_and_can_refresh_after_a_refusal() {
     );
     assert!(refresh(&mut r, 5.).unwrap_err().contains("cannot write"));
     assert!(refresh(&mut r, 1.).unwrap().contains("kept secret"));
+}
+/// A widget's refresh reads `app:` only: its activation keeps only `fs.read
+/// app:/` lines (exact2 LLP 1133.007 D6). With a `bundle:` root holding the
+/// file, the app's own module reads it under the grant, and a refresh under
+/// the same grant is refused it as ungranted, root or no root: the grant is
+/// gone before a root is consulted. Unix only: elsewhere a `bundle:` path is
+/// unsupported whatever root is named.
+#[cfg(unix)]
+#[test]
+fn a_refresh_cannot_read_a_shipped_file() {
+    use ibex2::stdlib::fs::{set_roots, Roots};
+    struct Unset;
+    impl Drop for Unset {
+        fn drop(&mut self) {
+            set_roots(Roots::default());
+        }
+    }
+    let _namespaces = super::storage::NAMESPACES
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    let root = super::storage::Root::new();
+    let shipped = root.0.join("ExactResources");
+    std::fs::create_dir_all(shipped.join("Resources/shipped")).unwrap();
+    std::fs::write(shipped.join("Resources/shipped/hello.txt"), b"shipped").unwrap();
+    set_roots(Roots {
+        home: None,
+        bundle: Some(shipped),
+    });
+    let _unset = Unset;
+    let mut app = root.module();
+    app.activate().unwrap();
+    let mut store = exact_runner::Store::new(super::storage::GRANTS, vec![]);
+    assert_eq!(
+        super::storage::call(&mut app, &mut store, "bundle-read", ""),
+        "shipped"
+    );
+    let mut r = runner(&root, None);
+    let result = refresh(&mut r, 6.).unwrap();
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(&result).unwrap(),
+        serde_json::json!([{"date":6,"props":{"title":"Error denied"}}])
+    );
 }
 #[test]
 fn snapshot_requires_the_pinned_bytes_and_identity() {
@@ -255,6 +297,7 @@ fn apple_bridge_admits_the_plan_it_booted_with_borrowed_module_bytes() {
     bridge.boot_entry(
         plan.len(),
         4,
+        0,
         0,
         Module::new(Vec::new(), APP, GRANTS),
         Hooks::none(),

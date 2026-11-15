@@ -1,5 +1,5 @@
-//! A live batch or snapshot applied to the running app: every token it
-//! carries set in one commit, no plan published.
+//! A live batch or snapshot applied to the running app (LLP 1121 D13,
+//! stage 4): every token it carries set in one commit, no plan published.
 
 use super::{DataSource, Runner, RunnerError};
 use crate::design::{self, Edit, Scrub};
@@ -12,6 +12,25 @@ pub(crate) struct Live {
     scrubbed: Option<Scrub>,
     /// The runs whose frames a later run's has followed: theirs are older.
     retired: Vec<String>,
+}
+
+impl Live {
+    /// Record `frame` as the last scrub shown. A new run's frame retires the
+    /// run before it (a few kept).
+    fn shown(&mut self, frame: Option<&Scrub>) {
+        let Some(frame) = frame else {
+            return;
+        };
+        if let Some(run) = self.scrubbed.as_ref().and_then(|l| l.run.clone()) {
+            if frame.run.as_ref() != Some(&run) && !self.retired.contains(&run) {
+                self.retired.push(run);
+                if self.retired.len() > 8 {
+                    self.retired.remove(0);
+                }
+            }
+        }
+        self.scrubbed = Some(frame.clone());
+    }
 }
 
 /// Why a build does not apply a batch.
@@ -35,8 +54,8 @@ pub struct LiveApplied {
     pub receipt: CommitReceipt,
     /// Rows set again.
     pub rows: usize,
-    /// The session's role overrides are another table now: its host
-    /// re-presents what it drew from them.
+    /// The session's role overrides are another table now (LLP 1121 stage
+    /// 5): its host re-presents what it drew from them.
     pub roles: bool,
     /// A colour was refused by a full wide table; its rows kept their value.
     pub full: bool,
@@ -44,12 +63,12 @@ pub struct LiveApplied {
 
 impl<D: DataSource> Runner<D> {
     /// Admit live batches unless `compat` names a production build: the
-    /// live table is development's only.
+    /// live table is development's only (`rules/DEFERRED.md` §Runtime).
     pub fn admit_live(&mut self, compat: Option<&str>) {
         self.live.admitted = !compat.is_some_and(crate::delivery::production);
     }
 
-    /// Its role overrides, its own: what a host that
+    /// Its role overrides, its own (LLP 1121 stage 5): what a host that
     /// drives several sessions on one thread binds around the work it does
     /// for this one ([`Runner::bind_roles`]).
     pub fn roles(&self) -> &std::rc::Rc<exact_kernel::style::roles::Roles> {
@@ -61,7 +80,7 @@ impl<D: DataSource> Runner<D> {
         exact_kernel::style::roles::bind(self.roles.roles())
     }
 
-    /// Its role overrides as a host's own sheet declares
+    /// @ref LLP 1095 D4 — its role overrides as a host's own sheet declares
     /// them ([`exact_kernel::style::roles::theme_css`]).
     pub fn theme_css(&self) -> String {
         let _roles = self.bind_roles();
@@ -115,21 +134,10 @@ impl<D: DataSource> Runner<D> {
         if edit.base.as_ref().is_some_and(|base| *base != running) {
             return Err(LiveRefusal::Stale);
         }
-        if let Some(frame) = &edit.scrub {
-            // A new run's frame retires the run before it (a few kept).
-            if let Some(run) = self.live.scrubbed.as_ref().and_then(|l| l.run.clone()) {
-                if frame.run.as_ref() != Some(&run) && !self.live.retired.contains(&run) {
-                    self.live.retired.push(run);
-                    if self.live.retired.len() > 8 {
-                        self.live.retired.remove(0);
-                    }
-                }
-            }
-            self.live.scrubbed = Some(frame.clone());
-        }
         // No tokens (a notice), or the design it runs already (a snapshot
         // polled again): nothing to set.
         if edit.tokens.is_empty() || edit.design == running {
+            self.live.shown(edit.scrub.as_ref());
             return Ok(nothing());
         }
         let refusals = exact_kernel::style::wide::refusals();
@@ -148,10 +156,13 @@ impl<D: DataSource> Runner<D> {
             RunnerError::InvalidValue { reason, .. } => LiveRefusal::Refused(reason),
             other => LiveRefusal::Refused(format!("{other:?}")),
         })?;
+        // Only a frame that landed is shown: a refused one stays unseen, so
+        // the same frame sent again, or its run's next, is not older.
+        self.live.shown(edit.scrub.as_ref());
         self.design = Some(edit.design.clone());
         // A role crosses to a host as what replaces it, in any row, and the
         // kernel's own defaults read it: every node is the host's to send
-        // again.
+        // again (LLP 1121 stage 5).
         let moved = self.roles().generation() != roles;
         if moved {
             let mut touched: std::collections::HashSet<_> =

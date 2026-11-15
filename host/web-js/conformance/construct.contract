@@ -1,4 +1,4 @@
-// Synthetic conformance plan: a list the screen keeps for
+// Synthetic conformance plan (LLP 1088 §9.1): a list the screen keeps for
 // the session, built in Contract on both runners. `[a, b]` holds its items;
 // `concat`, `slice` and `includes` are the web's array methods — `slice`
 // clamped as text's is (negative from the end, NaN is 0, fractions

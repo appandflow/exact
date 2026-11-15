@@ -3,9 +3,9 @@ import AppKit
 import XCTest
 @testable import ExactKit
 
-/// On AppKit, a collection's scroll callback builds only
+/// LLP 1050.000 stage 1 on AppKit: a collection's scroll callback builds only
 /// what shows when a gap shows, defers the rest to the pump, and responsive
-/// scrolling may carry only the rows it has built.
+/// scrolling may carry only the rows it has built (D5).
 final class CollectionFillMacTests: XCTestCase {
     private func batch(_ ops: [[String: Any]]) -> Batch {
         batchFixture(ops: ops, timers: false, motion: false, clock: nil, error: nil)
@@ -103,7 +103,7 @@ final class CollectionFillMacTests: XCTestCase {
         wire.subdata(in: 92..<96).withUnsafeBytes { $0.loadUnaligned(as: UInt32.self) }
     }
 
-    /// A slice goes off main build-only; while it is in
+    /// @ref LLP 1072 §3, §5 — a slice goes off main build-only; while it is in
     /// flight every report waits and the next slice stays owed; landed, it
     /// owes one retire-only report from main, at the slice's limit.
     func testAnOffMainSliceBuildsOnlyAndLandsIntoARetireOnlyReport() throws {

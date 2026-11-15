@@ -1,5 +1,6 @@
 #!/usr/bin/env bun
-// Measure the control-role table's fidelity on one host: the fixture (scripts/fixtures/control-roles) built twice, once
+// Measure the control-role table's fidelity on one host (LLP 1121 D9, stage
+// 8 C): the fixture (scripts/fixtures/control-roles) built twice, once
 // as written (an authored accent and field roles) and once with neither,
 // each control's frame read from both screenshots and compared.
 //
@@ -15,12 +16,12 @@
 //   authored colour yet nearer it than the plain build's pixel there (moved
 //   by more than ΔE00 1, of its hue (within 30°, chroma 10 or more; an
 //   authored grey by ΔE00 alone), and not another colour the fixture asks for,
-//   blended over the pixel or the control's ground);
+//   blended over the pixel or the control's ground): theme2's ruling;
 // - none: else (the platform's own colour stands);
 // - unmeasured: fewer than 16 pixels in the frame, or frames that differ
 //   between the builds (the run fails, naming it).
 // Pixels that move between two looks in either build, the app's clock
-// held (an animation the clock does not drive), are left out first, as is the hue.
+// held (an animation the clock does not drive), are left out first (theme2's 08:42 ruling, as is the hue).
 // Run each host's prerequisites first (a web dist, a native build of the
 // host fixture, a simulator or emulator of your own, Android's reader APK:
 // with --scratch for the reader), as agent.mjs says.
@@ -29,8 +30,9 @@ import { cpSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } 
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { decodePng } from './png.mjs';
+import { fileURLToPath } from 'node:url';
 
-const ROOT = resolve(new URL('..', import.meta.url).pathname);
+const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const FIXTURE = resolve(ROOT, 'scripts/fixtures/control-roles');
 const argv = process.argv.slice(2);
 const host = argv[0];
@@ -102,7 +104,7 @@ export function deltaE00([L1, a1, b1], [L2, a2, b2]) {
 /** A fixture build: the app as written, or with no accent and no design. */
 function build(dir, authored) {
   cpSync(resolve(FIXTURE, 'app.contract'), join(dir, 'app.contract'));
-  if (authored) cpSync(resolve(FIXTURE, 'app.tamber'), join(dir, 'app.tamber'));
+  if (authored) cpSync(resolve(FIXTURE, 'app.forma'), join(dir, 'app.forma'));
   else writeFileSync(join(dir, 'app.contract'), readFileSync(join(dir, 'app.contract'), 'utf8').replace(' accent-color="accent.authored"', ''));
   const plan = join(dir, 'app.plan');
   const c = spawnSync('cargo', ['run', '-q', '--profile', 'host-dev', '-p', 'contract', '--', 'build', join(dir, 'app.contract'), '-o', plan], { cwd: ROOT, encoding: 'utf8' });
@@ -111,10 +113,10 @@ function build(dir, authored) {
 }
 
 /** Each control's frame (view points) and the screenshot, on `host`.
- * Android is its reader (the APK's Canvas reader, not the
+ * Android is its reader (D9's column: the APK's Canvas reader, not the
  * Linux host under adb), which boots the plan its APK bakes: the fixture
  * goes in as the app of a scratch checkout (`--scratch <worktree>`, whose
- * `apps/tamber-host` it overwrites) and the APK is built there. */
+ * `apps/forma-host` it overwrites) and the APK is built there. */
 /** The app in front on this Mac (its LaunchServices ASN and bundle id), or
  * null: put back in front after the Mac's activated run (`frontAgain`). */
 function frontApp() {
@@ -141,22 +143,22 @@ function capture(plan, png, dir) {
   const ids = [...new Set(ROWS.map(r => r[2]))];
   let root = ROOT, target = ['--plan', plan];
   if (host === 'android') {
-    if (!scratch) throw new Error('android: --scratch <a throwaway git worktree of this checkout>, whose apps/tamber-host is the fixture while it runs');
+    if (!scratch) throw new Error('android: --scratch <a throwaway git worktree of this checkout>, whose apps/forma-host is the fixture while it runs');
     // The fixture names no module: the app's own Swatch (its hatches read its design's params) goes.
-    const manifest = join(scratch, 'apps/tamber-host/app.json');
+    const manifest = join(scratch, 'apps/forma-host/app.json');
     writeFileSync(manifest, JSON.stringify({ ...JSON.parse(readFileSync(manifest, 'utf8')), modules: [] }, null, 2));
-    rmSync(join(scratch, 'apps/tamber-host/modules'), { recursive: true, force: true });
-    for (const f of ['app.contract', 'app.tamber']) rmSync(join(scratch, 'apps/tamber-host', f), { force: true });
-    cpSync(join(dir, 'app.contract'), join(scratch, 'apps/tamber-host/app.contract'));
-    if (existsSync(join(dir, 'app.tamber'))) cpSync(join(dir, 'app.tamber'), join(scratch, 'apps/tamber-host/app.tamber'));
-    const b = spawnSync(process.execPath, [join(scratch, 'scripts/agent-android.mjs'), 'build', 'tamber-host', '--apk'], { cwd: scratch, encoding: 'utf8', maxBuffer: 1 << 28 });
+    rmSync(join(scratch, 'apps/forma-host/modules'), { recursive: true, force: true });
+    for (const f of ['app.contract', 'app.forma']) rmSync(join(scratch, 'apps/forma-host', f), { force: true });
+    cpSync(join(dir, 'app.contract'), join(scratch, 'apps/forma-host/app.contract'));
+    if (existsSync(join(dir, 'app.forma'))) cpSync(join(dir, 'app.forma'), join(scratch, 'apps/forma-host/app.forma'));
+    const b = spawnSync(process.execPath, [join(scratch, 'scripts/agent-android.mjs'), 'build', 'forma-host', '--apk'], { cwd: scratch, encoding: 'utf8', maxBuffer: 1 << 28 });
     if (b.status !== 0) throw new Error(`the reader's APK does not build: ${(b.stderr || b.stdout).slice(-2000)}`);
     root = scratch;
-    target = ['--reader', '--app', 'tamber-host'];
+    target = ['--reader', '--app', 'forma-host'];
   }
   // The Mac draws a control's accent only in a key window, which an agent's window never is (it takes no focus):
   // EXACT_AGENT_ACTIVATE=1, for this run only, activates the app; it puts back the app in front when it quits, and
-  // so does this, however the run ends.
+  // so does this, however the run ends (LLP 1121 stage 9 F2).
   const front = host === 'macos' ? frontApp() : null;
   let r;
   try {
@@ -232,7 +234,7 @@ export function judge(authoredPx, plainPx, target, others = []) {
   const close = near.filter((d, i) => d <= 3 && was[i] > 3).length;
   const best = Math.min(...near);
   if (close >= 4) return { fidelity: 'exact', deltaE: best, pixels: close };
-  // Best-effort: further than ΔE00 3 from the authored
+  // Best-effort (theme2's ruling): further than ΔE00 3 from the authored
   // colour, yet nearer it than the platform's pixel there.
   let nearer = 0, nearest = Infinity;
   for (let i = 0; i < n; i++) {

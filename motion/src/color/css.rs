@@ -1,4 +1,4 @@
-//! CSS colours, parsed once for every reader: CSS Color 4's
+//! CSS colours, parsed once for every reader (LLP 1056 D3): CSS Color 4's
 //! sRGB forms — hex, `rgb()`, `rgba()`, `hsl()`, `hsla()`, `hwb()`, the
 //! named colours, `transparent` and `currentColor` — and the canvas
 //! serialisation (`#rrggbb` when opaque, `rgba(r, g, b, a)` otherwise).
@@ -9,7 +9,9 @@
 //! `srgb`, `srgb-linear`, `display-p3`, `xyz`, `xyz-d50` and `xyz-d65`) are
 //! converted to sRGB and clipped, as an sRGB canvas draws them, and keep
 //! their own serialisation, as Chrome's getters return it. Parsing and
-//! arithmetic are `exact-color`'s.
+//! arithmetic are `exact-color`'s (LLP 1100).
+
+use crate::property::Value;
 
 /// A colour: sRGB channels 0–255 and alpha 0–1, non-premultiplied.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -105,7 +107,7 @@ pub fn parse(input: &str) -> Option<Parsed> {
 pub fn parse_exact(input: &str) -> Option<Parsed> {
     match exact_color::parse(input)? {
         exact_color::Parsed::Current => Some(Parsed::Current),
-        exact_color::Parsed::Legacy(c) => Some(Parsed::Color(rgba(c))),
+        exact_color::Parsed::Legacy(c, _) => Some(Parsed::Color(rgba(c))),
         exact_color::Parsed::Wide(w) => WIDE.get().and_then(|f| f(w)),
     }
 }
@@ -126,32 +128,41 @@ static WIDE: std::sync::OnceLock<fn(exact_color::Wide) -> Option<Parsed>> =
 /// Link the wide forms (`lab()`, `lch()`, `oklab()`, `oklch()`,
 /// `color()`): until a host calls this, they do not parse and their
 /// assignments are ignored. Native hosts link them at start; a web artifact
-/// links them when its data crate's source names one (linked by use, for
-/// the web core's budget).
+/// links them when its data crate's source names one (LLP 1047 D2: linked
+/// by use; the web core's budget).
 pub fn link_wide() {
     let _ = WIDE.set(wide);
+    let _ = WIDE_VALUE.set(wide_value);
 }
 
-/// A wide colour clipped to sRGB, with its own serialisation; only the
-/// forms Chrome's canvas takes.
+/// The wide forms as motion values, once linked ([`link_wide`]).
+static WIDE_VALUE: std::sync::OnceLock<fn(exact_color::Wide) -> Option<Value>> =
+    std::sync::OnceLock::new();
+
+/// A wide colour as a motion value, once the wide forms are linked.
+pub(crate) fn motion_value(w: exact_color::Wide) -> Option<Value> {
+    WIDE_VALUE.get().and_then(|f| f(w))
+}
+
+/// The forms Chrome's canvas takes.
+fn admitted(w: &exact_color::Wide) -> bool {
+    !w.space.is_hdr() && w.space != exact_color::Space::DisplayP3Linear
+}
+
+/// A wide colour clipped to sRGB, with its own serialisation.
 fn wide(w: exact_color::Wide) -> Option<Parsed> {
-    if w.space.is_hdr() || w.space == exact_color::Space::DisplayP3Linear {
-        return None;
-    }
-    Some(Parsed::Wide(rgba(w.srgb8()), w.css()))
+    admitted(&w).then(|| Parsed::Wide(rgba(w.srgb8()), w.css()))
 }
 
-/// A number as JavaScript's `String(n)` writes it, for the shapes canvas
-/// serialisations take (finite, not huge).
-pub fn js_number(v: f64) -> String {
-    if v == v.trunc() && v.abs() < 1e15 {
-        return format!("{}", v as i64);
-    }
-    let mut s = format!("{v}");
-    if s.contains('e') {
-        s = format!("{v:.6}");
-    }
-    s
+/// A wide colour in premultiplied Oklab, unclipped: a modern colour
+/// interpolates there (CSS Color 4 §12.1; LLP 1100 D2).
+fn wide_value(w: exact_color::Wide) -> Option<Value> {
+    // `oklab()` as written, so the keyframe rule reads back exactly.
+    let [l, a, b] = match w.space {
+        exact_color::Space::Oklab => w.c,
+        _ => exact_color::linear_to_oklab(w.linear_srgb()),
+    };
+    admitted(&w).then(|| Value::oklab(l, a, b, w.alpha))
 }
 
 #[cfg(test)]
@@ -203,6 +214,14 @@ mod tests {
             c("color(display-p3 1 0 0)"),
             "color(display-p3 1 0 0) #ff0000"
         );
+        // A component written `none`: 0 in the pixels, `none` in the text
+        // (Chrome 156); hwb() bounds no whiteness or blackness above 100%.
+        assert_eq!(c("oklch(0.7 0 none)"), "oklch(0.7 0 none) #9e9e9e");
+        assert_eq!(
+            c("oklch(0.7 0.1 120 / none)"),
+            "oklch(0.7 0.1 120 / none) rgba(150, 168, 94, 0)"
+        );
+        assert_eq!(c("hwb(0 200% 100%)"), "#aaaaaa");
         for bad in [
             "",
             "#12",

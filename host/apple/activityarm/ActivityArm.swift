@@ -1,4 +1,4 @@
-// Loaded only for a send or exactActivities demand.
+// @ref LLP 1126.001 WP9 — loaded only for a send or exactActivities demand.
 import ActivityKit
 import Foundation
 

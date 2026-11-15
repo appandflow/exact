@@ -1,4 +1,4 @@
-//! Shader reflection for an app's GPU crate: every `.wgsl`
+//! Shader reflection for an app's GPU crate (LLP 1009 D5): every `.wgsl`
 //! under a directory is parsed and validated by naga at build, and what the
 //! shader declares — its bindings, the layout of every host-shareable struct,
 //! its vertex inputs, its entry points — is generated as Rust the surface
@@ -11,8 +11,8 @@
 //! For `aurora.wgsl` the generated `pub mod aurora` holds `NAME`,
 //! `INTERFACE_DIGEST` (below), and `module()` — the `ShaderModuleDescriptor`
 //! over the text the app's shader registry holds for that name at run time
-//! (the WGSL travels as an asset, never as a string in the binary;
-//! `exact_gpu::shaders`) — `entry::VS`, `entry::FS`; one
+//! (LLP 1030 D8: the WGSL travels as an asset, never as a string in the
+//! binary; `exact_gpu::shaders`) — `entry::VS`, `entry::FS`; one
 //! `BindGroupLayoutEntry` const per binding (`U`, `CHILDREN`, …) — its
 //! visibility the stages that use it, a float texture filterable exactly
 //! when some entry point samples it with a sampler — and a `GROUP_n`
@@ -29,7 +29,7 @@
 //! Generated code names `::exact_gpu::wgpu`, so it compiles wherever
 //! `exact-gpu` does — natively and on the web alike.
 //!
-//! **The interface digest** is a digest over what the surface's
+//! **The interface digest** (LLP 1030 D8) is a digest over what the surface's
 //! Rust binds against and nothing else: the entry points with their stages
 //! and workgroup sizes, every binding's group, number, type, and visibility,
 //! every host-shareable struct's layout, the vertex inputs, the fragment
@@ -99,7 +99,7 @@ pub fn generate(dir: &Path) -> Result<Generated, String> {
         table.push((stem.to_string(), digest));
     }
     rust.push_str(
-        "\n/// Every shader here, by name, with the interface digest it was reflected at: what the app's `Registry` carries so a registered shader can be checked against what the binary binds.\n",
+        "\n/// Every shader here, by name, with the interface digest it was reflected at: what the app's `Registry` carries so a registered shader can be checked against what the binary binds (LLP 1030 D8).\n",
     );
     rust.push_str("pub const SHADERS: &[(&str, u64)] = &[");
     for (i, (name, digest)) in table.iter().enumerate() {
@@ -112,8 +112,8 @@ pub fn generate(dir: &Path) -> Result<Generated, String> {
     Ok(Generated { rust, sources })
 }
 
-/// The interface digest of a shader as the registry checks it at run time:
-/// the same number `INTERFACE_DIGEST` was generated with,
+/// The interface digest of a shader as the registry checks it at run time
+/// (LLP 1030 D8): the same number `INTERFACE_DIGEST` was generated with,
 /// over the validated interface and never the text. A shader that fails to
 /// parse or validate is an error naming the line and column.
 pub fn interface_digest(source: &str) -> Result<u64, String> {
@@ -251,7 +251,7 @@ impl Shader<'_> {
         let mut out = String::new();
         let _ = writeln!(
             out,
-            "/// `{name}.wgsl`, reflected at build: its entry points, bindings, and layouts; its text is the registry's."
+            "/// `{name}.wgsl`, reflected at build: its entry points, bindings, and layouts; its text is the registry's (LLP 1030 D8)."
         );
         let _ = writeln!(out, "#[allow(non_camel_case_types, non_snake_case)]");
         let _ = writeln!(out, "pub mod {name} {{");
@@ -261,7 +261,7 @@ impl Shader<'_> {
             "    /// The shader's name: the registry's key, and the asset file's stem."
         );
         let _ = writeln!(out, "    pub const NAME: &str = {name:?};");
-        let _ = writeln!(out, "    /// The interface digest this Rust binds against: entry points, bindings, layouts, inputs, outputs, overrides — never the text.");
+        let _ = writeln!(out, "    /// The interface digest this Rust binds against (LLP 1030 D8): entry points, bindings, layouts, inputs, outputs, overrides — never the text.");
         let _ = writeln!(out, "    pub const INTERFACE_DIGEST: u64 = {digest:#018x};");
         let _ = writeln!(out, "    /// The shader module over the text the registry holds for `{name}` (`exact_gpu::shaders::set_shader`); empty until one is registered, which the module refuses to create a surface before.");
         let _ = writeln!(
@@ -277,7 +277,7 @@ impl Shader<'_> {
         Ok(out)
     }
 
-    /// The canonical interface: one line per fact the surface's
+    /// The canonical interface (LLP 1030 D8): one line per fact the surface's
     /// Rust depends on, in a fixed order — what [`digest`] hashes. Doc text,
     /// the shader's name, and the source are not in it, so a generator change
     /// that only rewords a comment, or a color edit, leaves it alone.

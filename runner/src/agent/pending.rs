@@ -1,7 +1,8 @@
-//! `state.pending`: the requests in flight, by the clock's count,
-//! then those the server holds, which no clock waits
+//! `state.pending`: the requests in flight, by the clock's count (LLP 1016
+//! D5), then those the server holds (LLP 1016.000 D9), which no clock waits
 //! on, marked `held`, then the answers waiting for their own timers, marked
-//! `timer` with when it is due, then held device requests.
+//! `timer` with when it is due (LLP 1027.000 D1), then held device requests
+//! (LLP 1069.007 D3).
 
 use super::quote;
 use crate::{DataSource, Runner};
@@ -19,7 +20,7 @@ pub(super) fn state<D: DataSource>(runner: &Runner<D>, s: &mut String) {
         quote(name, s);
         let _ = write!(s, ",\"ticket\":{ticket}}}");
     }
-    // Requests the server holds: pending, no clock waits on them.
+    // Requests the server holds (LLP 1016.000 D9): pending, no clock waits on them.
     let held = runner.held_requests();
     for (i, (name, ticket)) in held.iter().enumerate() {
         if i > 0 || !in_flight.is_empty() {
@@ -43,7 +44,7 @@ pub(super) fn state<D: DataSource>(runner: &Runner<D>, s: &mut String) {
             crate::agent::num(*due)
         );
     }
-    // Held device requests, after the network's: each
+    // Held device requests, after the network's (LLP 1069.007 D3): each
     // with its capability and that capability's inspection summary.
     let network = in_flight.len() + held.len() + timers.len();
     for (i, hold) in runner.device_holds().iter().enumerate() {

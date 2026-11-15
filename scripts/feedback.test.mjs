@@ -116,7 +116,7 @@ test('Needed lines are counted per capability across diaries; anything else in t
   ]);
 });
 
-test('the README goes beside the diary only with consent, its workarounds previewed first, once per text', async () => {
+test('the README goes beside the diary only with consent, its workarounds previewed first, once per text (LLP 1139.004 D5)', async () => {
   const { parent, dir } = app();
   try {
     writeFileSync(resolve(dir, '.exact/diary/2026-10-19-a.md'), '### Rough\n- a slow proof\n');
@@ -183,6 +183,41 @@ test('authentication headers are removed from the posted diary and its attachmen
     assert.equal(posted.attachments.length, 1);
     for (const token of tokens) assert.ok(!JSON.stringify(posted).includes(token));
     assert.match(posted.text, /Authorization: \[redacted\]/);
+  } finally { rmSync(parent, { recursive: true, force: true }); }
+});
+
+test('credentials under quoted keys are removed whole, with escaped quotes, from the diary and its attachments', async () => {
+  const { parent, dir } = app();
+  try {
+    // Every synthetic credential's words begin `Zq`: none may reach the posted body.
+    const forms = [
+      String.raw`{"password":"Zq1 Zq1!"}`,
+      String.raw`{ "api_key" : "Zq2" }`,
+      '{"refresh_token":\n  "Zq3"}',
+      String.raw`{"Client_Secret": "Zq4 \"Zq4\" Zq4"}`,
+      String.raw`{'password': 'Zq5 it\'s Zq5'}`,
+      '{password: `Zq6 Zq6`}',
+      String.raw`{ ["accessToken"]: "Zq7" }`,
+      String.raw`"{\"password\":\"Zq8 \\\"Zq8\\\" Zq8\"}"`,
+      String.raw`PASSWORD="Zq9 Zq9"`,
+      String.raw`token: "Zq10 Zq10"`,
+      String.raw`--password "Zq11 Zq11"`,
+      String.raw`{"apiKey":"Zq12","next":"kept"}`,
+    ];
+    const text = `A diagnostic object:\n\n\`\`\`json\n${forms.join('\n')}\n\`\`\`\nThen prose after it.`;
+    const redacted = redact(text, dir);
+    assert.ok(!redacted.includes('Zq'), redacted);
+    assert.match(redacted, /"next":"kept"/);
+    assert.match(redacted, /Then prose after it\.$/);
+    writeFileSync(resolve(dir, '.exact/diary/quoted.md'), text);
+    writeFileSync(resolve(dir, 'README.md'), text);
+    let posted;
+    await send(dir, { yes: true, readme: true, fetch: async (_url, init) => {
+      posted = init.body;
+      return { ok: true, json: async () => ({ id: 'quoted', attachments: ['README.md'] }) };
+    } });
+    assert.equal(JSON.parse(posted).attachments.length, 1);
+    assert.ok(!posted.includes('Zq'));
   } finally { rmSync(parent, { recursive: true, force: true }); }
 });
 

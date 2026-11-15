@@ -164,10 +164,10 @@ def floor (x : F64) : F64 :=
     let z := x.scaled / 2 ^ 1074 * 2 ^ 1074
     if z = x.scaled then x else ofScaled z false
 
-/-- `⌈x⌉` as `-⌊-x⌋`: exact, and `ceil(-0.5) = -0`. -/
+/-- `⌈x⌉` as `-⌊-x⌋`: exact, and `ceil(-0.5) = -0` (LLP 1102 §3.2). -/
 def ceil (x : F64) : F64 := neg (floor (neg x))
 
-/-- JavaScript's `Math.round`: `⌊x + 1/2⌋` taken exactly, so
+/-- JavaScript's `Math.round` (LLP 1102 §3.2): `⌊x + 1/2⌋` taken exactly, so
 a half rounds up (`round(-2.5) = -2`) and `0.49999999999999994` rounds to 0,
 where Rust's `f64::round` rounds a half away from zero. A zero result keeps
 `x`'s sign (`round(-0.4) = -0`); NaN and the infinities are their own. -/

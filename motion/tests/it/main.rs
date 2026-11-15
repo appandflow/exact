@@ -21,7 +21,7 @@ mod uikit;
 use exact_motion::{Animations, Keyframes};
 
 /// A shorthand then the `@keyframes name{…}` rules it names, resolved as a
-/// runner resolves a row against its plan's table.
+/// runner resolves a row against its plan's table (LLP 1055 D5).
 pub fn keyframed(text: &str) -> Result<Animations, String> {
     let (head, rules) = text.split_at(text.find("@keyframes").unwrap_or(text.len()));
     let mut table = Vec::new();

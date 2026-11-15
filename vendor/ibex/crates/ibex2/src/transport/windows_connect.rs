@@ -1,5 +1,5 @@
 //! Completion of a cancellable, nonblocking Winsock connection.
-//! Peer address is not readiness.
+//! @ref LLP 0068#windows-outbound-connection-readiness — peer address is not readiness
 
 use crate::stdlib::abort::AbortSignal;
 use socket2::{Domain, Protocol, Socket, Type};

@@ -1,4 +1,4 @@
-//! An image's picture in picture: `requestPictureInPicture(id)`
+//! An image's picture in picture (LLP 1042 §9): `requestPictureInPicture(id)`
 //! and `exitPictureInPicture()` reach the host, and the image hears
 //! `enterpictureinpicture`, `leavepictureinpicture` and, with its reason,
 //! `pictureinpictureerror` as the host reports them.

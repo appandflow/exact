@@ -1,6 +1,6 @@
-//! `-exact-exit-animation` resolves its keyframes like `animation` and reaches the
-//! receipt of the commit that removes its node; `-exact-layout-transition` reaches its
-//! row.
+//! LLP 1063: `-exact-exit-animation` resolves its keyframes like `animation` and
+//! reaches the receipt of the commit that removes its node; `-exact-layout-transition`
+//! reaches its row.
 
 use exact_kernel::{Kernel, StyleId};
 use exact_motion::{Property, TimingFunction, Value};

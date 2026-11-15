@@ -1,4 +1,4 @@
-//! The look oracle's tells: what a frame's own numbers say is
+//! The look oracle's tells (LLP 1127.000 D1): what a frame's own numbers say is
 //! wrong with it. Each is read from a look frame under the agent's clock, never
 //! from a live frame. A tell catches a frame that is near black or clipped,
 //! particles that drew and covered nothing, and a shadowed sun whose shadow maps

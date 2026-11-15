@@ -3,8 +3,8 @@ import XCTest
 @testable import ExactKit
 import UIKit
 
-/// On iOS a popover is laid out in the viewport, a block the
-/// kernel implies, not in its positioned ancestor. A chat app's Pins popover
+/// Stage 14 B on iOS: a popover is laid out in the viewport, a block the
+/// kernel implies, not in its positioned ancestor. Harmony's Pins popover
 /// with no width (`top-layer-pins.contract`), opened as itself, is the size
 /// the web gives it, and the runner is told it by its block.
 final class TopLayerBlockIOSTests: XCTestCase {

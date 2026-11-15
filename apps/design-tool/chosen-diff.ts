@@ -1,4 +1,4 @@
-// A held import's diff follows its card's choice at once. A card that
+// A held import's diff follows its card's choice at once (stage 15 D1.1, the third pass's #10 item 1). A card that
 // shows a diff (a recomputed or edited import) shows the server's plan of every operation it holds; once the card has
 // chosen fewer, it shows the plan of the ones chosen instead, asked as a plain `propose` (planned, never held or
 // written: no wire change), once for each choice on the files as they are (kept by proposal, items and the files'
@@ -30,7 +30,7 @@ export function chosenDiffSources(call: Call, cards: () => Card[], chosen: (prop
         if (!items.length) return { ...shownAs, diff: '', note: 'Nothing is chosen, so accepting it would write nothing.' };
         let got = planned.get(key);
         if (!got) {
-          const { error, reply } = await call('/__tamber', { method: 'propose', client, ops: items.map(i => ops[i]) }, 15000, bound());
+          const { error, reply } = await call('/__forma', { method: 'propose', client, ops: items.map(i => ops[i]) }, 15000, bound());
           got = error ? { diff: h.diff, note: `The diff of only what is chosen could not be planned (${error}): this is the diff of all of it.` } : { diff: String(reply.ok?.diff ?? ''), note: '' };
           // (kept only when it was planned on exactly the files the changes know: a write in between plans another)
           if (!error && digests(reply.ok?.files ?? {}) === digests(now)) planned.set(key, got);

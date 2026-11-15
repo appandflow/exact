@@ -1,4 +1,4 @@
-// The acceptance drives 1–6 under the agent, with the auth
+// LLP 1133.011 §10's acceptance drives 1–6 under the agent, with the auth
 // fixture against its server's relying party (apps/auth-fixture/fixture.mjs).
 // Each ceremony holds a `credential` ticket; "answer" runs `authenticator.mjs` on
 // the ticket's args and types its response, so the server verifies a real
@@ -137,7 +137,7 @@ try {
     }
   }
   if (run(6) && host !== 'macos') {
-    // No answer, journal line or state field holds a response, a spent challenge or a signature.
+    // No answer, journal line or state field holds a response, a spent challenge or a signature (§10's test).
     const st = JSON.stringify(await s.state()), lines = (await s.logs({ all: true })).lines.join('\n');
     const secrets = /"(clientDataJSON|attestationObject|signature|authenticatorData)"/;
     check(6, 'no state field or journal line holds a response', !secrets.test(st) && !secrets.test(lines), (st.match(secrets) ?? lines.match(secrets))?.[0]);

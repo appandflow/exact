@@ -1,4 +1,4 @@
-// How every Canvas 2D paint reaches the
+// @ref LLP 1056 §1, §3 stage 2 — how every Canvas 2D paint reaches the
 // bitmap: `render` applies global alpha, the compositing operator and the
 // shadow around one paint. Shadow offsets and blur are canvas pixels × the
 // device scale, never × the author's matrix, in Core Graphics' base space

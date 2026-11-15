@@ -1,4 +1,4 @@
-// In a real browser, the definition every host follows (PreventFocusMacTests,
+// LLP 1005 §3 in a real browser, the definition every host follows (PreventFocusMacTests,
 // PreventFocusIOSTests): a `pointerdown` action that calls `preventDefault()` keeps the focus where it
 // is, places no caret and starts no selection, and the press still fires, by mouse and by touch, as
 // Chrome does for a prevented pointerdown. scripts/fixtures/prevent-focus.contract, built for the JS target.
@@ -11,8 +11,9 @@ import { join, resolve } from 'node:path';
 import { cdpBrowser, chromium } from '../../../scripts/agent-launch.mjs';
 import { serveBuildTree } from '../serve.mjs';
 import { need } from '../../../scripts/coverage.mjs';
+import { fileURLToPath } from 'node:url';
 
-const ROOT = resolve(new URL('../../..', import.meta.url).pathname);
+const ROOT = resolve(fileURLToPath(new URL('../../..', import.meta.url)));
 const compiler = resolve(process.env.CARGO_TARGET_DIR ?? resolve(ROOT, 'target'), 'debug', process.platform === 'win32' ? 'contract.exe' : 'contract');
 const { unavailable } = chromium();
 const check = need('chrome', unavailable);

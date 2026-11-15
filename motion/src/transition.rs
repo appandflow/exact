@@ -1,6 +1,6 @@
 //! `transition`: the declaration, and CSS's rules for running one.
 //!
-//! CSS Transitions Level 1 §3 ("Starting of transitions")
+//! @ref LLP 1002 §2; CSS Transitions Level 1 §3 ("Starting of transitions")
 //!
 //! A [`Transitions`] list is the value of a node's `transition` style row in
 //! the kernel — the same row a web host emits as CSS. The rest of this module
@@ -12,7 +12,7 @@
 
 use crate::easing::{Easing, EasingError};
 use crate::property::{Property, Value};
-use crate::spring::{SpringConfig, SpringError, MAX_DURATION};
+use crate::spring::{SpringConfig, SpringError};
 
 /// Most transitions one node may declare.
 pub const MAX_TRANSITIONS: usize = 8;
@@ -52,7 +52,7 @@ impl TransitionProperty {
         match name {
             "all" => Some(TransitionProperty::All),
             "border-color" => Some(TransitionProperty::BorderColor),
-            // A path's `d` transitions; no keyframe names it.
+            // A path's `d` transitions (LLP 1055.000 D15); no keyframe names it.
             "d" => Some(TransitionProperty::Property(Property::D)),
             name => Property::from_author_name(name).map(TransitionProperty::Property),
         }
@@ -96,8 +96,8 @@ pub struct Transition {
 pub enum TransitionError {
     /// More declarations than [`MAX_TRANSITIONS`].
     TooMany,
-    /// A duration or delay was infinite or NaN.
-    NonFinite,
+    /// A duration or delay was infinite or NaN: which one.
+    NonFinite(&'static str),
     /// `transition-duration` was negative.
     NegativeDuration,
     /// A spring transition authored a duration; a spring's duration is derived.
@@ -110,7 +110,33 @@ pub enum TransitionError {
     Spring(SpringError),
 }
 
+impl std::fmt::Display for TransitionError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            TransitionError::TooMany => {
+                write!(f, "a node takes at most {MAX_TRANSITIONS} transitions")
+            }
+            TransitionError::NonFinite(what) => write!(f, "a transition's {what} is finite"),
+            TransitionError::NegativeDuration => f.write_str("a duration is 0 or more"),
+            TransitionError::SpringDeclaresDuration => f.write_str(
+                "a spring's duration follows from its stiffness, damping and mass, and the first time beside `-exact-spring()` is a duration: write no time, or `0s` and then the delay (`opacity 0s -exact-spring() 200ms`)",
+            ),
+            TransitionError::SpringNegativeDelay => f.write_str("a spring's delay is 0 or more"),
+            TransitionError::Easing(e) => e.fmt(f),
+            TransitionError::Spring(e) => e.fmt(f),
+        }
+    }
+}
+
 impl Transition {
+    /// CSS's initial transition: covers every property but starts nothing.
+    pub const INITIAL: Self = Self {
+        property: TransitionProperty::All,
+        duration: 0.0,
+        delay: 0.0,
+        timing: TimingFunction::Easing(Easing::Ease),
+    };
+
     /// A transition with no delay.
     pub fn new(property: TransitionProperty, duration: f64, timing: TimingFunction) -> Transition {
         Transition {
@@ -123,8 +149,11 @@ impl Transition {
 
     /// Check every rule the evaluator relies on.
     pub fn validate(&self) -> Result<(), TransitionError> {
-        if !self.duration.is_finite() || !self.delay.is_finite() {
-            return Err(TransitionError::NonFinite);
+        if !self.duration.is_finite() {
+            return Err(TransitionError::NonFinite("duration"));
+        }
+        if !self.delay.is_finite() {
+            return Err(TransitionError::NonFinite("delay"));
         }
         if self.duration < 0.0 {
             return Err(TransitionError::NegativeDuration);
@@ -157,7 +186,7 @@ impl Transition {
     /// spring drives as physics ([`Property::springs`]: paint, a path's
     /// stroke) is its curve from rest, a `linear()` easing over its settle
     /// time: the web's CSS plays those properties itself, and CSS interrupts
-    /// an easing from where it is.
+    /// an easing from where it is (LLP 1062 D3).
     pub fn governing(&self, property: Property) -> Transition {
         match &self.timing {
             TimingFunction::Spring(config) if !property.springs() => {
@@ -188,9 +217,13 @@ impl Transition {
 pub struct Transitions(pub Vec<Transition>);
 
 impl Transitions {
-    /// No transitions: every change is immediate (CSS's initial value,
-    /// `transition: all 0s ease 0s`, which starts nothing).
+    /// Explicit `transition: none`: covers no property.
     pub const NONE: Transitions = Transitions(Vec::new());
+
+    /// An unset declaration: `all 0s ease 0s` still covers running transitions.
+    pub fn initial() -> Self {
+        Self(vec![Transition::INITIAL])
+    }
 
     /// The declaration governing `property`, if any. When several cover it,
     /// the last wins (CSS Transitions §2.1: "the last one is used"). A
@@ -228,7 +261,7 @@ pub(crate) struct Running {
     pub reversing_adjusted_start: Value,
     /// CSS §3.2: how much of the authored duration this transition uses.
     pub reversing_shortening: f64,
-    /// While it waits for the first presented frame, the
+    /// While it waits for the first presented frame (LLP 1003.001 D1), the
     /// engine time it began: every reading is at that time, so it does not
     /// move until the frame starts it.
     pub pending: Option<f64>,
@@ -239,10 +272,13 @@ pub(crate) struct Running {
 pub(crate) enum Curve {
     /// Eased over `duration` seconds (after any shortening).
     Easing { easing: Easing, duration: f64 },
-    /// A spring released at `from` with `velocity`.
+    /// A spring released at `from` with `velocity`, which ends `settle`
+    /// seconds after it starts: an underdamped spring passes through rest
+    /// before then, so a sample at rest does not end it (LLP 1003 §4, §7).
     Spring {
         config: SpringConfig,
         velocity: Value,
+        settle: f64,
     },
 }
 
@@ -282,6 +318,7 @@ impl Running {
                 Curve::Spring {
                     config: *config,
                     velocity,
+                    settle: 0.0,
                 },
                 declaration.delay,
             ),
@@ -292,6 +329,7 @@ impl Running {
                 Curve::Spring { config, .. } => Curve::Spring {
                     config,
                     velocity: Value::oklab(0.0, 0.0, 0.0, 0.0),
+                    settle: 0.0,
                 },
                 easing => easing,
             };
@@ -303,6 +341,16 @@ impl Running {
             )
         } else {
             (from, to, reversing_adjusted_start, curve)
+        };
+        let curve = match curve {
+            Curve::Spring {
+                config, velocity, ..
+            } => Curve::Spring {
+                config,
+                velocity,
+                settle: settle_time(&config, from - to, velocity),
+            },
+            easing => easing,
         };
         Running {
             from,
@@ -368,7 +416,11 @@ impl Running {
                     done: false,
                 }
             }
-            Curve::Spring { config, velocity } => {
+            Curve::Spring {
+                config,
+                velocity,
+                settle,
+            } => {
                 if now < self.start {
                     return RunningSample {
                         value: self.from,
@@ -378,9 +430,8 @@ impl Running {
                 }
                 let elapsed = now - self.start;
                 let displacement = self.from - self.to;
-                let (moved, speed, rest) = spring(config, displacement, *velocity, elapsed);
-                let at_rest = rest || elapsed >= MAX_DURATION;
-                if at_rest {
+                let (moved, speed) = spring(config, displacement, *velocity, elapsed);
+                if elapsed >= *settle {
                     return RunningSample {
                         value: self.to,
                         velocity: Value::ZERO,
@@ -404,7 +455,10 @@ impl Running {
     ///
     /// [`SAMPLE_RATE`]: crate::spring::SAMPLE_RATE
     pub fn spring_frames(&self) -> Option<(f64, Vec<Value>)> {
-        let Curve::Spring { config, velocity } = &self.curve else {
+        let Curve::Spring {
+            config, velocity, ..
+        } = &self.curve
+        else {
             return None;
         };
         let duration = self.end_time() - self.start;
@@ -423,7 +477,7 @@ impl Running {
     }
 
     /// When the transition ends if the frame at `now` starts it: its own end,
-    /// or a pending one's moved by the wait.
+    /// or a pending one's moved by the wait (LLP 1003.001 D1).
     pub fn end_at(&self, now: f64) -> f64 {
         self.end_time() + self.wait(now)
     }
@@ -442,38 +496,33 @@ impl Running {
     pub fn end_time(&self) -> f64 {
         match &self.curve {
             Curve::Easing { duration, .. } => self.start + duration.max(0.0),
-            Curve::Spring { config, velocity } => {
-                let d = (self.from - self.to).components();
-                let v = velocity.components();
-                self.start
-                    + (0..4)
-                        .filter(|&i| d[i] != 0.0 || v[i] != 0.0)
-                        .map(|i| config.settle_time(d[i], v[i]))
-                        .fold(0.0, f64::max)
-            }
+            Curve::Spring { settle, .. } => self.start + settle,
         }
     }
 }
 
-/// A spring's displacement and velocity per component at `t`, and whether
-/// every component is at rest. A component neither displaced nor moving
-/// stays exactly zero, and costs nothing.
-fn spring(
-    config: &SpringConfig,
-    displacement: Value,
-    velocity: Value,
-    t: f64,
-) -> (Value, Value, bool) {
+/// Seconds until a spring released at `displacement` with `velocity`
+/// settles: the latest of its components' settle times on the sample grid.
+fn settle_time(config: &SpringConfig, displacement: Value, velocity: Value) -> f64 {
     let (d, v) = (displacement.components(), velocity.components());
-    let (mut moved, mut speed, mut rest) = ([0.0; 4], [0.0; 4], true);
+    (0..4)
+        .filter(|&i| d[i] != 0.0 || v[i] != 0.0)
+        .map(|i| config.settle_time(d[i], v[i]))
+        .fold(0.0, f64::max)
+}
+
+/// A spring's displacement and velocity per component at `t`. A component
+/// neither displaced nor moving stays exactly zero, and costs nothing.
+fn spring(config: &SpringConfig, displacement: Value, velocity: Value, t: f64) -> (Value, Value) {
+    let (d, v) = (displacement.components(), velocity.components());
+    let (mut moved, mut speed) = ([0.0; 4], [0.0; 4]);
     for i in 0..4 {
         if d[i] == 0.0 && v[i] == 0.0 {
             continue;
         }
         let s = config.sample(d[i], v[i], t);
         (moved[i], speed[i]) = (s.displacement, s.velocity);
-        rest &= s.at_rest();
     }
     let value = |c: [f64; 4]| Value::four(c[0], c[1], c[2], c[3]);
-    (value(moved), value(speed), rest)
+    (value(moved), value(speed))
 }

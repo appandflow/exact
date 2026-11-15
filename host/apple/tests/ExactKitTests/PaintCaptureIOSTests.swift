@@ -7,7 +7,7 @@ import XCTest
 private var capturedPaintPixels: [[UInt8]] = []
 
 final class PaintCaptureIOSTests: XCTestCase {
-    override class func setUp() { super.setUp(); ExactSurfaces.install() }
+    override class func setUp() { super.setUp(); ExactSurfaces.install() } // LLP 1047.001 D4
     func testCanvasCapturesRanksFromTheCurrentBatch() throws {
         let session = ExactApp.shared.makeSession(label: "paint-capture")
         defer { session.destroy() }

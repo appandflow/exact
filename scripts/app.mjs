@@ -1,8 +1,13 @@
-import { compilerPaths, unitDepInfo, cargoBakeInputs, sourcePath } from './cargo-dep-info.mjs';
+import { capturePrivacyManifest } from '../host/apple/privacy.mjs';
+import { appleMetadataProblem } from '../host/apple/plist.mjs';
+import { appleImplementations } from '../js/bake/src/typescript.mjs';
+import { webHostFiles, hostModuleSources, MODULE_PRELUDE } from '../host/web-js/glue.mjs';
+export { webHostFiles } from '../host/web-js/glue.mjs';
+import { compilerPaths, unitDepInfo, cargoBakeInputs, bakeSourceInputs, pendingSourceInputs, inputProducts, inputHashes, sourcePath, packageDirectories, directoryInputNames, buildInputCollector, binarySourceInputs, swiftTargetInputs, watchOutput } from './cargo-dep-info.mjs';
 export { compilerPaths, unitDepInfo } from './cargo-dep-info.mjs';
 import { LIBRARY_CACHE, directDependencies, prepareLibrary } from './package-libraries.mjs';
 import { ensureBun } from './bun.mjs';
-import { macResourceMappings, macResourceInventory, appleAssetCatalogInventory, launchImageInventory } from '../host/apple/assets.mjs';
+import { nativeResourceMappings, nativeResourceInventory, appleAssetCatalogInventory, launchImageInventory } from '../host/apple/assets.mjs';
 // Where an app lives. Inside this repo an app is `apps/<name>` — its crates
 // normally belong to the root workspace and build into `target/`; an explicit
 // package.workspace uses that workspace's lock and target. Outside it (weird-castle:
@@ -11,9 +16,8 @@ import { macResourceMappings, macResourceInventory, appleAssetCatalogInventory, 
 // everything else follows from it: the workspace cargo runs in, the target
 // directory the artifacts land in, `app.contract`, `assets/`, `gpu/`. Every
 // script that builds, serves, or drives an app resolves it here, so nothing
-// else knows the difference.
-//   bun host/web/build.mjs weird-castle-web          (EXACT_APP_DIR set)
-// The app manifest: `app.json` beside
+// else knows the difference; `EXACT_APP_DIR` selects the app for `bun host/web/build.mjs weird-castle-web`.
+// The app manifest (LLP 1030 D2; 1030.000 D7): `app.json` beside
 // `app.contract` — the W3C Web App Manifest's own keys, which the web host
 // copies out as `manifest.json`, plus `app` (identity: the id every platform
 // derives its bundle id from, the name, the origin), `host.<platform>` (what
@@ -21,44 +25,36 @@ import { macResourceMappings, macResourceInventory, appleAssetCatalogInventory, 
 // never identity). Validated here against `scripts/app.schema.json` with a
 // validator small enough to live beside the reader; an app without one gets
 // the derived defaults it had before the manifest existed.
-import { spawnSync } from 'node:child_process';
-import { closeSync, existsSync, mkdirSync, openSync, mkdtempSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
+import { spawnSync } from '../host/apple/toolchain.mjs';
+import { checkDesignName } from './forma-design-path.mjs';
+import { closeSync, existsSync, mkdirSync, openSync, mkdtempSync, readFileSync, readdirSync, realpathSync, readlinkSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { basename, delimiter, dirname, isAbsolute, relative, resolve, sep, toNamespacedPath } from 'node:path';
+import { within } from './paths.mjs';
 import { constants, homedir, tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
-import { gzipSync } from 'node:zlib';
-import { BINARYEN } from '../host/web/stages.mjs';
+import { BINARYEN, packageGpuWasm, webGpuTools } from '../host/web/stages.mjs';
 import { SHELL_SOURCES } from '../host/web/look.mjs';
 import { createHash } from 'node:crypto';
+import { refuse } from './deploy-signing.mjs';
 import { nativeSource, prepareRustBundle } from './rust.mjs';
-import { bakeOutside, linkable, recordRustBake } from './linked-plan.mjs';
+import { bakeOutside, compiledBakeDir, linkable, linkedInputs, recordRustBake } from './linked-plan.mjs';
 import { throwContractErrors } from './contract-diagnosis.mjs';
-import { filesystem, installedModules, removePrivateTree, withHostDeployment } from './filesystem.mjs';
+import { filesystem, installedModules, OFFLINE_MISSING, removePrivateTree, withHostDeployment } from './filesystem.mjs';
+import { installedFileDependencies } from './file-dependencies.mjs';
 import { startSweep } from './sweep.mjs';
-import { appleCargo, authoredWorkspace, knownWorkspace, rememberWorkspace, shellsDir } from './cargo-check.mjs';
-import { ensureShells } from './app-shells.mjs';
+import { WEB_TOOLCHAIN, WEB_STD, WEB_SIZE, WEB_RUSTFLAGS, webToolchainEnv, cargoEnvironment,
+  androidCargo, appCrates, appleCargo, authoredWorkspace, cargoDiagnosticsCommand, cargoOnPath, claimTargetCrates,
+  declaredWorkspace, knownWorkspace, refuseLoose, rememberWorkspace, shellsDir, targetRustflags } from './cargo-check.mjs';
+export { WEB_TOOLCHAIN, WEB_STD, WEB_SIZE, webToolchainEnv, cargoEnvironment, cargoOnPath } from './cargo-check.mjs';
+import { appCrateName, gpuView, joinMetadata, joinsGpu, settleShells } from './app-shells.mjs';
 import { installProblems } from './install-page.mjs';
 import { gameDefaults, lintGame, prepareGame } from '../game/app/shells.mjs';
+import { generatedInputFiles } from '../game/inputs.mjs';
 import { shareTargetProblems, webShareTarget } from './share-target.mjs';
 import { bakedSettings, noteBunLoaded, settingChanges } from '../js/bake/src/__exact_env.mjs';
-noteBunLoaded(); // before this script starts a process: the settings Bun loaded from `.env` files
-/** rustup puts cargo in `~/.cargo/bin` and a login profile puts that on PATH;
- * a non-interactive shell (an agent's, a launchd job's) often skips the
- * profile, and every cargo spawn below then fails as ENOENT. Every script that
- * builds resolves its app here, so this is the one place to add it back.
- * Children inherit the repaired PATH. */
-export function cargoOnPath(env = process.env, home = homedir()) {
-  const dirs = (env.PATH ?? '').split(delimiter).filter(Boolean);
-  if (dirs.some(dir => existsSync(resolve(dir, 'cargo')))) return true;
-  const rustup = resolve(env.CARGO_HOME ?? resolve(home, '.cargo'), 'bin');
-  if (!existsSync(resolve(rustup, 'cargo'))) return false;
-  env.PATH = [rustup, ...dirs].join(delimiter);
-  return true;
-}
+noteBunLoaded(); // before this script starts a process: the settings Bun loaded from `.env` files (LLP 1153 D4)
 cargoOnPath(); process.env.HERMES_LEAN_SYS_OFFLINE = '1';
-/** Every Cargo process Exact starts refuses implicit Hermes acquisition. */
-export function cargoEnvironment(env = process.env) { return withHostDeployment({ ...env, HERMES_LEAN_SYS_OFFLINE: '1' }); }
-// Shaders live with the game.
+// @ref llp/1046.006.000-render-hooks.rfc.md#d5-shaders-that-live-with-the-game
 /** Explicit source roots, relative to app.json. Only packaged names reach a host. */
 export function shaderRoots(app) {
   return [...(app.manifest.game ? [] : ['gpu/shaders']), ...(shaderConfig(app).shaderRoots ?? [])]
@@ -129,7 +125,7 @@ export function copyShaders(app, target, {replace=false} = {}) {
   if (files.size) mkdirSync(target, {recursive:true});
   for (const [name, bytes] of files) writeFileSync(resolve(target,name), bytes);
 }
-// One artifact per module, loaded by the surfaces it owns.
+// @ref LLP 1009 D6 — one artifact per module, loaded by the surfaces it owns.
 /** The GPU artifacts beside the primary `<app>-gpu`: module `m` is the crate
  * `<app>-gpu-m` and owns exactly the surface names listed for it. */
 export function gpuModules(manifest) {
@@ -151,8 +147,9 @@ function gpuModuleProblems(manifest) {
 /** Existing locks are binding; the root workspace and generated game shells require theirs. */
 export const cargoReproducibilityFlags = (app, workspace = app.workspace) =>
   (resolve(workspace) === ROOT || (app.manifest.game && resolve(workspace) === resolve(app.workspace)) || (existsSync(resolve(workspace, 'Cargo.toml')) && existsSync(resolve(workspace, 'Cargo.lock')))) ? ['--locked', '--offline'] : [];
-/** The root workspace's `[profile.*]` tables, for a build of an app outside it,
- * passed as `--config` so nothing is copied and nothing can drift. Cargo ranks config above a manifest, so an app's own copy is
+/** The root workspace's `[profile.*]` tables, for a build of an app outside it
+ * (LLP 1036.001 D1): passed as `--config` so nothing is copied and nothing can
+ * drift. Cargo ranks config above a manifest, so an app's own copy is
  * overridden. A game's generated workspace carries its own. Empty for the root. */
 export function injectedProfiles(app, workspace = app.workspace) {
   if (resolve(workspace) === ROOT || app.manifest?.game) return [];
@@ -169,15 +166,14 @@ export function injectedProfiles(app, workspace = app.workspace) {
   for (const [name, table] of Object.entries(profiles)) walk(['profile', key(name)], table);
   return flags;
 }
-
 /** The root's crates.io patches as they must appear in an outside workspace
  * at `from`: each vendored crate, by a path relative to it. Two copies of taffy
  * or cosmic-text in one build fail far from the cause, so `exact new` writes
- * these and every run checks them. */
-export function patchLines(from) {
+ * these and every run checks them (LLP 1036.001 D2). */
+export function patchLines(from, path = pathFrom) {
   const root = Bun.TOML.parse(readFileSync(resolve(ROOT, 'Cargo.toml'), 'utf8'));
   return Object.entries(root.patch?.['crates-io'] ?? {}).map(([name, spec]) =>
-    `${name} = { path = ${JSON.stringify(pathFrom(from, resolve(ROOT, spec.path)))} }`);
+    `${name} = { path = ${JSON.stringify(path(from, resolve(ROOT, spec.path)))} }`);
 }
 /** How an outside workspace at `from` names a path in this checkout: relative, with `/`
  * (Windows reads it; a Mac can't read Skirmish's `..\\exact2`), when the two share a directory
@@ -215,7 +211,7 @@ export function lockedMetadata(workspace, noDeps = false, env = process.env) {
   const args = ['metadata', '--locked', '--offline', ...(noDeps ? ['--no-deps'] : []), '--format-version', '1'];
   const options = { cwd: workspace, env: cargoEnvironment(env), encoding: 'utf8', maxBuffer: 1 << 26 };
   let result = spawnSync('cargo', args, options);
-  if (result.status !== 0 && /--offline was specified|attempting to make an HTTP request|in the offline mode|offline mode \(via `--offline`\)/.test(result.stderr ?? '')) {
+  if (result.status !== 0 && OFFLINE_MISSING.test(result.stderr ?? '')) {
     console.error(`${workspace}: fetching missing locked Cargo sources (cargo fetch --locked)`);
     const fetched = spawnSync('cargo', ['fetch', '--locked'], options);
     if (fetched.status === 0) result = spawnSync('cargo', args, options);
@@ -245,69 +241,38 @@ function checkOutsideLock(workspace) {
   return JSON.parse(result.stdout).packages.filter(pkg => pkg.source == null).map(pkg => pkg.manifest_path).sort();
 }
 
-export const hatchWords = (manifest, platform, h = manifest?.hatches ?? []) => (Array.isArray(h) ? [...h] : Object.keys(h).filter(w => h[w].includes(platform))).sort(); // the hatch words `platform`'s module handles (the bake's `hatches_on`): a plain list is every platform's
+export const hatchWords = (manifest, platform, h = manifest?.hatches ?? []) => (Array.isArray(h) ? [...h] : Object.keys(h).filter(w => h[w].includes(platform))).sort(); // the hatch words `platform`'s module handles (LLP 1075.003.000.001 §5; the bake's `hatches_on`): a plain list is every platform's
 export const runnerOwnedSource = name => ['exactDelivery', 'exactViewport', 'exactSurface', 'exactActivities', 'startActivity', 'updateActivity', 'endActivity'].includes(name);
 
 const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
 
-/** Source paths inside the wasm (panic locations) name no machine: the
+/** Source paths inside Rust artifacts (panic locations) name no machine: the
  * toolchain's sources as std's own rlibs do (`/rustc/<commit>`), Cargo's
- * home as `cargo`, and the checkout, the app and the target relatively, so
+ * home as `cargo`, and the capture, checkout, app and target relatively, so
  * the bytes that hashes and signatures cover are the same on every machine
- * and in every checkout. Every web-profile wasm build passes the same flags,
- * so they share one set of artifacts. Later prefixes win (rustc's rule). */
+ * and in every checkout. Later prefixes win (rustc's rule). */
 const rustcFacts = new Map();
-export function wasmRemapFlags(app, toolchain = null) {
-  const cwd = app?.workspace ?? ROOT, key = `${cwd}\0${toolchain ?? ''}`;
-  const env = toolchain ? { ...process.env, RUSTUP_TOOLCHAIN: toolchain } : process.env;
-  const rustc = (...args) => spawnSync('rustc', args, { cwd, env, encoding: 'utf8' }).stdout ?? '';
+export function rustRemapFlags(app, toolchain = null, env = process.env) {
+  const cwd = app?.workspace ?? ROOT, key = `${cwd}\0${toolchain ?? env.RUSTUP_TOOLCHAIN ?? ''}`;
+  const rustcEnv = toolchain ? { ...env, RUSTUP_TOOLCHAIN: toolchain } : env;
+  const rustc = (...args) => spawnSync('rustc', args, { cwd, env: rustcEnv, encoding: 'utf8' }).stdout ?? '';
   if (!rustcFacts.has(key)) rustcFacts.set(key, { commit: /^commit-hash: (\S+)$/m.exec(rustc('-vV'))?.[1], sysroot: rustc('--print', 'sysroot').trim() });
   const { commit, sysroot } = rustcFacts.get(key);
-  const pairs = [[resolve(process.env.CARGO_HOME ?? resolve(homedir(), '.cargo')), 'cargo']];
+  const pairs = [[resolve(env.CARGO_HOME ?? resolve(homedir(), '.cargo')), 'cargo']];
   if (sysroot && commit) pairs.push([resolve(sysroot, 'lib/rustlib/src/rust'), `/rustc/${commit}`]);
+  if (env.EXACT_SOURCE_ROOT) pairs.push([resolve(env.EXACT_SOURCE_ROOT), 'source']);
   pairs.push([ROOT, '']);
   if (app && resolve(app.workspace) !== ROOT) pairs.push([resolve(app.workspace), '']);
   if (app) pairs.push([resolve(app.target), 'target']);
-  // Target rustflags replace [build].rustflags: retain the game's determinism promise.
-  const flags = [...pairs.map(([from, to]) => `--remap-path-prefix=${from}=${to}`),
-    ...(app?.manifest?.game ? ['-C', 'llvm-args=-fp-contract=off'] : []),
-    ...(toolchain === WEB_TOOLCHAIN ? WEB_RUSTFLAGS : [])].map(f => JSON.stringify(f));
-  return ['--config', `target.wasm32-unknown-unknown.rustflags=[${flags.join(',')}]`];
+  return pairs.map(([from, to]) => `--remap-path-prefix=${from}=${to}`);
 }
-
-/** The web artifacts' toolchain: a pinned nightly builds
- * std for size, and a panic aborts without its message or location. The web
- * shows neither: wasm32-unknown-unknown has no panic output and the glue
- * reads no trap. Everything else builds with rust-toolchain.toml's stable. */
-export const WEB_TOOLCHAIN = 'nightly-2026-08-21';
-export const WEB_STD = ['-Zbuild-std=std,panic_abort', '-Zbuild-std-features=optimize_for_size'];
-// Deprecation is stable's to judge (the six checks' clippy): the nightly
-// deprecates names, like `fetch_update`, before stable has their successors.
-const WEB_RUSTFLAGS = ['-Zunstable-options', '-Cpanic=immediate-abort', '-Zlocation-detail=none', '-Adeprecated'];
-export const WEB_SIZE = [...WEB_STD, ...WEB_RUSTFLAGS].join(' ');
-/** The environment for a web build, refusing a machine without the toolchain
- * or its std sources (Cargo builds offline, so std's dependencies too). */
-export function webToolchainEnv(env) {
-  const sysroot = spawnSync('rustc', ['--print', 'sysroot'], { env: { ...env, RUSTUP_TOOLCHAIN: WEB_TOOLCHAIN }, encoding: 'utf8' });
-  if (sysroot.status !== 0 || !existsSync(resolve(sysroot.stdout.trim(), 'lib/rustlib/src/rust/library/Cargo.lock'))) throw new Error(
-    `the web artifact builds with ${WEB_TOOLCHAIN} and its std sources:\n` +
-    `  rustup toolchain install ${WEB_TOOLCHAIN} --profile minimal --component rust-src --component llvm-tools\n` +
-    `  cargo +${WEB_TOOLCHAIN} fetch --manifest-path "$(rustc +${WEB_TOOLCHAIN} --print sysroot)/lib/rustlib/src/rust/library/Cargo.toml"`);
-  // `-Zbuild-std` builds std offline, so std's own locked sources must be in
-  // Cargo's cache. Checked once per toolchain (a marker beside the sysroot's
-  // library) and fetched when missing, rather than failing mid-build.
-  const library = resolve(sysroot.stdout.trim(), 'lib/rustlib/src/rust/library');
-  const marker = resolve(library, '.exact-fetched');
-  if (!existsSync(marker)) {
-    const offline = spawnSync('cargo', ['metadata', '--offline', '--locked', '--format-version', '1', '--manifest-path', resolve(library, 'Cargo.toml')], { env: cargoEnvironment({ ...env, RUSTUP_TOOLCHAIN: WEB_TOOLCHAIN }), encoding: 'utf8', maxBuffer: 1 << 26 });
-    let ready = offline.status === 0;
-    if (!ready) {
-      console.error(`${WEB_TOOLCHAIN}: std's sources are not fetched; fetching them once (cargo fetch --manifest-path …/library/Cargo.toml)`);
-      ready = spawnSync('cargo', ['fetch', '--locked', '--manifest-path', resolve(library, 'Cargo.toml')], { env: cargoEnvironment({ ...env, RUSTUP_TOOLCHAIN: WEB_TOOLCHAIN }), stdio: ['ignore', 'inherit', 'inherit'] }).status === 0;
-    }
-    if (ready) try { writeFileSync(marker, ''); } catch { /* a read-only toolchain checks again next time */ }
-  }
-  return cargoEnvironment({ ...env, RUSTUP_TOOLCHAIN: WEB_TOOLCHAIN, EXACT_WEB_SIZE: WEB_SIZE });
+// Every web-profile wasm build shares these flags and one set of artifacts.
+export function wasmRemapFlags(app, toolchain = null) {
+  // Target rustflags replace [build].rustflags: retain the game's determinism promise.
+  const flags = [...rustRemapFlags(app, toolchain),
+    ...(app?.manifest?.game ? ['-C', 'llvm-args=-fp-contract=off'] : []),
+    ...(toolchain === WEB_TOOLCHAIN ? WEB_RUSTFLAGS : [])];
+  return targetRustflags('wasm32-unknown-unknown', flags, { cwd: app?.workspace ?? ROOT });
 }
 
 // A Bun older than package.json's pin is refused before anything builds.
@@ -323,32 +288,12 @@ if (process.versions.bun && PINNED_BUN && !HELP) ensureBun(PINNED_BUN);
 const binaryenBin = resolve(homedir(), '.cache/exact/binaryen', BINARYEN.replace(' ', '_'), 'bin');
 if (existsSync(resolve(binaryenBin, process.platform === 'win32' ? 'wasm-opt.exe' : 'wasm-opt'))) process.env.PATH = `${binaryenBin}${delimiter}${process.env.PATH ?? ''}`;
 
-// One inventory for host builds, serving and fixtures.
-// Groups preserve capability-based shipping; none of these imports enters boot.
-// A group's files import statically only from it or base (web-host-groups.test.mjs): base's documents-glue.js
-// reads storage-environment.js, so it ships in base, not only with storage.
-const WEB_HOST_GROUPS = {
-  base: ['glue.js', 'navigation.js', 'frame-messages.js', 'frame-navigation.js', 'textflow-glue.js', 'timer-glue.js', 'timer-waits-glue.js', 'timer-observations.js', 'input-glue.js', 'agent-input.js',
-    'http-body.js', 'grant-admission.js', 'faults.js', 'address-space.js', 'media-glue.js', 'list-selection.js', 'markup-editor.js', 'atoms.js', 'decorations.js', 'live-time-glue.js', 'document-glue.js',
-    'motion-glue.js', 'group-glue.js', 'collection-glue.js', 'canvas2d-glue.js', 'presence-glue.js', 'picker-glue.js',
-    'documents-glue.js', 'storage-environment.js', 'auth-glue.js', 'image-glue.js', 'geometry-glue.js', 'resize-glue.js', 'intersect-glue.js', 'sound-glue.js', 'midi-glue.js', 'prompt-glue.js', 'alert-message.js', 'wakelock-glue.js', 'orientationlock-glue.js', 'menu-rows.js', 'fragment.js'],
-  module: ['module-glue.js', 'module-worker.js', 'module-binary.js', 'module-prelude.js'],
-  storage: ['storage-request.js', 'storage.js', 'storage-fs.js', 'storage-image.js', 'storage-sqlite.js',
-    'storage-worker.js', 'sqlite3.mjs', 'sqlite3.wasm'],
-  rust: ['rust-glue.js'],
-  gpu: ['gpu-glue.js', 'pace.js', 'gpu-assets.js', 'gpu-pads.js', 'gpu-tier.js', 'gpu-refusal.js'],
-  gpuModules: ['gpu-modules.js'],
-  native: ['native-glue.js'],
-  // A development page's frame sampler; a production build ships none.
-  development: ['frames.js'],
-};
-
 /** A game's world surfaces by name, as its last GPU build declared them (`.shells/surfaces.json`); none before one. */
 export function worldSurfaces(dir) {
   try { return Object.keys(JSON.parse(readFileSync(resolve(dir, '.shells/surfaces.json'), 'utf8'))); } catch { return []; }
 }
 
-/** The shell page with its world surfaces on its root (`<html data-exact-worlds="world …">`),
+/** The shell page with its world surfaces on its root (`<html data-exact-worlds="world …">`, LLP 1139.003 D1),
  * inserted into the `<html>` tag whatever its other attributes (the manifest's `lang`). */
 export function markWorlds(html, names) {
   const value = names.join(' ').replace(/[&"<>]/g, c => ({ '&': '&amp;', '"': '&quot;', '<': '&lt;', '>': '&gt;' })[c]);
@@ -356,7 +301,7 @@ export function markWorlds(html, names) {
 }
 
 /** The AT Protocol client-metadata documents an app with auth sessions
- * serves beside its callback page (after review, item 3):
+ * serves beside its callback page (LLP 1069.006 D6; after review, item 3):
  * one per `application_type`, since a document names one type and a `web`
  * client's redirect URIs are https only. `client-metadata.native` lists the
  * private-use schemes and claimed https callbacks, `client-metadata.web` the
@@ -377,7 +322,7 @@ export function authClientMetadata(app, callbacks) {
     .filter(([, uris]) => uris.length).map(([name, uris, type]) => [name, { ...base(type), redirect_uris: uris }]));
 }
 
-/** A build's module artifact against the app's roster:
+/** A build's module artifact against the app's roster (LLP 1024 D1, D8.4):
  * a roster tag the artifact has no factory for fails a release build, named,
  * and is a warning in development, where the node reports its status. */
 export function checkModuleRoster(app, provided, where, release) {
@@ -387,39 +332,24 @@ export function checkModuleRoster(app, provided, where, release) {
   if (release) throw new Error(message);
   console.warn(`warning: ${message}; the node reports "error" at runtime`);
 }
-/** Public filename -> repo-relative source; omit groups to inventory every host file. */
-export function webHostFiles(...groups) {
-  return Object.fromEntries((groups.length ? groups : Object.keys(WEB_HOST_GROUPS))
-    .flatMap(group => WEB_HOST_GROUPS[group]).map(name => [name,
-      name === 'module-prelude.js' ? 'js/src/prelude.js' : name === 'module-binary.js' ? 'js/src/binary.js'
-        : name.startsWith('sqlite3.') ? 'node_modules/@sqlite.org/sqlite-wasm/dist/' + (name === 'sqlite3.mjs' ? 'index.mjs' : name)
-          : 'host/web/' + name]));
-}
-
-/** The app's GPU modules for the web into `stage`: each
+/** The app's GPU modules for the web (LLP 1009 D2, D6) into `stage`: each
  * GPU crate's wasm with wasm-bindgen's glue (its exports are the module's ABI
  * on the web), then wasm-opt; `<stem>.js` + `<stem>_bg.wasm`, the primary as
  * `gpu`, a declared module as `gpu/<name>`. `cargo` builds the crates first,
- * on stable (a GPU crate keeps its toolchain's std), as the wasm target's bake does
- * (the JS target has no bake); the wasm target passes false, having built them. Missing packaging tools refuse the build. */
-export function webGpuArtifacts(app, stage, { cargo = false, env = process.env, profile = 'web' } = {}) {
+ * on stable (@ref LLP 1047: a GPU crate keeps its toolchain's std), as the wasm target's bake does
+ * (the JS target has no bake); the wasm target passes false, having built them.
+ * `check` validates tooling without building or packaging; wasm-opt is optional. */
+export function webGpuArtifacts(app, stage, { cargo = false, check = false, env = process.env, profile = 'web' } = {}) {
   const artifacts = [...(app.hasGpu ? [{ crate: app.crate('gpu'), stem: 'gpu' }] : []),
     ...gpuModules(app.manifest).map(({ name }) => ({ crate: app.crate(`gpu-${name}`), stem: `gpu/${name}` }))];
-  const kib = (n) => `${(n / 1024).toFixed(0)} KiB`;
-  let note = '';
+  if (artifacts.length) webGpuTools(env);
+  if (check) return;
+  let note = '', at = gpuView(app);
   for (const { crate, stem } of artifacts) {
-    if (cargo) buildCommand('cargo', ['build', ...cargoReproducibilityFlags(app), ...injectedProfiles(app), ...wasmRemapFlags(app), '-p', crate,
-      '--target', 'wasm32-unknown-unknown', '--profile', profile, '--lib', '--config', `profile.${profile}.strip=false`], app, cargoEnvironment({ ...env, CARGO_TARGET_DIR: app.target }), 'inherit');
+    if (cargo) buildCommand('cargo', ['build', ...cargoReproducibilityFlags(at), ...injectedProfiles(at), ...wasmRemapFlags(at), '-p', crate,
+      '--target', 'wasm32-unknown-unknown', '--profile', profile, '--lib', '--config', `profile.${profile}.strip=false`], at, cargoEnvironment({ ...env, CARGO_TARGET_DIR: app.target }), 'inherit');
     const wasm = resolve(app.target, 'wasm32-unknown-unknown', profile, crate.replace(/-/g, '_') + '.wasm');
-    const [dir, name] = stem.includes('/') ? [resolve(stage, 'gpu'), stem.slice(4)] : [stage, stem];
-    const wb = spawnSync('wasm-bindgen', ['--target', 'web', '--no-typescript', '--out-dir', dir, '--out-name', name, wasm], { stdio: 'inherit' });
-    if (wb.error?.code === 'ENOENT') throw new Error('wasm-bindgen not on PATH; run bun scripts/exact.mjs setup in the SDK checkout');
-    if (wb.status !== 0) throw new Error(`wasm-bindgen ${crate} failed`);
-    const bg = resolve(stage, `${stem}_bg.wasm`);
-    // `EXACT_WEB_NAMES=1` keeps the name section, as host/web/build.mjs does for app.wasm: a profile then names GPU functions.
-    const o = profile === 'gpu-dev' ? {status:null} : spawnSync('wasm-opt', ['-Oz', '--enable-bulk-memory', '--enable-nontrapping-float-to-int', '--enable-sign-ext', '--enable-mutable-globals', env.EXACT_WEB_NAMES === '1' ? '-g' : '--strip-debug', '--strip-producers', '-o', bg, bg], { stdio: 'inherit' });
-    const bytes = readFileSync(bg);
-    note += `${note ? '; ' : ''}${stem}_bg.wasm ${kib(bytes.length)} (${kib(gzipSync(bytes, { level: 9 }).length)} gzip${o.status === 0 ? ', wasm-opt' : ''}), ${stem}.js ${kib(readFileSync(resolve(stage, `${stem}.js`)).length)}`;
+    note += `${note ? '; ' : ''}${packageGpuWasm(crate, wasm, stage, stem, { env, profile })}`;
   }
   return { note: note || 'no GPU crate', built: artifacts.length > 0 };
 }
@@ -439,13 +369,13 @@ function checkoutOf(dir) {
 }
 
 /** The web build's output directory: `EXACT_WEB_DIST` when set; for an app
- * outside this repository, its own `target/web-dist` — a checkout's
+ * selected by path or `EXACT_APP_DIR`, its own `target/web-dist` — a checkout's
  * `host/web/dist` is one slot every in-repo build writes (the checks rebuild
  * Caltrain into it), and an outside app served from it silently became
- * Caltrain); otherwise `host/web/dist`. */
-export function webDist() {
+ * Caltrain (LLP 1054 O5); otherwise `host/web/dist`. */
+export function webDist(app) {
   if (process.env.EXACT_WEB_DIST) return resolve(process.env.EXACT_WEB_DIST);
-  if (process.env.EXACT_APP_DIR) return resolve(resolveApp().target, 'web-dist');
+  if (app ? app.outside : process.env.EXACT_APP_DIR) return resolve((app ?? resolveApp()).target, 'web-dist');
   return resolve(ROOT, 'host/web/dist');
 }
 
@@ -454,7 +384,7 @@ export function webDist() {
 export function webBuildCommand(app, dist, flags = '', otherwise = null) {
   const quote = value => "'" + String(value).replaceAll("'", "'\\''") + "'";
   const own = app.dir ? resolve(app.dir, 'exact.mjs') : null;
-  if (own && process.env.EXACT_APP_DIR && !process.env.EXACT_WEB_DIST && existsSync(own) && !own.startsWith(`${ROOT}/`))
+  if (own && app.outside && !process.env.EXACT_WEB_DIST && existsSync(own) && !within(ROOT, own))
     return `cd ${quote(app.dir)} && bun exact.mjs web-build${flags}`;
   return otherwise ?? `EXACT_APP_DIR=${quote(app.dir)} EXACT_WEB_DIST=${quote(resolve(dist))} bun host/web/build.mjs ${app.crate('web')}${flags}`;
 }
@@ -484,18 +414,15 @@ export function moduleDirectory(dir, platform) {
   return existsSync(own) ? own : resolve(dir, 'modules', ['ios', 'macos', 'tvos'].includes(platform) ? 'apple' : platform);
 }
 
-/** The app `nameOrCrate` names (`caltrain`, `caltrain-web`, …; `EXACT_APP_DIR`'s basename when unset): its directory, cargo workspace, target directory, crate names, and manifest. */
+/** The app `nameOrCrate` selects (`caltrain`, `caltrain-web`, …; or `EXACT_APP_DIR`): its directory, Cargo workspace,
+ * target directory, crate identity (`appCrateName`), and manifest. */
 export function resolveApp(nameOrCrate) {
-  // A path (`--app ../my-app`, `--app /abs/app`, `--app .`) names an app as
-  // EXACT_APP_DIR does, which the processes it starts inherit: its name is
-  // its directory's, so nothing built from the name (a crate, a target
-  // subdirectory) lands in the app's own directory.
-  if (nameOrCrate && /[\\/]|^\.\.?$/.test(String(nameOrCrate))) {
-    process.env.EXACT_APP_DIR = resolve(String(nameOrCrate));
-    nameOrCrate = undefined;
-  }
-  const outside = process.env.EXACT_APP_DIR ? resolve(process.env.EXACT_APP_DIR) : null;
+  const path = nameOrCrate && /[\\/]|^\.\.?$/.test(String(nameOrCrate)) ? resolve(String(nameOrCrate)) : null;
+  const outside = path ?? (process.env.EXACT_APP_DIR ? resolve(process.env.EXACT_APP_DIR) : null);
+  if (path) nameOrCrate = undefined;
   let name = nameOrCrate ? String(nameOrCrate).replace(/-(web|apple|ios|macos|linux|windows|gpu)$/, '') : outside ? basename(outside) : 'caltrain';
+  // Keep the directory selector separate from the crate identity, so a child can select this app again.
+  const selector = path ?? name;
   let dir = outside ?? resolve(ROOT, 'apps', name);
   if (!outside && !existsSync(resolve(dir, 'app.contract')) && existsSync(resolve(ROOT, 'game/games', name, 'app.contract'))) dir = resolve(ROOT, 'game/games', name);
   if (!existsSync(resolve(dir, 'app.contract'))) throw new Error(`no app at ${dir} (no app.contract)${outside ? '' : '; set EXACT_APP_DIR for an app outside this repo'}`);
@@ -503,8 +430,10 @@ export function resolveApp(nameOrCrate) {
   // The bake runs this checkout's TypeScript compiler and bundler (partial
   // fixture copies carry no package.json, as PINNED_BUN says).
   if (PINNED_BUN) installedModules();
+  installedFileDependencies(dir); // every package reader reads node_modules, where a `file:` package is as of the last install
   // Materialize defaults before Cargo inspects workspace members on a clean checkout.
   const manifest = readManifest(dir, name);
+  if (manifest.game === undefined) name = appCrateName(dir, name);
   if (dirname(dir) === resolve(ROOT, 'game/games') && manifest.game === undefined) {
     throw new Error(`${dir}/app.json: game is required for an app under game/games/`);
   }
@@ -514,22 +443,18 @@ export function resolveApp(nameOrCrate) {
     // without moving its sources. Look at authored member manifests rather
     // than guessing a workspace from the app's name or enclosing directory.
     const memberDirs = [dir, ...readdirSync(dir, { withFileTypes: true }).filter(entry => entry.isDirectory()).map(entry => resolve(dir, entry.name))];
-    const declared = [...new Set(memberDirs.flatMap(member => {
-      const path = resolve(member, 'Cargo.toml');
-      if (!existsSync(path)) return [];
-      const owner = Bun.TOML.parse(readFileSync(path, 'utf8')).package?.workspace;
-      return owner === undefined ? [] : [realpathSync(resolve(member, owner))];
-    }))];
-    if (declared.length > 1) throw new Error(`${dir}: app crates declare different Cargo workspaces: ${declared.join(', ')}`);
+    const declared = declaredWorkspace(dir, memberDirs);
     // Ordinary external apps may belong to an enclosing Cargo workspace. Games
     // always use their generated workspace below and need no Cargo process here.
     const manifests = memberDirs.map(member => resolve(member, 'Cargo.toml')), known = knownWorkspace(dir, !!outside, manifests);
     if (known) workspace = known;
     else {
-      if (declared.length) workspace = declared[0];
-      // From the files, never `cargo locate-project`: a web verb runs no Cargo in the app. An app that
+      if (declared) workspace = declared;
+      // From the files, never `cargo locate-project`: a web verb runs no Cargo in the app (LLP 1153 D2.1). An app that
       // authored no workspace builds in the generated one (scripts/app-shells.mjs), written when a build asks (`rust`).
-      else if (outside) workspace = authoredWorkspace(dir) ?? shellsDir(dir);
+      else if (outside || !manifests.some(existsSync)) workspace = authoredWorkspace(dir) ?? shellsDir(dir);
+      // A crate beside app.json that names no workspace, with none above to own it, joins none (LLP 1153.003 D1.1).
+      if (workspace === dir && !existsSync(resolve(dir, 'Cargo.toml'))) refuseLoose(dir);
       // EXACT_APP_DIR may name an app of this repo; only another workspace is checked, its lock when a build asks.
       if (workspace !== ROOT && workspace !== shellsDir(dir) && existsSync(resolve(workspace, 'Cargo.toml'))) {
         const problems = outsideWorkspaceProblems(workspace);
@@ -542,16 +467,21 @@ export function resolveApp(nameOrCrate) {
     name = manifest.game.crate.slice(0, -'-logic'.length);
     workspace = resolve(dir, '.shells');
   }
-  const generated = !!outside && workspace === shellsDir(dir), own = manifest.game || generated ? dir : workspace;
+  const generated = workspace === shellsDir(dir), own = manifest.game || generated ? dir : workspace;
   const target = process.env.CARGO_TARGET_DIR ? resolve(process.env.CARGO_TARGET_DIR) : resolve(own, 'target');
   assertOwnTarget(target, own);
   // What a build asks for before it runs Cargo in the workspace, once: a generated workspace written current with the
-  // manifest and its copied lock resolved (the first build fetches what the cache lacks), or an
+  // manifest (LLP 1153 D1.3) and its copied lock resolved (the first build fetches what the cache lacks), or an
   // authored workspace's lock checked. Every build helper reads `workspace`, so every build passes here; a web
-  // verb reads `dir` and `target` and runs no Cargo.
-  let rusted = false;
+  // verb reads `dir` and `target` and runs no Cargo (D2.1). A generated app's GPU crates build in `.exact/gpu`
+  // (LLP 1153.003 D5.1; `gpuWorkspace` is null without any), any other app's with its host crates.
+  let rusted = false, gpuWorkspace = generated ? null : workspace;
   const rust = () => {
-    if (!rusted) { rusted = true; if (generated) { ensureShells(dir, manifest); checkOutsideLock(workspace); } else checkLock?.(); }
+    if (rusted) return workspace;
+    rusted = true;
+    // A deploy builds its capture of the app where the app builds (scripts/deploy.mjs `materializeSnapshot`).
+    if (process.env.CARGO_TARGET_DIR && own !== ROOT && !process.env.EXACT_DEPLOY_CAPSULE) claimTargetCrates(target, name, dir);
+    if (generated) gpuWorkspace = settleShells(dir, manifest, name); else checkLock?.();
     return workspace;
   };
   startSweep(target);
@@ -576,22 +506,26 @@ export function resolveApp(nameOrCrate) {
     return packages.find(pkg => pkg.name === crate(kind));
   };
   return {
-    name, dir, target, crate, generated, rust,
+    name, dir, target, crate, generated, rust, outside: !!outside,
+    selector,
     get workspace() { return rust(); },
+    get gpuWorkspace() { rust(); return gpuWorkspace; },
     cargoPackage, prepare,
     get hasGpu() {
       if (manifest.game !== undefined) return true;
       const gpu = resolve(dir, 'gpu');
-      if (!existsSync(resolve(gpu, 'Cargo.toml'))) return false;
-      const pkg = cargoPackage('gpu');
-      return !!pkg && realpathSync(dirname(pkg.manifest_path)) === realpathSync(gpu);
+      if (generated && joinsGpu(dir, crate('gpu'))) return true;
+      const pkg = existsSync(resolve(gpu, 'Cargo.toml')) && !generated ? cargoPackage('gpu') : false;
+      if (pkg === false || pkg && realpathSync(dirname(pkg.manifest_path)) === realpathSync(gpu)) return pkg !== false;
+      const named = (() => { try { return Bun.TOML.parse(readFileSync(resolve(gpu, 'Cargo.toml'), 'utf8')).package?.name; } catch { return undefined; } })();
+      throw new Error(named === crate('gpu') ? `${gpu}/Cargo.toml (${named}) is not a member of the app's Cargo workspace: add "gpu" to its members` : `${gpu}/Cargo.toml names the package ${named ?? 'nothing'}; the app's GPU module must be named ${crate('gpu')}`);
     },
-    /** The native-module roster and its sources: the Swift under
+    /** The native-module roster (LLP 1024 D1) and its sources: the Swift under
      * `modules/apple` that becomes `libexact_modules.dylib`, and the web
      * executor `modules/web/index.js`. Empty tags: the app has no module
-     * views; its web executor may still answer `native.later` on the page,
-     * and its Swift still makes the artifact, for `later` and
-     * the hatches. */
+     * views; its web executor may still answer `native.later` on the page
+     * (LLP 1067 D5), and its Swift still makes the artifact, for `later` and
+     * the hatches (LLP 1075.003 §3.2). */
     modulesFor(platform) {
       const folder = moduleDirectory(dir, platform);
       const under = suffix => existsSync(folder) ? readdirSync(folder).filter(f => f.endsWith(suffix)).sort().map(f => resolve(folder, f)) : [];
@@ -602,63 +536,74 @@ export function resolveApp(nameOrCrate) {
     },
     /** The manifest, validated; the derived defaults when the app has none. */
     manifest,
-    /** The app identity, reverse-DNS: the bundle id on every platform (`build.mjs:48–49` derived it from the crate name before the manifest). */
+    /** The shared app identity and Apple bundle id; Android may declare its own package. */
     id: manifest.app.id,
     /** The name people see. */
     displayName: manifest.app.name,
-    /** The production origin (the app's URL), or null in an app that has not declared one. */
+    /** The production origin (1023 D1's URL), or null in an app that has not declared one. */
     origin: manifest.app.origin ?? null,
     /** Whether the app declares its own manifest (false: the defaults above stand in). */
     declared: existsSync(resolve(dir, 'app.json')),
   };
 }
 
-/** An app's authored tests, the files that exist: `app.test.contract`, then every other `*.test.contract`
+/** Android's store identity (LLP 1030 D2); the shared id remains the default. */
+export const androidPackageId = manifest => (manifest.host?.android?.id ?? manifest.app.id).replaceAll('-', '_');
+
+/** An app's authored tests (LLP 1017 P7), the files that exist: `app.test.contract`, then every other `*.test.contract`
  * beside it in name order (an app's tests split by area under the line cap). `test`, `verify` and the smoke run these. */
 export function authoredTests(dir) {
   const others = readdirSync(dir).filter((n) => n.endsWith('.test.contract') && n !== 'app.test.contract').sort();
   return [...(existsSync(resolve(dir, 'app.test.contract')) ? ['app.test.contract'] : []), ...others].map((n) => resolve(dir, n));
 }
 
+/** app.json's text as JSON. A byte-order mark, which some Windows editors write and JSON does not allow, is named
+ * with its fix rather than left to the parser's "Unrecognized token" (expo/exact-build#190). app-cli.mjs, which
+ * copied SDKs carry alone, keeps its own copy. */
+export function parseManifest(text) {
+  if (text.charCodeAt(0) === 0xfeff) throw new Error('starts with a byte-order mark (U+FEFF), which JSON does not allow; save it as UTF-8 without a BOM');
+  return JSON.parse(text);
+}
 /** `app.json` from `dir`, validated — or the defaults an app had before the manifest: `com.exact.<name>`, the name capitalized. */
 export function readManifest(dir, name) {
+  checkDesignName(dir);
   const path = resolve(dir, 'app.json');
   const fallback = { name: name[0].toUpperCase() + name.slice(1), app: { id: `com.exact.${name}`, name: name[0].toUpperCase() + name.slice(1) }, host: {}, deploy: {} };
   const game = gameDefaults(dir);
   if (!existsSync(path) && !game) return fallback;
   let parsed;
-  try { parsed = game ?? JSON.parse(readFileSync(path, 'utf8')); } catch (e) { throw new Error(`${path}: ${e.message}`); }
-  // A device's usage text is derived from its grant, never hand-written.
+  try { parsed = game ?? parseManifest(readFileSync(path, 'utf8')); } catch (e) { throw new Error(`${path}: ${e.message}`); }
+  // LLP 1069.008 D4: a device's usage text is derived from its grant, never hand-written.
   const problems = validate(parsed, schema(), '', schema()).map((p) => /^host\.(ios|macos)\.permissions: /.test(p)
-    ? `${p.split(':')[0]}: deleted; declare the device in the source's grants as \`device.<name> <strings key>\` (e.g. \`device.microphone purpose.microphone\`) and put the text in strings/<locale>.json`
-    // The GPU hooks crate was renamed (2026-10-04).
+    ? `${p.split(':')[0]}: deleted (LLP 1069.008); declare the device in the source's grants as \`device.<name> <strings key>\` (e.g. \`device.microphone purpose.microphone\`) and put the text in strings/<locale>.json`
+    // LLP 1046.008 amendment (2026-10-04): the GPU hooks crate was renamed.
     : /^game\.presentation: /.test(p)
-      ? 'game.presentation is now game.render: rename the key, move presentation/ to render/, name the crate <name>-render and rename its "type" to "hooks" (amendment of 2026-10-04)'
-      : p);
-  if (!problems.length) problems.push(...installProblems(parsed), ...gpuModuleProblems(parsed), ...documentTypeProblems(parsed), ...shareTargetProblems(parsed), ...protocolHandlerProblems(parsed), ...appleIconProblems(parsed, dir));
+      ? 'game.presentation is now game.render: rename the key, move presentation/ to render/, name the crate <name>-render and rename its "type" to "hooks" (LLP 1046.008, amendment of 2026-10-04)'
+      // LLP 1163 D2: the dark launch colour moved into the W3C member.
+      : /^background_color_dark: /.test(p) ? 'background_color_dark is now color_scheme_dark.background_color: "color_scheme_dark": { "background_color": "#000000" } (LLP 1163 D2)'
+      // Expo's splash keys and a host's own launch colour: the launch is the manifest's one colour on every host.
+      : /^((host\.\w+\.)?(splash\w*|windowBackground|backgroundColor|launchColor)): not a known key$/i.test(p) ? `${p.split(':')[0]}: not a known key; what shows before the first frame is background_color, and color_scheme_dark.background_color in a dark scheme, on every host (host.ios.launchImage adds a picture on iOS)`
+      : appleMetadataProblem(p)).filter((p) => !/^host\.web\.(head(\[|: )|csp|cspReportOnly)/.test(p)).concat(webHeadProblems(parsed), webCspProblems(parsed));
+  if (!problems.length) problems.push(...installProblems(parsed), ...gpuModuleProblems(parsed), ...documentTypeProblems(parsed), ...shareTargetProblems(parsed), ...protocolHandlerProblems(parsed), ...appIconProblems(parsed, dir), ...launchImageProblems(parsed, dir));
   if (problems.length) throw new Error(`${path} does not conform to scripts/app.schema.json:\n  ${problems.join('\n  ')}`);
-  macResourceMappings(parsed);
+  nativeResourceMappings(parsed); nativeResourceMappings(parsed, 'ios');
   return { host: {}, deploy: {}, ...parsed };
 }
 
 import { DOCUMENT_UTIS } from './document-utis.mjs';
+import { webCspProblems, webHeadProblems } from './web-head.mjs';
+import { appIconProblems, publishedIcons } from './app-icons.mjs';
 export { DOCUMENT_UTIS };
 ;
 
-// The icon the Apple bundles are drawn from (host/apple/build.mjs
-// `appIcon`): the first square one of at least 512 px, which must be there,
-// as must the iOS launch screen's picture (`launchScreen`); refused when any
-// build reads the manifest, as the file types are.
-function appleIconProblems(manifest, dir) {
-  const icon = (manifest.icons ?? []).find((i) => { const m = /^(\d+)x(\d+)$/.exec(i.sizes ?? ''); return m && m[1] === m[2] && Number(m[1]) >= 512; });
+// The iOS launch screen's picture (`launchScreen`) must be there; refused when any build reads
+// the manifest, as the icons (scripts/app-icons.mjs) and the file types are.
+function launchImageProblems(manifest, dir) {
   const launch = manifest.host?.ios?.launchImage?.src;
-  return [
-    ...(icon && !existsSync(resolve(dir, icon.src)) ? [`icons: ${icon.src}, the square icon the Apple bundles are drawn from, does not exist`] : []),
-    ...(launch && !existsSync(resolve(dir, launch)) ? [`host.ios.launchImage: ${launch}, the launch screen's picture, does not exist`] : []),
-  ];
+  return launch && !existsSync(resolve(dir, launch)) ? [`host.ios.launchImage: ${launch}, the launch screen's picture, does not exist`] : [];
 }
 
-/** An app's own document format: a MIME type in IANA's
+/** An app's own document format (studio diary R13): a MIME type in IANA's
  * vendor or unregistered trees (`application/vnd.studio.board+json`,
  * `application/x-studio-board`), which no system type names. The Apple
  * bake exports it as the app's: `<app id>.<subtype>`, conforming to what
@@ -682,7 +627,7 @@ function documentTypeProblems(manifest) {
       : []));
 }
 /** Whether a `protocol_handlers` scheme is the web's own: `http` and
- * `https` make a native app a web browser, and
+ * `https` make a native app a web browser (LLP 1030 D2, 2026-10-20), and
  * no browser registers them (WHATWG HTML's protocol handler safelist). */
 export const isWebScheme = (protocol) => ['http', 'https'].includes(protocol.toLowerCase());
 function protocolHandlerProblems({ protocol_handlers = [], host }) {
@@ -693,18 +638,23 @@ function protocolHandlerProblems({ protocol_handlers = [], host }) {
     ...(host?.ios?.webBrowser && web.length === 0 ? ['host.ios.webBrowser: declare http and https together in protocol_handlers'] : []),
     ...(pair ? ['protocol_handlers: http and https come together, with one url and one distribution_only: a web browser claims both'] : [])];
 }
-/** The W3C keys of `app.json`, as the web builds write `manifest.json`. A
- * browser opens files only, so `inode/directory` (the Apple bake's word for
- * a folder) goes, and it
- * registers neither `http` nor `https`, so those handlers go too. */
-export function webAppManifest(manifest, name, notes = []) {
-  const keys = ['name', 'short_name', 'description', 'id', 'start_url', 'display', 'display_override', 'theme_color', 'background_color', 'icons', 'lang', 'orientation', 'file_handlers', 'protocol_handlers', 'launch_handler', 'shortcuts'];
+/** The W3C keys of `app.json`, as the web builds write `manifest.json`
+ * (LLP 1030 D2/D10; 1030.000 D7). A browser opens files only, so
+ * `inode/directory` (the Apple bake's word for a folder) goes, and it
+ * registers neither `http` nor `https`, so those handlers go too.
+ * `color_scheme_dark` keeps only the W3C draft's members, and with the app's
+ * `dir` each icon gets the `sizes` and `type` of its file (LLP 1163 D2). */
+export function webAppManifest(manifest, name, notes = [], dir = null) {
+  const keys = ['name', 'short_name', 'description', 'id', 'start_url', 'display', 'display_override', 'theme_color', 'background_color', 'icons', 'lang', 'orientation', 'file_handlers', 'protocol_handlers', 'launch_handler', 'shortcuts', 'categories'];
   const web = Object.fromEntries(keys.filter((k) => manifest[k] !== undefined).map((k) => [k, manifest[k]]));
   if (web.file_handlers) web.file_handlers = web.file_handlers.filter((h) => !Object.keys(h.accept ?? {}).includes('inode/directory'));
   if (web.protocol_handlers) web.protocol_handlers = web.protocol_handlers.filter((h) => !isWebScheme(h.protocol));
-  // A shortcut's `apple` and `android` words are the native bakes'.
+  // A shortcut's `apple` and `android` words are the native bakes' (LLP 1133.023 D11).
   if (web.shortcuts) web.shortcuts = web.shortcuts.map(({ apple, android, ...item }) => item);
   if (manifest.share_target) web.share_target = webShareTarget(manifest.share_target, notes);
+  const { icons: _, ...dark } = manifest.color_scheme_dark ?? {};
+  if (Object.keys(dark).length) web.color_scheme_dark = dark;
+  if (dir && web.icons) web.icons = publishedIcons(web.icons, dir);
   for (const key of ['file_handlers', 'protocol_handlers', 'shortcuts']) if (!web[key]?.length) delete web[key];
   web.name ??= name;
   web.start_url ??= '/';
@@ -713,10 +663,14 @@ export function webAppManifest(manifest, name, notes = []) {
   web.lang ??= 'en';
   return web;
 }
-export function nativeManifestMetadata(manifest, platform) { return {app:manifest.app,host:manifest.host?.[platform]??{},icons:manifest.icons??[],...(manifest.frame_health ? {frame_health:manifest.frame_health} : {}),...(['macos','ios'].includes(platform) && manifest.protocol_handlers?.length ? {protocol_handlers:manifest.protocol_handlers} : {}),...(['ios','android'].includes(platform) && manifest.orientation ? {orientation:manifest.orientation} : {})}; }
+export function nativeManifestMetadata(manifest, platform) { return {app:manifest.app,host:manifest.host?.[platform]??{},icons:manifest.icons??[],...(platform === 'ios' && manifest.color_scheme_dark?.icons ? {dark_icons:manifest.color_scheme_dark.icons} : {}),...(manifest.frame_health ? {frame_health:manifest.frame_health} : {}),...(['macos','ios'].includes(platform) && manifest.protocol_handlers?.length ? {protocol_handlers:manifest.protocol_handlers} : {}),...(['ios','android'].includes(platform) && manifest.orientation ? {orientation:manifest.orientation} : {}),...(['macos','ios'].includes(platform) && ['light','dark'].includes(manifest.userInterfaceStyle) ? {userInterfaceStyle:manifest.userInterfaceStyle} : {}),...(['macos','ios'].includes(platform) && manifest.categories ? {categories:manifest.categories} : {})}; }
 let cachedSchema = null;
 function schema() {
   return cachedSchema ??= JSON.parse(readFileSync(resolve(ROOT, 'scripts/app.schema.json'), 'utf8'));
+}
+/** Apps and package implementations share the Maven grammar (LLP 1133.008 D8 item 5). */
+export function mavenProblems(value, at) {
+  return value === undefined ? [] : validate(value, schema().properties.host.properties.android.properties.maven, at, schema());
 }
 /** The subset of JSON Schema the manifest's schema uses — type, required, properties, additionalProperties, items, minItems, enum, pattern, minLength, oneOf, $ref into $defs — checked by hand so the reader needs no dependency. Every problem in one pass. */
 export function validate(value, node, at, root) {
@@ -734,7 +688,7 @@ export function validate(value, node, at, root) {
   }
   const types = node.type ? [].concat(node.type) : null;
   const actual = value === null ? 'null' : Array.isArray(value) ? 'array' : typeof value;
-  if (types && !types.includes(actual)) { problems.push(`${where}: expected ${types.join(' or ')}, got ${actual}`); return problems; }
+  if (types && !types.includes(actual) && !(types.includes('integer') && Number.isInteger(value))) { problems.push(`${where}: expected ${types.join(' or ')}, got ${actual}`); return problems; }
   if (node.enum && !node.enum.includes(value)) problems.push(`${where}: ${JSON.stringify(value)} is not one of ${node.enum.map((e) => JSON.stringify(e)).join(', ')}`);
   if (typeof value === 'string') {
     if (node.minLength != null && value.length < node.minLength) problems.push(`${where}: shorter than ${node.minLength}`);
@@ -745,6 +699,7 @@ export function validate(value, node, at, root) {
   if (actual === 'array' && node.maxItems != null && value.length > node.maxItems) problems.push(`${where}: more than ${node.maxItems} items`);
   if (actual === 'array' && node.items) value.forEach((v, i) => problems.push(...validate(v, node.items, `${at}[${i}]`, root)));
   if (actual === 'object') {
+    if (node.maxProperties != null && Object.keys(value).length > node.maxProperties) problems.push(`${where}.${Object.keys(value)[node.maxProperties]}.name: at most ${node.maxProperties} entries`); if (node.propertyNames) for (const key of Object.keys(value)) problems.push(...validate(key, node.propertyNames, `${at}.${key}.name`, root));
     for (const key of node.required ?? []) if (!(key in value)) problems.push(`${where}: missing required ${JSON.stringify(key)}`);
     for (const [key, v] of Object.entries(value)) {
       const sub = node.properties?.[key];
@@ -760,7 +715,7 @@ export function validate(value, node, at, root) {
 // rust-toolchain.toml pins the toolchain; an ambient RUSTUP_TOOLCHAIN (`mise exec`
 // exports `stable`) would override it with one that lacks the wasm target, and
 // Cargo's error names neither. Partial fixture copies carry no toolchain file.
-const PINNED_RUST = existsSync(resolve(ROOT, 'rust-toolchain.toml'))
+export const PINNED_RUST = existsSync(resolve(ROOT, 'rust-toolchain.toml'))
   ? /^channel\s*=\s*"([^"]+)"/m.exec(readFileSync(resolve(ROOT, 'rust-toolchain.toml'), 'utf8'))?.[1] : null;
 let ignoredToolchain = null;
 
@@ -783,7 +738,7 @@ export function developmentBuildEnv() {
   return env;
 }
 /** Rust replacement capability baked into this platform/environment, independent
- * of release cadence and rebuild triggers. */
+ * of release cadence and rebuild triggers. @ref LLP 1029.000 §2. */
 export function rustPolicy(manifest, platform, environment = 'dev') {
   if (!['web', 'ios', 'macos', 'linux', 'android', 'windows'].includes(platform)) throw new Error(`unknown Rust replacement platform: ${platform}`);
   if (!['dev', 'prod'].includes(environment)) throw new Error(`unknown Rust replacement environment: ${environment}`);
@@ -832,6 +787,22 @@ export function readBake(app, platform, target, directory = bakeOutput(app)) {
   return receipt;
 }
 
+/** The cards of a build's graph that `names` picks among those its widget and activity generation makes
+ * (`plans/`, `activities/` and, for a TypeScript app on Apple, the module pair under `typescript/`;
+ * bake/src/widgets.rs), with their bytes. They are not the app's files: each is read from the copy the bake leaves
+ * beside its receipt in `directory` and held to the digest the graph lists. */
+export function bakedEntryAssets(directory, build, names) {
+  const root = resolve(directory, `${build.compat.inputs.platform}-${build.compat.target}.entries`);
+  return build.graph.artifacts.filter((card) => names(card.name)).map((card) => {
+    const path = resolve(root, card.name);
+    const bytes = path.startsWith(root + sep) && existsSync(path) ? readFileSync(path) : null;
+    if (!bytes || bytes.length !== card.bytes || buildHash(bytes) !== card.sha256) {
+      refuse(`${card.name}: ${path} is not the file the ${build.compat.inputs.platform} bake listed; build again`);
+    }
+    return { name: card.name, bytes, sha256: card.sha256 };
+  });
+}
+
 /** Refuse packaging bytes that differ from the binary's complete bake receipt.
  * The usual cause is an edit while the build ran: the bake read one version of a
  * file and packaging copied another. The error's `rebuild` is true, so a build
@@ -855,36 +826,9 @@ export function verifyBakeFiles(receipt, plan, assets) {
 
 // The compiler owns both the loaded files and the bundle requirements. This
 // outer receipt is completed after Cargo succeeds; it is not embedded in the
-// product whose inputs it describes.
+// product whose inputs it describes. @ref LLP 1030 D3/D3a.
 const canonicalBuild = (v) => v === null || typeof v !== 'object' ? JSON.stringify(v) : Array.isArray(v) ? `[${v.map(canonicalBuild).join(',')}]` : `{${Object.keys(v).sort().map((k) => `${JSON.stringify(k)}:${canonicalBuild(v[k])}`).join(',')}}`;
 const buildHash = (v) => createHash('sha256').update(v).digest('hex');
-/** A development receipt names four thousand inputs by SHA-256, on every build,
- * and nearly all of them are the files they were at the last one: reading them
- * again was 0.3 s of a 2.5 s build with nothing changed. Each hash is kept in
- * the target directory with the size and time its file had, which is what
- * Cargo goes by to say the unit built from it is fresh. A production receipt
- * reads every byte. */
-function inputHashes(app, env) {
-  const kept = resolve(app.target, 'bake-input-hashes.json'), production = env.EXACT_UPDATE_TRUST === 'production';
-  let known = {}, grew = false;
-  if (!production) try { known = JSON.parse(readFileSync(kept, 'utf8')); } catch { /* none yet */ }
-  const used = {};
-  return {
-    of(path, info) {
-      const was = known[path];
-      const now = was && was[0] === info.mtimeMs && was[1] === info.size ? was : [info.mtimeMs, info.size, buildHash(readFileSync(path))];
-      if (now !== was) grew = true;
-      used[path] = now;
-      return now[2];
-    },
-    save() {
-      if (production || !grew) return;
-      // Every app of a checkout shares the file; one that has grown past any of them starts again from this build's.
-      const next = Object.keys(known).length > 40_000 ? used : { ...known, ...used };
-      writeFileSync(`${kept}.${process.pid}.tmp`, JSON.stringify(next)); renameSync(`${kept}.${process.pid}.tmp`, kept);
-    },
-  };
-}
 const under = (root, path) => {
   const child = relative(root, path);
   return child === '' || (!isAbsolute(child) && child !== '..' && !child.startsWith('..' + sep));
@@ -892,14 +836,13 @@ const under = (root, path) => {
 const orderedBuild = (rows) => rows.sort((a, b) => Buffer.compare(Buffer.from(canonicalBuild(a)), Buffer.from(canonicalBuild(b))));
 function buildCommand(command, args, app, env, stderr = 'pipe') {
   if (command === 'cargo') env = cargoEnvironment(env);
-  let result = spawnSync(...appleCargo(command, args, { cwd: app.workspace, env, stdio: ['ignore','pipe',stderr], encoding: 'utf8', maxBuffer: 128 * 1024 * 1024 }));
-  // An offline Cargo that lacks a source it needs (a new workspace, a new
-  // lock entry) fetches the lock's sources once and tries again, instead of
-  // failing on the first missing crate.
-  if (command === 'cargo' && result.status !== 0 && /--offline was specified|attempting to make an HTTP request|in the offline mode|offline mode \(via `--offline`\)/.test(result.stderr ?? '')) {
+  let result = spawnSync(...cargoDiagnosticsCommand(...androidCargo(...appleCargo(command, args, { cwd: app.workspace, env, stdio: ['ignore','pipe',stderr], encoding: 'utf8', maxBuffer: 128 * 1024 * 1024 }))));
+  // An offline Cargo that lacks a source it needs (a new workspace, a new lock entry) fetches the lock's
+  // sources once and tries again, instead of failing on the first missing crate (LLP 1054 O2).
+  if (command === 'cargo' && result.status !== 0 && OFFLINE_MISSING.test(result.stderr ?? '')) {
     console.error(`${app.name}: Cargo's sources are not all fetched; fetching the locked ones (cargo fetch --locked) and trying again`);
     const fetched = spawnSync('cargo', ['fetch', '--locked'], { cwd: app.workspace, env, stdio: ['ignore', 'inherit', 'inherit'] });
-    if (fetched.status === 0) result = spawnSync(...appleCargo(command, args, { cwd: app.workspace, env, stdio: ['ignore','pipe',stderr], encoding: 'utf8', maxBuffer: 128 * 1024 * 1024 }));
+    if (fetched.status === 0) result = spawnSync(...cargoDiagnosticsCommand(...androidCargo(...appleCargo(command, args, { cwd: app.workspace, env, stdio: ['ignore','pipe',stderr], encoding: 'utf8', maxBuffer: 128 * 1024 * 1024 }))));
   }
   if (result.error || result.status !== 0) {
     if (command === 'cargo') throwContractErrors(app, args, result, ROOT);
@@ -911,7 +854,7 @@ function buildCommand(command, args, app, env, stderr = 'pipe') {
 }
 /** A build script's call into the bake: a Contract that does not compile
  * ends the process with its diagnostics as the last thing printed, with no
- * stack after them; any other failure is thrown on. */
+ * stack after them (LLP 1054 L9); any other failure is thrown on. */
 export function contractLast(build) {
   try { return build(); } catch (error) { if (!error?.contract) throw error; console.error(error.message); process.exit(1); }
 }
@@ -937,13 +880,13 @@ export function hermesBundle(target = hermesTarget(), env = process.env) {
   const missing = required.filter(path => !existsSync(path));
   return { target, tag, digest, root, lean, hermesc, installed: missing.length === 0, missing, fix: `cargo run --manifest-path ${HERMES_INSTALLER} -- --target ${target}` };
 }
-/** Classification roots for Ibex's verified install-once Hermes bundles.
- * The digest directory remains part of the receipt name, so a bundle update
- * necessarily changes the bake identity. */
+/** Classification roots for Ibex's verified install-once Hermes bundles, whose digest directory is part of the
+ * receipt name so a bundle update changes the bake identity, and for each target's own install
+ * (`HERMES_LEAN_SYS_DIR_<target>`: the Android build names one), whose files' digests change it. */
 export function hermesLeanSysRoots(env = process.env) {
   const requested = resolve(env.HERMES_LEAN_SYS_DIR
     ?? resolve(env.CARGO_HOME ?? resolve(env.HOME ?? homedir(), '.cargo'), 'hermes-lean-sys'));
-  const roots = [requested, ...(existsSync(requested) ? [realpathSync.native(requested)] : [])];
+  const roots = [requested, ...Object.entries(env).filter(([key, value]) => key.startsWith('HERMES_LEAN_SYS_DIR_') && value).map(([, value]) => resolve(value))].flatMap(path => [path, ...(existsSync(path) ? [realpathSync.native(path)] : [])]);
   return [...new Set(roots.flatMap(path => process.platform === 'win32' ? [path,toNamespacedPath(path)] : [path]))];
 }
 /** The profile a development native build compiles with (Cargo.toml): an
@@ -953,20 +896,50 @@ export const HOST_DEV = 'host-dev';
 /** The Linux host an agent drives: the app's development executable, or
  * another binary of its Linux crate (`<app>-render`). */
 export const linuxBinary = (app, bin = app.crate('linux')) => resolve(app.target, HOST_DEV, bin);
-/** The command that builds it. An app outside this repo gets the root's
- * profiles on the command line, as its Apple build does (injectedProfiles). */
+/** The command that builds it. An app outside this repo gets the root's profiles on the command line, as its Apple build does (injectedProfiles). */
 export const linuxBuild = (app, bin = null) => ['cargo', 'build', ...injectedProfiles(app), '--profile', HOST_DEV, '-p', app.crate('linux'), ...(bin ? ['--bin', bin] : [])];
-/** The executable (and Apple bundle) as Xcode and Visual Studio name a project's: the app's name, less what a file name cannot carry; `windowsFile` is a Windows build's name for a Cargo product. */
+/** What an iOS bundle's root holds beside the executable, which a name the same but for case would collide with
+ * (expo/exact-build#89): its own files and folders, the static trees (`APPLE_STATIC_TREES`), localizations and icons. */
+const BUNDLE_ROOT = new Set(['assets', 'deck', 'shaders', 'exact-metal', 'rust', 'plans', 'typescript', 'activities', 'frameworks', 'plugins',
+  'extensions', 'appclips', 'watch', 'info.plist', 'pkginfo', '_codesignature', 'embedded.mobileprovision', 'sc_info', 'receipt.json', 'assets.car', 'metadata.appintents', 'exactsvgfilter.metallib', 'privacyinfo.xcprivacy', 'exactresources']);
+const inBundleRoot = (name) => BUNDLE_ROOT.has(name.toLowerCase()) || /\.(lproj|metallib|bundle|framework|appex)$|^appicon.*\.png$/i.test(name);
+/** The executable (and Apple bundle) as Xcode and Visual Studio name a project's: the app's name, less what a file name cannot carry (LLP 1030 D2); `windowsFile` is a Windows build's name for a Cargo product. */
 export const executableName = (app) => app.displayName.replace(/[<>:"/\\|?*\x00-\x1f]/g, '-').replace(/^[. ]+|[. ]+$/g, '') || app.id.split('.').pop();
+/** Match CFBundle's decomposed executable path so codesign excludes the main executable from its resource seal (directory
+ * traversal preserves the file name's spelling).
+ * `flat`: an iOS or tvOS executable, at the bundle's root, takes an " App" suffix when its name is one of the root's
+ * entries (an app called "Assets"), so the app builds; a Mac executable sits alone in Contents/MacOS and keeps its name. */
+export const appleExecutableName = (app, flat = false) => {
+  const name = executableName(app);
+  return (flat && inBundleRoot(name) ? `${name} App` : name).normalize('NFD');
+};
+/** The App Clip `host.ios.appClip` declares, or null: its bundle id (`<app id>.Clip`, as Xcode names one), its
+ * name (the app's) and the executable's name. An App Clip is an app (LLP 1126 D12): the clip bundle runs the whole
+ * app under this second identity, using the same executable target. The web build names its id in the origin's
+ * `apple-app-site-association` (LLP 1030). */
+/** The `applinks:` and other associated domains `host.ios.associatedDomains` claims: its list as written, or, when it
+ * is `true`, the declared origin's host (LLP 1038 D8). The entitlements sign these, and the origin's association file
+ * claims the app only when they name its host. */
+export const associatedDomains = (app) => {
+  const ios = app.manifest.host?.ios ?? {};
+  return Array.isArray(ios.associatedDomains) ? ios.associatedDomains : ios.associatedDomains && app.origin ? [`applinks:${new URL(app.origin).host}`] : [];
+};
+export const appClip = (app) => {
+  const clip = app.manifest.host?.ios?.appClip;
+  if (!clip) return null;
+  const id = clip.id ?? `${app.id}.Clip`, name = clip.name ?? app.displayName;
+  return { id, name, executable: appleExecutableName({ id, displayName: name ?? '' }, true) };
+};
 export const windowsFile = (app, path) => basename(path) === `${app.crate('windows')}.exe` ? `${executableName(app)}.exe` : basename(path);
 export function bakeTarget(platform) {
   if (platform === 'web') return 'wasm32-unknown-unknown';
   if (platform === 'ios') return 'aarch64-apple-ios';
   // The Linux host is also a supported headless executable on macOS. This
   // is the actual target Cargo will build here, never a guessed architecture.
-  const result = spawnSync('rustc', ['-vV'], { encoding: 'utf8' });
+  // The pinned toolchain's rustc, as the build's: rustup may have no default, and an app's directory names none.
+  const result = spawnSync('rustc', ['-vV'], { cwd: ROOT, env: PINNED_RUST ? { ...process.env, RUSTUP_TOOLCHAIN: PINNED_RUST } : process.env, encoding: 'utf8' });
   const host = /^host: (.+)$/m.exec(result.stdout ?? '')?.[1];
-  if (result.status !== 0 || !host) throw new Error('rustc did not report its host target');
+  if (result.status !== 0 || !host) throw new Error(`rustc did not report its host target: ${result.error?.message ?? result.stderr?.trim() ?? `exit ${result.status}`}`);
   return host;
 }
 /** Cargo's metadata for a development bake, asked once for a lock and a set of
@@ -991,8 +964,9 @@ function bakeMetadata(app, target, env) {
   return metadata;
 }
 function buildGraph(app, target, kind, env, gpu) {
-  const prepared = app.prepare?.(true, {target, env});
-  const metadata = prepared?.workspace_root === app.workspace ? prepared : bakeMetadata(app, target, env);
+  const prepared = app.prepare?.(true, {target, env}), gpuApp = gpuView(app);
+  const hostMetadata = prepared?.workspace_root === app.workspace ? prepared : bakeMetadata(app, target, env);
+  const metadata = gpuApp !== app && (gpu || gpuModules(app.manifest).length) ? joinMetadata(hostMetadata, bakeMetadata(gpuApp, target, env)) : hostMetadata;
   const packages = new Map(metadata.packages.map((p) => [p.id, p]));
   const nodes = new Map(metadata.resolve.nodes.map((n) => [n.id, n]));
   const root = metadata.packages.find((p) => p.name === app.crate(kind));
@@ -1013,7 +987,11 @@ function buildGraph(app, target, kind, env, gpu) {
   }
   return { metadata, packages, root, surface, modules, roles };
 }
-function completeBuild(app, platform, target, graph, messages, roots, env, prepared = new Map()) {
+/** What a build writes, known before Cargo runs. A directory watch excludes these from every inventory. */
+const buildOutputs = (app, graph, env) => [app.target, graph.metadata.target_directory, graph.metadata.build_directory,
+  env.CARGO_BUILD_BUILD_DIR, env.EXACT_BAKE_OUTPUT, env.EXACT_WEB_DIST ?? webDist(app),
+  ...['dist', 'web-dist', 'dist-windows', 'artifacts'].map(name => resolve(app.dir, name))].filter(Boolean).map(path => resolve(path));
+function completeBuild(app, platform, target, graph, messages, roots, env, prepared = new Map(), generatedInputs = {products:[], watchedDirectories:[]}, privacyManifests = []) {
   const scripts = messages.filter((m) => m.reason === 'build-script-executed' && graph.roles.has(m.package_id));
   const targetDirs = [app.target, graph.metadata.build_directory].map(dir => resolve(dir, target));
   const roleOf = (path) => targetDirs.some(dir => under(dir, path)) ? target : 'host';
@@ -1023,11 +1001,13 @@ function completeBuild(app, platform, target, graph, messages, roots, env, prepa
   const baked = existsSync(resolve(rootOutput, 'compat.json')) ? rootOutput : env.EXACT_BAKED /* a bake before Cargo keeps the plan and its receipts apart (linked-plan.mjs) */, compat = JSON.parse(readFileSync(resolve(baked, 'compat.json'), 'utf8'));
   if (compat.target !== target || compat.inputs.platform !== platform || compat.inputs.app !== app.id) throw new Error('actual bake receipt names another target, platform or app');
   const bundleGraph = JSON.parse(readFileSync(resolve(baked, 'artifacts.json'), 'utf8'));
+  const moduleReceipt = resolve(baked, 'app.module.json');
+  const backendOrigin = existsSync(moduleReceipt) ? JSON.parse(readFileSync(moduleReceipt, 'utf8')).backendOrigin : null;
   // Recreate packaging outputs from Cargo's actual bake, even on a cache hit.
   // A build script must never watch its own receipt: writing it dirties every next build.
   const stem = `${platform}-${target}`;
   for (const [file, suffix] of [['compat.json', '.json'], ['app.plan', '.plan'], ['artifacts.json', '.artifacts.json']]) writeFileSync(resolve(env.EXACT_BAKE_OUTPUT, stem + suffix), readFileSync(resolve(baked, file)));
-  // A development bake's source map, for the agent driver only; none is carried stale.
+  // A development bake's source map, for the agent driver only (LLP 1012.001.000 D6); none is carried stale.
   const map = resolve(baked, 'app.plan.map.json'), mapCopy = resolve(env.EXACT_BAKE_OUTPUT, stem + '.plan.map.json');
   if (existsSync(map)) writeFileSync(mapCopy, readFileSync(map)); else rmSync(mapCopy, { force: true });
   const replaced = new Set(['app.plan','compat.json','artifacts.json'].map((n) => resolve(rootOutput,n)));
@@ -1036,12 +1016,15 @@ function completeBuild(app, platform, target, graph, messages, roots, env, prepa
   const hermesLeanRoots = hermesLeanSysRoots(env);
   // Index roots once; each input walks ancestors to the nearest declaring root.
   const rootsAt = (roots) => { const at = new Map(); for (const root of roots) if (!at.has(root.path)) at.set(root.path, root); return at; };
-  // Each installed direct dependency, where it is installed and where its files really are: Bun installs a file:
-  // package as directories of links to its source's files, so a compiler reads them from the source directory.
+  // Each installed direct dependency, where it is installed and where its files really are: Bun links each file of a
+  // file: package outside the app (a compiler reads the source), and copies one inside it into node_modules.
   const dependencies = directDependencies(app.dir).flatMap(({ name, root }) => [realpathSync(root), dirname(realpathSync(resolve(root, 'package.json')))].map(path => ({ path, name }))).sort((a,b) => b.path.length-a.path.length);
   const generatedAt = rootsAt(generated), locatedAt = rootsAt(locations), installedAt = rootsAt(dependencies);
   const rootOf = (roots, path) => { for (let at = path; ; at = dirname(at)) { const root = roots.get(at); if (root || dirname(at) === at) return root; } };
-  const nameOf = (path) => {
+  // A path outside every root a package's compile or build script names (`../../.env` beside a path dependency's own
+  // repository) is named from that package, with `/` on every host.
+  const outsideName = (path, pkg) => `crate:${pkg.name}@${pkg.version}/${relative(dirname(pkg.manifest_path),path).split(sep).join('/')}`;
+  const nameOf = (path, declarer = null) => {
     path = sourcePath(resolve(path));
     const made = rootOf(generatedAt, path);
     if (made) return `generated:${made.pkg.name}:${made.role}/${relative(made.path,path)}`;
@@ -1055,26 +1038,20 @@ function completeBuild(app, platform, target, graph, messages, roots, env, prepa
     if (under(app.dir,path)) return `app/${relative(app.dir,path)}`;
     if (under(ROOT,path)) return `exact/${relative(ROOT,path)}`;
     if (under(graph.metadata.workspace_root,path)) return `workspace/${relative(graph.metadata.workspace_root,path)}`;
+    if (declarer) return outsideName(path, declarer);
     throw new Error(`compiler input has no captured source identity: ${path}`);
   };
-  const inputs = new Map(), absent = new Map(), directories = new Map(), hashes = inputHashes(app, env);
-  const add = (path, optional = false) => {
-    path = resolve(path); if (replaced.has(path)) return;
-    if (!existsSync(path)) { if (optional) { absent.set(nameOf(path), path); return; } throw new Error(`stale compiler dependency names missing input ${path}; rebuild that Cargo unit`); }
-    const name = nameOf(path);
-    if (inputs.get(name)?.path === path) return;
-    const info = statSync(path);
-    if (info.isDirectory()) { const names = readdirSync(path).sort(); directories.set(name, {path,names}); for (const entry of names) add(resolve(path,entry)); }
-    else if (info.isFile()) inputs.set(name, {name,path,sha256:hashes.of(path, info)});
-    else throw new Error(`unsupported compiler input ${path}`);
-  };
+  const hashes = inputHashes(app, env), optionalInputs = new Set();
+  const watchOutputs = [...buildOutputs(app, graph, env), env.OUT_DIR, baked, ...scripts.map(script => script.out_dir)].filter(Boolean).map(path => resolve(path));
+  const {inputs, absent, directories, links, add} = buildInputCollector({outputs:watchOutputs, nameOf, hashes, replaced});
+  const sourceInputs = new Set(['assets', 'deck'].map(path => resolve(app.dir, path)).concat(shaderRoots(app)));
   const normalizeEnv = ([key,value]) => [key, value == null ? null : ['OUT_DIR','CARGO_MANIFEST_DIR'].includes(key) ? nameOf(value) : buildHash(value)];
   const units = [], usedPackages = new Set();
   for (const m of messages.filter((m) => m.reason === 'compiler-artifact' && !m.target.kind.includes('custom-build') && graph.roles.has(m.package_id))) {
     const role = roleOf(m.filenames[0]); if (!graph.roles.get(m.package_id).has(role)) continue;
     usedPackages.add(m.package_id);
     const dep = readFileSync(unitDepInfo(m,graph.metadata.workspace_root,graph.metadata), 'utf8');
-    for (const path of compilerPaths(dep,graph.metadata.workspace_root)) add(path);
+    for (const path of compilerPaths(dep,graph.metadata.workspace_root)) add(path, false, graph.packages.get(m.package_id));
     const environment = dep.split('\n').filter((s) => s.startsWith('# env-dep:')).map((s) => { const pair=s.slice(10),at=pair.indexOf('=');return at<0?[pair,null]:[pair.slice(0,at),pair.slice(at+1)]; }).map(normalizeEnv);
     units.push({package:graph.packages.get(m.package_id).name,role,target:m.target.name,kind:m.target.kind,features:m.features,profile:m.profile,environment});
   }
@@ -1082,18 +1059,26 @@ function completeBuild(app, platform, target, graph, messages, roots, env, prepa
   for (const m of scripts) {
     if(!usedPackages.has(m.package_id))continue;
     const role = roleOf(m.out_dir); if (!graph.roles.get(m.package_id).has(role)) continue;
-    const pkg = graph.packages.get(m.package_id), source = pkg.targets.find((t) => t.kind.includes('custom-build'));
-    if (source) add(source.src_path);
+    const pkg = graph.packages.get(m.package_id);
+    const compilers = messages.filter(unit => unit.reason === 'compiler-artifact' && unit.package_id === pkg.id && unit.target.kind.includes('custom-build'));
+    if (!compilers.length) throw new Error(`Cargo did not report compiler inputs for ${pkg.name}'s build script`);
+    for (const compiler of compilers) {
+      const dep = readFileSync(unitDepInfo(compiler,graph.metadata.workspace_root,graph.metadata), 'utf8');
+      for (const path of compilerPaths(dep,graph.metadata.workspace_root)) add(path, false, pkg);
+    }
     // The script's stdout: `output` beside `out`, or `run/stdout` in Cargo's new build-dir layout (the web toolchain's).
     const output = readFileSync([resolve(m.out_dir,'../output'), resolve(m.out_dir,'../run/stdout')].find(existsSync) ?? resolve(m.out_dir,'../output'),'utf8'); const environment = [];
     for (const line of output.split('\n')) {
-      const changed = /^cargo::?rerun-if-changed=(.*)$/.exec(line);
+      const changed = /^cargo::?(rerun-if-changed|metadata=exact-optional-input)=(.*)$/.exec(line);
+      if (changed) sourceInputs.add(resolve(dirname(pkg.manifest_path), changed[2]));
       // The app's plan/manifest/static watches are inputs of replaceable
       // artifacts. Its generated entry and typed metadata are binary inputs.
-      if (changed && pkg.id !== graph.root.id) {
-        const path = resolve(dirname(pkg.manifest_path), changed[1]);
-        if (!shaderRoots(app).some(root => under(root, path))) add(path, true);
-      }
+      // Windows freshness also needs the replaceable sources, outside the binary fingerprint.
+      // An optional design the app's own bake looked for and did not find (Cargo
+      // does not watch it) is a replaceable input too, kept for its existence.
+      const path = changed && resolve(dirname(pkg.manifest_path), changed[2]);
+      if (changed && pkg.id === graph.root.id && platform !== 'windows' && changed[1] === 'metadata=exact-optional-input') optionalInputs.add(path);
+      else if (changed && pkg.id !== graph.root.id && !shaderRoots(app).some(root => under(root, path))) add(path, true, pkg);
       const variable = /^cargo::?rerun-if-env-changed=(.*)$/.exec(line)?.[1];
       if (variable && !variable.startsWith('EXACT_') && !['OUT_DIR','CARGO_MANIFEST_DIR'].includes(variable)) environment.push(normalizeEnv([variable,env[variable]??null]));
     }
@@ -1107,7 +1092,7 @@ function completeBuild(app, platform, target, graph, messages, roots, env, prepa
   }
   for (const pkg of packages) if(usedPackages.has(pkg.id))add(pkg.manifest_path);
   add(resolve(graph.metadata.workspace_root,'Cargo.toml'));add(resolve(graph.metadata.workspace_root,'Cargo.lock'));add(resolve(app.dir,'.exact/backend-origin'),true); // the bake's backend selection, by bytes or absence
-  for (const file of app.manifest?.env?.length ? ['.env.local', '.env'] : []) add(resolve(app.dir, file), true); // its settings' files, likewise
+  for (const file of app.manifest?.env?.length ? ['.env.local', '.env'] : []) add(resolve(app.dir, file), true); // its settings' files (LLP 1153 D4), likewise
   // Watch absent art without a missing Cargo input that dirties every build.
   if (app.manifest.game) add(resolve(app.dir, 'art'), true);
   if (app.manifest.game?.render && graph.surface) {
@@ -1116,6 +1101,8 @@ function completeBuild(app, platform, target, graph, messages, roots, env, prepa
     add(resolve(app.dir, 'render/build.rs'), true);
   }
   if (platform === 'macos' || platform === 'ios') {
+    add(resolve(ROOT, 'host/apple/privacy.mjs'));
+    privacyManifests.push(...appleImplementations(app.dir, target.includes('-tvos') ? 'tvos' : platform, bundleGraph.extensions ?? {}, bundleGraph.contractSources ?? []).map(p => capturePrivacyManifest(p.privacyManifest)));
     const packageRoot=resolve(ROOT,'host/apple');
     const swiftEnv = {...env, EXACT_APP_COMPOSITION: compat.inputs.store.L === '0' ? 'embedded' : 'updating'}; delete swiftEnv.SDKROOT;
     // Cache SwiftPM's description by manifest, composition and source inventory.
@@ -1129,33 +1116,28 @@ function completeBuild(app, platform, target, graph, messages, roots, env, prepa
       for(const old of kept.slice(6))rmSync(old,{force:true});
     }
     const swift=JSON.parse(readFileSync(described,'utf8'));
-    const pending=[platform==='ios'?'ExactIOS':'ExactMac'],seen=new Set();
-    while(pending.length) { const name=pending.pop();if(seen.has(name))continue;seen.add(name);const unit=swift.targets.find((t)=>t.name===name);if(!unit)throw new Error(`Swift package has no ${name}`);
-      for(const file of unit.sources??[])add(resolve(packageRoot,unit.path,file));
-      for(const resource of unit.resources??[])add(resolve(packageRoot,resource.path));
-      if(unit.type==='system-target')add(resolve(packageRoot,unit.path));pending.push(...(unit.target_dependencies??[]));
-    }
+    swiftTargetInputs(swift,packageRoot,platform==='ios'?'ExactIOS':'ExactMac',add);
     add(resolve(packageRoot,'Package.swift'));add(resolve(packageRoot,'webarm/WebArm.swift'));add(resolve(packageRoot,'webarm/FrameBrowser.swift'));add(resolve(packageRoot,'webarm/FrameWindows.swift'));add(resolve(packageRoot,'webarm/FrameCapture.swift'));add(resolve(packageRoot,'webarm/FramePDF.swift'));add(resolve(packageRoot,'webarm/FrameAutomation.swift'));add(resolve(packageRoot,'webarm/FrameFiles.swift'));add(resolve(packageRoot,'webarm/FrameInspector.swift'));add(resolve(packageRoot,'webarm/FramePrint.swift'));add(resolve(packageRoot,'videoarm/VideoArm.swift'));add(resolve(packageRoot,'videoarm/PictureInPicture.swift'));add(resolve(packageRoot,'build.mjs'));add(resolve(packageRoot,'assets.mjs'));add(resolve(packageRoot,'bundle.mjs'));add(resolve(packageRoot,'widgets.mjs'));
     const entries=platform==='ios'&&(app.manifest.widgets?.length||app.manifest.live_activities?.length); if(entries)add(resolve(packageRoot,'widget'),true); if(entries||env.EXACT_WIDGET_GALLERY==='1')add(resolve(packageRoot,'Sources/ExactSnapshot'),true);
   }
   if(platform==='web') {
-    for(const path of [...Object.values(webHostFiles('base','rust','gpu',...(gpuModules(app.manifest).length?['gpuModules']:[]))),'scripts/app.mjs','scripts/rust.mjs',...SHELL_SOURCES,'host/web/build.mjs','package.json','bun.lock']) add(resolve(ROOT,path));
+    for(const path of [...Object.values(webHostFiles('base','rust','gpu',...(gpuModules(app.manifest).length?['gpuModules']:[]))).filter(path => !path.startsWith('target/web-host/')),...hostModuleSources(ROOT),'host/web-js/glue.mjs','scripts/app.mjs','scripts/rust.mjs',...SHELL_SOURCES,'host/web/build.mjs','package.json','bun.lock']) add(resolve(ROOT,path));
     if (existsSync(resolve(app.dir, 'app.ts'))) {
       // The TS producer is a build dependency, outside the runtime Cargo graph.
       // Its canonical API declaration still determines the accepted app module.
       add(resolve(ROOT, 'vendor/ibex/crates/ibex2/src/bindings/storage.d.ts'));
-      for (const path of Object.values(webHostFiles('module'))) add(resolve(ROOT, path));
+      for (const path of [...Object.values(webHostFiles('module')).filter(path => !path.startsWith('target/web-host/')), ...MODULE_PRELUDE]) add(resolve(ROOT, path));
     }
     if (existsSync(resolve(app.dir, 'app.ts')) || /^\s*(?:fs\.|sqlite\.)/m.test(compat.inputs.grantCeiling ?? '')) {
       for (const path of [...Object.values(webHostFiles('storage')),
         'package.json', 'bun.lock', 'node_modules/@sqlite.org/sqlite-wasm/package.json']) add(resolve(ROOT, path));
     }
   }
-  const nativeResources = platform === 'macos' ? macResourceInventory(app) : [];
-  const assetCatalogApp = ['macos', 'ios'].includes(platform) ? { dir: app.dir, platform: target.includes('-tvos') ? 'tvos' : platform, manifest: { host: app.manifest.host } } : null;
+  const nativeResources = ['macos', 'ios'].includes(platform) ? nativeResourceInventory(app, null, platform) : []; // `host.<platform>.resources` (iOS's serve tvOS): an edit is a new binary
+  const assetCatalogApp = ['macos', 'ios'].includes(platform) ? { dir: app.dir, platform: target.includes('-tvos') ? 'tvos' : platform, appleIcons: bundleGraph.appleIcons ?? [], manifest: { host: app.manifest.host } } : null;
   const appleAssetCatalogs = assetCatalogApp ? appleAssetCatalogInventory(assetCatalogApp, assetCatalogApp.platform) : [];
   if (assetCatalogApp) for (const path of [resolve(app.dir, platform, 'modules'), resolve(app.dir, 'modules/apple')]) {
-    if (existsSync(path)) directories.set(nameOf(path), {path, names: readdirSync(path).sort()});
+    if (existsSync(path)) directories.set(nameOf(path), {path, names: directoryInputNames(path, watchOutput(watchOutputs))});
     else absent.set(nameOf(path), path);
   }
   for (const entry of appleAssetCatalogs) add(resolve(app.dir, entry.path));
@@ -1164,13 +1146,27 @@ function completeBuild(app, platform, target, graph, messages, roots, env, prepa
   if (launchImage) add(resolve(app.dir, launchImage.src));
   const metadata={...(appleAssetCatalogs.length ? {appleAssetCatalogs} : {}),...(launchImage ? {launchImage} : {}),...(nativeResources.length ? {nativeResources} : {}),...nativeManifestMetadata(app.manifest, platform),delivery:compat.delivery,store:compat.inputs.store,keys:compat.inputs.keys};
   const configuration={target,units:orderedBuild([...new Map(units.map(u=>[canonicalBuild(u),u])).values()]),builders:orderedBuild([...new Map(builders.map(u=>[canonicalBuild(u),u])).values()]),rustc:buildCommand('rustc',['-vV'],app,env).stdout,flags:{...Object.fromEntries(['RUSTFLAGS','CARGO_ENCODED_RUSTFLAGS','MACOSX_DEPLOYMENT_TARGET','IPHONEOS_DEPLOYMENT_TARGET','TVOS_DEPLOYMENT_TARGET','WATCHOS_DEPLOYMENT_TARGET'].map((k)=>[k,env[k]??null])),...(env.EXACT_WEB_LINK?{EXACT_WEB_LINK:env.EXACT_WEB_LINK}:{}),...(env.EXACT_WEB_SIZE?{EXACT_WEB_SIZE:env.EXACT_WEB_SIZE}:{})}};
+  for (const captured of privacyManifests) {
+    const name = nameOf(captured.path); inputs.delete(name); absent.delete(name);
+    if (captured.bytes === null) absent.set(name, captured.path); else inputs.set(name, { name, path: captured.path, sha256: buildHash(Buffer.from(captured.bytes, 'base64')) });
+  }
   const files=[...inputs.values()].sort((a,b)=>a.name<b.name?-1:a.name>b.name?1:0);
-  const fingerprint={files:files.map(({name,sha256})=>({name,sha256})),absent:[...absent.keys()].sort(),configuration,metadata};
-  const products=roots.flatMap((r)=>messages.filter((m)=>m.reason==='compiler-artifact'&&m.package_id===r.package&&m.target.name===r.name).flatMap((m)=>m.filenames)).filter((p)=>!p.endsWith('.d')&&!p.endsWith('.dSYM')).map((path)=>prepared.get(path)??path).map((path)=>{const info=statSync(path);return {path,bytes:info.size,sha256:hashes.of(path,info)};});
+  const fingerprint = {
+    directories:orderedBuild([...directories].map(([name, {names}]) => ({name, names}))),
+    links:orderedBuild([...links.values()].map(({name, target}) => ({name, target}))),
+    files:files.map(({name, sha256}) => ({name, sha256})),
+    absent:[...absent.keys()].sort(), configuration, metadata,
+  };
+  const sourceInputsRecord = binarySourceInputs({files, directories, absent, links, metadata}, [
+    {name:'app',path:app.dir}, {name:'exact',path:ROOT}, {name:'workspace',path:graph.metadata.workspace_root},
+    ...packages.filter(pkg => pkg.source === null).map(pkg => ({name:'workspace',path:graph.metadata.workspace_root, contains:dirname(pkg.manifest_path)})),
+  ], watchOutputs);
+  const products=roots.flatMap((r)=>messages.filter((m)=>m.reason==='compiler-artifact'&&m.package_id===r.package&&m.target.name===r.name).flatMap((m)=>m.filenames)).filter((p)=>!p.endsWith('.d')&&!p.endsWith('.dSYM')).map((path)=>prepared.get(path)??path).map((path)=>{const info=statSync(path);return {path,bytes:info.size,sha256:hashes.of(path,info)};})
+    .concat(generatedInputs.products);
   hashes.save();
-  return {version:1,...(env.EXACT_RUST_BUNDLE?{rust:resolve(baked,'rust')}:{}),...(baked!==rootOutput?{linkedPlan:baked}:{}),...bakedSettings(baked,app.dir),trust:env.EXACT_UPDATE_TRUST??'development',compat,graph:bundleGraph,binary:{...(assetCatalogApp ? {assetCatalogApp} : {}),...(nativeResources.length ? {nativeResourceApp:{dir:app.dir,manifest:app.manifest}} : {}),sha256:buildHash(canonicalBuild(fingerprint)),...fingerprint,inputs:files,directories:[...directories.values()],missing:[...absent.values()]},products};
+  const sourceRecord = platform === 'windows' ? {sourceInputs:bakeSourceInputs(app, sourceInputs, watchOutputs)} : {};
+  return {version:1,backendOrigin,...sourceRecord,watchedDirectories:[...packageDirectories([...sourceInputs],watchOutputs), ...generatedInputs.watchedDirectories],...(env.EXACT_RUST_BUNDLE?{rust:resolve(baked,'rust')}:{}),...(optionalInputs.size?{optionalInputs:[...optionalInputs].sort()}:{}),...(baked!==rootOutput?{linkedPlan:baked,linkedInputs:linkedInputs(baked)}:{}),...bakedSettings(baked,app.dir),trust:env.EXACT_UPDATE_TRUST??'development',compat,graph:bundleGraph,binary:{sourceInputs:sourceInputsRecord,...(privacyManifests.length ? {privacyManifests} : {}),...(assetCatalogApp ? {assetCatalogApp} : {}),...(nativeResources.length ? {nativeResourceApp:{dir:app.dir,manifest:app.manifest,platform}} : {}),sha256:buildHash(canonicalBuild(fingerprint)),...fingerprint,inputs:files,watchOutputs,links:[...links.values()],directories:[...directories.values()],missing:[...absent.values()]},products};
 }
-
 // The permanent companion inode owns exclusion; the JSON claim is only its diagnostic record.
 let buildLock;
 export function claimBuildOutput(app, path) {
@@ -1215,11 +1211,13 @@ export function claimLive(text) {
   try { claim = JSON.parse(text); } catch { return true; } // unreadable: never guess
   if (!Number.isSafeInteger(claim.pid) || claim.pid <= 0) return true;
   try { process.kill(claim.pid, 0); } catch (error) { if (error.code === 'ESRCH') return false; } // gone (EPERM: alive, another user's)
-  const ps = spawnSync('ps', ['-o', 'lstart=', '-p', String(claim.pid)], { encoding: 'utf8', env: { ...process.env, LC_ALL: 'C' } }), started = Date.parse(ps.stdout?.trim() ?? '');
+  const ps = spawnSync('ps', ['-o', 'stat=', '-o', 'lstart=', '-p', String(claim.pid)], { encoding: 'utf8', env: { ...process.env, LC_ALL: 'C' } });
+  const [status, ...since] = (ps.stdout ?? '').trim().split(/\s+/);
+  if (ps.status === 0 && status.startsWith('Z')) return false;
+  const started = Date.parse(since.join(' '));
   if (ps.status !== 0 || !Number.isFinite(started)) return true; // running, and `ps` cannot say since when: never guess
   return !(started > Date.parse(claim.started) + 1000); // `lstart` has whole seconds: a holder started after its claim is a reused pid
 }
-
 /** Cargo library filenames use the selected target name, with hyphens
  * normalized to underscores, even when the package has another name. */
 export const cargoLibraryTarget = (pkg) => pkg.targets.find(t => t.kind.some(k => ['cdylib','staticlib','rlib','lib'].includes(k)));
@@ -1236,7 +1234,7 @@ export function bakeSelection(graph, part) {
 
 /** What ships to an Apple device or an Android phone is optimized as one module: fat LTO
  * makes the stripped binary smaller than thin — 4.8% on Apple, no slower to boot, for 16 s
- * of a production build; 6.4% for Caltrain's Android library (16.6 →
+ * of a production build (LLP 1036.000 §8); 6.4% for Caltrain's Android library (16.6 →
  * 15.6 MB), whose release build takes about a minute longer. Said on the command line and
  * not in `[profile.release]`, which every developer tool builds with. Cargo's fingerprints
  * keep thin and fat apart: a target directory used both ways (a macOS and a Linux bake on a
@@ -1245,24 +1243,20 @@ export function wholeProgram(kind, profile) {
   return ['apple','ios','macos','tvos','android'].includes(kind) && profile === 'release' ? ['--config','profile.release.lto="fat"'] : [];
 }
 
-/** One actual target build, including the optional GPU artifact. Consumers
- * classify its completed receipt; compatibility is never recomputed in JS.
- * `check` runs `cargo check`: the build scripts (the bake) and the receipt,
- * with no linked product (delivery's web bake, host/web/build.mjs --bake).
- * `options.kind` overrides the crate kind the platform implies. */
 /** What an app's bake watches besides its sources (its asset roots that exist, whether a backend origin is chosen, which of the settings files `.env.local` and `.env` exist); unset, a missing one stays an input where the app holds its build output, and every build reruns the script and relinks (bake/src/receipt/watch.rs). Every baking build passes it. `app`: its `dir`, `manifest`. */
 export const bakeWatchEnv = app => ({ EXACT_ASSET_ROOTS: ['assets', 'deck', ...(app.manifest.game ? [] : ['gpu/shaders'])].filter(root => (root === 'assets' && app.manifest.game && (app.manifest.game.assets === true || existsSync(resolve(app.dir, 'art')))) || existsSync(resolve(app.dir, root))).join(','), EXACT_BACKEND_SELECTION: existsSync(resolve(app.dir, '.exact/backend-origin')) ? 'present' : 'absent', EXACT_ENV_FILES: ['.env.local', '.env'].filter(file => existsSync(resolve(app.dir, file))).join(',') });
 /** The dev loop's bake driver (host/web/dev.mjs): an app's `<app>-dev` bin (`devBin`), else `exact-dev`, on host-dev (seconds after an edit, not release's minute), with `bakeWatchEnv` (nothing rebuilt when nothing changed): its cargo args before `--`, cwd and env over `env`. */
 export const devBinRun = (app, devBin, env) => ({ args: ['run', '-q', ...(devBin ? injectedProfiles(app) : []), '--profile', HOST_DEV, '-p', devBin ? app.crate('web') : 'exact-web', '--bin', devBin ?? 'exact-dev'], cwd: devBin ? app.workspace : ROOT, env: { ...env, ...bakeWatchEnv(app) } });
+/** Build the target and optional GPU, returning Cargo's actual receipt. `check` builds no linked product; `options.kind` selects a crate kind independently of the receipt's platform. */
 export function buildBake(app, platform, target, options = {}) {
   // `kind` names another crate for the platform's cohort: Android's Canvas host bakes as Linux from `<app>-android`.
   const kind=options.kind??platformCrateKind(app.dir,platform), apple=['apple','ios','macos','tvos'].includes(kind);
   let env=withHostDeployment({...process.env,...options.env});env.CARGO_TARGET_DIR=app.target;env.EXACT_BAKE_OUTPUT=options.output??bakeOutput(app,env);
-  const watch = target.includes('apple-watchos');
-  if(platform==='web'||watch)env=webToolchainEnv(env);
+  const privacyManifests = apple ? [capturePrivacyManifest(resolve(app.dir, 'PrivacyInfo.xcprivacy'))] : [], watch = target.includes('apple-watchos');
+  if(platform==='web'||watch)env=webToolchainEnv(env,{linksWasm:target==='wasm32-unknown-unknown'&&!options.check});
   if(options.analysis && env.EXACT_UPDATE_TRUST==='production')env.EXACT_BAKE_ANALYSIS='1';else delete env.EXACT_BAKE_ANALYSIS;
   mkdirSync(env.EXACT_BAKE_OUTPUT,{recursive:true});
-  if(platform!=='web')prepareLibrary(app.dir,target); // a package's library, fetched and checked before Cargo links it
+  if(platform!=='web')prepareLibrary(app.dir,target); // a package's library, fetched and checked before Cargo links it (LLP 1154 D3)
   const rustBundle=prepareRustBundle(app,platform,target,env);
   if(rustBundle)env.EXACT_RUST_BUNDLE=rustBundle;
   const native=platform==='web'?null:nativeSource(app,env); // what the binary compiles its Rust from (Swappable::with_native)
@@ -1272,7 +1266,8 @@ export function buildBake(app, platform, target, options = {}) {
   // logic to determinism lints; the gpu-dev loop runs them in its preceding check.
   if(app.manifest.game&&(options.profile??'')!=='gpu-dev')lintGame(app.dir,app.manifest.game,{env});
   const gpuPackage=(pkg)=>pkg.id===graph.surface?.id||graph.modules.some((m)=>m.id===pkg.id), moduleProducts={}, preparedProducts=new Map();
-  delete env.EXACT_GPU_PRODUCT; delete env.EXACT_GPU_MODULES; delete env.EXACT_BAKE_INPUTS;
+  let generatedInputs = {products:[], watchedDirectories:[]};
+  delete env.EXACT_GPU_PRODUCT; delete env.EXACT_GPU_MODULES; delete env.EXACT_GPU_WEB_PRODUCTS; delete env.EXACT_BAKE_INPUTS;
   if (options.part && !bindGpuProduct(options.profile, env.EXACT_UPDATE_TRUST) && graph.surface) {
     const extension = target.includes('apple') ? 'dylib' : target.includes('windows') ? 'dll' : 'so';
     env.EXACT_GPU_DEVELOPMENT = `lib${cargoLibraryTarget(graph.surface).name.replaceAll('-','_')}.${extension}`;
@@ -1290,6 +1285,7 @@ export function buildBake(app, platform, target, options = {}) {
       releases.push(claimBuildOutput(app, path));
     }
   for(const {pkg,unit} of selected) {
+    if (pkg.id === graph.root.id && pkg.targets.some(t => t.kind.includes('custom-build'))) env.EXACT_BAKE_PACKAGE_DIR = realpathSync(dirname(pkg.manifest_path));
     const profile = (gpuPackage(pkg) ? options.gpuProfile : null) ?? options.profile ?? (platform === 'web' ? 'web' : 'release');
     // The GPU bake can create the first asset directory (for a typed level).
     Object.assign(env, bakeWatchEnv(app));
@@ -1298,62 +1294,63 @@ export function buildBake(app, platform, target, options = {}) {
     // An Apple app's crate is an rlib to Cargo, so `--workspace` builds type-check it without
     // bundling its whole dependency graph into a 700 MB archive nobody reads. The archive the
     // app links is asked for here, where it is built to be launched.
-    const archive=apple&&pkg.id===graph.root.id;
+    const archive=apple&&pkg.id===graph.root.id, at=gpuPackage(pkg)?gpuView(app):app;
     const whole=wholeProgram(kind,options.profile??'release');
-    const args=[archive?'rustc':options.check?'check':'build',...(archive?['--crate-type','staticlib']:[]),...cargoReproducibilityFlags(app),...injectedProfiles(app),...whole,...(sized||watch?WEB_STD:[]),...(target==='wasm32-unknown-unknown'?wasmRemapFlags(app,sized?WEB_TOOLCHAIN:null):[]),'-p',pkg.name,'--target',target,'--profile',profile,...(['linux','windows'].includes(kind)&&pkg.id===graph.root.id?['--bin',unit.name]:['--lib']),...(gpuPackage(pkg)?['--config',`profile.${profile}.strip=false`]:[]),'--message-format=json-render-diagnostics'];
+    const args=[archive?'rustc':options.check?'check':'build',...(archive?['--crate-type','staticlib']:[]),...cargoReproducibilityFlags(at),...injectedProfiles(at),...whole,...(sized||watch?WEB_STD:[]),...(target==='wasm32-unknown-unknown'?wasmRemapFlags(at,sized?WEB_TOOLCHAIN:null):[]),'-p',pkg.name,'--target',target,'--profile',profile,...(['linux','windows'].includes(kind)&&pkg.id===graph.root.id?['--bin',unit.name]:['--lib']),...(gpuPackage(pkg)?['--config',`profile.${profile}.strip=false`]:[]),'--message-format=json-render-diagnostics'];
     // Refresh Rust bakers through an rlib before they read a coordinated
     // Rust/manifest edit. Generated inputs also predate the first archive.
     if (archive && options.link && !env.EXACT_RUST_BUNDLE && linkable(app,pkg)) {
       env.EXACT_BAKED = bakeOutside(app,platform,target,env,dir => {
         buildCommand('cargo',['build',...args.slice(3)],app,{...env,EXACT_BAKED:dir},'inherit');
-      });
+      },{cargoArgs:[...whole,'--profile',profile],outputs:buildOutputs(app,graph,env)});
     } else delete env.EXACT_BAKED;
-    const recordInputs = pkg.id === graph.root.id ? cargoBakeInputs(pkg,target,profile,env) : () => {};
-    const result=buildCommand('cargo',args,app,env,'inherit');
+    const recordInputs = pkg.id === graph.root.id ? cargoBakeInputs(pkg,target,profile,env,platform === 'windows' ? app : null) : () => {};
+    // Cargo compiles a TypeScript app's linked bake from a content-addressed copy (linked-plan.mjs compiledBakeDir), so an identity, grants or Canvas roster change leaves its archive fresh; a Rust data crate's bake registers its build script in its own directory and keeps it.
+    const shared = archive && env.EXACT_BAKED && !existsSync(resolve(app.dir,'data/Cargo.toml')) && env.CARGO_TARGET_DIR ? compiledBakeDir(env.EXACT_BAKED, resolve(env.CARGO_TARGET_DIR,'bake-compiled')) : null;
+    const result=buildCommand('cargo',args,at,shared?{...env,EXACT_BAKED:shared}:env,'inherit');
     const output=result.stdout.split('\n').filter(Boolean).map((line)=>JSON.parse(line));messages.push(...output);roots.push({package:pkg.id,name:unit.name});
     recordInputs(output);
-    if (archive && env.EXACT_BAKED) recordRustBake(env);
+    if (archive && env.EXACT_BAKED) recordRustBake(env, buildOutputs(app,graph,env));
+    // Generated host inputs can postdate the build's start; bind their bytes before host compilation.
+    if (apple && app.manifest.game && pkg.id === graph.surface?.id) generatedInputs = inputProducts([
+      graph.root.manifest_path, ...graph.root.targets.map(t => t.src_path),
+      ...['app.json', 'keys.json', 'surfaces.json'].map(file => resolve(app.dir, '.shells', file)),
+      ...generatedInputFiles(app.dir),
+    ], app.dir, buildOutputs(app,graph,env));
     if (gpuPackage(pkg) && platform !== 'web') {
       const product = output.filter(m => m.reason === 'compiler-artifact' && m.package_id === pkg.id)
         .flatMap(m => m.filenames).find(path => /\.(so|dylib|dll)$/.test(path));
       if (!product) throw new Error(`GPU product missing for ${pkg.name}`);
       // A host may prepare (sign) a copy; that copy is the product from here on.
       // Cargo's messages keep Cargo's file: its rustc dep-info is found beside it.
-      const prepared = options.prepareGpu?.(product) ?? product;
+      const prepared = options.prepareGpu?.(product, privacyManifests[0]) ?? product;
       if (prepared !== product) preparedProducts.set(product, prepared);
-      // Each module's signed digest is bound beside the primary's.
+      // Each module's signed digest is bound beside the primary's (LLP 1009 D6).
       const module = gpuModules(app.manifest).find(({name}) => app.crate(`gpu-${name}`) === pkg.name);
       if (module) { moduleProducts[module.name] = prepared; env.EXACT_GPU_MODULES = JSON.stringify(moduleProducts); }
       else if (!options.part || bindGpuProduct(options.profile, env.EXACT_UPDATE_TRUST)) env.EXACT_GPU_PRODUCT = prepared;
     }
+    // The web's bake binds no GPU digest but reads each wasm product's surface arguments (expo/exact#176).
+    if (gpuPackage(pkg) && platform === 'web') env.EXACT_GPU_WEB_PRODUCTS = JSON.stringify([...JSON.parse(env.EXACT_GPU_WEB_PRODUCTS ?? '[]'), ...output.filter(m => m.reason === 'compiler-artifact' && m.package_id === pkg.id).flatMap(m => m.filenames).filter(f => f.endsWith('.wasm'))]);
   }
   if (options.part === 'gpu') {
     // The proof completes the independent input/product receipt. There is no
     // host bake output to classify when only the surface graph was selected.
     return {products:messages.filter(m=>m.reason==='compiler-artifact' && bakeSelection(graph,'gpu').some(pkg=>pkg.id===m.package_id)).flatMap(m=>m.filenames).map(f=>preparedProducts.get(f)??f)};
   }
-  const receipt=completeBuild(app,platform,target,graph,messages,roots,env,preparedProducts);
+  const receipt=completeBuild(app,platform,target,graph,messages,roots,env,preparedProducts,generatedInputs,privacyManifests);
   writeFileSync(resolve(env.EXACT_BAKE_OUTPUT,`${platform}-${target}.build.json`),JSON.stringify(receipt)+'\n');
   options.capture?.(receipt);
   return receipt;
   } finally { for (const release of releases.reverse()) release(); }
 }
-
 /** Read completed binary-producing receipts only; absent platforms remain
  * unbuilt rather than acquiring a second, guessed compatibility identity. */
 export function readBuilds(app, env = process.env) {
   const directory=bakeOutput(app,env);if(!existsSync(directory))return [];
   return readdirSync(directory).filter((name)=>name.endsWith('.build.json')).map((name)=>JSON.parse(readFileSync(resolve(directory,name),'utf8'))).filter((r)=>r.version===1&&r.compat?.inputs?.app===app.id);
 }
-
-/** Frozen capabilities and the binary input identity; small enough to bind
- * inside the signed stream envelope. Absolute source paths stay private. */
-export function cohortReceipt(build) {
-  if (build?.version !== 1 || build.graph?.version !== 1 || !build.binary?.sha256) throw new Error('missing completed bake graph and binary receipt');
-  return {version:1,compat:{id:build.compat.id,inputs:build.compat.inputs,target:build.compat.target},sources:build.graph.sources,surfaceCalls:build.graph.surfaceCalls??{},binary:build.binary.sha256};
-}
-
-/** The shared dev/deploy comparison. A new binary and a safe
+/** The shared dev/deploy comparison (LLP 1030 D3). A new binary and a safe
  * bundle are independent results. Compatibility-id equality decides neither. */
 export function classifyArtifacts(candidate, cohort, signingKey = null) {
   const missing=[];
@@ -1370,8 +1367,10 @@ export function classifyArtifacts(candidate, cohort, signingKey = null) {
       for(const [name,arities] of Object.entries(need)) for(const arity of arities) if(!cohort.surfaceCalls?.[name]?.includes(arity)) fail(`.${name}/${arity} (not demanded by the installed plan)`);
     } else if(key==='gpuSurfaces') {
       for(const surface of need) if(!have.gpuSurfaces?.some(s=>canonicalBuild(s)===canonicalBuild(surface))) fail(`.${surface.name} (interface ${surface.interface})`);
-    } else if(key==='executors'||key==='hatches') { for(const item of need) if(!have[key]?.includes(item)) fail(key==='hatches'?`.${item} (handled by this platform's module, not by the installed one)`:`.${item}`); // hatches: a cohort from before the capability handles none
-    } else if(key==='typescriptRuntime') { if(!((have[key]??0)>=need)) fail(` (requires a prelude of runtime ${need} or later; this cohort's is ${have[key]??0})`); /* an older prelude ignores exactBodyFrom */ } else if(key==='grantCeiling') {
+    } else if(key==='appleRasterIcons') {
+      for(const [svg, rendition] of Object.entries(need)) if(canonicalBuild(have[key]?.[svg]??null)!==canonicalBuild(rendition)) fail(`.${svg} (requires the installed SVG rendition)`);
+    } else if(key==='executors'||key==='hatches') { for(const item of need) if(!have[key]?.includes(item)) fail(key==='hatches'?`.${item} (handled by this platform's module, not by the installed one)`:`.${item}`); // hatches: LLP 1075.003.000.001 §4.3, a cohort from before the capability handles none
+    } else if(key==='typescriptRuntime') { if(!((have[key]??0)>=need)) fail(` (requires a prelude of runtime ${need} or later; this cohort's is ${have[key]??0})`); /* LLP 1108 D6 R2: an older prelude ignores exactBodyFrom */ } else if(key==='grantCeiling') {
       const grants=new Set((have.grantCeiling??'').split('\n').filter(Boolean));
       if(need===null||have.grantCeiling===null) fail(' (unknown baked grants)');
       else for(const grant of need.split('\n').filter(Boolean)) if(!grants.has(grant)) fail(` (${grant})`);
@@ -1397,21 +1396,27 @@ export function developmentCandidate(build, plan, assets, surfaces) {
 }
 
 /** Source staleness is provisional until the next actual bake. These paths
- * came from the previous compiler receipt, including absent watched inputs. */
-export function pendingBuildInputs(build) {
+ * came from the previous compiler receipt, including absent watched inputs.
+ * `includeSources` also checks replaceable artifacts for a packaged Windows drive. */
+export function pendingBuildInputs(build, { includeSources = false, launch } = {}) {
   const changed=[];
   try {if(build.binary.assetCatalogApp && canonicalBuild(appleAssetCatalogInventory(build.binary.assetCatalogApp, build.binary.assetCatalogApp.platform)) !== canonicalBuild(build.binary.metadata.appleAssetCatalogs ?? [])) changed.push('Apple asset catalogs');} catch {changed.push('Apple asset catalogs');}
-  try {if(build.binary.nativeResourceApp && canonicalBuild(macResourceInventory(build.binary.nativeResourceApp)) !== canonicalBuild(build.binary.metadata.nativeResources)) changed.push('host.macos.resources');} catch {changed.push('host.macos.resources');}
+  const resources=build.binary.nativeResourceApp, resourceKey=`host.${resources?.platform ?? 'macos'}.resources`; try {if(resources && canonicalBuild(nativeResourceInventory(resources, null, resources.platform)) !== canonicalBuild(build.binary.metadata.nativeResources)) changed.push(resourceKey);} catch {changed.push(resourceKey);}
   for(const file of build.binary.inputs) {
     try {if(!statSync(file.path).isFile()||buildHash(readFileSync(file.path))!==file.sha256)changed.push(file.name);}
     catch {changed.push(file.name);}
   }
-  for(const path of build.binary.missing)if(existsSync(path))changed.push(path);
-  for(const {name} of build.settings?settingChanges(build.settings.env,process.env,build.settings.dir):[])changed.push(`import.meta.env.${name}`); // a setting the module inlined, as its sources give it now
+  for(const path of [...build.binary.missing, ...(build.optionalInputs ?? [])])if(existsSync(path))changed.push(path);
+  for(const {name} of build.settings?settingChanges(build.settings.env,process.env,build.settings.dir,{launch:launch??(['macos','windows'].includes(build.compat?.inputs?.platform)?process.env:null),windows:build.compat?.inputs?.platform==='windows'}):[])changed.push(`import.meta.env.${name}`); // a setting the module inlined, as its sources give it now (LLP 1153 D4); a marked name `launch`, the environment a drive starts the app with, sets is the launch's (LLP 1153.002 D2): unsaid, this one on a Mac or Windows, which a desktop process inherits
+  const output = watchOutput(build.binary.watchOutputs, build.binary.directories.map(({path}) => path));
   for(const {path,names} of build.binary.directories) {
-    try {if(!statSync(path).isDirectory()||canonicalBuild(readdirSync(path).sort())!==canonicalBuild(names))changed.push(path);}
+    try {if(!statSync(path).isDirectory()||canonicalBuild(directoryInputNames(path,output))!==canonicalBuild(names))changed.push(path);}
     catch {changed.push(path);}
   }
+  for (const link of build.binary.links ?? []) {
+    try { if (readlinkSync(link.path) !== link.target) changed.push(link.path); } catch { changed.push(link.path); }
+  }
+  if (includeSources) changed.push(...pendingSourceInputs(build.sourceInputs));
   return changed;
 }
 
@@ -1426,8 +1431,7 @@ export async function withAppFixture(app, use, { warm = false } = {}) {
   if (!warm) return fixtureRun(app, use, realpathSync(mkdtempSync(resolve(tmpdir(), 'exact-diagnostic-'))), null);
   const run = resolve(realpathSync(tmpdir()), `exact-diagnostic-${key}`);
   mkdirSync(run, { recursive: true });
-  // An OS lock a helper process holds: released however this process ends,
-  // never mistaken for a reused process id.
+  // An OS lock a helper process holds: released however this process ends, never mistaken for a reused process id.
   const { filesystemLock } = await import('./filesystem.mjs');
   let entered = false;
   try {
@@ -1443,8 +1447,7 @@ async function fixtureRun(app, use, run, key) {
   let snapshot;
   try {
     snapshot = snapshotOf(app, { dirty: true, ...(warm ? { captureRoot: resolve(realpathSync(tmpdir()), `exact-capture-${key}`) } : {}) }, ROOT);
-    // materializeSnapshot honors the caller's target override. Scope this
-    // synchronous call to the diagnostic's private target, then restore it.
+    // materializeSnapshot honors the caller's target override. Scope this synchronous call to the diagnostic's private target, then restore it.
     const previousTarget = process.env.CARGO_TARGET_DIR;
     let fixture;
     try {
@@ -1454,12 +1457,11 @@ async function fixtureRun(app, use, run, key) {
       if (previousTarget === undefined) delete process.env.CARGO_TARGET_DIR;
       else process.env.CARGO_TARGET_DIR = previousTarget;
     }
-    // Hermes (js/build.rs) is provisioned beside the checkout, in `ibex`; a
-    // capture has none there, so a TypeScript app's bake failed in it. Link
-    // the live checkout's, as that layout expects.
+    // Hermes (js/build.rs) is provisioned beside the checkout, in `ibex`; a capture has none there, so a TypeScript app's bake failed in it. Link the
+    // live checkout's, as that layout expects.
     const ibex = resolve(dirname(ROOT), 'ibex'), besideCapture = resolve(dirname(fixture.exactRoot), 'ibex');
     if (existsSync(ibex) && !existsSync(besideCapture)) symlinkSync(ibex, besideCapture);
-    const env = { ...process.env, EXACT_APP_DIR: fixture.app.dir, EXACT2: fixture.exactRoot,
+    const env = { ...process.env, EXACT_APP_DIR: fixture.app.dir, EXACT: fixture.exactRoot, EXACT2: fixture.exactRoot,
       CARGO_TARGET_DIR: resolve(run, 'target'), EXACT_WEB_DIST: resolve(fixture.exactRoot, 'host/web/dist'),
       EXACT_BAKE_OUTPUT: resolve(run, 'bake'), EXACT_UPDATE_DIR: resolve(run, 'update'),
       EXACT_DIAGNOSTIC_ROOT: fixture.exactRoot, GIT_CEILING_DIRECTORIES: dirname(fixture.sourceRoot),

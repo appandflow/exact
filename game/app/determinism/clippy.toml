@@ -2,7 +2,7 @@
 # lints on every game's logic crate, in-tree and out-of-tree. The generated
 # shells point clippy here (CLIPPY_CONF_DIR in .shells/.cargo/config.toml);
 # `bun game/app/shells.mjs <game> --test`, first pins, --repin and every
-# production-profile bake run it.
+# production-profile bake run it. @ref llp/1046.003-game-engine-as-built.explainer.md#determinism-lints-2026-09-23
 #
 # std's float transcendentals call the host's libm or an LLVM intrinsic, so
 # the same bits differ across arm64, x86-64 and wasm. exact_game::math wraps

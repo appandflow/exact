@@ -2,7 +2,7 @@ import {test, expect} from 'bun:test';
 import {existsSync, mkdtempSync, readFileSync, writeFileSync, rmSync} from 'node:fs';
 import {resolve} from 'node:path';
 
-test('real fast and shipping game proofs refuse profile drift without changing pins', async () => {
+test('R15 real fast and shipping game proofs refuse profile drift without changing pins', async () => {
   const {createGame} = await import('./new.mjs');
   const root = process.env.EXACT_PROFILE_ORACLE_DIR ?? mkdtempSync(resolve(import.meta.dir, '../target/profile-oracle-'));
   const app = resolve(root, 'profile-drift');

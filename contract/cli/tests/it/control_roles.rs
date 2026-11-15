@@ -1,4 +1,4 @@
-//! `tamber-unreachable`: for each target the
+//! @ref LLP 1121 D9 (stage 8 C2) — `forma-unreachable`: for each target the
 //! app ships, each control parameter it sets that the target's host does
 //! not honour there (the schema's control-role table), once a target,
 //! control and parameter, in one line for each override; `best-effort` says
@@ -12,21 +12,21 @@ fn app(name: &str, targets: &str, design: &str, view: &str) -> PathBuf {
     std::fs::create_dir_all(&dir).unwrap();
     std::fs::write(dir.join("app.json"), format!("{{\"app\": {{\"id\": \"dev.test.controls\", \"name\": \"Controls\"}}, \"host\": {{{targets}}}}}")).unwrap();
     std::fs::write(
-        dir.join("app.tamber"),
-        format!("tamber t\n\ntheme\n  // One colour in both schemes.\n{design}"),
+        dir.join("app.forma"),
+        format!("forma t\n\ntheme\n  // One colour in both schemes.\n{design}"),
     )
     .unwrap();
     std::fs::write(dir.join("app.contract"), view).unwrap();
     dir.join("app.contract")
 }
 
-/// The `tamber-unreachable` messages, sorted.
+/// The `forma-unreachable` messages, sorted.
 fn unreachable(path: &std::path::Path) -> Vec<String> {
     let (plan, warnings) = contract::compile_path_all_warned(path, false);
     plan.unwrap_or_else(|e| panic!("{e:?}"));
     let mut out: Vec<String> = warnings
         .iter()
-        .filter(|w| w.id == "tamber-unreachable")
+        .filter(|w| w.id == "forma-unreachable")
         .map(|w| w.message.clone())
         .collect();
     out.sort();
@@ -83,7 +83,7 @@ fn an_accent_on_switches_is_unreachable_on_the_mac_only() {
 #[test]
 fn best_effort_is_silent_and_an_unset_parameter_is_not_judged() {
     // The Mac's checkbox is exact and its disabled prominent button best-effort
-    // (measured in a key window): no word for either.
+    // (measured in a key window, stage 9 F2): no word for either.
     let view = "component App\n  state on = true\n  action check(checked: bool)\n    on = checked\n  action go\n    on = on\n  view\n    column\n      input type=\"checkbox\" checked=on change=check aria-label=\"A\" accent-color=\"accent.brand\"\n      button \"Go\" buttonStyle=\"bordered-prominent\" press=go disabled=true accent-color=\"accent.brand\"\n";
     let path = app(
         "checkbox",
@@ -178,8 +178,8 @@ fn classes_conditions_and_appearance_none() {
     assert_eq!(unreachable(&path), Vec::<String>::new());
 }
 
-/// One declaration that several hosts' controls leave alone is one line:
-/// it names the hosts, each part's controls and
+/// One declaration that several hosts' controls leave alone is one line
+/// (the 2026-10-30 ruling): it names the hosts, each part's controls and
 /// why, the hosts that agree once, and how to stop shipping each.
 #[test]
 fn one_declaration_is_one_line_naming_its_hosts() {
@@ -209,14 +209,17 @@ fn one_declaration_is_one_line_naming_its_hosts() {
     ] {
         assert!(line.contains(part), "{part} in {line}");
     }
-    assert!(line.contains("(the first at line 12)"), "{line}");
+    assert!(
+        line.contains("(the first at line 12; LLP 1121 D9)"),
+        "{line}"
+    );
     assert!(
         line.ends_with("; not shipping one? `bun exact.mjs update --without linux` removes linux; otherwise delete its keys"),
         "{line}"
     );
 }
 
-/// `accent-color="auto"` is the platform's accent, no
+/// Review round 2: `accent-color="auto"` is the platform's accent, no
 /// override; the node's own `buttonStyle` and `appearance` hold over its
 /// class's; a timed `progress start=…` is a bar; a field's text colour
 /// every class it may take gives exempts it, one a branch may clear does not.
@@ -262,7 +265,7 @@ fn auto_precedence_timed_progress_and_sure_rows() {
     );
 }
 
-/// Each branch of a conditional class holds on its own; a
+/// Review round 3: each branch of a conditional class holds on its own; a
 /// node's own row that may clear wins over its class's; a switch that is
 /// native in one branch is judged.
 #[test]
@@ -291,7 +294,7 @@ fn branches_hold_apart() {
     );
 }
 
-/// `role="switch"` is a switch (a conditional
+/// Review round 3 (Grok): `role="switch"` is a switch (a conditional
 /// `type` chooses only between text fields, which compile refuses otherwise); an accent that is `auto` in one branch
 /// and authored in the other is set.
 #[test]
@@ -320,7 +323,7 @@ fn a_branch_is_judged_whole() {
     );
 }
 
-/// An app with twenty warnings of other kinds still hears of an
+/// Stage 8 G: an app with twenty warnings of other kinds still hears of an
 /// unreachable control parameter (it comes after the cap, as one_scheme).
 #[test]
 fn unreachable_survives_the_warning_cap() {
@@ -342,23 +345,23 @@ fn unreachable_survives_the_warning_cap() {
     );
 }
 
-/// The `tamber-contrast` messages of a compile.
+/// The `forma-contrast` messages of a compile.
 fn contrast(path: &std::path::Path) -> Vec<String> {
     let (plan, warnings) = contract::compile_path_all_warned(path, false);
     plan.unwrap_or_else(|e| panic!("{e:?}"));
     warnings
         .iter()
-        .filter(|w| w.id == "tamber-contrast")
+        .filter(|w| w.id == "forma-contrast")
         .map(|w| w.message.clone())
         .collect()
 }
 
-// A filled button keeps UIKit's white label, so a pale
+// @ref LLP 1116.019 D3 — a filled button keeps UIKit's white label, so a pale
 // accent under one is said when the app compiles, whatever screens a drive reaches.
 #[test]
 fn a_pale_accent_under_a_prominent_button_is_said_once() {
     let view = "component App\n  state n = 0\n  action go\n    n = n + 1\n  view\n    column\n      button \"Save\" buttonStyle=\"bordered-prominent\" press=go\n      button \"Again\" buttonStyle=\"filled\" press=go\n";
-    // A mood journal's accent: a deep teal in light, a pale one in dark.
+    // Round 28's mood journal: a deep teal in light, a pale one in dark.
     let pale = "  AccentColor = light-dark(#3c7467, #a8cac4)\n";
     let said = contrast(&app("accent-pale", "\"ios\": {}", pale, view));
     assert_eq!(said.len(), 1, "{said:?}");

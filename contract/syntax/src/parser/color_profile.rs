@@ -1,5 +1,5 @@
 //! `color-profile --name src="…" rendering-intent="…"`: CSS Color 5's
-//! `@color-profile` on one line.
+//! `@color-profile` on one line (LLP 1100 D3).
 
 use super::*;
 

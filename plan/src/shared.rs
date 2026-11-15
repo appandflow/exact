@@ -105,7 +105,8 @@ impl PartialEq<str> for Str {
 }
 
 /// Text longer than [`InlineStr::CAP`] bytes inside a [`Value`]: opaque
-/// outside this crate, so text is read only through [`Value::as_str`].
+/// outside this crate, so text is read only through [`Value::as_str`]
+/// (Charlie, 2026-09-28; LLP 1017.003 §"The value's text").
 #[derive(Clone, PartialEq, Eq, Hash)]
 pub struct HeapStr(pub(crate) Str);
 

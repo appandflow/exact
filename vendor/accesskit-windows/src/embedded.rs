@@ -1,5 +1,5 @@
 // Copyright 2026 Exact contributors. Apache-2.0 OR MIT.
-// A tree containing a native UIA text fragment embedded under an AccessKit node.
+// @ref LLP 1115.004 D7.1.2: one tree containing a native text fragment.
 use crate::{context::Context, node::runtime_id_from_node_id, util::safe_array_from_i32_slice};
 use accesskit::{NodeId, TreeId};
 use accesskit_consumer::FullNodeId;

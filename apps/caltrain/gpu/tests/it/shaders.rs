@@ -1,6 +1,6 @@
 //! The shaders as the build reflected them (`build.rs`, `exact-gpu-reflect`):
 //! the Rust the surfaces compile against says what the WGSL says — and,
-//! since the text travels as an asset, the interface digest
+//! since the text travels as an asset (LLP 1030 D8), the interface digest
 //! tells a color edit from a bindings edit, and the registry refuses the
 //! latter by name.
 

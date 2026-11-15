@@ -1,5 +1,5 @@
-//! Declared fonts and Canvas 2D surface arguments in
-//! the JS target.
+//! Declared fonts (LLP 1019) and Canvas 2D surface arguments (LLP 1056) in
+//! the JS target (LLP 1071 §7).
 //!
 //! Fonts are the stylesheet's, not the runtime's: each declared face is an
 //! `@font-face` rule under the family name the web host's CSS uses
@@ -15,8 +15,8 @@ use exact_plan::{Opcode, Plan};
 use exact_runner::vm::instructions;
 
 /// The faces' `@font-face` rules, the preload links for the head, and the
-/// declared-name → CSS-family map canvas text uses (`exact.fontAliases`),
-/// as a JavaScript object literal; empty when none.
+/// declared-name → CSS-family map canvas text uses (`exact.fontAliases`,
+/// LLP 1056 D8), as a JavaScript object literal; empty when none.
 pub struct Fonts {
     pub css: String,
     pub preloads: String,

@@ -1,5 +1,5 @@
 //! Video Player has no data: every screen is authored in `app.contract`, so the
-//! source answers nothing and the first frame needs no query.
+//! source answers nothing and the first frame needs no query (LLP 1004 D4).
 
 #![deny(missing_docs)]
 

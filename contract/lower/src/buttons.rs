@@ -1,4 +1,4 @@
-//! Buttons native by default, with one static admission rule.
+//! Buttons native by default, with one static admission rule (LLP 1104 D1, D2).
 //! Reuse the explicit native check; a default refusal becomes a bare box.
 
 use crate::{err, tags::AttrTarget, ButtonSite, LowerError, Lowerer};
@@ -41,8 +41,8 @@ fn layout(id: StyleId) -> bool {
     )
 }
 
-/// The control's tint, which the platform applies to its own button
-/// (`tintColor`), so it preserves no authored appearance.
+/// The control's tint, which the platform applies to its own button (LLP 1104
+/// D3's table: `tintColor`), so it preserves no authored appearance.
 fn tint(id: StyleId) -> bool {
     id == StyleId::AccentColor
 }
@@ -150,6 +150,8 @@ impl Lowerer<'_> {
     fn styled_button_face(&self, nodes: &[Node]) -> Result<bool, LowerError> {
         for node in nodes {
             let styled = match node {
+                // A tab's badge is the author's own box, drawn as written.
+                node if crate::controls::is_badge(node) => false,
                 Node::Element { attrs, .. } => {
                     let class = self
                         .class_rows(attrs)?
@@ -183,11 +185,11 @@ fn literal<'a>(attrs: &'a [Attr], name: &str) -> Option<&'a str> {
 
 impl Lowerer<'_> {
     /// The `appearance: none` a `role="radiogroup"` takes when one of its
-    /// radios paints itself, decided here once, as a button's is decided:
-    /// a radio whose class or own rows write a background, border
+    /// radios paints itself, decided here once, as LLP 1104 D2 decides a
+    /// button: a radio whose class or own rows write a background, border
     /// or radius on any arm (CSS UI 4 §7.2.1's disabling rows) makes the
     /// group the author's drawn control on every host, never the
-    /// platform's segmented one (what the author writes wins).
+    /// platform's segmented one (LLP 1115: what the author writes wins).
     /// None when the group says its own `appearance` or no radio paints.
     pub(crate) fn painted_radio_group(
         &self,
@@ -228,14 +230,11 @@ impl Lowerer<'_> {
                         .chain(attrs)
                         .any(|a| rows(a).into_iter().any(crate::fields::disables))
                 }
-                Node::When {
-                    then, otherwise, ..
-                } => self.paints_a_radio(then)? || self.paints_a_radio(otherwise)?,
-                Node::Each { body, .. } => self.paints_a_radio(body)?,
-                Node::Match { some, none, .. } => {
-                    self.paints_a_radio(&some.1)? || self.paints_a_radio(none)?
+                Node::Element { .. } | Node::Use { .. } | Node::Children { .. } => false,
+                node => {
+                    let [first, second] = node.child_lists();
+                    self.paints_a_radio(first)? || self.paints_a_radio(second)?
                 }
-                _ => false,
             };
             if paints {
                 return Ok(true);
@@ -245,7 +244,7 @@ impl Lowerer<'_> {
     }
 }
 
-/// Why a default button is bare: the edit that fixes it
+/// Why a default button is bare (LLP 1116.014 D1): the edit that fixes it
 /// depends on which.
 enum Bare {
     /// The face or an attribute on it: a native button's own.
@@ -267,7 +266,7 @@ fn button_style_edit(kind: &Bare, reason: &str) -> String {
         "for a custom face, remove `buttonStyle` (or write `appearance=\"none\"` without it)";
     match kind {
         // The reason leads: for the face it names the edit that keeps what
-        // the attribute was for.
+        // the attribute was for (LLP 1116.018).
         Bare::Face => format!(
             "{reason}. A native button's face is `text`s and a symbol `image`, the symbol sized by `font-size` on the `image` (`font-size=\"-exact-title3\"`); {custom}"
         ),

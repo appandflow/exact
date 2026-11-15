@@ -1,4 +1,4 @@
-// What an app
+// @ref LLP 1115.000 §5 (ruling 6, 2026-10-12) and LLP 1045 D5: what an app
 // hears of a field or a text area while an input method composes in it
 // (Japanese kana before its kanji, pinyin, a Korean syllable), and what the
 // app's value does to a composition. The same on macOS and iOS.
@@ -31,9 +31,9 @@ import Foundation
 extension NodeView {
     /// The editor's text is now `value`, marked text and all. The app is
     /// told when that is not the text it knows: what it was last told
-    /// (`toldText`), or the value it last set.
+    /// (`toldText`), or the value it last set, compared as UTF-16 units.
     func typedText(_ value: String) {
-        if value == toldText ?? props["value"] ?? "" { return }
+        if value.utf16.elementsEqual((toldText ?? props["value"] ?? "").utf16) { return }
         toldText = value
         presenter?.typed(id, value, input: handlers.contains("input"))
     }

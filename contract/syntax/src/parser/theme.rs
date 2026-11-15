@@ -1,5 +1,5 @@
-//! `theme`: the app's own colours, one `name="colour"` line an entry.
-//! The values are checked where they lower.
+//! `theme`: the app's own colours, one `name="colour"` line an entry
+//! (LLP 1095 D4). The values are checked where they lower.
 
 use super::*;
 

@@ -95,7 +95,7 @@ fn main() {
         flow_metrics(22);
         return;
     }
-    // A native tool that boots the whole plan links every capability.
+    // A native tool that boots the whole plan links every capability (LLP 1047 D7).
     exact_web::link(exact_web_capabilities::ALL);
     if let Some(index) = std::env::args().position(|arg| arg == "--collection-memory") {
         let count: usize = std::env::args()
@@ -194,7 +194,7 @@ fn main() {
         samples.push(ms);
     }
     let update_ms = p50(samples);
-    // An inherited row changed on the root: the kernel
+    // An inherited row changed on the root (LLP 1035.000 D2): the kernel
     // re-derives the computed value down the tree, stopping under any node
     // that sets its own — the invalidation's whole cost, and how far it
     // reached, alternating two inks so every change is a change.
@@ -206,15 +206,11 @@ fn main() {
         for i in 0..20 {
             let mut mask = StyleMask::default();
             mask.set(StyleId::TextColor);
-            let patch = StyleProps {
-                text_color: ColorValue::Fixed(Color(if i % 2 == 0 {
-                    0x112233ff
-                } else {
-                    0x445566ff
-                })),
-                mask,
-                ..StyleProps::default()
-            };
+            let patch = StyleProps::default().with_rows(|rows| {
+                rows.text_color =
+                    ColorValue::Fixed(Color(if i % 2 == 0 { 0x112233ff } else { 0x445566ff }));
+                rows.mask = mask;
+            });
             let op = Op::SetStyle {
                 id: root,
                 patch: Box::new(patch),
@@ -259,7 +255,7 @@ fn main() {
     );
 }
 
-// Baseline first; these are runner measurements, not
+// @ref LLP 1010 §6 — baseline first; these are runner measurements, not
 // browser/phone frames. One invocation owns one size and one runner.
 fn list_memory(count: usize, hold: bool, virtualized: bool) {
     use std::io::Write;
@@ -550,7 +546,7 @@ component App
     println!("{{\"scaling\":[{}],\"scaling_note\":\"release; four warmup updates, 40 measured; runner includes settlement/evaluation/kernel apply; web timings include runner and serialization, not browser; layout uses monospace, no physical device or allocation measurement\"}}", results.join(","));
 }
 
-// Paired current-binary eager/virtualized controls. Geometry is
+// @ref LLP 1010 §6: paired current-binary eager/virtualized controls. Geometry is
 // measured by the real kernel; there is no browser/native presenter in this run.
 const COLLECTION_HEIGHT: f64 = 800.0;
 const COLLECTION_WIDTH: f64 = 390.0;
@@ -1046,7 +1042,7 @@ component Item
     MEASURE_HEAP.store(false, Relaxed);
 }
 
-// Forced serial propagation: one extra layout per paragraph.
+// LLP 1043.000 §8: force serial propagation, one extra layout per paragraph.
 // A 400px-wide paragraph is 192px tall without exclusions. Full-width 192px
 // bars alternate with 192px gaps, so every settled paragraph doubles in height.
 const FLOW_PROSE: &str = "There is an hour when the garden belongs to neither day nor night. \

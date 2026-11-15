@@ -13,9 +13,9 @@ either screen. Escape clears/closes search or returns from Backups. New note
 clears the search and focuses the title; selecting a saved note focuses its body.
 Drafts remain protected: New note stays disabled until saved or discarded.
 Share… hands the note's title and text to the system share sheet; it shows
-only where the host has one (`exactPage().canShare`). Share
+only where the host has one (`exactPage().canShare`, LLP 1069.003). Share
 backup file… hands the saved backup to the sheet as a file where the host
-takes files (`canShareFiles`).
+takes files (`canShareFiles`, LLP 1125 D12).
 
 ```sh
 bun host/web/dev.mjs --app fieldnotes
@@ -26,14 +26,14 @@ bun host/apple/build.mjs fieldnotes-apple --ios --run
 Save a draft before opening another note, or discard the changes. Backups → Save
 backup writes a separate file on this device. Export backup file… copies that
 file wherever you choose (a save panel on macOS, the Files exporter on iOS,
-the browser's save picker or a download on the web), and
-Import backup file… reads one back. Copying the displayed text
+the browser's save picker or a download on the web; LLP 1069.010 D3), and
+Import backup file… reads one back (LLP 1069.002). Copying the displayed text
 somewhere safe also keeps an independent copy. Restore accepts pasted backup text or, when
 empty, uses the saved file; it validates the complete backup before replacing
 notes in a transaction.
 
-`app.contract` owns the UI. Its editing session is one `Session` record:
-opening a note, New note, restore and delete each start the
+`app.contract` owns the UI. Its editing session is one `Session` record (LLP
+1035.005.000 D3): opening a note, New note, restore and delete each start the
 next one through `nextSession`, which names every field, so a pending delete
 question never outlives its note. `app.ts` owns notes, search and restore; `data/`
 implements `backupNotes` in Rust behind the same data-source interface. Both use
@@ -69,8 +69,8 @@ check is repeated for each opened file so deleting or replacing the database doe
 not leave a cached initialization flag behind. Actual writes still export the
 whole database on the browser; this does not change that persistence backend.
 
-`app.json` places the TypeScript module on a worker
-(`"typescript": { "placement": "worker" }`); the Rust half stays on `main`. Both
+`app.json` places the TypeScript module on a worker (LLP 1027.002:
+`"typescript": { "placement": "worker" }`); the Rust half stays on `main`. Both
 keep `fieldnotes.revision`, so the composer orders every call of either half
 into one queue, each turn running against the store as committed and its writes
 landing through the runner. On native the module has an owner thread of its

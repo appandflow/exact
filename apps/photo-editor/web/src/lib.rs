@@ -1,5 +1,5 @@
 //! The photo editor on the web: its TypeScript runs in the page's realm, and
-//! the page module is `<photo-editor>`.
+//! the page module is `<photo-editor>` (LLP 1067.000).
 
 include!(concat!(env!("OUT_DIR"), "/module.rs"));
 const PLAN: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/app.plan"));

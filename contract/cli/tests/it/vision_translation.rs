@@ -1,9 +1,10 @@
-//! Vision and translation admission in the runner, through this checkout's
-//! `@exact/barcode-detection`, `@exact/text-detection` and `@exact/translation`
-//! installed beside the app, each implementation played by the test as the
-//! host's native slot under the agent: a create is the app's foreground act, a
-//! still's path is admitted against the grants before dispatch, the targets a
-//! name does not exist on, and the agent-only words of translation's script.
+//! Vision and translation admission in the runner (LLP 1133.027 D4, D16,
+//! §9), through this checkout's `@exact/barcode-detection`,
+//! `@exact/text-detection` and `@exact/translation` installed beside the
+//! app, each implementation played by the test as the host's native slot
+//! under the agent: a create is the app's foreground act, a still's path is
+//! admitted against the grants before dispatch, the targets a name does not
+//! exist on, and the agent-only words of translation's script.
 
 use exact_runner::{CallOrigin, Dispatch, Outcome, Reply, Response, Runner, Work};
 use serde_json::{json, Value as Json};
@@ -171,7 +172,8 @@ fn logs(r: &Runner<Grants>) -> String {
 }
 
 /// A create is the app's act: a tool's or a wake's fails `person-required`
-/// before the implementation is asked, and a person's reaches it.
+/// before the implementation is asked, and a person's reaches it (D16,
+/// drive 4).
 #[test]
 fn a_create_is_the_apps_act() {
     for origin in [CallOrigin::Tool, CallOrigin::Wake] {
@@ -194,7 +196,7 @@ fn a_create_is_the_apps_act() {
 }
 
 /// A translate carries its origin to the implementation, which refuses an
-/// unattended one where the platform would show UI: the runner admits
+/// unattended one where the platform would show UI (D8): the runner admits
 /// it.
 #[test]
 fn a_tools_translate_reaches_the_implementation_with_its_origin() {
@@ -209,7 +211,7 @@ fn a_tools_translate_reaches_the_implementation_with_its_origin() {
 
 /// A still's path is admitted against `fs.read` before dispatch: one the
 /// grants cover reaches the implementation, one outside them fails
-/// `NotAllowedError` with no call.
+/// `NotAllowedError` with no call (D4).
 #[test]
 fn a_stills_path_is_admitted_against_the_grants() {
     let (_app, mut r, calls) = boot("paths", "macos");
@@ -235,7 +237,7 @@ fn a_stills_path_is_admitted_against_the_grants() {
 
 /// Text detection is not a web, Linux or Windows name: there it fails
 /// `NotSupportedError` under the agent too, never reaching an
-/// implementation.
+/// implementation (D18).
 #[test]
 fn text_detection_is_absent_where_d18_says() {
     for target in ["web", "linux", "windows"] {
@@ -256,7 +258,7 @@ fn text_detection_is_absent_where_d18_says() {
     }
 }
 
-/// A live scan has no origin rule: a tool's read reaches the
+/// A live scan has no origin rule (D5): a tool's read reaches the
 /// implementation, which opens nothing, since only a consumer does.
 #[test]
 fn a_scan_read_by_a_tool_is_admitted() {
@@ -273,7 +275,7 @@ fn a_scan_read_by_a_tool_is_admitted() {
     );
 }
 
-/// The script's words are the interface's agent-only sources: typed by
+/// The script's words are the interface's agent-only sources (§9): typed by
 /// their declaration, a wrong shape refused by name.
 #[test]
 fn the_scripts_words_are_typed() {

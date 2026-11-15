@@ -1,4 +1,4 @@
-// @exact/local-auth on the web: the fixture
+// @exact/local-auth on the web (LLP 1133.010 D15, §9 drive 9): the fixture
 // app made with `exact new` outside the repo, depending on this package by
 // `file:`, built for the web and driven in each engine with no agent. The
 // web's cell is `later`: the status says nothing can be checked or kept

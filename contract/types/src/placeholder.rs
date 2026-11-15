@@ -1,5 +1,5 @@
 //! A resource's placeholder when nothing is kept and its source has not
-//! answered: its type's zero, or `else empty(field=value,
+//! answered (LLP 1054.000.002): its type's zero, or `else empty(field=value,
 //! …)`, the zero with named fields replaced by constants. One pure function
 //! checks it and builds it; the type check reports its refusals and lowering
 //! stores the value it builds.

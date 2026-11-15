@@ -86,7 +86,7 @@ impl<D: DataSource> Host<D> {
     }
 
     /// Release at the velocity the engine measured over the hold's values, for
-    /// input the platform gives no velocity.
+    /// input the platform gives no velocity (LLP 1057.001 §3).
     pub fn hold_end_measured(&mut self, handle: u64, now_ms: f64) -> String {
         let velocity = self
             .holds

@@ -1,4 +1,4 @@
-//! A popover's geometry in its block, the viewport: sized
+//! A popover's geometry in its block, the viewport (stage 14 B): sized
 //! against the viewport, not its narrow positioned ancestor, and read where
 //! its host shows it.
 use super::*;

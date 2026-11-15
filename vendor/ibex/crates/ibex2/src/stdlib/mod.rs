@@ -2,7 +2,7 @@
 //!
 //! Algorithms and host operations shared by Rust callers and the bindings.
 //! Platform transport and entropy stay below the Rust semantics; capabilities
-//! are admitted at the boundary.
+//! are admitted at the boundary (LLP 0059.000).
 
 pub mod base64;
 pub mod console;
@@ -14,11 +14,20 @@ pub mod fetch_async;
 pub mod fs;
 pub mod fs_image;
 pub(crate) mod fs_more;
-#[cfg(all(feature = "intl", any(target_os = "linux", windows)))]
+#[cfg(all(
+    feature = "intl",
+    any(target_os = "linux", ibex2_android_intl, windows)
+))]
 pub(crate) mod intl;
-#[cfg(all(feature = "intl", any(target_os = "linux", windows)))]
+#[cfg(all(
+    feature = "intl",
+    any(target_os = "linux", ibex2_android_intl, windows)
+))]
 pub(crate) mod intl_case;
-#[cfg(all(feature = "intl", any(target_os = "linux", windows)))]
+#[cfg(all(
+    feature = "intl",
+    any(target_os = "linux", ibex2_android_intl, windows)
+))]
 pub(crate) mod intl_datetime;
 #[cfg(all(feature = "intl", windows))]
 pub(crate) mod intl_os;

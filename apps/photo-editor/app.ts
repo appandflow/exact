@@ -1,10 +1,10 @@
-// The photo editor's data. An edit is saved to Photos as
+// The photo editor's data (LLP 1133.019 §11). An edit is saved to Photos as
 // a new photo: the photo transformed by the edit into app:/tmp/edits/, then
 // added to the library. The recent photos are the library's newest, read
 // only once the person asks to see them or the read is granted, since the
-// first read while `prompt` asks.
+// first read while `prompt` asks (D7).
 //
-// A print of the photo is paid with the device's wallet.
+// A print of the photo is paid with the device's wallet (LLP 1133.034 §10).
 // The print lab (`fixture/prints.ts`) makes each checkout with its price
 // fixed; the wallet's sheet calls `tools` while it is up: Safari's merchant
 // validation, a shipping quote for the sheet's redacted address, and the
@@ -68,7 +68,7 @@ const post = async (path: string, body: unknown) => {
   return { status: res.status, ok: res.ok, json: await res.json().catch(() => ({})) };
 };
 
-// The sheet's handlers, each given what the sheet's event gives.
+// The sheet's handlers (LLP 1133.034 D5), each given what the sheet's event gives.
 export const tools = {
   async validateMerchant(e: { validationURL: string }) {
     const { json } = await post('/apple-pay/session', { url: e.validationURL, domain: 'localhost' });

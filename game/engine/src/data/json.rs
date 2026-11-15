@@ -101,7 +101,7 @@ impl Encoder {
 impl Writer for Encoder {
     /// A bulk of [`INLINE_BULK`] elements or fewer is its numbers, the form
     /// the decoder reads back; a longer one is a summary that says it is one
-    /// (`summary`), so a reader cannot take it for missing data.
+    /// (`summary`), so a reader cannot take it for missing data (LLP 1143 D4).
     fn bytes(&mut self, value: super::Bulk<'_>) {
         use super::Bulk;
         // A non-finite float is no JSON number: such a bulk is summarized, as a long one is.

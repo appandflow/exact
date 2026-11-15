@@ -1,4 +1,4 @@
-// @exact/search-index on Apple: a thin layer over the
+// @exact/search-index on Apple (LLP 1133.023 D4, D14): a thin layer over the
 // host's mirror, `context.contentIndex`, which keeps the entries in the
 // app's container and tells Core Spotlight's named index the difference
 // (ExactKit's ContentIndex.swift). The host, not this module, answers the

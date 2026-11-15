@@ -1,8 +1,10 @@
-//! `contract vocab` lists what the compiler admits, from its own lookups, and
-//! refuses a name as the compiler would.
+//! LLP 1086 D3: `contract vocab` lists what the compiler admits, from its
+//! own lookups, and refuses a name as the compiler would.
 
 use serde_json::Value;
 use std::process::{Command, Output};
+
+mod entries;
 
 fn vocab(args: &[&str]) -> Output {
     Command::new(env!("CARGO_BIN_EXE_contract"))
@@ -15,6 +17,64 @@ fn vocab(args: &[&str]) -> Output {
 fn stdout(output: &Output) -> String {
     assert!(output.status.success(), "{output:?}");
     String::from_utf8(output.stdout.clone()).unwrap()
+}
+
+#[test]
+fn a_closed_output_pipe_ends_quietly() {
+    for args in [
+        &["--help"][..],
+        &["vocab"],
+        &["vocab", "--all"],
+        &["vocab", "--json"],
+        &["symbols", "apps/shelf/app.contract"],
+    ] {
+        let (reader, writer) = std::io::pipe().unwrap();
+        drop(reader);
+        let output = Command::new(env!("CARGO_BIN_EXE_contract"))
+            .current_dir(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../.."))
+            .args(args)
+            .stdout(writer)
+            .output()
+            .unwrap();
+        assert!(output.stderr.is_empty(), "{args:?}: {output:?}");
+        assert!(output.status.success(), "{args:?}: {output:?}");
+    }
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn other_output_errors_still_fail() {
+    let output = Command::new(env!("CARGO_BIN_EXE_contract"))
+        .args(["vocab", "--json"])
+        .stdout(
+            std::fs::File::options()
+                .write(true)
+                .open("/dev/full")
+                .unwrap(),
+        )
+        .output()
+        .unwrap();
+    let error = String::from_utf8(output.stderr).unwrap();
+    assert_eq!(output.status.code(), Some(1), "{error}");
+    assert!(error.starts_with("contract: stdout:"), "{error}");
+}
+
+#[test]
+fn time_names_numeric_instant_sources() {
+    let out = stdout(&vocab(&["time"]));
+    let json: Value = serde_json::from_str(&stdout(&vocab(&["--json", "time"]))).unwrap();
+    for note in [out.as_str(), json["tag"]["note"].as_str().unwrap()] {
+        assert!(!note.contains("date("), "{note}");
+        for expected in ["epoch milliseconds", "data module", "exactTime()"] {
+            assert!(note.contains(expected), "{note}");
+        }
+        for repair in [
+            "datetime=event.at",
+            "datetime=(wall.epochAtZero + performanceNow())",
+        ] {
+            assert!(note.contains(repair), "{note}");
+        }
+    }
 }
 
 /// An event record an arity refusal names (`ScrollEvent`) and a grammar word
@@ -79,9 +139,37 @@ fn a_handler_leads_with_the_action_it_calls() {
     assert!(!out.contains("`selectionchange=act` calls"), "{out}");
 }
 
-/// A colour property's entry lists the roles it takes, so a builder need not
-/// guess one: Exact's, written `-exact-<role>`, and CSS's system colours by
-/// name; a property that is not a colour lists none.
+/// The same signature as data, for a tool that types a handler without
+/// reading prose: `params`, and `record` when the event has one.
+#[test]
+fn a_handler_names_its_parameters_and_record_as_data() {
+    let all: Value = serde_json::from_str(&stdout(&vocab(&["--json", "--all"]))).unwrap();
+    let handler = |name: &str| {
+        (all["attributes"].as_array().unwrap().iter())
+            .find(|a| a["name"] == name)
+            .unwrap_or_else(|| panic!("no {name}"))
+            .clone()
+    };
+    let press = handler("press");
+    assert_eq!(
+        (&press["params"], &press["record"]),
+        (&serde_json::json!([]), &serde_json::json!("MouseEvent"))
+    );
+    let scroll = handler("scroll");
+    assert_eq!(
+        scroll["params"],
+        serde_json::json!([
+            { "name": "scrollLeft", "type": "number" },
+            { "name": "scrollTop", "type": "number" },
+        ])
+    );
+    // A handler whose parameters depend on its element has neither.
+    let change = handler("change");
+    assert!(change.get("params").is_none() && change.get("calls").is_none());
+}
+
+/// LLP 1116.009 D6: a builder guessed a colour role (tip-splitter), so a colour property's entry lists the roles it takes:
+/// Exact's, written `-exact-<role>`, and CSS's system colours by name; a property that is not a colour lists none.
 #[test]
 fn a_colour_lists_the_roles_it_takes() {
     for name in ["background-color", "color", "border-color", "accent-color"] {
@@ -196,8 +284,8 @@ fn navigation_detent_vocab_names_its_validated_forms() {
     assert!(note.contains("journaled"), "{note}");
 }
 
-/// A name Exact invents starts with a dash, and is still a name
-/// (`vocab -exact-fit`), not a flag; the platforms' spellings point at it.
+/// LLP 1116.001 D1.4: a name Exact invents starts with a dash, and is still
+/// a name (`vocab -exact-fit`), not a flag; the platforms' spellings point at it.
 #[test]
 fn an_exact_name_is_looked_up_and_the_platforms_spellings_name_it() {
     let out = stdout(&vocab(&["-exact-fit"]));
@@ -225,8 +313,8 @@ fn a_handler_and_a_tag_say_what_they_are() {
     assert!(column.contains("flex_direction: column"), "{column}");
 }
 
-/// When a route's `header` becomes the iOS navigation bar is one stated rule,
-/// under the tag.
+/// LLP 1116.003 D2.2: when a route's `header` becomes the iOS navigation
+/// bar is one stated rule, under the tag.
 #[test]
 fn header_states_when_it_is_the_navigation_bar() {
     let header = stdout(&vocab(&["header"]));
@@ -245,8 +333,8 @@ fn header_states_when_it_is_the_navigation_bar() {
             .is_some_and(|n| n.contains("navigation bar")),
         "{doc}"
     );
-    // What a route with no bar of its own gets, and the word that says it has
-    // none, under the tag and under the word.
+    // LLP 1115.000 D5.2: what a route with no bar of its own gets, and the
+    // word that says it has none, under the tag and under the word.
     for part in ["system Back button alone", "`navigationBar=\"none\"`"] {
         assert!(header.contains(part), "{part}: {header}");
     }
@@ -261,9 +349,9 @@ fn header_states_when_it_is_the_navigation_bar() {
     }
 }
 
-/// A button nobody styled is the platform's, and `vocab` says which that is on
-/// each host, under the tag and under the word an author writes to choose
-/// another.
+/// LLP 1115.000 D15, D14.5: a button nobody styled is the platform's, and
+/// `vocab` says which that is on each host, under the tag and under the
+/// word an author writes to choose another.
 #[test]
 fn button_states_the_platforms_default_style_per_host() {
     for name in ["button", "buttonStyle"] {
@@ -300,6 +388,26 @@ fn an_unknown_name_gets_the_compilers_suggestion_and_exit_1() {
     assert!(String::from_utf8(output.stderr)
         .unwrap()
         .contains("`font-size`"));
+}
+
+#[test]
+fn text_path_refusal_names_the_supported_svg_text() {
+    for args in [vec!["textPath"], vec!["textPath", "--json"]] {
+        let output = vocab(&args);
+        assert_eq!(output.status.code(), Some(1), "{output:?}");
+        let refusal = if args.contains(&"--json") {
+            let doc: Value = serde_json::from_slice(&output.stdout).unwrap();
+            doc["refused"].as_str().unwrap().to_owned()
+        } else {
+            String::from_utf8(output.stderr).unwrap()
+        };
+        assert!(refusal.contains("`textPath` (text on a path)"), "{refusal}");
+        assert!(refusal.contains("LLP 1055.000 §4, stage 11"), "{refusal}");
+        assert!(
+            refusal.contains("use `text` with `x` and `y` inside `svg`, with `tspan` for runs"),
+            "{refusal}"
+        );
+    }
 }
 
 #[test]
@@ -420,7 +528,7 @@ fn collection_edges_name_the_required_shape_and_the_plain_feed_alternative() {
     for event in ["reachstart", "reachend"] {
         let output = stdout(&vocab(&[event]));
         assert!(
-            output.contains("only on `list virtualized=true` with one direct `each`"),
+            output.contains("only on `list virtualized=true` with one direct `for`"),
             "{output}"
         );
         assert!(
@@ -463,13 +571,14 @@ fn the_host_commands_are_listed_and_answer_by_name() {
         .any(|c| c == "setScheme"));
 }
 
-/// One function's entry is its roster signature, the grammar's rows for it and
-/// their examples.
+/// LLP 1116.000 D5: one function's entry is its roster signature, the
+/// grammar's rows for it and their examples.
 #[test]
 fn a_function_shows_its_signature_rules_and_example() {
     let out = stdout(&vocab(&["formatNumber"]));
     assert!(out.starts_with("formatNumber: standard function\n  signature: formatNumber(number, \"compact\" | \"decimal\" | \"currency\" | \"percent\"[, \"USD\" | "), "{out}");
-    assert!(out.contains("Intl.NumberFormat(\"en-US\")"), "{out}");
+    assert!(out.contains("Intl.NumberFormat"), "{out}");
+    assert!(out.contains("format locale"), "{out}");
     assert!(
         out.contains("example: `formatNumber(1481.47, \"currency\", \"USD\")` is `\"$1,481.47\"`"),
         "{out}"
@@ -550,7 +659,7 @@ fn the_functions_are_listed_and_in_the_json() {
         "{all}"
     );
     assert!(
-        all.contains("compiler intrinsics:\n  pending, failed, failure, path"),
+        all.contains("compiler intrinsics:\n  pending, current, failed, failure, path"),
         "{all}"
     );
     let doc: Value = serde_json::from_str(&stdout(&vocab(&["--json"]))).unwrap();
@@ -573,7 +682,7 @@ fn the_functions_are_listed_and_in_the_json() {
     assert!(one["function"]["rules"][0]["example"]
         .as_str()
         .unwrap()
-        .contains("Sep 21, 2026"));
+        .contains("`formatDate(\"2026-10-16\", 0, \"medium\")` is `\"Oct 16, 2026\"`"));
 }
 
 /// The grammar's table is the roster's: every standard function has a row
@@ -650,9 +759,9 @@ fn every_function_has_rows_and_every_written_example_holds() {
     assert!(wrong.is_empty(), "{wrong:#?}");
 }
 
-/// Several names are one call, each entry in order, and a value names the
-/// attributes that take it; an unknown name is refused in its place, the others
-/// still printed, and the call exits 1.
+/// LLP 1116.001 D4.3: several names are one call, each entry in order, and a
+/// value names the attributes that take it; an unknown name is refused in its
+/// place, the others still printed, and the call exits 1.
 #[test]
 fn several_names_print_in_order_and_one_unknown_exits_1() {
     let out = stdout(&vocab(&["formatDate", "slice", "tabular-nums"]));
@@ -686,8 +795,8 @@ fn several_names_print_in_order_and_one_unknown_exits_1() {
     assert_eq!(one["valueOf"][0], "text-overflow");
 }
 
-/// A built-in library's part answers too, with its props and what it draws,
-/// read from its source.
+/// LLP 1116.003 D4: a built-in library's part answers too, with its props
+/// and what it draws, read from its source.
 #[test]
 fn a_content_part_says_its_props_and_what_it_draws() {
     let out = stdout(&vocab(&["RoundButton", "DoneMark"]));
@@ -707,8 +816,8 @@ fn a_content_part_says_its_props_and_what_it_draws() {
     assert_eq!(json["part"]["props"][1], "status: string");
 }
 
-/// `contract vocab` with no name is the card, at most 12 KB, with the how-to,
-/// every function, the tags, each part's call, the test steps, the agent's
+/// LLP 1116.010 D1: `contract vocab` with no name is the card, at most 12 KB (LLP 1116.011 D1 added the how-to),
+/// with every function, the tags, each part's call, the test steps, the agent's
 /// operations and the rules builders grepped for; `--all` is the full listing.
 #[test]
 fn no_name_prints_the_card_and_all_prints_every_table() {
@@ -751,8 +860,8 @@ fn no_name_prints_the_card_and_all_prints_every_table() {
     assert!(json["tags"].is_array());
 }
 
-/// `min`, `max` and `step` say a number of either sign is their text on an
-/// `input`, and where the decimal pad's ± key comes from.
+/// LLP 1116.010 D3: `min`, `max` and `step` say a number of either sign is
+/// their text on an `input`, and where the decimal pad's ± key comes from.
 #[test]
 fn min_max_and_step_say_a_negative_number_is_written_bare() {
     for name in ["min", "max", "step"] {
@@ -764,10 +873,10 @@ fn min_max_and_step_say_a_negative_number_is_written_bare() {
     }
 }
 
-/// A part's entry ends with one call as a builder would paste it, written
-/// beside the component (`// Call: …`), and every part's compiles with no
-/// diagnostic: a prop added to a component fails here until its call passes it,
-/// so the call cannot drift from the props.
+/// LLP 1116.010 D3: a part's entry ends with one call as a builder would
+/// paste it, written beside the component (`// Call: …`), and every part's
+/// compiles with no diagnostic: a prop added to a component fails here until
+/// its call passes it, so the call cannot drift from the props.
 #[test]
 fn every_content_part_ends_with_one_working_call() {
     let source = std::fs::read_to_string(concat!(
@@ -851,8 +960,8 @@ fn every_content_part_ends_with_one_working_call() {
     assert!(failures.is_empty(), "{failures:#?}");
 }
 
-/// A concept a builder searches for answers with its whole idiom, several in
-/// one call, after the entries of a tag of the same name.
+/// LLP 1116.004 D5.1: a concept a builder searches for answers with its whole
+/// idiom, several in one call, after the entries of a tag of the same name.
 #[test]
 fn concepts_answer_together_after_the_tags_of_their_name() {
     let out = stdout(&vocab(&["scroll", "plural", "dialog"]));
@@ -887,9 +996,9 @@ fn concepts_answer_together_after_the_tags_of_their_name() {
     );
 }
 
-/// The grammar's own words answer in one lookup, each in under a kilobyte, so a
-/// builder does not grep `contract-grammar.md` for `for` or get a 404 for
-/// `task`.
+/// LLP 1116.007 D1: the grammar's own words answer in one lookup, each in
+/// under a kilobyte, so a builder does not grep `contract-grammar.md` for
+/// `for` or get a 404 for `task`.
 #[test]
 fn the_grammars_words_each_answer_in_under_a_kilobyte() {
     for word in [
@@ -914,9 +1023,24 @@ fn the_grammars_words_each_answer_in_under_a_kilobyte() {
     assert!(stepper.contains("appearance=\"textfield\""), "{stepper}");
 }
 
-/// Each concept's answer holds the repair whole: each concept carries code,
-/// every `contract` block they print compiles with no diagnostic, and no name
-/// answers for two concepts.
+#[test]
+fn titlebar_vocab_explains_routes_that_withhold_their_bars() {
+    let answer = stdout(&vocab(&["titlebar"]));
+    assert!(answer.contains("navigationBar=\"none\""), "{answer}");
+    assert!(
+        answer.contains("single-location") && answer.contains("root header"),
+        "{answer}"
+    );
+    assert!(
+        answer.contains("hides") && answer.contains("history"),
+        "{answer}"
+    );
+    assert!(answer.contains("window-controls-overlay"), "{answer}");
+}
+
+/// Each concept's answer holds the repair whole: the concepts D5.1 names
+/// each carry code, every `contract` block they print compiles with no
+/// diagnostic, and no name answers for two concepts.
 #[test]
 fn every_concepts_code_compiles_and_its_names_are_its_own() {
     let doc: Value = serde_json::from_str(&stdout(&vocab(&["--json"]))).unwrap();
@@ -962,6 +1086,7 @@ fn every_concepts_code_compiles_and_its_names_are_its_own() {
         "menubar",
         "::placeholder",
         "glass",
+        "titlebar",
         "haptics",
         "toast",
         "var",
@@ -1000,8 +1125,8 @@ fn menu_bar_attributes_explain_the_fixed_removal_ids() {
     }
 }
 
-/// `::placeholder` answers with its block, and so does the name an author
-/// guesses for it; the part's declaration is no attribute.
+/// LLP 1104 D3: `::placeholder` answers with its block, and so does the
+/// name an author guesses for it; the part's declaration is no attribute.
 #[test]
 fn placeholder_answers_with_its_block() {
     for name in ["::placeholder", "placeholder-color"] {
@@ -1033,6 +1158,7 @@ fn transform_vocab_names_the_box_refusal_and_individual_properties() {
         for expected in [
             "`transform`",
             "deferred",
+            "LLP 1055.000 D5",
             "`rotate`",
             "translate=\"0px 25px\"",
             "scale=0.8",
@@ -1102,9 +1228,10 @@ fn orientationlock_says_its_words_and_which_lock_holds() {
     }
 }
 
-/// A recipe's name answers with the whole recipe, in its place among the other
-/// names, so a screen's lookups are one call; a recipe two names reach prints
-/// once, and a pattern's name says what it has and how to write it.
+/// LLP 1116.021 D1: a recipe's name answers with the whole recipe, in its
+/// place among the other names, so a screen's lookups are one call; a recipe
+/// two names reach prints once, and a pattern's name says what it has and
+/// how to write it.
 #[test]
 fn a_recipe_name_prints_the_recipe_in_its_place() {
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../../docs");
@@ -1145,10 +1272,10 @@ fn a_recipe_name_prints_the_recipe_in_its_place() {
         .contains("try `contract vocab tabs` (a recipe)"));
 }
 
-/// A missed lookup must not send a builder to the long guides, so a miss names
-/// what it is written as and the recipes, patterns and concepts named like it,
-/// and the grammar's `state` and the segmented control's `segment` answer
-/// outright.
+/// LLP 1116.021, round 20: a builder's missed lookup sent them to the long
+/// guides, so a miss names what it is written as and the recipes, patterns and
+/// concepts named like it, and the grammar's `state` and the segmented
+/// control's `segment` answer outright.
 #[test]
 fn a_miss_points_at_what_it_means() {
     let refused = |name: &str| {
@@ -1179,8 +1306,8 @@ fn a_miss_points_at_what_it_means() {
     }
 }
 
-/// A symbol the compiler refuses points to `contract vocab symbol`, which lists
-/// the roles.
+/// LLP 1116.021 D3: a symbol the compiler refuses points to `contract vocab
+/// symbol`, which lists the roles.
 #[test]
 fn symbol_lists_the_roles() {
     let out = stdout(&vocab(&["symbol"]));
@@ -1214,7 +1341,7 @@ fn symbol_lists_the_roles() {
 
 /// An empty `symbol:` name is no symbol, as an empty `sf/` one is: a
 /// computed source whose caller passes "" under its own `if` builds, and
-/// draws only the other caller's.
+/// draws only the other caller's (LLP 1121 stage 9 H, theme2 02:15).
 #[test]
 fn an_empty_symbol_name_is_no_symbol() {
     struct NoData;
@@ -1262,7 +1389,7 @@ fn an_empty_symbol_name_is_no_symbol() {
     assert_eq!(exact_kernel::apple_symbol_name(""), "");
     assert!(exact_kernel::symbol_path("").is_none());
     // A grouped row led by one is a standard cell with no symbol, as one led
-    // by an empty `sf/` is.
+    // by an empty `sf/` is (Astra's and Grok's round 1).
     let rows = |lead: &str| {
         let src = format!("component App\n  action go\n  view\n    column testId=\"root\" width=402 height=874\n      list appearance=\"auto\" testId=\"list\" flex=1\n        section\n          button press=go\n            image \"{lead}\"\n            text \"Reply\"\n");
         let plan = contract::bake(contract::compile(&src).unwrap(), NoData).unwrap();
@@ -1318,10 +1445,10 @@ fn every_recipe_and_pattern_answers_by_name() {
     }
 }
 
-/// An `iframe`'s `name` is HTML's frame name (the design tool names its live
-/// copies by it), written as the frame's own prop; on the other tags this
-/// checks it is still refused (a native button, which returns earlier, predates
-/// this).
+/// An `iframe`'s `name` is HTML's frame name (the design tool names its
+/// live copies by it, LLP 1122 T7), written as the frame's own prop; on the
+/// other tags this checks it is still refused (a native button, which
+/// returns earlier, predates this).
 #[test]
 fn an_iframe_takes_a_frame_name() {
     let source = "component App\n  view\n    iframe name=\"exact-copy-1\" src=\"https://example.com\" sandbox=\"allow-scripts\"\n";
@@ -1343,4 +1470,20 @@ fn an_iframe_takes_a_frame_name() {
             "{refused}: {error:?}"
         );
     }
+}
+
+/// expo/exact#488: a builder looking up right to left found CSS's
+/// `direction`, not the strings table that sets the page's `lang` and `dir`.
+#[test]
+fn right_to_left_leads_to_the_strings_table() {
+    for name in ["rtl", "dir", "right-to-left"] {
+        let out = stdout(&vocab(&[name]));
+        assert!(out.contains("rtl (a concept)"), "{name}: {out}");
+        assert!(
+            out.contains("\"strings\": { \"base\": \"ur\" }"),
+            "{name}: {out}"
+        );
+    }
+    let out = stdout(&vocab(&["direction"]));
+    assert!(out.contains("`contract vocab rtl`"), "{out}");
 }

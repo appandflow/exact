@@ -1,4 +1,4 @@
-//! The restricted CSS Shapes value vocabulary.
+//! @ref LLP 1043.000 §3 D1 — the restricted CSS Shapes value vocabulary.
 
 use crate::{finite, FlowShape};
 use std::sync::Arc;

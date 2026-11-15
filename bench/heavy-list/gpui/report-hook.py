@@ -1,4 +1,4 @@
-"""Print reproducible hook-comparison tables, and write them to the analysis directory's report.md."""
+"""Print reproducible hook-comparison tables without rewriting historical results."""
 import argparse
 from datetime import timezone
 import json
@@ -45,6 +45,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('series', type=Path)
     parser.add_argument('analysis', type=Path, help='analyze-hook.py output directory')
+    parser.add_argument('--verify', action='store_true')
     args = parser.parse_args()
     aggregate = Path(__file__).with_name('aggregate.mjs')
     baseline = subprocess.check_output(['bun', str(aggregate), str(args.series/'a')], text=True).strip()
@@ -74,7 +75,13 @@ def main():
     blocks = [baseline, comparison, '\n'.join(prediction), '\n'.join(bounds), '\n'.join(bg)]
     report = '\n\n'.join(blocks)+'\n'
     (args.analysis/'report.md').write_text(report)
-    print(report, end='')
+    if args.verify:
+        record = Path(__file__).with_name('RESULTS.md').read_text().split("## G4m, the instrument's share", 1)[1]
+        for block in blocks:
+            assert block in record, f'record differs:\n{block}'
+        print('Hook report reproduced exactly: complete (a) tables, comparison, predictions, bounds and background.')
+    else:
+        print(report, end='')
 
 
 if __name__ == '__main__':

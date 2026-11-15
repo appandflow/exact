@@ -1,5 +1,5 @@
-//! The three forms the compiler accepts, each compiled to the plan of the form
-//! it means, byte for byte.
+//! LLP 1116.017: the three forms the compiler accepts, each compiled to the
+//! plan of the form it means, byte for byte.
 
 fn same(written: &str, means: &str) {
     let a = contract::compile(written).unwrap_or_else(|e| panic!("{e}\n{written}"));
@@ -70,4 +70,16 @@ fn a_footer_that_chooses_its_text_is_one_text() {
         let e = contract::compile(&list(footer)).unwrap_err();
         assert_eq!(e.id, "lower-grouped-list", "{e}");
     }
+}
+
+#[test]
+fn a_footer_that_chooses_its_text_by_a_match_is_one_text() {
+    let list = |footer: &str| {
+        let footer: String = footer.lines().map(|l| format!("        {l}\n")).collect();
+        format!("component App\n  state who: option<string> = some(\"Ada\")\n  view\n    list appearance=\"auto\"\n      section\n        row\n          text \"x\"\n{footer}")
+    };
+    same(
+        &list("footer\n  match who\n    case some(n)\n      text `Signed in as ${n}` testId=\"f\"\n    case none\n      text \"Signed out\" testId=\"f\""),
+        &list("footer\n  text (match who { case some(n) => `Signed in as ${n}`, case none => \"Signed out\" }) testId=\"f\""),
+    );
 }

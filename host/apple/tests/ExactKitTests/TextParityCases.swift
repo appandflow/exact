@@ -7,7 +7,7 @@
 // floors the half-leading in device pixels, so each table names its device
 // scale (`--force-device-scale-factor`): 1, as the web smoke runs Chrome
 // (Chrome 154, 2026-09-26), and 2, a Retina Mac's (Chrome 156, 2026-11-04).
-// The engine rounds at its `lineScale`.
+// The engine rounds at its `lineScale` (LLP 1008 §3).
 import XCTest
 import CoreText
 @testable import ExactKit
@@ -20,7 +20,7 @@ typealias ChromeFallbackCase = (String, CGFloat, CGFloat, CGFloat)
 typealias ChromeExplicitCase = (String, CGFloat, CGFloat, CGFloat)
 /// (text, size, weight, width): a `nowrap` span's width, in 1/64 px layout units.
 /// At 600 Exact draws the platform's semibold where Chrome sets `wght` 600
-/// (a declared deviation): that text is the named
+/// (LLP 1019 §13 D11, a declared deviation): that text is the named
 /// instance's width, within 0.4% of Chrome's.
 let chromeWidths: [(String, CGFloat, Int, CGFloat)] = [
     ("2", 13, 600, 8.125), ("33", 13, 600, 16.875), ("Heavy list", 17, 600, 77.890625),

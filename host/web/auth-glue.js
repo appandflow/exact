@@ -1,4 +1,4 @@
-// `openAuthSession` on the web: a popup to the
+// `openAuthSession` on the web (LLP 1069.006 D4): a popup to the
 // authorization URL, opened inside the press's own call stack, and the
 // app's static callback page (`/.exact/auth/callback`, `auth-callback.js`)
 // returning on two channels — `opener.postMessage` and a same-origin
@@ -10,7 +10,7 @@
 // message, or at the bound. No redirect fallback: a blocked popup is 428.
 // Loaded after first paint when the app grants `auth.session`.
 const GRACE_MS = 3000;           // `closed` true this long, and no message: cancelled
-const BOUND_MS = 10 * 60 * 1000; // no callback within this: cancelled
+const BOUND_MS = 10 * 60 * 1000; // no callback within this: cancelled (D4 item 4)
 const POLL_MS = 250;
 let live = null; // { ticket, popup, done, timers }
 
@@ -29,7 +29,7 @@ function finish(env, report) {
  * (the runner's word, `exact_auth`), `deliver(ticket)` (fulfil what the
  * runner settled), `active(ticket)`, `agent`, `log`. */
 export function arm(op, env) {
-  // A window the provider's button opened at the press waits for this request: navigating a
+  // A window the provider's button opened at the press waits for this request (LLP 1133.014 D5): navigating a
   // window the page holds needs no activation.
   const waiting = globalThis.exact?.authWaiting;
   const adopted = waiting && !waiting.claimed && !waiting.window.closed ? waiting : null;
@@ -38,7 +38,7 @@ export function arm(op, env) {
   const reply = env.call({ op: 'arm', ticket: op.ticket, agent: env.agent, origin: location.origin, popup: activated });
   if (reply.error) { env.log(`auth ${op.ticket}: ${reply.error}`); return; }
   if (reply.settled) { env.deliver(op.ticket); return; }
-  if (!reply.present) return; // held for the agent
+  if (!reply.present) return; // held for the agent (D7)
   // A new session supersedes this window's live one (the runner already let
   // its ticket go, or refused this one with 409).
   if (live) finish(env, null);
@@ -55,6 +55,11 @@ export function arm(op, env) {
   const matches = url => {
     try { const u = new URL(url); return u.origin === want.origin && u.pathname === want.pathname; } catch { return false; }
   };
+  // Every same-origin tab hears the channel: a callback there is this tab's only when its one `state` is this
+  // session's. One from this tab's own popup is, whatever it carries, and the runner checks it.
+  const ours = url => {
+    try { const states = new URL(url).searchParams.getAll('state'); return states.length === 1 && states[0] === reply.present.state; } catch { return false; }
+  };
   const accept = (url, via) => {
     if (!live || !matches(url)) return;
     env.log(`auth ${op.ticket}: a callback arrived (${via})`);
@@ -69,13 +74,13 @@ export function arm(op, env) {
   let channel = null;
   try {
     channel = new BroadcastChannel('exact-auth');
-    channel.onmessage = event => { if (event.data?.type === 'exact-auth') accept(String(event.data.url), 'channel'); };
+    channel.onmessage = event => { if (event.data?.type === 'exact-auth' && ours(String(event.data.url))) accept(String(event.data.url), 'channel'); };
   } catch {}
   addEventListener('message', onMessage);
   let closedSince = null;
   const poll = setInterval(() => {
     if (!live) return;
-    if (!env.active(op.ticket)) { finish(env, null); return; } // superseded or forgotten
+    if (!env.active(op.ticket)) { finish(env, null); return; } // superseded or forgotten (D3)
     let closed = false;
     try { closed = popup.closed; } catch {}
     if (!closed) { closedSince = null; return; }

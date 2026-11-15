@@ -1,5 +1,5 @@
 // @exact/camera's and media-capture's video half's conformance suite on the
-// web: the fixture app
+// web (LLP 1133.001 D7, LLP 1133.008 §10, stage 1): the fixture app
 // (`test/fixture`) made with `exact new` outside the repo, depending on both
 // packages by `file:`, built for the web, and driven in each engine with the
 // web implementations bound, no agent. Each engine's fake camera is the
@@ -7,7 +7,7 @@
 // `--use-fake-device-for-media-stream`, Firefox's `media.navigator.streams.fake`,
 // WebKit's mock capture device. An engine whose `getUserMedia({video})` does
 // not answer on this machine is skipped, named. Firefox has no
-// `ImageCapture`, so its photos are the viewfinder's frame.
+// `ImageCapture`, so its photos are the viewfinder's frame (D10).
 //
 // usage: bun packages/camera/test/web.mjs [chromium] [firefox] [webkit]
 //   (every engine by default; `bunx playwright@1.64.1 install firefox webkit` first)
@@ -45,7 +45,7 @@ const launches = {
 // Firefox's pref grants with no prompt and leaves the Permissions API's state `prompt`.
 const grantedState = { chromium: 'granted', firefox: 'prompt', webkit: 'granted' };
 
-// Counts the page's camera opens and the browser tracks stopped, for the lease checks.
+// Counts the page's camera opens and the browser tracks stopped, for the lease checks (D3).
 const count = () => {
   const gum = MediaDevices.prototype.getUserMedia, stop = MediaStreamTrack.prototype.stop;
   globalThis.__media = { opens: 0, stops: 0 };
@@ -73,7 +73,7 @@ const stored = (page, path) => page.evaluate(async ([prefix, path]) => {
 /** The viewfinder's video: its size and whether it plays a stream. */
 const viewfinder = page => page.evaluate(() => {
   const v = document.querySelector('[data-testid="viewfinder"] video');
-  return v ? { width: v.videoWidth, height: v.videoHeight, stream: !!v.srcObject, transform: v.style.transform } : null;
+  return v ? { width: v.videoWidth, height: v.videoHeight, stream: !!v.srcObject, transform: v.style.transform, fit: v.style.objectFit } : null;
 });
 
 for (const engine of engines) {
@@ -126,6 +126,7 @@ for (const engine of engines) {
     check(engine, "the track's settings are the browser's", /^[1-9]\d*x[1-9]\d*$/.test(size), size);
     const shown = await waitFor(() => viewfinder(page), v => v?.width > 0);
     check(engine, 'the viewfinder plays the track', shown?.width > 0 && shown.stream, JSON.stringify(shown));
+    check(engine, "a written object-fit is the viewfinder's", shown?.fit === 'cover', JSON.stringify(shown));
     const cameras = await until(page, 'cameras', t => Number(t) >= 1);
     check(engine, 'enumerateDevices lists the camera', Number(cameras) >= 1, cameras);
     const caps = await until(page, 'caps', t => Number(t.split(' ')[0]) > 0);
@@ -139,8 +140,19 @@ for (const engine of engines) {
     await tap(page, 'keep');
     const kept = await until(page, 'shot', t => t.startsWith('app:/data/kept.'), 15000);
     check(engine, 'a written path gets its extension', /^app:\/data\/kept\.(jpg|png|webp) /.test(kept), kept);
+    // The camera app is the web's file input with `capture`, opened in the press; the test plays the person's choice.
+    const [chooser] = await Promise.all([page.waitForEvent('filechooser', { timeout: 10000 }), tap(page, 'camera-app')]);
+    const input = await chooser.element().evaluate(el => `${el.accept} capture=${el.getAttribute('capture')}`);
+    check(engine, 'takePhotoWithCameraApp opens a file input asking for an image from the camera', input === 'image/* capture=', input);
+    await chooser.setFiles({ name: 'card.jpg', mimeType: 'image/jpeg', buffer: readFileSync(resolve(pkg, 'fixture/card.jpg')) });
+    const fromApp = await until(page, 'shot', t => /^app:\/tmp\/camera\/2\.jpg /.test(t), 15000);
+    check(engine, 'the chosen photo is written and answered as takePhoto answers one', /^app:\/tmp\/camera\/2\.jpg image\/jpeg true [1-9]\d*x[1-9]\d*$/.test(fromApp), `${fromApp} ${await text(page, 'shot-error')}`);
+    const [none] = await Promise.all([page.waitForEvent('filechooser', { timeout: 10000 }), tap(page, 'camera-app')]);
+    await none.setFiles([]);
+    const cancelled = await until(page, 'shot-error', t => t === 'AbortError');
+    check(engine, 'choosing nothing is AbortError', cancelled === 'AbortError', cancelled);
 
-    // Another camera under the same id: the browser's track replaced, the app's id kept.
+    // Another camera under the same id (D1): the browser's track replaced, the app's id kept.
     // A camera that already faces the person (WebKit's mock) stays as it is.
     let media = await page.evaluate(() => globalThis.__media);
     const facing = await text(page, 'facing'), moves = facing !== 'user';
@@ -152,7 +164,7 @@ for (const engine of engines) {
     const replayed = await waitFor(() => viewfinder(page), v => v?.width > 0);
     check(engine, 'and the viewfinder plays it', replayed?.width > 0, JSON.stringify(replayed));
 
-    // Hidden, the viewfinder lets the camera go: idle, the browser's track stopped; shown, it opens again.
+    // Hidden, the viewfinder lets the camera go: idle, the browser's track stopped; shown, it opens again (D3).
     media = await page.evaluate(() => globalThis.__media);
     const opens = media.opens;
     await tap(page, 'toggle');
@@ -183,7 +195,7 @@ for (const engine of engines) {
     const afterEnd = await until(page, 'shot-error', t => t === 'InvalidStateError');
     check(engine, 'takePhoto on an ended track is InvalidStateError', afterEnd === 'InvalidStateError', afterEnd);
 
-    // Both kinds are one request to the browser.
+    // Both kinds are one request to the browser (D3).
     if (engine !== 'firefox') await context.grantPermissions(['camera', 'microphone'], { origin }).catch(() => {});
     const before = (await page.evaluate(() => globalThis.__media)).opens;
     await tap(page, 'open-both');

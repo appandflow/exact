@@ -30,7 +30,7 @@ impl Game for Fire {
     }
 }
 
-/// A shooter's quick tap: both edges land in one tick. `held` never sees it;
+/// The Rivals case: both edges of a tap land in one tick. `held` never sees it;
 /// `pressed` does, with no trigger declared.
 #[test]
 fn a_same_tick_tap_is_pressed_but_never_held() {
@@ -472,8 +472,8 @@ impl Game for Rest {
     }
 }
 
-/// A pending hold is work `clock settle` waits for, and a world whose hold
-/// started earlier is a different world.
+/// LLP 1128 I2: a pending hold is work `clock settle` waits for, and a world
+/// whose hold started earlier is a different world (I1).
 #[test]
 fn a_pending_hold_keeps_the_world_unsettled_and_is_hashed() {
     let mut sim = started(Sim::<Rest>::new(()).unwrap());
@@ -516,7 +516,7 @@ fn a_pending_hold_keeps_the_world_unsettled_and_is_hashed() {
     assert!((1807..1900).contains(&tick), "settled at {tick}");
 }
 
-/// A rebinding applied next tick is pending world state: two worlds with
+/// A rebinding applied next tick is pending world state (I1): two worlds with
 /// the same keys, the same Bindings and empty queues, one of which rebound
 /// this tick, differ in hash, and a restore releases it as the original does.
 #[test]
@@ -628,4 +628,48 @@ fn the_pad_pushed_furthest_steers() {
     // Pushed equally far, the lower index steers.
     assert_eq!(run(&[(0, 1.), (1, -1.)]), run(&[(0, 1.)]));
     assert_eq!(run(&[(0, -1.), (1, 1.)]), run(&[(0, -1.)]));
+}
+
+/// Reads pad 0 directly from its fourth tick, binding no pad.
+struct PadReader;
+impl Game for PadReader {
+    const ID: &'static str = "input-pad-reader";
+    type Args = ();
+    fn actions() -> Actions {
+        Actions::new().button("fire", &["KeyF"])
+    }
+    fn setup(_: &mut World, _: &()) {}
+    fn tick(w: &mut World, input: &Input, _: &()) {
+        if w.tick() > 3 {
+            let _ = input.pad(0);
+        }
+        for message in input.messages() {
+            w.rebind_text(message.strip_prefix("bind ").unwrap())
+                .unwrap();
+        }
+    }
+}
+
+#[test]
+fn a_world_reads_pads_when_an_action_binds_one_or_it_reads_one() {
+    // A host opens its pad service only for such a world (issue #129).
+    assert!(
+        pads().reads_pads(),
+        "an action binds a pad button and a stick"
+    );
+    assert!(!started(Sim::<Fire>::new(()).unwrap()).reads_pads());
+    let mut sim = started(Sim::<PadReader>::new(()).unwrap());
+    at(&mut sim, 40.);
+    assert!(sim.pad(0).is_none());
+    assert!(
+        !sim.reads_pads(),
+        "the host's and the agent's reads do not count"
+    );
+    at(&mut sim, 100.);
+    assert!(sim.reads_pads(), "a tick read pad 0");
+    let mut sim = started(Sim::<PadReader>::new(()).unwrap());
+    sim.post("bind fire GamepadSouth");
+    // The tick that reads the message rebinds; the next one applies it.
+    at(&mut sim, 50.);
+    assert!(sim.reads_pads(), "a rebinding names a pad button");
 }

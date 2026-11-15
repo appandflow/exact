@@ -1,5 +1,5 @@
-// The geofencing fixture (packages/geofencing's drives 10 to 16): Caltrain's
-// "Next trains when I arrive" waits on its own app work,
+// The geofencing fixture (LLP 1133.021 §13, drives 10 to 16): Caltrain's
+// "Next trains when I arrive" waits on its own app work (§15 question 5),
 // so its drives run here, where an arrival posts a notification
 // (`@exact/notifications`) as its visible effect. A switch watches Palo Alto
 // station; Add a fence, pressed twenty-one times, meets the quota.

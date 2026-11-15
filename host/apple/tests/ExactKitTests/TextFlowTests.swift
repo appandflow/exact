@@ -1,4 +1,4 @@
-// Text flow: source ownership, geometry and retained preparation.
+// @ref LLP 1043.000 §3 D4–D7 — source ownership, geometry and retained preparation.
 import XCTest
 import CoreText
 import CExact
@@ -87,7 +87,7 @@ final class TextFlowTests: XCTestCase {
 
     /// A paragraph's opportunities depend on its text alone, whatever script
     /// the paragraph before it was in; Thai keeps its dictionary words, and
-    /// a URL its solidi (Chrome's tailoring).
+    /// a URL its solidi (Chrome's tailoring, #128).
     func testLineBoundariesDependOnTheTextAlone() {
         let texts = [
             "東京都は日本の首都です。人口は約一千四百万人で、世界有数の大都市です。",
@@ -177,7 +177,7 @@ final class TextFlowTests: XCTestCase {
     }
 
     /// Thai has no spaces between words; CoreFoundation's line-break units are
-    /// the walker's only opportunities inside the run.
+    /// the walker's only opportunities inside the run (LLP 1043 §4 C).
     func testThaiFlowBreaksOnlyAtCoreFoundationWords() {
         let text = "ภาษาไทยไม่มีช่องว่างระหว่างคำจึงต้องใช้พจนานุกรมในการตัดคำ"
         let words = TextFlowSource.complexWords(text)
@@ -217,7 +217,7 @@ final class TextFlowTests: XCTestCase {
     }
 
     func testPreLineFlowsTheLinesItsPlainLayoutHas() {
-        // The collapsed source keeps its line feeds; flowed text
+        // LLP 1053 §0 G5: the collapsed source keeps its line feeds; flowed text
         // breaks where plain text does.
         var input = spec("A    B  \n\n  C")
         _ = SourceMap.collapse(&input.runs, whiteSpace: 3)

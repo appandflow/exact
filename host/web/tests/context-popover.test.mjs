@@ -1,13 +1,14 @@
-// A context menu's popover in each engine: the navigation glue's
+import { hostFixtureFile as readFileSync } from './glue-fixture.mjs';
+// A context menu's popover (LLP 1021 §5.1; LLP 1115.000 D4.7) in each engine: the navigation glue's
 // `contextAt`, which both web runtimes open one through (rt.js `cp`, glue.js `contextpopover`).
 //
 // On a Mac the `contextmenu` event comes with the button still down. A popover shown then is closed by the
 // release that follows in Firefox and WebKit: it is a pointer released outside a popover, their light
 // dismiss. So a right click opened no menu there. The glue opens it once that press is over, and leaves
 // where the press was on the popover for a look's sheet to place it by (the neutral one opens it there,
-// which neutral-look.test.mjs holds). The page's stylesheet is a default build's (look.mjs).
+// which neutral-look.test.mjs holds; LLP 1116 D1's reads neither, and its menu stays where the user agent
+// puts a popover). The page's stylesheet is a default build's (look.mjs).
 import { test, expect } from 'bun:test';
-import { readFileSync } from 'node:fs';
 import { suiteBrowser } from '../../../scripts/agent-launch.mjs';
 import { withLook } from '../look.mjs';
 

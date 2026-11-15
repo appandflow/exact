@@ -1,4 +1,4 @@
-//! Pan is an ordinary typed action, not motion ownership.
+//! @ref LLP 1043.000 §3 D8 — pan is an ordinary typed action, not motion ownership.
 use exact_plan::Value;
 use exact_runner::{DataError, DataSource, Event, Runner};
 struct Empty;
@@ -103,7 +103,7 @@ fn params(src: &str, action: &str) -> Vec<contract_types::Ty> {
 }
 
 /// A child's action calls its parent component's action through an action
-/// prop. That value carries the parent's props as hidden
+/// prop (LLP 1089 D7). That value carries the parent's props as hidden
 /// captures, which `pan=` types from what it binds, as `press=` does.
 const PANEL: &str = r#"component App
   view

@@ -10,8 +10,8 @@ import UIKit
 
 #if os(macOS) || os(iOS)
 /// An iframe's new windows, dialogs, file inputs, downloads, permissions and
-/// other apps' schemes through the web arm's C ABI,
-/// against pages a loopback server in the test serves. A
+/// other apps' schemes through the web arm's C ABI (LLP 1020.002 stage 2,
+/// D5 and §10), against pages a loopback server in the test serves. A
 /// script the test runs with `evaluateJavaScript` carries a person's
 /// gesture, as WebKit runs it.
 final class IframeWindowsTests: XCTestCase {
@@ -137,7 +137,7 @@ final class IframeWindowsTests: XCTestCase {
 
     private func events(_ seen: Seen) -> [String] { seen.records.map(\.event) }
 
-    // MARK: New windows (the popup table)
+    // MARK: New windows (D5's popup table)
 
     func testWindowRequestsFollowThePopupTable() throws {
         let arm = try arm(), seen = Seen()
@@ -257,7 +257,7 @@ final class IframeWindowsTests: XCTestCase {
 
     #if os(macOS)
     /// A `mailto:` link with `target=_blank`: the platform's confirmation,
-    /// never a popup or a `newwindow`.
+    /// never a popup or a `newwindow` (LLP 1020.002 §11, stage 2's case).
     func testAnotherAppsSchemeAsksFirst() throws {
         guard NSWorkspace.shared.urlForApplication(toOpen: URL(string: "mailto:a@b.test")!) != nil else {
             throw XCTSkip("no app opens mailto: on this Mac")
@@ -345,7 +345,7 @@ final class IframeWindowsTests: XCTestCase {
     }
     #endif
 
-    // MARK: Under the agent: requests a drive answers
+    // MARK: Under the agent: requests a drive answers (§10)
 
     func testUnderTheAgentDialogsFilesAndDownloadsAreRequests() throws {
         let arm = try arm(), seen = Seen()
@@ -442,7 +442,7 @@ final class IframeWindowsTests: XCTestCase {
         XCTAssertEqual(answered as? Bool, false)
     }
 
-    // MARK: Permissions
+    // MARK: Permissions (§12 Q8)
 
     /// Each permission the arm's delegate is asked for is denied. WebKit asks
     /// it only in a process that may use the device (a usage string, a
@@ -464,10 +464,14 @@ final class IframeWindowsTests: XCTestCase {
         var decisions: [String: WKPermissionDecision] = [:]
         ui.webView?(web, requestMediaCapturePermissionFor: frame.securityOrigin, initiatedByFrame: frame, type: .camera) { decisions["camera"] = $0 }
         ui.webView?(web, requestMediaCapturePermissionFor: frame.securityOrigin, initiatedByFrame: frame, type: .microphone) { decisions["microphone"] = $0 }
+        // The 27 SDKs (Swift 6.4) declare the geolocation request; an older SDK has no
+        // such delegate method, and `#available` alone would not compile there.
+        #if compiler(>=6.4)
         if #available(macOS 27.0, iOS 27.0, *) {
             ui.webView?(web, requestGeolocationPermissionFor: frame.securityOrigin, initiatedByFrame: frame) { decisions["location"] = $0 }
             XCTAssertEqual(decisions["location"], .deny)
         }
+        #endif
         #if os(iOS)
         ui.webView?(web, requestDeviceOrientationAndMotionPermissionFor: frame.securityOrigin, initiatedByFrame: frame) { decisions["motion"] = $0 }
         XCTAssertEqual(decisions["motion"], .deny)
@@ -488,8 +492,9 @@ final class IframeWindowsTests: XCTestCase {
     }
 
     /// A guest the wrapper's inner frame holds (a sandboxed remote page, and
-    /// on iOS any remote one) is allowed fullscreen, as a top-level guest is;
-    /// without `allow="fullscreen *"` its `fullscreenEnabled` is false.
+    /// on iOS any remote one) is allowed fullscreen, as a top-level guest is
+    /// (LLP 1020.002 D5); without `allow="fullscreen *"` its
+    /// `fullscreenEnabled` is false.
     func testAGuestInTheWrapperIsAllowedFullscreen() throws {
         let arm = try arm()
         for sandbox in ["allow-scripts", "allow-scripts allow-forms allow-popups allow-downloads", nil] {
@@ -506,7 +511,7 @@ final class IframeWindowsTests: XCTestCase {
         }
     }
 
-    // MARK: Abuse and failure cases
+    // MARK: Review round 1
 
     /// A download's destination that is a folder is refused, never replaced:
     /// an agent's typed `/Users/me/Downloads` or `/` must not delete it.
@@ -845,6 +850,26 @@ final class IframeWindowsTests: XCTestCase {
         spin { answered != nil }
         XCTAssertEqual(answered as? Bool, false)
     }
+
+    #if os(iOS)
+    /// A person's download that finishes with the frame in no window has no
+    /// export picker to ask where it goes: it is cancelled, and its file in
+    /// the temporary directory goes.
+    func testADownloadThatFinishesInNoWindowIsCancelled() throws {
+        let arm = try arm(), seen = Seen()
+        let (handle, web) = mount(arm, seen, configuration: ["partition": "no-window"], src: "\(baseURL)/opener")
+        defer { arm.destroy(handle) }
+        loaded(seen, web, "/opener")
+        web.removeFromSuperview()
+        let downloads = FileManager.default.temporaryDirectory.appendingPathComponent("exact-downloads")
+        let before = Set((try? FileManager.default.contentsOfDirectory(atPath: downloads.path)) ?? [])
+        json(["op": "navigate", "url": "\(baseURL)/report"], arm.command, handle)
+        spin { self.events(seen).filter { $0 == "download" }.count >= 2 }
+        XCTAssertEqual(seen.records.map { $0.record["state"] as? String }, ["progressing", "cancelled"], "\(seen.records)")
+        let after = Set((try? FileManager.default.contentsOfDirectory(atPath: downloads.path)) ?? [])
+        XCTAssertEqual(after.subtracting(before), [], "the file in the temporary directory is removed")
+    }
+    #endif
 }
 
 /// Takes the frame a page's message came from.

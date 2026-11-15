@@ -1,4 +1,4 @@
-// A sheet that asks the app while it is up, on the JS
+// A sheet that asks the app while it is up (LLP 1133.034 §9), on the JS
 // target, as the runner's `modules/sheet.rs`: a ceremony whose substitute
 // declares `asks` holds one `payment` ticket; `type @t {"shippingAddress":
 // {…}}` (redacted by the W3C's rule), `{"shippingOption": "<id>"}` and
@@ -47,7 +47,7 @@ export function sheets({ release, retire }) {
   const methodHere = (row, args) => (args?.methodData ?? []).map(m => m?.supportedMethods).find(m => methods(row)[m]?.targets?.includes("web")) ?? null;
   const grants = () => (data.grants ?? "").split("\n").map(l => l.trim().split(/\s+/));
 
-  /** The call's refusal before any sheet, as the runner's `methods_admitted` and value grants. */
+  /** The call's refusal before any sheet (D10, D13, D16 item 4), as the runner's `methods_admitted` and value grants. */
   const admit = (row, args) => {
     const declared = methods(row), refuse = (error, message) => ({ error, message });
     const list = Array.isArray(args?.methodData) ? args.methodData : [];
@@ -56,7 +56,7 @@ export function sheets({ release, retire }) {
       if (value == null) return null;
       if (typeof value !== "object") return refuse("TypeError", `${method}'s ${place} is no object`);
       for (const key of Object.keys(value)) {
-        const code = declared[method]?.refuse?.[key];
+        const refusals = Object.hasOwn(declared, method) ? declared[method].refuse : null, code = refusals && Object.hasOwn(refusals, key) ? refusals[key] : null;
         if (code) return refuse("TypeError", `${code}: \`${key}\` is the bake's, never the app's`);
         if (!(allowed ?? []).includes(key)) return refuse("TypeError", `\`${key}\` is no key of ${method}'s ${place}`);
       }
@@ -64,7 +64,7 @@ export function sheets({ release, retire }) {
     };
     const lines = grants();
     for (const m of list) {
-      const d = declared[m?.supportedMethods];
+      const d = Object.hasOwn(declared, m?.supportedMethods) ? declared[m.supportedMethods] : null;
       if (!d) continue;
       const bad = keys(dataOf(m), d.data, m.supportedMethods, "data");
       if (bad) return bad;
@@ -89,7 +89,7 @@ export function sheets({ release, retire }) {
     const exclusive = new Set();
     for (const modifier of details.modifiers ?? []) {
       if (modifier?.total) amounts.push(["a modifier's total", modifier.total.amount]);
-      const d = declared[modifier?.supportedMethods];
+      const d = Object.hasOwn(declared, modifier?.supportedMethods) ? declared[modifier.supportedMethods] : null;
       if (!d) continue;
       const md = dataOf(modifier), bad = keys(md, d.modifier, modifier.supportedMethods, "modifier");
       if (bad) return bad;
@@ -191,7 +191,7 @@ export function sheets({ release, retire }) {
     end(s, paymentResult(s));
   };
 
-  /** The send's `PaymentResult`: the response without its payment. */
+  /** The send's `PaymentResult`: the response without its payment (D7). */
   const paymentResult = s => {
     const o = s.options ?? {}, last = s.last ?? {}, shipping = o.requestShipping === true;
     const out = { requestId: s.id, methodName: s.method, shippingAddress: shipping ? s.address : null, shippingOption: shipping ? s.option : null,
@@ -210,7 +210,7 @@ export function sheets({ release, retire }) {
     open.delete(s.h);
   };
 
-  /** A synthetic payment in the method's own shape, never a card's. */
+  /** A synthetic payment in the method's own shape, never a card's (§9). */
   const response = s => {
     const n = ++payments, marker = JSON.stringify({ exactSubstitute: true, requestId: s.id, payment: n }), o = s.options ?? {};
     let details;
@@ -284,12 +284,12 @@ export function sheets({ release, retire }) {
     } else {
       [ask, keyword, arg] = ["paymentMethod", "onpaymentmethodchange", { requestId: s.id, methodName: s.method, methodDetails: v.paymentMethod }];
     }
-    // A request whose call ended calls the app no more.
+    // A request whose call ended calls the app no more (D6).
     if (s.phase !== "abandoned") run(s, ask, keyword, arg);
     return done("value");
   };
 
-  /** Contract sends let go: held while authorizing, abandoned while retrying, else closed. */
+  /** Contract sends let go (§9): held while authorizing, abandoned while retrying, else closed. */
   const letGo = () => {
     for (const s of [...open.values()]) {
       if (s.letGo || s.h.kept()) continue;
@@ -300,7 +300,7 @@ export function sheets({ release, retire }) {
     }
   };
 
-  /** Handlers past their budget on the session's clock. */
+  /** Handlers past their budget on the session's clock (D5). */
   const deadlines = () => {
     for (const s of [...open.values()]) {
       if (!s.asking || s.asking.ends > clock.now) continue;
@@ -314,7 +314,7 @@ export function sheets({ release, retire }) {
     }
   };
 
-  /** The sheet's entry in `state.extensions` (its disclosure). */
+  /** The sheet's entry in `state.extensions` (§9's disclosure). */
   const entry = (h, outcome) => {
     const s = open.get(h);
     return s && { name: "showPaymentRequest", requestId: s.id, method: s.method, total: amountText(s.details.total?.amount), origin: s.origin, outcome, handlers: s.handled };

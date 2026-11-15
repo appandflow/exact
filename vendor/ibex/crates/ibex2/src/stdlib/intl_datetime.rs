@@ -1,4 +1,4 @@
-//! Rust-owned ECMA-402 DateTimeFormat policy for the Linux and Windows Hermes
+//! Rust-owned ECMA-402 DateTimeFormat policy for the Linux, Android and Windows Hermes
 //! adapters.
 //!
 //! JavaScript performs the observable `Get`, ToPrimitive, and object-shape
@@ -6,8 +6,8 @@
 //! extensions/defaults, owns the formatter registry, and partitions the field
 //! positions reported by the same ICU formatter used for `format`.
 //!
-//! Primitives and opaque handles cross the boundary.
-//! JavaScript owns object shape; Rust owns standard-library policy and state.
+//! @ref LLP 0057#3-the-boundary — primitives and opaque handles cross the boundary
+//! @ref LLP 0057#31-what-goes-in-rust-and-what-does-not — JavaScript owns object shape; Rust owns standard-library policy and state
 
 use crate::boundary::{HostArg, HostError, HostValue};
 use crate::host_opcodes::intl_datetime::{

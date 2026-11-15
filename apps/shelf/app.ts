@@ -58,8 +58,9 @@ async function load(storage: Storage): Promise<Saved> {
       try {
         text = decode(await storage.fs.readFile(FILE));
       } catch (error) {
-        if ((error as { code?: string }).code === 'bake') throw error;
-        text = null; // first launch: no file yet
+        // Only a missing file is a first launch. Any other failure (and the
+        // build's 'bake') fails the load, so no edit saves the seed over it.
+        if ((error as { code?: string }).code !== 'ENOENT') throw error;
       }
       let saved: Saved = { books: SEED.map((b) => ({ ...b })), goal: 12 };
       if (text) {
@@ -81,8 +82,8 @@ async function load(storage: Storage): Promise<Saved> {
   return loading;
 }
 
-// The module's storage runs one operation at a time, in the order issued,
-// so both are issued here, in this answer's own turn: the
+// The module's storage runs one operation at a time, in the order issued
+// (LLP 1097 D3), so both are issued here, in this answer's own turn: the
 // directory is made before the write, and a later edit writes after this
 // one. A write chained on another answer's would run after that answer
 // replied, where the module counts it as storage no answer awaits.
@@ -98,6 +99,8 @@ async function persist(storage: Storage): Promise<void> {
 // An edit applies to the newest state, read and set with no await between:
 // two edits that waited on the same first load would otherwise both start
 // from its snapshot, and the later persist would drop the earlier edit.
+// A failed write forgets the library in memory, so the next answer reads the
+// file again and shows only what is stored.
 async function change(storage: Storage, edit: (s: Saved) => Saved): Promise<Result<'removeBook'>> {
   try {
     await load(storage);
@@ -106,6 +109,8 @@ async function change(storage: Storage, edit: (s: Saved) => Saved): Promise<Resu
     return { ok: true };
   } catch (error) {
     console.log(`shelf: save failed: ${String(error)}`);
+    state = null;
+    loading = null;
     return { ok: false };
   }
 }
@@ -129,7 +134,7 @@ function patchBook(storage: Storage, id: string, patch: Partial<Book>) {
 // Shelf's own NDEF record: an external type whose data is the book's id.
 const BOOK_RECORD = 'com.exact.shelf:book';
 
-/** A failed write's cause: the module's (after the error's name), else ours. */
+/** A failed write's cause: the module's (D3 puts it after the error's name), else ours. */
 function tagCause(e: unknown): string {
   const code = (e as { code?: string })?.code ?? '';
   const said = String((e as Error)?.message ?? '').split(': ').at(-1) ?? '';
@@ -223,7 +228,7 @@ const sources: Sources = {
     }
   },
 
-  // Tag this book: the book's Open Library page first, which
+  // Tag this book (LLP 1133.035 §11): the book's Open Library page first, which
   // a phone without Shelf opens, then Shelf's own record naming this copy. On
   // iOS the sheet says how it went; elsewhere the view does, from `cause`.
   tagBook: async ([id], _store, storage) => {
@@ -279,7 +284,9 @@ const sources: Sources = {
           key: String(w.key),
           title: String(w.title),
           author: w.authors?.[0]?.name ?? 'Unknown author',
-          pages: 300, // the subjects endpoint has no page counts; default and let the user edit
+          // The subjects endpoint has no page counts: the length is unknown,
+          // so the book shows and counts no progress.
+          pages: 0,
           coverUrl: w.cover_id ? `https://covers.openlibrary.org/b/id/${w.cover_id}-M.jpg` : '',
         })),
       };

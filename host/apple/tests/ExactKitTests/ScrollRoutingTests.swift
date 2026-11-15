@@ -2,7 +2,7 @@
 //
 // This target exists for one class of defect: a host routing decision that
 // no other check in this repository can see. The six checks compile and run
-// Rust; the agent drives the app through the eight operations and its wheel
+// Rust; the agent's wheel
 // carries a delta and no gesture phase; a screenshot shows a stretched rubber
 // band and a scrolled pane as the same picture. So a lift dropped before
 // AppKit could see it — the zero-delta `.ended` that ends every trackpad
@@ -10,16 +10,101 @@
 // perfectly under the agent, and was found by a person scrolling.
 //
 // `ChainingScrollView.routing` is a pure function of the event and the
-// geometry, so these are assertions about a decision: no window, no run
-// loop, no animation, no clock. Nothing here can flake on timing.
+// geometry. Its assertions need no window or clock. Presenter fixtures
+// also check hit testing, wheel delivery and overflow changes in a window;
+// their wheels use the agent's synchronous delivery seam.
 //
-// `rules/RULES.md` §Loop shape
+// @ref LLP 1033 D4a, LLP 1010 (nested chaining), `rules/RULES.md` §Loop shape
 #if os(macOS)
 import AppKit
 import XCTest
 @testable import ExactKit
 
 final class ScrollRoutingTests: XCTestCase {
+    func testAScrollNodeStartingHiddenChangesOverflowWithoutLosingChildren() throws {
+        try overflowLifecycle(starting: "hidden", other: "visible")
+    }
+
+    func testAScrollNodeStartingVisibleChangesOverflowWithoutLosingChildren() throws {
+        try overflowLifecycle(starting: "visible", other: "hidden")
+    }
+
+    private func overflowLifecycle(starting initial: String, other: String) throws {
+        _ = NSApplication.shared
+        let session = ExactApp.shared.makeSession(label: "scroll-overflow")
+        defer { session.destroy() }
+        let p = session.presenter
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = p.viewport
+        defer { window.close() }
+        p.apply(wireBatch([
+            ["op": "create", "id": 1, "kind": "view", "style": ["overflow_y": "scroll", "overflow_x": "hidden"]],
+            ["op": "create", "id": 2, "kind": "scroll", "style": ["overflow_x": initial, "overflow_y": initial]],
+            ["op": "create", "id": 3, "kind": "view"],
+            ["op": "create", "id": 4, "kind": "view"],
+            ["op": "children", "id": 2, "ids": [3, 4]],
+            ["op": "children", "id": 1, "ids": [2]], ["op": "roots", "ids": [1]],
+            ["op": "frame", "id": 1, "x": 0, "y": 0, "w": 400, "h": 300],
+            ["op": "frame", "id": 2, "x": 40, "y": 40, "w": 200, "h": 160],
+            ["op": "frame", "id": 3, "x": 10, "y": 10, "w": 100, "h": 30],
+            ["op": "frame", "id": 4, "x": 10, "y": 180, "w": 100, "h": 40],
+            ["op": "content", "id": 1, "w": 400, "h": 1000],
+            ["op": "content", "id": 2, "w": 200, "h": 600]]))
+        let root = try XCTUnwrap(p.views[1]), port = try XCTUnwrap(p.views[2])
+        let outer = try XCTUnwrap(root.scroll)
+        let inside = try XCTUnwrap(p.views[3]), outside = try XCTUnwrap(p.views[4])
+        let frames = [inside.frame, outside.frame]
+        let wheel = try XCTUnwrap(NSEvent(cgEvent: try XCTUnwrap(CGEvent(scrollWheelEvent2Source: nil, units: .line, wheelCount: 1, wheel1: -1, wheel2: 0, wheel3: 0))))
+        func hit(_ point: NSPoint) throws -> NSView {
+            try XCTUnwrap(root.hitTest(try XCTUnwrap(root.superview).convert(point, from: port)))
+        }
+        var previous: ChainingScrollView?
+        // Every directed transition, including recreation after each non-scrolling mode.
+        for (index, overflow) in [initial, other, "scroll", initial, "scroll", other, initial, "auto", other, "auto", initial].enumerated() {
+            let context = "starting \(initial), step \(index): \(overflow)"
+            if index > 0 {
+                // Geometry is unchanged: the host must reuse the content extent it already received.
+                p.apply(wireBatch([["op": "style", "id": 2, "style": ["overflow_x": overflow, "overflow_y": overflow]]]))
+            }
+            p.viewport.layoutSubtreeIfNeeded()
+            outer.contentView.scroll(to: .zero)
+            XCTAssertTrue(p.views[3] === inside && p.views[4] === outside, context)
+            XCTAssertEqual([inside.frame, outside.frame], frames, context)
+            XCTAssertTrue(inside.superview === port.container && outside.superview === port.container, context)
+            XCTAssertEqual(port.container.subviews.compactMap { ($0 as? NodeView)?.id }, [3, 4], context)
+            XCTAssertEqual(port.clipsToBounds, overflow == "hidden", context)
+            XCTAssertEqual(port.layer?.masksToBounds, overflow == "hidden", context)
+            XCTAssertTrue(try hit(NSPoint(x: 20, y: 20)) === inside, context)
+            XCTAssertTrue(try hit(NSPoint(x: 20, y: 190)) === (overflow == "visible" ? outside as NSView : outer), context)
+            let wheelTarget = try hit(NSPoint(x: 20, y: 20))
+            if overflow == "scroll" || overflow == "auto" {
+                let scroll = try XCTUnwrap(port.scroll, context)
+                XCTAssertFalse(scroll === previous, "a removed scroller is recreated: \(context)")
+                XCTAssertTrue(scroll.superview === port, context)
+                XCTAssertTrue(scroll.documentView === port.container, context)
+                XCTAssertTrue(scroll.contentView.clipsToBounds, context)
+                XCTAssertTrue(scroll.scrollsX && scroll.scrollsY, context)
+                XCTAssertTrue(scroll.hasHorizontalScroller && scroll.hasVerticalScroller, context)
+                XCTAssertEqual(scroll.documentView?.frame.height, 600, context)
+                XCTAssertEqual(scroll.contentView.bounds.origin, .zero, context)
+                XCTAssertTrue(p.scrollers.contains(port.id), context)
+                atOnce { wheelTarget.scrollWheel(with: wheel) }
+                XCTAssertEqual(scroll.contentView.bounds.minY, scroll.verticalLineScroll, context)
+                XCTAssertEqual(outer.contentView.bounds.minY, 0, context)
+                previous = scroll
+            } else {
+                XCTAssertNil(port.scroll, context)
+                XCTAssertFalse(p.scrollers.contains(port.id), context)
+                XCTAssertNil(previous?.superview, context)
+                XCTAssertTrue(previous?.documentView?.subviews.isEmpty ?? true, context)
+                XCTAssertFalse(port.subviews.contains { $0 is NSScrollView }, context)
+                atOnce { wheelTarget.scrollWheel(with: wheel) }
+                XCTAssertEqual(outer.contentView.bounds.minY, outer.verticalLineScroll, context)
+            }
+        }
+    }
+
     func testEmptyScrollPortDeliversTheHeldPointerAndPressThroughTheWindow() throws {
         _ = NSApplication.shared
         clicksArriveAsInTheKeyWindow()
@@ -101,15 +186,15 @@ final class ScrollRoutingTests: XCTestCase {
         XCTAssertNil(removed?.superview, "the obsolete mouse target leaves after release")
     }
 
-    /// A thread change under a press on a timeline's empty area: a batch
-    /// replaces the panel the scroll node is in, and the node is freed. AppKit
-    /// asks the scroll view to leave as it frees the node (`-[NSView
-    /// _finalize]`); one that stayed would reach its own dealloc with a
-    /// superview, which AppKit raises. With no node hearing the pointer the
-    /// node is freed in the batch; with an ancestor that does, at the up that
-    /// ends the hold. AppKit's calls are made directly, as
-    /// `GesturePrecedenceMacTests` makes them: a test's window ordered in keeps
-    /// the removed views past the batch.
+    /// The T3 Code clone's abort on a thread change under a press on its
+    /// timeline's empty area (X87): a batch replaces the panel the scroll
+    /// node is in, and the node is freed. AppKit asks the scroll view to
+    /// leave as it frees the node (`-[NSView _finalize]`); one that stayed
+    /// would reach its own dealloc with a superview, which AppKit raises.
+    /// With no node hearing the pointer the node is freed in the batch;
+    /// with an ancestor that does, at the up that ends the hold. AppKit's
+    /// calls are made directly, as `GesturePrecedenceMacTests` makes them:
+    /// a test's window ordered in keeps the removed views past the batch.
     func testAnEmptyScrollPortFreedUnderAPressGoesWithItsNode() throws {
         _ = NSApplication.shared
         clicksArriveAsInTheKeyWindow()
@@ -167,7 +252,7 @@ final class ScrollRoutingTests: XCTestCase {
             XCTAssertEqual(scroll == nil, !hears)
             // No up for that press: AppKit sends it to no view, the one
             // pressed having left the window. The next click is on the new
-            // panel, and its up ends a hold.
+            // panel, and its up ends a hold (#519).
             try autoreleasepool {
                 let button = try hit()
                 XCTAssertTrue(button === p.views[5])
@@ -236,7 +321,7 @@ final class ScrollRoutingTests: XCTestCase {
     }
 
     /// A wheel with no phases is a mouse wheel: AppKit scrolls it, by its own
-    /// step, as it scrolls the page (it was clamped here
+    /// step, as it scrolls the page (LLP 1115.000 D8.2; it was clamped here
     /// by hand, 40 points a notch). Only the agent's is applied here, at
     /// once, which is what a drive can read back without racing AppKit.
     func testAPhaselessWheelOnAContainedAxisIsAppKitsAndStopsAtItsEnd() {
@@ -256,7 +341,7 @@ final class ScrollRoutingTests: XCTestCase {
         XCTAssertEqual(sv.routing(dx: 0, dy: -50, phased: true, in: none), .drop)
     }
 
-    /// An `auto` axis with room is scrolled by AppKit, a
+    /// LLP 1115.000 D8.2: an `auto` axis with room is scrolled by AppKit, a
     /// trackpad's gesture and a mouse's wheel alike (it was scrolled here by
     /// hand, so it had no rubber band and a wheel step of its own). What
     /// begins at its end still goes to the scroller around it, which
@@ -273,7 +358,7 @@ final class ScrollRoutingTests: XCTestCase {
         }
     }
 
-    /// The driver's trackpad comes through the window server,
+    /// LLP 1142 D3: the driver's trackpad comes through the window server,
     /// marked, and AppKit runs it under the agent too; it is counted where a
     /// scroller hands it over, which is how the driver confirms delivery.
     func testTheDriversMarkedWheelIsAppKitsUnderTheAgent() throws {
@@ -327,10 +412,10 @@ final class ScrollRoutingTests: XCTestCase {
         XCTAssertEqual(scroller(containX: true).routing(dx: -50, dy: -50, phased: true, in: end), .chain)
     }
 
-    /// A phase-less tick is not split (Chrome's rule): over a strip that
-    /// scrolls only sideways, a mostly-vertical diagonal still scrolls the
-    /// strip by its x and drops its y, and a purely vertical tick chains to the
-    /// feed.
+    /// A phase-less tick is not split (LLP 1070 G2, Chrome's rule, its
+    /// §2): over a strip that scrolls only sideways, a mostly-vertical
+    /// diagonal still scrolls the strip by its x and drops its y, and a
+    /// purely vertical tick chains to the feed.
     func testAPhaselessTickGoesToTheDeepestScrollerThatCanTakeAnyOfIt() {
         let strip = scroller()
         strip.scrollsY = false
@@ -341,11 +426,11 @@ final class ScrollRoutingTests: XCTestCase {
         // At its end the strip takes no more x: the tick chains.
         let end = ChainingScrollView.Extent(maxX: 400, maxY: 0, origin: NSPoint(x: 400, y: 0))
         XCTAssertEqual(strip.routing(dx: -60, dy: -100, phased: false, in: end), .chain)
-        // A gesture still goes by its dominant axis (a gesture latches).
+        // A gesture still goes by its dominant axis (latching is LLP 1070 G1).
         XCTAssertEqual(strip.routing(dx: -60, dy: -100, phased: true, in: sideways), .chain)
     }
 
-    /// A gesture AppKit runs is AppKit's whole. Once an
+    /// LLP 1115.000 D8.2: a gesture AppKit runs is AppKit's whole. Once an
     /// `auto` scroller owns it, every event of it goes to AppKit: past the
     /// scroller's end, where AppKit rubber-bands and does not hand the rest
     /// to the page, and the zero-delta lift and momentum's end, which its
@@ -370,7 +455,7 @@ final class ScrollRoutingTests: XCTestCase {
         XCTAssertEqual(ChainingScrollView.latched(&latch, view: outer, began: false, over: false, moving: false, routing: .drop), .appKit, "and the page gets the lift")
     }
 
-    /// A trackpad gesture latches (Chrome's rule): the first
+    /// A trackpad gesture latches (LLP 1070 G1, Chrome's rule): the first
     /// scroller that takes a moving event owns the rest of the gesture, its
     /// zero-delta lift and momentum included; an inner list that reaches
     /// its end mid-gesture does not hand the rest to the page. Here scrolled
@@ -412,7 +497,7 @@ final class ScrollRoutingTests: XCTestCase {
     }
 
     /// The readers' panes, as they are declared: `overflow-x: hidden` with
-    /// `overscroll-behavior: contain`. A sideways gesture must
+    /// `overscroll-behavior: contain` (LLP 1033 D4). A sideways gesture must
     /// not escape to the page, and must not scroll the pane either.
     func testAReaderPaneNeitherScrollsSidewaysNorLeaks() {
         let sv = scroller(containX: true, containY: true)
@@ -423,7 +508,7 @@ final class ScrollRoutingTests: XCTestCase {
         XCTAssertEqual(sv.routing(dx: 0, dy: -80, phased: false, in: onlyVertical), .appKit)
     }
 
-    /// A mouse wheel's notch is AppKit's to apply, by its
+    /// LLP 1115.000 D8.2: a mouse wheel's notch is AppKit's to apply, by its
     /// own line (`verticalLineScroll`, 10 points unless set; the hand-rolled
     /// tick was 40). AppKit applies it on its own frames, some tens of
     /// milliseconds on, which a test off screen cannot wait on steadily; the
@@ -450,6 +535,40 @@ final class ScrollRoutingTests: XCTestCase {
         XCTAssertEqual(sv.routing(dx: 0, dy: notched.deltaY * sv.verticalLineScroll, phased: false, in: sv.extent), .appKit, "a person's notch is AppKit's to apply")
         atOnce { sv.scrollWheel(with: notched) }
         XCTAssertEqual(sv.contentView.bounds.minY, 10, "the agent's is applied at once, by AppKit's line")
+    }
+
+    /// A `list` scrolls a line as AppKit's table does: `NSTableView` sets its
+    /// scroll view's line to its row height (`tile()`), and a SwiftUI `List`
+    /// keeps an untouched table's, whatever its rows' heights (24 points on
+    /// macOS 27, measured with a line-unit wheel event). A `scroll` keeps
+    /// `NSScrollView`'s 10, as a SwiftUI `ScrollView` and an `NSTextView` do.
+    func testAListsNotchIsAppKitsTableLine() throws {
+        _ = NSApplication.shared
+        let session = ExactApp.shared.makeSession(label: "wheel-line")
+        defer { session.destroy() }
+        let p = session.presenter
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 300, height: 240), styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = p.viewport
+        defer { window.close() }
+        p.apply(wireBatch([
+            ["op": "create", "id": 1, "kind": "view"],
+            ["op": "create", "id": 2, "kind": "list", "style": ["overflow_y": "scroll"]],
+            ["op": "create", "id": 3, "kind": "scroll", "style": ["overflow_y": "scroll"]],
+            ["op": "children", "id": 1, "ids": [2, 3]], ["op": "roots", "ids": [1]],
+            ["op": "frame", "id": 1, "x": 0, "y": 0, "w": 300, "h": 240],
+            ["op": "frame", "id": 2, "x": 0, "y": 0, "w": 150, "h": 240],
+            ["op": "frame", "id": 3, "x": 150, "y": 0, "w": 150, "h": 240],
+            ["op": "content", "id": 2, "w": 150, "h": 3000],
+            ["op": "content", "id": 3, "w": 150, "h": 3000]]))
+        let list = try XCTUnwrap(p.views[2]?.scroll), scroll = try XCTUnwrap(p.views[3]?.scroll)
+        let table = NSTableView(), line = table.rowHeight + table.intercellSpacing.height
+        XCTAssertEqual([list.verticalLineScroll, list.horizontalLineScroll], [line, line], "the table's line")
+        XCTAssertEqual([scroll.verticalLineScroll, scroll.horizontalLineScroll], [10, 10], "the scroll view's own")
+        let notch = try XCTUnwrap(NSEvent(cgEvent: try XCTUnwrap(CGEvent(scrollWheelEvent2Source: nil, units: .line, wheelCount: 1, wheel1: -1, wheel2: 0, wheel3: 0))))
+        atOnce { list.scrollWheel(with: notch); scroll.scrollWheel(with: notch) }
+        XCTAssertEqual(list.contentView.bounds.minY, line)
+        XCTAssertEqual(scroll.contentView.bounds.minY, 10)
     }
 }
 #endif

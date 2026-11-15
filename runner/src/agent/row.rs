@@ -13,7 +13,7 @@ use std::fmt::Write as _;
 
 /// Row `row`'s value `v`, as JSON text, onto `out`.
 pub fn row_json(row: StyleId, v: RowValue<'_>, out: &mut String) {
-    // CSS's unbounded maximum is `none`, as the web writes it.
+    // CSS's unbounded maximum is `none`, as the web writes it (LLP 1102 §3.11).
     if matches!(row, StyleId::MaxWidth | StyleId::MaxHeight)
         && matches!(v, RowValue::Dimension(Dimension::Auto))
     {
@@ -101,11 +101,11 @@ pub fn row_json(row: StyleId, v: RowValue<'_>, out: &mut String) {
         RowValue::Number(n) => {
             let _ = write!(out, "{}", num(n));
         }
-        RowValue::Color(c) | RowValue::ColorValue(ColorValue::Fixed(c)) => quote(&hex(c), out),
+        RowValue::ColorValue(ColorValue::Fixed(c)) => quote(&hex(c), out),
         RowValue::ColorValue(ColorValue::LightDark(l, d)) => {
             quote(&format!("light-dark({}, {})", hex(l), hex(d)), out)
         }
-        // A reference reports what it names.
+        // @ref LLP 1095 D7 — a reference reports what it names.
         RowValue::ColorValue(ColorValue::Role(id)) => quote(
             exact_kernel::style::roles::role_of(id).map_or("transparent", |r| r.name),
             out,
@@ -116,7 +116,7 @@ pub fn row_json(row: StyleId, v: RowValue<'_>, out: &mut String) {
                 None => quote("transparent", out),
             }
         }
-        // A colour in its own space reports as CSS writes it.
+        // @ref LLP 1100 D2 — a colour in its own space reports as CSS writes it.
         RowValue::ColorValue(ColorValue::Wide(id)) => match exact_kernel::style::wide::wide(id) {
             Some(w) => quote(&w.text, out),
             None => quote("transparent", out),
@@ -136,10 +136,13 @@ pub fn row_json(row: StyleId, v: RowValue<'_>, out: &mut String) {
         RowValue::AnimationTimeline(t) => quote(&t.css(), out),
         RowValue::AnimationRange(r) => quote(&r.css(), out),
         RowValue::TimelineScope(s) => quote(&s.css(), out),
+        RowValue::TimelineName(n) => quote(&n.css(), out),
+        RowValue::ViewTimelineInset(i) => quote(&i.css(), out),
         RowValue::PositionTryFallbacks(s) => quote(&s.css(), out),
         RowValue::BackgroundImage(g) | RowValue::MaskImage(g) => quote(&g.css(), out),
         RowValue::TextShadow(s) => quote(&s.css(), out),
         RowValue::FontVariations(v) => quote(&v.css(), out),
+        RowValue::FontFeatures(f) => quote(&f.css(), out),
         RowValue::BoxShadow(s) => quote(&s.css(), out),
         RowValue::CornerShape(c) => quote(&c.css(), out),
         RowValue::RotateAxis(a) => quote(&a.css(), out),
@@ -155,7 +158,7 @@ pub fn row_json(row: StyleId, v: RowValue<'_>, out: &mut String) {
         RowValue::Filter(f) => quote(&f.css(), out),
         RowValue::BackdropFilter(f) => quote(&f.css(), out),
         RowValue::Animations(a) => quote(&a.css(), out),
-        RowValue::Color2(_) | RowValue::Tracks(_) | RowValue::Placement(_) => quote("(grid)", out),
+        RowValue::Tracks(_) | RowValue::Placement(_) => quote("(grid)", out),
     }
 }
 

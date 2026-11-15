@@ -1,4 +1,4 @@
-//! The roster's list builders: `concat`, and `slice`,
+//! The roster's list builders (LLP 1088 §9.1): `concat`, and `slice`,
 //! `includes` and `indexOf` over a list, as JavaScript's `Array.prototype`
 //! has them; `sum`, and `sortBy`'s order once its keys are known. What
 //! each costs — its list steps and the extent of a list it builds — is the
@@ -87,7 +87,7 @@ fn key_before(a: &Key<'_>, b: &Key<'_>) -> bool {
     }
 }
 
-/// `sortBy(xs, x => key, direction)` once its keys
+/// @ref LLP 1116.016 §5 — `sortBy(xs, x => key, direction)` once its keys
 /// are computed (`keys[i]` is item `i`'s): the items ordered by key,
 /// descending when `descending`, equal keys in input order either way.
 /// `None` when the lengths differ, a key is neither a number nor text, or

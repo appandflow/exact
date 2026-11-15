@@ -1,8 +1,8 @@
-//! A slot read that a call makes
+//! @ref LLP 1089 D3, LLP 1035.005.002 C2 — a slot read that a call makes
 //! stale is warned of, as the same read in the action's own body is.
 //!
 //! Every statement of an action reads the state the action started with,
-//! and its assignments land when it ends. Inside one body that is on
+//! and its assignments land when it ends (D2). Inside one body that is on
 //! the page (`doubled = count * 2` after `count = …`, `rereads.rs`); behind
 //! a call, the write and the read are in different bodies and neither
 //! shows it. So a read of a state, mutation or router slot in one frame —
@@ -11,8 +11,9 @@
 //! id (`analyze-read-after-assign`) at one severity, with the body's
 //! exemptions: a read on a path exclusive with the assignment's, a
 //! condition the assignment's path decides, and a field a record copy left
-//! unchanged. This frame is far rarer than the body's; refusing it while
-//! the body's is warned of would make one mistake two rules.
+//! unchanged. In 1,029 bake-off builds the body's warning was met in 86
+//! and this one in 2 (LLP 1035.005.002 §1.2); refusing the rarer frame of
+//! the same read was the exception C2 removed.
 //!
 //! The walk is `sends.rs`'s: each arm starts from what the paths into it
 //! wrote, the branch leaves their union, and sequential `if`s testing one
@@ -26,7 +27,7 @@
 use super::sends::{exclusive, facts, made_in, Frame, Guard};
 use super::{AnalyzeError, Related};
 use contract_syntax::inline::calls::shown;
-use contract_syntax::{BinOp, Component, Expr, Span, Stmt, TemplatePart};
+use contract_syntax::{BinOp, Component, Expr, Span, Stmt};
 use std::collections::{BTreeMap, BTreeSet};
 
 /// An assignment on some path: its frame, where, under what guard, the
@@ -314,58 +315,15 @@ pub(super) fn slot_reads<'e>(
                 read.2 = Some(field);
             }
         }
-        Expr::Number(..) | Expr::Str(..) | Expr::Bool(..) | Expr::None(_) => {}
         // A settled value: the pending map changes after the body runs.
         Expr::Call(name, _, _) if name == "pending" => {}
-        Expr::Call(_, args, _) | Expr::List(args, _) => {
-            args.iter().for_each(|a| slot_reads(a, slots, bound, out))
-        }
-        Expr::Template(parts, _) => {
-            for p in parts {
-                if let TemplatePart::Expr(x) = p {
-                    slot_reads(x, slots, bound, out);
-                }
+        _ => {
+            for (x, binds) in e.scoped_operands() {
+                let depth = bound.len();
+                bound.extend(binds.iter());
+                slot_reads(x, slots, bound, out);
+                bound.truncate(depth);
             }
-        }
-        Expr::Some(x, _)
-        | Expr::Member(x, _, _)
-        | Expr::NamedArg(_, x, _)
-        | Expr::Typed(x, _, _)
-        | Expr::Unary(_, x, _) => slot_reads(x, slots, bound, out),
-        Expr::Binary(_, a, b, _) => {
-            slot_reads(a, slots, bound, out);
-            slot_reads(b, slots, bound, out);
-        }
-        Expr::Ternary(a, b, c, _) => {
-            slot_reads(a, slots, bound, out);
-            slot_reads(b, slots, bound, out);
-            slot_reads(c, slots, bound, out);
-        }
-        Expr::Match {
-            subject,
-            var,
-            some,
-            none,
-            ..
-        } => {
-            slot_reads(subject, slots, bound, out);
-            slot_reads(none, slots, bound, out);
-            bound.push(var);
-            slot_reads(some, slots, bound, out);
-            bound.pop();
-        }
-        Expr::Let {
-            name, value, body, ..
-        } => {
-            slot_reads(value, slots, bound, out);
-            bound.push(name);
-            slot_reads(body, slots, bound, out);
-            bound.pop();
-        }
-        Expr::Arrow { params, body, .. } => {
-            bound.extend(params.iter().map(String::as_str));
-            slot_reads(body, slots, bound, out);
-            bound.truncate(bound.len() - params.len());
         }
     }
 }

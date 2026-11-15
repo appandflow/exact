@@ -1,4 +1,4 @@
-// A look frame's particle coverage (quad_coverage.rs): the
+// A look frame's particle coverage (LLP 1127.000 D1, quad_coverage.rs): the
 // probe variant of a particle pipeline, appended after particle.wgsl or
 // sprite.wgsl. It draws what the particle pipeline draws, and counts for its
 // draw each fragment that contributes to the frame: a contribution above zero

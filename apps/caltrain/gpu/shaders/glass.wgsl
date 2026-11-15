@@ -1,4 +1,4 @@
-// Glass: the whole app inside the aurora. Two passes — the sky
+// Glass: the whole app inside the aurora (LLP 1014). Two passes — the sky
 // at a quarter of the resolution (fs_sky: the aurora's field, so it costs a
 // sixteenth of a full-resolution sky and comes back soft), then the
 // children composed over it at full resolution (fs_compose) in one of three

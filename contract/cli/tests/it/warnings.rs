@@ -1,4 +1,4 @@
-//! Lowering's warnings: what compiles, runs, and is not what
+//! Lowering's warnings (LLP 1116 D6): what compiles, runs, and is not what
 //! the author meant. They fail nothing; each names its repair; and what the
 //! compiler cannot see through is given the benefit of the doubt.
 
@@ -23,7 +23,7 @@ pub(crate) fn warned(src: &str) -> Vec<(String, u32)> {
 fn route(header: &str) -> String {
     let header: String = header.lines().map(|l| format!("          {l}\n")).collect();
     format!(
-        "routes nav\n  home \"/\"\ncomponent App\n  state q = \"\"\n  action go\n    q = \"x\"\n  view\n    main navigationKey=`${{top(nav).id}}` navigationBack=\"back\" width=\"100%\" height=\"100%\"\n      for e in stack(nav) key=e.id\n        column navigationKey=`${{e.id}}` position=\"absolute\" inset=0\n          header display=\"flex\"\n{header}          scroll flex=1\n            text \"body\"\n"
+        "routes nav\n  home \"/\"\ncomponent App\n  state q = \"\"\n  action go\n    q = \"x\"\n  view\n    main navigationKey=`${{top(nav).id}}` width=\"100%\" height=\"100%\"\n      for e in stack(nav) key=e.id\n        column navigationKey=`${{e.id}}` position=\"absolute\" inset=0\n          header display=\"flex\"\n{header}          scroll flex=1\n            text \"body\"\n"
     )
 }
 
@@ -78,7 +78,7 @@ fn what_the_bar_places_or_the_compiler_cannot_see_is_not_warned() {
         "  row\n    box background-color=\"-exact-system-blue\"\n      text \"AL\"\n    text \"Ada\" role=\"heading\" aria-level=1\n    row\n      image \"symbol:sf/bell.slash\"\n      text \"Muted\"",
         // A pressable group around the heading is the title, tapped.
         "  button press=go\n    text \"Ada\" role=\"heading\" aria-level=1\n    text \"online\"",
-        // Readouts: a status of a dot and a text after
+        // Readouts (LLP 1075.003 §9.15): a status of a dot and a text after
         // the buttons, a status text before the heading.
         "  text \"Saved\" role=\"status\"\n  text \"Log\" role=\"heading\"\n  button press=go\n    text \"Add\"\n  row role=\"status\" gap=6\n    view width=7 height=7 border-radius=3.5 background-color=\"-exact-system-blue\"\n    text \"Clock\" font-family=\"Menlo\" font-size=12",
         // `if`, `for` and a computed role are given the benefit.
@@ -87,6 +87,8 @@ fn what_the_bar_places_or_the_compiler_cannot_see_is_not_warned() {
         "  text \"List\" role=\"heading\" aria-level=1\n  text \"sub\"\n  text \"hidden\" display=\"none\"\n  button popovertarget=\"m\"\n    text \"More\"\n  column id=\"m\" popover=\"auto\" role=\"menu\"\n    text \"Sort\"\n    button press=go popovertarget=\"m\" popovertargetaction=\"hide\" role=\"menuitem\"\n      text \"Go\"",
         // A heading under an `if` may be the one: the benefit.
         "  if q != \"\"\n    text q role=\"heading\"\n  text \"sub\"",
+        // A button that shows its alert with `commandfor` alone (#387).
+        "  text \"History\" role=\"heading\" aria-level=2\n  button commandfor=\"clear\" command=\"show-modal\" aria-label=\"Clear History\"\n    image \"symbol:delete\"\n  dialog id=\"clear\" role=\"alertdialog\" aria-label=\"Clear History?\"\n    button press=go commandfor=\"clear\" command=\"close\"\n      text \"Clear\"\n    button commandfor=\"clear\" command=\"close\"\n      text \"Cancel\"",
     ] {
         assert_eq!(warned(&route(header)), [], "{header}");
     }
@@ -103,9 +105,10 @@ const NO_BAR: &str = "lower-header-no-bar";
 
 #[test]
 fn a_header_with_no_heading_or_two_is_named_as_no_bar() {
-    // No heading, or two: on iOS the header is no bar and is drawn as written;
-    // nothing in it is called unplaced. The bar it leaves is the system Back
-    // alone on a pushed route, and the message names the way to have none.
+    // No heading, or two: on iOS the header is no bar and is drawn as
+    // written; nothing in it is called unplaced (LLP 1116.003 D2.2). The
+    // bar it leaves is the system Back alone on a pushed route (LLP
+    // 1115.000 D5.2), and the message names the way to have none.
     let none = route("  text \"one\"\n  button press=go testId=\"add\"\n    text \"Add\"");
     assert_eq!(warned(&none), [(NO_BAR.to_string(), 11)]);
     let (_, warnings) = contract::compile_warned(&none);
@@ -157,6 +160,21 @@ fn a_header_with_no_heading_or_two_is_named_as_no_bar() {
         [(NO_BAR.to_string(), 12), (UNPLACED.to_string(), 17)],
         "{branched}"
     );
+    // A route that opens with `match` is read as one that opens with `if`.
+    let matched = route("  text \"List\" role=\"heading\" aria-level=1")
+        .replace(
+            "  state q = \"\"\n",
+            "  state q = \"\"\n  state picked: option<string> = none\n",
+        )
+        .replace(
+            "          header display=\"flex\"\n            text \"List\" role=\"heading\" aria-level=1\n",
+            "          match picked\n            case some(p)\n              header\n                text \"Sheet\"\n            case none\n              header\n                text \"List\" role=\"heading\" aria-level=1\n                image \"symbol:heart\"\n",
+        );
+    assert_eq!(
+        warned(&matched),
+        [(NO_BAR.to_string(), 14), (UNPLACED.to_string(), 19)],
+        "{matched}"
+    );
 }
 
 /// A stack whose root names its Back control `back` (or `root` says
@@ -175,8 +193,8 @@ const BACK: &str = "button id=\"back\" press=back\n  text \"Back\"";
 
 #[test]
 fn a_back_control_drawn_under_the_system_back_is_named_with_the_opt_out() {
-    // On iOS every pushed route has the bar, whose Back presses the authored
-    // control, so one drawn in the page is a second.
+    // LLP 1115.000 D5.2: on iOS every pushed route has the bar, whose Back
+    // presses the authored control, so one drawn in the page is a second.
     let drawn = pushed(NAMED, "", &format!("{BACK}\ntext \"Detail\""));
     assert_eq!(warned(&drawn), [(BACK_TWICE.to_string(), 16)], "{drawn}");
     let (_, warnings) = contract::compile_warned(&drawn);
@@ -276,23 +294,22 @@ fn a_back_control_the_bar_stands_for_or_a_route_with_no_bar_is_not_warned() {
         let src = pushed(NAMED, route, BACK);
         assert_eq!(warned(&src), [(BACK_TWICE.to_string(), 16)], "{src}");
     }
-    // In a first `header` that is no bar, the header's own warning names
-    // the bar that holds the system Back above it; the control is not
-    // named a second time.
-    let no_bar = pushed(
+    // A first `header` of the Back control alone is the bar with no title,
+    // UIKit's Back standing for it (issue #364): nothing to warn of.
+    let alone = pushed(
         NAMED,
         "",
         &format!("header\n  {}", BACK.replace('\n', "\n  ")),
     );
-    assert_eq!(warned(&no_bar), [(NO_BAR.to_string(), 16)], "{no_bar}");
+    assert_eq!(warned(&alone), [], "{alone}");
 }
 
 /// A root tab bar: tabs that name their panels, as polls and chat-rooms
 /// wrote with one tab.
-fn tabs(tabs: &str) -> String {
+pub(crate) fn tabs(tabs: &str) -> String {
     let tabs: String = tabs.lines().map(|l| format!("      {l}\n")).collect();
     format!(
-        "routes nav\n  tab home \"/\"\n  tab more \"/more\"\ncomponent App\n  view\n    main navigationKey=`${{top(nav).id}}` navigationBack=\"back\"\n      for t in nav.tabs key=t.name\n        column role=\"tabpanel\" id=`panel-${{t.name}}`\n          for e in t.stack key=e.id\n            column navigationKey=`${{e.id}}`\n              text e.name\n      row role=\"tablist\"\n{tabs}"
+        "routes nav\n  tab home \"/\"\n  tab more \"/more\"\ncomponent App\n  view\n    main navigationKey=`${{top(nav).id}}`\n      for t in nav.tabs key=t.name\n        column role=\"tabpanel\" id=`panel-${{t.name}}`\n          for e in t.stack key=e.id\n            column navigationKey=`${{e.id}}`\n              text e.name\n      row role=\"tablist\"\n{tabs}"
     )
 }
 
@@ -314,106 +331,10 @@ fn a_tab_bar_of_one_tab_is_named_and_two_are_not() {
     // named) is a segmented control, which one segment does not break.
     let made = tabs("  for t in nav.tabs key=t.name\n    button role=\"tab\" aria-controls=`panel-${t.name}` aria-selected=true\n      text t.name");
     assert_eq!(warned(&made), []);
-    let segments = tabs("  button role=\"tab\" aria-selected=true\n    text \"Home\"");
+    let segments = route(
+        "  text \"Home\" role=\"heading\"\n  row role=\"tablist\"\n    button role=\"tab\" aria-selected=true\n      text \"Home\"",
+    );
     assert_eq!(warned(&segments), []);
-}
-
-/// A stopwatch's actions over a mutation, each `send` on line 18.
-fn stopwatch(state: &str, send: &str) -> String {
-    format!(
-        "shape Time\n  epochAtZero: number\n  anchorAt: number\n  anchorBeat: number\nshape Ack\n  ok: bool\nfn later(t: number): number = t + 10\nfn mark(): number = performanceNow()\ncomponent App\n  resource time = exactTime() as shape Time\n  mutation wrote as shape Ack\n  state start = 0\n  state other = 0\n{state}  action begin\n    start = performanceNow()\n  action save\n    send wrote = keep({send})\n  view\n    button \"save\" press=save\n"
-    )
-}
-
-const PERSISTED: &str = "type-performance-now-persisted";
-
-#[test]
-fn a_launch_relative_time_sent_to_a_source_is_named_with_its_repair() {
-    for send in [
-        "performanceNow()",
-        "start",
-        "start + 1000",
-        "floor(start / 1000)",
-        "later(start)",
-        "mark()",
-        "`${start}`",
-        "(other > 0 ? start : 0)",
-        "max(start, 5)",
-        // Less a constant, a time is still a time.
-        "start - 1000",
-        "performanceNow() - 2 * 1000",
-        "start - max(500, 1000)",
-        // A reading less a span, the origin, or a never-set 0 is still a time.
-        "performanceNow() - (performanceNow() - start)",
-        "performanceNow() - time.epochAtZero",
-        "performanceNow() - other",
-        // The origin added on one branch only: the other is a launch's time.
-        "performanceNow() + (other > 0 ? time.epochAtZero : 0)",
-    ] {
-        assert_eq!(
-            warned(&stopwatch("", send)),
-            [(PERSISTED.to_string(), 17)],
-            "{send}"
-        );
-    }
-    let (_, warnings) = contract::compile_warned(&stopwatch("", "start"));
-    assert!(
-        warnings[0].message.contains("this argument to `keep`")
-            && warnings[0]
-                .message
-                .contains("`time.epochAtZero + performanceNow()`"),
-        "{warnings:?}"
-    );
-    // Through a derive, and a `let` in the action.
-    let derived = stopwatch("  derive since = start\n", "since");
-    assert_eq!(warned(&derived)[0].0, PERSISTED);
-    let local = stopwatch("", "t").replace(
-        "    send wrote = keep(t)",
-        "    let t = performanceNow()\n    send wrote = keep(t)",
-    );
-    assert_eq!(warned(&local), [(PERSISTED.to_string(), 18)]);
-}
-
-#[test]
-fn the_wall_clock_time_and_a_duration_are_not_named() {
-    for send in [
-        "time.epochAtZero + performanceNow()",
-        "performanceNow() + time.epochAtZero",
-        "time.epochAtZero + start",
-        "performanceNow() - start",
-        "(performanceNow() - start) / 1000",
-        "other",
-        "`${start}`.length",
-        "(start > 5).toString()",
-        // A musical position from an anchor a source holds (euxy's beat):
-        // the time since the anchor, scaled and offset.
-        "time.anchorBeat + (performanceNow() - time.anchorAt) * 120 / 60000",
-        "max(0, time.anchorBeat + (performanceNow() - time.anchorAt) * 2 / 60000)",
-    ] {
-        assert_eq!(warned(&stopwatch("", send)), [], "{send}");
-    }
-    // A derive of the origin, added as `epochAtZero` is.
-    let origin = stopwatch("  derive origin = time.epochAtZero\n", "origin + start");
-    assert_eq!(warned(&origin), []);
-}
-
-#[test]
-fn a_launch_relative_time_in_a_persisted_state_is_named() {
-    // stopwatch's start mark, kept by `persist` instead of a source.
-    let src = "shape Time\n  epochAtZero: number\ncomponent App\n  resource time = exactTime() as shape Time\n  state start = 0 persist\n  state wall = 0 persist\n  state lap = 0 persist\n  action begin\n    lap = performanceNow() - start\n    start = performanceNow()\n    wall = time.epochAtZero + performanceNow()\n  view\n    button \"go\" press=begin\n";
-    assert_eq!(warned(src), [(PERSISTED.to_string(), 5)]);
-    // A state kept as a reading less itself: from its initial 0 the first
-    // is a time, the next a span, and so on (a timestamp kept every other run).
-    let toggled = "component App\n  state mark = 0 persist\n  action tick\n    mark = performanceNow() - mark\n  view\n    button \"go\" press=tick\n";
-    assert_eq!(warned(toggled), [(PERSISTED.to_string(), 2)]);
-    // A state that is a launch's time in one action and the origin in
-    // another is sometimes a time: so is a number added to it.
-    let either = "shape Time\n  epochAtZero: number\nshape Ack\n  ok: bool\ncomponent App\n  resource time = exactTime() as shape Time\n  mutation wrote as shape Ack\n  state mark = 0\n  action a\n    mark = performanceNow()\n  action b\n    mark = time.epochAtZero\n  action save\n    send wrote = keep(mark + 1000)\n  view\n    button \"save\" press=save\n";
-    assert_eq!(warned(either), [(PERSISTED.to_string(), 14)]);
-    // A derive of the origin, read before the fixed point resolves it, is
-    // the origin: added to a reading it is the wall-clock time, kept as is.
-    let origin = "shape Time\n  epochAtZero: number\ncomponent App\n  resource time = exactTime() as shape Time\n  state at = 0 persist\n  derive origin = time.epochAtZero\n  action go\n    at = origin + performanceNow()\n  view\n    button \"go\" press=go\n";
-    assert_eq!(warned(origin), []);
 }
 
 const ONE_SCHEME: &str = "lower-colour-one-scheme";
@@ -429,7 +350,7 @@ fn screen(view: &str) -> String {
 
 #[test]
 fn a_literal_colour_on_the_page_is_named_with_its_repair() {
-    // A light card and its tinted text: the same in dark mode.
+    // Round 4's light card and its tinted text: the same in dark mode.
     let card = screen("column background-color=\"#ffffff\"\n  text \"a\"");
     assert_eq!(warned(&card), [(ONE_SCHEME.to_string(), 5)]);
     let (_, warnings) = contract::compile_warned(&card);
@@ -524,9 +445,65 @@ fn every_literal_colour_is_named_past_the_cap_with_one_line_on_why() {
     );
 }
 
+#[test]
+fn a_builds_text_says_the_literal_colours_in_one_line_and_json_lists_each() {
+    // LLP 1168.000 D7.2: a chat app said 31 colour lines in every build. The text says one,
+    // the closing line's, with the first three sites; `--json` keeps one diagnostic a site.
+    let view: String = (0..5)
+        .map(|i| format!("  text \"{i}\" color=\"#1234{i:02}\"\n"))
+        .collect();
+    let dir = std::env::temp_dir().join(format!("exact-one-scheme-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("app.contract");
+    std::fs::write(&path, screen(&format!("column\n{view}"))).unwrap();
+    let run = |json: bool| {
+        let mut args = vec!["build", path.to_str().unwrap()];
+        if json {
+            args.push("--json");
+        }
+        std::process::Command::new(env!("CARGO_BIN_EXE_contract"))
+            .args(&args)
+            .output()
+            .unwrap()
+    };
+    let json: serde_json::Value = serde_json::from_slice(&run(true).stdout).unwrap();
+    let listed = json
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|w| w["id"] == ONE_SCHEME)
+        .count();
+    let text = String::from_utf8(run(false).stderr).unwrap();
+    let _ = std::fs::remove_dir_all(&dir);
+    assert_eq!(listed, 6, "five sites and the closing line: {json}");
+    let said: Vec<&str> = text.lines().filter(|l| l.contains(ONE_SCHEME)).collect();
+    let file = path.display().to_string();
+    assert_eq!(said.len(), 1, "{text}");
+    assert!(
+        said[0].starts_with(&format!("{file}:6:"))
+            && said[0].contains(&format!(
+                "these 5 literal colours ({file}:6, {file}:7, {file}:8, …) stay the same in dark mode"
+            ))
+            && said[0].contains("name a role for each or leave it unsaid")
+            && said[0].contains("one `light-dark(light, dark)` pair on `accent-color`")
+            && said[0].ends_with("`contract build --json` names each."),
+        "{text}"
+    );
+    // One site keeps its own line, whole.
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(&path, screen("text \"a\" color=\"#123456\"")).unwrap();
+    let text = String::from_utf8(run(false).stderr).unwrap();
+    let _ = std::fs::remove_dir_all(&dir);
+    assert!(
+        text.contains("`#123456` on `color` stays the same in dark mode"),
+        "{text}"
+    );
+}
+
 const REREAD: &str = "analyze-read-after-assign";
 
-/// One action, `go`, its body from line 10.
+/// One action, `go`, its body from line 10 (LLP 1116.003 D6).
 fn go(body: &str) -> String {
     let body: String = body.lines().map(|l| format!("    {l}\n")).collect();
     format!(
@@ -597,14 +574,15 @@ const SEND_ASSIGNED: &str = "analyze-send-assigned";
 
 #[test]
 fn a_send_and_an_assignment_of_one_mutation_on_one_path_is_named_once_in_either_order() {
-    // An app's logout (send, then `session = none`) means it. A warning, with
-    // what the runner does and the three intents' spellings.
+    // LLP 1035.005.002 C1: no bake-off build wrote it; Weird Castle's
+    // logout (send, then `session = none`) means it. A warning, with what the
+    // runner does and the three intents' spellings.
     let after = go("send saved = keep(count)\nsaved = none");
     assert_eq!(warned(&after), [(SEND_ASSIGNED.to_string(), 11)]);
     let (_, warnings) = contract::compile_warned(&after);
     assert_eq!(
         warnings[0].message,
-        "`go` both sends `saved` and assigns it on one path: it sends in `go` at line 10 and assigns in `go` at line 11. A send is asked when the action runs; once the writes land, a request still in flight for a mutation the action assigned is forgotten and its reply dropped, and `saved` keeps the assigned value, whichever line comes first. To clear an old result before a retry, keep the send and hide the result while `pending(saved)`; to sign out, forget the sign-in mutation here and send the logout through a mutation of its own; to dismiss an answer, assign alone"
+        "`go` both sends `saved` and assigns it on one path: it sends in `go` at line 10 and assigns in `go` at line 11. A send is asked when the action runs; once the writes land, a request still in flight for a mutation the action assigned is forgotten and its reply dropped, and `saved` keeps the assigned value (LLP 1016 D5), whichever line comes first. To clear an old result before a retry, keep the send and hide the result while `pending(saved)`; to sign out, forget the sign-in mutation here and send the logout through a mutation of its own; to dismiss an answer, assign alone"
     );
     // The reset written first drops the new request just the same.
     let before = go("saved = none\nsend saved = keep(count)");
@@ -635,7 +613,7 @@ fn exclusive_arms_and_a_queue_send_beside_an_assignment_are_not_named() {
         assert_eq!(warned(&go(body)), [], "{case}");
     }
     // A queue's assignment clears the displayed answer and drops no queued
-    // work: nothing to say.
+    // work (LLP 1092 D4): nothing to say.
     let queued = "shape Ack\n  ok: bool\ncomponent App\n  mutation saved as shape Ack queue\n  state count = 0\n  action go\n    send saved = keep(count)\n    saved = none\n  view\n    button \"go\" press=go\n";
     assert_eq!(warned(queued), []);
 }
@@ -760,21 +738,21 @@ fn a_dialog_a_popover_and_a_modal_route_are_not_named() {
         "column id=\"pick\" popover=\"auto\" role=\"dialog\" aria-label=\"Theme\"\n  text \"Light\"",
         // A computed role is the benefit of the doubt.
         "column role=(label == \"\" ? \"dialog\" : \"region\")\n  text \"a\"",
-        // `aria-modal` alone keeps VoiceOver inside an overlay.
+        // `aria-modal` alone keeps VoiceOver inside an overlay (LLP 1080.003).
         "column aria-modal=true\n  text \"Call\"",
     ] {
         assert_eq!(warned(&buttons(view)), [], "{view}");
     }
     // A route the router presents as a sheet.
-    let sheet = "routes nav\n  home \"/\"\n    add \"/add\"\ncomponent App\n  action back\n    nav = back(nav)\n  view\n    main navigationKey=`${top(nav).id}` navigationBack=\"back\" width=\"100%\" height=\"100%\"\n      for e in stack(nav) key=e.id\n        column navigationKey=`${e.id}` navigationPresentation=(e.name == \"add\" ? \"modal\" : \"push\") role=\"dialog\" position=\"absolute\" inset=0\n          text e.name\n";
+    let sheet = "routes nav\n  home \"/\"\n    add \"/add\"\ncomponent App\n  action back\n    nav = back(nav)\n  view\n    main navigationKey=`${top(nav).id}` width=\"100%\" height=\"100%\"\n      for e in stack(nav) key=e.id\n        column navigationKey=`${e.id}` navigationPresentation=(e.name == \"add\" ? \"modal\" : \"push\") role=\"dialog\" position=\"absolute\" inset=0\n          text e.name\n";
     assert_eq!(warned(sheet), []);
 }
 
 const SYMBOL_ALIAS: &str = "lower-symbol-alias";
 
-// A role also answers to Apple's name for it (dotted, dashed or
+// @ref LLP 1116.007 D3.1 — a role also answers to Apple's name for it (dotted, dashed or
 // underscored) and to the schema's aliases: the plan carries the role, and a warning names it.
-// Builders guess these names often, so the build accepts them.
+// Round 9: 12 of 24 builders guessed one of these names and rebuilt.
 #[test]
 fn symbols_answer_to_apple_names_and_aliases_and_the_plan_carries_the_role() {
     for (written, role) in [
@@ -798,6 +776,18 @@ fn symbols_answer_to_apple_names_and_aliases_and_the_plan_carries_the_role() {
         ("house.fill", "home-fill"),
         ("star.fill", "star-fill"),
         ("sign-out", "sign-out"),
+        // expo/exact#224: a role means what both platforms' symbols of its name mean.
+        ("shopping-bag", "bag"),
+        ("local_mall", "bag"),
+        ("bag.fill", "bag-fill"),
+        ("call", "phone"),
+        ("local-phone", "phone"),
+        ("phone", "phone"),
+        ("iphone", "smartphone"),
+        ("phone_android", "smartphone"),
+        ("doc.plaintext", "article"),
+        ("article", "article"),
+        ("radio", "radio"),
     ] {
         let (plan, warnings) = contract::compile_warned(&format!(
             "component App\n  view\n    image \"symbol:{written}\"\n"
@@ -863,7 +853,7 @@ fn symbols_answer_to_apple_names_and_aliases_and_the_plan_carries_the_role() {
         .unwrap_err();
         assert!(error.to_string().contains("not a role"), "{name}: {error}");
     }
-    // `sf/` stays distinct: Apple's name, opaque, no warning (a role's own: tamber_icons).
+    // `sf/` stays distinct: Apple's name, opaque, no warning (a role's own: forma_icons).
     let (plan, warnings) =
         contract::compile_warned("component App\n  view\n    image \"symbol:sf/gearshape.2\"\n");
     let strings = plan.unwrap().strings;
@@ -873,7 +863,7 @@ fn symbols_answer_to_apple_names_and_aliases_and_the_plan_carries_the_role() {
 
 #[test]
 fn a_symbol_by_another_spelling_than_its_role_is_named_with_the_role() {
-    // `symbol:trash` builds as the role `delete`, and says so.
+    // LLP 1116.007 D3.1: `symbol:trash` builds as the role `delete`, and says so.
     // A component used twice is one line; each literal arm of a choice is its own.
     let src = "component App\n  state on = false\n  view\n    column\n      Chip()\n      Chip()\n      image (on ? \"symbol:gearshape\" : \"symbol:settings\")\n      image \"symbol:sf/trash\"\n      image \"symbol:delete\"\n      image \"symbol:checkmark.circle.fill\"\ncomponent Chip\n  view\n    image \"symbol:trash\" width=16\n";
     assert_eq!(
@@ -881,7 +871,7 @@ fn a_symbol_by_another_spelling_than_its_role_is_named_with_the_role() {
         [
             (SYMBOL_ALIAS.to_string(), 13),
             (SYMBOL_ALIAS.to_string(), 7),
-            (SYMBOL_ALIAS.to_string(), 8), // `sf/trash`: delete's Apple name
+            (SYMBOL_ALIAS.to_string(), 8), // `sf/trash`: delete's Apple name (LLP 1121 D10)
             (SYMBOL_ALIAS.to_string(), 10)
         ]
     );
@@ -900,7 +890,7 @@ const LEVEL: &str = "lower-level-without-heading";
 
 #[test]
 fn a_level_with_no_heading_role_is_named_with_its_repair() {
-    // `aria-level` alone is not a heading. No host tells
+    // LLP 1115.000 D12.5: `aria-level` alone is not a heading. No host tells
     // a screen reader it is one, it gets no heading style, and the iOS bar
     // does not take it for the title.
     let bare =
@@ -971,8 +961,8 @@ fn counted(view: &str, function: &str) -> String {
 
 #[test]
 fn a_count_before_a_plural_noun_is_named_with_its_repair() {
-    // Lines a flashcard and an RSVP app wrote: the noun fixed, the count free
-    // to be 1, under a choice made on something else.
+    // flashcards' and event-rsvp's round-6 lines: the noun fixed, the count
+    // free to be 1, under a choice made on something else.
     let cards = counted(
         "text (known == total ? \"You worked through every card.\" : `${total - known} cards to keep practicing next time.`)",
         "",
@@ -1099,7 +1089,7 @@ fn a_content_heading_that_says_the_bars_title_is_named_with_its_repair() {
         "text \" Trivia  Quiz\" role=\"heading\" aria-level=2",
     );
     assert_eq!(warned(&spaced), [(TITLE_TWICE.to_string(), 14)]);
-    // A level with no role is not a heading: it is
+    // A level with no role is not a heading (LLP 1115.000 D12.5): it is
     // named for that, and not as a second title.
     let bare = titled(
         "  text \"Trivia Quiz\" role=\"heading\" aria-level=1",
@@ -1146,11 +1136,33 @@ fn another_name_no_bar_or_a_sections_own_name_is_not_named() {
 const WIDTH_PADDING: &str = "lower-width-padding";
 
 #[test]
+fn a_full_width_view_root_with_padding_or_border_is_named() {
+    for (attrs, warns) in [
+        ("padding=16", true),
+        ("border=\"1px solid -exact-separator\"", true),
+        ("padding=16 box-sizing=\"border-box\"", false),
+        ("padding=0", false),
+        ("padding=\"16px 0\"", false),
+        ("", false),
+    ] {
+        let src = format!(
+            "component App\n  view\n    main testId=\"root\" width=\"100%\" height=\"100%\" {attrs}\n      text \"Hello\"\n"
+        );
+        let expected = if warns {
+            vec![(WIDTH_PADDING.to_string(), 3)]
+        } else {
+            vec![]
+        };
+        assert_eq!(warned(&src), expected, "{src}");
+    }
+}
+
+#[test]
 fn a_full_width_box_with_padding_is_named_with_its_repair() {
-    // A body a focus timer and a recipe finder wrote,
-    // `column padding=24 width="100%"`, which ran past a phone's right side
-    // while `verify` said nothing. The parent is the view's column (lines 7
-    // on).
+    // LLP 1116.009 D5: focus-timer's and recipe-finder's round-11 bodies,
+    // `column padding=24 width="100%"`, which ran past a phone's right
+    // side while `verify` said nothing. The parent is the view's column
+    // (lines 7 on).
     let src = buttons(
         "column padding=24 gap=12 width=\"100%\"\n  text \"Timer\"\nbox width=\"100%\" padding=\"8px 16px\"\n  text \"x\"\nview width=\"100%\" border=\"1px solid -exact-separator\"\n  text \"y\"\nscroll flex=1\n  column padding-left=16 width=\"100%\"\n    text \"z\"",
     );
@@ -1300,7 +1312,7 @@ fn warned_circles(name: &str, body: &str) -> Vec<(String, u32, String)> {
 
 #[test]
 fn a_round_button_label_longer_than_the_circle_holds_is_named_with_its_repair() {
-    // A trivia app's `RoundButton(label="Start quiz")` drew "Start q…" in the 80-point
+    // trivia, round 13: `RoundButton(label="Start quiz")` drew "Start q…" in the 80-point
     // circle; the warning points at the label and names the prominent button.
     let call = |label: &str| {
         format!(

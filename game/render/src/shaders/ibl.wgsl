@@ -1,5 +1,6 @@
 // Ambient light from the environment: SH9 diffuse irradiance (frame.irradiance)
 // and split-sum specular from the prefiltered radiance cube (ibl.rs).
+// @ref llp/1046.003-game-engine-as-built.explainer.md#culling-and-environment-lighting-2026-09-23
 @group(0) @binding(6) var environment_radiance: texture_cube<f32>;
 @group(0) @binding(7) var environment_sampler: sampler;
 const ENVIRONMENT_LODS: f32 = 5.0; // ibl.rs MIPS - 1: lod = roughness × this

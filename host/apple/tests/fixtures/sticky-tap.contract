@@ -1,4 +1,4 @@
-// The agent's tap and a sticky box (AgentStickyReveal{Mac,IOS}Tests): a scroller with a sticky
+// The agent's tap and a sticky box (AgentStickyReveal{Mac,IOS}Tests; theme2's 14:49 ruling): a scroller with a sticky
 // header at its top and a sticky dock at its bottom, twenty rows between; `tall` makes the dock taller than the band
 // it would leave, `ghost` lets the pointer through it (`pointer-events: none`).
 component App

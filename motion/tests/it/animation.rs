@@ -1,4 +1,4 @@
-//! CSS animations in the engine: start on first sight,
+//! CSS animations in the engine (LLP 1055 D5, D7, D10): start on first sight,
 //! restart only when the name comes back, re-time in place, pause and resume,
 //! lowered hosts never sampled, and infinite animations never settle.
 
@@ -214,7 +214,7 @@ fn a_running_transition_wins_over_an_animation() {
     );
 }
 
-/// Held to the browser: values read with
+/// Held to the browser (LLP 1002 D2, LLP 1055 §8): values read with
 /// `getComputedStyle` in headless Chrome 154 from paused CSS animations at
 /// a set `currentTime` (local time, delay included), rounded as Chrome prints.
 #[test]
@@ -362,7 +362,7 @@ fn samples_match_chrome() {
     }
 }
 
-/// Colour animations interpolate premultiplied sRGB,
+/// Colour animations interpolate premultiplied sRGB (LLP 1055.000 D6),
 /// pinned to headless Chrome 154's `getComputedStyle` at a paused
 /// `currentTime` (alpha to Chrome's 8-bit rounding).
 #[test]
@@ -440,7 +440,7 @@ fn colour_samples_match_chrome() {
     }
 }
 
-// A drag timeline holds its consumer's
+// LLP 1057.003 D1: a drag timeline holds its consumer's
 // animation at the source's presented translate — the held value, then the
 // release spring — in the frame that presents it; the clock never moves it.
 #[test]
@@ -515,7 +515,64 @@ fn a_drag_timeline_holds_its_consumer_at_the_drag() {
     assert!(!e.timeline_bound(NODE));
 }
 
-// The range spans the delay and the active interval
+// LLP 1057.003 D5: a scroll or view timeline holds its consumer at its
+// scroller's offset on one axis, over the offsets layout placed, the moment
+// the host gives the offset; the clock never moves it, the other axis
+// repaints nothing, and a zero-length range is an inactive timeline.
+#[test]
+fn a_scroll_timeline_holds_its_consumer_at_its_scrollers_offset() {
+    const SCROLLER: u64 = 9;
+    let mut e = Engine::new();
+    observe(&mut e, Property::Opacity, 0.25);
+    e.set_animations(NODE, &row("fade 1s linear both")).unwrap();
+    let scroll = NamedTimeline::Scroll {
+        scroller: SCROLLER,
+        x: true,
+    };
+    e.set_animation_timeline(NODE, Some((scroll, [100.0, 300.0])));
+    assert_eq!(
+        opacity(&mut e),
+        Some(0.0),
+        "a scroller never given an offset is at its start"
+    );
+    e.set_scroll_offset(SCROLLER, 200.0, 0.0);
+    assert_eq!(opacity(&mut e), Some(0.5));
+    e.set_scroll_offset(SCROLLER, 200.0, 80.0);
+    assert_eq!(opacity(&mut e), None, "the other axis moves nothing");
+    e.set_scroll_offset(SCROLLER, 350.0, 80.0);
+    assert_eq!(
+        opacity(&mut e),
+        Some(1.0),
+        "past the range, the fill holds its end"
+    );
+    e.advance(3.0).unwrap();
+    assert_eq!(opacity(&mut e), None, "the clock does not move it");
+    e.set_scroll_offset(SCROLLER, 150.0, f64::NAN);
+    assert_eq!(opacity(&mut e), None, "a non-finite offset is ignored");
+    e.set_animation_timeline(NODE, Some((scroll, [100.0, 100.0])));
+    assert_eq!(
+        opacity(&mut e),
+        Some(0.25),
+        "a zero-length range is inactive"
+    );
+    e.set_animation_timeline(
+        NODE,
+        Some((
+            NamedTimeline::Scroll {
+                scroller: SCROLLER,
+                x: false,
+            },
+            [0.0, 160.0],
+        )),
+    );
+    assert_eq!(opacity(&mut e), Some(0.5), "on y, the offset given last");
+    // A scroller forgotten (destroyed, or renewed) is at its start again
+    // until its host gives an offset.
+    e.remove(SCROLLER);
+    assert_eq!(opacity(&mut e), Some(0.0));
+}
+
+// LLP 1057.003 D2: the range spans the delay and the active interval
 // together, unclamped, on the horizontal axis, as a CSS scroll timeline maps
 // them (the parity fixture's `tl-` cases); an endless animation holds its
 // start; and a row that arrives after its binding is held at once, never
@@ -568,7 +625,7 @@ fn a_drag_timeline_spans_the_whole_animation_on_its_axis() {
     assert!(e.quiescent(), "and keeps no clock busy");
 }
 
-// What a name that finds no single source shows, as Chrome
+// LLP 1057.003 D4: what a name that finds no single source shows, as Chrome
 // 154 shows it (the phase 3 probe). Inactive (a scope with no declaring
 // descendant, or two): no effect, whatever the fill. Missing (no timeline in
 // scope): the time the animation has, where its source left it, or out of
@@ -626,4 +683,46 @@ fn an_inactive_timeline_has_no_effect_and_a_missing_one_keeps_its_time() {
     e.set_animation_timeline(NODE, None);
     e.advance(3.25).unwrap();
     assert!((opacity(&mut e).unwrap() - 0.25).abs() < 1e-9);
+}
+
+// A consumer whose timeline goes away is back on the clock: the engine
+// asks for frames again and paints one per advance, with the first-frame
+// rule or without it; a paused one stays put and asks for none.
+#[test]
+fn an_unbound_consumer_is_sampled_on_the_clock_again() {
+    const SCROLLER: u64 = 9;
+    let scroll = NamedTimeline::Scroll {
+        scroller: SCROLLER,
+        x: true,
+    };
+    for first_frame in [false, true] {
+        for paused in [false, true] {
+            let mut e = Engine::new();
+            e.set_start_on_frame(first_frame, 0.0).unwrap();
+            observe(&mut e, Property::Opacity, 1.0);
+            let text = if paused {
+                "fade 1s linear both paused"
+            } else {
+                "fade 1s linear both"
+            };
+            e.set_animations(NODE, &row(text)).unwrap();
+            e.set_animation_timeline(NODE, Some((scroll, [0.0, 100.0])));
+            e.set_scroll_offset(SCROLLER, 25.0, 0.0);
+            assert_eq!(opacity(&mut e), Some(0.25));
+            e.set_animation_timeline(NODE, None);
+            let case = format!("first frame {first_frame}, paused {paused}");
+            if paused {
+                assert!(e.quiescent(), "{case}");
+                continue;
+            }
+            assert!(!e.quiescent() && e.next_change().is_some(), "{case}");
+            if first_frame {
+                e.present_frame(0.0).unwrap();
+            }
+            for (t, want) in [(0.25, 0.5), (0.5, 0.75)] {
+                e.advance(t).unwrap();
+                assert_eq!(opacity(&mut e), Some(want), "{case}, at {t}");
+            }
+        }
+    }
 }

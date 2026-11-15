@@ -196,10 +196,14 @@ pub trait LayoutPartialTree: TraversePartialTree {
     /// Set the node's unrounded layout
     fn set_unrounded_layout(&mut self, node_id: NodeId, layout: &Layout);
 
+    /// EXACT PATCH 72: a size probe laid children out; drop this node's and its ancestors' final entries.
+    #[inline(always)]
+    fn invalidate_final_layout(&mut self, node_id: NodeId) { let _ = node_id; }
+
     /// Compute the specified node's size or full layout given the specified constraints
     fn compute_child_layout(&mut self, node_id: NodeId, inputs: LayoutInput) -> LayoutOutput;
 
-    /// EXACT PATCH 20: keep the static position of an absolutely positioned
+    /// EXACT PATCH 20 (LLP 1074 T1): keep the static position of an absolutely positioned
     /// child whose parent is [`Position::Static`](crate::Position::Static). The parent does
     /// not lay the child out; its containing block does, through [`Self::hoisted_absolute`].
     /// A tree that never uses `Static` needs none of the three methods.

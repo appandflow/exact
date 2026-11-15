@@ -1,5 +1,5 @@
-// The watch app runs the app's watch entry live; an app
-// with none shows its complications' placeholders.
+// @ref LLP 1126.002 D4, D6 — the watch app runs the app's watch entry live; an app
+// with none shows its complications' placeholders (LLP 1126.001 WP17).
 #if os(watchOS)
 import ExactCore
 import ExactSnapshot
@@ -89,8 +89,8 @@ enum LaunchPhases {
     }
 }
 
-/// The watch entry booted while SwiftUI sets up its scene (the startup
-/// budget): `App.init` starts it at the screen's size on a background
+/// The watch entry booted while SwiftUI sets up its scene (the startup budget,
+/// LLP 1126.002 §4): `App.init` starts it at the screen's size on a background
 /// queue (the session's work runs on Exact's owner thread); the root view takes
 /// it at its first layout, on the main queue once it is booted, never waiting
 /// there, and resizes it to the size it was given.
@@ -101,7 +101,7 @@ final class EarlyBoot {
     private static var waiting: ((Booted) -> Void)?
     private static var taken = false
 
-    /// The app's watch entry (`ExactWatchPlan`): its own live plan, booted
+    /// The app's watch entry (`ExactWatchPlan`, LLP 1126.002 D4): its own live plan, booted
     /// from its bytes, which opens no update store.
     nonisolated static func session(size: CGSize, facts: SessionFacts) throws -> HeadlessSession {
         guard let name = Bundle.main.object(forInfoDictionaryKey: "ExactWatchPlan") as? String else {
@@ -142,7 +142,7 @@ final class EarlyBoot {
     }
 }
 
-/// The app's watch entry, live: its plan booted at the
+/// The app's watch entry, live (LLP 1126.002 D4): its plan booted at the
 /// screen's safe size, drawn by the live driver.
 private struct LiveRoot: View {
     @State private var model: LiveModel?
@@ -267,8 +267,11 @@ private struct LiveRoot: View {
 @main struct ExactWatch: App {
     init() {
         LaunchPhases.mark("main")
-        if Bundle.main.object(forInfoDictionaryKey: "ExactWatchPlan") != nil { EarlyBoot.start() }
+        // The boot, on another thread, reads the app group's variables once to
+        // bind its stores, so they are set first: the group's stores, which the
+        // complications read, on every launch.
         WidgetContainer.configure()
+        if Bundle.main.object(forInfoDictionaryKey: "ExactWatchPlan") != nil { EarlyBoot.start() }
     }
     var body: some Scene {
         WindowGroup {

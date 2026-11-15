@@ -1,11 +1,11 @@
-// @exact/alarms on Apple: AlarmKit's
+// @exact/alarms on Apple (LLP 1133.030 D2, D4, D7, D8, D14): AlarmKit's
 // `AlarmManager.shared` on iOS 26 and later, weak-linked; every other Apple
 // target, and an older iOS, answers absence (`available` false,
 // `NotSupportedError`). Under the agent the runner's substitute answers and
-// no AlarmKit call is made.
+// no AlarmKit call is made (D15).
 //
 // - AlarmKit reads back an alarm's id, schedule, countdown and state, not
-//   its title, so a record per tag, in the app's defaults, keeps the
+//   its title (D4), so a record per tag, in the app's defaults, keeps the
 //   title, the snooze, the platform's id and the times this module set. An
 //   alarm AlarmKit no longer has is gone, and its record goes at the read.
 // - A countdown's end and a paused countdown's time left, after the person
@@ -14,10 +14,10 @@
 //   none (before first unlock).
 // - The countdown's Live Activity is drawn by the host's extension
 //   (host/apple/widget/Alarm.swift), which the build adds for a package that
-//   declares `"apple": {"activity": "alarmkit"}`. The metadata
+//   declares `"apple": {"activity": "alarmkit"}` (D12 item 3). The metadata
 //   type both sides name, `ExactAlarmMetadata`, is the host's
 //   `AlarmAttributes.swift`, compiled into this module on iOS.
-// - Tier 3: `AlarmsModule.alarmConfiguration(_:)` receives each
+// - Tier 3 (D6): `AlarmsModule.alarmConfiguration(_:)` receives each
 //   configuration before `schedule(id:configuration:)`.
 import ExactPackage
 import Foundation
@@ -35,9 +35,14 @@ public final class AlarmsModule: ExactPackage {
         self.context = context
     }
 
+    /// AlarmKit draws an alarm's countdown with the host's extension, which a build without alarms
+    /// (`--extensions` leaving them out) does not package: the module is then unavailable, and refuses.
+    /// The build sets the key; an app embedding ExactKit that draws the countdown in its own extension sets it itself.
+    private static let packaged = Bundle.main.object(forInfoDictionaryKey: "ExactAlarmCountdown") as? Bool == true
+
     public func later(_ name: String, _ args: [String: Any], preferred: Any?, reply: @escaping ([String: Any]) -> Void) {
         #if os(iOS)
-        if #available(iOS 26.0, *) {
+        if #available(iOS 26.0, *), Self.packaged {
             let origin = context.origin
             Task { @MainActor in reply(await self.answer(name, args, origin: origin)) }
             return
@@ -48,7 +53,7 @@ public final class AlarmsModule: ExactPackage {
 
     public func call(_ name: String, _ args: [String: Any]) throws -> [String: Any] {
         #if os(iOS)
-        if #available(iOS 26.0, *) {
+        if #available(iOS 26.0, *), Self.packaged {
             switch name {
             case "alarmStatusSync": watch(); return status()
             case "alarmsSync": watch(); return ["exact:answer": alarms()]
@@ -78,11 +83,11 @@ public final class AlarmsModule: ExactPackage {
     }
 
     #if os(iOS)
-    /// The app's access hatch, as `alarmConfiguration(_:)` sets it.
+    /// The app's access hatch (D6), as `alarmConfiguration(_:)` sets it.
     private static var hatch: Any?
 
     /// Each configuration, after the module's words are set and before it is
-    /// scheduled: a named sound, a pre-alert countdown before an alarm at
+    /// scheduled (D6): a named sound, a pre-alert countdown before an alarm at
     /// a time. The id and the record stay the module's.
     @available(iOS 26.0, *)
     public static func alarmConfiguration(_ hatch: @escaping (inout AlarmManager.AlarmConfiguration<ExactAlarmMetadata>) -> Void) {
@@ -116,7 +121,7 @@ public final class AlarmsModule: ExactPackage {
         }
     }
 
-    // MARK: the status
+    // MARK: the status (D7)
 
     @available(iOS 26.0, *)
     private func status() -> [String: Any] {
@@ -130,7 +135,7 @@ public final class AlarmsModule: ExactPackage {
                 "apple": ["authorizationState": word], "android": NSNull()]
     }
 
-    // MARK: the records
+    // MARK: the records (D4)
 
     private static let recordsKey = "exact.alarms.records"
     private var records: [String: [String: Any]] {
@@ -163,7 +168,7 @@ public final class AlarmsModule: ExactPackage {
             @unknown default: "scheduled"
             }
             // A countdown that follows a ring is the system's Repeat or Snooze, which the app did not start: it began
-            // when the ring ended, which `alarmUpdates` reports at once, and runs `snooze`.
+            // when the ring ended, which `alarmUpdates` reports at once, and runs `snooze` (D4).
             var current = record
             if state == "countdown", record["seen"] as? String == "alerting", let snooze = record["snooze"] as? Double {
                 current["at"] = nowMs() + snooze
@@ -194,11 +199,11 @@ public final class AlarmsModule: ExactPackage {
         return out
     }
 
-    // MARK: the sends
+    // MARK: the sends (D2, D7, D8)
 
     @available(iOS 26.0, *)
     private func schedule(_ args: [String: Any], origin: String) async -> [String: Any] {
-        // Only the person sets an alarm; the runner refuses first, this holds for data code too.
+        // Only the person sets an alarm (D7); the runner refuses first, this holds for data code too.
         guard origin == "app" else { return ["error": "NotAllowedError"] }
         guard let tag = args["tag"] as? String, let title = args["title"] as? String, !title.isEmpty else {
             return ["error": "TypeError"]
@@ -219,7 +224,7 @@ public final class AlarmsModule: ExactPackage {
         let apple = args["apple"] as? [String: Any] ?? [:]
         let tint = (apple["tintColor"] as? String).flatMap(Self.color) ?? Color.accentColor
         let text = { (s: String) in LocalizedStringResource(String.LocalizationValue(s)) }
-        // The second button only with `snooze`: Snooze for an alarm at a time, Repeat for a countdown.
+        // The second button only with `snooze`: Snooze for an alarm at a time, Repeat for a countdown (D3).
         let second = snooze.map { _ in
             AlarmButton(text: text(duration == nil ? "Snooze" : "Repeat"), textColor: tint,
                         systemImageName: duration == nil ? "zzz" : "repeat")
@@ -228,7 +233,7 @@ public final class AlarmsModule: ExactPackage {
         if #available(iOS 26.1, *) {
             alert = .init(title: text(title), secondaryButton: second, secondaryButtonBehavior: second.map { _ in .countdown })
         } else {
-            // Before 26.1 the alert takes a Stop button, which 26.1 makes the system's.
+            // Before 26.1 the alert takes a Stop button, which 26.1 makes the system's (D3).
             alert = .init(title: text(title), stopButton: AlarmButton(text: text("Stop"), textColor: .white, systemImageName: "stop.circle"),
                           secondaryButton: second, secondaryButtonBehavior: second.map { _ in .countdown })
         }
@@ -257,7 +262,7 @@ public final class AlarmsModule: ExactPackage {
             context.log("alarms: schedule failed: \(error)")
             return ["error": manager.authorizationState == .authorized ? "UnknownError" : "NotAllowedError"]
         }
-        // A tag that named an alarm is replaced: the new one is set, then the old one ends.
+        // A tag that named an alarm is replaced: the new one is set, then the old one ends (D2).
         if let old = records[tag]?["id"] as? String, let oldId = UUID(uuidString: old) { try? manager.cancel(id: oldId) }
         var record: [String: Any] = ["id": id.uuidString, "title": title]
         record["snooze"] = snooze
@@ -274,12 +279,12 @@ public final class AlarmsModule: ExactPackage {
         return (id, (try? AlarmManager.shared.alarms)?.first { $0.id == id })
     }
 
-    /// Ends the alarm whatever its state; cancelling nothing does nothing.
+    /// Ends the alarm whatever its state; cancelling nothing does nothing (D2).
     @available(iOS 26.0, *)
     private func cancel(_ tag: String) -> [String: Any] {
         guard let (id, alarm) = alarm(tag) else { return [:] }
         try? AlarmManager.shared.cancel(id: id)
-        // The device checklist measures whether `cancel` ends a ring; `stop` ends one that it leaves.
+        // Stage 1 measures whether `cancel` ends a ring; `stop` ends one that it leaves.
         if alarm?.state == .alerting, (try? AlarmManager.shared.alarms)?.contains(where: { $0.id == id }) == true {
             try? AlarmManager.shared.stop(id: id)
             context.log("alarms: cancel left \(tag) ringing; stop(id:) ended it")
@@ -293,7 +298,7 @@ public final class AlarmsModule: ExactPackage {
 
     @available(iOS 26.0, *)
     private func pause(_ tag: String, resume: Bool, origin: String) -> [String: Any] {
-        // A resume commits the device again: the person's alone, as a schedule is.
+        // A resume commits the device again: the person's alone, as a schedule is (D7).
         if resume && origin != "app" { return ["error": "NotAllowedError"] }
         guard let (id, alarm) = alarm(tag), let alarm, alarm.state == (resume ? .paused : .countdown) else {
             return ["error": "InvalidStateError"]

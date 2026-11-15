@@ -1,5 +1,5 @@
 ; The Godot twin of game/bench: the same scenes, measured the same way.
-; Diagnostic, never a check.
+; Diagnostic, never a check (LLP 1041.000 §6a).
 config_version=5
 
 [application]

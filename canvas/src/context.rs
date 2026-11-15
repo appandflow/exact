@@ -1,4 +1,4 @@
-//! The recorder: the context an author calls. It owns the
+//! The recorder (LLP 1056 D3): the context an author calls. It owns the
 //! authoritative drawing state, applies the spec's argument rules at the
 //! call — ignore, no-op or throw — so getters answer exactly, and appends
 //! each effective call to the list the host replays.
@@ -88,9 +88,9 @@ pub(crate) enum Paint {
     Pattern(u32),
 }
 
-/// What the runner tells a context about where it draws: the host's text
-/// engine, the image handles it can draw, and the canvas node's `color` and
-/// `direction`.
+/// What the runner tells a context about where it draws (LLP 1056 D4, D8,
+/// D9): the host's text engine, the image handles it can draw, and the
+/// canvas node's `color` and `direction`.
 #[derive(Clone, Default)]
 pub struct Env {
     /// The canvas's lifetime id, which an image a draw asked for names.
@@ -104,7 +104,7 @@ pub struct Env {
     /// The canvas node's CSS `direction` is `rtl`: what `direction =
     /// "inherit"` resolves to.
     pub rtl: bool,
-    /// The canvas is `display-p3`: its lists carry Display P3 bytes.
+    /// The canvas is `display-p3` (LLP 1100 D12a): its lists carry Display P3 bytes.
     pub p3: bool,
 }
 
@@ -131,13 +131,40 @@ impl Env {
 /// `DOMMatrix`'s 2D members, detached: what `get_transform` returns.
 pub type DomMatrix = Matrix;
 
-/// The text attributes: what shapes a run, and where it goes.
+/// A `letterSpacing` or `wordSpacing`: the authored text, and its length as
+/// `px` plus `em` of the font in force when text is measured or drawn, as
+/// Chrome resolves a font-relative spacing again when the font changes.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct Spacing {
+    pub(crate) text: String,
+    pub(crate) px: f64,
+    pub(crate) em: f64,
+}
+
+impl Default for Spacing {
+    fn default() -> Self {
+        Spacing {
+            text: "0px".into(),
+            px: 0.0,
+            em: 0.0,
+        }
+    }
+}
+
+impl Spacing {
+    /// Its length in px under a font of `size` px.
+    pub(crate) fn used(&self, size: f64) -> f64 {
+        self.px + self.em * size
+    }
+}
+
+/// The text attributes (LLP 1056 D8): what shapes a run, and where it goes.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct TextState {
     pub(crate) font: Font,
-    /// `letterSpacing` and `wordSpacing`: the authored text and px.
-    pub(crate) letter_spacing: (String, f64),
-    pub(crate) word_spacing: (String, f64),
+    /// `letterSpacing` and `wordSpacing`.
+    pub(crate) letter_spacing: Spacing,
+    pub(crate) word_spacing: Spacing,
     pub(crate) kerning: u8,
     pub(crate) rendering: u8,
     pub(crate) align: u8,
@@ -150,8 +177,8 @@ impl Default for TextState {
     fn default() -> Self {
         TextState {
             font: Font::default(),
-            letter_spacing: ("0px".into(), 0.0),
-            word_spacing: ("0px".into(), 0.0),
+            letter_spacing: Spacing::default(),
+            word_spacing: Spacing::default(),
             kerning: 0,
             rendering: 0,
             align: 0,
@@ -877,7 +904,9 @@ impl Context2d {
     /// `clip(rule)`.
     pub fn clip_with_canvas_winding_rule(&self, rule: CanvasWindingRule) {
         let mut g = self.g();
-        g.op(Op::Clip, &[rule.code()]);
+        if g.paints() {
+            g.op(Op::Clip, &[rule.code()]);
+        }
     }
 
     fn rect_op(&self, op: Op, x: f64, y: f64, w: f64, h: f64) {

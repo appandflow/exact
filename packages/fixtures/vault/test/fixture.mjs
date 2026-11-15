@@ -1,4 +1,4 @@
-// What the prebuilt-library suites (linux.mjs, apple.mjs) share: the package built with its library
+// What the M5 suites (linux.mjs, apple.mjs; LLP 1154 §3 item 4, §6 M5) share: the package built with its library
 // (library.mjs), the fixture app depending on it, an app depending on a copy that declares a wrong hash, and the
 // drive every host answers the same.
 //

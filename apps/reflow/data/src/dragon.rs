@@ -1,6 +1,6 @@
 //! The illustrated manuscript's dragon: one silhouette polygon that is both
 //! the visible clip and the exclusion outline, so the words meet the ink.
-//! The filled and excluded vertices are identical.
+//! @ref LLP 1043.000 §3 D1 — identical filled and excluded vertices.
 use crate::prose::DRAGON;
 use exact_plan::Value;
 

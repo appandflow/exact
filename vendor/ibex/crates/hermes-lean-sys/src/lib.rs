@@ -4,8 +4,8 @@
 //! development layout, then a SHA-256-pinned release bundle in the per-user
 //! Cargo cache.
 
-// A process links exactly one VM archive identity, so
-// Cargo feature unification must not select both VMs.
+// @ref LLP 0057.000#l1--the-bindings-door — R-e requires one linked archive
+// identity per process; Cargo feature unification must not select both VMs.
 #[cfg(all(feature = "link", feature = "link-lean"))]
 compile_error!(
     "hermes-lean-sys features `link` and `link-lean` are mutually exclusive; select exactly one VM archive"

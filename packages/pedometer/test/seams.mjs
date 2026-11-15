@@ -1,9 +1,9 @@
-// The seam is public: two tests that need nothing an outside author lacks.
+// The seam is public (LLP 1133.001 D8, LLP 1133.026 §15 stage 4): two tests that need nothing an outside author lacks.
 //
 // - Out of the tree: @exact/pedometer and @exact/altimeter, packed as a registry would carry them (`bun pm pack`),
 //   installed into an app `exact new` made outside the repo, build unchanged and answer absence in a browser.
 // - Replaced: a fixture implementation of the pedometer outside the tree, a direct dependency of the app, replaces
-//   the endorsed web implementation and answers a real call, from the view and from
+//   the endorsed web implementation (LLP 1133.001 D4's second rule) and answers a real call, from the view and from
 //   data code.
 //
 // usage: bun packages/pedometer/test/seams.mjs

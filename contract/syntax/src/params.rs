@@ -1,4 +1,4 @@
-//! A component's `params` section: the tokens it owns, each
+//! A component's `params` section (LLP 1121 D15): the tokens it owns, each
 //! with a kind, a default (any token value, a string) and the editor's
 //! metadata. `param.<name>` in the component's rows and defaults names one;
 //! the driver gives the component its identity, its declaring file relative
@@ -12,7 +12,7 @@ pub struct Params {
     /// `post.contract#PostButton`, as the driver sets it; `None` until then.
     pub identity: Option<String>,
     /// The package whose file declares it, by its `package.json` name, as
-    /// the driver sets it; none for the app's.
+    /// the driver sets it; none for the app's (LLP 1121 stage 13).
     pub package: Option<String>,
     /// That package's directory, where its `assets/` are: a literal
     /// `icon(svg …)` default reads its SVG there.
@@ -59,7 +59,7 @@ pub enum ParamValue {
     Number(f64),
 }
 
-/// The attributes a param admits.
+/// The attributes a param admits (D15).
 pub const ATTRIBUTES: [&str; 8] = [
     "range", "step", "control", "options", "label", "help", "group", "priority",
 ];

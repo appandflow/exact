@@ -3,9 +3,9 @@ import UIKit
 import XCTest
 @testable import ExactKit
 
-/// `navigationDetent`'s words as UIKit detents, `fit-content` resolving to
-/// the route's content height within the sheet's maximum, and a sheet
-/// presented over the native fixture following its rows.
+/// LLP 1075.003 §9.11: `navigationDetent`'s words as UIKit detents,
+/// `fit-content` resolving to the route's content height within the sheet's
+/// maximum, and a sheet presented over the native fixture following its rows.
 final class ModalDetentIOSTests: XCTestCase {
     private var window: UIWindow?
     private var host: UIViewController?
@@ -34,7 +34,7 @@ final class ModalDetentIOSTests: XCTestCase {
         XCTAssertTrue(ModalHost.detents(nil) { nil }.isEmpty)
     }
 
-    /// A percentage is that share of UIKit's maximum
+    /// LLP 1075.003 §9.13: a percentage is that share of UIKit's maximum
     /// detent value, as RN's `sheetAllowedDetents: [0.45]` is.
     func testAPercentageIsAShareOfTheMaximum() {
         let large = UISheetPresentationController.Detent.Identifier.large.rawValue
@@ -43,8 +43,8 @@ final class ModalDetentIOSTests: XCTestCase {
         XCTAssertEqual(detents[0].resolvedValue(in: Context(700)), 315)
         XCTAssertEqual(detents[0].resolvedValue(in: Context(600)), 270, "read at each resolution, as the maximum changes")
         XCTAssertEqual(detents[1].resolvedValue(in: Context(700)), 490)
-        // All of the maximum is `large` itself: one rest, not
-        // two at one height, and the status bar's covering sheet.
+        // All of the maximum is `large` itself (Grok's review): one rest, not
+        // two at one height, and the status bar's covering sheet (LLP 1105 D2).
         XCTAssertEqual(ModalHost.detents("100%") { nil }.map(\.identifier.rawValue), [large])
         var refused: [Substring] = []
         XCTAssertEqual(ModalHost.detents("45% 100% large", refused: { word, _ in refused.append(word) }) { nil }.map(\.identifier.rawValue), ["authored-0", large])
@@ -80,7 +80,7 @@ final class ModalDetentIOSTests: XCTestCase {
             "navigationDetent \"-12\" on route \"3\": \"-12\" is not large, medium, fit-content, a positive point height or a percentage above 0% and at most 100%; the sheet uses the platform's large detent")
     }
 
-    /// UIKit takes detents shortest to tallest. "300 45%"
+    /// LLP 1075.003 §9.13: UIKit takes detents shortest to tallest. "300 45%"
     /// is in order on an 800-point maximum (300, 360) and not on a 600 one
     /// (300, 270), so what a bound value keeps is one kind, ascending, with
     /// `large` last, which is in order on any screen; the rest is journaled.
@@ -132,22 +132,22 @@ final class ModalDetentIOSTests: XCTestCase {
 
     /// The native fixture booted in a window of the test host's scene: UIKit
     /// presents a sheet only from a window a scene holds.
-    private func fixture(_ label: String) throws -> ExactSession {
+    private func fixture(_ label: String, planKey: String = "EXACT_FIXTURE_PLAN") throws -> ExactSession {
         let env = ProcessInfo.processInfo.environment
-        let plan = try Data(contentsOf: URL(fileURLWithPath: try XCTUnwrap(env["EXACT_FIXTURE_PLAN"], "build.mjs --test --ios compiles the fixture's plan")))
+        let plan = try Data(contentsOf: URL(fileURLWithPath: try XCTUnwrap(env[planKey], "build.mjs --test --ios compiles the fixture's plan")))
         let session = ExactApp.shared.makeSession(label: label)
         sessions.append(session)
         let view = ExactView(session: session)
         let host = UIViewController()
         let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene
         let window = scene.map { UIWindow(windowScene: $0) } ?? UIWindow(frame: CGRect(x: 0, y: 0, width: 402, height: 874))
-        window.frame = CGRect(x: 0, y: 0, width: 402, height: 874)
+        window.frame = window.screen.bounds
         window.rootViewController = host
         window.makeKeyAndVisible()
         host.view.addSubview(view)
         self.window = window
         self.host = host
-        XCTAssertNil(session.boot(plan: plan, size: CGSize(width: 402, height: 874)).error)
+        XCTAssertNil(session.boot(plan: plan, size: window.bounds.size).error)
         view.frame = host.view.bounds
         view.layoutIfNeeded()
         spin(0.3)
@@ -192,7 +192,7 @@ final class ModalDetentIOSTests: XCTestCase {
         try body()
     }
 
-    /// A sheet that declares no Back control still swipes down,
+    /// LLP 1115 D5: a sheet that declares no Back control still swipes down,
     /// and its dismissal goes back by the root's `navigate`, once.
     func testASheetWithNoBackControlStillSwipesDownAndGoesBackByNavigate() throws {
         try sheetSwipesDown(navigate: true)
@@ -255,6 +255,54 @@ final class ModalDetentIOSTests: XCTestCase {
             // Taller than the sheet's maximum: the maximum.
             XCTAssertEqual(controller.detents.first?.resolvedValue(in: Context(100)), 100)
         }
+    }
+
+    func testAScrollingFitContentSheetMeasuresRowsOutsideItsCurrentBounds() throws {
+        guard hostedWindowScene() != nil else {
+            throw missing("scene", "the sheet's height follows its detent only once UIKit finishes presenting it, in a scene's window")
+        }
+        let session = try fixture("detent-scrolling", planKey: "EXACT_KEYBOARD_SHEET_PLAN")
+        try tap(session, "open-menu")
+        until("the scrolling menu is presented") { sheet()?.sheetPresentationController != nil }
+        let presented = try XCTUnwrap(sheet())
+        let controller = try XCTUnwrap(presented.sheetPresentationController)
+        let route = try node(session, "scrolling-menu")
+        let scroll = try XCTUnwrap(route.scroll)
+        let routeView = try XCTUnwrap(session.presenter.navigation.controllers[route.id]?.view)
+        let detent = try XCTUnwrap(controller.detents.first)
+        until("the menu is fitted and settled") { route.fitContentHeight == 208 && !Agent(session: session).nativeInFlight() }
+        let short = routeView.bounds.height
+        controller.animateChanges { controller.selectedDetentIdentifier = .large }
+        until("the menu expands to large") { routeView.bounds.height > short && !Agent(session: session).nativeInFlight() }
+        XCTAssertEqual(detent.resolvedValue(in: Context(800)), 208)
+        controller.animateChanges { controller.selectedDetentIdentifier = detent.identifier }
+        until("the menu returns to its fitted height") { abs(routeView.bounds.height - short) < 1 && !Agent(session: session).nativeInFlight() }
+        try countingInvalidations {
+            for (press, natural) in [("more", 252), ("more", 296), ("fewer", 252)] {
+                let seen = UISheetPresentationController.exactTestInvalidations
+                try tap(session, press)
+                until("the detent follows the rows") { detent.resolvedValue(in: Context(800)) == CGFloat(natural) }
+                until("the sheet invalidates its detents") { UISheetPresentationController.exactTestInvalidations > seen }
+                XCTAssertEqual(controller.selectedDetentIdentifier, detent.identifier)
+            }
+        }
+        controller.animateChanges { controller.selectedDetentIdentifier = .large }
+        var natural: CGFloat = 252
+        for _ in 0..<20 {
+            try tap(session, "more")
+            natural += 44
+            until("the natural height follows another row") { route.fitContentHeight == natural }
+            XCTAssertEqual(controller.selectedDetentIdentifier, .large)
+        }
+        until("the large sheet settles") { !Agent(session: session).nativeInFlight() }
+        XCTAssertGreaterThan(natural, routeView.bounds.height)
+        XCTAssertLessThan(try node(session, "row-0").bounds.height, 44, "the real rows still shrink")
+        XCTAssertLessThan(route.content.height, natural, "the natural height does not inflate the scroll extent")
+        XCTAssertEqual(scroll.contentSize.height, max(route.content.height, route.scrollFloor(scroll)), accuracy: 1)
+        for maximum: CGFloat in [100, 800] {
+            XCTAssertEqual(detent.resolvedValue(in: Context(maximum)), maximum)
+        }
+        XCTAssertTrue(sheet() === presented)
     }
 
     /// `navigationGrabber` is the author's word over the platform's: a sheet
@@ -334,7 +382,7 @@ final class ModalDetentIOSTests: XCTestCase {
         XCTAssertTrue(session.agent(#"{"op":"logs","since":0}"#).contains(#"navigationInitialDetent \"medum\""#), "journaled when the sheet is made")
     }
 
-    /// Mounted, its route in its block, the sheet still
+    /// Mounted, its route in its block (LLP 1123 D2), the sheet still
     /// follows its rows: its content is measured at the block's width,
     /// whatever height the block has.
     func testAMountedFitContentSheetFollowsItsRows() throws {

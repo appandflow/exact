@@ -1,4 +1,4 @@
-<!-- The WinUI reference: Windows's own controls, drawn by
+<!-- The WinUI reference (LLP 1115.004 D13): Windows's own controls, drawn by
      WinUI 3 at the pinned Windows App SDK, for the oracle to compare with
      Exact's painter. Built and run only on the oracle's machine by draw.mjs;
      never part of the gate. -->

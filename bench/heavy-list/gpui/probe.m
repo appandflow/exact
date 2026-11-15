@@ -1,4 +1,4 @@
-// Linked into the native, GPUI, ink and egui benchmark copies.
+// Linked into the native, GPUI, ink and egui benchmark copies. @ref LLP 1149 §4.1.
 #include <assert.h>
 #import <AppKit/AppKit.h>
 #import <QuartzCore/QuartzCore.h>

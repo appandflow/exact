@@ -18,6 +18,14 @@ Every texture bakes to three files, and a device fetches exactly one:
 | `x.bc.tex` | BC7 colour/data, BC5 normal XY, BC4 occlusion | devices granting `texture-compression-bc` |
 | `x.astc.tex` | ASTC 4×4 | devices granting only `texture-compression-astc` |
 
+A native Apple bundle holds the one family its devices read
+(`scripts/texture-families.mjs`): a Mac's the BC file, an iPhone's, iPad's or Apple
+TV's the ASTC file, and neither the RGBA8 file where that family's file is there. The
+Fox's 1024² texture is 8.4 MB in all three files and 1.4 MB in an iOS bundle. The web
+root and the other platforms' bundles hold all three. A thinned bundle names its family
+in the cohort's inputs (`textureFamily`), so it is a new binary; an installed binary
+from before, whose renderer falls back to the RGBA8 file, is sent all three files.
+
 Each is the same `.tex` `Data` record (`TextureData`), digest-addressed like any
 asset; its `format` says how the levels are encoded. Models and `Sprite`s name only
 `x.tex`; the renderer maps that name to its device's file (see
@@ -90,9 +98,12 @@ may therefore differ for identical Ogg sources. The proof's exact execution-inpu
 digest includes those bytes and their manifest digests; portable `sourceInputs`
 identifies the authored sound source instead.
 
-The digest manifest protects authored files from replacement or pruning. Obsolete
-list-form manifests refuse with instructions to remove the manifest and its generated
-outputs, then rebake; there is no ownership guess based on a filename.
+The digest manifest protects authored files from replacement or pruning. Before
+writing outputs it records both the current and pending digests, so an interrupted
+bake can resume. A successful bake keeps only the final digests. Bakes of the same
+game hold an exclusive lock through the manifest read, output writes and pruning.
+Obsolete list-form manifests refuse with instructions to remove the manifest and
+its generated outputs, then rebake; there is no ownership guess based on a filename.
 
 `cargo run -p exact-game-bake --locked --offline -- --art /path/to/game` runs that
 same owned-output bake without compiling a generated GPU module. The scoped game test
@@ -100,11 +111,13 @@ command runs it before logic tests whenever `art/` or `.baked-assets.json` exist
 The app-directory mode bakes art only; typed levels still require the generated build
 script's concrete `Game` type.
 
-With `game.assets: true`, generated GPU build scripts also call
-`bake_game_level::<MyGame>`. `Game::LEVEL` names one `.level.json` file beside
-`app.json`, typed by the author's existing `Data` derive and listed in `ASSETS`.
-The bake refuses malformed fields by path and writes validated bytes to `assets/`;
-the executable contains the decoder, not the level value. No level schema is duplicated
+Generated GPU build scripts call `bake_game_level::<MyGame>`. `Game::LEVEL` names
+one `.level.json` file relative to the game directory, typed by the author's
+existing `Data` derive.
+The bake refuses malformed fields by path and writes validated bytes to `assets/`.
+`.shells/level.json` records the output's name for build input inventories. Matching
+filenames beside `app.json` and under `assets/` do not establish bake ownership.
+The executable contains the decoder, not the level value. No level schema is duplicated
 in the manifest. JSON remains readable through agent asset state after delivery.
 
 The geometry allowlist accepts glTF `COLOR_0` (RGB becomes RGBA with alpha one).

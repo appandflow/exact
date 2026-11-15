@@ -18,7 +18,7 @@ public struct NativeTimerWake: Equatable, Sendable {
 
 extension BatchReader {
     /// A `canvas2d` op's lists, `[address, length]` pairs in the runtime's
-    /// memory, copied out now: the runtime keeps them alive
+    /// memory (LLP 1056 D4), copied out now: the runtime keeps them alive
     /// only until its next batch with lists.
     package static func canvasLists(_ value: Any?) -> [Data] {
         (value as? [Any] ?? []).compactMap { pair in
@@ -39,9 +39,10 @@ extension BatchReader {
         var seq: (UInt64, UInt64)?
         var alerts: [String] = []
         var journal: [String] = []
+        var announced: [String] = []
         var modes: [String: String]?
         var live: String?, unsupported = false, design: String?, facts = false, wakelock: Bool?, orientation: OrientationRequest?, mustFinish: Bool?
-        var unchanged = false, storeReadPending = false, storeActivationPending = false, landing = false
+        var unchanged = false, storeReadPending = false, storeActivationPending = false, landing = false, stored = false
         var seen: Set<String> = []
         try object { r, key in
             guard seen.insert(key).inserted else { try r.skip(); return }
@@ -69,6 +70,7 @@ extension BatchReader {
             case "clock": clock = try r.number()
             case "timer_due_ms": due = try r.number()
             case "landing": landing = try r.bool()
+            case "stored": stored = try r.bool()
             case "error": error = try r.string()
             case "modes": if case .object(let object) = try r.value() { modes = object.compactMapValues { $0.string } }
             case "live": live = try r.string()
@@ -80,6 +82,7 @@ extension BatchReader {
             case "orientationlock": if case .object(let o) = try r.value() { orientation = OrientationRequest(o) }
             case "alerts": alerts = try r.array { try $0.string() }
             case "journal": journal = try r.array { try $0.string() }
+            case "announced": announced = try r.array { try $0.string() }
             case "seq":
                 let range = try r.array { try $0.number() }
                 if range.count == 2, range.allSatisfy({ $0 >= 0 && $0 == $0.rounded() }) { seq = (UInt64(range[0]), UInt64(range[1])) }
@@ -89,6 +92,8 @@ extension BatchReader {
         var batch = Batch(ops: ops, timers: timers, motion: motion, clock: clock, error: error, timerDueMs: due, pending: pending, busy: busy)
         batch.unchanged = unchanged
         batch.landing = landing
+        batch.stored = stored
+        batch.announced = announced
         batch.storeReadPending = storeReadPending
         batch.storeActivationPending = storeActivationPending
         batch.spatial = spatial
@@ -183,6 +188,7 @@ extension BatchReader {
             case (.frame, "y"), (.content, "y"), (.present, "y"): op.y = try number()
             case (.frame, "w"), (.content, "w"), (.present, "w"): op.w = try number()
             case (.frame, "h"), (.content, "h"), (.present, "h"): op.h = try number()
+            case (.content, "fitHeight"): op.fitHeight = try number()
             case (.frame, "property"), (.content, "property"), (.present, "property"): op.property = try string()
             default: try skip()
             }
@@ -193,7 +199,7 @@ extension BatchReader {
 
     package mutating func inline() throws -> InlineText {
         var id: UInt32?, parent: UInt32?, props: [String: String] = [:]
-        var style = InlineStyle(), handlers: Set<String> = [], paints = false
+        var style = InlineStyle(), handlers: Set<String> = [], paints = false, opacity = 1.0
         try object { r, key in
             switch key {
             case "id": id = try r.id()
@@ -205,23 +211,20 @@ extension BatchReader {
                 case "style": style = try r.inlineStyle()
                 case "handlers": handlers = Set(try r.array { try $0.string() })
                 case "paint": paints = try r.bool()
+                case "opacity": opacity = try r.number()
                 default: try r.skip()
                 }
             }
         }
         guard let id, let parent else { throw Invalid.wire }
-        return InlineText(id: id, parent: parent, props: props, style: style, handlers: handlers, paints: paints)
+        return InlineText(id: id, parent: parent, props: props, style: style, handlers: handlers, paints: paints, opacity: opacity)
     }
     package mutating func inlineStyle() throws -> InlineStyle {
         var style = InlineStyle(), height: BatchValue?
         try object { r, key in
             switch key {
-            case "font_size", "font_weight", "font_family", "font_style", "font_stretch", "font_variation_settings", "letter_spacing", "text_color", "text_decoration_line", "background_color", "font_variant_numeric", "font_variant_ligatures",
-                 "text_shadow", "text_stroke_width", "text_stroke_color", "visibility", "user_select", "outline_style",
-                 "border_radius_top_left", "border_radius_top_right", "border_radius_bottom_right", "border_radius_bottom_left":
-                try style.set(key, r.value(), colorChannels: r.colorChannels)
             case "line_height": height = try r.value()
-            default: try r.skip()
+            default: try style.set(key, r.value(), colorChannels: r.colorChannels)
             }
         }
         try style.height(height)
@@ -232,7 +235,7 @@ extension BatchReader {
 extension BatchOp {
     package var isAdapter: Bool {
         switch op {
-        case .create, .props, .style, .children, .paragraph, .frame, .content, .present, .roots, .destroy, .roles: return false
+        case .create, .props, .style, .children, .paragraph, .frame, .content, .present, .roots, .destroy, .renew, .roles: return false
         default: return true
         }
     }
@@ -281,7 +284,8 @@ package struct BatchFields {
         for (key, value) in rows where key != "line_height" { try style.set(key, value, colorChannels: colorChannels) }
         try style.height(rows["line_height"])
         return InlineText(id: id, parent: parent, props: try strings("props"), style: style,
-                          handlers: Set(try array("handlers", Self.string)), paints: try bool("paint") ?? false)
+                          handlers: Set(try array("handlers", Self.string)), paints: try bool("paint") ?? false,
+                          opacity: try number("opacity") ?? 1)
     }
     package func op(colorChannels: ((BatchValue, Bool) -> [Double]?)? = nil) throws -> BatchOp {
         guard let name = try string("op") else { throw BatchReader.Invalid.wire }
@@ -299,7 +303,8 @@ package struct BatchFields {
             op.x = try number("x") ?? 0; op.y = try number("y") ?? 0
             op.w = try number("w") ?? 0; op.h = try number("h") ?? 0
             op.property = try string("property") ?? ""
-        case .destroy: break
+            if op.op == .content { op.fitHeight = try number("fitHeight") }
+        case .destroy, .renew: break
         case .roles: op.style = try object("roles")
         default: op.payload = fields.mapValues(\.any)
         }
@@ -325,16 +330,18 @@ extension InlineStyle {
         case "letter_spacing": run.letterSpacing = CGFloat(Float(try BatchFields.number(value)))
         case "font_variant_numeric": run.numeric = Int(try BatchFields.number(value)) & 0xff
         case "font_variant_ligatures": run.ligatures = Int(try BatchFields.number(value)) & 0xff
-        case "visibility": run.hidden = try BatchFields.string(value) == "hidden"
+        case "font_feature_settings": run.features = FontFeature.of(value)
+        case "visibility": run.hidden = try BatchFields.string(value) != "visible"
         case "user_select": selectsAll = try BatchFields.string(value) == "all"
         case "outline_style": outlineNone = try BatchFields.string(value) == "none"
         case "text_decoration_line": run.decoration = try BatchFields.string(value)
         case "text_color" where value.isWideColor, "background_color" where value.isWideColor:
+            // @ref LLP 1100 D2
             guard let light = channels(value, false), let dark = channels(value, true) else { throw BatchReader.Invalid.wire }
             paired = value.isSchemeColor
             if key == "text_color" { run.color = light; darkColor = dark } else { run.background = light; darkBackground = dark }
         case "text_color" where value.isSystemColor, "background_color" where value.isSystemColor:
-            // A platform colour, kept by name and resolved
+            // @ref LLP 1095 D5 — a platform colour, kept by name and resolved
             // as the run is read, in its paragraph owner's traits (an inline
             // run has no view), so a contrast or level change reaches it.
             guard channels(value, false) != nil, channels(value, true) != nil else { throw BatchReader.Invalid.wire }

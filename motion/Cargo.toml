@@ -1,6 +1,8 @@
 # The motion evaluator: CSS `transition` semantics over the four compositor
 # properties, one spring, and a seekable clock.
 #
+# @ref LLP 1002 (motion v1 decision) / LLP 1003 (motion v1 spec).
+#
 # The dependency closure is `libm` and `exact-num` (number text) and nothing
 # else: no host crate, no kernel. The kernel depends on this crate for the
 # `transition` style row's type. It builds for wasm32-unknown-unknown.

@@ -1,4 +1,4 @@
-// Gamepads for world canvases, read with the W3C Gamepad API
+// Gamepads for world canvases (LLP 1127.003 D2), read with the W3C Gamepad API
 // (https://w3c.github.io/gamepad/). The browser exposes pads only by polling,
 // so while one is connected an animation-frame loop reads them and sends the
 // focused world a `pad` event when a button or an axis changed — a change, not

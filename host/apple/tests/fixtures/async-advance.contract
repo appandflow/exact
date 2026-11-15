@@ -1,4 +1,4 @@
-// AsyncAdvanceTests: rows a timer's commit removes (`a`) or
+// AsyncAdvanceTests (LLP 1072.000): rows a timer's commit removes (`a`) or
 // changes (`b`'s price), each with a field and a press, and a short repeat
 // whose observed time and next beat a delayed advance pins.
 component App

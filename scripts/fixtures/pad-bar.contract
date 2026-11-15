@@ -1,4 +1,4 @@
-// The keyboard's accessory bar is the platform's, on iOS.
+// LLP 1116.006 D6: the keyboard's accessory bar is the platform's, on iOS.
 // Unit-converter's shape: a large-title header over a grouped list whose
 // FROM section holds a decimal field that asks for ± and Done (a negative
 // `min`, `enterkeyhint="done"`) and a Swap button under it, low enough that

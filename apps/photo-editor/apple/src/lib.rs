@@ -1,6 +1,6 @@
 //! The photo editor on Apple: its TypeScript saves an edit and lists the
 //! recent photos through @exact/photos; `<photo-editor>` is the app's module
-//! in `modules/apple`.
+//! in `modules/apple` (LLP 1067.000).
 
 include!(concat!(env!("OUT_DIR"), "/module.rs"));
 include!(concat!(env!("OUT_DIR"), "/baked.rs"));

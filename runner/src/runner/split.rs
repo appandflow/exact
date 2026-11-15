@@ -1,5 +1,5 @@
-//! Which stacks a host shows as a list beside its detail: one rule, written
-//! once for every host.
+//! Which stacks a host shows as a list beside its detail (LLP 1115.002 D4;
+//! the rule is LLP 1116.004 D1.2's, written once for every host).
 //!
 //! **A stack splits when a row of its root route's list pushes.** The rule
 //! reads the push and never the picture: a row's disclosure chevron is paint
@@ -29,7 +29,7 @@
 //! row it pressed.
 //!
 //! When a window is wide enough for two columns, and what the columns look
-//! like, are each host's: the Mac splits at every width,
+//! like, are each host's: the Mac splits at every width (LLP 1115.002 D4),
 //! the web at 900 px.
 
 use super::{DataSource, Runner, RunnerError};
@@ -70,7 +70,8 @@ pub struct StackSplit {
     pub rows: Vec<(ViewId, ViewId)>,
     /// Each route above the root in its stack with its visit's location,
     /// bottom to top: a row's association with a route holds while the
-    /// route keeps the location it had, as `replace` keeps a visit's id.
+    /// route keeps the location it had, as `replace` keeps a visit's id
+    /// (LLP 1127 D3).
     pub locations: Vec<(ViewId, String)>,
 }
 
@@ -122,7 +123,7 @@ impl<D: DataSource> Runner<D> {
         })
     }
 
-    /// Show `view`, a box written
+    /// @ref LLP 1116.006 D2 — show `view`, a box written
     /// `navigationSplit="placeholder"`, as a split shows it in its detail
     /// pane while nothing is selected, or hide it again: the lowerer's
     /// `display: none` gives way to the web shell's sheet for it
@@ -273,7 +274,8 @@ impl<D: DataSource> Runner<D> {
                     if href.starts_with('/') && !href.starts_with("//") && self.route_matches(href)
                     {
                         *pushes = true;
-                        links.push((child, href.to_string()));
+                        // As a visit stores it, to compare with one.
+                        links.push((child, exact_route::canonical(href)));
                     }
                 }
                 (None, None) => self.row_presses(child, pushes, actionable, links),

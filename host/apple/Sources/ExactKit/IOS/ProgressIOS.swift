@@ -1,11 +1,11 @@
-// An indeterminate `progress` is
+// @ref LLP 1069.001 (amended 2026-10-07) — an indeterminate `progress` is
 // UIKit's activity indicator, centred in the node's box: `.medium`, or
 // `.large` where the box's shorter side holds its 37 points; a `color` set
-// on it its colour (an inherited one leaves UIKit's). It turns
+// on it its colour (an inherited one leaves UIKit's, LLP 1115 D4). It turns
 // while it shows, and stops where it is hidden (`display: none` on it or
 // above it), removed, or under the agent's clock, which shows one still frame. It is its own accessibility element (UIKit's
 // "In progress"), named by the node's `aria-label`.
-// With a `value`, it is UIKit's progress view instead
+// @ref LLP 1116 D8 — with a `value`, it is UIKit's progress view instead
 // (`.default`), across the content box at its own height, tinted by the
 // node's `accent-color` (none leaves UIKit's tint), at HTML's fraction.
 #if os(iOS) || os(tvOS)
@@ -42,14 +42,14 @@ extension ControlHost {
             let box = owner.contentBox()
             assign(spinner, \.style, min(box.width, box.height) >= Self.largeSide ? .large : .medium)
             // The spinner's own `color`, else an authored accent (on it or
-            // around it, as the bar takes it), else UIKit's grey (an
-            // inherited text colour is not the spinner's).
+            // around it, as the bar takes it: LLP 1121 D9), else UIKit's grey
+            // (LLP 1115 D4: an inherited text colour is not the spinner's).
             let own = owner.ownUIColor("text_color")
             // An `accent-color` on it or above (not the platform's tint, which
             // `accent-color: AccentColor` names), else the design's AccentColor.
             let written = Self.authorsAccent(owner)
             // `accent-color: AccentColor` under an authored accent keeps that one, as the web's
-            // `var(--exact-accent, AccentColor)` does.
+            // `var(--exact-accent, AccentColor)` does (LLP 1121 D9, stage 9 F1).
             // (Resolved in the spinner's appearance, as the painters resolve it.)
             let above = written || owner.style["accent_color"]?.namesTint != true ? nil : authoredAbove(owner)
             // The spinner's own tint is the accent at or above that one (`ownAccent`), whose view its own need
@@ -87,7 +87,7 @@ extension ControlHost {
         sequence(first: view as UIView, next: presenter.authoredParent).dropFirst().lazy.compactMap { $0 as? NodeView }.first(where: Self.authorsAccent)
     }
 
-    /// The determinate bars. A change of value eases, as
+    /// The determinate bars (LLP 1116 D8). A change of value eases, as
     /// UIKit's does on a hand-built screen, except under the agent's clock,
     /// which shows where it lands; VoiceOver hears the percentage (or the
     /// node's `aria-valuetext`), as from UIKit's own.

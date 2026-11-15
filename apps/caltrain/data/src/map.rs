@@ -1,5 +1,6 @@
-//! The line map: a Canvas 2D surface, drawn by the data crate with the
-//! web's canvas calls.
+//! The line map: a Canvas 2D surface (LLP 1056 §8 stage 1, the take in
+//! `rules/DEFERRED.md`), drawn by the data crate with the web's canvas
+//! calls. It was a wgpu surface (LLP 1009); the drawing is the same.
 //!
 //! Arguments, in `canvas surface=map(line, selectedId, board, nowMs, em)`
 //! order: the stations in line order (records `[id, name, zone, distance]`),
@@ -8,7 +9,7 @@
 //! (16 points, 24 on a TV). It draws the line and the next
 //! northbound train as a square sliding toward the selected station as its
 //! countdown runs. The stations — a dot and a name each — are the canvas's
-//! children, laid out by the kernel over the bitmap. The two
+//! children (LLP 1014), laid out by the kernel over the bitmap. The two
 //! agree on where a station is by construction: the children are a column
 //! with 16 points of padding and `1.25em` rows spread `space-between`, so
 //! the first row's centre is 16 points and `0.625em` from the top and the

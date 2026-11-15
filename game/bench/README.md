@@ -1,6 +1,6 @@
 # bench — the same scenes here, in Godot and in three.js
 
-Diagnostic, never a check. `bun game/bench/run.mjs <engine> <scene>
+Diagnostic, never a check (LLP 1046.000 §6a). `bun game/bench/run.mjs <engine> <scene>
 <n> [mode] [variant]` prints one JSON line. Every engine presents to the display at
 2560×1440 pixels, 4× MSAA, vsync on, so the honest question is **the largest N that
 still holds the refresh rate**, with the script and render milliseconds beside it.
@@ -273,7 +273,7 @@ energy). SurfaceFlinger is reported apart because each engine's frames cost it.
 Total memory is about equal; Exact's is graphics memory where the WebView's is
 JavaScript and renderer heap: the six-buffer ring at device pixels (6 × 10 MB) and
 the direct path's 4× MSAA colour and depth (about 80 MB, allocated as ordinary
-memory). Exact spends half the CPU time and a third of the cycles; its
+memory, QUEUE.md). Exact spends half the CPU time and a third of the cycles; its
 SurfaceFlinger time is about 100 ms/s higher, on little cores at the same cycles.
 The battery was full on USB power and the Pixel 5 has no power rails, so power was
 not measured; the GPU's clock was not readable without root.
@@ -349,8 +349,8 @@ instance matrices take 12.5 ms of JavaScript a frame at 256,000.
 #### Sitting #2 — landmark re-score, 2026-09-18T20-36-09-882Z
 
 All 15 attempts satisfy the existing input/focus validity rules; all are provisional
-at load 9–19, with nine other jobs and a build sharing the machine. This table comes from
-the saved-trace command; it opens no browser and takes no sitting:
+at load 9–19, with nine reviewers and a build sharing the machine. This table is the
+literal output of the saved-trace command; it opens no browser and takes no sitting:
 
 ```sh
 bun game/bench/feel.mjs reanalyze --landmark 8,1,0 game/bench/results/feel-2026-09-18T20-36-09-882Z-*.json.gz
@@ -358,18 +358,33 @@ bun game/bench/feel.mjs reanalyze --landmark 8,1,0 game/bench/results/feel-2026-
 
 The fixed landmark is Beacons' first beacon. The player screen column is retained
 only as a diagnostic: a following camera keeps that point nearly stationary.
-The table keeps each variant's best and median rows.
+The three cited trace batches are tracked; uncited captures remain ignored.
 
 | variant | run / trace | status | load1 | raw Hz | raw callback intervals p50/p95/p99/max ms | raw hitches | drawn-clock intervals p50/p95/p99/max ms | drawn hitches | landmark CV (px) | landmark Δ change >0.5 px % | landmark zero % | player screen CV (diagnostic) | world player CV (m) | world player zero % | world camera CV (m) | world camera zero % | event delivery → first drawn pose p50/p95 ms | latency / raw interval p50/p95 | endpoints; injection phase | tick_phase | trials; edges | front/visible |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| exact/120hz | [reanalyzed #1 (2026-09-18T20-36-09-882Z)](results/feel-2026-09-18T20-36-09-882Z-exact-120hz-1-attempt1.json.gz) | PROVISIONAL | 18.9 | 120.5 | 8.30/10.00/10.30/10.50 | 0 (0.00%) | 8.34/8.35/8.36/8.44 | 0 (0.00%) | 0.264 | 0.0 | 0.0 | 1.825 | 0.002 | 0.0 | 0.002 | 0.0 | 6.65/7.80 | 0.80/0.94 | listener → draw pose; CDP between callbacks | 0.3231 | 20/20; 50/50 | yes |
+| exact/120hz | [reanalyzed #2 (2026-09-18T20-36-09-882Z)](results/feel-2026-09-18T20-36-09-882Z-exact-120hz-2-attempt1.json.gz) | PROVISIONAL | 10.2 | 120.5 | 8.30/10.00/10.30/10.40 | 0 (0.00%) | 8.34/8.35/8.36/8.41 | 0 (0.00%) | 0.264 | 0.0 | 0.0 | 1.806 | 0.001 | 0.0 | 0.002 | 0.0 | 7.35/8.41 | 0.89/1.01 | listener → draw pose; CDP between callbacks | 0.1869 | 20/20; 50/50 | yes |
+| exact/120hz | [reanalyzed #3 (2026-09-18T20-36-09-882Z)](results/feel-2026-09-18T20-36-09-882Z-exact-120hz-3-attempt1.json.gz) | PROVISIONAL | 13.1 | 120.5 | 8.30/9.90/10.30/10.40 | 0 (0.00%) | 8.34/8.35/8.36/8.37 | 0 (0.00%) | 0.264 | 0.0 | 0.0 | 1.896 | 0.001 | 0.0 | 0.001 | 0.0 | 5.10/6.50 | 0.61/0.78 | listener → draw pose; CDP between callbacks | 0.8792 | 20/20; 50/50 | yes |
 | exact/120hz | best (#1) | PROVISIONAL | 18.9 | 120.5 | 8.30/10.00/10.30/10.50 | 0 (0.00%) | 8.34/8.35/8.36/8.44 | 0 (0.00%) | 0.264 | 0.0 | 0.0 | 1.825 | 0.002 | 0.0 | 0.002 | 0.0 | 6.65/7.80 | 0.80/0.94 | listener → draw pose; CDP between callbacks | 0.3231 | 20/20; 50/50 | yes |
 | exact/120hz | median metrics (n=3) | PROVISIONAL | 13.1 | 120.5 | 8.30/10.00/10.30/10.40 | 0 (0.00%) | 8.34/8.35/8.36/8.41 | 0 (0.00%) | 0.264 | 0.0 | 0.0 | 1.825 | 0.001 | 0.0 | 0.002 | 0.0 | 6.65/7.80 | 0.80/0.94 | listener → draw pose; CDP between callbacks | 0.3231 | 20/20; 50/50 | yes |
+| exact/60hz | [reanalyzed #1 (2026-09-18T20-36-09-882Z)](results/feel-2026-09-18T20-36-09-882Z-exact-60hz-1-attempt1.json.gz) | PROVISIONAL | 8.9 | 120.5 | 8.30/10.00/10.30/10.40 | 0 (0.00%) | 8.34/8.35/8.36/16.79 | 4 (0.04%) | 0.266 | 0.0 | 0.0 | 1.815 | 0.003 | 0.0 | 0.004 | 0.0 | 2.50/17.52 | 0.30/2.11 | listener → draw pose; CDP between callbacks | 0.0583 | 20/20; 50/50 | yes |
+| exact/60hz | [reanalyzed #2 (2026-09-18T20-36-09-882Z)](results/feel-2026-09-18T20-36-09-882Z-exact-60hz-2-attempt1.json.gz) | PROVISIONAL | 11.0 | 120.5 | 8.30/10.00/10.30/10.50 | 0 (0.00%) | 8.34/8.35/8.36/8.36 | 0 (0.00%) | 0.265 | 0.0 | 0.0 | 1.758 | 0.002 | 0.0 | 0.002 | 0.0 | 6.45/8.13 | 0.78/0.98 | listener → draw pose; CDP between callbacks | 0.4380 | 20/20; 50/50 | yes |
+| exact/60hz | [reanalyzed #3 (2026-09-18T20-36-09-882Z)](results/feel-2026-09-18T20-36-09-882Z-exact-60hz-3-attempt1.json.gz) | PROVISIONAL | 16.2 | 120.5 | 8.30/10.00/10.30/11.40 | 0 (0.00%) | 8.34/8.35/8.36/16.75 | 1 (0.01%) | 0.265 | 0.0 | 0.0 | 1.855 | 0.001 | 0.0 | 0.002 | 0.0 | 3.95/17.41 | 0.48/2.10 | listener → draw pose; CDP between callbacks | 0.2875 | 20/20; 50/50 | yes |
 | exact/60hz | best (#3) | PROVISIONAL | 16.2 | 120.5 | 8.30/10.00/10.30/11.40 | 0 (0.00%) | 8.34/8.35/8.36/16.75 | 1 (0.01%) | 0.265 | 0.0 | 0.0 | 1.855 | 0.001 | 0.0 | 0.002 | 0.0 | 3.95/17.41 | 0.48/2.10 | listener → draw pose; CDP between callbacks | 0.2875 | 20/20; 50/50 | yes |
 | exact/60hz | median metrics (n=3) | PROVISIONAL | 11.0 | 120.5 | 8.30/10.00/10.30/10.50 | 0 (0.00%) | 8.34/8.35/8.36/16.75 | 1 (0.01%) | 0.265 | 0.0 | 0.0 | 1.815 | 0.002 | 0.0 | 0.002 | 0.0 | 3.95/17.41 | 0.48/2.10 | listener → draw pose; CDP between callbacks | 0.2875 | 20/20; 50/50 | yes |
+| godot/interpolation | [reanalyzed #1 (2026-09-18T20-36-09-882Z)](results/feel-2026-09-18T20-36-09-882Z-godot-interpolation-1-attempt1.json.gz) | PROVISIONAL | 13.0 | 119.9 | 8.34/14.14/16.38/28.29 | 2788 (29.37%) | 8.34/14.14/16.38/28.29 | 2788 (29.37%) | 0.141 | 0.0 | 0.0 | 0.720 | 6.59e-6 | 0.0 | 0.004 | 0.0 | 9.67/16.73 | 1.16/2.01 | _input → _process pose; after sample | — | 20/20; 50/50 | yes |
+| godot/interpolation | [reanalyzed #2 (2026-09-18T20-36-09-882Z)](results/feel-2026-09-18T20-36-09-882Z-godot-interpolation-2-attempt1.json.gz) | PROVISIONAL | 21.0 | 120.1 | 8.32/14.21/14.56/32.93 | 2733 (28.21%) | 8.32/14.21/14.56/32.93 | 2733 (28.21%) | 0.142 | 0.0 | 0.0 | 0.780 | 0.004 | 0.0 | 0.005 | 0.0 | 16.50/22.76 | 1.98/2.73 | _input → _process pose; after sample | — | 20/20; 50/50 | yes |
+| godot/interpolation | [reanalyzed #3 (2026-09-18T20-36-09-882Z)](results/feel-2026-09-18T20-36-09-882Z-godot-interpolation-3-attempt1.json.gz) | PROVISIONAL | 11.1 | 120.4 | 8.30/14.00/14.51/46.90 | 2589 (26.75%) | 8.30/14.00/14.51/46.90 | 2589 (26.75%) | 0.170 | 1.1 | 0.0 | 0.785 | 0.061 | 0.0 | 0.062 | 0.0 | 12.02/19.77 | 1.45/2.38 | _input → _process pose; after sample | — | 20/20; 50/50 | yes |
 | godot/interpolation | best (#3) | PROVISIONAL | 11.1 | 120.4 | 8.30/14.00/14.51/46.90 | 2589 (26.75%) | 8.30/14.00/14.51/46.90 | 2589 (26.75%) | 0.170 | 1.1 | 0.0 | 0.785 | 0.061 | 0.0 | 0.062 | 0.0 | 12.02/19.77 | 1.45/2.38 | _input → _process pose; after sample | — | 20/20; 50/50 | yes |
 | godot/interpolation | median metrics (n=3) | PROVISIONAL | 13.0 | 120.1 | 8.32/14.14/14.56/32.93 | 2733 (28.21%) | 8.32/14.14/14.56/32.93 | 2733 (28.21%) | 0.142 | 0.0 | 0.0 | 0.780 | 0.004 | 0.0 | 0.005 | 0.0 | 12.02/19.77 | 1.45/2.38 | _input → _process pose; after sample | — | 20/20; 50/50 | yes |
+| godot/shipped | [reanalyzed #1 (2026-09-18T20-36-09-882Z)](results/feel-2026-09-18T20-36-09-882Z-godot-shipped-1-attempt1.json.gz) | PROVISIONAL | 9.8 | 120.4 | 8.31/13.97/14.54/30.38 | 2642 (27.27%) | 8.31/13.97/14.54/30.38 | 2642 (27.27%) | 1.014 | 99.4 | 49.7 | 1.461 | 0.994 | 49.7 | 0.994 | 49.7 | 8.56/16.56 | 1.03/1.99 | _input → _process pose; after sample | — | 20/20; 50/50 | yes |
+| godot/shipped | [reanalyzed #2 (2026-09-18T20-36-09-882Z)](results/feel-2026-09-18T20-36-09-882Z-godot-shipped-2-attempt1.json.gz) | PROVISIONAL | 26.4 | 119.9 | 8.34/14.28/16.46/26.61 | 2879 (30.29%) | 8.34/14.28/16.46/26.61 | 2879 (30.29%) | 1.014 | 100.0 | 49.7 | 1.454 | 0.994 | 49.7 | 0.994 | 49.7 | 10.85/17.11 | 1.30/2.05 | _input → _process pose; after sample | — | 20/20; 50/50 | yes |
+| godot/shipped | [reanalyzed #3 (2026-09-18T20-36-09-882Z)](results/feel-2026-09-18T20-36-09-882Z-godot-shipped-3-attempt1.json.gz) | PROVISIONAL | 15.3 | 120.2 | 8.32/13.99/14.44/30.99 | 2584 (26.67%) | 8.32/13.99/14.44/30.99 | 2584 (26.67%) | 1.020 | 100.0 | 50.0 | 1.460 | 1.000 | 50.0 | 1.000 | 50.0 | 16.48/17.05 | 1.98/2.05 | _input → _process pose; after sample | — | 20/20; 50/50 | yes |
 | godot/shipped | best (#3) | PROVISIONAL | 15.3 | 120.2 | 8.32/13.99/14.44/30.99 | 2584 (26.67%) | 8.32/13.99/14.44/30.99 | 2584 (26.67%) | 1.020 | 100.0 | 50.0 | 1.460 | 1.000 | 50.0 | 1.000 | 50.0 | 16.48/17.05 | 1.98/2.05 | _input → _process pose; after sample | — | 20/20; 50/50 | yes |
 | godot/shipped | median metrics (n=3) | PROVISIONAL | 15.3 | 120.2 | 8.32/13.99/14.54/30.38 | 2642 (27.27%) | 8.32/13.99/14.54/30.38 | 2642 (27.27%) | 1.014 | 100.0 | 49.7 | 1.460 | 0.994 | 49.7 | 0.994 | 49.7 | 10.85/17.05 | 1.30/2.05 | _input → _process pose; after sample | — | 20/20; 50/50 | yes |
+| three/shipped | [reanalyzed #1 (2026-09-18T20-36-09-882Z)](results/feel-2026-09-18T20-36-09-882Z-three-shipped-1-attempt1.json.gz) | PROVISIONAL | 15.7 | 120.5 | 8.30/9.90/10.30/10.50 | 0 (0.00%) | 8.30/9.90/10.30/10.50 | 0 (0.00%) | 0.520 | 37.1 | 11.7 | 2.130 | 0.487 | 11.7 | 0.487 | 11.7 | 5.30/12.25 | 0.64/1.48 | listener → draw pose; CDP between callbacks | — | 20/20; 50/50 | yes |
+| three/shipped | [reanalyzed #2 (2026-09-18T20-36-09-882Z)](results/feel-2026-09-18T20-36-09-882Z-three-shipped-2-attempt1.json.gz) | PROVISIONAL | 9.3 | 120.5 | 8.30/9.90/10.30/10.40 | 0 (0.00%) | 8.30/9.90/10.30/10.40 | 0 (0.00%) | 0.679 | 60.1 | 20.1 | 1.806 | 0.634 | 20.1 | 0.635 | 20.1 | 5.95/13.44 | 0.72/1.62 | listener → draw pose; CDP between callbacks | — | 20/20; 50/50 | yes |
+| three/shipped | [reanalyzed #3 (2026-09-18T20-36-09-882Z)](results/feel-2026-09-18T20-36-09-882Z-three-shipped-3-attempt1.json.gz) | PROVISIONAL | 15.2 | 120.5 | 8.30/9.90/10.30/10.40 | 0 (0.00%) | 8.30/9.90/10.30/10.40 | 0 (0.00%) | 0.404 | 20.8 | 6.7 | 2.048 | 0.372 | 6.7 | 0.371 | 6.7 | 6.85/8.10 | 0.83/0.98 | listener → draw pose; CDP between callbacks | — | 20/20; 50/50 | yes |
 | three/shipped | best (#2) | PROVISIONAL | 9.3 | 120.5 | 8.30/9.90/10.30/10.40 | 0 (0.00%) | 8.30/9.90/10.30/10.40 | 0 (0.00%) | 0.679 | 60.1 | 20.1 | 1.806 | 0.634 | 20.1 | 0.635 | 20.1 | 5.95/13.44 | 0.72/1.62 | listener → draw pose; CDP between callbacks | — | 20/20; 50/50 | yes |
 | three/shipped | median metrics (n=3) | PROVISIONAL | 15.2 | 120.5 | 8.30/9.90/10.30/10.40 | 0 (0.00%) | 8.30/9.90/10.30/10.40 | 0 (0.00%) | 0.520 | 37.1 | 11.7 | 2.048 | 0.487 | 11.7 | 0.487 | 11.7 | 5.95/12.25 | 0.72/1.48 | listener → draw pose; CDP between callbacks | — | 20/20; 50/50 | yes |
 
@@ -425,6 +440,7 @@ were discarded when the per-game link-map path mismatch was found.
 | 2c — array-length sharing | 737,768 | 315,604 | -1,252 |
 | D3 final — exact float spelling + concurrent skeleton edits | 764,322 | 325,721 | +26,554 |
 
+Receipts for the dated table are retained in [results/d3-size.json](results/d3-size.json).
 D3 kept std's decimal tie spelling; D4 lets Ryu choose the shortest significand.
 Agent rounding is unchanged. The earlier stage attribution and review narrative
 have been deleted; the implementation and regression tests are the record.
@@ -432,7 +448,9 @@ have been deleted; the implementation and regression tests are the record.
 ## D4 — module size, 2026-09-18
 
 The same normal web recipe (`wasm-opt -Oz`, gzip level 9), measured with
-`bun game/bench/size.mjs d4-before --app <game>` and `d4-after`. These are shared-checkout before/after observations;
+`bun game/bench/size.mjs d4-before --app <game>` and `d4-after`.
+[The receipt](results/d4-size.json) includes artifact SHA-256s and the complete
+crate/module summaries. These are shared-checkout before/after observations;
 I1's input-control addition also landed between them.
 
 | artifact | raw before | raw after | raw reduction | gzip before | gzip after |
@@ -465,13 +483,14 @@ and are not promises of shipped savings. Typed moves, deterministic sampling and
 the complete state hash remain intact. No changed compiler flags or stripped
 validation are credited as progress.
 
-The D4 cuts passed validation: 519 game tests passed (11 ignored), 37
+The [D4 check and deletion receipt](results/d4-checks.json) records the code cuts,
+README line counts and validation: 519 game tests passed (11 ignored), 37
 GPU/Caltrain tests passed, and 100 Bun tests passed. All seven games pass three
 Linux paranoid variants; Beacons, Greybox and Skinned pass web with unchanged
 simulation/save pins. Game and GPU all-target clippy, both fmt checks, caps, boot
 and the Apple ExactKit build pass. Full root build remains blocked in Weatherlight's
 Bun/Rolldown bake, including the bounded serial retry; no root-workspace green is
-claimed.
+claimed. Regenerated model SHA-256s and their reasons are in the size receipt.
 
 ### Recovery hash reuse — 2026-09-18
 
@@ -494,7 +513,8 @@ model serializers and recovery-specific BTreeMap collection/sort are gone. This
 is a separate paired measurement from D4 above, not a comparison to its older
 baseline. The 650,000-byte target remains unmet by 132,915 bytes.
 
-The extended existing recovery test covers
+Artifacts, SHA-256s, attribution and checks are retained locally under
+`/tmp/exact-game-goal-asset-boundary/`. The extended existing recovery test covers
 both retained and retired hashes and failed on the old implementation at the
 unnecessary rehash assertion.
 
@@ -536,10 +556,12 @@ still linked; the 650,000-byte target remains unmet.
 The 285 engine tests pass (2 ignored), including explicit replacement, Pose
 precedence, read-only query/save and restore coverage. Skinned-fixture Linux
 passes all three proof modes, and web passes with unchanged pose/tick/save pins.
-Engine/render all-target Clippy, scoped formatting and caps pass.
+Engine/render all-target Clippy, scoped formatting and caps pass. Evidence:
+`/tmp/exact-game-goal-model-bounds/`.
 
 The 12 renderer asset/restore tests and boot also pass. The captured tick-120
-web/Linux saves match byte-for-byte (14,928 bytes). These passes do not close the separate browser
+web/Linux saves match byte-for-byte (14,928 bytes); see `cross-host-save.json`
+in that evidence directory. These passes do not close the separate browser
 device-loss defect or the root suite's existing Keychain failure.
 
 ### Native unchanged bake — 2026-09-18
@@ -553,7 +575,8 @@ Two consecutive Beacons native bakes on this arm64 Mac take 56.130 s and 0.940 s
 The repeat compiles nothing and preserves both GPU/executable bytes, nanosecond
 mtimes and the full 183-unit binary-input digest. This is one warm unchanged bake,
 not cold-start or edit-to-pixel latency. The real-Cargo cache regression and web /
-headless-Linux Beacons proofs pass.
+headless-Linux Beacons proofs pass. Logs, product hashes and timings:
+`/tmp/exact-game-goal-executable-cache/real-bake-results.json`.
 
 ### Restore transfers asset ownership — 2026-09-18
 
@@ -580,7 +603,7 @@ production-code delta across the native pair; the concurrent lockfile change onl
 removes an unrelated generated `new-proof-*` fixture. Full Sim still validates and
 constructs its candidate separately. The engine suite passes 287 tests (2 ignored),
 renderer restore tests pass, and Skinned web plus Linux's three reconstruction
-modes retain pose/hash/save pins.
+modes retain pose/hash/save pins. Evidence: `/tmp/exact-game-goal-restore-ownership/`.
 
 A preceding sorted-vector texture-queue experiment was rejected and fully reverted:
 its observed primitive artifact was 5,622 raw bytes smaller, but reverse-order
@@ -588,7 +611,7 @@ its observed primitive artifact was 5,622 raw bytes smaller, but reverse-order
 run medians). The bounded upload queue keeps its tree map. `churn --texture-delivery`
 retains the workload; replacement, retirement, single-drain ownership and restore
 coverage stay in the asset tests. No shipped size saving is claimed for that
-experiment.
+experiment. Evidence: `/tmp/exact-game-goal-texture-registry/`.
 
 ### Compact dynamic diagnostics — 2026-09-18
 
@@ -602,7 +625,8 @@ the formatter under the shipped size profile; that experiment is not retained.
 Normal Beacons web builds measure 776,497 → 752,263 raw bytes and 330,448 → 320,319
 gzip bytes. Concurrent engine/render edits occurred between these builds, so the
 whole 24,234-byte difference is not attributed to this change. The 650,000-byte
-target remains unmet by 102,263 bytes.
+target remains unmet by 102,263 bytes. Hashes, source inventories and link maps:
+`/tmp/exact-game-goal-clamp-diagnostics/`.
 
 The clamp test compares both float widths bit-for-bit against std across edge
 cases and 100,000 random triples each, including invalid bounds and signed zero.
@@ -640,7 +664,8 @@ Three alternating pairs, each taking the median of seven batches:
 | 10,000 | 11.414 / 8.027 | 12.233 / 11.819 |
 
 All world hashes agree. The 100-mesh rescan samples overlap; these are CPU polling
-diagnostics on the shared Mac, not frame-rate claims.
+diagnostics on the shared Mac, not frame-rate claims. Probe source, binaries,
+inventories, digests and raw runs: `/tmp/exact-game-goal-primitive-assets/`.
 
 The late-reference regression fails on the prior implementation, then passes for
 models and sprites, clean-save recovery, and replacement worlds with equal revision
@@ -689,7 +714,8 @@ shared-tree web recheck retains the original tick/save pins but fails four
 pointer-control assertions. Concurrent render/host edits also leave workspace
 formatting and all-target Clippy failing (`bool_assert_comparison` in
 `render/tests/core.rs`). Thus the earlier green suite is not a final integrated
-green claim. No pins were changed.
+green claim. No pins were changed. Sources, binaries, runs and failures are in
+`/tmp/exact-game-goal-json-floats/`.
 
 ### Shared primitive trigonometry — 2026-09-18
 
@@ -722,7 +748,8 @@ Normal Beacons builds observe 740,610 → 736,397 raw bytes and 316,850 → 315,
 bytes. Concurrent input/render changes prevent attributing the whole delta.
 Pre-opt compiler math attribution falls from 9,787 to 3,021 bytes: the duplicate
 trig/range-reduction routines disappear; shadow power remains. The 650,000-byte
-target is still unmet by 86,397 bytes.
+target is still unmet by 86,397 bytes. Source inventories, binaries, alternating
+runs and link maps are in `/tmp/exact-game-goal-render-math/`.
 
 Workspace build, all-target Clippy, formatting, caps and boot pass. Beacons web and
 Linux normal/Save/FreshGame proofs pass; six captured save files agree byte-for-byte.
@@ -757,7 +784,8 @@ The normal Beacons build is 736,397 → 737,332 raw bytes and 315,404 → 315,39
 this shared-tree comparison is not isolated attribution. The raw-size target
 remains unmet. Two compiler-hint candidates (`cold`, then `inline(never)`) saved
 no raw bytes and compressed seven bytes worse; both were removed. Three candidates
-are closed.
+are closed. Sources, binaries, per-call counts and receipts are in
+`/tmp/exact-game-goal-target-labels/`.
 
 Engine/physics tests pass (328, with 2 ignored), as do the workspace build,
 all-target Clippy and formatting. Beacons web/Linux and the animated-model web
@@ -791,7 +819,7 @@ The animated fixture's observed module grows 1,063,949 → 1,065,684 raw bytes a
 440,730 → 440,879 gzip. This is a shared-tree comparison, not isolated attribution.
 The Beacons product built successfully, but another writer deleted its app and
 output for the fifth authoring build before the new bytes could be captured; no
-primitive-module size claim follows.
+primitive-module size claim follows. Evidence: `/tmp/exact-game-goal-socket-cache/`.
 
 Engine tests pass (296, 2 ignored), including all 38 animation tests. The animated
 fixture passes on web and Linux with all four saves byte-identical and its existing
@@ -808,6 +836,7 @@ apps need that lookup. A warm external-game probe measured 15 calls before and
 after: median **28.97 → 0.531 ms**, range 25.59–62.13 → 0.420–1.104 ms. Each run
 kept all 22 generated/app files byte-identical and returned the same app identity,
 manifest, workspace and target. This is resolution time, not proof time or FPS.
+Evidence: `/Users/<user>/projects/.exact-game-verification/resolve-probe/`.
 
 Generated-adapter cleanup also preserves Cargo's `target/` directory while
 removing old adapter identities. Six starter checks, 54 proof checks and three
@@ -822,6 +851,7 @@ writer fixed that matcher; the existing real-Cargo regression now exercises a
 workspace with spaces. All four focused checks pass in 12.53 s, covering library
 and executable receipts, source/environment changes, cache reuse and refusal of
 ambiguous dep-info. This verifies the receipt fix, not the complete new-game proof.
+Evidence: `/Users/<user>/projects/.exact-game-verification/dep-info/focused.log`.
 
 ### Direct publication values — 2026-09-18
 
@@ -850,7 +880,8 @@ Beacons passes on Linux and web, including HUD delivery and fresh-process restor
 All three captured save files match across hosts; observed tick pins, final world
 hashes, publications and journal lines agree. The game's pins file remains empty,
 so these are observed comparisons, not a repinned baseline. Native journal chunks
-also carry a tick field that the web chunks omit.
+also carry a tick field that the web chunks omit. Evidence and rejected candidate:
+`/Users/<user>/projects/.exact-game-verification/publication/`.
 
 The final no-host-argument proof passes in 47.90 s wall time, including another
 rebake after concurrent edits; this does not measure the warm headless loop. The
@@ -874,7 +905,8 @@ another guide edit leaves both artifacts fresh: 0.064 s command wall time, with
 identical executable bytes and modification time. A subsequent Rust-source edit
 still rebuilds both packages. This measures avoided compilation, not the full
 game proof or startup. All 54 proof-harness tests pass, including documentation
-exclusion and source/asset invalidation.
+exclusion and source/asset invalidation. Evidence:
+`/Users/<user>/projects/.exact-game-verification/doc-build/`.
 
 ### Attachment maintenance stays with its component — 2026-09-19
 
@@ -892,7 +924,8 @@ crate, feature or build option is involved. The 550,000-byte target remains open
 
 Beacons and Skinned proofs pass on web and headless Linux with unchanged tick/save
 digests, including the model fixture's stale and restored attachments. All seven
-captured save files agree byte-for-byte across hosts.
+captured save files agree byte-for-byte across hosts. Evidence and paired artifacts:
+`/Users/<user>/projects/.exact-game-verification/primitive-ownership/`.
 The full game workspace passes 565 tests (11 ignored), build, all-target Clippy
 and formatting; caps and boot pass. The cleanup regression covers a restored world
 with its last follower despawned. Browser descendant inventory was unavailable for
@@ -913,7 +946,7 @@ Three actual default Beacons runs pass with the existing tick/save observations
 and all recorded carrier children exited. All three refreshed stale build receipts
 as the shared tree changed (5.74, 259.82 and 12.62 s command wall time); no warm-loop
 improvement is claimed. The long run was sampled inside Cargo's build-script output
-wait.
+wait. Evidence: `/Users/<user>/projects/.exact-game-verification/proof-default/`.
 
 ### Binary decoding borrows internal names — 2026-09-19
 
@@ -936,7 +969,7 @@ encoded bytes and hashes. These are native decode/restore measurements, not fram
 rates or end-to-end proof latency. The standalone probe grows 64 executable bytes;
 no shipped module size reduction is claimed. Regression coverage checks duplicate
 literal names at different input offsets, nested skipped names and their later
-reuse.
+reuse. Evidence: `/Users/<user>/projects/.exact-game-verification/codec-names/`.
 
 Beacons and Skinned proofs pass on web and headless Linux with their existing
 pins. All seven captured saves match across hosts, including fresh-process
@@ -961,7 +994,7 @@ smaller code comes with observed decode costs. The first also slows 256-row
 decoding by 6–15%. These are native decode timings, not FPS; the three-candidate
 loop is closed. The baseline is 746,976 raw / 320,274 gzip bytes. Further size work
 should remove unnecessary linked ownership/execution, with these traversal shapes
-left alone.
+left alone. Evidence: `/Users/<user>/projects/.exact-game-verification/shared-record-read/`.
 The rebuilt restored artifact matches the baseline byte-for-byte; 34 focused
 data/save tests, caps and boot pass. Restoration explicitly refreshed source
 timestamps after the first check caught Cargo reusing an experimental artifact.
@@ -993,7 +1026,8 @@ all-target Clippy and formatting; caps and boot pass. Beacons, Asset and Skinned
 proofs pass on web and headless Linux with their existing pins and all nine valid
 captured saves equal across hosts. Linux Save-every-tick and FreshGame modes pass
 for all three too; their 18 captured saves equal the continuous run. Recorded
-carrier children exited; browser descendant inventory was unavailable.
+carrier children exited; browser descendant inventory was unavailable. Evidence:
+`/Users/<user>/projects/.exact-game-verification/optional-asset-owner/`.
 
 ### Restore constructs the game once — 2026-09-19
 
@@ -1024,7 +1058,8 @@ The full game workspace passes 535 tests (11 ignored), build, all-target Clippy
 and formatting; caps and boot pass. Beacons, Asset and Skinned proofs pass on web
 and Linux, plus Save-every-tick and FreshGame on Linux. All 27 cross-host/mode save
 comparisons are byte-identical, with existing pins and all recorded carrier
-children exited. Beacons' browser descendant audit was unavailable.
+children exited. Beacons' browser descendant audit was unavailable. Evidence:
+`/Users/<user>/projects/.exact-game-verification/single-setup/`.
 
 ### Compact type directories rejected — 2026-09-19
 
@@ -1043,7 +1078,8 @@ identical save bytes and hashes in the type-directory probe; the all-directory
 candidate also retained them for Beacons and four scene populations.
 
 The size saving does not justify extra custom collection code and slower type
-installation. This experiment is closed; the original maps remain.
+installation. This experiment is closed; the original maps remain. Evidence:
+`/Users/<user>/projects/.exact-game-verification/type-tables/`.
 
 ### Named world bindings across Exact2 — 2026-09-19
 
@@ -1076,7 +1112,8 @@ and the Messages doctest artifact mismatch clears on rebuild. The known real
 Keychain fixture still refuses access. Caltrain builds and passes all three web
 assertions; its smoke fails solely on Chrome's Keychain/encryption errors. A green
 root suite or Caltrain smoke is not claimed. Recorded proof carriers exit; browser
-descendant inventory is unavailable on some runs.
+descendant inventory is unavailable on some runs. Evidence:
+`/Users/<user>/projects/.exact-game-verification/named-surface-args/`.
 
 ### Record-publication candidates rejected — 2026-09-19
 
@@ -1108,8 +1145,9 @@ All three implementations and their temporary test additions are removed. The
 original source is restored exactly; this three-candidate experiment is closed.
 The restored native probe and shipped Wasm are byte-identical to their baselines.
 All 58 focused data, simulation and ergonomics tests pass, as do formatting, caps
-and boot. Only these measurements remain; the shared index
+and boot. Only these measurements and the queue note remain; the shared index
 was unchanged by validation, which used a private staged copy.
+Evidence: `/Users/<user>/projects/.exact-game-verification/record-publication/`.
 
 ### Dynamic values stream without an owned copy — 2026-09-19
 
@@ -1146,6 +1184,8 @@ Value component agrees across all six web/Linux reconstruction-mode runs, then
 passes pinned proofs on both hosts with identical saves. The full game workspace
 passes 537 tests (11 ignored), build, all-target Clippy and formatting. Recorded
 carrier children exited; Beacons' browser descendant audit was unavailable.
+Evidence:
+`/Users/<user>/projects/.exact-game-verification/value-streaming/`.
 
 ### Shared clock preparation rejected — 2026-09-19
 
@@ -1164,7 +1204,8 @@ across the three timing rounds produced identical saves, hashes and tick counts.
 
 The size saving does not justify the extra helper and the ordinary-step cost.
 The original source and normal Beacons artifact are restored byte-for-byte:
-749,140 raw / 321,466 gzip bytes. This experiment is closed.
+749,140 raw / 321,466 gzip bytes. This experiment is closed. Evidence:
+`/Users/<user>/projects/.exact-game-verification/clock-preparation/`.
 
 ### Encoder name storage rejected — 2026-09-19
 
@@ -1193,7 +1234,8 @@ and their temporary tests are removed; the original encoder is restored exactly.
 The fresh restored build is byte-identical to the baseline: 749,140 raw /
 321,466 gzip bytes. All 138 focused engine, data, save and simulation tests pass
 (1 ignored), as do formatting, caps and boot. The shared index has no staged
-content changes; caps used a private staged copy. This experiment is closed.
+content changes; caps used a private staged copy. This experiment is closed. Evidence:
+`/Users/<user>/projects/.exact-game-verification/encoder-names/`.
 
 ### Save framing uses one buffer — 2026-09-19
 
@@ -1255,6 +1297,7 @@ processes exited; the browser's full descendant inventory timed out, so a separa
 PID audit confirmed every recorded browser/carrier PID was absent. Validation
 used a private Git index and changed no staged content.
 
+Evidence: `/Users/<user>/projects/.exact-game-verification/save-framing/`.
 
 ### Input declarations shared — 2026-09-19
 
@@ -1302,6 +1345,7 @@ Caps and boot pass using a private index. The later browser descendant audit
 timed out; all 276 recorded carrier/browser PIDs were absent on a separate check.
 This is not a clean integrated-suite claim; source files changed during that run.
 
+Evidence: `/Users/<user>/projects/.exact-game-verification/input-declarations/`.
 
 ### Agent input uses one projection — 2026-09-19
 
@@ -1345,6 +1389,7 @@ All recorded proof PIDs exited; the full browser descendant inventory timed out.
 The 641-second workspace test command includes launch delays: a one-second sample
 of its audio test harness captured only `_dyld_start`, before Rust ran. The audio
 compile and formatting failures from the preceding slice are resolved in this tree.
+Evidence: `/Users/<user>/projects/.exact-game-verification/agent-input/`.
 
 ### Input invariants checked at restore — 2026-09-19
 
@@ -1384,6 +1429,7 @@ Rust. The subsequent integrated shipped module is **749,960 raw / 322,603 gzip
 bytes**, with no source drift during that build; this includes concurrent changes
 and is not an isolated delta for this slice.
 
+Evidence: `/Users/<user>/projects/.exact-game-verification/input-boundary/`.
 
 ### Restore decodes once after choosing setup arguments — 2026-09-19
 
@@ -1418,6 +1464,7 @@ All 26 saved-file comparisons match (Beacons against the preceding accepted run;
 Asset and Skinned reconstruction modes against their continuous runs). All recorded
 proof PIDs are absent; the complete web descendant inventory timed out.
 
+Evidence: `/Users/<user>/projects/.exact-game-verification/restore-once-current/`.
 
 
 ### Restore reuses its decoded input queue — 2026-09-19
@@ -1443,6 +1490,7 @@ web continuous; all 12 saved-file comparisons match the preceding accepted run.
 All 146 recorded proof PIDs are absent; the complete web descendant inventory
 was unavailable.
 
+Evidence: `/Users/<user>/projects/.exact-game-verification/restore-queue/`.
 
 
 ### Bound restore reuses canonical arguments — 2026-09-19
@@ -1464,7 +1512,7 @@ allocator requests, not resident memory.
 The stripped native probe shrinks 1,028,672 → 1,012,208 bytes. The shipped module
 changes **749,563 → 749,415 raw / 321,997 → 322,106 gzip bytes**. Only this runtime
 change separates the builds; source inventories agree during each build.
-The frozen candidate passes 161 focused tests (2 ignored). Before concurrent
+The frozen candidate passes 161 focused tests (2 ignored). Before concurrent R14
 edits, the integrated workspace passed **548 tests** (12 ignored), build, all-target
 Clippy, formatting, caps, boot and whitespace checks. Beacons passed Linux continuous,
 Save and FreshGame plus web continuous, with all 12 saves matching the previous
@@ -1473,13 +1521,14 @@ inventory was unavailable.
 
 The later combined-tree sweep is **not green**: concurrent app/renderer edits
 refused compilation, so the new module size and four proofs could not complete.
-The concurrent edits also reintroduced receiver-registry predecoding: the existing conditional
+R14 also reintroduced receiver-registry predecoding: the existing conditional
 setup regression now fails with unregistered `Extra`. A narrow reconciliation
 passed 141 engine tests, then was replaced during the concurrent pass. The final
 argument test target has 5 passes and 1 failure. These results do not supersede the
 isolated allocation comparison above; they prevent claiming current integration
-passes.
+passes. See `integrated/` and `current-registration.log` in the evidence directory.
 
+Evidence: `/Users/<user>/projects/.exact-game-verification/restore-bound-args/`.
 
 ### Retained quad updates — 2026-09-19
 
@@ -1507,6 +1556,7 @@ match through component edits, visibility changes, missing poses, reused slots,
 parent changes and world restores. The placement app passes Linux and web;
 both complete saves match across hosts and retain their existing pins.
 
+Evidence: `/Users/<user>/projects/.exact-game-verification/quad-feed-current/`.
 
 
 ### Screen bounds — 2026-09-19
@@ -1530,6 +1580,7 @@ now it makes neither. The all-behind sample allocates in neither version.
 Twelve alternating samples per case, 100,000 calls per sample. Allocation counting
 was disabled during timings; both versions use the same instrumented allocator.
 These are isolated screen-bound CPU costs, not frame-rate or whole-agent timings.
+Evidence: `/Users/<user>/projects/.exact-game-verification/spatial-bounds-current/`.
 
 
 ### Shared float notation — 2026-09-19
@@ -1555,6 +1606,7 @@ and debug spelling, plus boundaries and nonfinite values. Native and WebAssembly
 agree on digest `f8a958f77ad4cd3a`; 81 integrated layout/pick replies are unchanged.
 119 focused engine/data/save/agent tests pass (one ignored), as does engine Clippy.
 Linux and web placement proofs retain their tick and complete-save pins.
+Evidence: `/Users/<user>/projects/.exact-game-verification/float-notation-current/`.
 
 ### Entity target lookup — 2026-09-19
 
@@ -1572,16 +1624,17 @@ are isolated lookups, not frame-rate or whole-game measurements.
 All 2,508 compared target results and 8,467 save bytes are identical, including
 literal `#` names, duplicate names, absent targets and recycled entities. The 39
 focused ECS, argument/agent and ergonomics tests, engine Clippy and formatting
-checks pass.
+checks pass. Evidence: `/Users/<user>/projects/.exact-game-verification/target-resolution-current/`.
 
 ### Compressed textures — 2026-09-23
 
 `bun game/bench/size.mjs baseline|textures --app skinned-fixture` (and `--app
-beacons`), before and after BC/ASTC texture payloads ("Compressed
+beacons`), before and after BC/ASTC texture payloads (LLP 1046.003, "Compressed
 textures"), on this Mac without `wasm-opt`: the asset-capable module 1,578,268 →
 1,585,931 raw and 473,576 → 476,096 gzip bytes (the family choice, block uploads
 and the state report); the primitive module 1,128,865 → 1,127,207 raw and 349,087
-→ 348,992 gzip. The module carries no transcoder.
+→ 348,992 gzip. The module carries no transcoder. Texture bytes, quality, device
+memory and load times are in the LLP section.
 
 ## Culling and environment lighting — 2026-09-23
 

@@ -1,4 +1,4 @@
-//! `position: sticky` against literal Chrome: layout places the
+//! `position: sticky` (LLP 1083) against literal Chrome: layout places the
 //! box as a relative one with no offset, and [`StickyConstraint::offset`]
 //! moves it as its scroller scrolls.
 //!
@@ -73,7 +73,7 @@ fn a_box_that_is_not_sticky_has_no_constraint_and_no_scroller_means_the_root() {
 }
 
 /// A sticky inset that is a comparison with a percentage resolves against
-/// the scrollport, as any percentage inset does.
+/// the scrollport, as any percentage inset does (LLP 1116 D5).
 #[test]
 fn a_comparison_sticky_inset_resolves_against_the_scrollport() {
     let nodes = vec![(

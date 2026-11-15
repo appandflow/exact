@@ -1,7 +1,7 @@
 //! The reader's flattening: a source string into display pieces one paragraph
 //! engine paints as a single run sequence.
 //!
-//! A host that measures and paints styled runs already
+//! @ref LLP 1045 D3, D4 — a host that measures and paints styled runs already
 //! can show a whole Markdown segment as one node if something turns the
 //! source into runs. This is that something, shared by every host, so what
 //! is measured is what is painted. Block structure that runs cannot express
@@ -9,7 +9,7 @@
 //! a heading is a bigger, bolder run; spacing between blocks is a short line.
 //! A list item is the one paragraph attribute: its pieces carry the item's
 //! head indent and its marker hangs in it, which every host applies as the
-//! browser lays out `<ul>`/`<ol>`. Colours are roles the host
+//! browser lays out `<ul>`/`<ol>` (LLP 1045 D4). Colours are roles the host
 //! resolves from its theme.
 
 use crate::atoms::{AtomRole, Atoms};
@@ -65,12 +65,12 @@ pub struct Piece {
     /// right-aligned in the gutter and a wrapped line starts under the text,
     /// as the browser's `list-style-position: outside` marker sits.
     pub hang: bool,
-    /// An inline atom: one box whose text is its label,
+    /// An inline atom (LLP 1045.000 D6): one box whose text is its label,
     /// drawn as a pill by the hosts that draw atoms.
     pub atom: Option<Box<AtomPiece>>,
 }
 
-/// What an atom piece carries besides its label.
+/// What an atom piece carries besides its label (LLP 1045.000 D6, D7).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct AtomPiece {
     /// The declaring kind's name.
@@ -156,13 +156,25 @@ fn block_ranges<'a, T>(pending: &mut &'a [T], block: &B, bounds: fn(&T) -> &B) -
     &remaining[..remaining.partition_point(|entry| bounds(entry).start < block.end)]
 }
 
+/// What assistive technology reads of a reader drawn from `pieces`: each
+/// piece's text as it is drawn, its syntax already hidden and a footnote its
+/// `[n]`, and an atom its accessible name (LLP 1045, "Accessibility";
+/// LLP 1045.000 D8).
+pub fn spoken(pieces: &[Piece]) -> String {
+    let name = |p: &Piece| match &p.atom {
+        Some(atom) if !atom.aria_label.is_empty() => atom.aria_label.clone(),
+        _ => p.text.clone(),
+    };
+    pieces.iter().map(name).collect()
+}
+
 /// Flattens `source` into pieces for one paragraph engine.
 pub fn pieces(source: &str) -> Vec<Piece> {
     pieces_with(source, &Atoms::default())
 }
 
 /// The pieces with `atoms` recognized: each atom one piece whose text is its
-/// label, its runs of white space one space.
+/// label, its runs of white space one space (LLP 1045.000 D4, D6).
 pub fn pieces_with(source: &str, atoms: &Atoms) -> Vec<Piece> {
     let analysis = analyze_with(source, None, atoms);
     let offsets = crate::offsets::Offsets::new(source);
@@ -423,7 +435,7 @@ pub fn pieces_with(source: &str, atoms: &Atoms) -> Vec<Piece> {
 }
 
 /// An atom's piece: its label in the formats around it (`**[x](…)**` draws a
-/// bold label), the link colour, its source range.
+/// bold label, LLP 1045.000 D4), the link colour, its source range.
 #[allow(clippy::too_many_arguments)]
 fn atom_piece(
     source: &str,

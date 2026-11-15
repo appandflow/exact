@@ -39,8 +39,12 @@ into a world whose `.sound` differs refuses by name. Samples need only
 
 A `#[must_use]` play builder commits only at `.start()` (returning a `VoiceId`).
 Dropping it creates no voice or playback journal event. Pitch is playback rate,
-bounded to 0.01..16. `pan(p)` is a balance from -1 (left only) through 0 to 1 (right
-only), applied after spatial gains. `offset(seconds)` starts part-way in (wrapping
+bounded to 0.01..16 (non-finite becomes 1). Change a playing voice with
+`audio::pitch(world, id, rate)`, using the same bounds. Call it each tick to follow
+an engine speed, Doppler shift or gesture; it keeps the playing source and its
+phase. A ramp over seconds is a few lines of game code that computes each tick's
+rate and calls `audio::pitch`. `pan(p)` is a balance from -1 (left only) through
+0 to 1 (right only), applied after spatial gains. `offset(seconds)` starts part-way in (wrapping
 for loops); `fade_in(seconds)` ramps the gain up from zero. A voice of a looping
 definition plays until `audio::stop` or `audio::fade(world, id, seconds)`, which
 ramps it to silence and then removes it; loops have no 60-second limit. The saved
@@ -52,8 +56,20 @@ declare `#[live] volume: f64` in the game's Args struct and set `Audio.master`
 from `args.volume` in tick.
 
 A setup voice begins at tick 0; a voice authored inside tick N begins at boundary
-N+1. A non-saved phase flag at the existing world tick hooks makes this distinction
-explicit. Pruning uses that same completed-boundary convention.
+N+1. A live pitch change uses that same boundary. The simulation integrates each
+rate over its elapsed ticks, independently of device smoothing. A checkpoint is
+saved only after a rate change; games that never change pitch retain their save
+bytes and hashes. Restore and device replacement resume at that integrated
+position with the current rate (LLP 1046.003). A non-saved phase flag at the
+world tick hooks makes this distinction explicit. Pruning uses that same completed-boundary convention.
+Builder pitch and live pitch use the same tick-domain lifetime and round up once.
+Writing `Voice.pitch` directly takes effect at the next `audio::step` boundary;
+time already elapsed counts at the previous rate. The simulation decides when
+finite voices end. At that boundary, the player stops the output, even if it
+missed a pitch update. Smoothing can leave the output slightly behind or ahead
+of the simulation. An output that finishes first
+releases its slot and PCM without restarting; the remaining simulation time is
+silent. Completion never changes saves or hashes.
 
 Call `audio::step` after game logic. It prunes finished voices, records source
 changes and removes extra listeners in entity order. The saved `Audio` resource
@@ -79,7 +95,8 @@ Set playing false while paused. Each sync reads it: a changed epoch stops all
 outputs and starts current voices at world-time offsets; pause stops outputs and
 resume resynchronizes. There is no manual Player reset. A fresh player behaves
 the same way. Ended PCM never starts, including the rounded final lifetime tick.
-Offsets include pitch. Loops use world-time phase modulo their rendered length.
+Offsets integrate pitch changes. Loops use world-time phase modulo their
+rendered length.
 
 Capacity belongs to the output. Player ranks loops first, then louder voices
 (maximum stereo gain), then newer start boundaries, then larger stable identities.
@@ -136,7 +153,8 @@ watermark. Device disposal still joins callbacks before dropping any PCM.
 
 Web may construct `AudioContext` on the first live frame or an earlier gesture.
 `Output::unlock` calls `resume()` synchronously on the first trusted key/pointer
-down stack, never for a seekable surface and never twice while activation is pending
+down stack, inside the canvas or anywhere else in the page (`Lifecycle::Activated`:
+a press on a Contract button starts it too), never for a seekable surface and never twice while activation is pending
 or the output is ready. Its owned async completion enables playback; the next sync
 bumps the transport generation. Lifecycle resumption can request activation again.
 The probe uses this production path and observes readiness. There is no second async
@@ -147,15 +165,23 @@ operation. `Pcm` is the Player's rendered mono `f32` or a sound asset's interlea
 16-bit frames (mono or stereo); `rate` is the source's own rate and `offset` is in
 its frames. Outputs resample to the device. `set(id, left, right)` gains feed both
 channels from mono PCM and each channel from its own stereo channel, on both
-executors. WebAudio failures return refusal for retry instead of trapping the module.
+executors. `set_pitch(id, rate)` retargets the live source without starting it
+again. `finished(id)` reports source exhaustion to release output ownership; it never
+changes the world. WebAudio failures return refusal for retry instead of trapping the module.
 Each web voice connects buffer source → (channel splitter, for stereo) → left and
 right gains → channel merger → destination; the `AudioBuffer` is created at the
-source's rate and cached per allocation. Playback rate implements pitch; gains use
-`setTargetAtTime` with a 10 ms time constant.
+source's rate and cached per allocation. Playback rate implements pitch. Gains
+start at zero and ramp linearly to their targets over 10 ms, as in the native
+mixer. A change during a gain ramp starts a new 10 ms ramp from its current value.
+Live pitch uses `playbackRate.setTargetAtTime` with a 10 ms time constant on web;
+each change replaces the previous automation from its current rate. The native
+mixer ramps its resampling step linearly over 10 ms. Retargeting keeps
+the current step and sample position. This output smoothing is presentation, not
+saved simulation progress.
 
-Apple and Windows share 32 fixed voice slots. `start`/`set`/`stop` enqueue producer-side work;
-`flush` retries it (Player calls flush each sync). Pending Set commands coalesce by
-identity, latest wins. Unpublished Start/Stop pairs cancel; published commands
+Apple and Windows share 32 fixed voice slots. `start`/`set`/`set_pitch`/`stop`
+enqueue producer-side work; `flush` retries it (Player calls flush each sync).
+Pending gain and pitch commands coalesce by identity, latest wins. Unpublished Start/Stop pairs cancel; published commands
 retain their order and PCM until acknowledged. Published starts occupy at most 32
 slots, including stopped voices awaiting acknowledgement. Up to 32 newer selected
 starts stay in the coalescible producer queue. Across both windows, retained PCM
@@ -234,9 +260,19 @@ iOS requires an active app and a mounted window. New surfaces receive the same
 aggregate, with notifications delivering only transitions.
 The presentation hook combines hidden/interrupted state before suspending output;
 resume resets playback from the current tick offset with one readiness epoch bump.
-ExactKit recognizes the `exact:audio` surface message and configures/activates one
-process audio session only for a live requesting surface. Failed activation retries
-at 300 live display-link frames, or on a new Visible transition or explicit gesture;
+ExactKit consumes the `exact:audio` string from `Surface::messages` without app
+dispatch. On iOS and tvOS it sets the app's `audio_session` category and options
+and activates the session. First success sends nothing back; a failed activation
+sends Interrupted, and recovery sends Resumed. Before a GPU module makes a
+surface, the owner sets an unclaimed session to `.ambient` without activating:
+output opened before the request is handled mixes with other apps' audio and
+obeys the ring/silent switch until the request takes the app's configuration.
+This preparation runs neither for Canvas 2D nor under the driver's frozen
+clock, which makes surfaces seekable and opens no output. It runs under
+`EXACT_AGENT_TIMING=platform`, where surfaces can open output; the driver
+drops `exact:audio` requests, so they do not raise the prepared ambient session.
+Failed activation retries at 300 live display-link frames, or on a new Visible
+transition or explicit gesture;
 failed activation never emits Resumed. An interruption ending without `shouldResume`
 blocks automatic resume process-wide, including later lifecycles and automatic
 `exact:audio` requests. A subsequent Hidden → Visible transition or trusted key/pointer
@@ -260,4 +296,4 @@ the sampled one; their proofs check silent seekable execution, and with
 phone interruption test. Simulation/save pins live in the game's `pins.json`.
 
 For commands and executor selection see [the game map](../README.md); dated
-measurements belong in [bench](../bench/README.md).
+measurements belong in [bench](../bench/README.md) or the [diaries](../diaries/README.md).

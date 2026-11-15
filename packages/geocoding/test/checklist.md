@@ -1,8 +1,8 @@
 # @exact/geocoding: drives by hand
 
 What the agent cannot drive: the platform's geocoder answering from Apple's
-or Google's servers. Weatherlight names the city it
-follows with `reverseGeocode`. Use dedicated test devices, and record
+or Google's servers (LLP 1133.021 D6, D8). Weatherlight names the city it
+follows with `reverseGeocode`. Use LLP 1133.020's test devices, and record
 the date, the OS version, the device and what happened beside each step.
 
 ## iPhone (iOS 26 or later, and one on iOS 17 or 18)
@@ -32,4 +32,4 @@ above (the platform's `Geocoder`; on a phone without a geocoder backend
 
 The web build: `bun host/web/dev.mjs --app weatherlight`. "Use my location"
 answers "Current location" and never sends the position to a geocoding
-service.
+service (D7).

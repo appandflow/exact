@@ -1,7 +1,8 @@
-//! The menu rule's build note: a row of a menu whose `popovertarget` names a
-//! popover that is no menu is noted, saying where it opens (`commandfor` too);
-//! a submenu, a hide (any case), a confirmation, a role the source doesn't
-//! settle and a button outside a menu are not.
+//! exact2's menu rule's build note (LLP 1021; theme2 2026-10-21 19:47,
+//! 22:05): a row of a menu whose `popovertarget` names a popover that is no
+//! menu is noted, saying where it opens (`commandfor` too); a submenu, a
+//! hide (any case), a confirmation, a role the source doesn't settle and a
+//! button outside a menu are not.
 
 const APP: &str = r#"component App
   view

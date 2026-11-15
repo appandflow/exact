@@ -1,4 +1,4 @@
-// The module side of the native-module table,
+// The module side of the native-module table (@ref LLP 1024 D4, LLP 1067.000),
 // compiled into the app's one artifact, `libexact_modules.dylib`, with the
 // app's own `modules/apple/*.swift` by `host/apple/build.mjs`. The host side,
 // and the table's layout, is `Sources/ExactKit/NativeModule.swift`.
@@ -19,25 +19,25 @@
 // that needs it, and destroys it with the session, after its views. Its
 // views receive it, so a view and a function share one object. Every entry
 // (init, the views' create, props and destroy, `later`, `call`, `destroy`) is
-// on the main thread; long work goes on the module's own
+// on the main thread (LLP 1067.000 D4); long work goes on the module's own
 // queues, and a reply may be sent from any thread, once. `call` answers inside
 // the TypeScript answer that asked, within its 100 ms budget, and holds the
 // main thread while it runs: keep it to cheap queries. The web has no
 // synchronous call, so a portable source falls back to `native.later`. `views` is the roster, read
 // once per process. Each view instance subclasses `ExactNativeInstance`.
 //
-// A factory that sets `reuse` opts its tag into reuse in a list:
-// the instance's `prepareForReuse` makes it as if created with no
+// A factory that sets `reuse` opts its tag into reuse in a list (LLP 1068
+// §4.8): the instance's `prepareForReuse` makes it as if created with no
 // props, the next `setProps` is a first mount, and `events.load()` follows
 // once no pixel of the last row's shows (the host keeps the view
 // transparent until then).
 //
-// Hatches (iOS): the module also receives Exact's own UIKit objects at
-// defined moments — a navigation controller when Exact builds it, a route
-// when its controller is built, changed and ended — and acts back by
-// clicking an authored control (`route.element(id)?.click()`). Exact owns
-// part of each object, which each one's documentation below names; the rest
-// is the app's. A route's `data-*` words are read by the typed keys the build
+// Hatches (LLP 1075.003 §3.2, iOS): the module also receives Exact's own
+// UIKit objects at defined moments — a navigation controller when Exact
+// builds it, a route when its controller is built, changed and ended — and
+// acts back by clicking an authored control (`route.element(id)?.click()`).
+// What Exact owns on each object is LLP 1075.003 §3.5's table; the rest is
+// the app's. A route's `data-*` words are read by the typed keys the build
 // writes from app.json `data` (`route.data[.title]`).
 //
 //     #if os(iOS)
@@ -78,31 +78,31 @@ public struct ExactNativeRefusal: Error, CustomStringConvertible {
 
 /// What the session gives its module.
 public final class ExactModuleContext: @unchecked Sendable {
-    /// Under the agent: substitute device input before asking the OS,
-    /// so a drive is repeatable and never prompts.
+    /// Under the agent: substitute device input before asking the OS
+    /// (LLP 1067.000 Q7), so a drive is repeatable and never prompts.
     public let agent: Bool
     /// The app's own directories; under the agent, a scratch tree.
     public let data: URL, cache: URL, temporary: URL
     let host: UnsafeMutableRawPointer?
     private let changedFn: ExactModuleChangedFn
     private let nowFn: ExactModuleNowFn
-    /// What the module's code says of itself,
+    /// What the module's code says of itself (LLP 1075.003.000.001 §3.2),
     /// scoped `module`. It records once the hatches have connected, in a
     /// development build; before that, and in production, each call returns.
     public let diagnostics: ExactDiagnostics
-    // The frame clock: the host's entries, there once the module
+    // The frame clock (§2.4): the host's entries, there once the module
     // has the hatch table (before its hatches are called), and what each token calls.
     typealias FramesFn = @convention(c) (UnsafeMutableRawPointer?, UInt64, Int32) -> Void
     typealias AfterFn = @convention(c) (UnsafeMutableRawPointer?, UInt64, Double) -> Void
-    var framesFn: FramesFn?, afterFn: AfterFn?
+    var framesFn: FramesFn?, afterFn: AfterFn?, coalescingAfterFn: AfterFn?
     var ticks: [UInt64: (ExactFrame) -> Void] = [:], afters: [UInt64: () -> Void] = [:]
     private var nextToken: UInt64 = 1
 
-    /// The session's own root view, which the host
+    /// The session's own root view (LLP 1133.027 D17 item 3), which the host
     /// hands over whenever the session's view changes; nil while none is mounted.
     public internal(set) weak var sessionView: AnyObject?
 
-    /// Who posts what an activation is for: the session, its owner, the process.
+    /// Who posts what an activation is for (LLP 1133.004 D7): the session, its owner, the process.
     let poster: [String: String]
     var emitted: UInt64 = 0
 
@@ -119,7 +119,7 @@ public final class ExactModuleContext: @unchecked Sendable {
     /// so what a view draws from it repeats. Main thread.
     public func now() -> Double { nowFn(host) }
 
-    /// A frame ticket: `body` at each frame, after
+    /// A frame ticket (LLP 1075.003.000.001 §2.4): `body` at each frame, after
     /// that frame's tasks and timers, with the session clock's time. Logical
     /// time, for behaviour that keeps step with the app (an indicator that
     /// follows an animation): each presented frame on the wall, and under the
@@ -144,10 +144,15 @@ public final class ExactModuleContext: @unchecked Sendable {
     /// agent, where a seek fires it at its own instant. `stop()` before then
     /// and it never runs. Main thread.
     @discardableResult
-    public func after(_ ms: Double, _ body: @escaping () -> Void) -> ExactTicket {
+    public func after(_ ms: Double, _ body: @escaping () -> Void) -> ExactTicket { after(ms, coalescing: false, body) }
+
+    /// A coalescing callback runs at the next clock instant at or past its
+    /// deadline, without adding a seek stop or advancing settlement.
+    @discardableResult
+    public func after(_ ms: Double, coalescing: Bool, _ body: @escaping () -> Void) -> ExactTicket {
         let token = nextToken
         nextToken += 1
-        guard let afterFn else { return ExactTicket {} }
+        guard let afterFn = coalescing ? coalescingAfterFn : afterFn else { return ExactTicket {} }
         afters[token] = body
         afterFn(host, token, max(0, ms))
         return ExactTicket { [weak self] in
@@ -157,7 +162,7 @@ public final class ExactModuleContext: @unchecked Sendable {
     }
 
     /// Say a device topic changed: every TypeScript answer that called
-    /// `native.watch(topic)` is asked again. Any thread.
+    /// `native.watch(topic)` is asked again (LLP 1016.002). Any thread.
     public func changed(_ topic: String) {
         let bytes = Array(topic.utf8)
         bytes.withUnsafeBufferPointer { changedFn(host, $0.baseAddress, UInt32($0.count)) }
@@ -186,6 +191,15 @@ public final class ExactTicket {
     public func stop() { end?(); end = nil }
 }
 
+/// `value` as JSON, a bare number or string included, or nil for a value
+/// JSON cannot hold (NaN, an infinity, a `Date`): for one of those
+/// `JSONSerialization.data` raises an Objective-C exception, which `try?`
+/// does not catch, rather than throwing.
+func exactJSON(_ value: Any) -> Data? {
+    guard JSONSerialization.isValidJSONObject([value]) else { return nil }
+    return try? JSONSerialization.data(withJSONObject: value, options: .fragmentsAllowed)
+}
+
 /// The answer to one `native.later` call. Only the first `send` or `fail`
 /// answers; one dropped unanswered fails the call.
 public final class ExactReply: @unchecked Sendable {
@@ -209,11 +223,7 @@ public final class ExactReply: @unchecked Sendable {
     /// an absent `option`; ExactPackage.swift).
     public func send(_ value: [String: Any]) {
         let sent: Any = value.count == 1 ? value["exact:answer"] ?? value : value
-        let scalar = sent is NSNull || sent is NSNumber || sent is String
-        guard scalar || JSONSerialization.isValidJSONObject(sent),
-              let data = try? JSONSerialization.data(withJSONObject: sent, options: .fragmentsAllowed) else {
-            return fail("the reply was not JSON")
-        }
+        guard let data = exactJSON(sent) else { return fail("the reply was not JSON") }
         answer(200, String(decoding: data, as: UTF8.self))
     }
 
@@ -245,21 +255,21 @@ open class ExactModule {
     /// work the quit must wait for (stop a child process, flush a socket),
     /// off the main thread, and call `done` when it has finished, from any
     /// thread. The quit waits for every session's module and the storage
-    /// in flight, five seconds at most in all;
-    /// `destroy()` follows whether or not the work finished, and
+    /// in flight, five seconds at most in all (LLP 1097 D10, LLP 1069.010
+    /// Q4); `destroy()` follows whether or not the work finished, and
     /// force-ends what is still running (SIGKILL a child) without waiting.
     /// Called once, on the main thread, never on iOS or tvOS. Dropping
     /// `done` uncalled counts as calling it. By default, done at once.
     open func willQuit(done: @escaping () -> Void) { done() }
-    /// The host's side of the hatches, once it has connected.
+    /// The host's side of the hatches, once it has connected (LLP 1075.003).
     var hatches: ExactHatches?
-    /// A node the Contract marks `hatch="word"`, on every
+    /// A node the Contract marks `hatch="word"` (LLP 1075.003.000), on every
     /// host with native objects: after the batch that mounts it
     /// (`element.isNew`), and again when its `data-*` words change. It runs
     /// on the main thread as each one mounts, and a hatched node leaves
     /// Exact's fast path: on iOS it is never drawn as a flat leaf into its
     /// parent's layer, and a list row that holds one is never reused.
-    /// Measured: every row's avatar hatched on the
+    /// Measured (LLP 1075.003.000.000): every row's avatar hatched on the
     /// Extra Heavy feed, with this hatch empty, took a fling's CPU up about
     /// 16–20% and its frame rate 115.3 → 110.2 fps on an iPhone 13 Pro Max
     /// (117.6 → 115.1 on an M1 iPad Pro). All of it is the lost row reuse:
@@ -270,8 +280,8 @@ open class ExactModule {
     /// A hatched node is leaving; its view goes after this returns, and the
     /// handle does nothing from now on.
     open func elementEnded(_ element: ExactElement) {}
-    /// A frame marked `hatch="word"` is about to make a web view:
-    /// `configuration` is its `WKWebViewConfiguration`, its
+    /// A frame marked `hatch="word"` is about to make a web view (LLP
+    /// 1020.002 §9): `configuration` is its `WKWebViewConfiguration`, its
     /// data store and Exact's content worlds set, its preferences the frame's
     /// own. Set an `applicationNameForUserAgent`, content rule lists, URL
     /// scheme handlers for the app's own schemes, or those preferences; the
@@ -286,16 +296,16 @@ open class ExactModule {
     /// `built`.
     open func elementConfiguration(_ element: ExactElement, _ configuration: AnyObject) {}
     #if os(macOS)
-    /// The window toolbar Exact installed for the Contract's commands:
-    /// once, when installed (at a cold launch, once the
+    /// The window toolbar Exact installed for the Contract's commands (LLP
+    /// 1075.003.000 §3.7): once, when installed (at a cold launch, once the
     /// module loads). Its display mode and appearance are the app's; its
     /// command items and delegate slot Exact's.
     open func toolbar(_ toolbar: ExactToolbar) {}
     #endif
-    /// The app: when the hatches connect, after
+    /// The app (LLP 1075.003.000.001 §2.1): when the hatches connect, after
     /// first pixel (`app.isNew`), and again when one of its facts changes.
     /// Never inside a batch. Set what is app-wide here; `app.application` is
-    /// nil unless the embedder gave this session the process.
+    /// nil unless the embedder gave this session the process (§2.1.1).
     open func app(_ app: ExactApp) {}
     /// The session is ending, or its plan reloading: undo what `app` set.
     /// After a reload `app` runs again, with a new handle.
@@ -314,17 +324,24 @@ open class ExactModule {
     /// already built). Set `showsBar` here; the bar's look is the app's.
     open func navigation(_ navigation: ExactNavigation) {}
     /// A route: when its controller is built (`route.isNew`), and again
-    /// whenever its `data-*` words or the header Exact projects change, each
-    /// time before the frame that shows it. Its `navigationItem` is the
+    /// whenever its `data-*` words, the header Exact projects or its content
+    /// scroll view change, each time before the frame that shows it. Its `navigationItem` is the
     /// app's, over the defaults Exact projects from an authored header.
     open func route(_ route: ExactRoute) {}
     /// A route's controller is leaving for good; its handle does nothing
     /// from now on.
     open func routeEnded(_ route: ExactRoute) {}
-    /// Exact's tab container: once, before its tabs are
-    /// laid out. Its appearance is the app's; its tabs and selection Exact's.
-    /// A tab whose stack shows no bar and has pushed nothing is a plain view
-    /// controller in it until the stack pushes or shows a bar.
+    /// Exact's tab container (LLP 1075.003 §3.7): once, before its tabs are
+    /// laid out. Its appearance is the app's; its tabs Exact's. A person's
+    /// selection is UIKit's, which Exact's router follows through UIKit's
+    /// delegate calls. To select a tab, press its authored tab. A selection
+    /// the app sets in code is followed too (LLP 1075.003 §3.7): a tab under
+    /// More at More's `willShow`; where the tabs are `UITab`s, at
+    /// `didSelectTab`; otherwise as the tab's route appears or as a pop UIKit
+    /// runs there reaches Exact, whichever is first, so a tab not built yet,
+    /// which has no route to show, is followed only once it has one. Each
+    /// tab's controller is made with the container and kept for the tab's
+    /// life (`ExactTab.controller`).
     open func tabs(_ tabs: ExactTabs) {}
     /// Own the tabs yourself: return a container holding each tab's
     /// controller (`contents.tabs`), which Exact keeps current, or nil to
@@ -335,7 +352,7 @@ open class ExactModule {
 }
 
 /// A node's `data-*` words, read by the typed keys the build writes from
-/// app.json `data` (`ExactDataKey.title`): a misspelled key
+/// app.json `data` (`ExactDataKey.title`; LLP 1075.003 Q2): a misspelled key
 /// fails the Swift build, as an undeclared word fails the bake.
 public struct ExactData: Sendable {
     let words: [String: String]
@@ -351,7 +368,7 @@ public typealias ExactPlatformView = UIView
 public typealias ExactPlatformRecognizer = UIGestureRecognizer
 #endif
 
-/// A control a hatch drew, named for the agent:
+/// A control a hatch drew, named for the agent (LLP 1075.003.000.001 §3.5):
 /// `tree` lists it under its node with the frame the host observes, and
 /// `tap <node>/<id>` reaches it as a real touch or pointer event at its
 /// place, never by calling it. What it does when touched is the hatch's own
@@ -364,7 +381,7 @@ public struct ExactPart {
     }
 }
 
-/// The app, as its hatch hears of it: the facts
+/// The app, as its hatch hears of it (LLP 1075.003.000.001 §2.1): the facts
 /// Contract sees, by the web's names, and the platform application object for
 /// the one session the embedder gave the process to.
 public final class ExactApp {
@@ -375,7 +392,7 @@ public final class ExactApp {
     /// The application, for process-wide state (appearance proxies); nil unless `processOwner`.
     public internal(set) weak var application: UIApplication?
     #endif
-    /// Whether the embedder gave this session the process.
+    /// Whether the embedder gave this session the process (§2.1.1).
     public internal(set) var processOwner = false
     /// `visible` or `hidden` (`document.visibilityState`).
     public internal(set) var visibilityState = "visible"
@@ -398,7 +415,7 @@ public final class ExactApp {
     public internal(set) var isLive = true
     weak var hatches: ExactHatches?
 
-    /// Say what this hatch set app-wide: `owns(appearance: "tab bar
+    /// Say what this hatch set app-wide (§3.4): `owns(appearance: "tab bar
     /// tint: label")`. `state.hatches` lists it; saying it again replaces it.
     public func owns(appearance what: String, surface: Bool = false) {
         hatches?.owns(scope: "app", node: 0, kind: 2, object: nil, what, surface: surface)
@@ -417,9 +434,10 @@ public final class ExactApp {
     }
 }
 
-/// The window a session presents into, as its hatch hears of it. A session
-/// embedded beside other UI shares its window, so the window itself is
-/// handed over only when the embedder says it is this session's own.
+/// The window a session presents into, as its hatch hears of it (LLP
+/// 1075.003.000.001 §2.1). A session embedded beside other UI shares its
+/// window, so the window itself is handed over only when the embedder says
+/// it is this session's own.
 public final class ExactWindow {
     #if os(macOS)
     /// The window; nil unless `exclusive`.
@@ -429,7 +447,7 @@ public final class ExactWindow {
     public internal(set) weak var window: UIWindow?
     public internal(set) weak var scene: UIWindowScene?
     #endif
-    /// Whether the embedder said this window is the session's own.
+    /// Whether the embedder said this window is the session's own (§2.1.1).
     public internal(set) var exclusive = false
     /// The session's surface, in the window's coordinates, as Exact laid it out.
     public internal(set) var frame = CGRect.zero
@@ -442,7 +460,7 @@ public final class ExactWindow {
     public internal(set) var isLive = true
     weak var hatches: ExactHatches?
 
-    /// Say what this hatch added to the window, bound to the object:
+    /// Say what this hatch added to the window (§3.4), bound to the object:
     /// `owns(recognizer: threeFinger, "three fingers held 0.8 s: dev menu",
     /// surface: true)`. `surface` marks a hatch-only surface, one that
     /// changes no Contract state and has no authored stand-in.
@@ -461,7 +479,7 @@ public final class ExactWindow {
     }
 }
 
-/// What hatch code says of itself, for the agent:
+/// What hatch code says of itself, for the agent (LLP 1075.003.000.001 §3.2):
 /// `logs` shows `log`'s lines, `state.hatches` the counters and snapshots,
 /// `perf hatches` the timings. Development only, as `perf` is: in production
 /// each call returns at once and keeps nothing. Every call is bounded (64
@@ -504,10 +522,9 @@ public final class ExactDiagnostics: @unchecked Sendable {
     /// A snapshot, as JSON, the latest kept. One over 4 KB is refused whole.
     public func publish(_ name: String, _ value: Any) {
         guard recordFn != nil else { return }
-        let json = JSONSerialization.isValidJSONObject([value]) ? (try? JSONSerialization.data(withJSONObject: value, options: .fragmentsAllowed)) : nil
-        record(5, name, 0, json.map(Array.init) ?? [])
+        record(5, name, 0, exactJSON(value).map(Array.init) ?? [])
     }
-    /// Ask for Save Trace: at most one a second.
+    /// Ask for Save Trace (LLP 1079 D5): at most one a second.
     public func saveTrace() { record(6) }
 }
 
@@ -518,7 +535,7 @@ public struct ExactSpan: Sendable {
     public func end() { if id != 0 { diagnostics.record(4, "", Double(id)) } }
 }
 
-/// The host's callbacks for the hatches, one table per
+/// The host's callbacks for the hatches (LLP 1075.003 §3.2), one table per
 /// session: `resolve(host, routeKey, keyLen, id, idLen)` → the node a route
 /// holds under an HTML id (0: none); `act(host, node, action)` — 0 click,
 /// 1 focus, 2 blur — queued past the batch being applied; `log(host, text,
@@ -541,37 +558,36 @@ final class ExactHatches {
     let inputFn: InputFn?
     /// One of 80 or more: the frame clock's two entries.
     let framesFn: ExactModuleContext.FramesFn?, afterFn: ExactModuleContext.AfterFn?
-    /// One of 96 or more: regions and parts.
+    /// One of 96 or more: regions and parts (§3.4, §3.5).
     typealias OwnsFn = @convention(c) (UnsafeMutableRawPointer?, UnsafePointer<UInt8>?, UInt32, UInt32, UInt32, UnsafeMutableRawPointer?, UnsafePointer<UInt8>?, UInt32, UInt32) -> Int32
     typealias PartsFn = @convention(c) (UnsafeMutableRawPointer?, UInt32, UnsafePointer<UInt8>?, UInt32, UnsafePointer<UnsafeMutableRawPointer?>?, UInt32) -> Int32
     let ownsFn: OwnsFn?, partsFn: PartsFn?
-    /// One of 104 or more: the bindings' answer (ExactTamber.swift).
-    typealias TamberFn = @convention(c) (UnsafeMutableRawPointer?, UnsafeMutableRawPointer?, UnsafePointer<UInt8>?, UInt32, UnsafeMutablePointer<UInt8>?, UInt32) -> UInt32
-    let tamberFn: TamberFn?
+    /// One of 104 or more: the bindings' answer (LLP 1121 D12; ExactForma.swift).
+    typealias FormaFn = @convention(c) (UnsafeMutableRawPointer?, UnsafeMutableRawPointer?, UnsafePointer<UInt8>?, UInt32, UnsafeMutablePointer<UInt8>?, UInt32) -> UInt32
+    let formaFn: FormaFn?
     /// One of 120 or more: `app.onLine`.
     typealias OnLineFn = @convention(c) (UnsafeMutableRawPointer?) -> UInt32
     let onLineFn: OnLineFn?
-    /// One of 136 or more: a capture's claim on the audio session and its release (ExactExtensions.swift).
+    /// One of 136 or more: a capture's claim on the audio session and its release (LLP 1133.009 D7; ExactExtensions.swift).
     let audioClaimFn: AudioClaims.ClaimFn?, audioReleaseFn: AudioClaims.ReleaseFn?
-    /// One of 144 or more: a package picture changed (0) or revoked (1).
+    /// One of 144 or more: a package picture changed (0) or revoked (1) (LLP 1133.019 D11 item 1).
     typealias PictureFn = @convention(c) (UnsafeMutableRawPointer?, UInt32, UnsafePointer<UInt8>?, UInt32) -> Void
     let pictureFn: PictureFn?
-    /// One of 160 or more: a package's canvas input (ExactExtensions.swift).
+    /// One of 160 or more: a package's canvas input (LLP 1133.013 D6; ExactExtensions.swift).
     typealias SurfaceHasFn = @convention(c) (UnsafeMutableRawPointer?, UnsafePointer<UInt8>?, UInt32) -> UInt32
     typealias SurfaceSensorFn = @convention(c) (UnsafeMutableRawPointer?, UnsafePointer<UInt8>?, UInt32, UnsafePointer<UInt8>?, UInt32,
                                                 UnsafePointer<Double>?, UInt32, UInt32, Double, UInt32) -> Void
     let surfaceHasFn: SurfaceHasFn?, surfaceSensorFn: SurfaceSensorFn?
-    /// One of 168 or more: a package's call of the app's handler (ExactExtensions.swift).
+    /// One of 168 or more: a package's call of the app's handler (LLP 1133.016 D15 item 1; ExactExtensions.swift).
     let invokeFn: Invocations.InvokeFn?
     /// One of 176 or more: an authored content arrangement.
     typealias ArrangementFn = @convention(c) (UnsafeMutableRawPointer?, UInt32, UnsafeMutableRawPointer?) -> Int32
     let arrangementFn: ArrangementFn?
     /// One of 184 or more: a module's service query (ExactServices.swift).
     let serviceFn: ServiceFn?
+    /// One of 192 or more: an after that coalesces across a seek.
+    let coalescingAfterFn: ExactModuleContext.AfterFn?
     #if os(iOS) || os(tvOS)
-    /// One of 112 or more: a held tab's navigation controller, built (`ExactTab.controller`).
-    typealias StackFn = @convention(c) (UnsafeMutableRawPointer?, UnsafeMutableRawPointer?) -> UnsafeMutableRawPointer?
-    let stackFn: StackFn?
     var navigations: [ObjectIdentifier: ExactNavigation] = [:]
     var routes: [String: ExactRoute] = [:]
     var tabs: ExactTabs?
@@ -604,12 +620,8 @@ final class ExactHatches {
         let regions = table.load(as: UInt32.self) >= 96
         ownsFn = regions ? table.load(fromByteOffset: 80, as: UnsafeRawPointer?.self).map { unsafeBitCast($0, to: OwnsFn.self) } : nil
         partsFn = regions ? table.load(fromByteOffset: 88, as: UnsafeRawPointer?.self).map { unsafeBitCast($0, to: PartsFn.self) } : nil
-        tamberFn = table.load(as: UInt32.self) >= 104
-            ? table.load(fromByteOffset: 96, as: UnsafeRawPointer?.self).map { unsafeBitCast($0, to: TamberFn.self) } : nil
-        #if os(iOS) || os(tvOS)
-        stackFn = table.load(as: UInt32.self) >= 112
-            ? table.load(fromByteOffset: 104, as: UnsafeRawPointer?.self).map { unsafeBitCast($0, to: StackFn.self) } : nil
-        #endif
+        formaFn = table.load(as: UInt32.self) >= 104
+            ? table.load(fromByteOffset: 96, as: UnsafeRawPointer?.self).map { unsafeBitCast($0, to: FormaFn.self) } : nil
         onLineFn = table.load(as: UInt32.self) >= 120
             ? table.load(fromByteOffset: 112, as: UnsafeRawPointer?.self).map { unsafeBitCast($0, to: OnLineFn.self) } : nil
         let audio = table.load(as: UInt32.self) >= 136
@@ -626,6 +638,8 @@ final class ExactHatches {
             ? table.load(fromByteOffset: 168, as: UnsafeRawPointer?.self).map { unsafeBitCast($0, to: ArrangementFn.self) } : nil
         serviceFn = table.load(as: UInt32.self) >= 184
             ? table.load(fromByteOffset: 176, as: UnsafeRawPointer?.self).map { unsafeBitCast($0, to: ServiceFn.self) } : nil
+        coalescingAfterFn = table.load(as: UInt32.self) >= 192
+            ? table.load(fromByteOffset: 184, as: UnsafeRawPointer?.self).map { unsafeBitCast($0, to: ExactModuleContext.AfterFn.self) } : nil
     }
 
     /// A package picture changed (0) or revoked (1): the host's raster loader acts on it.
@@ -662,7 +676,7 @@ final class ExactHatches {
         bytes.withUnsafeBufferPointer { logFn(host, $0.baseAddress, UInt32($0.count)) }
     }
 
-    /// A region: `what`, bound weakly to `object` (kind 0 a view, 1 a
+    /// A region (§3.4): `what`, bound weakly to `object` (kind 0 a view, 1 a
     /// recognizer) or to nothing (2, an appearance), for the scope named.
     func owns(scope: String, node: UInt32, kind: UInt32, object: AnyObject?, _ what: String, surface: Bool) {
         guard let ownsFn else { return }
@@ -685,11 +699,11 @@ final class ExactHatches {
 }
 
 #if os(iOS) || os(tvOS)
-/// A navigation controller Exact built.
+/// A navigation controller Exact built (LLP 1075.003 §3.2, §3.7).
 public final class ExactNavigation {
     public let controller: UINavigationController
     /// Whether the stack's routes may show UIKit's bar. Exact's default is
-    /// true, and each route then decides for itself (a
+    /// true, and each route then decides for itself (LLP 1115.000 D5.3: a
     /// route whose header is the bar shows it, whatever the stack's first
     /// route is); false, set in `navigation`, and no route of the stack
     /// shows one. Under the agent the authored header paints and the bar
@@ -712,21 +726,27 @@ public final class ExactNavigation {
     }
 }
 
-/// A route's controller and what the app said about it.
+/// A route's controller and what the app said about it (LLP 1075.003 §3.2).
 /// Its identity is its `navigationKey`, never a position.
 public final class ExactRoute {
     /// The route's `navigationKey`: a router entry's id where the app uses
-    /// the router.
+    /// the router (LLP 1038 D6).
     public let key: String
     public let controller: UIViewController
     /// The stack it is in, when Exact has built one.
     public internal(set) var navigation: ExactNavigation?
     /// The route node's `data-*` words.
     public internal(set) var data: ExactData
-    /// The route's content scroll view: its native top-edge selection, else the one named
-    /// by `navigationScroll` or its first vertical scroller. Select with UIKit's
-    /// `controller.setContentScrollView(_:for:)`; nil leaves discovery to UIKit and
-    /// keeps the first vertical scroller as Exact's automatic scroll-to-top target.
+    /// The route's content scroll view when the hatch was last called: the app's top-edge
+    /// selection; else, where the route has a `navigationScroll`, the scroll view of the element
+    /// it names, or nil when no element carries the name or it does not scroll; else the scroll
+    /// view of the route's first vertical scroller; else the route's own viewport, which an
+    /// unpresented route has when its navigation root scrolls or native chrome uses
+    /// `interactive-widget="resizes-visual"`; else nil. A top-edge
+    /// selection or nil made with UIKit's `controller.setContentScrollView(_:for:)` reaches it
+    /// when Exact next prepares the route, at the next authored update (after a nil, possibly
+    /// within the call), and the hatch is called again then; nil makes the edge automatic, as
+    /// in UIKit.
     /// An authored scroller's offset, insets, size and delegate remain Exact's.
     public internal(set) weak var contentScrollView: UIScrollView?
     /// Whether this call is the controller's first.
@@ -738,7 +758,7 @@ public final class ExactRoute {
         self.key = key; self.controller = controller; self.data = data; isNew = true; self.hatches = hatches
     }
 
-    /// Tell the agent what this hatch added to the route: a title
+    /// Tell the agent what this hatch added to the route (§3.4): a title
     /// view, a recognizer. It ends when the object goes or the route does.
     public func owns(view: UIView, _ what: String, surface: Bool = false) {
         if isLive { hatches?.owns(scope: "route \(key)", node: 0, kind: 0, object: view, what, surface: surface) }
@@ -748,7 +768,7 @@ public final class ExactRoute {
     }
 
     /// The live node the route holds under this HTML id, resolved now, as
-    /// Exact resolves a route's Back control.
+    /// Exact resolves a route's Back control (LLP 1035.001 D1).
     public func element(_ id: String) -> ExactElement? {
         guard let hatches else { return nil }
         guard isLive else {
@@ -760,7 +780,7 @@ public final class ExactRoute {
     }
 }
 
-/// Exact's tab container.
+/// Exact's tab container (LLP 1075.003 §3.7).
 public final class ExactTabs {
     public let controller: UITabBarController
     /// The app's tab delegate. Exact keeps the controller's own slot: a tab
@@ -777,29 +797,20 @@ public final class ExactTabs {
     init(controller: UITabBarController, hatches: ExactHatches) { self.controller = controller; self.hatches = hatches }
 }
 
-/// One tab, for a container the app owns: its name, the navigation
-/// controller Exact keeps its stack in, and the item its authored tab gives.
+/// One tab, for a container the app owns: its name, the controller Exact
+/// shows it in, and the item its authored tab gives.
 public struct ExactTab {
     public let name: String
-    /// The navigation controller Exact keeps the tab's stack in. A tab whose
-    /// stack shows no bar and has pushed nothing has none until this is
-    /// read: reading it builds it, and the tab keeps it.
-    public var controller: UINavigationController {
-        if let nav = shown as? UINavigationController { return nav }
-        guard let hatches, let stack = hatches.stackFn, let built = stack(hatches.host, Unmanaged.passUnretained(shown).toOpaque()) else {
-            preconditionFailure("tab \(name): the host built no navigation controller")
-        }
-        return Unmanaged<UINavigationController>.fromOpaque(built).takeUnretainedValue()
-    }
+    /// The controller Exact shows the tab in, for the tab's life: a
+    /// navigation controller for a tab that can push or show a header, a
+    /// plain view controller for one that shows one fixed route with no
+    /// header (LLP 1075.003 §3.7).
+    public let controller: UIViewController
     /// The tab's item, which Exact updates in place as the authored tab changes.
-    public var item: UITabBarItem { shown.tabBarItem }
-    /// What Exact shows the tab in: its navigation controller, or the plain
-    /// container of a tab that has none yet.
-    let shown: UIViewController
-    weak var hatches: ExactHatches?
+    public var item: UITabBarItem { controller.tabBarItem }
 }
 
-/// What a container the app owns holds: each tab's
+/// What a container the app owns holds (LLP 1075.003 §3.6): each tab's
 /// stack, which tab the router selects, and the way to select one.
 public final class ExactTabContents {
     public let tabs: [ExactTab]
@@ -827,7 +838,7 @@ public final class ExactTabContents {
 /// An authored element a hatch acts on, as the DOM's: `click()` presses it as
 /// a tap does, queued until the batch being applied is done. A route's
 /// (`route.element(id)`, iOS) lives while its route does; a node the
-/// Contract marks `hatch="word"` while the node does, and
+/// Contract marks `hatch="word"` (LLP 1075.003.000) while the node does, and
 /// carries its view and the platform object of its kind.
 public final class ExactElement {
     /// Its HTML id ("" when it has none).
@@ -839,7 +850,7 @@ public final class ExactElement {
     weak var route: ExactRoute?
     #endif
     weak var hatches: ExactHatches?
-    /// What this node's hatch says of itself,
+    /// What this node's hatch says of itself (LLP 1075.003.000.001 §3.2),
     /// scoped to its word: `element <word>`.
     public private(set) lazy var diagnostics = ExactDiagnostics(host: hatches?.host, scope: hatch == nil ? "route \(key)" : "element \(key)", node: node, recordFn: hatches?.recordFn)
     /// A hatched node's word, or nil for a route's element.
@@ -848,7 +859,7 @@ public final class ExactElement {
     public internal(set) var data = ExactData([:])
     /// A hatched node's view. Its frame, transform, alpha, hidden state, the
     /// paint Exact draws and Exact's own subviews are Exact's; add
-    /// interactions, gestures, subviews and sublayers of your own.
+    /// interactions, gestures, subviews and sublayers of your own (§3.6).
     /// Nil once `elementEnded` has returned: the view may be another row's.
     public internal(set) weak var view: ExactNativeView?
     /// The platform object of a hatched node's kind, or nil: a text field or
@@ -870,7 +881,7 @@ public final class ExactElement {
     /// is a new element with `isNew`. A row whose view still has
     /// interactions or gesture recognizers is never reused, so one left
     /// behind costs the reuse, not another row. Read after each call; on
-    /// other hosts it changes nothing.
+    /// other hosts it changes nothing (LLP 1075.003.000.000 §8).
     public var reusable = false
     var ended = false
     /// False once the element's route or node has ended: it then does nothing.
@@ -897,7 +908,7 @@ public final class ExactElement {
 
     private var scopeName: String { hatch == nil ? "route \(key)" : "element \(key)" }
 
-    /// Tell the agent what this hatch added: a
+    /// Tell the agent what this hatch added (LLP 1075.003.000.001 §3.4): a
     /// sentence, bound weakly to the view or recognizer. `tree` shows it
     /// under the node with what the host observes of the object (whether it
     /// is live, its frame, its class), and its interior is counted as this
@@ -923,7 +934,7 @@ public final class ExactElement {
     }
     #endif
 
-    /// The controls this hatch drew in the node, at most 32. Setting
+    /// The controls this hatch drew in the node (§3.5), at most 32. Setting
     /// the list replaces it; one that breaks a bound is refused whole, by
     /// name, in the journal, and the list stays as it was.
     public var parts: [ExactPart] = [] {
@@ -943,7 +954,7 @@ public final class ExactElement {
     private var settingParts = false
 
     /// Replace an authored text field's whole value, as a person's typing
-    /// would leave it: cut to the field's own
+    /// would leave it (LLP 1075.003.000.001 §2.5): cut to the field's own
     /// limits, heard by its `input` and `change` handlers, without moving
     /// focus, so a native search controller can feed an authored field while
     /// it keeps the keyboard. Queued like `click()`. Refused by name, in the
@@ -959,7 +970,7 @@ public final class ExactElement {
     }
     /// Press it, as HTMLElement.click() does: its `press` handler runs.
     public func click() { act(0, "click") }
-    /// Focus it, by the host's focus rules.
+    /// Focus it (LLP 1035.001's focus rules).
     public func focus() { act(1, "focus") }
     public func blur() { act(2, "blur") }
     #if os(iOS) || os(tvOS)
@@ -976,7 +987,8 @@ public final class ExactElement {
 }
 
 #if os(macOS)
-/// The window toolbar Exact installs for the Contract's commands.
+/// The window toolbar Exact installs for the Contract's commands (LLP
+/// 1075.003.000 §3.7).
 public final class ExactToolbar {
     public let toolbar: NSToolbar
     public private(set) weak var window: NSWindow?
@@ -1042,8 +1054,8 @@ private let moduleCall: @convention(c) (UnsafeMutableRawPointer?, UnsafePointer<
             return answer(500, "the request was not a JSON object")
         }
         let value = try ExactExtensions.call(m, request) ?? m.call(request)
-        guard JSONSerialization.isValidJSONObject(value) else { return answer(500, "the reply was not JSON") }
-        answer(200, String(decoding: try JSONSerialization.data(withJSONObject: value), as: UTF8.self))
+        guard let json = exactJSON(value) else { return answer(500, "the reply was not JSON") }
+        answer(200, String(decoding: json, as: UTF8.self))
     } catch {
         answer(500, String(describing: error))
     }
@@ -1079,7 +1091,7 @@ private let moduleWillQuit: @convention(c) (UnsafeMutableRawPointer?, UnsafeMuta
     m.willQuit { done.call() }
 }
 
-// The hatches: the host connects its callbacks once,
+// The hatches (LLP 1075.003 §3.2): the host connects its callbacks once,
 // after the session's module is made; then each moment is one call.
 private let moduleConnect: @convention(c) (UnsafeMutableRawPointer?, UnsafeRawPointer?) -> Void = { raw, table in
     guard let m = module(raw), let table else { return }
@@ -1087,13 +1099,14 @@ private let moduleConnect: @convention(c) (UnsafeMutableRawPointer?, UnsafeRawPo
     m.context.diagnostics.recordFn = m.hatches?.recordFn
     m.context.framesFn = m.hatches?.framesFn
     m.context.afterFn = m.hatches?.afterFn
+    m.context.coalescingAfterFn = m.hatches?.coalescingAfterFn
 }
 
-/// `tamber(module)`: a batch moved what a binding reads; each
-/// place is asked again, and each that moved redrawn (ExactTamber.swift).
-private let moduleTamber: @convention(c) (UnsafeMutableRawPointer?) -> Void = { raw in
+/// `forma(module)`: a batch moved what a binding reads (LLP 1121 D12); each
+/// place is asked again, and each that moved redrawn (ExactForma.swift).
+private let moduleForma: @convention(c) (UnsafeMutableRawPointer?) -> Void = { raw in
     guard module(raw) != nil else { return }
-    Tambers.moved()
+    Formas.moved()
 }
 
 /// `tick(module, kind, token, now, seq)`: a frame ticket's tick (0) or an
@@ -1190,8 +1203,8 @@ private let moduleTabs: @convention(c) (UnsafeMutableRawPointer?, UInt32, Unsafe
 
 /// `tab_container(module, json, len, controllers, count) → controller`: the
 /// tabs (`{"names": […], "nodes": […], "selected": i}`) and their controllers
-/// (a navigation controller, or a held tab's container, `heldStacks`); a
-/// container the app owns, retained once for the host, or nil.
+/// (`ExactTab.controller`); a container the app owns, retained once for the
+/// host, or nil.
 private let moduleTabContainer: @convention(c) (UnsafeMutableRawPointer?, UnsafePointer<UInt8>?, UInt32, UnsafePointer<UnsafeMutableRawPointer?>?, UInt32) -> UnsafeMutableRawPointer? = { raw, json, length, controllers, count in
     #if os(iOS) || os(tvOS)
     guard let m = module(raw), let hatches = m.hatches, let json,
@@ -1204,7 +1217,7 @@ private let moduleTabContainer: @convention(c) (UnsafeMutableRawPointer?, Unsafe
     guard let controllers, let names = object["names"] as? [String], names.count == Int(count), nodes.count == names.count else { return nil }
     let shown = (0..<Int(count)).compactMap { controllers[$0].map { Unmanaged<UIViewController>.fromOpaque($0).takeUnretainedValue() } }
     guard shown.count == names.count else { return nil }
-    let tabs = zip(names, shown).map { ExactTab(name: $0, shown: $1, hatches: hatches) }
+    let tabs = zip(names, shown).map { ExactTab(name: $0, controller: $1) }
     let contents = ExactTabContents(tabs: tabs, selected: object["selected"] as? Int ?? 0, tabNodes: nodes.map(\.uint32Value), hatches: hatches)
     guard let container = m.tabContainer(contents) else { return nil }
     hatches.contents = contents
@@ -1214,10 +1227,10 @@ private let moduleTabContainer: @convention(c) (UnsafeMutableRawPointer?, Unsafe
     #endif
 }
 
-/// `element(module, event, view, platform, json, len) → flags`:
-/// event 0 built, 1 changed, 2 ended, 3 a frame's
-/// configuration before its web view (the platform object);
-/// json {"hatch", "node", "id", "kind", "data"}; bit 0 of the flags:
+/// `element(module, event, view, platform, json, len) → flags`
+/// (LLP 1075.003.000): event 0 built, 1 changed, 2 ended, 3 a frame's
+/// configuration before its web view (the platform object, LLP 1020.002
+/// §9); json {"hatch", "node", "id", "kind", "data"}; bit 0 of the flags:
 /// `reusable`.
 private let moduleElement: @convention(c) (UnsafeMutableRawPointer?, UInt32, UnsafeMutableRawPointer?, UnsafeMutableRawPointer?, UnsafePointer<UInt8>?, UInt32) -> UInt32 = { raw, event, view, platform, json, length in
     guard let m = module(raw), let hatches = m.hatches, let json, length > 0,
@@ -1244,8 +1257,8 @@ private let moduleElement: @convention(c) (UnsafeMutableRawPointer?, UInt32, Uns
     }
     element.data = ExactData(object["data"] as? [String: String] ?? [:])
     element.view = view.map { Unmanaged<ExactNativeView>.fromOpaque($0).takeUnretainedValue() }
-    // A hatched node's view is a place a binding finds, as a module view is.
-    if let view = element.view { Tambers.made(view, by: m) }
+    // A hatched node's view is a place a binding finds, as a module view is (LLP 1121 D12).
+    if let view = element.view { Formas.made(view, by: m) }
     if event == 3 {
         if let platform { m.elementConfiguration(element, Unmanaged<AnyObject>.fromOpaque(platform).takeUnretainedValue()) }
         return 0
@@ -1256,7 +1269,7 @@ private let moduleElement: @convention(c) (UnsafeMutableRawPointer?, UInt32, Uns
     return element.reusable ? 1 : 0
 }
 
-/// `toolbar(module, toolbar, window)` (macOS).
+/// `toolbar(module, toolbar, window)` (macOS, LLP 1075.003.000 §3.7).
 private let moduleToolbar: @convention(c) (UnsafeMutableRawPointer?, UnsafeMutableRawPointer?, UnsafeMutableRawPointer?) -> Void = { raw, toolbar, window in
     #if os(macOS)
     guard let m = module(raw), let hatches = m.hatches, let toolbar else { return }
@@ -1324,8 +1337,8 @@ private let moduleWindow: @convention(c) (UnsafeMutableRawPointer?, UInt32, Unsa
 }
 
 
-/// `authenticate(module, json, len, accessControl, ctx, done)`:
-/// the person's check for a presence item, by the extension whose
+/// `authenticate(module, json, len, accessControl, ctx, done)` (LLP 1133.010
+/// D13): the person's check for a presence item, by the extension whose
 /// interface declares the authenticator entry; json {"reason", "policy",
 /// "origin"}, the access control borrowed. done(ctx, context, error, len)
 /// once, from any thread: the evaluated context retained once for the host,
@@ -1347,11 +1360,11 @@ private let moduleAuthenticate: @convention(c) (UnsafeMutableRawPointer?, Unsafe
     }
 }
 
-/// `image(module, json, len, ctx, done)`: a picture of a package's `img`
-/// scheme, which the runner admitted; json {"extension", "source", "width",
-/// "height", "fit", "owned"}. done(ctx, image, error, len) once, from any
-/// thread: the `CGImage` retained once for the host, or nil and an error's
-/// code.
+/// `image(module, json, len, ctx, done)` (LLP 1133.019 D11 item 1): a
+/// picture of a package's `img` scheme, which the runner admitted; json
+/// {"extension", "source", "width", "height", "fit", "owned"}. done(ctx,
+/// image, error, len) once, from any thread: the `CGImage` retained once for
+/// the host, or nil and an error's code.
 private let moduleImage: @convention(c) (UnsafeMutableRawPointer?, UnsafePointer<UInt8>?, Int, UnsafeMutableRawPointer?,
                                          (@convention(c) (UnsafeMutableRawPointer?, UnsafeMutableRawPointer?, UnsafePointer<UInt8>?, Int) -> Void)?) -> Void = { raw, json, length, ctx, done in
     guard let done else { return }
@@ -1368,23 +1381,21 @@ private let moduleImage: @convention(c) (UnsafeMutableRawPointer?, UnsafePointer
     }
 }
 
-/// `session_view(module, view)`: the session's root view, borrowed, or
-/// nil when none is mounted; packages host views under it and present in
-/// its window. Main thread.
+/// `session_view(module, view)` (LLP 1133.027 D17 item 3): the session's
+/// root view, borrowed, or nil when none is mounted; packages host views
+/// under it and present in its window. Main thread.
 private let moduleSessionView: @convention(c) (UnsafeMutableRawPointer?, UnsafeMutableRawPointer?) -> Void = { raw, view in
     module(raw)?.context.sessionView = view.map { Unmanaged<AnyObject>.fromOpaque($0).takeUnretainedValue() }
 }
 
 /// The ABI major this artifact was built against; the host refuses others.
-private let major: UInt32 = 3
+private let major: UInt32 = 4
 
 private let table: UnsafeMutableRawPointer = {
     // Beside the tags, under a key no tag can take (a tag has a hyphen): the
-    // hatch words this module was built to handle,
-    // so the host calls it with no word its code never compiled.
-    // `heldStacks`: `tabContainer` takes a tab Exact holds without a
-    // navigation controller, whose `ExactTab.controller` builds it.
-    let words = "\"hatches\":{\"heldStacks\":true,\"words\":[" + ExactHatchKey._words.map { "\"\($0)\"" }.joined(separator: ",") + "]}"
+    // hatch words this module was built to handle (LLP 1075.003.000.001
+    // §4.3), so the host calls it with no word its code never compiled.
+    let words = "\"hatches\":{\"words\":[" + ExactHatchKey._words.map { "\"\($0)\"" }.joined(separator: ",") + "]}"
         + ",\"extensions\":{\"names\":[" + ExactExtensions.names.map { "\"\($0)\"" }.joined(separator: ",") + "]}"
         // `app.onLine` is asked of the host (`on_line`), not read from the facts.
         + ",\"facts\":{\"onLine\":\"asks\"}"
@@ -1422,7 +1433,7 @@ private let table: UnsafeMutableRawPointer = {
     t.storeBytes(of: unsafeBitCast(moduleWindow, to: UnsafeRawPointer.self), toByteOffset: 192, as: UnsafeRawPointer.self)
     t.storeBytes(of: unsafeBitCast(moduleTick, to: UnsafeRawPointer.self), toByteOffset: 200, as: UnsafeRawPointer.self)
     t.storeBytes(of: unsafeBitCast(moduleWillQuit, to: UnsafeRawPointer.self), toByteOffset: 208, as: UnsafeRawPointer.self)
-    t.storeBytes(of: unsafeBitCast(moduleTamber, to: UnsafeRawPointer.self), toByteOffset: 216, as: UnsafeRawPointer.self)
+    t.storeBytes(of: unsafeBitCast(moduleForma, to: UnsafeRawPointer.self), toByteOffset: 216, as: UnsafeRawPointer.self)
     t.storeBytes(of: unsafeBitCast(ExactNativeViewABI.createView, to: UnsafeRawPointer.self), toByteOffset: 224, as: UnsafeRawPointer.self)
     t.storeBytes(of: unsafeBitCast(moduleAuthenticate, to: UnsafeRawPointer.self), toByteOffset: 232, as: UnsafeRawPointer.self)
     t.storeBytes(of: unsafeBitCast(moduleImage, to: UnsafeRawPointer.self), toByteOffset: 240, as: UnsafeRawPointer.self)

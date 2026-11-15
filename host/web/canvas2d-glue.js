@@ -1,4 +1,4 @@
-// Canvas 2D on the web: each 2D canvas's content box is
+// Canvas 2D on the web (LLP 1056 D4, D7): each 2D canvas's content box is
 // watched with a ResizeObserver and reported to the runner
 // (`exact_canvas_geometry`); the runner's stamped lists are replayed, in
 // order, into the canvas element's real CanvasRenderingContext2D, so the
@@ -7,8 +7,8 @@
 // added under the base transform (the device scale), and every paint runs
 // under base ∘ author, where the browser strokes and shades in user space as
 // it always does. Injected after first paint with the first 2D canvas; an
-// app without one never fetches it.
-const AGENT_ADMITTED = true; // false in a production bake: host/web/build.mjs rewrites this line
+// app without one never fetches it (LLP 1047).
+const AGENT_ADMITTED = true; // false in a production bake: host/web/build.mjs rewrites this line (LLP 1069.007 D2)
 const OPS = {
   1: "save", 2: "restore", 3: "reset", 4: "setTransform",
   10: "fillColor", 11: "fillGradient", 12: "strokeColor", 13: "strokeGradient",
@@ -55,13 +55,13 @@ function fontCss(k, count) {
   return `${style === 1 ? "italic " : style === 2 ? "oblique " : ""}${weight} ${size}px ${families(textOf(k, 9, count))}`;
 }
 
-// The page's decoded image handles: src -> { el, w, h, ok, subscribers }.
+// The page's decoded image handles (LLP 1056 D9): src -> { el, w, h, ok, subscribers }.
 const images = new Map();
 
 /** One canvas: the element, its context, and what the replayer keeps. */
 class Replayer {
   constructor(el, op) {
-    // Its getContext settings, which an element keeps from
+    // Its getContext settings (LLP 1100 D12a), which an element keeps from
     // its first context: other settings take a new element.
     const settings = { colorSpace: op.p3 ? "display-p3" : "srgb", colorType: op.float16 ? "float16" : "unorm8" }, key = `${settings.colorSpace} ${settings.colorType}`;
     if (el.exactSettings !== undefined && el.exactSettings !== key) { const fresh = el.cloneNode(false); el.replaceWith(fresh); el = fresh; }
@@ -216,6 +216,15 @@ globalThis.exact.canvas2dGlue = function canvas2dGlue(o) {
   let settle = null, frames = false, framing = false;
   const agentMode = AGENT_ADMITTED && new URL(location.href).searchParams.has("agent");
   const surfaceOf = (el) => el && [...el.children].find(c => c.dataset && c.dataset.surface !== undefined);
+  function forget(id) {
+    const el = watched.get(id);
+    if (el) observer.unobserve(el);
+    watched.delete(id);
+    canvases.delete(id);
+    reported.delete(id);
+    waiting.delete(id);
+    if (!waiting.size && settle) { settle.resolve(); settle = null; }
+  }
   function report(id, el, width, height) {
     const scale = devicePixelRatio || 1, key = `${width} ${height} ${scale}`;
     waiting.delete(id);
@@ -225,7 +234,7 @@ globalThis.exact.canvas2dGlue = function canvas2dGlue(o) {
     const surface = surfaceOf(el), cs = getComputedStyle(el);
     if (surface) {
       // A replaced element takes its bitmap's size unless told the box's:
-      // an explicit bitmap is stretched to it.
+      // an explicit bitmap is stretched to it (LLP 1056 D6).
       surface.style.inset = `${cs.paddingTop} auto auto ${cs.paddingLeft}`;
       surface.style.width = `${width}px`; surface.style.height = `${height}px`;
       surface.style.borderRadius = "inherit";
@@ -248,9 +257,9 @@ globalThis.exact.canvas2dGlue = function canvas2dGlue(o) {
   // computed size (fractional, as the observer's), less padding and border where the box sizes its border; none for a
   // canvas with no box (`display: none` here or above: its computed size is the authored one); and inline then block,
   // as the observer's entry gives it, in a vertical writing mode.
-  function firstGeometry(id, el) {
-    if (!waiting.has(id) || watched.get(id) !== el) return;
-    if (o.views.get(id) !== el) { waiting.delete(id); watched.delete(id); observer.unobserve(el); }
+  function firstGeometry(id, el, refresh = false) {
+    if ((!refresh && !waiting.has(id)) || watched.get(id) !== el) return;
+    if (o.views.get(id) !== el) forget(id);
     else if (!el.getClientRects().length) report(id, el, 0, 0);
     else {
       const cs = getComputedStyle(el), px = v => parseFloat(v) || 0, edge = cs.boxSizing === "border-box";
@@ -260,7 +269,7 @@ globalThis.exact.canvas2dGlue = function canvas2dGlue(o) {
     }
     if (!waiting.size && settle) { settle.resolve(); settle = null; }
   }
-  // A display-scale change is a new generation: every canvas reports again.
+  // A display-scale change is a new generation (D4): every canvas reports again.
   const rescale = () => matchMedia(`(resolution: ${devicePixelRatio}dppx)`).addEventListener("change", () => {
     for (const id of reported.keys()) { const el = o.views.get(id); if (el) { observer.unobserve(el); observer.observe(el); } }
     rescale();
@@ -272,7 +281,7 @@ globalThis.exact.canvas2dGlue = function canvas2dGlue(o) {
     exact.send(exact.wasm.exact_advance(o.now(), 0));
     if (frames && !framing) { framing = true; requestAnimationFrame(frame); }
   }
-  // Image handles: loaded as an `image` node's src resolves,
+  // Image handles (LLP 1056 D9): loaded as an `image` node's src resolves,
   // then the runner is told, and the canvases that asked draw again.
   function load(src, subscriber) {
     let entry = images.get(src);
@@ -289,8 +298,8 @@ globalThis.exact.canvas2dGlue = function canvas2dGlue(o) {
     entry.el.src = exact.assetURL ? exact.assetURL(src) : src;
     return entry;
   }
-  // Text is measured on the page, whose document has the app's faces:
-  // the run at left/alphabetic, and the em box from "top" and
+  // Text is measured on the page, whose document has the app's faces (LLP
+  // 1056 D8): the run at left/alphabetic, and the em box from "top" and
   // "bottom" (Chrome has no emHeight* yet).
   const scratch = document.createElement("canvas").getContext("2d");
   function measure(json) {
@@ -314,6 +323,19 @@ globalThis.exact.canvas2dGlue = function canvas2dGlue(o) {
   document.fonts?.addEventListener("loadingdone", () => exact.send(exact.wasm.exact_canvas_fonts()));
   return {
     op(op) {
+      if (op.prepareCapture !== undefined) {
+        if (!op.held()) { op.resolve(); return; }
+        for (const [id, el] of watched) firstGeometry(id, el, true);
+        exact.send(exact.wasm.exact_canvas_capture_ready(op.prepareCapture));
+        op.resolve(); return;
+      }
+      if (op.capture) {
+        const c = op.capture;
+        this.capture(c.id, c.lifetime, c.generation, c.w, c.h, c.sequence,
+          () => exact.wasm.exact_canvas_snapshotted(c.ticket), c.type, c.quality).then(op.resolve, op.reject);
+        return;
+      }
+      if (op.forget) { forget(op.id); return; }
       if (op.images) { for (const src of op.images) load(src); return; }
       if (op.frames !== undefined && op.id === undefined) {
         frames = op.frames;
@@ -330,7 +352,27 @@ globalThis.exact.canvas2dGlue = function canvas2dGlue(o) {
       const r = canvases.get(op.id);
       if (!r || r.lifetime !== op.lifetime || r.generation !== op.generation) return;
       // Each list is `[address, length]` in the wasm's memory, read in place.
-      for (const [at, len] of op.lists ?? []) if (!r.apply(new DataView(exact.wasm.memory.buffer, at, len))) console.error(`exact: canvas ${op.id}: unreadable list`);
+      let completed = true;
+      for (const [at, len] of op.lists ?? []) if (!r.apply(new DataView(exact.wasm.memory.buffer, at, len))) { completed = false; console.error(`exact: canvas ${op.id}: unreadable list`); }
+      if (completed && op.seq > 0) r.sequence = op.seq;
+    },
+    /** Read layout after a commit, before capturing a canvas whose box may have changed. */
+    geometry(id) { const el = watched.get(id); if (el) firstGeometry(id, el, true); },
+    /** A capture (LLP 1056 D9, as amended for #188 and #504): the element's
+     *  own bitmap as the browser's `toBlob` encodes it, as `type` at `quality`
+     *  or, for a type it does not write, a straight-alpha sRGB PNG; the
+     *  blob's `type` names which. */
+    capture(id, lifetime, generation, w, h, sequence, snapshotted = () => true, type = "image/png", quality = null) {
+      return new Promise((resolve, reject) => {
+        const r = canvases.get(id);
+        if (!r || !sequence || !(r.sequence >= sequence) || r.lifetime !== lifetime || r.generation !== generation || r.el.width !== w || r.el.height !== h)
+          throw new Error("the requested canvas generation has not been drawn");
+        // Freeze the kept bitmap before marking the job snapshotted or yielding to encoding.
+        const copy = document.createElement("canvas"); copy.width = w; copy.height = h;
+        copy.getContext("2d", { colorSpace: "srgb" }).drawImage(r.el, 0, 0);
+        if (!snapshotted()) throw new Error("the capture's drawing boundary is no longer available");
+        copy.toBlob(b => (b ? resolve(b) : reject(new Error("the browser did not encode the bitmap"))), type, quality ?? undefined);
+      });
     },
     /** Resolves once every watched canvas has reported its first geometry. */
     settled() {

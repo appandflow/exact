@@ -29,7 +29,8 @@ pub(super) fn patch(plan: &Plan, rows: &[(&str, Value)]) -> Result<StyleProps, I
 /// margins on all hosts; no collapsed CSS margin can escape the measured
 /// wrapper border box. In a row list the wrapper is a flex item that neither
 /// grows nor shrinks (`flex: none`, as an overflowing carousel's cards
-/// are), stretched to the row's height by the list's own `align-items`.
+/// are), stretched to the row's height by the list's own `align-items`
+/// (LLP 1070 §3.1).
 fn wrapper_rows(axis: ListAxis) -> Vec<(&'static str, Value)> {
     match axis {
         ListAxis::Vertical => vec![
@@ -53,11 +54,11 @@ fn wrapper_rows(axis: ListAxis) -> Vec<(&'static str, Value)> {
 
 /// The host translates/raises a reorderable list's wrapper during Arrange;
 /// it must be the same containing block before, during and after the
-/// gesture.
+/// gesture (1074 D1).
 const REORDERABLE: (&str, &str) = ("position_type", "relative");
 
 /// A row wrapper's style, as its ops leave it in a kernel: what a document
-/// written without one gives it.
+/// written without one gives it (LLP 1048.004).
 fn wrapper_style(
     plan: &Plan,
     axis: ListAxis,
@@ -107,7 +108,7 @@ pub(super) fn row_wrapper(
     Ok(view)
 }
 
-/// A rebound row's wrapper takes its new item's key.
+/// A rebound row's wrapper takes its new item's key (LLP 1078).
 pub(super) fn rekey(u: &mut Update<'_>, wrapper: ViewId, key: &str) {
     u.ops.push(Op::SetProp {
         id: wrapper,
@@ -118,7 +119,7 @@ pub(super) fn rekey(u: &mut Update<'_>, wrapper: ViewId, key: &str) {
 
 /// A row whose item left the data, before the list detaches and destroys its
 /// wrapper: an empty `listItemKey` tells the kernel it leaves (and plays its
-/// root's `-exact-exit-animation`), where a row that scrolled away simply
+/// root's `-exact-exit-animation`, LLP 1063), where a row that scrolled away simply
 /// goes.
 pub(crate) fn item_left(u: &mut Update<'_>, wrapper: ViewId) {
     u.ops.push(Op::SetProp {
@@ -181,13 +182,17 @@ fn spacer(u: &mut Update<'_>, axis: ListAxis, size: f64) -> Result<ViewId, Insta
 }
 impl Collection {
     pub(super) fn emit_children(&mut self, u: &mut Update<'_>) -> Result<(), InstanceError> {
+        self.sync_undisplayed(u)?;
         let mut children = Vec::with_capacity(self.mounted.len() + 4);
         let mut cursor = 0;
         let mut spacer_count = 0;
         for i in 0..=self.mounted.len() {
             let position = self.mounted.get(i).map_or(self.index.len(), |r| r.position);
-            let gap = self.index.prefix(position).unwrap() - self.index.prefix(cursor).unwrap();
-            if gap > 0.0 {
+            let skipped = self.index.prefix(position).unwrap() - self.index.prefix(cursor).unwrap();
+            if skipped > 0.0 {
+                // The rows' extents count a gap after each; the list lays
+                // its own out after the spacer (`sizing.rs`).
+                let gap = (skipped - self.sizing.gap).max(0.0);
                 if let Some((view, old)) = self.spacers.get_mut(spacer_count) {
                     if *old != gap {
                         style(u, *view, &[(main_size(self.axis), Value::Number(gap))])?;
@@ -220,7 +225,7 @@ impl Collection {
     }
 }
 /// One child of a virtualized list's view, as a document written without a
-/// kernel holds it: a spacer, or a mounted row's wrapper
+/// kernel holds it (LLP 1048.004): a spacer, or a mounted row's wrapper
 /// around its root.
 pub(in crate::instance) enum ListChild<'a> {
     /// A spacer: its view and style (its props are fixed: hidden).
@@ -263,12 +268,11 @@ impl Collection {
                 );
                 props.set(PropId::AccessibilitySetSize, PropValue::Int(count as i64));
             }
-            out.push(ListChild::Row(
-                *view,
-                wrapper_style(plan, self.axis, self.reorderable)?,
-                props,
-                &row.row.roots,
-            ));
+            let mut style = wrapper_style(plan, self.axis, self.reorderable)?;
+            if row.undisplayed {
+                style.apply_patch(&patch(plan, &[("display", Value::str("none"))])?);
+            }
+            out.push(ListChild::Row(*view, style, props, &row.row.roots));
         }
         Ok(out)
     }
@@ -301,7 +305,7 @@ pub(super) fn validate_row(
         // A transform or a relative offset moves the row's box where it
         // paints and leaves its flow, and so its wrapper's measure, as CSS
         // does: a lifted row being dragged is `translate` and `z-index`
-        // (`translate: 0px 0px` included).
+        // (files F14: "0px 0px" was refused and the list drew nothing).
         let allowed = match style.name() {
             "position_type" => value == &Value::str("relative") || value == &Value::str("static"),
             "margin_top" | "margin_bottom" => value.as_number().is_some_and(|n| n >= 0.0),

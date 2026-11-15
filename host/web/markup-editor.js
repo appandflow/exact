@@ -1,4 +1,4 @@
-// A contentEditable whose text is the Markdown source:
+// @ref LLP 1045 D1/D5/D6 — a contentEditable whose text is the Markdown source:
 // syntax is hidden (display:none), never removed, so plain typing, composition
 // and spelling run natively and are read back. Every editing rule — caret
 // placement, deletion, pending formats, list Return, undo — is the shared
@@ -13,6 +13,10 @@ const KINDS = { historyUndo: 1, historyRedo: 2, formatBold: 3, formatItalic: 4, 
   insertText: 8, insertReplacementText: 9, insertFromPaste: 10, insertFromDrop: 10, insertFromYank: 10, deleteContentBackward: 11, deleteContentForward: 12,
   deleteWordBackward: 15, deleteWordForward: 16 };
 const HISTORY = { undo: 'historyUndo', redo: 'historyRedo' };
+// The command key is ⌘ on an Apple platform, where Control with a letter is
+// the text system's own Emacs binding (⌃A, ⌃K, ⌃Y; "Text System Defaults and
+// Key Bindings"), and Control elsewhere.
+const APPLE = /Mac|iPhone|iPad|iPod/.test(navigator.platform);
 const kindOf = t => KINDS[t] ?? (t.startsWith('format') ? 6 : !t.startsWith('delete') ? 0 : /Backward|^deleteByCut$|^deleteContent$/.test(t) ? 13 : 14);
 const STYLES = [[1, 'md-b'], [2, 'md-i'], [4, 'md-c'], [8, 'md-s'], [16, 'md-a'], [64, 'md-m']];
 const CSS = `
@@ -47,7 +51,9 @@ const CSS = `
 `;
 
 let wasm;
-const utf16 = new TextDecoder('utf-16le');
+// Without `ignoreBOM` a leading U+FEFF is dropped, and the copy read back would be
+// one unit shorter than the source every editor offset counts.
+const utf16 = new TextDecoder('utf-16le', { ignoreBOM: true });
 /** Write a string into the editor's input buffer; returns its length. */
 function put(s) {
   const at = wasm.mde_input(s.length), m = new Uint16Array(wasm.memory.buffer, at, s.length);
@@ -58,7 +64,7 @@ const text = n => utf16.decode(new Uint16Array(wasm.memory.buffer, wasm.mde_text
 
 /** A line's class, attributes and segments, from its `mde_view` record and
  * its atoms' faces (`atoms`, in line order: each segment of an atom's hidden
- * source is drawn after its island). */
+ * source is drawn after its island, LLP 1045.000 §4). */
 function describe(v, at, line, atoms = []) {
   const [heading, quote, depth, flags, deco, da, db, count] = v.subarray(at + 2, at + 10);
   const cls = ['md-line'], attrs = [], segs = [];
@@ -163,9 +169,12 @@ function installMarkupEditor(textarea, host) {
   let source = '', lines = [], records = [], starts = [0], index = new WeakMap(), payload = '', placed = null;
   let destroyed = false, composing = false, notifying = false, pointer = false, pendingValue, pendingSync = false;
   let nativeHidden = null, direction = 'none', told = null, reported = '', moving = false, reread = false, atomStyles = {}, atomKinds = {}, atomed = null;
+  let dragDelete = null, dragTimer, dropPoint = NONE;
+  // What ⌃K deleted last, for ⌃Y: the browser's kill buffer stays empty when the editor cancels its delete.
+  let killed = '';
   // The app's `paragraphDirs` words; whether they still wait to be placed by
   // line number; each line's text and word as drawn; and the drawn words as
-  // the editor last kept them for its undo steps.
+  // the editor last kept them for its undo steps (LLP 1045 D11).
   let words = [], wordsSaid = null, placeWords = true, drawnTexts = [], drawnWords = [], heldWords = '';
   // Each line's direction under `auto` and what it was decided for (`mde_auto`).
   let autoFor = null, autoDirs = [];
@@ -224,7 +233,7 @@ function installMarkupEditor(textarea, host) {
     for (let k = 0; k + 11 < lines.length; k += 12) { const [kind, label, icon, title, role, href, src, color, backgroundColor, direction, ariaLabel] = lines.slice(k, k + 11); out.push({ kind, label, icon, title, role, href, source: src, color, backgroundColor, direction, ariaLabel }); }
     return out;
   }
-  /** The field's `atoms` and `atomFaces` into the editor, and its kinds' paint; a change redraws. */
+  /** The field's `atoms` and `atomFaces` into the editor (LLP 1045.000 D2), and its kinds' paint; a change redraws. */
   function atoms() {
     const kinds = el.getAttribute('data-atoms') ?? '', faces = el.getAttribute('data-atom-faces') ?? '', styles = el.getAttribute('data-atom-styles') ?? '';
     if (atomed?.[0] === kinds && atomed[1] === faces && atomed[2] === styles) return 0;
@@ -234,7 +243,7 @@ function installMarkupEditor(textarea, host) {
     put(kinds + faces);
     return wasm.mde_atoms(h, kinds.length, faces.length) | SOURCE;
   }
-  /** The field's `paragraphDirs` words; whether they changed. */
+  /** The field's `paragraphDirs` words (LLP 1045 D11); whether they changed. */
   function directions() {
     const said = el.getAttribute('data-paragraph-dirs') ?? '';
     if (said === wordsSaid) return false;
@@ -307,7 +316,7 @@ function installMarkupEditor(textarea, host) {
 
   /** The source offset of a DOM point inside the editor. An island adds no
    * source: the point before it is its atom's start; one after it, or in its
-   * hidden source, the atom's end. */
+   * hidden source, the atom's end (LLP 1045.000 §4). */
   function toSource(node, offset) {
     if (node === el) return offset >= lines.length ? source.length : starts[offset] ?? 0;
     const line = (node.nodeType === 3 ? node.parentElement : node)?.closest('.md-line');
@@ -333,16 +342,23 @@ function installMarkupEditor(textarea, host) {
     const line = lines[lo];
     if (!line) return { node: el, offset: 0 };
     const local = p - starts[lo], found = [], edges = [];
+    let before, after;
     let acc = 0;
     for (const [i, kid] of [...line.childNodes].entries()) {
       if (isIsland(kid)) { if (acc === local) edges.push({ node: line, offset: i }); continue; }
       const t = kid.nodeType === 3 ? kid : kid.firstChild?.nodeType === 3 ? kid.firstChild : null, len = kid.nodeName === 'BR' ? 0 : kid.textContent.length;
       if (kid.exactIsland && acc + len === local) edges.push({ node: line, offset: i + 1 });
-      else if (t && !kid.classList?.contains('md-hide') && acc <= local && local <= acc + len) found.push({ node: t, offset: local - acc, start: local === acc, end: local === acc + len });
+      else if (t && !kid.classList?.contains('md-hide')) {
+        if (acc <= local && local <= acc + len) found.push({ node: t, offset: local - acc, start: local === acc, end: local === acc + len });
+        else if (acc + len < local) before = { node: t, offset: len };
+        else if (!after) after = { node: t, offset: 0 };
+      }
       acc += len;
     }
     if (found.length) return right ? found.find(c => !c.end) ?? found.at(-1) : found.find(c => !c.start) ?? found[0];
     if (edges.length) return edges[0];
+    // Several adjacent markers can put a source caret inside one hidden span.
+    if (before || after) return right ? after ?? before : before ?? after;
     const br = line.querySelector(':scope > br');
     return { node: line, offset: br ? [...line.childNodes].indexOf(br) : line.childNodes.length };
   }
@@ -387,7 +403,7 @@ function installMarkupEditor(textarea, host) {
     const next = text(wasm.mde_facts(h));
     if (next !== payload) { payload = next; host.select(el, payload); }
   }
-  /** The island the selection is exactly (`:checked`), and no other, carries `data-atom-selected`. */
+  /** The island the selection is exactly (`:checked`, LLP 1045.000 D4), and no other, carries `data-atom-selected`. */
   function checkAtoms() {
     if (!el.querySelector('.exact-atom')) return;
     const [s, e] = selection();
@@ -518,6 +534,7 @@ function installMarkupEditor(textarea, host) {
     if (value === source) { pendingValue = undefined; return; }
     if (composing || notifying) { pendingValue = value; return; }
     pendingValue = undefined;
+    clearDrag();
     const bits = wasm.mde_set_value(h, put(value));
     if (bits & SOURCE) { read(); render(); place(false); emit(); }
   }
@@ -575,6 +592,7 @@ function installMarkupEditor(textarea, host) {
   function destroy() {
     if (destroyed) return;
     destroyed = true;
+    clearDrag();
     document.removeEventListener('selectionchange', selectionChanged);
     window.removeEventListener('pointerup', release); window.removeEventListener('pointercancel', release);
     observer.disconnect();
@@ -585,6 +603,23 @@ function installMarkupEditor(textarea, host) {
   // typing must reach the shared editor, and the app's `beforeinput` the
   // selection it applies to, before either decides (capture runs first).
   el.addEventListener('beforeinput', e => { if (!destroyed && !composing && !e.isComposing) selectionChanged(); }, true);
+  el.addEventListener('drop', e => {
+    const point = document.caretPositionFromPoint?.(e.clientX, e.clientY);
+    const range = point ? null : document.caretRangeFromPoint?.(e.clientX, e.clientY);
+    const node = point?.offsetNode ?? range?.startContainer, offset = point?.offset ?? range?.startOffset;
+    dropPoint = node && el.contains(node) ? toSource(node, offset) : NONE;
+  });
+  function clearDrag() {
+    clearTimeout(dragTimer);
+    dragDelete = null;
+  }
+  function finishDrag() {
+    if (!dragDelete) return;
+    const [a, b] = dragDelete;
+    clearDrag();
+    after(wasm.mde_before_input(h, kindOf('deleteByDrag'), put(''), a, b, now()), { inputType: 'deleteByDrag' });
+  }
+  el.addEventListener('dragend', finishDrag);
   /** The editor's own handling, after the app's `beforeinput` (installed after `host.replace`): one it prevented changes nothing. */
   function beforeInput(e) {
     if (destroyed || composing || e.defaultPrevented || e.isComposing || e.inputType === 'insertCompositionText') return;
@@ -592,9 +627,39 @@ function installMarkupEditor(textarea, host) {
     const kind = kindOf(e.inputType);
     if (!kind) { rememberNativeSelection(); return; }
     let a = NONE, b = NONE;
-    const target = (kind === 9 || kind >= 11) && e.getTargetRanges?.()[0];
+    const drop = e.inputType === 'insertFromDrop';
+    if (!drop) finishDrag();
+    const target = (drop || kind === 9 || kind >= 11) && e.getTargetRanges?.()[0];
     if (target) { const x = toSource(target.startContainer, target.startOffset), y = toSource(target.endContainer, target.endOffset); a = Math.min(x, y); b = Math.max(x, y); }
-    const dt = e.dataTransfer, data = e.data ?? (dt && (dt.getData('text/markdown') || dt.getData('text/plain'))) ?? '';
+    if (e.inputType === 'deleteHardLineForward') {
+      // ⌃K (deleteToEndOfParagraph:) deletes the selection, else to the
+      // line's end, else the line break. Chromium's target range runs on to
+      // the same offset in the next line.
+      const [x, y] = sel(), end = source.indexOf('\n', Math.max(x, y));
+      [a, b] = x !== y ? [Math.min(x, y), Math.max(x, y)] : [x, end < 0 ? source.length : end === x ? x + 1 : end];
+      killed = source.slice(a, b);
+    }
+    const yank = e.inputType === 'insertFromYank' && !e.data ? killed : null;
+    const dt = e.dataTransfer, data = yank ?? e.data ?? (dt && (dt.getData('text/markdown') || dt.getData('text/plain'))) ?? '';
+    if (e.inputType === 'deleteByDrag') {
+      e.preventDefault();
+      dragDelete = [...(target ? [a, b] : sel()), dropPoint];
+      dropPoint = NONE;
+      // Chromium has already chosen the drop's DOM node. Keep it attached
+      // through insertFromDrop; a move outside this editor still deletes.
+      dragTimer = setTimeout(finishDrag, 0);
+      return;
+    }
+    if (drop && dragDelete) {
+      // WebKit keeps the source selection as its target when deletion was
+      // cancelled. Its hit-tested drop caret still names the destination.
+      const [from, to, point] = dragDelete, at = target && a === b ? a : point !== NONE ? point : sel()[0];
+      clearDrag();
+      e.preventDefault();
+      after(wasm.mde_move(h, from, to, at, put(data), now()), { inputType: e.inputType, data: e.data });
+      return;
+    }
+    if (drop && target) wasm.mde_set_selection(h, a, b);
     const bits = wasm.mde_before_input(h, kind, put(data), a, b, now());
     if (!(bits & HANDLED)) { rememberNativeSelection(); return; } // native typing, read back on input
     e.preventDefault();
@@ -609,7 +674,7 @@ function installMarkupEditor(textarea, host) {
     if (!e.isComposing) reconcile(edit);
     else if (composing) { told = el.value; notify({ ...edit, isComposing: true }); }
   });
-  // Over a range that holds an atom, the range goes first, its own undo step; the platform composes over it.
+  // Over a range that holds an atom, the range goes first, its own undo step; the platform composes over it (LLP 1045.000 D5).
   el.addEventListener('compositionstart', () => { selectionChanged(); rememberNativeSelection(); if (wasm.mde_compose(h, now()) & SOURCE) { read(); reread = true; } composing = true; });
   // A composition the app heard and that left the source as it was (cancelled) is heard too: its text went.
   el.addEventListener('compositionend', e => {
@@ -620,7 +685,7 @@ function installMarkupEditor(textarea, host) {
   });
   el.addEventListener('keydown', e => {
     if (e.isComposing || destroyed || e.defaultPrevented || e.exactStopped || e.$stopped) return;
-    const mod = e.metaKey || e.ctrlKey, key = e.key.length === 1 ? e.key.toLowerCase() : e.key;
+    const mod = APPLE ? e.metaKey && !e.ctrlKey : e.ctrlKey && !e.metaKey, key = e.key.length === 1 ? e.key.toLowerCase() : e.key;
     let command = null;
     if (mod && !e.altKey) {
       if (key === 'a' && !e.shiftKey) {
@@ -646,7 +711,7 @@ function installMarkupEditor(textarea, host) {
     const markdown = copied();
     if (markdown === null) return;
     e.preventDefault();
-    // Copy keeps the literal source; Mod-Shift-C copies plain text.
+    // Copy keeps the literal source (LLP 1045 D1); Mod-Shift-C copies plain text.
     e.clipboardData.setData('text/plain', markdown);
     e.clipboardData.setData('text/markdown', markdown);
     if (cut && writable()) after(wasm.mde_cut(h, now()), { inputType: 'deleteByCut' });
@@ -659,7 +724,7 @@ function installMarkupEditor(textarea, host) {
     const box = line.getBoundingClientRect(), css = getComputedStyle(line), start = gutter(css);
     return (css.direction === 'rtl' ? box.right - x : x - box.left) <= start;
   };
-  // A press on an island selects its atom, then is the field's `atompress`.
+  // A press on an island selects its atom, then is the field's `atompress` (LLP 1045.000 D5, D7).
   const pressed = e => { const box = e.target.closest?.('.exact-atom'); return box && el.contains(box) && index.has(box.parentNode) ? islands().find(i => i.box === box) : null; };
   // A disabled or inert field presses no atom; a read-only one presses but selects nothing.
   const pressable = () => !el.hasAttribute('disabled') && !inertAncestor(el);
@@ -693,7 +758,7 @@ function installMarkupEditor(textarea, host) {
     selectionDirection: { get: () => selection()[2] },
   });
   reported = selection().join();
-  // HTML's range methods over source offsets: offsets are
+  // HTML's range methods over source offsets (LLP 1045 D6): offsets are
   // WebIDL `unsigned long`s, clamped to the source; a caret in hidden syntax
   // is drawn at its visible edge, so it reads back there.
   const offset = v => Math.min(source.length, Number(v) >>> 0);
@@ -706,7 +771,7 @@ function installMarkupEditor(textarea, host) {
     if (direction === 'backward') place(false);
     moved();
   };
-  // One undo step for each call, as a format command is, and
+  // One undo step for each call, as a format command is (LLP 1045 D1), and
   // the one `insertReplacementText` input a plain field's call makes.
   el.setRangeText = (text, ...range) => {
     if (destroyed) return;
@@ -725,7 +790,7 @@ function installMarkupEditor(textarea, host) {
   };
   el.focus = options => { if (el.hasAttribute('disabled')) return; HTMLElement.prototype.focus.call(el, options); place(false); };
   el.select = () => { if (el.hasAttribute('disabled')) return; wasm.mde_select_all(h); place(false); emit(); };
-  // `rangeFrame` over source offsets. Collapsed, the caret's
+  // `rangeFrame` (LLP 1114.007) over source offsets. Collapsed, the caret's
   // box at the visible text nearest the offset (an offset in hidden syntax
   // sits at its edge). Wider, the union of the visible text it covers and of
   // the caret either side of each line break in it; hidden syntax adds none.
@@ -738,7 +803,7 @@ function installMarkupEditor(textarea, host) {
     const line = lines[lo];
     // A line not drawn (a collapsed fence's) has no caret.
     if (!line || !line.getClientRects().length) return null;
-    // At an atom's edge, its island's.
+    // At an atom's edge, its island's (LLP 1045.000 D7).
     // Its start is the line's start side: the right in a right-to-left line.
     for (const { box, s, e } of islands()) if (box.parentNode === line && (p === s || p === e)) { const b = box.getBoundingClientRect(), rtl = getComputedStyle(line).direction === 'rtl'; return new DOMRect((p === s) !== rtl ? b.left : b.right, b.top, 0, b.height); }
     const walker = document.createTreeWalker(line, NodeFilter.SHOW_TEXT), r = document.createRange();
@@ -775,7 +840,7 @@ function installMarkupEditor(textarea, host) {
     for (const { box, s, e } of islands()) if (s < to && from < e) add(box.getBoundingClientRect());
     return left === Infinity ? null : new DOMRect(left, top, right - left, bottom - top);
   }
-  /** The atoms as drawn, for the agent's `state.atoms`. */
+  /** The atoms as drawn, for the agent's `state.atoms` (LLP 1045.000 D9). */
   const atomList = () => destroyed ? [] : islands().map(({ box, s, e }) => ({ kind: box.dataset.exactAtom, source: box.dataset.atomSource, start: s, end: e, label: box.textContent, box }));
   el.exactMarkup = { sync, format(command, argument = '') { if (destroyed || !writable()) return false; el.focus(); return run(command, String(argument)); }, setValue, destroy, rangeFrame, atoms: atomList };
   configure();

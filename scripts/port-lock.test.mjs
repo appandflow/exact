@@ -1,10 +1,11 @@
 import { expect, test } from 'bun:test';
 import { spawn } from 'node:child_process';
 import { holderOf, takePort } from './port-lock.mjs';
+import { fileURLToPath } from 'node:url';
 
 // A port nothing here serves: only its turn is used.
 const PORT = 55001;
-const LOCK = JSON.stringify(new URL('./port-lock.mjs', import.meta.url).pathname);
+const LOCK = JSON.stringify(fileURLToPath(new URL('./port-lock.mjs', import.meta.url)));
 // Another process, run without blocking this one (which answers who holds the turn).
 const run = (code, env = {}) => new Promise((done) => {
   const child = spawn(process.execPath, ['-e', code], { env: { ...process.env, ...env } });

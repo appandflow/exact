@@ -1,5 +1,5 @@
-//! Mouse look on the live clock, by tick and display rate: mouse latency by tick
-//! and display rate, measured over a minimal yaw camera.
+//! Mouse look on the live clock, by tick and display rate: the rivals diary's
+//! `mouse_latency_by_tick_and_display_rate` (limit 3) over a minimal yaw camera.
 //! The host calls `advance` every frame (`Clock::Live` with the frame period),
 //! mouse events arrive between frames, and the drawn yaw is the last two ticks
 //! blended by `Sim::alpha` (before) plus, with `MouseLook`, the unshown motion

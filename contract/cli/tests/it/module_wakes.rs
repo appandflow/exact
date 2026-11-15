@@ -1,10 +1,10 @@
-//! Through a module outside the tree (`tests/tide`, copied out of the
-//! checkout as an installed package is): an event of its own that a wake
-//! raises, with its budget; registrations the declared substitute lists, a
-//! one-shot and a periodic one; a warm wake (`tap @ref`), a cold one
-//! (`--wake`), and one that expires. A wake's invocation owns the request its
-//! handler makes, stops the session's timers while unseen, and refuses the
-//! host commands a wake may not run.
+//! LLP 1133.017 stage 0, through a module outside the tree (`tests/tide`,
+//! copied out of the checkout as an installed package is): an event of its
+//! own that a wake raises, with its budget; registrations the declared
+//! substitute lists, a one-shot and a periodic one; a warm wake (`tap @ref`),
+//! a cold one (`--wake`), and one that expires. A wake's invocation owns the
+//! request its handler makes, stops the session's timers while unseen, and
+//! refuses the host commands D6 names.
 
 use exact_runner::{agent, CallOrigin, Runner, Value, WakeHow};
 use std::path::{Path, PathBuf};
@@ -193,7 +193,57 @@ fn a_wake_event_carries_its_budget_and_the_bake_holds_its_bounds() {
     assert!(refused.contains("only an event a wake raises"), "{refused}");
 }
 
-/// A warm wake on a periodic registration: refused until due; then the
+#[test]
+fn a_module_option_refuses_reversed_bounds() {
+    let app = App::new("reversed-bounds");
+    app.edit_interface(r#""min": 60000"#, r#""min": 60000, "max": 1000"#);
+    let source = r#"use tideEvery from "@fixture/tide"
+
+component App
+  state gap = 5000
+  action periodic
+    tideEvery(tag="e1", every=gap)
+  view
+    text "Tide"
+"#;
+    for value in ["gap", "5000"] {
+        app.write(
+            "app.contract",
+            &source.replace("every=gap", &format!("every={value}")),
+        );
+        let refused = app.compile().unwrap_err();
+        assert!(
+            refused.iter().any(|e| e.id == "contract-use-declaration"
+                && e.message.ends_with(
+                    "`tideEvery`'s option `every`'s `min` (60000) must not exceed its `max` (1000)"
+                )),
+            "{value}: {refused:?}"
+        );
+    }
+}
+
+#[test]
+fn a_module_option_accepts_ordered_and_one_sided_bounds() {
+    for (bounds, expected) in [
+        (r#""min": 1000, "max": 60000"#, 5000.0),
+        (r#""min": 60000, "max": 60000"#, 60000.0),
+        (r#""min": 60000"#, 60000.0),
+        (r#""max": 1000"#, 1000.0),
+    ] {
+        let app = App::new("valid-bounds");
+        app.edit_interface(r#""min": 60000, "default": 60000"#, bounds);
+        let source = std::fs::read_to_string(app.0.join("app.contract")).unwrap();
+        app.write(
+            "app.contract",
+            &source.replace("every=60000", "every=ticks + 5000"),
+        );
+        let mut r = boot(&app);
+        r.act("periodic", Vec::new()).unwrap();
+        assert_eq!(entry(&r, "every")["every"], expected, "{bounds}");
+    }
+}
+
+/// §10's warm wake on a periodic registration: refused until due; then the
 /// handler runs as the wake's, its request owned until it lands, the
 /// session's page hidden and timers stopped meanwhile and its `copyText`
 /// refused; the entry stays, with its run.
@@ -256,7 +306,7 @@ fn a_tap_on_a_periodic_registration_is_a_warm_wake() {
     assert_ne!(slot(&r, "ticks"), ticks, "{}", logs(&r));
 }
 
-/// A one-shot: refused `offline` while the page is, retired when its
+/// D1's one-shot: refused `offline` while the page is, retired when its
 /// invocation completes.
 #[test]
 fn a_one_shot_waits_for_the_network_and_is_retired_when_it_completes() {
@@ -283,7 +333,7 @@ fn a_one_shot_waits_for_the_network_and_is_retired_when_it_completes() {
     assert_eq!(state(&r)["tides"], serde_json::json!([]));
 }
 
-/// Expiry: past the budget with its request in flight, the invocation
+/// D6's expiry: past the budget with its request in flight, the invocation
 /// ends `expired`, the request answers as a failure, and a one-shot stays
 /// listed as an attempt, not due again until its backoff has passed.
 #[test]
@@ -306,7 +356,336 @@ fn a_wake_past_its_budget_expires() {
     assert!(backoff.contains("is not due until"), "{backoff} {e}");
 }
 
-/// A cold wake: `--wake '<entry>'` lists the entry again in a fresh
+#[derive(Default)]
+struct Rows {
+    server: usize,
+    synchronous: bool,
+    refuse: bool,
+}
+
+impl exact_runner::DataSource for Rows {
+    fn query(&mut self, source: &str, _: &[Value]) -> Result<Value, exact_runner::DataError> {
+        assert_eq!(source, "rows");
+        if self.refuse {
+            return Err(exact_runner::DataError::Unavailable("rows refused".into()));
+        }
+        Ok(Value::Number(self.server as f64))
+    }
+
+    fn answer(
+        &mut self,
+        _: &mut exact_runner::Store,
+        source: &str,
+        args: &[Value],
+    ) -> Result<exact_runner::Answer, exact_runner::DataError> {
+        if source == "rows" {
+            return self.query(source, args).map(exact_runner::Answer::Now);
+        }
+        assert_eq!(source, "pull");
+        if self.synchronous {
+            Ok(exact_runner::Answer::Now(Value::record(args.to_vec())))
+        } else {
+            Ok(exact_runner::Answer::Later(exact_runner::Request::native(
+                b"{}".to_vec(),
+            )))
+        }
+    }
+
+    fn parse(
+        &mut self,
+        _: &mut exact_runner::Store,
+        _: &str,
+        args: &[Value],
+        outcome: exact_runner::Outcome,
+    ) -> Result<exact_runner::Answer, exact_runner::DataError> {
+        match outcome {
+            exact_runner::Outcome::Response(_) => {
+                self.server += 1;
+                Ok(exact_runner::Answer::Now(Value::record(args.to_vec())))
+            }
+            other => Err(exact_runner::DataError::Unavailable(format!("{other:?}"))),
+        }
+    }
+
+    fn overlay(
+        &mut self,
+        _: &str,
+        _: &[Value],
+        answer: &Value,
+        writes: &[exact_runner::Write<'_>],
+    ) -> Result<Option<exact_runner::Overlaid>, exact_runner::DataError> {
+        for write in writes {
+            if let Some(reply) = write.reply {
+                assert_eq!(reply, &Value::record(write.args.to_vec()));
+            }
+        }
+        let pending = writes.iter().filter(|w| w.reply.is_none()).count();
+        Ok(Some(exact_runner::Overlaid {
+            value: Value::Number(answer.as_number().unwrap() + pending as f64),
+            keep: Vec::new(),
+        }))
+    }
+}
+
+fn queued_wake(refreshes: bool, pair: bool) -> Runner<Rows> {
+    let app = App::new("queued-wake");
+    let source = r#"
+use tide from "@fixture/tide"
+
+shape Pulled
+  tag: string
+
+component App
+  mutation pulled as shape Pulled queue
+  resource rows = rows(pulled) as shape number
+  action ebbed(tag: string)
+    send pulled = pull(tag)
+  action person(tag: string)
+    send pulled = pull(tag)
+  view
+    column tide=ebbed
+      text testId="rows" `${rows}`
+      text testId="pending" pending(pulled) ? "yes" : "no"
+"#;
+    let source = if refreshes {
+        source.replace("queue\n", "queue refreshes rows\n")
+    } else {
+        source.to_owned()
+    };
+    let source = if pair {
+        source.replace(
+            "  action person",
+            "    send pulled = pull(tag)\n  action person",
+        )
+    } else {
+        source
+    };
+    app.write("app.contract", &source);
+    Runner::boot(
+        app.compile().unwrap_or_else(|e| panic!("{e:?}")),
+        Rows::default(),
+        exact_kernel::Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap()
+}
+
+fn raise_queued_wake(r: &mut Runner<Rows>) {
+    r.raise_wake(
+        "tide",
+        "tide",
+        r#"["wake"]"#,
+        WakeHow {
+            id: 41,
+            cold: false,
+            hidden: false,
+        },
+    )
+    .unwrap();
+    r.advance(r.now_ms()).unwrap();
+}
+
+fn row_text(r: &Runner<Rows>, id: &str) -> String {
+    let k = r.kernel();
+    k.node_by_key(k.find_by_test_id(id)[0])
+        .unwrap()
+        .props
+        .str(exact_kernel::PropId::Text)
+        .unwrap()
+        .to_owned()
+}
+
+fn answer_rows(r: &mut Runner<Rows>) {
+    let out = r.take_requests();
+    assert_eq!(out.len(), 1);
+    r.fulfill(
+        out[0].ticket,
+        exact_runner::Outcome::Response(exact_runner::Response {
+            status: 200,
+            headers: Vec::new(),
+            body: b"{}".to_vec(),
+        }),
+    )
+    .unwrap();
+}
+
+#[test]
+fn an_expired_wake_removes_only_its_queued_writes_and_publishes_the_overlay() {
+    let mut r = queued_wake(true, false);
+    r.act("person", vec![Value::str("first")]).unwrap();
+    let first = r.writes()[0].0;
+    raise_queued_wake(&mut r);
+    r.act("person", vec![Value::str("second")]).unwrap();
+    let second = r.writes()[2].0;
+    assert_eq!(row_text(&r, "rows"), "3");
+    let receipts = r.advance(5_001.0).unwrap();
+    assert_eq!(r.queued(), [("pulled".into(), 1)]);
+    assert_eq!(
+        r.writes(),
+        [(first, "pulled", false), (second, "pulled", false)]
+    );
+    assert!(!receipts.is_empty(), "expiry publishes the removed overlay");
+    assert_eq!(row_text(&r, "rows"), "2");
+    answer_rows(&mut r);
+    r.advance(r.now_ms()).unwrap();
+    answer_rows(&mut r);
+    assert_eq!(r.data().server, 2);
+    assert_eq!(row_text(&r, "rows"), "2");
+    assert!(r.writes().is_empty());
+    r.act("person", vec![Value::str("third")]).unwrap();
+    answer_rows(&mut r);
+    assert_eq!(row_text(&r, "rows"), "3");
+    assert!(r.writes().is_empty());
+}
+
+#[test]
+fn an_expired_wake_ends_its_in_flight_and_waiting_writes() {
+    let mut r = queued_wake(true, true);
+    raise_queued_wake(&mut r);
+    assert_eq!(r.take_requests().len(), 1);
+    assert_eq!(row_text(&r, "rows"), "2");
+    let (receipts, error) = r.expire_wake();
+    assert!(error.is_none(), "{error:?}");
+    assert!(!receipts.is_empty());
+    assert!(r.queued().is_empty());
+    assert!(r.writes().is_empty());
+    assert_eq!(row_text(&r, "rows"), "0");
+    assert_eq!(row_text(&r, "pending"), "no");
+    r.advance(r.now_ms()).unwrap();
+    assert!(r.take_requests().is_empty());
+}
+
+#[test]
+fn an_expired_wake_reconciles_its_queued_writes_under_the_wakes_origin() {
+    let app = App::new("expire-origin");
+    app.edit_interface(
+        r#""source": "everyTides","#,
+        r#""source": "everyTides", "origin": "app","#,
+    );
+    app.write(
+        "app.contract",
+        r#"
+use everyTides, tide, TideEntry from "@fixture/tide"
+
+shape Pulled
+  n: number
+
+component App
+  mutation pulled as shape Pulled queue refreshes sensitive
+  resource sensitive = everyTides() as shape TideEntry[]
+  action ebbed(tag: string)
+    send pulled = pull(tag)
+    send pulled = pull(tag)
+  action refresh_sensitive
+    refresh sensitive
+  view
+    column tide=ebbed
+      text `${sensitive.length}`
+"#,
+    );
+    let mut r = boot(&app);
+    r.raise_wake("tide", "tide", r#"["wake"]"#, WakeHow::default())
+        .unwrap();
+    by(&mut r, 0.0);
+    assert_eq!(r.take_requests().len(), 1);
+    assert_eq!(r.queued(), [("pulled".into(), 1)]);
+    assert_eq!(r.writes().len(), 2);
+    assert!(r.failed_resources().is_empty());
+    assert!(!logs(&r).contains("person-required"));
+
+    let (receipts, error) = r.expire_wake();
+    assert!(error.is_none(), "{error:?}");
+    assert!(!receipts.is_empty());
+    assert!(r.queued().is_empty());
+    assert!(r.writes().is_empty());
+    assert!(
+        logs(&r).contains("tide.everyTides: refused, person-required (wake origin)"),
+        "{}",
+        logs(&r)
+    );
+    assert_eq!(r.failed_resources().len(), 1);
+    assert_eq!(r.failed_resources()[0].0, "sensitive");
+
+    r.act("refresh_sensitive", Vec::new()).unwrap();
+    assert!(r.failed_resources().is_empty());
+}
+
+/// A wake's reply outside its shape is let go as the wake's: what the
+/// release refreshes is asked under the wake's origin, not the app's.
+#[test]
+fn a_refused_wake_reply_releases_its_request_under_the_wakes_origin() {
+    let app = App::new("refused-origin");
+    app.edit_interface(
+        r#""source": "everyTides","#,
+        r#""source": "everyTides", "origin": "app","#,
+    );
+    app.write(
+        "app.contract",
+        r#"
+use everyTides, tide, TideEntry from "@fixture/tide"
+
+shape Pulled
+  tag: string
+
+component App
+  mutation pulled as shape Pulled refreshes sensitive
+  resource sensitive = everyTides() as shape TideEntry[]
+  action ebbed(tag: string)
+    send pulled = pull(tag)
+  view
+    column tide=ebbed
+      text `${sensitive.length}`
+"#,
+    );
+    let mut r = boot(&app);
+    r.raise_wake("tide", "tide", r#"["wake"]"#, WakeHow::default())
+        .unwrap();
+    by(&mut r, 0.0);
+    assert!(r.failed_resources().is_empty());
+    // `Later` answers `{tag: 7}`, outside `Pulled`.
+    answer_pull(&mut r);
+    let logs = logs(&r);
+    assert!(logs.contains("answered outside its shape"), "{logs}");
+    assert!(
+        logs.contains("tide.everyTides: refused, person-required (wake origin)"),
+        "{logs}"
+    );
+    assert_eq!(r.failed_resources().len(), 1, "{logs}");
+    assert_eq!(r.failed_resources()[0].0, "sensitive");
+}
+
+#[test]
+fn an_expired_wake_clears_only_the_stall_of_a_head_it_drops() {
+    for wake_is_head in [true, false] {
+        let mut r = queued_wake(false, false);
+        r.act("person", vec![Value::str("first")]).unwrap();
+        if !wake_is_head {
+            r.act("person", vec![Value::str("head")]).unwrap();
+        }
+        raise_queued_wake(&mut r);
+        answer_rows(&mut r);
+        r.data().synchronous = true;
+        r.data().refuse = true;
+        assert!(r.advance(r.now_ms()).is_err());
+        assert!(r.journal().any(|l| l.contains("waits for a change")));
+        r.data().synchronous = false;
+        r.data().refuse = false;
+        r.advance(5_001.0).unwrap();
+        assert!(r.take_requests().is_empty());
+        let pending_after_expiry = row_text(&r, "pending");
+        r.act("person", vec![Value::str("after")]).unwrap();
+        r.advance(r.now_ms()).unwrap();
+        assert_eq!(r.take_requests().len(), usize::from(wake_is_head));
+        assert_eq!(r.queued().is_empty(), wake_is_head);
+        assert_eq!(
+            pending_after_expiry,
+            if wake_is_head { "no" } else { "yes" }
+        );
+    }
+}
+
+/// §10's cold wake: `--wake '<entry>'` lists the entry again in a fresh
 /// session and raises it there, `cold`.
 #[test]
 fn a_launch_with_an_entry_is_a_cold_wake() {
@@ -327,7 +706,7 @@ fn a_launch_with_an_entry_is_a_cold_wake() {
     assert_eq!(entry(&r, "every")["tag"], "e1");
 }
 
-/// Only the host raises a wake's event, at the platform's call; the
+/// D5: only the host raises a wake's event, at the platform's call; the
 /// events it raises for one platform object are one wake, invocations one
 /// at a time, and the host takes each ended wake to tell the platform.
 #[test]
@@ -382,7 +761,7 @@ fn the_host_raises_a_wake_and_takes_its_end() {
     assert_eq!(r.take_ended_wakes().len(), 1);
 }
 
-/// Retry: a handler that registers its own one-shot again keeps it,
+/// D1's retry: a handler that registers its own one-shot again keeps it,
 /// not due until a backoff of 5 minutes has passed, then 10; after the third
 /// attempt in a row it is retired unless registered again.
 #[test]
@@ -422,7 +801,7 @@ fn a_one_shot_its_handler_registers_again_backs_off() {
 }
 
 /// A bound implementation the platform ran raises a wake through its
-/// module's `changed` and is told how it ended; one the
+/// module's `changed` (LLP 1133.017 D8) and is told how it ended; one the
 /// substitute answers raises nothing.
 #[test]
 fn an_implementation_raises_a_wake_and_is_told_its_end() {
@@ -572,9 +951,9 @@ fn an_implementation_expires_the_wake_it_raised() {
     assert_eq!(woke(&heard).len(), 2);
 }
 
-/// A tool call is an invocation as a wake's event is, one at a time with the
-/// wakes: a call that arrives while a wake runs waits for it, and runs once
-/// the wake has ended.
+/// LLP 1133.023 D7: a tool call is an invocation as a wake's event is, one
+/// at a time with the wakes: a call that arrives while a wake runs waits
+/// for it, and runs once the wake has ended.
 #[test]
 fn a_call_waits_for_a_running_wake() {
     let app = App::new("call");
@@ -608,10 +987,45 @@ fn a_call_waits_for_a_running_wake() {
     assert_eq!(calls[0]["certainty"], "applied");
 }
 
-/// Android's reader under the agent starts no foreground service and says
-/// each claim through the claimant's `changed`; the runner journals it and
-/// lists the claims held in the claimant's `state.extensions` entry until
-/// their release.
+/// LLP 1133.023 D7: a call waits at most [`WAIT`] for the invocation
+/// before it, a running call as much as a wake: behind a call that has not
+/// settled after 5 s it is refused `busy` and never runs.
+#[test]
+fn a_call_behind_a_running_call_is_refused_after_five_seconds() {
+    let app = App::new("call");
+    let text = std::fs::read_to_string(app.0.join("app.contract")).unwrap();
+    let tool = "  tool poke writes closed \"Pull once.\" = poke\n  action poke\n    send pulled = pull(\"call\")\n  action once\n";
+    app.write("app.contract", &text.replacen("  action once\n", tool, 1));
+    let mut r = boot(&app);
+    let how = || exact_runner::CallHow {
+        door: "agent".into(),
+        ..Default::default()
+    };
+    r.call_tool("poke", "{}", how()).unwrap();
+    r.call_tool("poke", "{}", how()).unwrap();
+    by(&mut r, 0.0);
+    let calls = state(&r)["intents"]["calls"].clone();
+    assert_eq!(calls[0]["state"], "running", "{calls}");
+    assert_eq!(calls[1]["state"], "waiting", "{calls}");
+    by(&mut r, 4_999.0);
+    let calls = state(&r)["intents"]["calls"].clone();
+    assert_eq!(calls[1]["state"], "waiting", "{calls}");
+    by(&mut r, 1.0);
+    let calls = state(&r)["intents"]["calls"].clone();
+    assert_eq!(calls[0]["outcome"], "refused", "{calls} {}", logs(&r));
+    assert_eq!(calls[0]["reason"], "busy");
+    assert_eq!(calls[1]["state"], "running", "{calls}");
+    answer_pull(&mut r);
+    by(&mut r, 0.0);
+    let calls = state(&r)["intents"]["calls"].clone();
+    assert_eq!(calls[1]["outcome"], "ok", "{calls} {}", logs(&r));
+    assert!(r.take_requests().is_empty(), "{}", logs(&r));
+}
+
+/// LLP 1133.033 D21: Android's reader under the agent starts no foreground
+/// service and says each claim through the claimant's `changed`; the runner
+/// journals it and lists the claims held in the claimant's
+/// `state.extensions` entry until their release.
 #[test]
 fn a_foreground_service_claim_is_listed_while_held() {
     let app = App::new("claim");
@@ -700,4 +1114,49 @@ fn waiting_timers_stay_stopped_during_a_hidden_wake() {
             "{kind}: timers resume after the wake"
         );
     }
+}
+
+#[test]
+fn change_tasks_wait_for_unseen_wakes_and_for_their_expiry_receipts() {
+    let app = App::new("change-wake");
+    let source = std::fs::read_to_string(app.0.join("app.contract")).unwrap();
+    let source = source.replace("  task ticker mount\n    every(1000, tick)\n", "");
+    app.write(
+        "app.contract",
+        &source.replace(
+            "  view\n",
+            r#"  state changed = 0
+  action countChange
+    changed = changed + 1
+  task change when heard != "" key=heard
+    change(countChange)
+  view
+"#,
+        ),
+    );
+    let mut r = boot(&app);
+    r.act("periodic", Vec::new()).unwrap();
+    let reference = entry(&r, "every")["ref"].as_u64().unwrap();
+    by(&mut r, 60_000.0);
+    tap(&mut r, reference).unwrap();
+    by(&mut r, 0.0);
+    assert!(r.page().hidden);
+    assert!(r.land_then().receipts.is_empty());
+    assert_eq!(r.slot("changed"), Some(&Value::Number(0.0)));
+    by(&mut r, 3_000.0);
+    assert_eq!(r.slot("changed"), Some(&Value::Number(0.0)));
+    let expired = r.advance_timed(65_001.0);
+    assert!(expired.error.is_none(), "{:?}", expired.error);
+    assert!(expired.needs_apply);
+    assert!(!expired.receipts.is_empty());
+    assert_eq!(r.slot("changed"), Some(&Value::Number(0.0)));
+    let change = r.advance_timed(65_001.0);
+    assert!(change.error.is_none(), "{:?}", change.error);
+    assert!(change.needs_apply);
+    assert_eq!(r.slot("changed"), Some(&Value::Number(1.0)));
+    assert_eq!(
+        r.now_ms(),
+        65_000.0,
+        "a deferred change never rewinds the clock"
+    );
 }

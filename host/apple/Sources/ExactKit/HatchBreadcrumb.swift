@@ -1,4 +1,4 @@
-// The crash breadcrumb. A Swift trap, an
+// The crash breadcrumb (@ref LLP 1075.003.000.001 §4.4). A Swift trap, an
 // Objective-C exception or a Rust panic in hatch code ends the process and
 // cannot be caught, so the host leaves a record of the hatch calls that
 // were open, which the next launch reads: "the last run ended while inside

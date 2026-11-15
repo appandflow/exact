@@ -65,6 +65,18 @@ export function plan(record, { branch, source, newLink = false, force = false })
   return { action: 'update', ...link };
 }
 
+/** Why `share` cannot build `manifest`'s app, or null. A tester's build starts the app's own update stream when it
+ *  has an update store, and a production build with an update store needs a key to verify what it takes
+ *  (bake/src/compat.rs): an app with neither keys nor `deploy.store.ios: "0"` would fail minutes into the build. */
+export function unsignedStore(manifest) {
+  const keys = manifest.deploy?.signing?.keys;
+  if (manifest.deploy?.store?.ios === '0' || (keys && typeof keys === 'object' && Object.keys(keys).length)) return null;
+  return 'share: this app takes over-the-air updates on iPhone (it says nothing of deploy.store.ios), and a shared '
+    + 'build of one needs a key to verify them, which app.json does not name. For a build that takes no updates, add '
+    + '"deploy": { "store": { "ios": "0" } } to app.json; to keep updates, name a verification key in '
+    + 'deploy.signing.keys.';
+}
+
 /** The refusal for a link another branch published, as the agent reads it. */
 export const mismatch = (p, branch) => `This app's AppDrop link, ${p.url}, was last shared from ${p.from}; this checkout is on ${branch}. `
   + `Pass --new-link to give ${branch} its own link, or --force to publish over ${p.from}'s.`;
@@ -93,6 +105,9 @@ async function main(argv) {
     return 0;
   }
 
+  const unsigned = unsignedStore(app.manifest);
+  if (unsigned) return fail('update_keys_missing', unsigned);
+
   // AppDrop refuses a build number it already published: the next one is its revision + 1.
   let revision = 0;
   if (step.action === 'update') {
@@ -105,12 +120,15 @@ async function main(argv) {
   const ipa = resolve(app.dir, '.exact/share', `${app.name}.ipa`);
   rmSync(ipa, { force: true });
   mkdirSync(dirname(ipa), { recursive: true });
+  // The bake bundles app.ts with rolldown from this checkout's node_modules; without it Bun spins silently.
+  if (!['rolldown', 'rolldown.exe'].some((bin) => existsSync(resolve(ROOT, 'node_modules/.bin', bin))))
+    return fail('node_modules_missing', `share: exact's node_modules is missing: run \`bun install --frozen-lockfile\` in ${ROOT} (every build's type check imports rolldown from it)`);
   say(`share: building ${app.displayName ?? app.name} for iPhone (build ${revision + 1}); the first build takes minutes.`);
   // An app with an update store starts its own stream: this build is a tester's, not a release in one.
   const streamed = app.manifest.deploy?.store?.ios !== '0';
-  const built = spawnSync(process.execPath, [resolve(ROOT, 'host/apple/build.mjs'), '--device', `${name}-apple`, '--archive', ipa, '--unsigned'], {
+  const built = spawnSync(process.execPath, [resolve(ROOT, 'host/apple/build.mjs'), '--device', app.crate('apple'), '--archive', ipa, '--unsigned'], {
     cwd: ROOT, stdio: ['ignore', 2, 2],
-    env: { ...process.env, EXACT_BUILD_NUMBER: String(revision + 1), ...(streamed ? { EXACT_UPDATE_GENESIS: '1' } : {}) },
+    env: { ...process.env, EXACT_APP_DIR: app.dir, EXACT_BUILD_NUMBER: String(revision + 1), ...(streamed ? { EXACT_UPDATE_GENESIS: '1' } : {}) },
   });
   if (built.status !== 0 || !existsSync(ipa)) return fail('build_failed', `share: the iPhone build failed (${built.error?.message ?? `exit ${built.status}`}); its errors are above.`);
 

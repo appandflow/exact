@@ -1,6 +1,6 @@
 //! A holder the marker misses is a bug, and loud: the id it keeps reads as
 //! stale (`None`) once the table reclaims its slot, and a development build
-//! asserts. Its own process: the table is the process's.
+//! asserts (LLP 1121 stage 4). Its own process: the table is the process's.
 
 use exact_kernel::style::wide::{self, Holder};
 use exact_kernel::ColorValue;

@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-// The base scale's measured cells (docs/scale-measured.md): builds and runs one probe and
+// The base scale's measured cells (LLP 1121 stage 11 B; docs/scale-measured.md): builds and runs one probe and
 // prints each `measure <id> <value>` line. Opt-in, never part of a test run.
 //
 //   bun scripts/measure-scale.mjs mac

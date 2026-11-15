@@ -1,5 +1,5 @@
-//! A package's file read only where it is its own: under the package's
-//! own `assets/`, links
+//! A package's file read only where it is its own (LLP 1121 stage 13,
+//! review rounds 1 to 3): under the package's own `assets/`, links
 //! followed, and read from the very file that was checked.
 
 use std::io::Read;
@@ -32,7 +32,7 @@ pub enum Unread {
 /// a file inside the package's `assets/` replaced by another file there
 /// (still the package's own bytes); on a host without inodes the identity
 /// check, where only the resolution after the open is compared; and a
-/// three-swap interleaving, a known limit: the path a link
+/// three-swap interleaving (narrow re-check, RE-3; QUEUE): the path a link
 /// out when it is opened, a plain file when it is resolved (so it resolves
 /// to itself, inside), and a link out again before that resolved path's
 /// metadata is read, which then follows the link to the opened outside

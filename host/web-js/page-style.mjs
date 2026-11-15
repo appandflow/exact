@@ -1,4 +1,4 @@
-// A rendered page's own stylesheet: of the shell's sheet,
+// A rendered page's own stylesheet (LLP 1048.007 D4): of the shell's sheet,
 // the rules that can match the page's document before its runtime runs.
 //
 // The build analyzes the sheet once (`analyze`): each rule with what its

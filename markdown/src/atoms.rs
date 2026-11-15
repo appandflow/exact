@@ -1,6 +1,6 @@
 //! Inline atoms: spans of the source a field draws and edits as one pill.
 //!
-//! An app declares which spans are atoms by their
+//! @ref LLP 1045.000 D1, D2 — an app declares which spans are atoms by their
 //! source form (a link with a scheme it names, a relative link, a word after
 //! a prefix character) and supplies a face for each, keyed by the atom's whole
 //! source text. The styler recognizes the spans from the source on every call,
@@ -12,7 +12,7 @@ use crate::inline::Out;
 use crate::{CODE, IMAGE, LINK};
 use std::collections::BTreeMap;
 
-/// How an atom kind is written in the source.
+/// How an atom kind is written in the source (LLP 1045.000 D1's forms).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum AtomForm {
     /// `[text](dest)` or `![text](dest)` whose destination begins with this
@@ -26,7 +26,7 @@ pub enum AtomForm {
     Prefix(Vec<char>),
 }
 
-/// What assistive technology calls an atom.
+/// What assistive technology calls an atom (LLP 1045.000 D8).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum AtomRole {
     /// A button: the default.
@@ -47,7 +47,7 @@ pub struct AtomKind {
     pub role: AtomRole,
 }
 
-/// What the app draws for an atom. Empty fields take the
+/// What the app draws for an atom (LLP 1045.000 D2). Empty fields take the
 /// defaults: the default label, no icon, no tooltip, the kind's paint, the
 /// line's direction, the label as the accessible name.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -66,10 +66,10 @@ pub struct AtomFace {
     /// reads as a colour.
     pub background_color: String,
     /// The pill's own direction, `ltr` or `rtl`, which lays out its icon and
-    /// label; empty to follow its line's.
+    /// label (D4); empty to follow its line's.
     pub direction: String,
-    /// The accessible name in place of the label (the app's `ariaLabel`);
-    /// empty for the label.
+    /// The accessible name in place of the label (D8, the app's
+    /// `ariaLabel`); empty for the label.
     pub aria_label: String,
 }
 
@@ -172,7 +172,7 @@ impl Atoms {
 
     /// These atoms as assistive technology reads them: each face's label is
     /// its accessible name, its `ariaLabel` where it has one, so the plain
-    /// text of a reader made with them is what a screen reader says.
+    /// text of a reader made with them is what a screen reader says (D8).
     pub fn spoken(&self) -> Atoms {
         let mut out = self.clone();
         for face in out.faces.values_mut() {
@@ -223,7 +223,7 @@ fn space_before(source: &str, at: usize, line_start: bool) -> bool {
 }
 
 /// Followed by whitespace: a token at the very end of the source is not one
-/// (the reference's `composerInlineTokens.ts`).
+/// (the reference's `composerInlineTokens.ts`, LLP 1045.000 D1).
 fn space_after(source: &str, at: usize) -> bool {
     source[at..].chars().next().is_some_and(char::is_whitespace)
 }

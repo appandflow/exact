@@ -1,8 +1,8 @@
-//! `fetch(url, {exactStream, exactUploadProgress: true})` from TypeScript:
-//! the prelude sends the request as an upload, the
+//! `fetch(url, {exactStream, exactUploadProgress: true})` from TypeScript
+//! (LLP 1016.000 D10): the prelude sends the request as an upload, the
 //! native executor core (the one the Apple, Linux and render hosts share,
 //! here the render host's, whose transport is the portable one, rustls, on a
-//! Mac too) tells the body's bytes sent as they go, and the
+//! Mac too: LLP 1048.000 D10) tells the body's bytes sent as they go, and the
 //! mapper gets each as `progress` and then the reply as `load`. URLSession's
 //! is `exact-apple`'s `an_upload_through_urlsession_…`.
 #![cfg(all(exact_js_engine, unix))]
@@ -82,6 +82,7 @@ fn mapped(op: &str, body: &[u8], wait: Duration) -> (Option<u32>, Vec<String>) {
     let deadline = request.timeout_ms;
     request.url = format!("http://127.0.0.1:{port}/upload");
     let out = RequestOut {
+        class: exact_runner::RequestClass::Ordered,
         ticket: 1,
         target: "upload".into(),
         request,
@@ -152,7 +153,7 @@ fn an_empty_upload_maps_no_progress_then_its_reply() {
 /// (15 s for the response, 30 s for the whole), which the upload's deadline
 /// of 60 s replaces.
 #[test]
-#[ignore = "a real socket and a reply 32 s after its body; `cargo test -- --ignored` runs it"]
+#[ignore = "async lane: a real socket and a reply 32 s after its body; bun scripts/async.mjs runs it"]
 fn an_upload_waits_out_a_reply_past_the_portable_transports_own_limits() {
     let (deadline, said) = mapped("upload-patient", &[7; 1 << 20], Duration::from_secs(32));
     assert_eq!(deadline, Some(60_000));
@@ -160,6 +161,69 @@ fn an_upload_waits_out_a_reply_past_the_portable_transports_own_limits() {
         said.last().map(String::as_str),
         Some("load 201 {\"took\":1048576}"),
         "{said:?}"
+    );
+}
+
+/// LLP 1016.000 D11: an idle timeout out of range, or on anything but a
+/// WebSocket stream, is a TypeError before any request.
+#[test]
+fn an_idle_timeout_fetch_refuses_is_a_type_error_before_any_request() {
+    let root = Root::new();
+    let mut m = root.module();
+    m.activate().unwrap();
+    let mut s = Store::new(super::storage::GRANTS, Vec::<(String, Vec<u8>)>::new());
+    let refused = call(&mut m, &mut s, "idle-refusals", "");
+    let range =
+        "TypeError: exactIdleTimeout must be an integer number of milliseconds from 1 to 3600000";
+    let socket = "TypeError: exactIdleTimeout: only a WebSocket stream takes an idle timeout";
+    assert_eq!(
+        refused.lines().collect::<Vec<_>>(),
+        [range, range, range, socket, socket, socket, socket],
+        "{refused}"
+    );
+    assert_eq!(m.in_flight(), 0);
+}
+
+/// A stream option the host refuses is marked at bake as storage's refusal
+/// is (`code: "bake"`), so a source that lets it through keeps its
+/// placeholder; in an answer it is the plain TypeError, and an option of a
+/// fetch that is no stream is never marked.
+#[test]
+fn a_refused_stream_option_is_marked_at_bake_and_plain_in_an_answer() {
+    let root = Root::new();
+    let mut m = root.module();
+    m.activate().unwrap();
+    let mut s = Store::new(super::storage::GRANTS, Vec::<(String, Vec<u8>)>::new());
+    let plain = "TypeError:undefined:undefined:exactTimeout: a stream has no timeout";
+    assert_eq!(call(&mut m, &mut s, "stream-option-refused", ""), plain);
+    // The bake's module (`Module::inspect`).
+    let mut bake = exact_js::Module::inspect(super::storage::HBC.to_vec()).unwrap();
+    bake.set_budget_ms(f64::INFINITY);
+    bake.bind(&super::storage::plan());
+    let baked = bake
+        .query("work", &super::storage::args("stream-option-refused", ""))
+        .unwrap();
+    assert_eq!(
+        super::storage::text(baked),
+        "TypeError:Unavailable:bake:exactTimeout: a stream has no timeout"
+    );
+    let own = bake
+        .query("work", &super::storage::args("own-error", ""))
+        .unwrap();
+    assert!(
+        super::storage::text(own).starts_with("TypeError:undefined:undefined:exactTimeout must be"),
+    );
+    // Let through, it is the bake's deferral, which keeps the resource's
+    // placeholder; the source's own TypeError fails the bake as before.
+    let deferred = bake.query("work", &super::storage::args("stream-option-uncaught", ""));
+    assert!(
+        matches!(&deferred, Err(exact_runner::DataError::DeferredAtBake { message: m, warning: true }) if m.contains("a stream has no timeout")),
+        "{deferred:?}"
+    );
+    let fatal = bake.query("work", &super::storage::args("own-uncaught", ""));
+    assert!(
+        matches!(&fatal, Err(exact_runner::DataError::Unavailable(m)) if m.contains("the source's own")),
+        "{fatal:?}"
     );
 }
 

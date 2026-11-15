@@ -1,6 +1,6 @@
 //! The plan's tables → one ES module.
 //! Module shape:
-//! slots `s_i = sig(init)`, derives `d_i = memo(body)`, resources
+//! slots `s_i = sig(init)`, settled derives `d_i = memo(body)`, resources
 //! `r_i = res(source, args, compiled value, compiled args)`, actions
 //! `a_i = act(body)` (writes land at commit, as the VM's `StoreSlot`
 //! collects them), then the view as nested statements: a node is `h(…)` with
@@ -18,6 +18,8 @@ use std::fmt::Write as _;
 
 #[path = "answers.rs"]
 mod answers;
+#[path = "commands.rs"]
+mod commands;
 #[path = "each.rs"]
 mod each;
 #[path = "list_options.rs"]
@@ -30,6 +32,8 @@ mod markdown;
 mod motion;
 #[path = "named_records.rs"]
 mod named_records;
+#[path = "pages.rs"]
+mod pages;
 #[path = "regions.rs"]
 mod regions;
 #[path = "rows.rs"]
@@ -38,6 +42,10 @@ mod rows;
 mod said;
 #[path = "sides.rs"]
 mod sides;
+#[path = "sites.rs"]
+mod sites;
+#[path = "surfaces.rs"]
+mod surfaces;
 #[path = "timers.rs"]
 mod timers;
 #[path = "trapped.rs"]
@@ -45,85 +53,27 @@ mod trapped;
 #[path = "type_descriptors.rs"]
 mod type_descriptors;
 use regions::root_slot;
+pub use sites::{Site, Sites};
 use type_descriptors::type_code;
 pub(crate) use type_descriptors::{
     surface_type_json, type_code_numeric, type_code_wire, type_json,
 };
 
-#[derive(Clone, Copy, Debug)]
-pub enum Site {
-    Node(u32),
-    Region(u32),
-}
-
-/// The plan's child sites, grouped as the runner groups them.
-pub struct Sites {
-    pub root: u32,
-    by_node: Vec<Vec<Site>>,
-    by_arm: Vec<Vec<Site>>,
-}
-
-impl Sites {
-    pub fn new(plan: &Plan) -> Result<Sites, String> {
-        let mut by_node: Vec<Vec<(u32, u8, u32, Site)>> = vec![Vec::new(); plan.nodes.len()];
-        let mut by_arm: Vec<Vec<(u32, u8, u32, Site)>> = vec![Vec::new(); plan.arms.len()];
-        let mut root = None;
-        for (i, n) in plan.nodes.iter().enumerate() {
-            let e = (n.order, 0, i as u32, Site::Node(i as u32));
-            // A site's group is (parent, arm): an arm's roots have no parent;
-            // a deeper site names its parent node and its enclosing arm.
-            match (n.parent, n.arm) {
-                (Some(p), _) => by_node[p.0 as usize].push(e),
-                (None, Some(a)) => by_arm[a.0 as usize].push(e),
-                (None, None) => {
-                    if root.replace(i as u32).is_some() {
-                        return Err("more than one root".into());
-                    }
-                }
-            }
-        }
-        for (i, r) in plan.regions.iter().enumerate() {
-            let e = (r.order, 1, i as u32, Site::Region(i as u32));
-            match (r.parent, r.arm) {
-                (Some(p), _) => by_node[p.0 as usize].push(e),
-                (None, Some(a)) => by_arm[a.0 as usize].push(e),
-                (None, None) => return Err("a region at the root".into()),
-            }
-        }
-        let sort = |v: Vec<Vec<(u32, u8, u32, Site)>>| {
-            v.into_iter()
-                .map(|mut l| {
-                    l.sort_by_key(|e| (e.0, e.1, e.2));
-                    l.into_iter().map(|e| e.3).collect()
-                })
-                .collect()
-        };
-        Ok(Sites {
-            root: root.ok_or("no root")?,
-            by_node: sort(by_node),
-            by_arm: sort(by_arm),
-        })
-    }
-    pub fn of_node(&self, n: u32) -> &[Site] {
-        &self.by_node[n as usize]
-    }
-    pub fn of_arm(&self, a: u32) -> &[Site] {
-        &self.by_arm[a as usize]
-    }
-}
-
 pub struct Output {
     pub js: String,
+    /// Whether a node is a dialog, an alertdialog, a menu or a popover (the
+    /// page adds prompt-glue.js, alert-message.js and menu-rows.js).
+    pub dialogs: bool,
     pub paint: String,
     pub names: String,
-    /// The locations rendered at build (`render=build` routes without
-    /// parameters, and the not-found page), as JSON.
+    /// Build routes as JSON: locations (including the not-found page), or
+    /// enumeration records with the route's name, pattern, source and arguments.
     pub pages: String,
     /// Whether a node renders Markdown (the page fetches `markdown.wasm`).
     pub markdown: bool,
-    /// Whether a node is a Canvas 2D surface (the page loads its engine,
-    /// `canvas2d.js`, and the data module draws).
-    pub canvas2d: bool,
+    /// The Canvas 2D surfaces nodes name (the page loads their engine,
+    /// `canvas2d.js`, and the data module draws them).
+    pub canvas2d: std::collections::BTreeSet<String>,
     /// Whether the plan uses motion (the page fetches `motion.wasm`).
     pub motion: bool,
     /// Whether a text field is a Markdown editor (`markup-editor.wasm`).
@@ -165,22 +115,27 @@ struct Em<'a> {
     uses: Uses,
     out: String,
     classes: Vec<String>,
-    /// Each distinct set of state looks, `data-exact-looks` index plus one.
+    /// Each distinct set of state looks (LLP 1121 D8), `data-exact-looks` index plus one.
     looks: Vec<Vec<(u8, String)>>,
     /// Where each class and each set of looks is in `classes` and `looks`.
     class_at: HashMap<String, usize>,
     looks_at: HashMap<Vec<(u8, String)>, usize>,
+    /// The root node's class, whose background the page's canvas takes (canvas.rs).
+    root_class: Option<usize>,
 
     paint: bool,
     warnings: Vec<String>,
     row_actions: std::collections::BTreeSet<usize>,
     markdown: bool,
-    canvas2d: bool,
+    dialogs: bool,
+    canvas2d: std::collections::BTreeSet<String>,
     motion: bool,
     editor: bool,
     flow: bool,
     /// Whether a virtualized list is in the plan (`list.js` is imported).
     list: bool,
+    /// Whether an ordinary scroller takes `scrollFollowEnd` (`follow.js` is imported).
+    follow: bool,
     /// Whether a `video` or `audio` is in the plan (`media.js` is installed).
     media: bool,
     /// Whether an image draws a symbol (`symbols.js`), and whether a
@@ -189,12 +144,14 @@ struct Em<'a> {
     /// Possible height and transform owners whose motion values must be observed.
     heights: std::collections::BTreeSet<u32>,
     transforms: std::collections::BTreeSet<u32>,
+    /// Whether a node can declare a drag timeline (`rows::drag_timelines`).
+    drag_timelines: bool,
     /// The `@keyframes` that animate `scale` (a pressed node plays their `-exact-press` copies).
     press_keyframes: Vec<String>,
     /// Whether a dynamic row can reference an element (`url(#…)`): nodes
     /// with an `id` then name it (`data-exact-id`, rt.js `Sr`).
     refs: bool,
-    /// A development build's `data-site`, each element's plan node.
+    /// A development build's `data-site`, each element's plan node (LLP 1012.001.000 D6).
     site_attrs: bool,
     /// The JS dev loop's state checkpoint. Ordinary builds emit none of it.
     dev_reload: bool,
@@ -204,24 +161,26 @@ struct Em<'a> {
 }
 
 /// The runner's reserved sources the JS runtime answers itself: the page's
-/// facts, never the build's (`exactTime` in the entry, the rest in
-/// facts.js). `exactDelivery` answers what the build baked (facts.js).
+/// facts, never the build's (`exactTime` in the entry, by its readers'
+/// fields from facts.js; the rest in facts.js). `exactDelivery` answers
+/// what the build baked (facts.js).
 const HOST_FACTS: &[&str] = &[
     "exactViewport",
     "exactTime",
     "exactPage",
     "exactSurface",
+    "exactCanvasPerformance",
     "exactTransport",
     "exactMIDI",
     "exactActivities",
 ];
 
 pub fn emit(plan: &Plan, site_attrs: bool, dev_reload: bool) -> Result<Output, String> {
-    // A development build makes every token a property.
+    // A development build makes every token a property (LLP 1121 stage 4).
     let _every = crate::modes::every_for(plan, dev_reload);
-    // And every overridden role its sheet's property.
+    // And every overridden role its sheet's property (stage 5).
     let _live = exact_kernel::style::roles::live_properties(dev_reload);
-    // The roles the theme replaces, as the runner sets them.
+    // @ref LLP 1095 D4 — the roles the theme replaces, as the runner sets them.
     let _roles = exact_runner::bridge::set_role_overrides(plan);
     let fonts = crate::faces::fonts(plan)?;
     let sites = Sites::new(plan)?;
@@ -232,6 +191,13 @@ pub fn emit(plan: &Plan, site_attrs: bool, dev_reload: bool) -> Result<Output, S
         None => style::project(plan, &sites, &mut warnings)?,
     };
     let paint = crate::paint::needed(plan, &parts);
+    // A look's colour needs rules for the boundaries below only where one
+    // takes a colour (`data-x-b` without its colour bit; an accent-only part
+    // sets every bit).
+    let boundaries = (parts.iter().flatten()).any(|p| {
+        (p.props.get("data-x-b"))
+            .is_some_and(|own| own.parse::<u32>().is_ok_and(|own| own & 1 == 0))
+    });
     let mut parts = parts;
     if !paint {
         for p in parts.iter_mut().flatten() {
@@ -242,6 +208,10 @@ pub fn emit(plan: &Plan, site_attrs: bool, dev_reload: bool) -> Result<Output, S
             }
         }
     }
+    let links = commands::links(plan, &parts);
+    let iframes = commands::iframes(&parts);
+    let lists = commands::lists(plan);
+    let button_fills = commands::button_fills(plan, &parts);
     let mut em = Em {
         plan,
         sites: &sites,
@@ -253,19 +223,23 @@ pub fn emit(plan: &Plan, site_attrs: bool, dev_reload: bool) -> Result<Output, S
         looks: Vec::new(),
         class_at: HashMap::new(),
         looks_at: HashMap::new(),
+        root_class: None,
         paint,
         warnings,
         row_actions: Default::default(),
         markdown: false,
-        canvas2d: false,
+        dialogs: false,
+        canvas2d: Default::default(),
         motion: false,
         editor: false,
         flow: false,
         list: false,
+        follow: false,
         media: false,
         symbols: (false, false),
         heights: Default::default(),
         transforms: Default::default(),
+        drag_timelines: crate::timelines::drag_timelines(plan),
         press_keyframes: rows::press_keyframes(plan),
         refs: rows::can_refer(plan),
         site_attrs,
@@ -281,7 +255,7 @@ pub fn emit(plan: &Plan, site_attrs: bool, dev_reload: bool) -> Result<Output, S
     };
     let mut body = String::new();
     // The route table, and the router slot filled from the location before
-    // any initializer.
+    // any initializer (LLP 1038 D5).
     if let Some(slot) = plan.router {
         let rows: Vec<String> = plan
             .routes
@@ -320,7 +294,7 @@ pub fn emit(plan: &Plan, site_attrs: bool, dev_reload: bool) -> Result<Output, S
             slot.0
         );
     }
-    // Localized strings: select the launch locale before any
+    // Localized strings (LLP 1060): select the launch locale before any
     // initializer, which may call `t`; `language` publishes it after mount.
     if let Some(slot) = plan.locale {
         let tables: Vec<String> = plan
@@ -364,6 +338,8 @@ pub fn emit(plan: &Plan, site_attrs: bool, dev_reload: bool) -> Result<Output, S
             tables.join(","),
             slot.0
         );
+        commands::locale_slot(plan, &mut body, slot.0);
+        commands::format_slot(plan, &mut body, slot.0);
     }
     // Slots, in order: an initializer reads only earlier slots.
     for (i, r) in plan.slots.iter().enumerate() {
@@ -371,26 +347,13 @@ pub fn emit(plan: &Plan, site_attrs: bool, dev_reload: bool) -> Result<Output, S
             || r.late
             || plan.router == Some(exact_plan::SlotsId(i as u32))
             || plan.locale == Some(exact_plan::SlotsId(i as u32))
+            || plan.format == Some(exact_plan::SlotsId(i as u32))
         {
-            continue; // an owned slot lives on its instance; a late one, the router and locale elsewhere
+            continue; // an owned slot lives on its instance; a late one, the router, locale and format elsewhere
         }
         root_slot(plan, i, &top, dev_reload, &mut em.uses, &mut body)?;
     }
-    for (i, r) in plan.derives.iter().enumerate() {
-        let f = code::function(plan, plan.code(r.body), &top, 0, &mut em.uses)
-            .map_err(|e| format!("derive {}: {e}", plan.str(r.name)))?;
-        let memo = em.uses.rt("memo");
-        let _ = write!(
-            body,
-            "const d_{i}={memo}({f},{}{});",
-            serde_json::to_string(&type_code(plan, r.ty)).unwrap(),
-            if site_attrs {
-                format!(",{}", serde_json::to_string(plan.str(r.name)).unwrap())
-            } else {
-                String::new()
-            }
-        );
-    }
+    body.push_str(&em.declare_derives(&top, site_attrs)?);
     // The reserved sources facts.js, midi.js and transport.js answer, their declared fields filled by name:
     // installed before any resource, since the boot's settlement asks them (the runner answers them itself).
     let facts = crate::facts::reserved(plan, &mut body)?;
@@ -398,16 +361,26 @@ pub fn emit(plan: &Plan, site_attrs: bool, dev_reload: bool) -> Result<Output, S
     let transport = timers::transport(&mut em, &mut body)?;
     for (i, r) in plan.resources.iter().enumerate() {
         let mut args = Vec::new();
-        for a in r.args.iter() {
-            let f = code::expression(plan, plan.code(plan.arg(a).expr), &top, &mut em.uses)
-                .map_err(|e| format!("resource {}: {e}", plan.str(r.name)))?;
+        for (k, a) in r.args.iter().enumerate() {
+            let f = code::expression(
+                plan,
+                plan.code(plan.arg(a).expr),
+                &code::evaluation(
+                    &top,
+                    format!("resource {:?} argument {}", plan.str(r.name), k + 1),
+                    false,
+                ),
+                &mut em.uses,
+            )
+            .map_err(|e| format!("resource {}: {e}", plan.str(r.name)))?;
             args.push(f);
         }
         if let Some(each) = each::resource(plan, i, &args, &top, &mut em.uses)? {
             body.push_str(&each);
             continue;
         }
-        // What it shows while it waits with nothing kept: an `else source()` row's value, a declared
+        // What it shows while it waits with nothing kept (LLP 1048.003 D6,
+        // 1054.000.002): an `else source()` row's value, a declared
         // `else empty(…)`, or the type's zero; a placeholder row has none.
         let is_placeholder = plan
             .resources
@@ -419,9 +392,9 @@ pub fn emit(plan: &Plan, site_attrs: bool, dev_reload: bool) -> Result<Output, S
                 value_js(&Value::from_bytes(b).map_err(|e| e.to_string())?)
             }
             _ if is_placeholder => "void 0".into(),
-            _ => zero(plan, r.ty),
+            _ => pages::zero(plan, r.ty),
         };
-        // A host fact is the page's; a store reader's value a placeholder.
+        // Host facts and store readers are asked at launch (LLP 1027 D4).
         let fact = HOST_FACTS.contains(&plan.str(r.source));
         let initial = plan.bytes(r.initial);
         let initial = if initial.is_empty() || fact {
@@ -440,21 +413,19 @@ pub fn emit(plan: &Plan, site_attrs: bool, dev_reload: bool) -> Result<Output, S
         } else {
             em.uses.rt("res")
         };
+        let res = each::constructor(r, res);
         // An `else` row's compiled answer is the bake's for every launch,
         // never asked again (each was a worker turn; the runner's
-        // `is_placeholder_row`): it is settled, not a bake.
+        // `is_placeholder_row`, review B4): it is settled, not a bake.
         let kept = if is_placeholder { ",1" } else { "" };
         let carry = if dev_reload {
             format!(",{}{kept}", type_json(plan, r.ty))
         } else {
             kept.to_string()
         };
-        // Its last `context` arguments are its `with` context,
-        // which identify no upload it asks (uploads.js).
-        let args = match r.context {
-            0 => format!("()=>[{}]", args.join(",")),
-            n => format!("Object.assign(()=>[{}],{{context:{n}}})", args.join(",")),
-        };
+        // Its last `context` arguments are its `with` context (LLP 1027.005
+        // D6), which identify no upload it asks (uploads.js, LLP 1016.000 D10).
+        let args = each::arguments(plan, r, &args, &top, &mut em.uses)?;
         let _ = write!(
             body,
             "const r_{i}={res}({},{},{args},{initial},{initial_args},{},{placeholder}{carry});",
@@ -474,7 +445,8 @@ pub fn emit(plan: &Plan, site_attrs: bool, dev_reload: bool) -> Result<Output, S
             .map(|x| format!("r_{}", plan.mutation_refreshes[x.0 as usize].resource.0))
             .collect();
         let mt = em.uses.rt("mut");
-        // A queue's sends wait their turn (schedule.js).
+        // A queue's sends wait their turn (LLP 1092 D6; schedule.js); a
+        // parallel one's run together (LLP 1161.000 D6).
         let _ = write!(
             body,
             "const m_{i}={mt}({},s_{},[{}],{}{});",
@@ -482,11 +454,15 @@ pub fn emit(plan: &Plan, site_attrs: bool, dev_reload: bool) -> Result<Output, S
             m.slot.0,
             refreshes.join(","),
             serde_json::to_string(&type_code(plan, m.ty)).unwrap(),
-            if m.queue { ",1" } else { "" }
+            match m.mode {
+                exact_plan::MutationMode::Newest => "",
+                exact_plan::MutationMode::Queue => ",1",
+                exact_plan::MutationMode::Parallel => ",2",
+            }
         );
     }
     // A child's state used outside every region: initialized as the root
-    // instance renders, after the derives and resources.
+    // instance renders, after the derives and resources (LLP 1017 P4c).
     for (i, r) in plan.slots.iter().enumerate() {
         if r.late {
             root_slot(plan, i, &top, dev_reload, &mut em.uses, &mut body)?;
@@ -502,7 +478,7 @@ pub fn emit(plan: &Plan, site_attrs: bool, dev_reload: bool) -> Result<Output, S
         let mut f = code::function(
             plan,
             plan.code(r.body),
-            &scope,
+            &code::evaluation(&scope, format!("action {:?}", plan.str(r.name)), false),
             r.params.len as usize,
             &mut em.uses,
         )
@@ -525,7 +501,7 @@ pub fn emit(plan: &Plan, site_attrs: bool, dev_reload: bool) -> Result<Output, S
             })
             .collect();
         // A string parameter's name, which an argument past MAX_STRING
-        // names (the runner's StringTooLong).
+        // names (the runner's StringTooLong, LLP 1090 D6).
         let names: Vec<String> = r
             .params
             .iter()
@@ -559,8 +535,8 @@ pub fn emit(plan: &Plan, site_attrs: bool, dev_reload: bool) -> Result<Output, S
     if let Some(m) = &modes {
         body.push_str(&m.js(plan, &em.classes));
     }
-    // Symbols (symbols.js): a bound source picks its role, or an icon token,
-    // from the plan's own table.
+    // Symbols (symbols.js): a bound source picks its role, or an icon token
+    // (LLP 1121 D10), from the plan's own table.
     if em.symbols.0 {
         let _ = write!(
             body,
@@ -572,9 +548,21 @@ pub fn emit(plan: &Plan, site_attrs: bool, dev_reload: bool) -> Result<Output, S
         let painting = em.uses.rt("usePaint");
         let _ = write!(body, "{painting}($paint());");
     }
+    em.presence_bindings(&mut body);
     if em.media {
         let media = em.uses.rt("useMedia");
         let _ = write!(body, "{media}($media());");
+    }
+    if links {
+        let use_links = em.uses.rt("useLinks");
+        let _ = write!(body, "{use_links}($links());");
+    }
+    // The host commands the actions name, each commands.js's export imported
+    // by that name (commands.rs).
+    let commands = commands::linked(&em.uses);
+    if !commands.is_empty() {
+        let use_commands = em.uses.rt("useCommands");
+        body.push_str(&commands::install(&use_commands, &commands));
     }
     let mount = em.uses.rt("mount");
     let _ = write!(body, "{mount}($R=>{{{view}}});");
@@ -606,6 +594,21 @@ pub fn emit(plan: &Plan, site_attrs: bool, dev_reload: bool) -> Result<Output, S
                 .map(|b| plan.binding(b))
                 .any(|b| b.kind == BindingKind::Prop && b.id == PropId::NavigationBack as u16)
         });
+    // A root that can present a sheet (a route whose `navigationPresentation` is, or may be,
+    // `modal`) hands the projection the sheet's frame (navigation/routes.js `sheetFrame`), which a plan
+    // without one never links (LLP 1047.002 D1).
+    let sheets = roots
+        && plan.nodes.iter().any(|n| {
+            n.bindings.iter().map(|b| plan.binding(b)).any(|b| {
+                b.kind == BindingKind::Prop
+                    && b.id == PropId::NavigationPresentation as u16
+                    && style::literal(plan, plan.code(b.expr))
+                        .is_none_or(|v| v.as_str() == Some("modal"))
+            })
+        });
+    if sheets {
+        body.push_str("$useSheets($sheetFrame);");
+    }
     if let Some(slot) = plan.router {
         let router = em.uses.rt("router");
         let _ = write!(body, "{router}(s_{},$navigation);", slot.0);
@@ -613,7 +616,6 @@ pub fn emit(plan: &Plan, site_attrs: bool, dev_reload: bool) -> Result<Output, S
         let project = em.uses.rt("navigationRoots");
         let _ = write!(body, "{project}($navigation);");
     }
-    // The state's getters, for the agent (names live in `names.js`).
     let list = |p: &str, n: usize| {
         (0..n)
             .map(|i| format!("{p}_{i}"))
@@ -630,11 +632,16 @@ pub fn emit(plan: &Plan, site_attrs: bool, dev_reload: bool) -> Result<Output, S
             .map(|(i, _)| format!("s_{i}"))
             .collect::<Vec<_>>()
             .join(","),
-        list("d", plan.derives.len()),
+        plan.derives
+            .iter()
+            .enumerate()
+            .filter(|(_, r)| !r.unsettled)
+            .map(|(i, _)| format!("d_{i}"))
+            .collect::<Vec<_>>()
+            .join(","),
         list("r", plan.resources.len())
     );
-    // The queues read the state a stalled `next` saw.
-    if plan.mutations.iter().any(|m| m.queue) {
+    if (plan.mutations.iter()).any(|m| m.mode == exact_plan::MutationMode::Queue) {
         let queues = em.uses.rt("queues");
         let _ = write!(body, "{queues}($state);");
     }
@@ -694,7 +701,13 @@ pub fn emit(plan: &Plan, site_attrs: bool, dev_reload: bool) -> Result<Output, S
                 .map(|r| plan.str(r.name))
                 .collect()
         ),
-        names(plan.derives.iter().map(|r| plan.str(r.name)).collect()),
+        names(
+            plan.derives
+                .iter()
+                .filter(|r| !r.unsettled)
+                .map(|r| plan.str(r.name))
+                .collect()
+        ),
         names(plan.resources.iter().map(|r| plan.str(r.name)).collect()),
         types(
             plan.slots
@@ -703,7 +716,13 @@ pub fn emit(plan: &Plan, site_attrs: bool, dev_reload: bool) -> Result<Output, S
                 .map(|r| r.ty)
                 .collect()
         ),
-        types(plan.derives.iter().map(|r| r.ty).collect()),
+        types(
+            plan.derives
+                .iter()
+                .filter(|r| !r.unsettled)
+                .map(|r| r.ty)
+                .collect()
+        ),
         types(plan.resources.iter().map(|r| r.ty).collect())
     );
     // Each source's parameter and result types, by field name, for a
@@ -725,7 +744,7 @@ pub fn emit(plan: &Plan, site_attrs: bool, dev_reload: bool) -> Result<Output, S
             )
         })
         .collect();
-    // Each route's render and activation policy, for the renderers.
+    // Each route's render and activation policy, for the renderers (LLP 1048.003 D5).
     let pages: Vec<String> = plan
         .routes
         .iter()
@@ -747,8 +766,9 @@ pub fn emit(plan: &Plan, site_attrs: bool, dev_reload: bool) -> Result<Output, S
         serde_json::to_string(&em.uses.markdown_paths).unwrap()
     );
     let imports: Vec<String> = em.uses.names.iter().cloned().collect();
+    let commands_import = commands::import(&commands);
     let budget: Vec<String> = em.uses.budget.iter().cloned().collect();
-    // What many sites share, built once (generated code at
+    // What many sites share, built once (LLP 1071 §7, generated code at
     // scale): after `sources`, which build.mjs reads as the first match.
     let consts: String = em
         .uses
@@ -756,27 +776,41 @@ pub fn emit(plan: &Plan, site_attrs: bool, dev_reload: bool) -> Result<Output, S
         .iter()
         .map(|(n, v)| format!("const {n}={v};\n"))
         .collect();
+    let (fetch_import, prepare, prepared) = crate::facts::prepared_sources(plan);
     let js = format!(
-        "// Generated by exact-web-js from the app's plan. Do not edit.\nimport{{{}}}from\"./rt.js\";{}{}{}{}\nexport const sources={{{}}};export const wait={};{consts}export default function(){{{body}return $state}}\n",
+        "// Generated by exact-web-js from the app's plan. Do not edit.\nimport{{{}}}from\"./rt.js\";{}{}{}{}{fetch_import}\nexport const sources={{{}}};export const wait={};{consts}{prepare}export default function(){{{prepared}{body}return $state}}\n",
         imports.join(","),
         if budget.is_empty() {
             String::new()
         } else {
             format!("import{{{}}}from\"./budget.js\";", budget.join(","))
         },
-        if roots { "import{navigation as $navigation}from\"./navigation.js\";" } else { "" },
+        match (roots, sheets) {
+            (true, true) => "import{navigation as $navigation,useSheets as $useSheets,sheetFrame as $sheetFrame}from\"./navigation.js\";",
+            (true, false) => "import{navigation as $navigation}from\"./navigation.js\";",
+            _ => "",
+        },
         if dev_reload { "import{devResource as $devRes,devSignal as $devSig}from\"./checkpoint.js\";" } else { "" },
         // Loaded pieces, imported only where the plan uses them.
         [
+            (!commands.is_empty(), commands_import.as_str()),
             (paint, "import{paintUse as $paint}from\"./paint.js\";"),
             (em.list, "import{vl as $vl}from\"./list.js\";"),
+            (each::readers(plan), "import{reader as $reader}from\"./store-reader.js\";"),
+            (em.follow, "import\"./follow.js\";"),
             (em.media, "import{mediaUse as $media}from\"./media.js\";"),
+            (links, "import{linkUse as $links}from\"./links.js\";"),
+            (iframes, "import\"./iframes.js\";"),
+            (lists, "import\"./list-items.js\";"),
+            (button_fills, "import\"./button-fill.js\";"),
             (midi, "import{midi as $midi}from\"./midi.js\";"),
             (transport, "import{sequence as $sequence,transport as $transport}from\"./transport.js\";"),
             (!facts.is_empty(), facts.as_str()),
             (em.symbols.0, "import{symbols as $symbols}from\"./symbols.js\";"),
             (modes.is_some(), "import{modes as $modes,Sx}from\"./modes.js\";"),
             (plan.slots.iter().any(|s| s.persist), "import{stored as $stored,keep as $keep}from\"./persist.js\";"),
+            (exact_runner::uses::chooses_locale(plan), "import{localeSlot as $localeSlot,setLocale as $setLocale}from\"./chosen.js\";"),
+            (plan.format.is_some(), "import{formats as $formats,formatSlot as $formatSlot}from\"./format-locale.js\";"),
         ]
         .iter()
         .filter(|(on, _)| *on)
@@ -786,8 +820,8 @@ pub fn emit(plan: &Plan, site_attrs: bool, dev_reload: bool) -> Result<Output, S
         // A resource with no compiled value: the page waits for its source.
         false
     );
-    // Canvas text names a declared family by its declared name.
-    let js = if em.canvas2d && !fonts.aliases.is_empty() {
+    // Canvas text names a declared family by its declared name (LLP 1056 D8).
+    let js = if !em.canvas2d.is_empty() && !fonts.aliases.is_empty() {
         format!(
             "{js}(globalThis.exact??={{}}).fontAliases={};\n",
             fonts.aliases
@@ -796,21 +830,32 @@ pub fn emit(plan: &Plan, site_attrs: bool, dev_reload: bool) -> Result<Output, S
         js
     };
     let mut css = fonts.css.clone();
-    // The theme's reach into the host's own sheet.
+    // @ref LLP 1095 D4 — the theme's reach into the host's own sheet.
     css.push_str(&(exact_kernel::style::roles::theme_css() + &crate::base_scale::css(plan)));
     css.push_str("#exact-root#exact-root{");
     for (i, c) in em.classes.iter().enumerate() {
         let _ = write!(css, ".c{}{{{c}}}", i + 1);
     }
     css.push('}');
+    if let Some(at) = em.root_class {
+        css.push_str(&crate::canvas::rule(&em.classes[at]));
+    }
     for (i, looks) in em.looks.iter().enumerate() {
         let at = format!("[data-exact-looks=\"{}\"]", i + 1);
         css.push_str(&exact_web::host::template::look_rules(&at, looks));
+        // A boundary below that its colour reaches says so (modes.js `data-x-lc`).
+        if boundaries {
+            css.push_str(&exact_web::host::template::look_colour_below(
+                &at,
+                looks,
+                exact_web::host::template::look_marks(i + 1),
+            ));
+        }
     }
     // The classes that set a scheme read the theme's text on it.
     css.push_str(&exact_kernel::style::roles::scheme_classes(&em.classes));
     css.push_str(&modes.as_ref().map_or(String::new(), |m| m.css(plan)));
-    // The plan's `@keyframes`, as the document's head
+    // The plan's `@keyframes` (LLP 1055 D5, D7), as the document's head
     // carries them: the browser runs `animation` rows.
     for row in &plan.keyframes {
         if let Ok(frames) = exact_motion::Keyframes::parse(plan.str(row.css)) {
@@ -844,8 +889,9 @@ pub fn emit(plan: &Plan, site_attrs: bool, dev_reload: bool) -> Result<Output, S
         paint: crate::paint::runtime(plan),
         css,
         names: names_js,
-        pages: build_pages(plan),
+        pages: pages::build_pages(plan),
         markdown: em.markdown,
+        dialogs: em.dialogs,
         canvas2d: em.canvas2d,
         motion: em.motion,
         editor: em.editor,
@@ -854,55 +900,6 @@ pub fn emit(plan: &Plan, site_attrs: bool, dev_reload: bool) -> Result<Output, S
         viewport,
         warnings: em.warnings,
     })
-}
-
-fn build_pages(plan: &Plan) -> String {
-    let rows: Vec<String> = plan
-        .routes
-        .iter()
-        .filter(|r| {
-            r.render == exact_plan::RenderPolicy::Build && !plan.str(r.pattern).contains(':')
-        })
-        .map(|r| {
-            let location = if r.notfound {
-                "/404"
-            } else {
-                plan.str(r.pattern)
-            };
-            format!(
-                "{{\"location\":{},\"notfound\":{}}}",
-                serde_json::to_string(location).unwrap(),
-                r.notfound
-            )
-        })
-        .collect();
-    format!("[{}]", rows.join(","))
-}
-
-/// The type's zero, as the runner's `zero` makes it.
-fn zero(plan: &Plan, ty: exact_plan::TypesId) -> String {
-    let t = &plan.types[ty.0 as usize];
-    match t.kind {
-        exact_plan::TypeKind::Number => "0".into(),
-        exact_plan::TypeKind::Bool => "!1".into(),
-        exact_plan::TypeKind::String => serde_json::to_string(
-            t.fields
-                .iter()
-                .next()
-                .map_or("", |f| plan.str(plan.field(f).name)),
-        )
-        .unwrap(),
-        exact_plan::TypeKind::Unit | exact_plan::TypeKind::Option => "null".into(),
-        exact_plan::TypeKind::List => "[]".into(),
-        exact_plan::TypeKind::Record => format!(
-            "[{}]",
-            t.fields
-                .iter()
-                .map(|f| zero(plan, plan.fields[f.0 as usize].ty))
-                .collect::<Vec<_>>()
-                .join(",")
-        ),
-    }
 }
 
 impl Em<'_> {
@@ -984,19 +981,26 @@ impl Em<'_> {
             self.symbols.1 |= bound;
         }
         let (mut attrs, content, extra) = rows::attributes(element, &parts.props);
+        crate::symbols::path_in_source(&mut attrs);
         if element == "img" && exact_runner::rows::lazy(plan, exact_plan::NodesId(i)) {
             attrs.push(("loading".into(), "lazy".into()));
         }
         let mut css = parts.css.clone();
         css.push_str(&extra);
-        // `-exact-layout-transition` and `-exact-exit-animation` are custom
+        if !self.drag_timelines {
+            crate::timelines::css_timelines(&mut css);
+        }
+        // @ref LLP 1063 — `-exact-layout-transition` and `-exact-exit-animation` are custom
         // properties the web host's presence-glue.js reads from the element's
         // own declaration: inline, as the live host writes every row, not
         // the class (a class's custom property would be inherited).
         let presence = rows::presence_decls(&mut css);
         // Press feedback, a press haptic, or a native button's highlight: the input piece shows it,
-        // and gives a radio group its arrow keys and one Tab stop, and a
-        // tablist and a menu theirs.
+        // and gives a radio group its arrow keys and one Tab stop (LLP 1116.004 D5.2), and a
+        // tablist and a menu theirs (LLP 1115.000 D4.5).
+        if commands::dialog_glue(plan, &parts.tag, &attrs, NodesId(i)) {
+            self.dialogs = true;
+        }
         if presence.contains("--exact-press:")
             || presence.contains("--exact-press-haptic:")
             || presence.contains("--exact-press-opacity:")
@@ -1012,7 +1016,7 @@ impl Em<'_> {
             let _ = write!(self.out, "{press}();");
         }
         self.clocks_in(&presence);
-        // A fitted text: the runtime scales it after each tree update.
+        // A fitted text (LLP 1116.001 D1.4): the runtime scales it after each tree update.
         if presence.contains("--exact-fit:") {
             let fit = self.uses.rt("fitTexts");
             let _ = write!(self.out, "{fit}();");
@@ -1048,7 +1052,7 @@ impl Em<'_> {
                 kinds.iter().map(|k| k.name()).collect::<Vec<_>>().join(" "),
             ));
         }
-        // A pressable is focusable too, as natively (input-glue.js),
+        // A pressable is focusable too, as natively (chat F14; input-glue.js),
         // and so is a clipboard listener: the clipboard's events go to the focus.
         let on = kinds.iter().any(|k| {
             matches!(
@@ -1057,7 +1061,7 @@ impl Em<'_> {
             )
         });
         // An authored `tabindex` is explicit and wins, a negative one
-        // included; a bound one `P` sets over this.
+        // included (LLP 1088 D7.3); a bound one `P` sets over this.
         if on
             && !["input", "button", "select", "textarea", "a", "summary"].contains(&element)
             && !attrs.iter().any(|(k, _)| k == "tabindex")
@@ -1078,7 +1082,11 @@ impl Em<'_> {
         let class = if css.is_empty() {
             "0".to_string()
         } else {
-            format!("{}", self.class(&css) + 1)
+            let at = self.class(&css);
+            if i == self.sites.root {
+                self.root_class = Some(at);
+            }
+            format!("{}", at + 1)
         };
         let attrs_js = if attrs.is_empty() {
             "0".to_string()
@@ -1112,85 +1120,15 @@ impl Em<'_> {
             self.out,
             "const {e}={h}({parent},\"{element}\",{class},{attrs_js},{text});"
         );
-        if !presence.is_empty() {
-            let pr = self.uses.rt("pr");
-            let _ = write!(self.out, "{pr}({e});");
+        if let Some(register) = self.presence_registration(i, !presence.is_empty()) {
+            let register = self.uses.rt(register);
+            let _ = write!(self.out, "{register}({e});");
         }
         self.element_extras(&parts.tag, &e, &attrs, &parts.props);
-        // Its surface's inputs, named or positional.
-        if let Some(sf) = row.surface {
-            let sf = &plan.surfaces[sf.0 as usize];
-            // A surface the app's GPU module draws (the build names them)
-            // goes to it; any other is a Canvas 2D surface, drawn by the data module and replayed by the web host's own glue.
-            let name = plan.str(sf.name);
-            let gpu = gpu_surfaces().iter().any(|s| s == name);
-            let named = sf.mode == exact_plan::SurfaceArgsMode::Named;
-            if !gpu {
-                // Positional values, their declared types where known, and
-                // the authored names (a draw's `args`).
-                self.canvas2d = true;
-                let values = sf
-                    .args
-                    .iter()
-                    .map(|a| {
-                        let a = &plan.surface_args[a.0 as usize];
-                        code::expression(plan, plan.code(a.expr), scope, &mut self.uses)
-                    })
-                    .collect::<Result<Vec<_>, _>>()?;
-                let types: Vec<String> = sf
-                    .args
-                    .iter()
-                    .map(|a| {
-                        let a = &plan.surface_args[a.0 as usize];
-                        crate::faces::arg_type(plan, plan.code(a.expr)).map_or("0".into(), |t| {
-                            serde_json::to_string(&type_code(plan, t)).unwrap()
-                        })
-                    })
-                    .collect();
-                let names: Vec<String> = if named {
-                    sf.args
-                        .iter()
-                        .map(|a| {
-                            serde_json::to_string(plan.str(plan.surface_args[a.0 as usize].name))
-                                .unwrap()
-                        })
-                        .collect()
-                } else {
-                    Vec::new()
-                };
-                let c2 = self.uses.rt("c2");
-                let _ = write!(
-                    self.out,
-                    "{c2}({e},{},()=>[{}],[{}],[{}]);",
-                    serde_json::to_string(name).unwrap(),
-                    values.join(","),
-                    types.join(","),
-                    names.join(",")
-                );
-            } else {
-                let mut values = Vec::new();
-                for a in sf.args.iter() {
-                    let a = &plan.surface_args[a.0 as usize];
-                    let v = code::expression(plan, plan.code(a.expr), scope, &mut self.uses)?;
-                    values.push(if named {
-                        format!("{}:{v}", serde_json::to_string(plan.str(a.name)).unwrap())
-                    } else {
-                        v
-                    });
-                }
-                let gs = self.uses.rt("gs");
-                let body = if named {
-                    format!("({{{}}})", values.join(","))
-                } else {
-                    format!("[{}]", values.join(","))
-                };
-                let _ = write!(
-                    self.out,
-                    "{gs}({e},{},()=>{body});",
-                    serde_json::to_string(name).unwrap()
-                );
-            }
+        if !virtualized {
+            self.end_follow(i, &e, parts.props.get("scrollFollowEnd"));
         }
+        self.surface(i, &e, scope)?;
         self.media |= element == "video" || element == "audio";
         if (element == "video" || element == "audio")
             && parts.props.get("muted").map(String::as_str) == Some("true")
@@ -1203,7 +1141,7 @@ impl Em<'_> {
             let v = if v == "true" { "!0" } else { "!1" };
             let _ = write!(self.out, "{e}.checked={e}.$checked={v};");
         }
-        // A `markup="markdown"` text builds its pieces.
+        // A `markup="markdown"` text builds its pieces (LLP 1045 D3).
         let markdown = node_type == NodeType::Text
             && row.bindings.iter().any(|b| {
                 let b = plan.binding(b);
@@ -1228,10 +1166,18 @@ impl Em<'_> {
             if b.kind == BindingKind::Prop && b.id == PropId::FocusGuide as u16 {
                 continue;
             }
-            // Nor has the status bar's style.
+            // Nor have the system bars (LLP 1105 D7), interactive glass,
+            // a menu's order or a tip (LLP 1035.006.000 D4).
             if b.kind == BindingKind::Prop
                 && (b.id == PropId::StatusBarStyle as u16
-                    || b.id == PropId::StatusBarAnimation as u16)
+                    || b.id == PropId::StatusBarAnimation as u16
+                    || b.id == PropId::SystemBarsHidden as u16
+                    || b.id == PropId::GlassInteractive as u16
+                    || b.id == PropId::MenuOrder as u16
+                    || b.id == PropId::Tip as u16
+                    || b.id == PropId::TipMessage as u16
+                    || b.id == PropId::TipImage as u16
+                    || b.id == PropId::TipDone as u16)
             {
                 continue;
             }
@@ -1240,7 +1186,13 @@ impl Em<'_> {
                     let source = serde_json::to_string(v.as_str().unwrap_or_default()).unwrap();
                     self.markdown(i, &e, &format!("()=>{source}"), plan.code(b.expr));
                 }
-                continue;
+                // Refused SVG literals still run their binding to journal the refusal.
+                if b.kind != BindingKind::Prop
+                    || !exact_runner::bridge::prop_value(b.id, &v)
+                        .is_err_and(|e| crate::svg_lengths::refused(&e))
+                {
+                    continue;
+                }
             }
             let f = self
                 .bound(i, &e, &b, scope)
@@ -1257,11 +1209,15 @@ impl Em<'_> {
                     let prop = PropId::from_wire(b.id).ok_or("unknown prop")?;
                     let name = style::prop_name(node_type, prop)?;
                     // The plan stores editable; HTML exposes the inverse, readonly.
-                    // `glassGroup`'s reserved `-1` is `auto`.
+                    // `glassGroup`'s reserved `-1` is `auto` (LLP 1053.000.000.000 D3).
                     let f = if prop == PropId::Editable {
                         format!("()=>{{const v=({f})();return v==null?v:!v}}")
                     } else if prop == PropId::GlassGroup {
                         format!("()=>{{const v=({f})();return v===-1?\"auto\":v}}")
+                    } else if let Some(value) =
+                        crate::svg_lengths::binding(&mut self.uses, prop, &f, &e)
+                    {
+                        value
                     } else if matches!(prop, PropId::Wakelock | PropId::Orientationlock) {
                         // The value as computed, which wakelock.js and orientationlock.js journal.
                         let k = ["wake", "orient"][usize::from(prop == PropId::Orientationlock)];
@@ -1275,7 +1231,7 @@ impl Em<'_> {
                         "{p}({e},{},{f});",
                         serde_json::to_string(&name).unwrap()
                     );
-                    // A bound context menu popover: read at the event.
+                    // A bound context menu popover (LLP 1021 §5.1): read at the event.
                     if prop == PropId::ContextPopover {
                         let _ = write!(self.out, "{}({e});", self.uses.rt("cp"));
                     }
@@ -1318,8 +1274,17 @@ impl Em<'_> {
                 continue;
             }
             let mut args = Vec::new();
-            for a in h.args.iter() {
-                let f = code::expression(plan, plan.code(plan.arg(a).expr), scope, &mut self.uses)?;
+            for (k, a) in h.args.iter().enumerate() {
+                let f = code::expression(
+                    plan,
+                    plan.code(plan.arg(a).expr),
+                    &code::evaluation(
+                        scope,
+                        format!("site {i} {} argument {}", h.event.name(), k + 1),
+                        false,
+                    ),
+                    &mut self.uses,
+                )?;
                 args.push(f);
             }
             match h.event {
@@ -1349,13 +1314,13 @@ impl Em<'_> {
                 | EventKind::Selectionchange
                 | EventKind::Beforeinput
                 | EventKind::Beforeunload
-                // midi.js's listeners, through `onMIDI`.
+                // @ref LLP 1125 D8 — midi.js's listeners, through `onMIDI`.
                 | EventKind::Midimessage
                 | EventKind::Wheel
                 | EventKind::Drop
                 | EventKind::Dragenter
                 | EventKind::Dragleave
-                | EventKind::Atompress // The Markdown editor's and reader's.
+                | EventKind::Atompress // LLP 1045.000 D7: the Markdown editor's and reader's.
                 | EventKind::Play
                 | EventKind::Playing
                 | EventKind::Pause
@@ -1370,13 +1335,12 @@ impl Em<'_> {
                 | EventKind::Seeked
                 | EventKind::Ratechange
                 | EventKind::Volumechange
-                // Through `media.js`, a bool payload.
-                | EventKind::Fullscreenchange
-                // An image's, which picture-in-picture.js dispatches on it.
+                | EventKind::Fullscreenchange // @ref LLP 1042: through `media.js`, a bool payload
+                // @ref LLP 1042 §9 — an image's, which picture-in-picture.js dispatches on it.
                 | EventKind::Enterpictureinpicture
                 | EventKind::Leavepictureinpicture
                 | EventKind::Pictureinpictureerror
-                // The media session's, through `media.js`.
+                // @ref LLP 1098 D6 — the media session's, through `media.js`.
                 | EventKind::Seekbackward
                 | EventKind::Seekforward
                 | EventKind::Seekto
@@ -1390,20 +1354,22 @@ impl Em<'_> {
                 | EventKind::Cancel
                 | EventKind::Close
                 | EventKind::Scrollend
+                | EventKind::Scrolldragstart
+                | EventKind::Scrolldragend
                 | EventKind::Resize
                 | EventKind::Intersect
                 | EventKind::Currententrychange
                 | EventKind::Navigatesuccess
                 | EventKind::Navigateerror
-                | EventKind::Newwindow // Nothing fires them,
+                | EventKind::Newwindow // @ref LLP 1020.002 D5, D7: nothing fires them,
                 | EventKind::Download // the browser opening its own and downloading,
                 | EventKind::Capture // and the runtime refusing a capture (`onFrameCapture`)
-                | EventKind::Userpromptopened // the browser's own dialogs
-                // the browser's history swipe, which shows its own arrow
-                | EventKind::Historyswipe
+                | EventKind::Userpromptopened // @ref LLP 1020.002 D9: the browser's own dialogs
+                | EventKind::Historyswipe // @ref LLP 1115.000 D5.5: the browser shows its own arrow
                 | EventKind::Select => {}
                 // The motion piece's: the swipe's holds, a pan's velocity.
                 EventKind::Swiperight
+                | EventKind::Swipeleft
                 | EventKind::Panrelease
                 | EventKind::Heightrelease
                 | EventKind::Transformgeometry
@@ -1425,7 +1391,8 @@ impl Em<'_> {
                 args.insert(0, scope.rows.clone().unwrap_or_else(|| "{}".into()));
             }
             // Its arguments are evaluated in the action's commit (`.t`): one
-            // that traps refuses it, as the runner's handler evaluation does.
+            // that traps refuses it, as the runner's handler evaluation does
+            // (LLP 1090 D1).
             let handler = if args.is_empty() {
                 format!("a_{}", h.action.0)
             } else {
@@ -1453,7 +1420,7 @@ impl Em<'_> {
             let (bind, name) = (bind.unwrap_or_default(), h.event.name());
             let _ = write!(self.out, "{on}({e},\"{name}\",{handler}{bind});");
         }
-        // A tab's contents are made when it is first
+        // @ref LLP 1075.003 §3.7 — a tab's contents are made when it is first
         // selected: a virtualized list's rows as well.
         let panel = self.panels.binary_search(&exact_plan::NodesId(i)).is_ok();
         if panel {
@@ -1483,15 +1450,4 @@ impl Em<'_> {
         }
         Ok(())
     }
-}
-
-/// The surfaces the app's GPU module draws, as the build names them
-/// (`EXACT_JS_GPU_SURFACES`, comma-separated; host/web-js/build.mjs).
-fn gpu_surfaces() -> Vec<String> {
-    std::env::var("EXACT_JS_GPU_SURFACES")
-        .unwrap_or_default()
-        .split(',')
-        .filter(|s| !s.is_empty())
-        .map(str::to_string)
-        .collect()
 }

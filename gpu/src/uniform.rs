@@ -3,7 +3,7 @@
 //! `queue.write_buffer` stages each write in a buffer of its own (on Metal a
 //! new `MTLBuffer` per call) and makes the tick commit wgpu's pending-writes
 //! command buffer: about 57 µs of the iPhone's main thread per frame for an
-//! animated shader row's 80 bytes. On Apple, where the GPU
+//! animated shader row's 80 bytes (LLP 1009 §3). On Apple, where the GPU
 //! reads the CPU's memory, the uniform is instead a ring of shared-storage
 //! buffers written in place: the frame writes the slot after the last one,
 //! and binds that slot's bind group. Four slots: a canvas holds at most three

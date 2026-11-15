@@ -1,9 +1,9 @@
-// The GPU modules' router (host code): what glue.js injects in
+// The GPU modules' router (host code, LLP 1009 D6): what glue.js injects in
 // place of gpu-glue.js when the app declares GPU modules (`gpu.modules` in
 // app.json, baked as `compat.inputs.gpuModules`). It is `exact.gpu` and sends
 // each canvas to the artifact that owns its surface name — a declared
 // module's `gpu/<name>.js`, else the primary `gpu.js` — loading an artifact
-// only when one of its canvases mounts, after a rendering opportunity (per
+// only when one of its canvases mounts, after a rendering opportunity (D4, per
 // artifact). Each artifact is its own gpu-glue.js instance, imported as
 // `gpu-glue.js?artifact=<stem>`: its own device, surfaces, recovery and frame
 // loop. Everything addressed to a view goes to that view's artifact; the rest
@@ -51,7 +51,7 @@ const router = {
     posts.push([name, text, at]);
     return null;
   },
-  // The driver's `post`, as gpu-glue.js answers it for one artifact.
+  // The driver's `post` (LLP 1139.004 D1), as gpu-glue.js answers it for one artifact.
   surfaceOf: view => names.get(view),
   liveSurface() {
     const live = [...new Set(names.values())];

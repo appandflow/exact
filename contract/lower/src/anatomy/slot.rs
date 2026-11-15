@@ -1,4 +1,4 @@
-//! The slot: an exported library component that
+//! The slot (LLP 1139 D4, stage 12 C2): an exported library component that
 //! declares `slot` places `children` once, unconditionally, never into
 //! another component's slot; and no node from its view's root down to
 //! that placement (the slot's chain) may hide what fills it, in any branch
@@ -8,8 +8,8 @@
 //!
 //! [`denied`] is the one checker, the whole rule for one `(row, value)`: the
 //! compiler asks it of each chain row's every folded value, and the design
-//! server asks it of a candidate fold's from the chain the
-//! Tamber IR records ([`chain`]): the same rows, the same values, a value
+//! server asks it of a candidate fold's (stage 12 D) from the chain the
+//! Forma IR records ([`chain`]): the same rows, the same values, a value
 //! no literal says written [`UNFOLDED`].
 
 use crate::{tags, LowerError};
@@ -124,8 +124,8 @@ fn length(text: &str) -> Option<f64> {
 
 /// Why `value` on chain row `row` (a deny-list row, `font`, `transform`, or
 /// one of its attributes) hides the slot's fill, or why the check can't
-/// tell ([`UNFOLDED`], a text it can't read); `None` when it doesn't.
-/// The whole rule: the compiler's and the server's.
+/// tell ([`UNFOLDED`], a text it can't read); `None` when it doesn't (LLP
+/// 1139 D4). The whole rule: the compiler's and the server's.
 pub fn denied(row: &str, value: &str) -> Option<String> {
     let v = value.trim();
     if v == UNFOLDED {
@@ -135,15 +135,14 @@ pub fn denied(row: &str, value: &str) -> Option<String> {
     let keyword = || KEYWORDS.iter().any(|k| v.eq_ignore_ascii_case(k));
     match row {
         "display" | "visibility" => {
-            let hides = if row == "display" { "none" } else { "hidden" };
-            if v.eq_ignore_ascii_case(hides) {
+            let (hides, shows): (&[&str], &[&str]) = if row == "display" {
+                (&["none"], &DISPLAYS)
+            } else {
+                (&["hidden", "collapse"], &["visible"])
+            };
+            if hides.iter().any(|k| v.eq_ignore_ascii_case(k)) {
                 return Some(format!("`{row}: {v}` hides it"));
             }
-            let shows: &[&str] = if row == "display" {
-                &DISPLAYS
-            } else {
-                &["visible", "collapse"]
-            };
             match shows
                 .iter()
                 .chain(&["inherit", "initial", "unset", "revert"])
@@ -262,20 +261,20 @@ fn placement<'c>(c: &'c Component, out: &mut Vec<LowerError>) -> Option<Vec<&'c 
     };
     if found.is_empty() {
         out.push(refuse(
-            format!("`{comp}` declares `slot` and places no `children`: a library component places its slot once"),
+            format!("`{comp}` declares `slot` and places no `children`: a library component places its slot once (LLP 1139 D4)"),
             c.span,
         ));
         return None;
     }
     for f in &found[1..] {
         out.push(refuse(
-            format!("`{comp}` places `children` again (the first at line {}): a library component places its slot once", found[0].span.line),
+            format!("`{comp}` places `children` again (the first at line {}): a library component places its slot once (LLP 1139 D4)", found[0].span.line),
             f.span,
         ));
     }
     if let Some(why) = found[0].why {
         out.push(refuse(
-            format!("`children` in `{comp}` is {why}: a library component places its slot unconditionally"),
+            format!("`children` in `{comp}` is {why}: a library component places its slot unconditionally (LLP 1139 D4)"),
             found[0].span,
         ));
     }
@@ -330,7 +329,7 @@ struct Row {
 
 /// Each chain node's tag and rows: every row its classes bring (each style
 /// a choice names, each state layer) that the node doesn't set itself in
-/// the same layer, and its own (state parts' precedence).
+/// the same layer, and its own (LLP 1121 D8's precedence).
 fn chain_rows(
     c: &Component,
     file: &File,
@@ -388,7 +387,7 @@ fn chain_rows(
     )
 }
 
-/// Each refusal of `c`'s slot: its placement, then each
+/// Each refusal of `c`'s slot (LLP 1139 D4): its placement, then each
 /// chain node's rows, every value [`denied`] asked: a token's every value
 /// over the tuples, a base name's in every column of the scale (`fold`).
 pub(crate) fn check(
@@ -419,7 +418,7 @@ pub(crate) fn check(
                 said.push((r.span, why.clone()));
                 out.push(LowerError {
                     id: "lower-anatomy-slot",
-                    message: format!("a `{tag}` on the slot's chain in `{comp}`: {why}, and the slot's fill would not show"),
+                    message: format!("a `{tag}` on the slot's chain in `{comp}`: {why}, and the slot's fill would not show (LLP 1139 D4)"),
                     span: r.span,
                 });
             }
@@ -428,7 +427,7 @@ pub(crate) fn check(
     out
 }
 
-/// The slot's chain as the Tamber IR records it ([`super::Described`]):
+/// The slot's chain as the Forma IR records it ([`super::Described`]):
 /// each node's tag and its rows, `(row, value)` as written, for the server
 /// to fold and ask [`denied`] of.
 pub(crate) fn chain(c: &Component, file: &File) -> Vec<(String, Vec<(String, String)>)> {
@@ -439,7 +438,7 @@ pub(crate) fn chain(c: &Component, file: &File) -> Vec<(String, Vec<(String, Str
         .collect()
 }
 
-/// One exported library component's slot chain, as the Tamber IR records
+/// One exported library component's slot chain, as the Forma IR records
 /// it ([`chain`]): what the design server re-checks on a write.
 #[derive(Debug, Clone, Default)]
 pub struct SlotChain {
@@ -458,7 +457,7 @@ pub struct SlotChains {
 }
 
 impl SlotChains {
-    /// From the Tamber IR file's `library` block: each entry `library:
+    /// From the Forma IR file's `library` block: each entry `library:
     /// true` with its `chain` (`tag`, `rows`, `tokens`).
     pub fn from_ir(library: &serde_json::Value) -> SlotChains {
         let mut out = SlotChains::default();
@@ -504,7 +503,7 @@ impl SlotChains {
     }
 }
 
-/// The one checker on a candidate fold (the design server's):
+/// The one checker on a candidate fold (LLP 1139 D4; stage 12 D's server):
 /// each chain row whose value names a token of `folding` (a base name the
 /// design leaves unset in every column of the scale), asked [`denied`] of
 /// every value, a refusal in the compiler's words at the token's line.
@@ -513,12 +512,12 @@ impl SlotChains {
 /// line in the candidate (a write that removed the app's override) is
 /// said at the line it had there. Pure: no I/O.
 pub fn check_slots(
-    folding: &exact_tamber::Folding,
-    before: Option<&exact_tamber::Folding>,
+    folding: &exact_forma::Folding,
+    before: Option<&exact_forma::Folding>,
     chains: &SlotChains,
     touched: &[&str],
-) -> Vec<exact_tamber::Diagnostic> {
-    // Closed over references: a chain is touched
+) -> Vec<exact_forma::Diagnostic> {
+    // Closed over references (theme2's D2 condition): a chain is touched
     // when a token its rows name reaches a touched name through any chain
     // of tokens, a base name among them (`cards.pad = space.md` and a write
     // to `space.md`).
@@ -575,9 +574,9 @@ pub fn check_slots(
                         false => format!("{w} (`{value}` is `{v}` in some tuple or column)"),
                     })
                 }) {
-                    out.push(exact_tamber::Diagnostic {
+                    out.push(exact_forma::Diagnostic {
                         id: "lower-anatomy-slot",
-                        message: format!("a `{tag}` on the slot's chain in `{}`: {why}, and the slot's fill would not show", chain.component),
+                        message: format!("a `{tag}` on the slot's chain in `{}`: {why}, and the slot's fill would not show (LLP 1139 D4)", chain.component),
                         line: at.0,
                         col: at.1,
                     });
@@ -595,13 +594,13 @@ pub fn check_slots(
 /// expression's first token's, or the first app line a package token it
 /// names reaches; else the design's start.
 fn line(
-    folding: &exact_tamber::Folding,
-    before: Option<&exact_tamber::Folding>,
+    folding: &exact_forma::Folding,
+    before: Option<&exact_forma::Folding>,
     value: &str,
 ) -> (u32, u32) {
     // The app design's lines only: a package's are banded past them
     // (`theme::packages::LINE`), no line of the app's file.
-    let at = |f: &exact_tamber::Folding, name: &str| {
+    let at = |f: &exact_forma::Folding, name: &str| {
         f.design
             .tokens
             .iter()
@@ -637,7 +636,7 @@ fn line(
 /// Every token and base name `name` reaches through `folding`'s tokens:
 /// the names its values name, theirs in turn, and the unset base names
 /// each reads.
-pub fn reach(folding: &exact_tamber::Folding, name: &str) -> Vec<String> {
+pub fn reach(folding: &exact_forma::Folding, name: &str) -> Vec<String> {
     let mut out: Vec<String> = Vec::new();
     let mut todo = vec![name.to_string()];
     while let Some(n) = todo.pop() {

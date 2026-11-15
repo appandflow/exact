@@ -1,10 +1,10 @@
-// @exact/geolocation's conformance suite on the web: the fixture app
-// (`test/fixture`) made with `exact new` outside the repo, depending on
-// this package by `file:`, built for the web, and driven in each engine
-// with the web implementation bound. No agent: a substitute would prove
-// nothing about the implementation. The browser's own means answer the
-// platform's side: Playwright grants the permission and sets the
-// position.
+// @exact/geolocation's conformance suite on the web (LLP 1133.001 D7, LLP
+// 1133.002 stage 1): the fixture app (`test/fixture`) made with `exact new`
+// outside the repo, depending on this package by `file:`, built for the
+// web, and driven in each engine with the web implementation bound. No
+// agent: a substitute would prove nothing about the implementation. The
+// browser's own means answer the platform's side: Playwright grants the
+// permission and sets the position.
 //
 // usage: bun packages/geolocation/test/web.mjs [chromium] [firefox] [webkit]
 //   (every engine by default; `bunx playwright@1.64.1 install firefox webkit` first)
@@ -29,7 +29,7 @@ const server = Bun.serve({ port: 0, async fetch(req) {
 } });
 const origin = `http://127.0.0.1:${server.port}`;
 
-// Counts the page's watch registrations and clears, for the release check.
+// Counts the page's watch registrations and clears, for the release check (D5).
 const count = () => {
   const g = navigator.geolocation, w = g.watchPosition.bind(g), c = g.clearWatch.bind(g);
   globalThis.__geo = { watches: 0, clears: 0 };

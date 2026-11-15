@@ -1,19 +1,19 @@
-//! The system's ways into an app, substituted: the menu
+//! The system's ways into an app (LLP 1133.023 §10), substituted: the menu
 //! of its icon and its content in the system's search. Under the agent the
-//! runner keeps what the host's stores would, and tells no
+//! runner keeps what the host's stores would (D15 item 2), and tells no
 //! platform anything.
 //!
 //! - **`"shortcuts": "set" | "clear"`** on a send replaces the app's list
-//!   (`setAppShortcuts`): each item's `name` is not empty, its `url` an
+//!   (`setAppShortcuts`, D3): each item's `name` is not empty, its `url` an
 //!   absolute app path the navigation root's routes match, and its icons
 //!   local, else the call is refused `TypeError` and the list is kept. The
 //!   agent's state shows the list after the manifest's (`manifest`, which
 //!   the bake writes into the declaration from `app.json`).
 //! - **`"shortcuts": "pin"`** answers `{"state": "requested"}` and lists the
 //!   shortcut under `pinRequests`, or `unsupported` while the agent's word
-//!   `quick-actions.pinSupported` is false.
+//!   `quick-actions.pinSupported` is false (D11).
 //! - **`"index": "add" | "delete" | "set" | "entries"`** keeps the content
-//!   index: an entry by `id`, of a `kind`, in the order the app last
+//!   index (D4): an entry by `id`, of a `kind`, in the order the app last
 //!   set them; `set` replaces one kind's entries and records the
 //!   difference. At most [`MOST`] entries of at most [`TEXT`] bytes each
 //!   (`QuotaExceededError`). A source declared `entries` answers them all,
@@ -23,9 +23,9 @@ use super::super::super::{DataSource, Runner};
 use super::super::{Json, ModulesRow};
 use serde_json::json;
 
-/// The most entries the index holds.
+/// The most entries the index holds (D4).
 const MOST: usize = 5_000;
-/// The most text one entry holds, in bytes of its JSON.
+/// The most text one entry holds, in bytes of its JSON (D4).
 const TEXT: usize = 1_024;
 
 #[derive(Default)]
@@ -118,7 +118,7 @@ impl<D: DataSource> Runner<D> {
                     }
                 }
                 // The kind's entries take the place of its first, in the
-                // order given: the order its suggestions take.
+                // order given: the order its suggestions take (D9).
                 let given = |o: &Json| entries.iter().any(|e| e["id"] == o["id"]);
                 let first = index.iter().position(mine).unwrap_or(index.len());
                 let at = index[..first].iter().filter(|o| !given(o)).count();
@@ -156,7 +156,7 @@ impl<D: DataSource> Runner<D> {
         Some(Json::Null)
     }
 
-    /// `requestPinShortcut`, substituted.
+    /// `requestPinShortcut` (D11), substituted.
     pub(in crate::runner) fn pin_shortcut(&mut self, row: &ModulesRow, args: &Json) -> Json {
         let shortcut = &args["shortcut"];
         if let Some(why) = self.shortcut_refused(shortcut) {
@@ -177,7 +177,7 @@ impl<D: DataSource> Runner<D> {
         json!({ "error": code, "message": why })
     }
 
-    /// Why a shortcut is refused, if it is.
+    /// Why a shortcut is refused (D3), if it is.
     fn shortcut_refused(&self, item: &Json) -> Option<String> {
         if item["name"].as_str().is_none_or(str::is_empty) {
             return Some("a shortcut's name= is not empty".into());
@@ -186,7 +186,7 @@ impl<D: DataSource> Runner<D> {
             .or_else(|| icons_refused(&item["icons"]))
     }
 
-    /// Why a content index entry is refused, if it is.
+    /// Why a content index entry is refused (D4), if it is.
     fn entry_refused(&self, entry: &Json, kind: Option<&str>) -> Option<String> {
         if entry["id"].as_str().is_none_or(str::is_empty) {
             return Some("an entry's id= is not empty".into());
@@ -226,7 +226,7 @@ impl<D: DataSource> Runner<D> {
     }
 
     /// The entries of `kind` whose title or description contains `matching`,
-    /// case- and diacritic-insensitive, in the index's order.
+    /// case- and diacritic-insensitive, in the index's order (D9).
     pub fn index_entities(&self, kind: &str, matching: Option<&str>) -> Vec<Json> {
         let folded = matching.map(fold);
         (self.extensions.declared.reach.index.iter())
@@ -272,7 +272,7 @@ impl<D: DataSource> Runner<D> {
     }
 }
 
-/// A remote icon is refused: iOS takes symbols and bundled images, and
+/// A remote icon is refused (D3): iOS takes symbols and bundled images, and
 /// Android an `Icon` from a resource or a bitmap.
 fn icons_refused(icons: &Json) -> Option<String> {
     (icons.as_array().into_iter().flatten())

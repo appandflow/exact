@@ -1,0 +1,91 @@
+# Hosted tests are hourly and do not block landing. scripts/async.mjs owns
+# affected-suite selection and commit attribution on the provisioned fleet.
+name: tests
+
+on:
+  schedule:
+    - cron: '17 * * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+env:
+  CARGO_INCREMENTAL: "0"
+
+jobs:
+  linux:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    env:
+      # This runner is shut down partway through building the workspace's test
+      # binaries, as one out of disk or memory is. The dev profile's line tables
+      # are the part of that build the tests can do without.
+      CARGO_PROFILE_DEV_DEBUG: "0"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Free disk space
+        # Toolchains the image ships and this job never uses.
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          df -h /
+
+      - name: System packages
+        # The Linux host's DRM/KMS, input and font dependencies.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            pkg-config clang libudev-dev libinput-dev libdrm-dev libgbm-dev \
+            libxkbcommon-dev libfontconfig1-dev libfreetype-dev libwayland-dev
+
+      - name: Rust (rust-toolchain.toml)
+        run: rustup show active-toolchain || rustup toolchain install
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          # A run with a failing test still leaves what it compiled for the next one.
+          cache-on-failure: true
+
+      - name: Bun dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Hermes bundle
+        # Ordinary builds are offline (.cargo/config.toml); the installer fetches and
+        # verifies Ibex's pinned, attested release bundle once.
+        run: cargo run --manifest-path vendor/ibex/crates/hermes-lean-sys-installer/Cargo.toml -- --target x86_64-unknown-linux-gnu
+
+      - name: Cargo dependencies
+        run: cargo fetch --locked
+
+      - name: test
+        env:
+          CARGO_TERM_COLOR: always
+        run: cargo test --tests --no-fail-fast
+
+      - uses: browser-actions/setup-chrome@v1
+        id: chrome
+        if: ${{ !cancelled() }}
+
+      - name: SDK
+        # What the script tests build with (README): the web nightly with
+        # rust-src, wasm-bindgen and Binaryen. It runs after the Cargo tests,
+        # whose build leaves this runner no room for them. With CHROME set it
+        # downloads no Playwright Chromium.
+        if: ${{ !cancelled() }}
+        env:
+          CHROME: ${{ steps.chrome.outputs.chrome-path }}
+        run: bun scripts/exact.mjs setup
+
+      - name: script tests
+        # Runs after a failing Cargo test too: each reports its own failures.
+        # Cargo writes no colour here: tests read its output.
+        if: ${{ !cancelled() }}
+        env:
+          CHROME: ${{ steps.chrome.outputs.chrome-path }}
+        run: bun test ./scripts

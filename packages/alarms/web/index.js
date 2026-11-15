@@ -1,4 +1,4 @@
-// @exact/alarms on the web: absent. No web API rings
+// @exact/alarms on the web (LLP 1133.030 D14): absent. No web API rings
 // through a device's silence or rings while the page is closed, and
 // Notification Triggers was abandoned. So the status says alarms are not
 // available here, the list is empty, and every send is `NotSupportedError`.

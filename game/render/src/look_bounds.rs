@@ -1,5 +1,5 @@
 //! What a look frame drew outside the cull's account, as a world-space box
-//! What an orbit or plan look frame frames besides the
+//! (LLP 1127.000 D3): what an orbit or plan look frame frames besides the
 //! cull's spheres. Each item is placed where the frame drew it: its two ticks'
 //! rows at the frame's alpha, or its attachment matrix (`FramePoses`, as
 //! `transform.wgsl` and `model_vertex.wgsl` place it); and only what the

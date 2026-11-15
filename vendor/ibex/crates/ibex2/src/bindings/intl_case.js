@@ -19,6 +19,7 @@
   // Resolved on first use, not at install: opening ICU's first number
   // formatter costs about 6 ms on Windows's OS ICU, and a program that never
   // maps case without a locale should not pay it.
+  // @ref LLP 0057.000#511-windows-intl-uses-the-os-icu — first INTL install cost
   var defaultLocale;
 
   function currentDefaultLocale() {

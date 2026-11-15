@@ -239,6 +239,21 @@ fn paint_and_dasharray_grammar() {
         DashArray::parse("0 0").unwrap().pattern(1.0).is_empty(),
         "a zero sum is solid"
     );
+    assert_eq!(
+        DashArray::parse("1 2").unwrap().pattern(0.0),
+        vec![0.0, 0.0],
+        "a zero scale does not establish zero-length geometry"
+    );
+    assert_eq!(
+        DashArray::parse("1e-30").unwrap().pattern(1e-30),
+        vec![0.0, 0.0],
+        "underflow must retain the pattern for dash budgeting"
+    );
+    assert_eq!(
+        DashArray::parse("0 2").unwrap().pattern(0.5),
+        vec![0.0, 1.0],
+        "an individual zero dash does not make a pattern solid"
+    );
     assert_eq!(DashArray::parse("1").unwrap().css(), "1");
 }
 
@@ -258,7 +273,7 @@ fn lengths_take_units_and_percentages() {
     assert_eq!(Length::parse("1e1"), Some(Length::Units(10.0)));
     assert_eq!(Length::parse("50%"), Some(Length::Percent(50.0)));
     assert_eq!(Length::Percent(50.0).resolve(30.0), 15.0);
-    // Font-relative and viewport units wait for a consumer.
+    // Font-relative and viewport units wait for a consumer (LLP 1055.000 D4).
     for refused in ["2em", "1ex", "3vw", "px", ""] {
         assert_eq!(Length::parse(refused), None, "{refused}");
     }
@@ -330,6 +345,42 @@ fn a_filter_chain_reaches_as_far_as_its_primitives_read() {
 }
 
 #[test]
+fn drop_shadow_currentcolor_matches_the_omitted_color() {
+    use crate::svg::filter::{FilterFn, FilterList};
+
+    for (lengths, blur) in [("0 2px", 0.0), ("0 2px 4px", 4.0)] {
+        let expected = FilterList(vec![FilterFn::DropShadow(0.0, 2.0, blur, None)]);
+        assert_eq!(
+            FilterList::parse(&format!("drop-shadow({lengths})")),
+            Some(expected.clone())
+        );
+        for keyword in ["currentcolor", "currentColor", "CURRENTCOLOR"] {
+            for args in [
+                format!("{lengths} {keyword}"),
+                format!("{keyword} {lengths}"),
+            ] {
+                let css = format!("drop-shadow({args})");
+                let parsed = FilterList::parse(&css).unwrap_or_else(|| panic!("{css}"));
+                assert_eq!(parsed, expected, "{css}");
+                assert_eq!(FilterList::parse(&parsed.css()), Some(expected.clone()));
+                assert_eq!(FilterList::parse(&parsed.wire()), Some(expected.clone()));
+            }
+        }
+    }
+    for args in [
+        "0 2px currentcolor currentColor",
+        "currentcolor 0 2px #000",
+        "#000 0 2px currentcolor",
+        "currentcolor 0",
+        "0 2px -4px currentcolor",
+        "0 2px 4px 6px currentcolor",
+    ] {
+        let css = format!("drop-shadow({args})");
+        assert!(FilterList::parse(&css).is_none(), "{css}");
+    }
+}
+
+#[test]
 fn a_boxs_css_filter_is_the_functions_chain_over_a_box_of_no_size() {
     use crate::svg::filter::{FilterList, Op};
     let black = crate::style::ColorValue::Fixed(crate::style::Color::rgba(0, 0, 0, 255));
@@ -358,7 +409,7 @@ fn a_boxs_css_filter_is_the_functions_chain_over_a_box_of_no_size() {
         (-36.0, -36.0, 72.0, 82.0),
         "the offset and three standard deviations past the box"
     );
-    // A drop-shadow's colour may name a platform colour: the
+    // A drop-shadow's colour may name a platform colour (LLP 1095 D1): the
     // browser reads it as the role, the box resolves it (here, its fallback).
     let role = FilterList::parse("drop-shadow(0 2px 4px -exact-system-orange)").unwrap();
     assert_eq!(FilterList::parse(&role.css()), Some(role.clone()));
@@ -391,6 +442,17 @@ fn a_boxs_css_filter_is_the_functions_chain_over_a_box_of_no_size() {
     let current = FilterList::parse("drop-shadow(0 2px 4px)").unwrap();
     let text = crate::style::ColorValue::parse_light_dark("light-dark(#ff0000, #0000ff)").unwrap();
     assert_eq!(shade(&current, text, true), [0.0, 0.0, 1.0, 1.0]);
+    // Each function spreads the previous one's result (Filter Effects 1 §5).
+    for (css, region) in [
+        (
+            "drop-shadow(10px 0 0) drop-shadow(10px 0 0)",
+            (0.0, 0.0, 20.0, 0.0),
+        ),
+        ("drop-shadow(10px 0 0) blur(2px)", (-6.0, -6.0, 22.0, 12.0)),
+    ] {
+        let f = crate::svg::scene::box_filter(&FilterList::parse(css).unwrap(), black, false);
+        assert_eq!(f.unwrap().region, region, "{css}");
+    }
     assert!(
         crate::svg::scene::box_filter(&FilterList::parse("url(#f)").unwrap(), black, false)
             .is_none()
@@ -418,8 +480,12 @@ fn region_coordinates_keep_initial_values_for_undefined_environment_lengths() {
         "clamp(1px, env(viewport-segment-width 1 0), 100px)",
     ] {
         let d = Some(Dimension::parse_env(text).unwrap());
-        assert_eq!(vp.coord(d, -0.1, vp.width), -20.0, "mask x: {text}");
-        assert_eq!(vp.coord(d, 0.5, vp.width), 100.0, "gradient cx: {text}");
+        assert_eq!(vp.coord(d.clone(), -0.1, vp.width), -20.0, "mask x: {text}");
+        assert_eq!(
+            vp.coord(d.clone(), 0.5, vp.width),
+            100.0,
+            "gradient cx: {text}"
+        );
         assert_eq!(
             vp.coord(d, 1.2, 1.0),
             1.2,
@@ -433,7 +499,58 @@ fn region_coordinates_keep_initial_values_for_undefined_environment_lengths() {
             &crate::StyleValue::Text("env(viewport-segment-width 1 0, 25%)".into()),
         )
         .unwrap();
-    let fallback = style.cx;
+    let fallback = style.cx.clone();
     assert_eq!(vp.coord(Some(fallback), 0.5, vp.width), 50.0);
     assert_eq!(vp.coord(Some(Dimension::Points(0.0)), 0.5, vp.width), 0.0);
+}
+
+#[test]
+fn filter_functions_read_numbers_units_and_names_as_css_does() {
+    use crate::svg::filter::FilterList;
+    // CSS units match in any ASCII case, and a zero needs no unit however
+    // it is spelled (Chrome reads each of these).
+    for (css, canonical) in [
+        ("blur(2PX)", "blur(2px)"),
+        ("hue-rotate(90DEG)", "hue-rotate(90deg)"),
+        ("hue-rotate(0.5TURN)", "hue-rotate(180deg)"),
+        ("hue-rotate(200Grad)", "hue-rotate(180deg)"),
+        (
+            "drop-shadow(2PX 2Px red)",
+            "drop-shadow(2px 2px 0px #ff0000ff)",
+        ),
+        ("blur(0.0)", "blur(0px)"),
+        ("blur(+0)", "blur(0px)"),
+        ("hue-rotate(0.0)", "hue-rotate(0deg)"),
+        (
+            "drop-shadow(0.0 0 red)",
+            "drop-shadow(0px 0px 0px #ff0000ff)",
+        ),
+        ("opacity( 50% )", "opacity(0.5)"),
+        (
+            "drop-shadow(red 1px 2px)",
+            "drop-shadow(1px 2px 0px #ff0000ff)",
+        ),
+    ] {
+        let parsed = FilterList::parse(css).unwrap_or_else(|| panic!("{css}"));
+        assert_eq!(parsed.css(), canonical, "{css}");
+    }
+    assert_eq!(
+        FilterList::parse("brightness(1E1%)"),
+        FilterList::parse("brightness(0.1)")
+    );
+    // Text CSS refuses (Chrome too): numbers outside CSS's number token,
+    // a space inside a function token or a dimension, a negative amount,
+    // and a colour between a shadow's lengths.
+    for css in [
+        "brightness(1.)",
+        "blur(1.px)",
+        "brightness(50 %)",
+        "hue-rotate(90 deg)",
+        "saturate (2)",
+        "brightness(-1e-50)",
+        "drop-shadow(1px red 2px)",
+        "drop-shadow(1px 2px red 3px)",
+    ] {
+        assert!(FilterList::parse(css).is_none(), "{css}");
+    }
 }

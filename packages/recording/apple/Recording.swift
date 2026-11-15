@@ -1,30 +1,31 @@
-// @exact/recording on Apple: a track
+// @exact/recording on Apple (LLP 1133.009 D1, D2, D6, D8, §10): a track
 // `@exact/media-capture` opened, reached through the session's track table,
 // recorded to a file and metered.
 //
 // - A recorder is a consumer of its stream's audio track, so it holds the
-//   track's lease while it is not `inactive`; its start is a start. A
+//   track's lease while it is not `inactive`; its start is a start (D6). A
 //   level reader is a consumer too, and never a start.
-// - `audio/mp4` (the unsaid default) is AAC in a fragmented MP4
+// - `audio/mp4` (the unsaid default, D2) is AAC in a fragmented MP4
 //   (`AVAssetWriter`, one-second fragments), which plays up to its last
-//   fragment if the process ends mid-take; `audio/wav` is 16-bit PCM
+//   fragment if the process ends mid-take (D6); `audio/wav` is 16-bit PCM
 //   (`AVAudioFile`). The file is at the admitted `app:/` path, its
 //   extension added when the app wrote none.
 // - Buffers arrive on the audio thread; each recorder copies what it takes
 //   and writes on its own serial queue. A writer two seconds behind stops
 //   its recorder with `error` "the writer fell behind" and a finished file
-//   of what it wrote.
+//   of what it wrote (D6).
 // - An interruption, a media-services reset or the background pauses a
-//   recording recorder; a track that ends stops it (`track-ended`).
-// - `audioLevel`: the RMS of each `interval`, computed on the audio
+//   recording recorder (D8); a track that ends stops it (`track-ended`).
+// - `audioLevel` (D1): the RMS of each `interval`, computed on the audio
 //   thread; an answer covers every interval since the last one.
-// - `<audio-waveform>` draws a track's level on the display link from
-//   a meter of its own, so no level crosses into Contract.
-// - Under the agent no engine runs: the level is the synthetic signal
+// - `<audio-waveform>` (D13) draws a track's level on the display link from
+//   a meter of its own, so no level crosses into Contract. A bar's height is
+//   the level in decibels, as a recorder's meter shows it (`WaveformBars`).
+// - Under the agent (§10) no engine runs: the level is the synthetic signal
 //   on the session clock, and a stopped recorder's file is WAV of a tone that
 //   follows it, answered as `audio/wav`.
 // - At the session's end every recorder stops and its file is finished
-//   (`destroy`).
+//   (`destroy`, D10 item 1).
 import AVFoundation
 import ExactPackage
 import Foundation
@@ -42,7 +43,7 @@ public final class RecordingModule: ExactPackage {
 
     public init(context: ExactPackageContext) { self.context = context }
 
-    /// The synthetic signal at step `i` (one step a 50 ms of the session clock): the recorder's formula.
+    /// The synthetic signal at step `i` (one step a 50 ms of the session clock): the recorder's formula (§10).
     static func synthetic(_ i: Int) -> Double {
         let x = Double(i)
         return min(1, 0.12 + 0.75 * abs(sin(x * 0.37)) * (0.55 + 0.45 * sin(x * 0.05)))
@@ -76,7 +77,7 @@ public final class RecordingModule: ExactPackage {
         name == "audioLevelSync" ? level(args) : ["error": "NotSupportedError"]
     }
 
-    /// `<audio-waveform>`.
+    /// `<audio-waveform>` (D13).
     public func view(_ tag: String, id: String, props: [String: String], events: ExactPackageEvents) throws -> ExactPackageView {
         guard tag == "audio-waveform" else { throw ExactPackageRefusal("no view \(tag)") }
         let waveform = Waveform(module: self)
@@ -88,7 +89,7 @@ public final class RecordingModule: ExactPackage {
 
     /// A waveform's own meter of `track`, a reader that never starts it.
     func waveformMeter(_ track: String) -> Meter? {
-        let m = Meter(interval: 50, history: 1000, agent: context.agent, now: context.now())
+        let m = Meter(interval: WaveformBars.step, history: WaveformBars.history, agent: context.agent, now: context.now())
         m.subscription = try? context.tracks.subscribe(track, m, start: false, origin: context.origin)
         return m.subscription == nil ? nil : m
     }
@@ -103,7 +104,7 @@ public final class RecordingModule: ExactPackage {
         let asked = args["mimeType"] as? String
         let type = context.agent ? "audio/wav" : asked ?? "audio/mp4"
         guard context.agent || ["audio/mp4", "audio/wav"].contains(type) else { return ["error": "NotSupportedError"] }
-        // `apple.formatID` must be a codec the container holds: WAV is linear PCM, MP4 AAC, ALAC or Opus.
+        // `apple.formatID` must be a codec the container holds: WAV is linear PCM, MP4 AAC, ALAC or Opus (D4).
         if !context.agent, let word = (args["apple"] as? [String: Any])?["formatID"] as? String,
            !(type == "audio/wav" ? ["linearPCM"] : ["aac", "alac", "opus"]).contains(word) { return ["error": "NotSupportedError"] }
         guard let path = Recorder.path(args["path"] as? String ?? "", type), let url = context.file(path) else { return ["error": "NotSupportedError"] }
@@ -143,7 +144,7 @@ public final class RecordingModule: ExactPackage {
         return m.read(context.now())
     }
 
-    /// A level's argument group has no reader left: its meter goes.
+    /// A level's argument group has no reader left: its meter goes (D10 item 12).
     public func release(_ name: String, args: [String: Any]) {
         guard name == "audioLevel", let track = args["track"] as? String else { return }
         meters.removeValue(forKey: Meter.key(track, args))?.stop()
@@ -155,12 +156,12 @@ public final class RecordingModule: ExactPackage {
         meters.removeAll()
     }
 
-    /// A recorder whose reply was dropped: stopped, its file finished, never the app's.
+    /// A recorder whose reply was dropped: stopped, its file finished, never the app's (D6).
     public func dispose(_ ids: [String]) {
         for id in ids { recorders[id]?.finish("requested") { _ in } }
     }
 
-    /// The session ends: every recorder stops and its file is finished.
+    /// The session ends: every recorder stops and its file is finished (D6).
     public func destroy(_ done: @escaping () -> Void) {
         for m in meters.values { m.stop() }
         let group = DispatchGroup()
@@ -189,7 +190,7 @@ final class Recorder: ExactTrackConsumer {
     private let queue: DispatchQueue
     private var writer: Writer?
     private var finishing: [([String: Any]) -> Void] = []
-    /// Frames handed to the queue and not yet written: the bound.
+    /// Frames handed to the queue and not yet written: the bound (D6).
     private let pending = Pending()
 
     init(id: String, track: String, type: String, path: String, url: URL, context: ExactPackageContext, bitRate: Double?, bitRateMode: String?, apple: [String: Any], changed: @escaping () -> Void) {
@@ -257,7 +258,7 @@ final class Recorder: ExactTrackConsumer {
         }
         tap = source.tap { [weak self] buffer, _ in
             guard let self, self.isRecording else { return }
-            // Nothing waits here: a writer two seconds behind stops the recorder.
+            // Nothing waits here: a writer two seconds behind stops the recorder (D6).
             guard pending.add(buffer.frameLength) <= limit, let copy = Recorder.copy(buffer) else {
                 DispatchQueue.main.async { self.finish("error", error: "the writer fell behind") { _ in } }
                 return
@@ -286,7 +287,7 @@ final class Recorder: ExactTrackConsumer {
     private let recordingFlag = Flag()
     private var isRecording: Bool { recordingFlag.value }
 
-    /// Stop for `why`, finish the file, answer the result; sticky once inactive.
+    /// Stop for `why`, finish the file, answer the result; sticky once inactive (D1).
     func finish(_ why: String, error: String? = nil, _ done: @escaping ([String: Any]) -> Void) {
         if let result { return done(result) }
         finishing.append(done)
@@ -380,13 +381,13 @@ final class Writer {
             file = try AVAudioFile(forWriting: url, settings: settings, commonFormat: format.commonFormat, interleaved: format.isInterleaved)
             return
         }
-        // `apple.formatID` beats the default codec. Linear PCM is `audio/wav`'s, which MP4 does not hold.
+        // `apple.formatID` beats the default codec (D4). Linear PCM is `audio/wav`'s, which MP4 does not hold.
         let codecs: [String: AudioFormatID] = ["aac": kAudioFormatMPEG4AAC, "alac": kAudioFormatAppleLossless, "opus": kAudioFormatOpus]
         let word = apple["formatID"] as? String ?? "aac"
         guard let codec = codecs[word] else { throw CaptureFailure("NotSupportedError: \(word) in audio/mp4") }
         // The `.m4a` brand takes no Opus (measured: `canAdd` refuses it); a plain MP4 does.
         let writer = try AVAssetWriter(outputURL: url, fileType: codec == kAudioFormatOpus ? .mp4 : .m4a)
-        // One-second fragments: a take whose process ended plays up to its last fragment.
+        // One-second fragments: a take whose process ended plays up to its last fragment (D6).
         writer.movieFragmentInterval = CMTime(seconds: 1, preferredTimescale: 600)
         var settings: [String: Any] = [AVFormatIDKey: codec, AVSampleRateKey: format.sampleRate, AVNumberOfChannelsKey: min(format.channelCount, 2)]
         if codec == kAudioFormatAppleLossless { settings[AVEncoderBitDepthHintKey] = 16 }
@@ -523,7 +524,7 @@ final class Writer {
         _ = try FileManager.default.replaceItemAt(url, withItemAt: rebuilt)
     }
 
-    /// The agent's take: WAV, 16-bit mono at 8 kHz, of a 440 Hz tone whose amplitude follows the signal over its spans.
+    /// The agent's take: WAV, 16-bit mono at 8 kHz, of a 440 Hz tone whose amplitude follows the signal over its spans (§10).
     static func tone(_ spans: [(Double, Double?)], rate: Double = 8000) -> Data {
         var samples: [Int16] = []
         for (from, to) in spans {
@@ -549,7 +550,7 @@ struct CaptureFailure: Error, CustomStringConvertible {
     init(_ description: String) { self.description = description }
 }
 
-/// A level on one track with one argument group.
+/// A level on one track with one argument group (D1).
 final class Meter: ExactTrackConsumer {
     let interval: Double, history: Int, agent: Bool
     var subscription: ExactSubscription?
@@ -579,20 +580,40 @@ final class Meter: ExactTrackConsumer {
     func ended() { running = false; tap?.cancel(); tap = nil }
     func stop() { tap?.cancel(); tap = nil; subscription?.cancel(); subscription = nil }
 
-    /// Every interval since the last answer.
+    /// Every interval since the last answer (D1).
     func read(_ now: Double) -> [String: Any] {
+        advance(now)
+        return ["audioLevel": last, "totalAudioEnergy": energy, "totalSamplesDuration": duration, "levels": levels]
+    }
+
+    /// The levels of the intervals since the meter last advanced, kept in its
+    /// history. Silence by the clock; the measured audio as the tap delivers
+    /// it, each window once: the input tap hands over about 100 ms at a time,
+    /// two 50 ms windows, which the clock's one step a read would drop.
+    @discardableResult
+    func advance(_ now: Double) -> [Double] {
         let steps = Int(floor((now - at) / interval))
         var fresh: [Double] = []
-        if steps > 0 {
-            if !running || quiet { fresh = Array(repeating: 0, count: steps) }
-            else if agent { fresh = (1...steps).map { RecordingModule.synthetic(Int(floor((at + Double($0) * interval) / 50))) } }
-            else { fresh = Array(measured.take().suffix(steps)) }
-            at += Double(steps) * interval
+        let silent = !running || quiet
+        if silent {
+            _ = measured.take()
+            // Silence adds no energy: its whole span is counted, and only the
+            // levels the history keeps are made, so a meter left unread for
+            // hours answers at once.
+            if steps > 0 {
+                fresh = Array(repeating: 0, count: min(steps, history))
+                duration += Double(steps) * interval / 1000; last = 0
+            }
+        } else if agent {
+            if steps > 0 { fresh = (1...steps).map { RecordingModule.synthetic(Int(floor((at + Double($0) * interval) / 50))) } }
+        } else {
+            fresh = measured.take()
         }
-        for level in fresh { energy += level * level * interval / 1000; duration += interval / 1000; last = level }
-        levels.append(contentsOf: fresh)
+        if steps > 0 { at += Double(steps) * interval }
+        if !silent { for level in fresh { energy += level * level * interval / 1000; duration += interval / 1000; last = level } }
+        levels.append(contentsOf: fresh.suffix(history))
         if levels.count > history { levels.removeFirst(levels.count - history) }
-        return ["audioLevel": last, "totalAudioEnergy": energy, "totalSamplesDuration": duration, "levels": levels]
+        return fresh
     }
 }
 
@@ -612,13 +633,58 @@ final class Measured: @unchecked Sendable {
     func take() -> [Double] { lock.lock(); defer { lock.unlock() }; let out = done; done = []; return out }
 }
 
-// MARK: the waveform
+// MARK: the waveform (D13)
 
 #if os(macOS)
 typealias WaveformColor = NSColor
 #else
 typealias WaveformColor = UIColor
 #endif
+
+/// What `<audio-waveform>` draws, as the web's `WaveformBars` draws it
+/// (`web/index.js`): one bar a `step` of the session's time, newest last, each
+/// the height of a level as the meter's ballistics carry it, and how far the
+/// newest bar has moved on from its place (`phase`, 0 to 1), so the bars
+/// scroll with time between steps. Levels that arrive together (the input
+/// tap's 100 ms) are queued and drawn a step apart; when none has arrived by
+/// its step the bars wait at a full step.
+struct WaveformBars {
+    static let step = 50.0, floorDB = -50.0, history = 1000
+    /// A meter's ballistics, each the share of the way a step goes: a bar
+    /// rises within the step (20 ms) and falls back over a few (120 ms).
+    static let attack = 1 - exp(-step / 20), release = 1 - exp(-step / 120)
+    /// Levels at most this many steps behind the time are drawn at once.
+    static let lag = 4
+    private(set) var bars: [Double] = []
+    private(set) var phase = 0.0
+    private var at: Double, queue: [Double] = [], shown = 0.0
+
+    init(start: Double) { at = start }
+
+    /// A bar's height, 0 to 1, for a level (an interval's RMS, 0 to 1): its
+    /// decibels over the last 50 dB below full scale, as `AVAudioRecorder`'s
+    /// `averagePower` reads. Speech at an RMS near 0.03 is −30 dBFS, two
+    /// fifths of the height, where the linear level drew it a thirtieth.
+    static func height(_ level: Double) -> Double {
+        level > 0 ? min(1, max(0, (20 * log10(level) - floorDB) / -floorDB)) : 0
+    }
+
+    /// Take `levels`, the meter's since the last frame, and move to `now`.
+    mutating func advance(_ now: Double, _ levels: [Double]) {
+        queue.append(contentsOf: levels.map(Self.height))
+        while now - at >= Self.step, !queue.isEmpty { take(); at += Self.step }
+        while queue.count > Self.lag { take() }
+        if now - at > Self.step { at = now - Self.step }
+        phase = min(1, max(0, (now - at) / Self.step))
+    }
+
+    private mutating func take() {
+        let target = queue.removeFirst()
+        shown += (target - shown) * (target > shown ? Self.attack : Self.release)
+        bars.append(shown)
+        if bars.count > Self.history { bars.removeFirst(bars.count - Self.history) }
+    }
+}
 
 /// `<audio-waveform track=…>`: the track's levels as bars, newest at the
 /// right, drawn each display frame from a meter of its own, so no level
@@ -632,7 +698,7 @@ final class Waveform: NSObject, ExactPackageView {
     init(module: RecordingModule) {
         self.module = module
         super.init()
-        canvas.levels = { [weak self] fit in self?.levels(fit) ?? [] }
+        canvas.advance = { [weak self] in self?.advance() }
     }
 
     var view: ExactPackagePlatformView { canvas }
@@ -644,13 +710,13 @@ final class Waveform: NSObject, ExactPackageView {
         canvas.meter?.stop()
         track = next
         canvas.meter = track.isEmpty ? nil : module.waveformMeter(track)
-        canvas.bars = []
+        canvas.bars = WaveformBars(start: module.now)
     }
 
-    private func levels(_ fit: Int) -> [Double] {
-        guard let meter = canvas.meter else { return [] }
-        _ = meter.read(module.now)
-        return Array(meter.levels.suffix(fit))
+    private func advance() {
+        guard let meter = canvas.meter else { return }
+        let now = module.now
+        canvas.bars.advance(now, meter.advance(now))
     }
 
     func destroy() { canvas.stop(); canvas.meter?.stop() }
@@ -668,8 +734,8 @@ final class Waveform: NSObject, ExactPackageView {
 final class WaveformCanvas: ExactPackagePlatformView {
     var color: WaveformColor = .systemRed
     var meter: Meter?
-    var bars: [Double] = []
-    var levels: (Int) -> [Double] = { _ in [] }
+    var bars = WaveformBars(start: 0)
+    var advance: () -> Void = {}
     private var link: AnyObject?
     static let bar: CGFloat = 3, gap: CGFloat = 2
 
@@ -698,8 +764,7 @@ final class WaveformCanvas: ExactPackagePlatformView {
     #endif
 
     @objc private func tick() {
-        let fit = max(0, Int((bounds.width + Self.gap) / (Self.bar + Self.gap)))
-        bars = levels(fit)
+        advance()
         #if os(macOS)
         needsDisplay = true
         #else
@@ -716,9 +781,11 @@ final class WaveformCanvas: ExactPackagePlatformView {
         guard let g = UIGraphicsGetCurrentContext() else { return }
         #endif
         let w = bounds.width, h = bounds.height
+        // One bar more than fits: the oldest slides out at the left as the bars scroll.
+        let fit = max(0, Int((w + Self.gap) / (Self.bar + Self.gap))) + 1, shown = bars.bars.suffix(fit), phase = CGFloat(bars.phase)
         g.setFillColor(color.cgColor)
-        for (i, level) in bars.enumerated() {
-            let x = w - CGFloat(bars.count - i) * (Self.bar + Self.gap) + Self.gap
+        for (i, level) in shown.enumerated() {
+            let x = w - (CGFloat(shown.count - i) + phase) * (Self.bar + Self.gap) + Self.gap
             let half = max(1, CGFloat(level) * (h / 2 - 2))
             g.fill(CGRect(x: x, y: h / 2 - half, width: Self.bar, height: half * 2))
         }

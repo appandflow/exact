@@ -1,5 +1,5 @@
 // A local PDF in a frame and a capture of it through the runner, driven by
-// IframeCaptureSessionTests; a frame whose PDF is
+// IframeCaptureSessionTests (LLP 1020.002 D7, D10); a frame whose PDF is
 // not there, which gets a web view in its place; and a sandboxed one, which
 // stays WebKit's from its mount.
 component App

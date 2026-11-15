@@ -1,12 +1,12 @@
 //! The commit's sound commands, which the runner's voice table takes once
-//! the commit stands.
+//! the commit stands (LLP 1096 D5).
 
 use super::{DataSource, Runner};
 
 impl<D: DataSource> Runner<D> {
     /// The voice table takes the commit's `playSound`, `playSounds` and
     /// `stopSounds` once it stands, in the order they were issued; the
-    /// commands stay for the host, which skips them. A
+    /// commands stay for the host, which skips them (LLP 1096 D5). A
     /// `reload` ends every live voice first.
     pub(super) fn apply_sounds(&mut self, from: usize) {
         let commands = &self.commands[from.min(self.commands.len())..];
@@ -19,7 +19,7 @@ impl<D: DataSource> Runner<D> {
             self.sounds
                 .apply(&self.plan, self.now_ms, &calls, &mut lines);
         }
-        // An iframe's `reload(id)` reloads its page, not the app.
+        // An iframe's `reload(id)` reloads its page, not the app (LLP 1020.002 D3).
         if commands
             .iter()
             .any(|c| c.name == "reload" && c.args.is_empty())
@@ -27,10 +27,10 @@ impl<D: DataSource> Runner<D> {
             if !self.plan.sounds.is_empty() {
                 self.sounds.reload(self.now_ms, &mut lines);
             }
-            // Every note the queue turned on ends, handed now.
+            // Every note the queue turned on ends, handed now (LLP 1125 D4).
             self.midi.reload(self.now_ms, &mut lines);
         }
-        // `sendMIDI` and `requestMIDIAccess`: the queue's.
+        // `sendMIDI` and `requestMIDIAccess` (LLP 1125 D6, D7): the queue's.
         let seek = !self.clock_live();
         for c in commands {
             match c.name.as_str() {

@@ -1,10 +1,10 @@
 //! Markdown's data source: a document path in, a document out.
 //!
-//! The runner does no I/O, so opening a file is a series of
-//! storage requests the host runs: `fs.stat` the path, the
+//! The runner does no I/O (LLP 1016 D1), so opening a file is a series of
+//! storage requests the host runs (LLP 1027.001): `fs.stat` the path, the
 //! README beside it when it is a folder, `fs.readFile`, and `fs.readdir`
-//! for the Markdown files beside it. What it opens is a `doc:` path: the
-//! file or folder the person chose, minted by the host,
+//! for the Markdown files beside it. What it opens is a `doc:` path (LLP
+//! 1069.010 D1): the file or folder the person chose, minted by the host,
 //! read under `fs.read doc:/`. A path the host never minted is not the
 //! app's to read, on any host. Parsing then runs on the host's worker, not
 //! here: a 100 kB document is milliseconds of work, and milliseconds on the
@@ -17,9 +17,11 @@
 //!
 //! The answer watches what it opened and the folder it sits in, so an edit
 //! made in another program, or a file added beside it, shows without a
-//! reload. What the person opened is kept across
-//! launches where the host keeps documents (`doc.keep`): `recentDocuments`
-//! lists it, and `forgetDocument` removes one.
+//! reload (LLP 1069.010.000 D1). What the person opened is kept across
+//! launches where the host keeps documents (`doc.keep`, LLP 1069.010.000
+//! D3): `recentDocuments` lists it, and `forgetDocument` removes one.
+//!
+//! @ref LLP 1033 (the reader), LLP 1016 D1/D2 (requests as values)
 
 #![forbid(unsafe_code)]
 #![deny(missing_docs)]
@@ -405,7 +407,7 @@ impl DataSource for Markdown {
     fn query(&mut self, source: &str, _args: &[Value]) -> Result<Value, DataError> {
         // Every source here reaches a filesystem, so `answer` is where the
         // work is; `query` exists for the bake, which has no filesystem and
-        // needs the first frame's value.
+        // needs the first frame's value. @ref LLP 1027 D4
         match source {
             "open" => Ok(self.welcome()),
             "recentDocuments" => Ok(Value::list(Vec::new())),
@@ -421,7 +423,7 @@ impl DataSource for Markdown {
         args: &[Value],
     ) -> Result<Answer, DataError> {
         match source {
-            // Asked again when what the app keeps changes.
+            // Asked again when what the app keeps changes (D5).
             "recentDocuments" => {
                 store.observe_topic(exact_data::documents::kept::LIST_TOPIC);
                 return Ok(Answer::Later(storage::request(
@@ -538,6 +540,7 @@ impl DataSource for Markdown {
                 | Outcome::Storage(_)
                 | Outcome::Surface(_)
                 | Outcome::Message(_)
+                | Outcome::Messages(_)
                 | Outcome::Closed { .. },
             ) => Err(format!("{asked} was not read")),
         };

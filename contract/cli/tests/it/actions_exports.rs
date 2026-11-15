@@ -1,11 +1,12 @@
-//! `@exact/actions` exports FollowButton by its entry's `use` line. A
-//! consumer app outside the repository, the package installed under its
-//! `node_modules` as the in-repo source, `use`s it from "@exact/actions" in
-//! every tone, size, shape and icon pattern; it compiles, its plan holds the
-//! button's nodes named in the source map by the declaring identity, and
-//! both icon tokens with their SF names. The button says its state by its
-//! label alone (the label swaps; no `aria-pressed`): the app's words,
-//! swapped by the app, in the pill and in the round, icon-only form.
+//! LLP 1121 stage 15 B batch 2 (2a): `@exact/actions` exports FollowButton
+//! by its entry's `use` line. A consumer app outside the repository, the
+//! package installed under its `node_modules` as the in-repo source, `use`s
+//! it from "@exact/actions" in every tone, size, shape and icon pattern; it
+//! compiles, its plan holds the button's nodes named in the source map by
+//! the declaring identity, and both icon tokens with their SF names. The
+//! button says its state by its label alone (theme2's 14:15 ruling: the
+//! label swap, no `aria-pressed`): the app's words, swapped by the app, in
+//! the pill and in the round, icon-only form.
 #![cfg(unix)]
 
 use exact_kernel::{Kernel, PropId};
@@ -62,8 +63,8 @@ fn consumer(tag: &str, source: &str) -> PathBuf {
     );
     std::fs::write(dir.join("app.contract"), source).unwrap();
     std::fs::write(
-        dir.join("app.tamber"),
-        "tamber consumer\n\ntheme\n  ink = #111111\n",
+        dir.join("app.forma"),
+        "forma consumer\n\ntheme\n  ink = #111111\n",
     )
     .unwrap();
     std::fs::write(
@@ -170,13 +171,14 @@ component App
 }
 
 /// The primary tone is Bluesky's literal and an app reaches it by full name
-/// (no platform-accent default, which would fall under 4.5:1 with white
-/// text; an importer maps an accent here). With nothing set, the primary's
-/// fill is `light-dark(#006aff, #0f73ff)` and its ink, on the label and the
-/// icon (the button's children, not its own text colour), `#ffffff`. An app
-/// setting `actions.follow-fill = #e11d48` and `actions.follow-ink =
-/// #111111` recolours both, in both schemes, while the overlay keeps its
-/// fixed `#dce2ea` fill and `#000000` ink.
+/// (theme2's 2026-10-27 23:51 ruling: no platform-accent default, which
+/// would fall under 4.5:1 with white text; an importer maps an accent here).
+/// With nothing set, the primary's fill is `light-dark(#006aff, #0f73ff)`
+/// and its ink, on the label and the icon (the button's children, not its
+/// own text colour), `#ffffff`. An app setting `actions.follow-fill =
+/// #e11d48` and `actions.follow-ink = #111111` recolours both, in both
+/// schemes, while the overlay keeps its fixed `#dce2ea` fill and `#000000`
+/// ink.
 #[test]
 fn an_app_recolours_the_primary_fill_and_ink_by_full_name_and_not_the_overlay() {
     use exact_kernel::{Color, ColorValue, RowValue, StyleId};
@@ -194,7 +196,6 @@ fn an_app_recolours_the_primary_fill_and_ink_by_full_name_and_not_the_overlay() 
         }
         match node.computed(row) {
             RowValue::ColorValue(c) => c,
-            RowValue::Color(c) => ColorValue::Fixed(c),
             other => panic!("{id} {path:?}: {other:?}"),
         }
     };
@@ -248,8 +249,8 @@ fn an_app_recolours_the_primary_fill_and_ink_by_full_name_and_not_the_overlay() 
     ] {
         let dir = consumer(tag, &source);
         std::fs::write(
-            dir.join("app.tamber"),
-            format!("tamber consumer\n\ntheme\n  ink = #111111\n{design}"),
+            dir.join("app.forma"),
+            format!("forma consumer\n\ntheme\n  ink = #111111\n{design}"),
         )
         .unwrap();
         let r = boot(&dir);

@@ -1,12 +1,12 @@
 //! The browser-driven parity harness: the browser is the oracle for
-//! `exact-motion`.
+//! `exact-motion` (LLP 1002 D2, §5).
 //!
 //! A case is a `transition` row (as CSS text the host itself emits), an
 //! initial value, and a script of target changes and sample times. A real
 //! browser runs the cases (`host/web/parity.html`, driven by
 //! `host/web/parity.mjs`) by seeking each transition with
-//! `Animation.currentTime` (the same operation the engine's clock is)
-//! and records what it computed into a fixture. [`check`] drives
+//! `Animation.currentTime` — the same operation the engine's clock is (LLP
+//! 1002 D3) — and records what it computed into a fixture. [`check`] drives
 //! the engine through the same script and holds every sample to the
 //! browser's within [`TOLERANCE`]. The fixture is checked in, so the check
 //! is deterministic and needs no browser; the recorder re-records it.
@@ -15,18 +15,25 @@
 //! played by the browser through `Element.animate` exactly as the glue plays
 //! them; its samples hold the *lowering* to the engine, midpoints included.
 //!
-//! A keyframe case is an `animation` row: the page gets the
+//! A keyframe case (LLP 1055 D5) is an `animation` row: the page gets the
 //! declaration and `@keyframes` rules the host emits, starts it at time zero
 //! over the case's initial value, and seeks it the same way.
 //!
-//! Presence has no browser oracle: [`PRESENCE_SOURCE`] and
+//! Presence (LLP 1063) has no browser oracle: [`PRESENCE_SOURCE`] and
 //! [`PRESENCE_STEPS`] drive one recorded timeline through the agent on each
 //! host. `parity.mjs --presence` compares their presented surfaces and opacity.
 //!
-//! Nor do geometry reads: each host answers
+//! Nor do geometry reads (LLP 1051.000 D4): each host answers
 //! [`GEOMETRY_SOURCE`]'s `frame` and `measure` reads, and `parity.mjs
 //! --geometry` holds them to [`GEOMETRY_EXPECTED`], which fixed boxes make
 //! exact.
+//!
+//! Scroll and view timelines have the browser as their oracle too, on a
+//! laid-out app rather than one value: [`timelines`].
+
+#[cfg(not(target_arch = "wasm32"))]
+#[path = "parity_timelines.rs"]
+pub mod timelines;
 
 use crate::css::transition_css;
 use exact_motion::{Animations, Change, Engine, Property, TimingFunction, Transitions, Value};
@@ -37,18 +44,18 @@ use std::fmt::Write as _;
 /// solvers differ in their last bits.
 pub const TOLERANCE: f64 = 1e-3;
 
-/// A colour's band: a browser keeps an interpolated colour in
+/// A colour's band (LLP 1062): a browser keeps an interpolated colour in
 /// 8-bit channels, alpha included, so a channel may sit a unit from the
 /// engine's and alpha a step.
 pub const COLOR_TOLERANCE: (f64, f64) = (1.0, 1.0 / 255.0 + 1e-3);
 
-/// Sibling z-index cannot escape a later static paint group.
-/// Blending is an SVG-only row; the island supplies its own
+/// LLP 1001 §5: sibling z-index cannot escape a later static paint group.
+/// Blending is an SVG-only row (LLP 1055.000); the island supplies its own
 /// backdrop. The two halves distinguish internal and external blue paint.
 /// The flat fills below them are the colours web and macOS once disagreed
-/// on: `hsl()`, `currentcolor`, a button's bound
-/// `light-dark()` face after a press, and opacity keyframes half
-/// way through; probes marked `after` are read after `flip` and
+/// on: `hsl()` (feed F13), `currentcolor` (feed F1), a button's bound
+/// `light-dark()` face after a press (trivia F6), and opacity keyframes half
+/// way through (feed F20); probes marked `after` are read after `flip` and
 /// 500 ms of the agent's clock.
 pub const PAINT_SOURCE: &str = r##"keyframes fade
   from opacity=1
@@ -141,10 +148,10 @@ pub const PRESENCE_STEPS: &str = r#"[
   {"name":"settled","advance":600}
 ]"#;
 
-/// Geometry reads from actions. The bay is moved and scaled,
+/// Geometry reads from actions (LLP 1051.000). The bay is moved and scaled,
 /// which neither read sees; `measure` is the sheet at `height: auto` (240 of
 /// content and 20 of padding); and two timers that fall due in one advance
-/// both see the layout from before it, then the bay laid out at 700.
+/// both see the layout from before it (D1), then the bay laid out at 700.
 pub const GEOMETRY_SOURCE: &str = r##"component GeometryReads
   state bayPx = 500
   state room = 0
@@ -224,7 +231,7 @@ pub struct Case {
     pub initial: Value,
     /// The script, in time order.
     pub steps: Vec<Step>,
-    /// A drag timeline's `animation-range`, in points: the
+    /// A drag timeline's `animation-range`, in points (LLP 1057.003): the
     /// animation follows a source's position instead of the clock, and each
     /// `Sample`'s `at` is that position. The browser's oracle is the same
     /// animation on a CSS scroll timeline, read at that scroll offset.
@@ -257,7 +264,7 @@ fn single(
 }
 
 /// A shorthand then the `@keyframes name{…}` rules it names, resolved as
-/// the runner resolves a row against its plan's table.
+/// the runner resolves a row against its plan's table (LLP 1055 D5).
 fn resolved(text: &str) -> Animations {
     let (head, rules) = text.split_at(text.find("@keyframes").unwrap_or(text.len()));
     let table: Vec<(String, exact_motion::Keyframes)> = rules
@@ -307,7 +314,7 @@ fn keyframes(
     }
 }
 
-/// A keyframe case held at a drag timeline's positions:
+/// A keyframe case held at a drag timeline's positions (LLP 1057.003):
 /// `at` are the source's positions, in points, over `range`.
 fn timeline(
     name: &'static str,
@@ -510,7 +517,7 @@ pub fn cases() -> Vec<Case> {
     });
     interrupt.steps.extend(samples(&[0.75, 1.0, 1.25, 1.6]));
     out.push(interrupt);
-    // Paint: colours interpolate premultiplied, as CSS Color 4
+    // Paint (LLP 1062): colours interpolate premultiplied, as CSS Color 4
     // says for legacy colours — a fade from transparent keeps its hue, and
     // one between alphas weights each colour by its own alpha.
     let rgba = |r: u8, g: u8, b: u8, a: f64| {
@@ -550,7 +557,7 @@ pub fn cases() -> Vec<Case> {
             rgba(255, 255, 255, 0.25),
             &mid,
         ),
-        // A spring on paint is its curve from rest as `linear()`.
+        // A spring on paint is its curve from rest as `linear()` (LLP 1062 D3).
         single(
             "color-spring",
             Property::BackgroundColor,
@@ -655,7 +662,7 @@ pub fn cases() -> Vec<Case> {
             &[0.0, 0.5],
         ),
     ]);
-    // Drag timelines: the range maps a position to progress
+    // Drag timelines (LLP 1057.003): the range maps a position to progress
     // as a scroll timeline maps its offset, the delay and active interval
     // share it, and the animation's own timing (easing, fill, iterations,
     // direction) applies over it. An endless animation is no case: CSS shows

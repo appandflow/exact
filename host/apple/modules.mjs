@@ -1,5 +1,5 @@
 /**
- * The host's Rust modules, kept for the machine.
+ * The host's Rust modules, kept for the machine (LLP 1036.000 §10).
  *
  * `libexact_canvas_vello` and `libexact_svg_raster` hold nothing of an app,
  * so every checkout whose sources agree builds the same module. A first build

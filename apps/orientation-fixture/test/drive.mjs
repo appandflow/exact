@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-// The fixture under the agent: each case's taps, then
+// The fixture under the agent (LLP 1133.029 §9.1): each case's taps, then
 // `state.orientationlock` checked, in one session. On an iOS simulator the
 // device is turned between steps (`xcrun devicectl device orientation set`)
 // while the session waits on the real clock, and the scene's orientation
@@ -8,7 +8,7 @@
 //
 //   bun apps/orientation-fixture/test/drive.mjs <linux|macos|ios|web> [--sim <udid>] [agent flags…]
 //
-// An iPad (`--ipad`) applies no type and holds `current` alone.
+// An iPad (`--ipad`) applies no type and holds `current` alone (D5).
 import { spawn, spawnSync } from 'node:child_process';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';

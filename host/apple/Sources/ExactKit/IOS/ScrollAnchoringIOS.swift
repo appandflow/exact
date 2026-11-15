@@ -1,5 +1,5 @@
-// CSS scroll anchoring on a plain UIKit scroller (`ScrollAnchoring.swift`).
-// A `scrollFollowEnd` scroller keeps its own reading anchor
+// CSS scroll anchoring on a plain UIKit scroller (`ScrollAnchoring.swift`,
+// #138 X23d). A `scrollFollowEnd` scroller keeps its own reading anchor
 // (`NodeViewIOS.captureScrollPosition`); every other one takes the spec's.
 #if os(iOS) || os(tvOS)
 import UIKit
@@ -24,7 +24,7 @@ extension ScrollAnchoring.Changes {
 
 extension NodeView {
     func captureScrollAnchor(_ sv: UIScrollView, focused: NodeView?) {
-        // No anchor at the start (CSS Scroll Anchoring §2.2): content inserted on top shows.
+        // No anchor at the start (spec §2.2): content inserted on top shows.
         guard hasScrollLayoutBox, sv.contentOffset.y > -sv.adjustedContentInset.top else { return }
         // The scrollport: what a bar or the safe area covers is not in view.
         let i = sv.adjustedContentInset

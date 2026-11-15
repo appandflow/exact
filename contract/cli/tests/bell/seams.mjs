@@ -1,5 +1,6 @@
-// This module, used from outside the tree: an app `exact new` made outside
-// the repo depends on a copy of it by `file:`, as on any installed package.
+// LLP 1133.004 stage 0's acceptance, through this module outside the tree:
+// an app `exact new` made outside the repo depends on a copy of it by
+// `file:`, as on any installed package.
 //
 // - The bake finds the module wherever the app imports it: from a nested
 //   Contract file only, and from data code only.

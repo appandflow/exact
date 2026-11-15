@@ -4,9 +4,10 @@
   Linux host's painter keeps the crates.io vello. The fine, coarse and ptcl
   WGSL patches live in `canvas/vello/build.rs`, which compiles every kernel to
   a Metal library at build time.
-- **Why vendored:** the Canvas 2D GPU module (`canvas/vello`)
+- **Why vendored:** the Canvas 2D GPU module (`canvas/vello`, LLP 1056 §8.5)
   needs four things upstream does not do. Every change is marked `EXACT:` in
   the source.
+- **Owner:** Charlie Cheever (Canvas 2D on Apple).
 - **Replacement plan:** propose 1, 2 and 4 upstream; 3 is ours for as long as
   `rules/DEFERRED.md` refuses runtime shader compilation and wgpu has no
   Metal-library loader for vello.
@@ -38,6 +39,16 @@ are gone, so the module carries no WGSL front end and compiles no shader source.
 image (the canvas's previous pixels), writing premultiplied colour, so a
 canvas keeps its bitmap without a copy pass. A scene of solid paths keeps the
 image atlas instead of shrinking it (an upstream bug that blanked images).
+It also takes the canvas's persistent clip masks, a storage buffer the area
+fine stage reads (binding 9) apart from the image atlas, so their size and
+lifetime do not compete with decoded images for atlas space.
+
+## Lint attributes (`src/scene.rs`)
+
+Five `#[expect(single_use_lifetimes)]` attributes are `#[allow]`. The false
+positive they expect ([rust-lang/rust#129255](https://github.com/rust-lang/rust/issues/129255))
+is not reported by the pinned toolchain (`rust-toolchain.toml`, Rust 1.97), so
+an `expect` warns that it is unfulfilled.
 
 ## Cargo workspace boundary
 

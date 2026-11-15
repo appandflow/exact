@@ -1,6 +1,6 @@
 //! The props whose records the runner's bridge sends as named JSON, written
-//! the same way on the JS target: a textarea's decorations
-//! and a Markdown node's atom faces, each through its
+//! the same way on the JS target: a textarea's decorations (LLP 1114.007)
+//! and a Markdown node's atom faces (LLP 1045.000 D2), each through its
 //! rt.js converter, a face's colours through the build's colour map as a
 //! bound colour row's are.
 
@@ -56,8 +56,8 @@ impl Em<'_> {
 }
 
 /// The kernel's role table as `shape.js`'s `roleIndex` reads it to name the
-/// role a face's `var(--exact-…)` colour is, as `roles::role` reads one:
-/// each role, in the kernel's order, as `[name, alias, a CSS
+/// role a face's `var(--exact-…)` colour is, as `roles::role` reads one
+/// (LLP 1095 D2): each role, in the kernel's order, as `[name, alias, a CSS
 /// system colour, drawn in the accent, the name a bound colour gives it]`,
 /// which the colour map writes as the role's CSS.
 fn face_roles() -> String {
@@ -79,8 +79,8 @@ fn face_roles() -> String {
 
 #[cfg(test)]
 mod tests {
-    /// A face's colours go through the build's colour map,
-    /// the one constant every colour site shares, a role in its web
+    /// A face's colours go through the build's colour map (LLP 1045.000
+    /// D2), the one constant every colour site shares, a role in its web
     /// form through the role table, and a refusal names the node's view.
     #[test]
     fn atom_faces_take_the_colour_map() {

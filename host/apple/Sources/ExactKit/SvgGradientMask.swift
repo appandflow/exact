@@ -1,11 +1,11 @@
-// A mask whose content is one rectangle filled
+// @ref LLP 1055.000 D10 — a mask whose content is one rectangle filled
 // with a gradient (a vignette, a fade) as Core Animation's own gradient
 // layer, drawn by the GPU: no island. Luminance coverage is linear in the
 // colour (`exact_svg_raster::mask_coverage`: 0.2126 R + 0.7152 G + 0.0722 B
 // of the premultiplied sRGB colour, at most its alpha), so a stop's coverage
 // is a white stop's alpha and the gradient between two stops interpolates
-// it as the island's pixels would. A full-size radial vignette over a map
-// spent ~95 ms of an iPhone's first frame
+// it as the island's pixels would. The feature bench's F1 map (a full-size
+// radial vignette over the map) spent ~95 ms of an iPhone's first frame
 // rasterizing it: the gradient, the island's render and the coverage pass.
 import CoreGraphics
 import QuartzCore

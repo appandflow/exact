@@ -1,4 +1,4 @@
-# Speech synthesis on a phone, by a person
+# Speech synthesis on a phone, by a person (LLP 1133.012 §10)
 
 The drives a phone needs, done with the Markdown reader (`apps/markdown`)
 built as in production: no agent, the package bound. Open a document with
@@ -18,7 +18,7 @@ Each step says what to do and what should happen.
 2. **The screen locked** (iPhone). Tap Listen and lock the phone. Reading
    goes on. Unlock: the mark is at the word being spoken. Lock-screen
    controls are not required: Now Playing for a speech `playback` queue
-   is not supported.
+   remains deferred (`rules/DEFERRED.md`, Speech).
 3. **A call.** While reading, call the phone from another one. Reading
    pauses while the call rings. End the call: reading resumes, or Resume
    resumes it.

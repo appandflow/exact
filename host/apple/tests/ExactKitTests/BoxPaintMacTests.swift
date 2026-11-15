@@ -88,7 +88,7 @@ final class BoxPaintMacTests: XCTestCase {
     }
 
     /// A translucent fill is painted once into a capture, not by the
-    /// layer and again by `draw(_:)` (so 12 % never comes out 20 %).
+    /// layer and again by `draw(_:)` (spreadsheet F18: 12 % came out 20 %).
     func testATranslucentFillIsCapturedOnce() throws {
         let p = presenter()
         p.apply(wireBatch([
@@ -108,9 +108,33 @@ final class BoxPaintMacTests: XCTestCase {
         XCTAssertEqual(rgba(rep, 50, 75)[0], 0.5, accuracy: 0.1, "a rounded, bordered fill")
     }
 
-    /// An image whose pixels are a sublayer is captured once: `draw(_:)`
-    /// paints the bitmap for the shot, and the sublayer is hidden for it,
-    /// so half-transparent red over white stays pink.
+    func testCapturesKeepInsetShadowsAboveTheFill() throws {
+        let p = presenter()
+        p.apply(wireBatch([
+            ["op": "create", "id": 1, "kind": "view", "style": ["background_color": [255, 255, 255, 255]]],
+            ["op": "create", "id": 2, "kind": "view", "style": [
+                "background_color": [255, 255, 255, 255],
+                "box_shadow": [["o": [0, 0], "b": 0, "s": 6, "c": [0, 0, 0, 255], "i": true]],
+            ]],
+            ["op": "children", "id": 1, "ids": [2]], ["op": "roots", "ids": [1]],
+            ["op": "frame", "id": 1, "x": 0, "y": 0, "w": 100, "h": 100],
+            ["op": "frame", "id": 2, "x": 20, "y": 20, "w": 60, "h": 60],
+        ]))
+        let root = try XCTUnwrap(p.views[1])
+        p.viewport.minMagnification = 0.25; p.viewport.maxMagnification = 5
+        for scale in [CGFloat(1), 2] {
+            p.viewport.magnification = scale / (try XCTUnwrap(window)).backingScaleFactor
+            XCTAssertEqual(try XCTUnwrap(root.pixelScale), scale, accuracy: 0.001)
+            for capture in [{ Capture.bitmap(of: root, scale: scale) }, { Capture.picture(of: root) }] {
+                let rep = try XCTUnwrap(capture())
+                XCTAssertLessThan(rgba(rep, 22, 50)[0], 0.05, "the inset shadow paints over the fill at \(scale)×")
+                XCTAssertGreaterThan(rgba(rep, 50, 50)[0], 0.95, "the inset shadow leaves the centre clear")
+            }
+        }
+    }
+
+    /// A layer-backed image is captured once, so half-transparent red over
+    /// white stays pink (Grok's batch 2 review).
     func testATranslucentLayerImageIsCapturedOnce() throws {
         let (page, image) = try imageOnPage(red: 0.5, style: ["object_fit": .string("fill")])
         let sub = try XCTUnwrap(image.imageLayer, "the image took the layer path")
@@ -122,7 +146,7 @@ final class BoxPaintMacTests: XCTestCase {
 
     /// An image's own background is captured behind its picture, as CSS
     /// paints it and the window shows it: with a radius the fill is a
-    /// sublayer, which the shot drew over the picture.
+    /// sublayer, which the shot drew over the picture (podcast F7).
     func testARoundedImageBackgroundIsCapturedUnderThePicture() throws {
         let (page, image) = try imageOnPage(red: 1, style: [
             "object_fit": .string("cover"), "background_color": [0, 0, 255, 255], "border_radius": 8])
@@ -131,6 +155,36 @@ final class BoxPaintMacTests: XCTestCase {
         let c = rgba(capture(page), 20, 20)
         XCTAssert(c[0] > 0.9 && c[2] < 0.1, "the red picture, not its blue background: \(c)")
         XCTAssertFalse(fill.isHidden, "the fill shows again after the shot")
+    }
+
+    func testARoundedDrawnImageKeepsItsBackgroundBehindItsPixels() throws {
+        let (page, image) = try imageOnPage(red: 1, style: [
+            "object_fit": "fill", "background_color": [0, 0, 255, 255], "border_radius": 12])
+        for partial in [false, true] {
+            var style: NodeStyle = ["object_fit": "fill", "background_color": [0, 0, 255, 255]]
+            if partial {
+                style["border_radius_top_left"] = 12
+                style["overflow_x"] = "hidden"; style["overflow_y"] = "hidden"
+            } else {
+                style["border_radius"] = 12
+            }
+            image.applyStyle(style)
+            image.applyContentBox(padding: [8, 8, 8, 8])
+            image.needsDisplay = true
+            image.displayIfNeeded()
+            XCTAssertNil(image.imageLayer, "padding requires the drawn image path")
+            let layer = try XCTUnwrap(image.layer)
+            let context = try XCTUnwrap(CGContext(data: nil, width: 40, height: 40, bitsPerComponent: 8,
+                bytesPerRow: 160, space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+            layer.render(in: context)
+            let live = NSBitmapImageRep(cgImage: try XCTUnwrap(context.makeImage()))
+            let center = rgba(live, 20, 20), padding = rgba(live, 4, 20)
+            XCTAssert(center[0] > 0.9 && center[2] < 0.1, "live picture above its fill: \(center)")
+            XCTAssert(padding[2] > 0.9 && padding[0] < 0.1, "background in the padding: \(padding)")
+            let shot = rgba(capture(page), 20, 20)
+            XCTAssert(shot[0] > 0.9 && shot[2] < 0.1, "capture agrees with the live layer: \(shot)")
+        }
     }
 
     /// A 40-point image of opaque or translucent red, on a white page, its
@@ -166,19 +220,19 @@ final class BoxPaintMacTests: XCTestCase {
 
     /// A capture shows what the window does: siblings in `z-index` order
     /// (`zPosition`), not the order `cacheDisplay` draws subviews in — a
-    /// sticky header over the rows under it, a raised
-    /// dropdown over what follows it — and a lowered animation at
-    /// what it presents, not its model value.
+    /// sticky header over the rows under it (spreadsheet F13), a raised
+    /// dropdown over what follows it (shop F18) — and a lowered animation at
+    /// what it presents, not its model value (shop F25).
     func testACaptureShowsTheZOrderAndTheAnimationsTheWindowShows() throws {
         let p = presenter()
         p.apply(wireBatch([
             ["op": "create", "id": 1, "kind": "view", "style": ["display": "flex", "background_color": [255.0, 255.0, 255.0, 255.0]]],
             ["op": "create", "id": 2, "kind": "view", "style": ["background_color": [255.0, 0.0, 0.0, 255.0]]],
-            // `z-index: 3`, as the kernel sends it: the rank, doubled.
+            // `z-index: 3`, as the kernel sends it: the rank, doubled (LLP 1083.000 D4).
             ["op": "rank", "id": 2, "rank": 6],
             ["op": "create", "id": 3, "kind": "view", "style": ["background_color": [0.0, 0.0, 255.0, 255.0]]],
             ["op": "create", "id": 4, "kind": "view", "style": ["background_color": [0.0, 0.0, 0.0, 255.0]]],
-            // The kernel sends paint rank separately from style.
+            // LLP 1083: the kernel sends paint rank separately from style.
             ["op": "rank", "id": 2, "rank": 6],
             ["op": "children", "id": 1, "ids": [2, 3, 4]],
             ["op": "roots", "ids": [1]],
@@ -196,8 +250,8 @@ final class BoxPaintMacTests: XCTestCase {
         let raised = rgba(rep, 50, 30)
         XCTAssert(raised[0] > 0.9 && raised[2] < 0.1, "the raised box over the later one: \(raised)")
         XCTAssertEqual(rgba(rep, 50, 80)[0], 0.5, accuracy: 0.1, "the opacity the animation holds")
-        XCTAssertEqual(root.subviews, order, "the subviews are put back")
-        XCTAssertEqual(p.views[4]?.layer?.opacity, 1, "the model is put back")
+        XCTAssertEqual(root.subviews, order, "capture keeps the logical subview order")
+        XCTAssertEqual(p.views[4]?.layer?.opacity, 1, "capture leaves the model opacity unchanged")
     }
 }
 #endif

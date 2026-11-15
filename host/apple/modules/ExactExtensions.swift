@@ -1,5 +1,5 @@
 // A package's Swift implementation of a module, composed into the app's one
-// module. Each package compiles as its own
+// module (LLP 1124 D6, LLP 1133.001 D1, D5). Each package compiles as its own
 // Swift module against `ExactPackage` (ExactPackage.swift, its class's shape
 // and the context it is given), so two packages' types cannot collide; the
 // build writes an adapter for each (`exactExtensions`, beside this file,
@@ -13,20 +13,21 @@
 //   "request"?}`: a call of one of its names, `origin` when a tool or a
 //   wake made it, `request` a send's number, which `cancel` names;
 // - `{"extension", "release", "args"?}`: a live source with no reader left,
-//   or, with `args`, an argument group of one;
+//   or, with `args`, an argument group of one (LLP 1133.009 D10 item 12);
 // - `{"extension", "preferred", "permissions"}`: the agent's preferred
 //   values and the runner's permission states, for an implementation bound
 //   under the agent;
 // - `{"extension", "dispose"}`: handles a dropped reply carried (item 10);
-// - `{"extension", "cancel"}`: a send let go before its reply;
+// - `{"extension", "cancel"}`: a send let go before its reply (LLP
+//   1133.016 D15 item 2);
 // - `{"extension", "foreground"}`: the app went to the foreground or left
 //   it (item 3);
 // - `{"extension", "view", "displayed"|"bound", "origin"}`: a package view's
-//   displayed state or binding prop changed;
+//   displayed state or binding prop changed (LLP 1133.008 D8 item 2);
 // - `{"extension", "surface", "displayed", "origin"}`: the canvases of a
-//   surface its input feeds were displayed or hidden;
-// - `{"extension", "woke", "outcome"}`: a wake it raised ended,
-// told to the `ended` its `context.wake` gave;
+//   surface its input feeds were displayed or hidden (LLP 1133.013 D6);
+// - `{"extension", "woke", "outcome"}`: a wake it raised ended (LLP
+//   1133.017 D8), told to the `ended` its `context.wake` gave;
 // - `{"extension", "sync", "args"}`, through `call`: data code's
 //   synchronous form.
 //
@@ -35,7 +36,7 @@
 //
 // An error is answered as `{"error": code}`. At the session's end each
 // adapter's `destroy` is called and waited for, a second at most (item 1).
-// An interface that declares events gives its init two
+// An interface that declares events (LLP 1133.004 D6) gives its init two
 // more: `emit: @escaping (String, [Any]) -> Void`, which raises one with the
 // device's origin, and `activation: @escaping (String, [Any], String?) ->
 // [AnyHashable: Any]`, the `userInfo` entry for content whose opening
@@ -106,17 +107,21 @@ enum ExactExtensions {
     /// The `ended` each `context.wake` gave, by module, extension and id.
     static var ended: [String: (String) -> Void] = [:]
     /// The live modules, in the order they were made: the first is handed
-    /// a due wake (the app's first session).
+    /// a due wake (LLP 1133.017 D7: the app's first session).
     private static var modules: [WeakModule] = []
+    /// The process's one observer of the host's due wakes, made with the
+    /// first module and kept after the last one ends, so a module made then
+    /// adds no second observer and a wake is handed over once.
+    private static var dueWakes: NSObjectProtocol?
 
-    /// A module was made. The first one hears the host's due wakes
+    /// A module was made. The first live one hears the host's due wakes
     /// (`exact.wakes.due`, ExactKit's Wakes.swift), each handed to its
     /// extension's adapter; then the host is told a module is ready, so it
     /// hands over a wake it holds.
     static func created(_ m: ExactModule) {
         modules.append(WeakModule(m))
-        if modules.count == 1 {
-            NotificationCenter.default.addObserver(forName: Notification.Name("exact.wakes.due"), object: nil, queue: .main) { note in
+        if dueWakes == nil {
+            dueWakes = NotificationCenter.default.addObserver(forName: Notification.Name("exact.wakes.due"), object: nil, queue: .main) { note in
                 guard let offer = note.object as? NSMutableDictionary, let due = offer as? [String: Any],
                       let name = due["package"] as? String, let token = due["token"] as? String,
                       let m = modules.lazy.compactMap({ $0.module }).first, let a = adapter(m, name) else { return }
@@ -128,7 +133,7 @@ enum ExactExtensions {
             }
         }
         DispatchQueue.main.async { NotificationCenter.default.post(name: Notification.Name("exact.wakes.ready"), object: nil) }
-        // An interface declared `"start": "load"`: its implementation is made now, once the
+        // An interface declared `"start": "load"` (LLP 1133.015 D16 item 1): its implementation is made now, once the
         // host has made the module after first pixel, rather than at its first call.
         if !exactStartAtLoad.isEmpty {
             DispatchQueue.main.async { [weak m] in
@@ -144,7 +149,7 @@ enum ExactExtensions {
     /// The extensions a drive binds as in production (`--bind`, `EXACT_AGENT_BIND`).
     static let real = Set((ProcessInfo.processInfo.environment["EXACT_AGENT_BIND"] ?? "").split(separator: ",").map(String.init))
 
-    /// Each session's track table, which its adapters share.
+    /// Each session's track table, which its adapters share (LLP 1133.009 D10 item 6).
     private static var tables: [ObjectIdentifier: AnyObject] = [:]
 
     private static func adapter(_ m: ExactModule, _ name: String) -> ExactExtensionAdapter? {
@@ -161,14 +166,14 @@ enum ExactExtensions {
         return a
     }
 
-    /// An `app:/` path's file in the session's directories.
+    /// An `app:/` path in the session's directories, including a destination
+    /// the package will create, reached through no symbolic link.
     static func file(_ path: String, _ module: ExactModuleContext) -> URL? {
         guard path.hasPrefix("app:/") else { return nil }
         let parts = path.dropFirst(5).split(separator: "/", omittingEmptySubsequences: false).map(String.init)
-        guard parts.count >= 2, parts.allSatisfy({ !$0.isEmpty && $0 != "." && $0 != ".." }) else { return nil }
         let roots = ["data": module.data, "cache": module.cache, "tmp": module.temporary]
         guard let root = roots[parts[0]] else { return nil }
-        return parts.dropFirst().reduce(root) { $0.appendingPathComponent($1) }
+        return AppFileWalk.destination(root, Array(parts.dropFirst()))
     }
 
     /// A request of the runner's; `false` for one that names no extension.
@@ -179,6 +184,13 @@ enum ExactExtensions {
             return true
         }
         let args = request["args"] as? [String: Any]
+        if let name = request["send"] as? String {
+            for option in (args ?? [:]).keys where !(args?[option] is NSNull) {
+                if let member = exactCredentialMembers["\(extensionName)#\(name).\(option)"] {
+                    _ = adapter(m, member)
+                }
+            }
+        }
         if let view = request["view"] as? String {
             let origin = request["origin"] as? String ?? "app"
             if let shown = request["displayed"] as? Bool { a.displayed(view, shown, origin: origin) }
@@ -208,7 +220,7 @@ enum ExactExtensions {
             reply.send([:])
         } else if let name = (request["source"] ?? request["send"]) as? String, let admit = request["admit"] as? [String: Any],
                   let status = admit["status"] as? String, let field = admit["field"] as? String {
-            // A call not the app's that would ask: refused while the
+            // A call not the app's that would ask (LLP 1133.002 D12, LLP 1133.004 D6): refused while the
             // implementation's own status reads `prompt`, since only a person may answer the prompt.
             let origin = request["origin"] as? String ?? "device"
             a.ask(status, [:]) { answer in
@@ -246,8 +258,9 @@ enum ExactExtensions {
         return try a.call(name, request["args"] as? [String: Any] ?? [:])
     }
 
-    /// A picture of `extension`'s `img` scheme, which the runner admitted:
-    /// its adapter, made now if no call made it first, draws it.
+    /// A picture of `extension`'s `img` scheme (LLP 1133.019 D11 item 1),
+    /// which the runner admitted: its adapter, made now if no call made it
+    /// first, draws it.
     static func image(_ m: ExactModule, _ request: [String: Any], reply: @escaping (CGImage?, String?) -> Void) {
         guard let name = request["extension"] as? String, let a = adapter(m, name),
               let source = request["source"] as? String else { return reply(nil, "NotSupportedError") }
@@ -255,7 +268,7 @@ enum ExactExtensions {
                 fit: request["fit"] as? String ?? "fill", owned: request["owned"] as? Bool ?? false, reply: reply)
     }
 
-    /// A presence check, by the extension whose
+    /// A presence check (LLP 1133.010 D13), by the extension whose
     /// interface declares the authenticator entry, made now if no call
     /// made it first.
     static func authenticate(_ m: ExactModule, _ request: [String: Any], _ accessControl: SecAccessControl,
@@ -272,6 +285,9 @@ enum ExactExtensions {
         let key = ObjectIdentifier(m)
         modules.removeAll { $0.module == nil || $0.module === m }
         let adapters = made.removeValue(forKey: key) ?? [:]
+        #if canImport(ExactPackage)
+        if let session = sessions[key] { ExactCredentialMembers.cancelSession(session) }
+        #endif
         sessions[key] = nil
         tables[key] = nil
         guard !adapters.isEmpty else { return }
@@ -287,7 +303,7 @@ enum ExactExtensions {
     }
 }
 
-/// A capture's claims on the host's audio session, through
+/// A capture's claims on the host's audio session (LLP 1133.009 D7), through
 /// the host table's `audio_claim` and `audio_release` (NativeHatches.swift).
 enum AudioClaims {
     typealias EventFn = @convention(c) (UnsafeMutableRawPointer?, UInt32) -> Void
@@ -315,7 +331,7 @@ enum AudioClaims {
     }
 }
 
-/// A package's call of the app's handler, through
+/// A package's call of the app's handler (LLP 1133.016 D15 item 1), through
 /// the host table's `invoke` (NativeHatches.swift): the runner admits and
 /// runs it and answers JSON, given to `reply` on the main thread after the
 /// call that asked has returned.
@@ -329,9 +345,10 @@ enum Invocations {
     }
 
     static func invoke(_ h: ExactHatches?, _ body: [String: Any], reply: @escaping ([String: Any]) -> Void) {
-        guard let h, let fn = h.invokeFn, let data = try? JSONSerialization.data(withJSONObject: body) else {
+        guard let h, let fn = h.invokeFn else {
             return reply(["error": "NotSupportedError", "message": "this host runs no handler for a package"])
         }
+        guard let data = exactJSON(body) else { return reply(["error": "TypeError", "message": "the handler's arguments are not JSON"]) }
         let box = Unmanaged.passRetained(Box(reply)), bytes = [UInt8](data)
         bytes.withUnsafeBufferPointer { fn(h.host, $0.baseAddress, UInt32($0.count), invokeReply, box.toOpaque()) }
     }
@@ -362,8 +379,11 @@ extension ExactExtensions {
     static func context(_ m: ExactModule, _ name: String, session: String) -> ExactPackageContext {
         let module = m.context, tracks = tables[ObjectIdentifier(m)] as? ExactTracks ?? ExactTracks()
         tables[ObjectIdentifier(m)] = tracks
+        let label = module.poster["session"].flatMap { $0.isEmpty ? nil : $0 }
         return ExactPackageContext(
             agent: module.agent && !real.contains(name), session: session, hostSession: module.poster["owner"] ?? "",
+            label: label,
+            data: module.data, cache: module.cache, temporary: module.temporary,
             changed: { [weak module] topic in module?.changed(topic) },
             log: { [weak module] line in module?.diagnostics.log(line) },
             now: { [weak module] in module?.now() ?? 0 },
@@ -408,14 +428,14 @@ extension ExactExtensions {
                 return box["reply"]
             },
             pads: ExactPads(driven: module.agent, injected: injectedPads),
-            after: { [weak module] ms, body in
+            after: { [weak module] ms, coalescing, body in
                 // A host without the session clock's timer: the wall's.
                 guard let module, module.afterFn != nil else {
                     let work = DispatchWorkItem(block: body)
                     DispatchQueue.main.asyncAfter(deadline: .now() + ms / 1000, execute: work)
                     return work.cancel
                 }
-                return module.after(ms, body).stop
+                return module.after(ms, coalescing: coalescing, body).stop
             },
             regions: ExactRegions { op, args in
                 let box = NSMutableDictionary(dictionary: args)
@@ -424,11 +444,21 @@ extension ExactExtensions {
                 NotificationCenter.default.post(name: Notification.Name("exact.regions"), object: box)
                 return box["reply"]
             },
+            push: ExactPushRegistration {
+                let box = NSMutableDictionary(dictionary: ["op": "read"])
+                NotificationCenter.default.post(name: Notification.Name("exact.push"), object: box)
+                return box["reply"] as? [String: Any]
+            },
+            hostEvents: ExactHostEvents { event in
+                let box = NSMutableDictionary(dictionary: ["event": event, "session": label ?? session])
+                NotificationCenter.default.post(name: Notification.Name("exact.hostEvents"), object: box)
+                return (box["reply"] as? [String: Any])?["items"] as? [NSObject] ?? []
+            },
             expireWake: { [weak module] id in module?.expireWake(name, id: id) },
             state: { [weak module] fields in
                 guard let module, module.agent else { return }
                 let body: [String: Any] = ["extension": name, "state": fields]
-                guard JSONSerialization.isValidJSONObject(body), let json = try? JSONSerialization.data(withJSONObject: body) else {
+                guard let json = exactJSON(body) else {
                     return module.diagnostics.log("\(name): its state is not JSON")
                 }
                 module.changed("exact-state:" + String(decoding: json, as: UTF8.self))
@@ -443,7 +473,7 @@ extension ExactExtensions {
 }
 #endif
 extension ExactModuleContext {
-    /// Raise `extensionName`'s event `name` with `args`:
+    /// Raise `extensionName`'s event `name` with `args` (LLP 1133.004 D6):
     /// delivered in order, once, with the device's origin. Its one channel
     /// to the runner is `changed`; the sequence number keeps two alike from
     /// coalescing as two announcements of one topic do. Any thread: the
@@ -455,7 +485,7 @@ extension ExactModuleContext {
         }
         emitted &+= 1
         let body: [String: Any] = ["extension": extensionName, "event": name, "args": args, "seq": emitted]
-        guard JSONSerialization.isValidJSONObject(body), let json = try? JSONSerialization.data(withJSONObject: body) else {
+        guard let json = exactJSON(body) else {
             diagnostics.log("\(extensionName).\(name): its arguments are not JSON")
             return
         }
@@ -463,11 +493,11 @@ extension ExactModuleContext {
     }
 
     /// Raise `extensionName`'s wake event `name` for the platform object
-    /// `id`, through `changed` as an emitted event goes;
+    /// `id` (LLP 1133.017 D8), through `changed` as an emitted event goes;
     /// the runner tells the extension `{"woke": id, "outcome"}` at its end.
     public func wake(_ extensionName: String, _ name: String, _ args: [Any], id: String) {
         let body: [String: Any] = ["extension": extensionName, "event": name, "args": args, "id": id]
-        guard JSONSerialization.isValidJSONObject(body), let json = try? JSONSerialization.data(withJSONObject: body) else {
+        guard let json = exactJSON(body) else {
             diagnostics.log("\(extensionName).\(name): its arguments are not JSON")
             return
         }
@@ -482,13 +512,17 @@ extension ExactModuleContext {
     }
 
     /// The `userInfo` entry for content the module posts whose activation
-    /// raises `name`: the host's notification delegate
+    /// raises `name` (LLP 1133.004 D6, D7): the host's notification delegate
     /// reads it when the person opens the notification, opens `navigate` if
-    /// given, else raises the event on the session that posted it.
+    /// given, else raises the event on the session that posted it. Empty
+    /// for `args` that are not JSON.
     public func activation(_ extensionName: String, _ name: String, _ args: [Any], navigate: String? = nil) -> [AnyHashable: Any] {
-        let json = (try? JSONSerialization.data(withJSONObject: args)).map { String(decoding: $0, as: UTF8.self) } ?? "[]"
+        guard let json = exactJSON(args) else {
+            diagnostics.log("\(extensionName).\(name): its arguments are not JSON")
+            return [:]
+        }
         var entry: [String: Any] = poster
-        entry["extension"] = extensionName; entry["event"] = name; entry["args"] = json
+        entry["extension"] = extensionName; entry["event"] = name; entry["args"] = String(decoding: json, as: UTF8.self)
         if let navigate { entry["navigate"] = navigate }
         return ["exact": entry]
     }

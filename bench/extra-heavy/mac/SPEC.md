@@ -23,7 +23,7 @@ The machines were "bones" (a Mac mini M4 on a 60 Hz 1x display) and "silver" (a 
 
 | | bones | silver |
 |---|---|---|
-| machine | Mac mini M4 (Mac16,10), 10 cores, 16 GB | MacBook Pro M5 Max, on AC |
+| machine | Mac mini M4 (Mac16,10), 10 cores, 16 GB | MacBook Pro M5 Max (Charlie's laptop), on AC |
 | OS / Xcode | macOS 27.0 (26A428), Xcode 27.0 | macOS 26.6.2, Xcode 27 (`DEVELOPER_DIR` set; CLT is the active dir) |
 | display | one external 1920 × 1080 at **60 Hz, 1x** | built-in Liquid Retina XDR 3456 × 2234 (1728 × 1117 pt, **2x**), ProMotion, the probe's display link measured **120 Hz** (8.33 ms) |
 | disk | 33 GB free: the bench uses ~50 MB in `~/xhm` | 3 TB free; everything in `~/xhm` |
@@ -94,7 +94,7 @@ The iOS probe's scenarios, segments and JSON keys, so `summarize.py` / `agg.py` 
 
 ## macOS equivalences (the SwiftUI port)
 
-Rule: each kind uses its natural macOS equivalent with content and work equal to exact2's; exact2 may
+Rule (Charlie's): each kind uses its natural macOS equivalent with content and work equal to exact2's; exact2 may
 do anything SwiftUI's app does, nothing that makes the benchmark invalid. The port is the iOS app with UIKit views
 swapped for their AppKit twins; everything SwiftUI has on both platforms is unchanged.
 
@@ -112,7 +112,7 @@ swapped for their AppKit twins; everything SwiftUI has on both platforms is unch
 | Lottie | `lottie-ios` `LottieView` | same library compiled for macOS | hand-ported SVG + `@keyframes` (declared iOS difference, unchanged) |
 | web view | `WKWebView`, `scrollView.isScrollEnabled = false`, `isOpaque = false`, `loadHTMLString(_, baseURL: nil)` | `WKWebView` subclass that hands `scrollWheel` to the next responder (AppKit's WKWebView has no `scrollView`), `drawsBackground = false`, same load | `iframe` (WKWebView) |
 | text input | `TextField` | `TextField` + `.textFieldStyle(.plain)` (iOS's default field has no bezel; AppKit's does) | `input` |
-| filmstrip / inbox | `ScrollView` + `LazyHStack` / `LazyVStack`; offset kept with `ScrollPosition` (iOS 18) | same; `#available(macOS 15)` (both machines run 26+, so offsets are kept) | nested virtualized lists |
+| filmstrip / inbox | `ScrollView` + `LazyHStack` / `LazyVStack`; offset kept with `ScrollPosition` (iOS 18) | same; `#available(macOS 15)` (both machines run 26+, so offsets are kept) | nested virtualized lists (LLP 1070) |
 | window | — | `.defaultSize(1366, 940)`, `.defaultPosition(.topLeading)` (the probe then sets the frame) | `EXACT_WINDOW_WIDTH/HEIGHT` |
 
 Parity (`shots/bones/pair-*.png`, frozen): the rows match row for row (same wrapping, fonts, sizes, maps with the

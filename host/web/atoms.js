@@ -1,4 +1,4 @@
-// Inline atoms on the web: the pill the Markdown reader and
+// Inline atoms on the web (LLP 1045.000): the pill the Markdown reader and
 // editor draw, the reader's presses, the agent's `state.atoms` and a reader's
 // `rangeFrame`. Fetched only by a page with atoms: the editor imports it, and
 // the reader's `renderMarkup` (navigation.js) loads it when a piece is an
@@ -29,7 +29,7 @@ function sheetOf(el) {
   return entry;
 }
 
-/** A kind's look as a class on `el`'s root: its measured `padding`,
+/** A kind's look (D3, D4) as a class on `el`'s root: its measured `padding`,
  * `border`, `iconSize` and `gap` (the kind's row in `atoms`; the icon's
  * through custom properties its picture reads), then its own paint, its
  * `:hover` paint, and its `:checked` paint while the selection is exactly
@@ -46,7 +46,7 @@ export function atomLook(el, kind = {}, own = '', hover = '', checked = '') {
   // No sheet to hold it: the platform's look and the kind's own paint on the pill.
   if (!entry) return { inline: PLATFORM + metrics + (own ?? '') };
   if (!metrics && !own && !hover && !checked) return '';
-  // An atom's ring is solid: the compiler admits no other line.
+  // An atom's ring is solid: the compiler admits no other line (LLP 1045.000 D3).
   [own, hover, checked] = [own, hover, checked].map(css => css && css.includes('outline-width') ? css + ';outline-style:solid' : css);
   const key = [metrics + own, hover, checked].join('\n');
   let name = entry.looks.get(key);
@@ -70,7 +70,7 @@ export function kindsOf(el) {
   return out;
 }
 
-/** An inline atom's pill: modeled on the macOS token, one line at
+/** An inline atom's pill (D4, D8): modeled on the macOS token, one line at
  * the line's text height, its label cut with an ellipsis at the line's width;
  * its kind's look (`look`, from `atomLook`) wins, and its face's
  * paint (`a.color`, `a.backgroundColor`) over that. It lays out its icon and
@@ -132,7 +132,7 @@ const record = (box, e) => {
   return [d.exactAtom, d.atomSource, d.atomHref ?? '', Number(d.atomStart), Number(d.atomEnd), e.shiftKey, e.ctrlKey, e.altKey, e.metaKey];
 };
 
-/** A reader's presses: a click, Return, or Space on a button atom
+/** A reader's presses (D6, D7): a click, Return, or Space on a button atom
  * (on key up, as a button activates) is the text's `atompress`, its detail
  * the `AtomEvent` record; a link atom takes Return only, as a link does. A
  * disabled or inert text presses nothing. */
@@ -157,7 +157,7 @@ export function presses(el) {
   });
 }
 
-/** Each inline atom on the page, as the agent's `state.atoms`: its
+/** Each inline atom on the page, as the agent's `state.atoms` (D9): its
  * node's id, kind, source and range, label, and its pill's frame from the
  * node's top left (where `tap <node> at x y` presses it). */
 export function state(idOf) {
@@ -176,7 +176,7 @@ export function state(idOf) {
   return out;
 }
 
-/** A reader's `rangeFrame`: the union of the pills whose source ranges
+/** A reader's `rangeFrame` (D7): the union of the pills whose source ranges
  * meet `start..end`; collapsed at a pill's edge, its edge, on the side its
  * line's direction puts it. Null where no pill is. */
 export function rangeFrame(el, start, end) {

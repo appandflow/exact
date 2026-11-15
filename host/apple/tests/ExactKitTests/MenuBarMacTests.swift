@@ -1,4 +1,4 @@
-// The Mac menu bar's own items: app-wide commands, the
+// The Mac menu bar's own items (LLP 1021 §5.3): app-wide commands, the
 // group under About, concealed commands, the host items `-exact-menu-remove`
 // names and those `-exact-menu-keys` rekeys, and View's zoom.
 #if os(macOS)
@@ -168,8 +168,8 @@ final class MenuBarMacTests: XCTestCase {
         XCTAssertTrue(bar.performKeyEquivalent(with: key("d", code: 2, window: window)))
     }
 
-    /// The host items `-exact-menu-remove` names beyond the window's,
-    /// found by action or identifier, never by title.
+    /// The host items `-exact-menu-remove` names beyond the window's
+    /// (LLP 1021 §5.3), found by action or identifier, never by title.
     /// Develop leaves the bar and keeps its chords: Save Trace's ⌥⌘T.
     func testRemovalNamesTheHostsOwnItemsAndDevelopKeepsItsChords() throws {
         let presenter = Presenter(), window = window(presenter)
@@ -250,7 +250,7 @@ final class MenuBarMacTests: XCTestCase {
                        ["Send Feedback to Apple", "—", "\(ExactEnv.appName) Help", "Check for Updates…"])
     }
 
-    /// `-exact-menu-keys`: Close Window keeps its place
+    /// `-exact-menu-keys` (LLP 1021 §5.3.3): Close Window keeps its place
     /// without ⌘W, and a command's ⌘W takes nothing from it; a declared ⇧⌘W
     /// that a command claims comes back when the command goes; without the
     /// declaration Close Window has ⌘W again.

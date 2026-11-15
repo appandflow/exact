@@ -1,4 +1,4 @@
-//! HTML's table and description list, carried as what they
+//! HTML's table and description list (LLP 1153 D7), carried as what they
 //! are: each element is a `View` whose `semanticTag` names it, a cell's
 //! `colspan`, `rowspan` and `scope` are props, and the compiler holds them to
 //! HTML's content model. The web makes the elements themselves; a native
@@ -133,8 +133,8 @@ pub(crate) fn check(
 }
 
 /// `colspan` on a cell, a whole number from 1 to HTML's limit, and
-/// `rowspan` one from 0, which is the rest of the cell's row group
-/// (HTML §4.9.11); `scope` on a `th`, `col` or `row`.
+/// `rowspan` one from 0, which is the rest of the cell's row group (HTML
+/// §4.9.11); `scope` on a `th`, `col` or `row`.
 fn attribute(tag: &str, a: &Attr) -> Result<(), LowerError> {
     let cell = matches!(tag, "th" | "td");
     let (least, most, said) = match a.name.as_str() {
@@ -271,30 +271,20 @@ fn bodies(children: &[Node], span: Span, instance: u32) -> Vec<Node> {
 
 /// Whether `n` is a `tr` or makes one in some branch.
 fn holds_row(n: &Node) -> bool {
-    let any = |nodes: &[Node]| nodes.iter().any(holds_row);
     match n {
         Node::Element { tag, .. } => tag == "tr",
-        Node::When {
-            then, otherwise, ..
-        } => any(then) || any(otherwise),
-        Node::Each { body, .. } => any(body),
-        Node::Match { some, none, .. } => any(&some.1) || any(none),
-        _ => false,
+        Node::Use { .. } | Node::Children { .. } => false,
+        region => region.children().any(holds_row),
     }
 }
 
 /// Whether `n` is a `tr`, or a `for`, `if` or `match` that makes nothing
 /// else.
 fn rows(n: &Node) -> bool {
-    let all = |nodes: &[Node]| nodes.iter().all(rows);
     match n {
         Node::Element { tag, .. } => tag == "tr",
-        Node::When {
-            then, otherwise, ..
-        } => all(then) && all(otherwise),
-        Node::Each { body, .. } => all(body),
-        Node::Match { some, none, .. } => all(&some.1) && all(none),
-        _ => false,
+        Node::Use { .. } | Node::Children { .. } => false,
+        region => region.children().all(rows),
     }
 }
 

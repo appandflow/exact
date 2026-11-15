@@ -1,4 +1,4 @@
-// Real AppKit geometry and the first-frame seam.
+// @ref LLP 1104 D3–D6: real AppKit geometry and the first-frame seam.
 #if os(macOS)
 import AppKit
 import CExact
@@ -6,6 +6,90 @@ import XCTest
 @testable import ExactKit
 
 final class NativeFieldsMacTests: XCTestCase {
+    func testFieldsKeepTheirGeometryAndEditingInsideAResizingBorder() throws {
+        _ = NSApplication.shared
+        let session = ExactApp.shared.makeSession(label: "resizing-fields")
+        defer { session.destroy() }
+        let p = session.presenter
+        let node = NodeView(id: 1, kind: "input", presenter: p)
+        p.views[node.id] = node
+        node.frame = NSRect(x: 0, y: 0, width: 240, height: 80)
+        let window = NSWindow(contentRect: node.bounds, styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = node
+        defer { window.close() }
+        for (type, appearance) in [("text", "auto"), ("password", "auto"), ("search", "auto"),
+                                   ("text", "none"), ("password", "none")] {
+            node.applyProps(set: ["type": type, "value": "Content", "accessibilityInvalid": "true"], clear: [])
+            node.applyStyle(["appearance": .string(appearance), "font_size": 13, "border_width": 6,
+                             "border_radius": 20, "overflow_x": "hidden", "overflow_y": "hidden"])
+            node.applyFieldContent(["rect": [20.0, 15.0, 200.0, 50.0]])
+            let field = try XCTUnwrap(node.field), cell = try XCTUnwrap(field.cell)
+            let frame = field.frame
+            let drawing = cell.drawingRect(forBounds: field.bounds), title = cell.titleRect(forBounds: field.bounds)
+            let search = (cell as? NSSearchFieldCell)?.searchTextRect(forBounds: field.bounds)
+            XCTAssertTrue(window.makeFirstResponder(field))
+            let editor = try XCTUnwrap(node.editingEditor)
+            editor.setSelectedRange(NSRange(location: 2, length: 2))
+            for height in [40.0, 60.0, 100.0] {
+                p.apply(wireBatch([["op": "present", "id": 1, "property": "layout", "h": height - 80]]))
+                let box = try XCTUnwrap(node.clipBox), surface = try XCTUnwrap(node.surface)
+                XCTAssertTrue(field.superview === box, "\(type), \(appearance): clipped inside the border")
+                XCTAssertTrue(box.layer?.mask === surface.clip)
+                let path = try XCTUnwrap(surface.clip.path)
+                XCTAssertEqual(path.boundingBoxOfPath, CGRect(x: 6, y: 6, width: 228, height: height - 12))
+                XCTAssertFalse(path.contains(CGPoint(x: 120, y: height - 3)))
+                XCTAssertEqual(field.frame, frame, "content keeps its laid-out size")
+                XCTAssertEqual(cell.drawingRect(forBounds: field.bounds), drawing)
+                XCTAssertEqual(cell.titleRect(forBounds: field.bounds), title)
+                XCTAssertEqual((cell as? NSSearchFieldCell)?.searchTextRect(forBounds: field.bounds), search)
+                XCTAssertEqual(cell.accessibilityAttributeValue(.init(rawValue: "AXInvalid")) as? String, "true")
+                XCTAssertTrue(window.firstResponder === editor)
+                XCTAssertTrue(node.editingEditor === editor)
+                XCTAssertEqual(editor.selectedRange(), NSRange(location: 2, length: 2))
+            }
+            editor.insertText("X", replacementRange: editor.selectedRange())
+            XCTAssertEqual(node.fieldText, "CoXent")
+            node.applyProps(set: ["type": type == "password" ? "text" : "password", "value": "CoXent"], clear: [])
+            let replacement = try XCTUnwrap(node.field)
+            XCTAssertFalse(replacement === field)
+            XCTAssertTrue(replacement.superview === node.clipBox, "a replacement field enters the active clip")
+            XCTAssertEqual(node.fieldText, "CoXent")
+            XCTAssertEqual(node.editingEditor?.selectedRange(), NSRange(location: 3, length: 0))
+            p.apply(wireBatch([["op": "present", "id": 1, "property": "layout", "h": 0.0]]))
+            XCTAssertNil(node.clipBox)
+            XCTAssertNil(node.surface)
+            XCTAssertTrue(replacement.superview === node)
+            XCTAssertNotNil(node.editingEditor)
+            XCTAssertTrue(window.firstResponder === node.editingEditor)
+            XCTAssertTrue(window.makeFirstResponder(nil))
+        }
+    }
+
+    func testLentFieldsKeepAppKitGeometry() throws {
+        _ = NSApplication.shared
+        let session = ExactApp.shared.makeSession(label: "lent-field-geometry")
+        defer { session.destroy() }
+        for type in ["text", "password", "search"] {
+            let node = NodeView(id: 1, kind: "input", presenter: session.presenter)
+            node.frame = NSRect(x: 0, y: 0, width: 240, height: 80)
+            node.applyProps(set: ["type": type, "value": "Content"], clear: [])
+            node.applyStyle(["font_size": 26, "line_height": "80px"])
+            node.applyFieldContent(["rect": [20.0, 15.0, 200.0, 50.0]])
+            let lent = try XCTUnwrap(type == "search" ? node.lendFieldToBar() : node.lendFieldToAlert())
+            let standard: NSTextField = type == "search" ? NSSearchField() : type == "password" ? NSSecureTextField() : NSTextField()
+            lent.frame = NSRect(x: 0, y: 0, width: 160, height: 28)
+            standard.frame = lent.frame
+            standard.font = lent.font
+            standard.stringValue = lent.stringValue
+            let cell = try XCTUnwrap(lent.cell), appKit = try XCTUnwrap(standard.cell)
+            XCTAssertEqual(cell.drawingRect(forBounds: lent.bounds), appKit.drawingRect(forBounds: standard.bounds), type)
+            XCTAssertEqual(cell.titleRect(forBounds: lent.bounds), appKit.titleRect(forBounds: standard.bounds), type)
+            XCTAssertEqual((cell as? NSSearchFieldCell)?.searchTextRect(forBounds: lent.bounds),
+                           (appKit as? NSSearchFieldCell)?.searchTextRect(forBounds: standard.bounds), type)
+        }
+    }
+
     func testSearchAndPlainComboboxesServeTheirAuthoredExpandedState() throws {
         _ = NSApplication.shared
         let p = Presenter()
@@ -241,7 +325,7 @@ final class NativeFieldsMacTests: XCTestCase {
             XCTAssertEqual(line.maxY, 28, accuracy: 1, "\(appearance): the rect ends at the line box's bottom")
         }
     }
-    /// A native `input type="search"` is AppKit's search field
+    /// LLP 1115 D8: a native `input type="search"` is AppKit's search field
     /// (its magnifier and clear button, Escape clearing it), its text in the
     /// published content rect, which the kernel measured from the same
     /// class; drawn by the author (`appearance: none`) it is a plain field.
@@ -286,6 +370,105 @@ final class NativeFieldsMacTests: XCTestCase {
         node.applyProps(set: ["type": "text"], clear: [])
         XCTAssertFalse(node.field is NSSearchField)
     }
+
+    /// A style that remakes the field (`appearance`) changes no prop: the new
+    /// field keeps its autocomplete type, its disabled state and its
+    /// placeholder.
+    func testAFieldRemadeByAStyleKeepsWhatItsPropsSay() throws {
+        _ = NSApplication.shared
+        let session = ExactApp.shared.makeSession(label: "remade-search-field")
+        defer { session.destroy() }
+        let node = NodeView(id: 1, kind: "input", presenter: session.presenter)
+        node.frame = NSRect(x: 0, y: 0, width: 240, height: 40)
+        node.applyProps(set: ["type": "search", "disabled": "true", "autocomplete": "email", "placeholder": "Email"], clear: [])
+        node.applyStyle([:])
+        XCTAssertTrue(node.field is NSSearchField)
+        for appearance in ["none", "auto"] {
+            node.applyStyle(["appearance": .string(appearance)])
+            let field = try XCTUnwrap(node.field)
+            XCTAssertEqual(field is NSSearchField, appearance == "auto")
+            XCTAssertEqual(field.contentType, .emailAddress, appearance)
+            XCTAssertFalse(field.isEnabled, appearance)
+            XCTAssertFalse(field.isEditable, appearance)
+            XCTAssertEqual(field.placeholderAttributedString?.string, "Email", appearance)
+        }
+    }
+    func testChangingAFocusedFieldsClassKeepsItsEditing() throws {
+        _ = NSApplication.shared
+        let session = ExactApp.shared.makeSession(label: "field-class-change")
+        defer { session.destroy() }
+        let p = session.presenter
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 300, height: 100), styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        window.contentView = p.viewport
+        p.apply(wireBatch([
+            ["op": "create", "id": 1, "kind": "input", "props": ["id": "secret", "type": "password"],
+             "handlers": ["input", "change", "focus", "blur", "focusin", "focusout", "select"]],
+            ["op": "roots", "ids": [1]],
+            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 240.0, "h": 30.0],
+        ]))
+        let node = try XCTUnwrap(p.views[1])
+        var events: [String] = []
+        p.onInput = { _, _ in events.append("input") }
+        p.onChange = { _, _ in events.append("change") }
+        p.onFocus = { _ in events.append("focus") }
+        p.onBlur = { _ in events.append("blur") }
+        p.onFocusEvent = { _, kind, _, _ in events.append(kind) }
+        p.fieldSelections.onSelect = { _, _, _ in events.append("select") }
+        XCTAssertTrue(window.makeFirstResponder(try XCTUnwrap(node.field)))
+        let editor = try XCTUnwrap(node.editingEditor)
+        editor.insertText("hunter2", replacementRange: editor.selectedRange())
+        XCTAssertEqual(events, ["focus", "focusin", "input"])
+
+        let changes: [(String, [String: Any], FieldClass, NSRange)] = [
+            ("props", ["type": "text"], .plain, NSRange(location: 3, length: 0)),
+            ("props", ["type": "password"], .secure, NSRange(location: 2, length: 3)),
+            ("props", ["type": "search"], .search, NSRange(location: 3, length: 0)),
+            ("style", ["appearance": "none"], .plain, NSRange(location: 2, length: 3)),
+            ("style", ["appearance": "auto"], .search, NSRange(location: 3, length: 0)),
+        ]
+        for (op, set, kind, range) in changes {
+            let selection = FieldSelection(start: range.location, end: NSMaxRange(range), direction: range.length == 0 ? "none" : "backward")
+            let scripted = !selection.collapsed
+            if scripted {
+                p.fieldSelections.set(node, selection, notify: false)
+            } else {
+                let editor = try XCTUnwrap(node.editingEditor)
+                editor.moveToBeginningOfDocument(nil)
+                for _ in 0..<range.location { editor.moveRight(nil) }
+                XCTAssertEqual(p.fieldSelections.current(node), selection)
+            }
+            events.removeAll()
+            let old = try XCTUnwrap(node.field)
+            p.apply(wireBatch([["op": op, "id": 1, op == "style" ? "style" : "set": set]]))
+            let field = try XCTUnwrap(node.field), current = try XCTUnwrap(node.editingEditor)
+            XCTAssertFalse(field === old)
+            XCTAssertEqual(FieldClass(field), kind)
+            XCTAssertTrue(window.firstResponder === current)
+            XCTAssertEqual(current.selectedRange(), range)
+            XCTAssertEqual(p.fieldSelections.current(node), selection)
+            XCTAssertEqual(current.string, "hunter2")
+            XCTAssertEqual(p.edited, node.id, "a type or appearance change does not commit the pending edit")
+            XCTAssertEqual(events, [], "a replacement field continues the same editing")
+            p.fieldSelections.setSelectionRange(["secret", selection.start, selection.end, selection.direction])
+            XCTAssertEqual(events, scripted ? [] : ["select"], "restoring a user's caret is not a script command")
+            p.fieldSelections.setSelectionRange(["secret", selection.start, selection.end, selection.direction])
+            XCTAssertEqual(events, scripted ? [] : ["select"], "an identical script command stays suppressed")
+        }
+        let current = try XCTUnwrap(node.editingEditor)
+        current.insertText("X", replacementRange: current.selectedRange())
+        XCTAssertEqual(node.fieldText, "hunXter2", "typing continues at the saved caret")
+        events.removeAll()
+        XCTAssertTrue(window.makeFirstResponder(nil))
+        waitForMainQueue()
+        XCTAssertEqual(events, ["change", "blur", "focusout"], "leaving the input still commits and blurs once")
+        events.removeAll()
+        p.apply(wireBatch([["op": "props", "id": 1, "set": ["type": "password"]]]))
+        XCTAssertNil(node.editingEditor, "an unfocused input stays unfocused")
+        XCTAssertEqual(events, [])
+    }
+
     func testTextareaBorderContentRectAndFocusMask() throws {
         _ = NSApplication.shared
         let session = ExactApp.shared.makeSession(label: "native-textarea-mappings")
@@ -323,7 +506,7 @@ final class NativeFieldsMacTests: XCTestCase {
         node.applyProps(set: ["markup": "markdown"], clear: [])
         XCTAssertFalse(node.isNativeTextControl)
     }
-    /// The native editor's two background surfaces read Field;
+    /// LLP 1095 D4: the native editor's two background surfaces read Field;
     /// author-drawn and Markdown editors keep their transparent native views.
     func testTextareaThemeBackgroundAndRemoval() throws {
         _ = NSApplication.shared
@@ -370,7 +553,7 @@ final class NativeFieldsMacTests: XCTestCase {
         XCTAssertFalse(scroll.drawsBackground)
     }
 
-    /// AppKit asks only the first responder for a ring, so a
+    /// LLP 1104 D6: AppKit asks only the first responder for a ring, so a
     /// bare field (the field editor is first responder) and any textarea
     /// (its text view sits in a clip view) show Exact's ring; checked by
     /// screenshot on 2026-10-07, which the masks alone never drew.
@@ -416,7 +599,7 @@ final class NativeFieldsMacTests: XCTestCase {
             XCTAssertFalse(node.fieldFocused)
         }
     }
-    /// `outline: none` takes every ring off a focused field,
+    /// LLP 1104 D6: `outline: none` takes every ring off a focused field,
     /// Exact's and AppKit's, native or bare, single-line or not, while the
     /// field still takes the focus; unset, the ring is back at once.
     func testOutlineNoneDrawsNoRingOnAFocusedField() throws {
@@ -554,7 +737,7 @@ final class NativeFieldsMacTests: XCTestCase {
         return ((json?["slots"] as? [String: Any])?[name]).map { "\($0)" } ?? ""
     }
 
-    /// The focus ring leaves a border the author wrote
+    /// LLP 1115.000 D7.9: the focus ring leaves a border the author wrote
     /// alone, as a native control with a border of its own keeps it under
     /// AppKit's ring. A bare field's border was repainted two points wide
     /// in the focus colour, and a textarea's covered by a ring over it.
@@ -701,7 +884,7 @@ final class NativeFieldsMacTests: XCTestCase {
     }
 
 
-    /// An authored `::placeholder` colour is the placeholder's
+    /// LLP 1104 D3: an authored `::placeholder` colour is the placeholder's
     /// ink, its own alpha kept, on a native field, a bare one and a
     /// textarea; without the row each keeps AppKit's.
     func testAnAuthoredPlaceholderColourIsThePlaceholdersInk() throws {

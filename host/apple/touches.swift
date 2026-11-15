@@ -1,4 +1,4 @@
-// The touch runner: one XCTest UI test that stays alive
+// The touch runner (LLP 1080.000 D1): one XCTest UI test that stays alive
 // across agent sessions and taps the device's screen, so a touch comes from
 // the HID system and reaches the app through UIKit's own hit-testing and
 // gesture recognizers. It connects out to the driver
@@ -10,7 +10,7 @@
 //                                a tap at a point in the app's scene, points
 //                                → {"done":true,"injected":{"start":ms,"end":ms,"via":…}}
 //   {"op":"drag","point":[x,y],"to":[x,y],"press":s,"velocity":v,"hold":s,"screen":[x,y]?,"screenTo":[x,y]?,"display":[w,h]?}
-//                                one whole gesture: press,
+//                                one whole gesture (LLP 1080.000 §11): press,
 //                                one straight drag at `v` points per second
 //                                (the header says pixels; on the simulator a
 //                                drag at v covers v points a second, measured
@@ -45,7 +45,7 @@
 // (`Synthesizer.drag`). A named display must match; a refused or unfinished
 // synthesis fails without a coordinate fallback. A request with only scene
 // coordinates uses `XCUICoordinate` only on a single-screen device.
-// SpringBoard archive operations use the same session.
+// SpringBoard archive operations (LLP 1126.001 WP14) use the same session.
 // It never launches, activates or terminates the app: the driver owns its lifecycle.
 import XCTest
 import UIKit
@@ -288,9 +288,9 @@ final class ExactTouches: XCTestCase {
 
 /// XCTest's own event synthesizer, the SPI WebDriverAgent drives
 /// (`XCSynthesizedEventRecord`, `XCPointerEventPath`, `XCUIDevice
-/// eventSynthesizer`): a tap injected as the public
+/// eventSynthesizer`; LLP 1080.000 §1, P3): a tap injected as the public
 /// call injects it, without their wait for the app to go idle and
-/// their spacing between gestures, which cost 0.4–2 s a tap (P2). The
+/// their spacing between gestures, which cost 0.4–2 s a tap (§9, P2). The
 /// driver's dispatch-log barrier still checks every touch landed.
 enum Synthesizer {
     private typealias Alloc = @convention(c) (AnyClass, Selector) -> AnyObject

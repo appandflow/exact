@@ -1,6 +1,7 @@
 // What an Apple bundle declares it opens: documents (`file_handlers`) and
 // links (`protocol_handlers`, `urlSchemes`, the development link), as the
 // Info.plist keys Launch Services, Finder and the pickers read.
+// @ref LLP 1033 D1, LLP 1030 D2
 import { DOCUMENT_UTIS, isWebScheme, ownDocumentType } from '../../scripts/app.mjs';
 
 export const BROWSER_ENTITLEMENT = 'com.apple.developer.web-browser';
@@ -11,7 +12,7 @@ export const browserEntitlements = (app, distributed = false) => app.manifest.ho
   && !app.widgetTV && !app.widgetHost && !app.widgetAppId && !app.clipParent
   && (app.manifest.protocol_handlers ?? []).some(h => isWebScheme(h.protocol) && (!h.distribution_only || distributed)) ? [BROWSER_ENTITLEMENT] : [];
 
-/** The URL types and handler templates. Web
+/** The URL types and handler templates (LLP 1038 D8; LLP 1030 D2). Web
  * schemes register on macOS and opted-in iOS browsers as `Viewer`. */
 export function openingLinks(app, platform, development, distributed) {
   const handlers = registered(app, platform, distributed);
@@ -52,11 +53,11 @@ export function webPageTypes(app, distributed) {
 // The types iOS does not declare itself, which the bundle imports.
 const IMPORTED = new Set(['net.daringfireball.markdown']);
 
-/** `CFBundleDocumentTypes` from the manifest's `file_handlers`:
+/** `CFBundleDocumentTypes` from the manifest's `file_handlers` (LLP 1033 D1):
  *  per handler, its system types as `Viewer` and `Alternate`, so declaring
  *  one never takes it away from whatever already owns it, and its app-owned
  *  types (`ownDocumentType`) as the `Editor` and `Owner` an app is of its
- *  own format. */
+ *  own format (studio diary R13). */
 export function documentTypes(app) {
   return (app.manifest.file_handlers ?? []).flatMap((handler) => {
     const accept = Object.entries(handler.accept);
@@ -81,8 +82,8 @@ export function documentTypes(app) {
   });
 }
 
-/** `UTExportedTypeDeclarations` for the app's own formats:
- *  each type `ownDocumentType` names, with its extensions and MIME
+/** `UTExportedTypeDeclarations` for the app's own formats (studio diary
+ *  R13): each type `ownDocumentType` names, with its extensions and MIME
  *  type, so Finder, the open panel and Launch Services know the format is
  *  this app's. An extension another app's type already has on a Mac (Freeform
  *  has `.board`) may still resolve to that one; the hosts' panels and drops

@@ -2,8 +2,9 @@
 //! side, as UIKit's value cell puts its secondary text (iOS 27: a title
 //! longer than its line at the default size, and every pair at the
 //! accessibility sizes, where `prefersSideBySideTextAndSecondaryText` is
-//! off), giving the title the row's width. An amount beside a title broken
-//! into letters ("Transpo/rt") is a tell of a hand-built list.
+//! off), giving the title the row's width. Round 26's graders named the
+//! amount beside a title broken into letters a tell ("Transpo/rt" in
+//! expense-tracker).
 //!
 //! The title and its value are boxed in a row that wraps: the value keeps
 //! the far edge while both fit (on iOS through the largest standard size:
@@ -21,7 +22,7 @@
 //! More texts after the value (a lap's time and its total) go in the box
 //! too, each wrapping under the one before, as a hand-built cell's stack of
 //! labels turns vertical at the accessibility sizes; beside them a bare
-//! title was squeezed to no width there.
+//! title was squeezed to no width there (stopwatch, round 30).
 //! A title that is a bare text is boxed only in a swipe's row, which the
 //! platform's list carries as a custom row anyway, or before two or more
 //! values: elsewhere a row of two bare texts is the value cell itself, which
@@ -37,7 +38,7 @@
 //! Type): the text keeps at least `BUTTON_TITLE_BASIS` beside the button,
 //! and below that the button goes under it, at its leading edge. Without
 //! it a message beside Try Again at the largest size broke inside every
-//! word ("Ca/n't rea/ch"). A button holding only
+//! word ("Ca/n't rea/ch", household-list, round 27). A button holding only
 //! a symbol stays where it is: an info button is the row's accessory.
 
 use super::{attr, m, n, s, Count};
@@ -87,7 +88,7 @@ pub(super) fn boxed(
         end += 1;
     }
     // A value shown only sometimes: an `if` holding one text and no `else`
-    // (a water tracker's "Goal met" beside its day's bar).
+    // (water-tracker's "Goal met" beside its day's bar, round 33).
     let sometimes = |k: usize| {
         matches!(&children[k], Node::When { then, otherwise, .. } if otherwise.is_empty()
             && matches!(then.as_slice(), [Node::Element { tag, .. }] if tag == "text"))

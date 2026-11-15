@@ -1,13 +1,14 @@
-// The media session on Apple: one coordinator per process, in the video arm
-// (one image per process, so every session's players register here), over
-// `MPNowPlayingInfoCenter` and `MPRemoteCommandCenter`. A player whose props
-// carry `mediaTitle` (the element's `metadata=`) is a claimant; the owner is
-// the claimant that most recently reported `play`, kept after it pauses,
-// else the latest to register (a commit registers its claimants in document
-// order, and sessions in the order they register). Plays in one commit share
-// a turn, and the later registration wins that tie. Under the driver
-// (`exactPublish` "false") the same info and command set are built and
-// reported, never assigned: a drive must not take a developer's media keys.
+// @ref LLP 1098 D3, D5, D7, D10. The media session on Apple: one coordinator
+// per process, in the video arm (one image per process, so every session's
+// players register here), over `MPNowPlayingInfoCenter` and
+// `MPRemoteCommandCenter`. A player whose props carry `mediaTitle` (the
+// element's `metadata=`) is a claimant; the owner is the claimant that most
+// recently reported `play`, kept after it pauses, else the latest to
+// register (a commit registers its claimants in document order, and
+// sessions in the order they register). Plays in one commit share a turn,
+// and the later registration wins that tie. Under the driver (`exactPublish`
+// "false") the same info and command set are built and reported, never
+// assigned: a drive must not take a developer's media keys.
 import Foundation
 import MediaPlayer
 #if os(macOS)
@@ -29,7 +30,7 @@ protocol NowPlayingPlayer: AnyObject {
     var sessionElapsed: Double { get }
     /// The element's `playbackRate`, never 0.
     var sessionRate: Double { get }
-    /// The platform's play and pause act on the element.
+    /// The platform's play and pause act on the element (D3).
     func sessionPlay()
     func sessionPause()
     /// One of the six, as the element's event with `seekOffset seekTime fastSeek`.
@@ -74,7 +75,7 @@ final class NowPlaying {
         else if claims[key] == nil { turn += 1; claims[key] = (turn, 0) }
         refresh()
     }
-    /// HTML's `play`: `paused` became false. One commit shares a stamp,
+    /// HTML's `play`: `paused` became false (D5). One commit shares a stamp,
     /// captured so a mount between two plays does not split them; the later
     /// registration wins the tie.
     func played(_ p: NowPlayingPlayer) {
@@ -187,13 +188,13 @@ final class NowPlaying {
             ("seekbackward", c.skipBackwardCommand), ("seekforward", c.skipForwardCommand), ("seekto", c.changePlaybackPositionCommand),
             ("previoustrack", c.previousTrackCommand), ("nexttrack", c.nextTrackCommand), ("stop", c.stopCommand)]
         for (name, command) in all where command.isEnabled != enabled.contains(name) { command.isEnabled = enabled.contains(name) }
-        // The intervals the lock screen shows are the element's offsets.
+        // The intervals the lock screen shows are the element's offsets (D2).
         let back = [NSNumber(value: Self.offset(props, "seekbackwardOffset"))], forward = [NSNumber(value: Self.offset(props, "seekforwardOffset"))]
         if c.skipBackwardCommand.preferredIntervals != back { c.skipBackwardCommand.preferredIntervals = back }
         if c.skipForwardCommand.preferredIntervals != forward { c.skipForwardCommand.preferredIntervals = forward }
     }
 
-    /// A command's target, and the driver's `tap … mediasession`: play
+    /// A command's target, and the driver's `tap … mediasession` (D10): play
     /// and pause on the element, the six as its events, `seekOffset` the
     /// platform's (the driver's seconds), else the element's offset.
     func perform(_ action: String, seconds: Double? = nil) -> MPRemoteCommandHandlerStatus {
@@ -220,13 +221,13 @@ final class NowPlaying {
 
     /// Its own loader and generation (the poster's drops a failure without a
     /// word): a resolved URL loads, a newer source cancels the load in
-    /// flight, and an unresolved or failed one sets `artworkError`.
+    /// flight, and an unresolved or failed one sets `artworkError` (D7).
     private func loadArtwork(_ source: String, resolved: String) {
         guard source != artwork.source else { return }
         artwork = (source, nil, nil, artwork.generation + 1)
         guard !source.isEmpty else { return }
         guard let url = URL(string: resolved), !resolved.isEmpty else {
-            artwork.error = source.hasPrefix("app:/") ? "an app:/ artwork is not published until the media element takes an app:/ source" : "the artwork's source did not resolve"
+            artwork.error = source.hasPrefix("app:/") ? "an app:/ artwork is not published until the media element takes an app:/ source (LLP 1098 §7)" : "the artwork's source did not resolve"
             return
         }
         let token = artwork.generation
@@ -248,7 +249,7 @@ final class NowPlaying {
 
     // MARK: - state
 
-    /// `state.mediaSession`'s part this player knows: whether it
+    /// `state.mediaSession`'s part this player knows (D10): whether it
     /// claims and owns; for the owner, what the platform is offered, the
     /// position, and the readback (the center's own when published).
     func report(_ p: NowPlayingPlayer) -> [String: Any] {

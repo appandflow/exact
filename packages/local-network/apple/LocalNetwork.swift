@@ -1,24 +1,24 @@
-// @exact/local-network on iOS, macOS and tvOS: Network framework's
-// `NWBrowser` for the browse and dnssd's `DNSServiceResolve` and
-// `DNSServiceGetAddrInfo` for the resolve. Under the agent the runner's
-// declared substitute answers and nothing here runs; a bound run (`--bind
-// local-network`) browses for real.
+// @exact/local-network on iOS, macOS and tvOS (LLP 1133.036 D1-D4, D8,
+// D12, D13): Network framework's `NWBrowser` for the browse and dnssd's
+// `DNSServiceResolve` and `DNSServiceGetAddrInfo` for the resolve. Under the
+// agent the runner's declared substitute answers and nothing here runs; a
+// bound run (`--bind local-network`) browses for real.
 //
 // - One browse per process and group (type, `includePeerToPeer`), shared by
 //   every session that reads it, stopped when the last releases it or
-//   leaves; a resolve likewise per (name, type, `includePeerToPeer`).
+//   leaves (D3); a resolve likewise per (name, type, `includePeerToPeer`).
 //   Both pause while the app is in the background and answer afresh on
 //   return.
 // - A browse answers at its first results or one second after it started,
 //   whichever comes first, then each change; instances are merged across
-//   interfaces and ordered by name, case-insensitively.
-// - The host's fact: `unknown` at launch where the target has local
+//   interfaces and ordered by name, case-insensitively (D2).
+// - The host's fact (D8): `unknown` at launch where the target has local
 //   network privacy (iOS on a device, macOS 15 and later), else `granted`;
 //   a browse's or resolve's result is `granted` evidence, and
 //   `kDNSServiceErr_PolicyDenied` is `denied`. Evidence goes to the host,
-//   which keeps the fact the runner's per-hop rule reads, by the
-//   `exact.localNetwork` notification. The reachability probe is not built.
-// - Hatches: `parameters` sees each browse's `NWParameters` before the
+//   which keeps the fact the runner's per-hop rule reads (D6), by the
+//   `exact.localNetwork` notification. The probe of D8 is not built.
+// - Hatches (D13): `parameters` sees each browse's `NWParameters` before the
 //   browser is made, and `browser` each `NWBrowser` before it starts.
 import dnssd
 import ExactPackage
@@ -78,7 +78,7 @@ public final class LocalNetworkModule: ExactPackage {
     }
 }
 
-/// The host's local-network fact as this module knows it.
+/// The host's local-network fact as this module knows it (D8).
 enum LocalNetworkFact {
     static var prompts: Bool = {
         #if targetEnvironment(simulator) || os(tvOS)
@@ -163,7 +163,7 @@ final class LocalNetworkBrowse: LocalNetworkReaders {
         LocalNetworkModule.browser?(b)
         browser = b
         b.start(queue: .main)
-        // A quiet network answers empty after a second.
+        // A quiet network answers empty after a second (D2).
         DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self, weak b] in
             guard let self, let b, self.browser === b else { return }
             self.settle()
@@ -252,7 +252,7 @@ final class LocalNetworkResolve: LocalNetworkReaders {
         }
     }
 
-    /// The answer once the platform has the SRV and TXT records and an address.
+    /// The answer once the platform has the SRV and TXT records and an address (D2).
     private func info() -> [String: Any]? {
         guard let record, !addresses.isEmpty else { return nil }
         let host = record.hostName.hasSuffix(".") ? String(record.hostName.dropLast()) : record.hostName
@@ -362,7 +362,7 @@ private let localNetworkAddressed: DNSServiceGetAddrInfoReply = { _, flags, _, c
     var text = [CChar](repeating: 0, count: Int(NI_MAXHOST))
     guard getnameinfo(address, socklen_t(address.pointee.sa_len), &text, socklen_t(text.count), nil, 0, NI_NUMERICHOST) == 0 else { return }
     let written = String(cString: text)
-    // An IPv6 link-local address carries a zone no URL can.
+    // An IPv6 link-local address carries a zone no URL can (D2).
     guard !written.lowercased().hasPrefix("fe80:") else { return }
     r.took(address: written, added: flags & DNSServiceFlags(kDNSServiceFlagsAdd) != 0)
 }

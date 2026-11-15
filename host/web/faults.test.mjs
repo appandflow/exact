@@ -1,4 +1,4 @@
-// On the web: the page's fault table, and the three places that
+// LLP 1103 on the web: the page's fault table, and the three places that
 // consult it — the wasm host's `request`, the JS target's `fetchWith`, and
 // `fetchEarly`, which starts no GET a fault will fail.
 import { afterEach, expect, test } from 'bun:test';

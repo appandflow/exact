@@ -1,16 +1,17 @@
-// Synced animations in a real browser: navigation.js's
+import { hostFixtureFile as readFileSync } from './glue-fixture.mjs';
+// Synced animations in a real browser (LLP 1055.002): navigation.js's
 // `animationClocks` sets each joined animation's `startTime` once, so two
 // pulses that mounted apart share one phase; the CSS play state still
 // pauses and resumes them, and a resumed one rejoins the phase.
 import { test, expect } from 'bun:test';
-import { readFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { resolve } from 'node:path';
 import { cdpBrowser, chromium } from '../../../scripts/agent-launch.mjs';
 import { need } from '../../../scripts/coverage.mjs';
 import { readyPage } from './page.mjs';
+import { fileURLToPath } from 'node:url';
 
-const WEB = resolve(new URL('..', import.meta.url).pathname);
+const WEB = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const { unavailable } = chromium();
 const check = need('chrome', unavailable);
 
@@ -139,6 +140,23 @@ check('pulses that mount apart share a phase, and a resumed one rejoins it', asy
     await evaluate(`add('back2', 'pulse 800ms infinite alternate', 'Back')`);
     const [back, back2] = await evaluate(`[anim('back').startTime, anim('back2').startTime]`);
     expect(apart(back2, back)).toBeLessThan(1);
+
+    const revealed = await evaluate(`(async () => {
+      const { animationClock } = await import('./navigation.js');
+      document.getElementById('exact-root').replaceChildren();
+      add('waiting', 'pulse 1s linear both paused', '');
+      add('authored', 'pulse 1s linear -500ms both paused', '');
+      let t = 0;
+      const clock = animationClock(() => t, () => null, () => {});
+      clock.register(t);
+      t = 500; clock.seek(t);
+      const held = [anim('waiting').currentTime, anim('authored').currentTime, clock.settle()];
+      document.getElementById('waiting').style.animationPlayState = 'running';
+      clock.register(t);
+      t = 750; clock.seek(t);
+      return { held, times: [anim('waiting').currentTime, anim('authored').currentTime], end: clock.settle() };
+    })()`);
+    expect(revealed).toEqual({ held: [0, 0, 500], times: [250, 0], end: 1500 });
   } finally {
     await suite.close();
     server.close();

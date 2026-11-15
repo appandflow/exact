@@ -1,11 +1,11 @@
-// `input type="date|time|datetime-local"` is an
+// @ref LLP 1069.001 D5 — `input type="date|time|datetime-local"` is an
 // `NSDatePicker`, a text field and stepper, formatted in the reported
 // locale. HTML's values carry no zone, so the picker reads and writes them
 // at UTC and never converts; an edit is HTML's `input` then `change`. The
 // bound value is written into it when it changes, as the web build writes
 // an input's `value` and this host a select's or a text field's: an action
 // that has not written it yet (a `send` whose reply is in flight) leaves the
-// person's choice showing, where it used to clear it.
+// person's choice showing, where it used to clear it (x2apps kanban2 #5).
 #if os(macOS)
 import AppKit
 
@@ -49,7 +49,7 @@ extension ControlHost {
         if let owner = presenter.views[id] { configureDate(picker, owner, accent: nil) }
     }
 
-    /// The agent's `type <id> <value>`: the value an edit reports, in
+    /// The agent's `type <id> <value>` (D9): the value an edit reports, in
     /// HTML's format; the runner holds it to the format and `min`/`max`.
     func typeDate(_ picker: NSDatePicker, _ node: NodeView, _ text: String) -> [String: Any] {
         let kind = kinds[node.id] ?? "date"
@@ -63,16 +63,17 @@ extension ControlHost {
         if let owner = presenter.views[node.id] { configureDate(picker, owner, accent: nil) }
         // What it shows, as the web's reply says: the choice, or what the
         // action wrote over it.
-        return ["typed": Int(node.id), "value": shownDate(picker, kind), "delivery": "host-activation", "native": "control"]
+        let shown = (picker as? DateField)?.empty == true ? "" : DateValue.shown(kind, typed: text, picker.dateValue)
+        return ["typed": Int(node.id), "value": shown, "delivery": "host-activation", "native": "control"]
     }
 }
 
 /// HTML's empty date, time or datetime, where an `NSDatePicker`, which
-/// always holds a date, would show its reference date, 1/1/2001: the
-/// field's own text is clear, and it draws its author's
+/// always holds a date, showed its reference date, 1/1/2001 (x2apps kanban
+/// F23): the field's own text is clear, and it draws its author's
 /// `placeholder` in the placeholder colour or, with none, no words at all
-/// (it had drawn Chrome's `mm/dd/yyyy`). Editing an
-/// empty one starts at now, and only a change commits it.
+/// (LLP 1115.000 D13.1; it had drawn Chrome's `mm/dd/yyyy`). Editing an
+/// empty one starts at now; typing, an arrow or Return accepts that value.
 final class DateCellMac: NSDatePickerCell {
     override func accessibilityAttributeValue(_ attribute: NSAccessibility.Attribute) -> Any? {
         if attribute == .enabled, (controlView as? NSControl)?.ariaUnavailableFromNode == true { return false }
@@ -89,10 +90,25 @@ final class DateField: NSDatePicker {
     weak var owner: NodeView?
     override var acceptsFirstResponder: Bool { owner?.acceptsNativeValueFocus(self) == true }
     override var canBecomeKeyView: Bool { acceptsFirstResponder && owner?.tabbable == true }
+    private var sentAction = false
+    override func sendAction(_ action: Selector?, to target: Any?) -> Bool {
+        sentAction = true
+        return super.sendAction(action, to: target)
+    }
     override func keyDown(with event: NSEvent) {
         guard acceptsFirstResponder else { return }
         if owner?.nativeValueTab(event, control: self) == true { return }
+        let wasEmpty = empty
+        sentAction = false
         super.keyDown(with: event)
+        // AppKit sends no action when a key accepts the value already shown.
+        // An action that clears the field must not cause a second report.
+        guard wasEmpty, empty, !sentAction,
+              event.modifierFlags.intersection([.command, .control, .option]).isEmpty else { return }
+        let chars = event.characters ?? ""
+        if chars.rangeOfCharacter(from: .decimalDigits) != nil || ["\r", "\u{3}", "\u{F700}", "\u{F701}", "\u{F702}", "\u{F703}"].contains(chars) {
+            _ = sendAction(action, to: target)
+        }
     }
     /// The author's `placeholder`, "" when there is none.
     var placeholder = "" { didSet { if placeholder != oldValue, empty { needsDisplay = true } } }
@@ -110,10 +126,7 @@ final class DateField: NSDatePicker {
     override func becomeFirstResponder() -> Bool {
         guard acceptsFirstResponder, super.becomeFirstResponder() else { return false }
         if empty {
-            // Now, as the picker reads its values: the wall clock's fields at UTC.
-            let local = DateFormatter()
-            local.dateFormat = "yyyy-MM-dd'T'HH:mm"
-            dateValue = DateValue.parse("datetime-local", local.string(from: Date())) ?? dateValue
+            dateValue = DateValue.initial(owner?.props["type"] ?? "date", minimum: minDate, maximum: maxDate)
         }
         refresh()
         owner?.focusEntered()

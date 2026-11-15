@@ -1,4 +1,4 @@
-//! An image node showing an even-odd icon (its path's
+//! Stage 14 C2: an image node showing an even-odd icon (its path's
 //! `evenodd:` marker, read by `exact_kernel::Icon`) is sent its path, the
 //! marker gone, and `symbolFillRule`; a nonzero icon's props are as before.
 use super::*;

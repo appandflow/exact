@@ -1,7 +1,7 @@
 import { test, expect } from 'bun:test';
 import { suiteBrowser } from '../../scripts/agent-launch.mjs';
 
-// `requestPictureInPicture(id)` on the JS target: the image's
+// `requestPictureInPicture(id)` on the JS target (LLP 1042 §9): the image's
 // picture floats as a canvas stream's video; a picture it loads next is drawn
 // into the same stream; the window's close is the image's
 // `leavepictureinpicture`, and a removed image closes it with no event.
@@ -107,7 +107,7 @@ test("an element that is not an image is refused", async () => {
   expect(said).toEqual(['requestPictureInPicture "missing" refused: no live node with that id', 'requestPictureInPicture "box" refused: not an image']);
 });
 
-// `presentation: "window"`: Document Picture-in-Picture's window
+// `presentation: "window"` (LLP 1042 §9.1): Document Picture-in-Picture's window
 // holds an <img> showing each picture the image loads, titled as asked; its close
 // is the image's `leavepictureinpicture`. A browser without it floats the default way.
 test("the window presentation floats the image in a document picture-in-picture window", async () => {

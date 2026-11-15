@@ -4,9 +4,10 @@
 // by half its own width, so the loop stays seamless however wide the type is.
 // The type arrives from its lightest. Holding the poster eases it to its
 // heaviest and slanted (the `slnt` axis, through `font-variation-settings`),
-// and letting go returns it; a key on the pad eases it there.
-// After the Expo SDK 58 variable-font poster in react-native-motion.
-// assets/RobotoFlex.ttf is Roboto Flex cut to the poster's
+// and letting go returns it; a key on the pad eases it there (LLP 1019 §13
+// D10).
+// After the Expo SDK 58 variable-font poster in react-native-motion
+// (LLP 1019 §13). assets/RobotoFlex.ttf is Roboto Flex cut to the poster's
 // letters, every axis kept: another word needs the whole font.
 
 font "Roboto Flex" = "assets/RobotoFlex.ttf"

@@ -1,5 +1,5 @@
 // Native source/undo/composition behaviours that Rust edit tests cannot see.
-// No claim about physical keyboard/phone gestures.
+// @ref LLP 1045 D1, D5, D6 — no claim about physical keyboard/phone gestures.
 import XCTest
 @testable import ExactKit
 @testable import ExactMarkdown
@@ -9,7 +9,7 @@ import AppKit
 final class MarkupEditorTests: XCTestCase {
     override func setUp() {
         super.setUp()
-        ExactMarkdown.install() // the capability this tests
+        ExactMarkdown.install() // LLP 1047.001 D4: the capability this tests
     }
 
     private func editor(_ source: String, selection: NSRange) -> (NodeView, TextArea, NSWindow, Presenter) {
@@ -20,7 +20,7 @@ final class MarkupEditorTests: XCTestCase {
         node.makeTextArea()
         node.props["markup"] = "markdown"
         node.props["value"] = source
-        node.handlers = ["input"] // each source change; `change` is the commit
+        node.handlers = ["input"] // each source change; `change` is the commit (LLP 1069.001)
         node.applyTextArea()
         node.layoutTextArea()
         let window = NSWindow(contentRect: node.frame, styleMask: [.titled], backing: .buffered, defer: false)
@@ -211,7 +211,7 @@ final class MarkupEditorTests: XCTestCase {
     }
 
     /// While text is marked a formatting command is refused, and the app's
-    /// value waits: the value the editor shows leaves the
+    /// value waits (LLP 1045 D5): the value the editor shows leaves the
     /// composition alone and holds nothing; a different one is held, and
     /// applied when the composition ends, which the editor now does itself
     /// as it unmarks.
@@ -335,7 +335,7 @@ final class MarkupEditorTests: XCTestCase {
         return (p, node, f, window)
     }
 
-    /// The editor's storage is its source, so its native
+    /// LLP 1045 D6: the editor's storage is its source, so its native
     /// selection is the source selection its `input` and `selectionchange`
     /// report and `setSelectionRange` sets; its `select` stays its formats.
     func testSourceSelectionIsReportedAndSetLikeAPlainFields() throws {
@@ -364,7 +364,8 @@ final class MarkupEditorTests: XCTestCase {
         XCTAssertEqual(f.selectedRange(), NSRange(location: 9, length: 0), "clamped as HTML clamps it")
     }
 
-    /// Each `setRangeText` is one native undo step of its own: two in one action are two, and the typing before them,
+    /// Each `setRangeText` is one native undo step of its own (LLP 1045 D1,
+    /// issue #792): two in one action are two, and the typing before them,
     /// whose event group is still open, stays a step of its own.
     func testEachRangeEditIsOneUndoStep() throws {
         let (p, node, f, window) = markdownField("")
@@ -552,7 +553,7 @@ final class MarkupEditorTests: XCTestCase {
         starts.map { (field.textStorage?.attribute(.paragraphStyle, at: $0, effectiveRange: nil) as? NSParagraphStyle)?.baseWritingDirection }
     }
 
-    /// Each line's paragraph takes the app's word as its base
+    /// LLP 1045 D11: each line's paragraph takes the app's word as its base
     /// direction, a line past the last word the last, and a line without one
     /// the field's; a new `paragraphDirs` alone restyles, and the source never
     /// changes.
@@ -595,7 +596,7 @@ final class MarkupEditorTests: XCTestCase {
         XCTAssertEqual(field.string, source)
     }
 
-    /// A field whose own `direction` is right to left gives it
+    /// LLP 1045 D11: a field whose own `direction` is right to left gives it
     /// to every line without a word, the author's over the first strong letter.
     func testALineWithoutAWordTakesTheFieldsDirection() {
         let (node, field, window, presenter, session) = styled("Hello\nمرحبا")
@@ -610,7 +611,7 @@ final class MarkupEditorTests: XCTestCase {
         XCTAssertEqual(directions(field, [0, 6]), [.leftToRight, .rightToLeft])
     }
 
-    /// An empty editor's placeholder is drawn in its first
+    /// LLP 1045 D11: an empty editor's placeholder is drawn in its first
     /// line's direction, as UIKit's and the web's are.
     func testAnEmptyEditorsPlaceholderTakesItsFirstLinesDirection() throws {
         let (node, field, window, presenter, session) = styled("")
@@ -622,7 +623,7 @@ final class MarkupEditorTests: XCTestCase {
         XCTAssertEqual(editor.direction(at: 0), .rightToLeft)
     }
 
-    /// `auto` is a line's first strong letter outside its
+    /// LLP 1045 D11: `auto` is a line's first strong letter outside its
     /// syntax and atoms, as the web editor finds it; with none, the field's.
     func testAutoTakesTheFirstStrongLetterOutsideSyntaxAndAtoms() {
         let source = "@src/a.ts اشرح هذا \n@x اكتب\n[1](https://example.test) مرحبا\n42"
@@ -636,7 +637,7 @@ final class MarkupEditorTests: XCTestCase {
         XCTAssertEqual(directions(field, starts), [.rightToLeft, .leftToRight, .rightToLeft, .leftToRight])
     }
 
-    /// Undo and redo give back the words of the lines they
+    /// LLP 1045 D11: undo and redo give back the words of the lines they
     /// restore. Each step restyles, as the next keystroke would.
     func testUndoAndRedoGiveBackTheWordsOfTheLinesTheyRestore() throws {
         let (node, field, window, presenter, session) = styled("A\nب\nC", caret: 1)
@@ -663,7 +664,7 @@ final class MarkupEditorTests: XCTestCase {
         XCTAssertEqual(directions(field, [0, 2, 4]), [.leftToRight, .rightToLeft, .leftToRight])
     }
 
-    /// An undo step keeps the words of the source it returns
+    /// LLP 1045 D11: an undo step keeps the words of the source it returns
     /// to, however many keystrokes it holds, and typing still coalesces; a
     /// removed line typed back in takes the word above it, and the app's next
     /// words forget what undo would have given back.
@@ -716,7 +717,7 @@ final class MarkupEditorTests: XCTestCase {
         }
     }
 
-    /// A line ends at CR and CRLF as at LF, where TextKit ends
+    /// LLP 1045 D11: a line ends at CR and CRLF as at LF, where TextKit ends
     /// a paragraph; text the app rewrites from NFC to NFD finds its lines again.
     func testALineEndsAtCROrCRLFAndCanonicallyEquivalentTextIsAnotherSource() {
         let (node, field, window, presenter, session) = styled("A\rب\r\nC")
@@ -738,7 +739,7 @@ final class MarkupEditorTests: XCTestCase {
         XCTAssertEqual(directions(field, [0, 3]), [.leftToRight, .rightToLeft])
     }
 
-    /// A composition's step, which its first marked text opens,
+    /// LLP 1045 D11: a composition's step, which its first marked text opens,
     /// and `setRangeText`'s keep the words of the source they return to.
     func testACompositionsStepAndSetRangeTextsKeepTheirWords() throws {
         do {
@@ -777,7 +778,7 @@ final class MarkupEditorTests: XCTestCase {
         }
     }
 
-    /// The app's new words, which a runner can apply inside an
+    /// LLP 1045 D11: the app's new words, which a runner can apply inside an
     /// undo's `input` and so before its restyle, still forget the words redo
     /// would give back.
     func testNewWordsWithAnUndoForgetTheWordsRedoWouldGiveBack() throws {
@@ -799,7 +800,7 @@ final class MarkupEditorTests: XCTestCase {
         XCTAssertEqual(directions(field, [0, 2]), [.rightToLeft, .rightToLeft])
     }
 
-    /// Each undo and redo moves one set of words, as the
+    /// LLP 1045 D11: each undo and redo moves one set of words, as the
     /// manager moves one step, where the app's new words left the stacks
     /// fewer steps than the manager's.
     func testEachUndoAndRedoMovesOneSetOfWords() throws {
@@ -848,7 +849,7 @@ final class MarkupEditorTests: XCTestCase {
         closeGroup(manager)
     }
 
-    /// `auto` reads a footnote mark's label as text, as the web
+    /// LLP 1045 D11: `auto` reads a footnote mark's label as text, as the web
     /// shows it, wherever the caret is (a caret on a line reveals its syntax);
     /// in a right-to-left field, a line with no strong letter takes the
     /// field's direction.
@@ -865,7 +866,7 @@ final class MarkupEditorTests: XCTestCase {
         }
     }
 
-    /// A word stays with its line through typing, Return, undo
+    /// LLP 1045 D11: a word stays with its line through typing, Return, undo
     /// and a composition, until the app's next words.
     func testAWordStaysWithItsLineThroughTypingReturnUndoAndComposition() throws {
         let (node, field, window, presenter, session) = styled("A\nب\nC", caret: 1)
@@ -905,7 +906,7 @@ final class MarkupEditorTests: XCTestCase {
 #if os(iOS)
 import UIKit
 
-/// On UIKit, the Markdown editor's source selection and range
+/// LLP 1045 D6 on UIKit: the Markdown editor's source selection and range
 /// edits, each `setRangeText` one undo step of its own, and Return asking the
 /// app before the list continues. A simulator runs it:
 ///   bun host/apple/build.mjs --test --ios
@@ -1031,7 +1032,7 @@ final class MarkupEditorIOSTests: XCTestCase {
         starts.map { (f.textStorage.attribute(.paragraphStyle, at: $0, effectiveRange: nil) as? NSParagraphStyle)?.baseWritingDirection }
     }
 
-    /// On UIKit, a `paragraphDirs` the app sends alone restyles
+    /// LLP 1045 D11 on UIKit: a `paragraphDirs` the app sends alone restyles
     /// each line's base direction, the empty last line types (and draws its
     /// placeholder) in its line's, and a line without a word takes the field's.
     func testParagraphDirsGiveEachLineItsBaseWritingDirection() {
@@ -1050,7 +1051,7 @@ final class MarkupEditorIOSTests: XCTestCase {
         XCTAssertEqual(f.text, source)
     }
 
-    /// On UIKit, undo and redo give back the words of the lines
+    /// LLP 1045 D11 on UIKit: undo and redo give back the words of the lines
     /// they restore. Each step restyles, as the next keystroke would.
     func testUndoAndRedoGiveBackTheWordsOfTheLinesTheyRestore() throws {
         let (p, node, f, session) = styledField("A\nب\nC")
@@ -1079,7 +1080,7 @@ final class MarkupEditorIOSTests: XCTestCase {
         XCTAssertEqual(directions(f, [0, 2, 4]), [.leftToRight, .rightToLeft, .leftToRight])
     }
 
-    /// On UIKit, an undo step keeps the words of the source it
+    /// LLP 1045 D11 on UIKit: an undo step keeps the words of the source it
     /// returns to, however many keystrokes it holds; a removed line typed
     /// back in takes the word above it, and the app's next words forget what
     /// undo would have given back.
@@ -1130,7 +1131,7 @@ final class MarkupEditorIOSTests: XCTestCase {
         }
     }
 
-    /// On UIKit, a line ends at CR and CRLF as at LF, where
+    /// LLP 1045 D11 on UIKit: a line ends at CR and CRLF as at LF, where
     /// TextKit ends a paragraph; text the app rewrites from NFC to NFD finds
     /// its lines again.
     func testALineEndsAtCROrCRLFAndCanonicallyEquivalentTextIsAnotherSource() {
@@ -1148,7 +1149,7 @@ final class MarkupEditorIOSTests: XCTestCase {
         XCTAssertEqual(directions(f, [0, 3]), [.leftToRight, .rightToLeft])
     }
 
-    /// On UIKit, a composition's step and `setRangeText`'s keep
+    /// LLP 1045 D11 on UIKit: a composition's step and `setRangeText`'s keep
     /// the words of the source they return to.
     func testACompositionsStepAndSetRangeTextsKeepTheirWords() throws {
         do {
@@ -1184,7 +1185,7 @@ final class MarkupEditorIOSTests: XCTestCase {
         }
     }
 
-    /// On UIKit, each undo and redo moves one set of words, as
+    /// LLP 1045 D11 on UIKit: each undo and redo moves one set of words, as
     /// the manager moves one step, where the app's new words left the stacks
     /// fewer steps than the manager's.
     func testEachUndoAndRedoMovesOneSetOfWords() throws {
@@ -1231,7 +1232,7 @@ final class MarkupEditorIOSTests: XCTestCase {
         closeGroup(manager)
     }
 
-    /// On UIKit, `auto` is a line's first strong letter outside
+    /// LLP 1045 D11 on UIKit: `auto` is a line's first strong letter outside
     /// its syntax and atoms, a footnote mark's label being text; with none,
     /// the field's direction.
     func testAutoTakesTheFirstStrongLetterOutsideSyntaxAndAtoms() {
@@ -1253,7 +1254,7 @@ final class MarkupEditorIOSTests: XCTestCase {
         }
     }
 
-    /// On UIKit, a word stays with its line through typing,
+    /// LLP 1045 D11 on UIKit: a word stays with its line through typing,
     /// Return, undo and a composition, until the app's next words.
     func testAWordStaysWithItsLineThroughTypingReturnUndoAndComposition() throws {
         let (p, node, f, session) = styledField("A\nب\nC")

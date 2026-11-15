@@ -1,4 +1,4 @@
-//! `lower-library-platform`: nothing in a library package
+//! `lower-library-platform` (LLP 1139 D6): nothing in a library package
 //! reads the host it runs on. A resource of `exactDelivery` or
 //! `exactSurface`; and `exactViewport`'s `displayMode`, read from the
 //! viewport wherever the package carries it: an alias (a derive, a state
@@ -6,13 +6,13 @@
 //! `fn`'s parameter (a `fn` that returns its argument, or passes it on, as
 //! well), and an inject whose nearest provider in the package provides it.
 //! A prop's `displayMode` is the app's data, never the host's; an inject
-//! the package doesn't provide is a known limit.
+//! the package doesn't provide is the deferred limit (QUEUE).
 
 use crate::LowerError;
-use contract_syntax::{Component, Expr, File, Node, Span, Stmt, TemplatePart};
+use contract_syntax::{Component, Expr, File, Node, Span, Stmt};
 
-/// The host sources a library may not read.
-const HOST: [&str; 2] = ["exactDelivery", "exactSurface"];
+/// The host sources a library may not read (D6).
+const HOST: [&str; 3] = ["exactDelivery", "exactSurface", "exactCanvasPerformance"];
 
 /// Each host read in the components of `file` that are a library
 /// package's, each with its package (`lower-library-platform`).
@@ -47,7 +47,7 @@ pub(crate) fn check(file: &File, components: &[(&Component, &str)]) -> Vec<Lower
         let refuse = |what: String, span: Span| {
             LowerError {
             id: "lower-library-platform",
-            message: format!("{what} in `{comp}` reads the host a library runs on: a library never forks per OS; read dimensions, media preferences, page facts or capabilities instead"),
+            message: format!("{what} in `{comp}` reads the host a library runs on: a library never forks per OS; read dimensions, media preferences, page facts or capabilities instead (LLP 1139 D6)"),
             span,
         }
         };
@@ -222,19 +222,7 @@ fn provided(
 
 /// Whether `nodes` use component `name`, a fill's too.
 fn uses(nodes: &[Node], name: &str) -> bool {
-    nodes.iter().any(|n| match n {
-        Node::Use {
-            name: used,
-            children,
-            ..
-        } => used == name || uses(children, name),
-        Node::Element { children, .. } | Node::Each { body: children, .. } => uses(children, name),
-        Node::When {
-            then, otherwise, ..
-        } => uses(then, name) || uses(otherwise, name),
-        Node::Match { some, none, .. } => uses(&some.1, name) || uses(none, name),
-        Node::Children { .. } => false,
-    })
+    Node::walk(nodes).any(|n| matches!(n, Node::Use { name: used, .. } if used == name))
 }
 
 /// A `fn`: which parameters' `displayMode` it reads, itself or through a
@@ -419,29 +407,12 @@ impl Cx<'_, '_> {
     /// Each read in `e`, each name bound in its own scope.
     fn expr(&mut self, e: &Expr, held: &[String]) {
         match e {
-            Expr::Number(..)
-            | Expr::Str(..)
-            | Expr::Bool(..)
-            | Expr::None(..)
-            | Expr::Ident(..) => {}
             Expr::Member(base, field, span) => {
                 if field == "displayMode" && self.scan.viewport(base, held) {
                     self.found.reads.push(*span);
                 }
                 self.expr(base, held);
             }
-            Expr::Template(parts, _) => {
-                for p in parts {
-                    if let TemplatePart::Expr(x) = p {
-                        self.expr(x, held);
-                    }
-                }
-            }
-            Expr::List(items, _) => items.iter().for_each(|a| self.expr(a, held)),
-            Expr::Some(x, _)
-            | Expr::NamedArg(_, x, _)
-            | Expr::Typed(x, _, _)
-            | Expr::Unary(_, x, _) => self.expr(x, held),
             Expr::Call(name, args, span) => {
                 for a in args {
                     self.expr(a, held);
@@ -458,15 +429,6 @@ impl Cx<'_, '_> {
                         .params
                         .extend(tainted.into_iter().map(|i| (name.clone(), i)));
                 }
-            }
-            Expr::Binary(_, a, b, _) => {
-                self.expr(a, held);
-                self.expr(b, held);
-            }
-            Expr::Ternary(a, b, c, _) => {
-                self.expr(a, held);
-                self.expr(b, held);
-                self.expr(c, held);
             }
             Expr::Match {
                 subject,
@@ -494,6 +456,11 @@ impl Cx<'_, '_> {
                     .cloned()
                     .collect();
                 self.expr(body, &inner);
+            }
+            _ => {
+                for x in e.operands() {
+                    self.expr(x, held);
+                }
             }
         }
     }

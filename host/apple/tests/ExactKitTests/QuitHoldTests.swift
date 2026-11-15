@@ -1,7 +1,7 @@
 import XCTest
 @testable import ExactKit
 
-/// A quit is held while the module's storage lands, and let
+/// LLP 1097 D10: a quit is held while the module's storage lands, and let
 /// go when it has or when the bound passes.
 final class QuitHoldTests: XCTestCase {
     final class Probe {
@@ -53,7 +53,7 @@ final class QuitHoldTests: XCTestCase {
     }
 }
 
-/// A native module's quit work joins the quit's one hold.
+/// LLP 1069.010 Q4: a native module's quit work joins the quit's one hold.
 /// The module is a table in memory whose `will_quit` keeps `done` for the
 /// test to call.
 final class ModuleQuitHoldTests: XCTestCase {
@@ -69,7 +69,7 @@ final class ModuleQuitHoldTests: XCTestCase {
             ModuleQuitHoldTests.asked += 1
             ModuleQuitHoldTests.done = { fn?(ctx) }
         }
-        put(UInt32(3), 0); put(size, 4); put(UnsafeRawPointer(strdup("{}")), 8)
+        put(NativeViews.tableMajor, 0); put(size, 4); put(UnsafeRawPointer(strdup("{}")), 8)
         for offset in [16, 24, 32, 48, 72, 80, 88, 96] { put(unsafeBitCast(none, to: UnsafeRawPointer.self), offset) }
         put(unsafeBitCast(willQuit, to: UnsafeRawPointer.self), 208)
         return t

@@ -1,5 +1,5 @@
 // data: interaction-gallery
-// Synthetic conformance plan: Arrange, the reorder drag, on
+// Synthetic conformance plan: Arrange, the reorder drag (LLP 1041 §8.5), on
 // a virtualized list over a dist that links collections, drags and motion.
 // A grip's reorderFor names the list; a finger lifts its row, the rows it
 // passes spring aside (the collection's preview), and the release runs the
@@ -7,7 +7,7 @@
 // certified by the collection; a short move places nothing. The action
 // records the drop; the rows keep their order, and spring back. Rows the
 // list gains after the motion piece is here are built detached and then
-// inserted, and their grips drag too.
+// inserted, and their grips drag too (stocks diary #1).
 shape Photo
   id: string
   title: string

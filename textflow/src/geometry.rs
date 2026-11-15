@@ -1,4 +1,4 @@
-//! Resolved, unscaled exclusion geometry.
+//! @ref LLP 1043.000 §3 D5, D6 — resolved, unscaled exclusion geometry.
 
 use crate::finite;
 use std::sync::Arc;
@@ -361,7 +361,7 @@ pub fn meets(shapes: &[FlowShape], x0: f32, y0: f32, x1: f32, y1: f32) -> bool {
         })
 }
 
-// Fill-rule crossings between every topology
+// @ref LLP 1043.000 §3 D5/D6 — fill-rule crossings between every topology
 // event. Inside one slab edges are linear and their ordering cannot change,
 // so the union projection is exactly the extrema at its two endpoints.
 // V vertices: O(V² + K*V log V), K <= V²+V+1 slabs, plus caller union work.

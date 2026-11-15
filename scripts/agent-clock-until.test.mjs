@@ -1,4 +1,4 @@
-// `clock +N real until <path>` (a test harness's signal): `clock +N real`, ended early once the
+// `clock +N real until <path>` (theme2 2026-10-24, a test harness's signal): `clock +N real`, ended early once the
 // file at <path> exists, the clock moved by exactly the real time gone; met at once when it is there already;
 // refused for a URL, a glob or a directory that does not exist. The driver's actual method, on a stand-in host whose
 // wall clock the test moves (as caps.test.mjs's `clock +N real` test does).
@@ -8,7 +8,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { MalformedOperation } from './agent-keys.mjs';
 
-const source = readFileSync(new URL('./agent.mjs', import.meta.url), 'utf8');
+const source = readFileSync(new URL('./agent-session.mjs', import.meta.url), 'utf8');
 const start = source.indexOf("    async clock(spec = 'settle'"), end = source.indexOf('\n    /** The window', start);
 
 /** The method on a web host at clock 1000, its wall clock moving 100 ms a look; `at(ms)` runs as the wall passes ms. */

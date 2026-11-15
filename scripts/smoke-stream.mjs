@@ -1,4 +1,4 @@
-// Answers that keep coming, driven —
+// Answers that keep coming, driven (LLP 1016.000; LLP 1069.004 slice 2) —
 // `smoke.mjs` runs this for Exact Live: `bun scripts/smoke.mjs
 // <web|macos|linux> --app exact-live`. The smoke starts the job fixture on
 // loopback (4349 data, 4350 control) and builds the web app against it; a

@@ -1,4 +1,4 @@
-//! The runner's refusals of process requests: a
+//! The runner's refusals of process requests (LLP 1133.007 D12, D13): a
 //! model's tool handler starts no program, and a kind the package does not
 //! declare reaches no host, from any origin.
 use super::super::invoke::To;

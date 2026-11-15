@@ -1,5 +1,5 @@
 //! Actual Hermes versus Chrome's standard web utilities.
-//! Unicode and URL semantics survive a language move
+//! @ref LLP 1027.001 D1 — Unicode and URL semantics survive a language move
 #![cfg(exact_js_engine)]
 use exact_js::Module;
 use exact_runner::DataSource;
@@ -19,7 +19,7 @@ fn pure_utilities_match_the_web_executor() {
         .find_map(|line| line.strip_prefix("missing chrome: "))
         .map(str::to_owned)
     {
-        // Under EXACT_REQUIRED=1 a missing prerequisite fails (scripts/coverage.mjs).
+        // EXACT_REQUIRED=1 (the async lane): a missing prerequisite fails (scripts/coverage.mjs).
         assert_ne!(
             std::env::var("EXACT_REQUIRED").as_deref(),
             Ok("1"),
@@ -34,7 +34,7 @@ fn pure_utilities_match_the_web_executor() {
         String::from_utf8_lossy(&reference.stderr)
     );
     let expected: Vec<String> = serde_json::from_slice(&reference.stdout).unwrap();
-    let plan = contract::compile("component App\n  resource text = text() as shape string\n  resource url = url() as shape string\n  resource base64 = base64() as shape string\n  resource standard = standard() as shape string\n  resource microtask = microtask() as shape string\n  resource abort = abort() as shape string\n  resource hooks = hooks() as shape string\n  resource intl = intl() as shape string\n  resource abortAny = abortAny() as shape string\n  resource response = response() as shape string\n  view\n    text text\n").unwrap();
+    let plan = contract::compile("component App\n  resource text = text() as shape string\n  resource url = url() as shape string\n  resource base64 = base64() as shape string\n  resource standard = standard() as shape string\n  resource microtask = microtask() as shape string\n  resource abort = abort() as shape string\n  resource hooks = hooks() as shape string\n  resource intl = intl() as shape string\n  resource abortAny = abortAny() as shape string\n  resource response = response() as shape string\n  resource streams = streams() as shape string\n  view\n    text text\n").unwrap();
     let mut module = Module::loaded(
         include_bytes!(concat!(env!("OUT_DIR"), "/pure.hbc")).to_vec(),
         "test.pure",
@@ -55,6 +55,7 @@ fn pure_utilities_match_the_web_executor() {
         "intl",
         "abortAny",
         "response",
+        "streams",
     ]
     .into_iter()
     .zip(expected)
@@ -98,7 +99,7 @@ try {
   });
   const fixture = readFileSync(process.env.EXACT_PURE_SCRIPT, 'utf8');
   const result = await cdp.send('Runtime.evaluate', {
-    expression:fixture + '\n;Promise.all(["text","url","base64","standard","microtask","abort","hooks","intl","abortAny","response"].map(source=>globalThis.exact.answer(source))).then(JSON.stringify)',
+    expression:fixture + '\n;Promise.all(["text","url","base64","standard","microtask","abort","hooks","intl","abortAny","response","streams"].map(source=>globalThis.exact.answer(source))).then(JSON.stringify)',
     returnByValue:true, awaitPromise:true,
   }, sessionId);
   if (result.exceptionDetails) throw new Error(result.exceptionDetails.exception?.description ?? result.exceptionDetails.text);
@@ -111,6 +112,101 @@ try {
   rmSync(profile, { recursive:true, force:true, maxRetries:3, retryDelay:100 });
 }
 "#;
+
+#[test]
+fn readable_stream_bodies_are_collected_by_responses() {
+    let mut module = Module::loaded(
+        include_bytes!(concat!(env!("OUT_DIR"), "/pure.hbc")).to_vec(),
+        "test.pure",
+        "",
+    )
+    .unwrap();
+    module.bind(&contract::compile("component App\n  resource value = streamBody() as shape string\n  view\n    text value\n").unwrap());
+    assert_eq!(
+        module.query("streamBody", &[]).unwrap().as_str().unwrap(),
+        r#"{"viaResponse":"hello","magic":[31,139],"unpacked":"hello"}"#
+    );
+}
+
+/// Each step of a URLSearchParams iteration once parsed the whole query
+/// again, so iterating N pairs parsed N² of them: 2,000 pairs three ways
+/// overran a two-second turn. An unchanged query is now parsed once.
+#[test]
+fn iterating_unchanged_search_params_is_linear_in_them() {
+    let mut module = Module::loaded(
+        include_bytes!(concat!(env!("OUT_DIR"), "/pure.hbc")).to_vec(),
+        "test.pure",
+        "",
+    )
+    .unwrap();
+    module.bind(&contract::compile("component App\n  resource value = searchParamsWork() as shape string\n  view\n    text value\n").unwrap());
+    module.set_budget_ms(2_000.0);
+    let seen = module.query("searchParamsWork", &[]).unwrap();
+    assert_eq!(seen.as_str().unwrap(), "6000");
+}
+
+/// Each step of a Headers iteration once copied and sorted the whole list
+/// twice, once for the name and once for the value: 2N sorts of N pairs.
+/// The sorted order is now kept until a header is added or deleted.
+#[test]
+fn iterating_unchanged_headers_is_linear_in_them() {
+    let mut module = Module::loaded(
+        include_bytes!(concat!(env!("OUT_DIR"), "/pure.hbc")).to_vec(),
+        "test.pure",
+        "",
+    )
+    .unwrap();
+    module.bind(&contract::compile("component App\n  resource value = headersWork() as shape string\n  view\n    text value\n").unwrap());
+    module.set_budget_ms(2_000.0);
+    let seen = module.query("headersWork", &[]).unwrap();
+    assert_eq!(seen.as_str().unwrap(), "12000");
+}
+
+#[test]
+fn readable_stream_bodies_and_chunks_use_intrinsic_brands() {
+    let mut module = Module::loaded(
+        include_bytes!(concat!(env!("OUT_DIR"), "/pure.hbc")).to_vec(),
+        "test.pure",
+        "",
+    )
+    .unwrap();
+    module.bind(&contract::compile("component App\n  resource value = streamBodyBrands() as shape string\n  view\n    text value\n").unwrap());
+    assert_eq!(
+        module
+            .query("streamBodyBrands", &[])
+            .unwrap()
+            .as_str()
+            .unwrap(),
+        r#"{"chunks":["TypeError","TypeError",[1,2],[3,4]],"bodies":["A",["B","B"],["B","B"]]}"#
+    );
+}
+
+#[test]
+fn readable_stream_request_bodies_refuse_before_a_request_is_sent() {
+    use exact_runner::{Answer, Store};
+    let grants = "";
+    let mut module = Module::loaded(
+        include_bytes!(concat!(env!("OUT_DIR"), "/pure.hbc")).to_vec(),
+        "test.pure",
+        grants,
+    )
+    .unwrap();
+    module.bind(&contract::compile("component App\n  resource value = streamUpload() as shape string\n  view\n    text value\n").unwrap());
+    let mut store = Store::new(grants, Vec::<(String, Vec<u8>)>::new());
+    let answer = module.answer(&mut store, "streamUpload", &[]).unwrap();
+    let Answer::Now(value) = answer else {
+        panic!("a ReadableStream body must be refused, got {answer:?}");
+    };
+    let results: Vec<String> = serde_json::from_str(value.as_str().unwrap()).unwrap();
+    assert_eq!(results.len(), 6);
+    for text in results {
+        assert!(
+            text.starts_with("TypeError: fetch: ReadableStream"),
+            "{text}"
+        );
+        assert!(text.ends_with("locked=false; stringified=false"), "{text}");
+    }
+}
 
 #[test]
 fn large_native_strings_preserve_json_semantics_and_call_ownership() {
@@ -306,4 +402,39 @@ fn universal_hardening_prevents_application_envelope_parser_replacement() {
             Some("a later call")
         );
     }
+}
+
+#[test]
+fn hardened_intrinsics_allow_own_shadowing_assignments() {
+    let mut module = Module::loaded(
+        include_bytes!(concat!(env!("OUT_DIR"), "/pure.hbc")).to_vec(),
+        "test.pure",
+        "",
+    )
+    .unwrap();
+    module.set_budget_ms(f64::INFINITY);
+    module.bind(&contract::compile("component App\n  resource value = shadowIntrinsics() as shape string\n  view\n    text value\n").unwrap());
+    assert_eq!(
+        module
+            .query("shadowIntrinsics", &[])
+            .unwrap()
+            .as_str()
+            .unwrap(),
+        r#"[["MyError","x",true],["$3.50",true,true,true],"Point(3)","Refused",["a","constructor","valueOf"],[7]]"#
+    );
+}
+
+#[test]
+fn shadowing_setters_keep_intrinsics_and_receiver_descriptors_locked() {
+    let mut module = Module::loaded(
+        include_bytes!(concat!(env!("OUT_DIR"), "/pure.hbc")).to_vec(),
+        "test.pure",
+        "",
+    )
+    .unwrap();
+    module.set_budget_ms(f64::INFINITY);
+    module.bind(&contract::compile("component App\n  resource locked = lockedIntrinsics() as shape string\n  view\n    text locked\n").unwrap());
+    let value = module.query("lockedIntrinsics", &[]).unwrap();
+    let locked: Vec<Vec<bool>> = serde_json::from_str(value.as_str().unwrap()).unwrap();
+    assert_eq!(locked, vec![vec![true; 19]; 4]);
 }

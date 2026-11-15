@@ -13,6 +13,7 @@ pub(super) struct Settled {
     slots: Vec<Value>,
     now_ms: f64,
     pending_res: Vec<bool>,
+    current_res: Vec<bool>,
     failed_res: Vec<Option<crate::failure::Failure>>,
     pending_mut: Vec<bool>,
     failed_mut: Vec<Option<crate::failure::Failure>>,
@@ -29,6 +30,7 @@ struct Progress<'a> {
     resources: &'a [bool],
     resource_changed: &'a [bool],
     pending_res: &'a [bool],
+    current_res: &'a [bool],
 }
 
 enum RequestEffect {
@@ -36,7 +38,7 @@ enum RequestEffect {
     Answered,
     Later {
         args: Vec<Value>,
-        request: Box<Request>,
+        requests: Vec<Request>,
         forced: bool,
     },
     /// Refused by a turn over its budget: held to be asked again
@@ -51,7 +53,7 @@ enum RequestEffect {
 
 impl<D: DataSource> Runner<D> {
     /// What a resource shows while its source hasn't answered and nothing
-    /// is kept: its declared placeholder row's value this
+    /// is kept (LLP 1048.003 D6): its declared placeholder row's value this
     /// pass, or a list's or an option's empty value.
     fn placeholder(
         &self,
@@ -63,7 +65,7 @@ impl<D: DataSource> Runner<D> {
             Some(p) => resources[p.0 as usize]
                 .as_ref()
                 .map(|h| h.get(&self.plan).clone()),
-            // A declared `else empty(…)`, or
+            // @ref LLP 1054.000.002 D1/D3 — a declared `else empty(…)`, or
             // the type's zero.
             None if row.placeholder_value.len > 0 => {
                 Value::from_bytes(self.plan.bytes(row.placeholder_value)).ok()
@@ -76,11 +78,12 @@ impl<D: DataSource> Runner<D> {
     }
 
     /// The journal's word when an answer lands on a build-time one shown
-    /// until its source was ready, or on a kept answer
-    /// that it contradicts: the first frame showed the last
-    /// session's value, which a reader of only the final frame never sees.
+    /// until its source was ready (LLP 1048.003 D6), or on a kept answer
+    /// (LLP 1027 D4) that it contradicts: the first frame showed the last
+    /// session's value, which a reader of only the final frame never sees
+    /// (LLP 1102 §3.17).
     pub(super) fn revalidated(&mut self, i: usize, shown: Option<&ResourceState>, answer: &Value) {
-        let Some(shown) = shown.filter(|_| self.stale[i]) else {
+        let Some(shown) = shown.filter(|_| self.resources[i].stale) else {
             return;
         };
         // A stale value that is neither build-time nor a placeholder is one the
@@ -91,7 +94,7 @@ impl<D: DataSource> Runner<D> {
             return;
         }
         let same = crate::compare::equivalent(shown.value.get(&self.plan), answer);
-        let name = self.plan.str(self.plan.resources[i].name);
+        let name = self.plan.str(self.resource_row(i).name);
         if compiled {
             let line = super::lines::revalidated(name, same);
             self.log(line);
@@ -104,32 +107,28 @@ impl<D: DataSource> Runner<D> {
     /// A store reader whose build-time answer, the bake's empty store's,
     /// is passed over for its declared placeholder: before its source is
     /// ready, at a launch whose store held granted secrets the bake never
-    /// saw. Without an `else` it stands.
+    /// saw (LLP 1027 D4, approved 2026-10-10). Without an `else` it stands.
     fn secrets_unseen(&self, i: usize, row: &ResourcesRow, resources: &[Option<Held>]) -> bool {
-        !self.data.ready()
-            && self.store_readers[i]
+        !self.source_ready(self.plan.str(row.source))
+            && self.resources[i].store_reader
             && row.placeholder.map_or(row.placeholder_value.len > 0, |p| {
                 resources[p.0 as usize].is_some()
             })
             && self.store.opened_with_secrets()
     }
 
-    /// Whether resource `i` is another's `else` row.
+    /// Whether resource `i` is another's `else` row (LLP 1048.003 D6).
     pub(super) fn is_placeholder_row(&self, i: usize) -> bool {
-        self.plan
-            .resources
-            .iter()
+        self.resource_rows()
             .any(|r| r.placeholder.is_some_and(|p| p.0 as usize == i))
     }
 
     /// A resource whose source answers later with nothing to show: no
-    /// answer kept for its arguments and no placeholder.
+    /// answer kept for its arguments and no placeholder (LLP 1048.003 D6).
     fn unanswerable(&self, i: usize) -> RunnerError {
-        let name = self.plan.str(self.plan.resources[i].name);
+        let name = self.plan.str(self.resource_row(i).name);
         let owner = self
-            .plan
-            .resources
-            .iter()
+            .resource_rows()
             .find(|r| r.placeholder.is_some_and(|p| p.0 as usize == i));
         let (resource, message) = match owner {
             Some(owner) => (
@@ -148,7 +147,7 @@ impl<D: DataSource> Runner<D> {
     }
 
     pub(super) fn check_shape(&self, i: usize, value: &Value) -> Result<(), RunnerError> {
-        let row = &self.plan.resources[i];
+        let row = self.resource_row(i);
         #[cfg(test)]
         tests::SHAPE_CHECKS.with(|count| count.set(count.get() + 1));
         if self.conforms(value, row.ty) {
@@ -162,7 +161,7 @@ impl<D: DataSource> Runner<D> {
     /// order, to a fixpoint: an expression that reads something not yet
     /// settled this pass is retried after it settles. Deterministic, and a
     /// cycle is a typed refusal. On boot a resource takes its compiled value
-    /// if its evaluated arguments equal the baked arguments;
+    /// if its evaluated arguments equal the baked arguments (LLP 1038 D5);
     /// afterwards it is re-requested only when its arguments changed, so
     /// every derive that reads it sees the new value in the same
     /// pass.
@@ -172,10 +171,12 @@ impl<D: DataSource> Runner<D> {
         if result.is_err() {
             // A refused pass hands nothing out: the `Later` answers it
             // collected are dropped, and their sources forget the calls
-            // (the cleanup of rolled-back calls).
+            // (LLP 1027.002 D3, the cleanup of rolled-back calls).
             for effect in effects {
-                if let RequestEffect::Later { request, .. } = effect {
-                    self.discard_request(&request);
+                if let RequestEffect::Later { requests, .. } = effect {
+                    for request in &requests {
+                        self.discard_request(request);
+                    }
                 }
             }
         }
@@ -199,15 +200,22 @@ impl<D: DataSource> Runner<D> {
             Input::Resource(r) => {
                 now.resources[r]
                     && !now.resource_changed[r]
-                    && base.store_readers[r] == self.store_readers[r]
+                    && base.store_readers[r] == self.resources[r].store_reader
             }
+            // `current(x)` reads this input too (LLP 1161.001).
             Input::PendingResource(r) => {
-                now.resources[r] && base.pending_res[r] == now.pending_res[r]
+                now.resources[r]
+                    && base.pending_res[r] == now.pending_res[r]
+                    && base.current_res.get(r) == now.current_res.get(r)
             }
             Input::FailedResource(r) => {
                 now.resources[r]
                     && base.failed_res[r]
-                        == crate::failure::state(&self.failed_args, &self.failed_why, r)
+                        == crate::failure::state(
+                            crate::vm::Column::rows(&self.resources, |row| &row.failed_args),
+                            crate::vm::Column::rows(&self.resources, |row| &row.failed_why),
+                            r,
+                        )
             }
             Input::PendingMutation(m) => {
                 base.pending_mut[m] == self.pending_mut[m]
@@ -223,8 +231,9 @@ impl<D: DataSource> Runner<D> {
         effects: &mut Vec<RequestEffect>,
     ) -> Result<(), RunnerError> {
         // Store provenance as the derives below will see it.
-        let store_readers = self.store_readers.clone();
-        // What an action asked to re-request, the requests this
+        let store_readers =
+            crate::vm::Column::rows(&self.resources, |row| &row.store_reader).to_vec();
+        // LLP 1016: what an action asked to re-request, the requests this
         // pass hands the host, and the pending flags as they will be —
         // published with the rest only when the pass succeeds.
         let mut force = std::mem::take(&mut self.refresh_next);
@@ -236,13 +245,16 @@ impl<D: DataSource> Runner<D> {
         let refreshing = force.clone();
         // Work on a copy of the committed resource states; publish only when
         // the whole pass succeeds, so a failure leaves every cache as it was.
-        let mut states: Vec<Option<ResourceState>> = self.resources.clone();
+        let mut states: Vec<Option<ResourceState>> =
+            self.resources.iter().map(|row| row.state.clone()).collect();
         effects.clear();
         effects.resize_with(states.len(), || RequestEffect::None);
         // Which resources took their compiled value in this settlement: each
-        // source is told once it is published.
+        // source is told once it is published (LLP 1027 D11).
         let mut adopted = vec![false; states.len()];
         let mut resource_args = vec![Vec::new(); states.len()];
+        // What `current(x)` reads in this pass, set as each resource settles.
+        let mut current_res = vec![false; states.len()];
         // Over a list (`each.rs`): each family's members in its list's
         // order, and the members whose elements left.
         let mut lists = std::collections::BTreeMap::<usize, Vec<usize>>::new();
@@ -250,14 +262,16 @@ impl<D: DataSource> Runner<D> {
         let mut passes = 0usize;
         loop {
             passes += 1;
-            if passes > self.plan.resources.len() + 1 {
+            if passes > self.resources.len() + 1 {
                 return Err(RunnerError::Cycle);
             }
             let mut derives: Vec<Option<Value>> = vec![None; self.plan.derives.len()];
             let mut derive_store_dependent = vec![false; self.plan.derives.len()];
-            let mut resources: Vec<Option<Held>> = vec![None; self.plan.resources.len()];
-            let mut pending_res = self.pending_res.clone();
-            let mut awaiting = self.awaiting.clone();
+            let mut resources: Vec<Option<Held>> = vec![None; self.resources.len()];
+            let mut pending_res =
+                crate::vm::Column::rows(&self.resources, |row| &row.pending).to_vec();
+            let mut awaiting =
+                crate::vm::Column::rows(&self.resources, |row| &row.awaiting).to_vec();
             for (i, effect) in effects.iter().enumerate() {
                 match effect {
                     RequestEffect::None => {}
@@ -265,8 +279,11 @@ impl<D: DataSource> Runner<D> {
                         pending_res[i] = false;
                         awaiting[i] = false;
                     }
+                    // Asked in an earlier pass: no longer a stand-in
+                    // waiting for its source, as that pass recorded.
                     RequestEffect::Later { .. } | RequestEffect::Wait { .. } => {
-                        pending_res[i] = true
+                        pending_res[i] = true;
+                        awaiting[i] = false;
                     }
                 }
             }
@@ -277,7 +294,7 @@ impl<D: DataSource> Runner<D> {
                 let mut progress = false;
                 let mut all = true;
                 for i in 0..self.plan.derives.len() {
-                    if derives[i].is_some() {
+                    if self.plan.derives[i].unsettled || derives[i].is_some() {
                         continue;
                     }
                     // Unchanged inputs, unchanged value: no evaluation.
@@ -287,6 +304,7 @@ impl<D: DataSource> Runner<D> {
                         resources: &settled_res,
                         resource_changed: &resource_changed,
                         pending_res: &pending_res,
+                        current_res: &current_res,
                     };
                     if self.derives[i].is_some()
                         && self.unchanged(&self.sites.deps().derives[i], &now)
@@ -308,17 +326,25 @@ impl<D: DataSource> Runner<D> {
                             geometry: None,
                             slots: &self.slots,
                             derives: &derives,
-                            resources: &resources,
+                            resources: (&resources).into(),
                             params: &[],
                             frames: &[],
                             now_ms: self.now_ms,
-                            pending_resources: &pending_res,
-                            failed_resources: &self.failed_args,
-                            failed_why: &self.failed_why,
+                            pending_resources: (&pending_res).into(),
+                            current_resources: (&current_res).into(),
+                            failed_resources: crate::vm::Column::rows(&self.resources, |row| {
+                                &row.failed_args
+                            }),
+                            failed_why: crate::vm::Column::rows(&self.resources, |row| {
+                                &row.failed_why
+                            }),
                             pending_mutations: &self.pending_mut,
                             failed_mutations: &self.failed_mut,
                             store_dependent_derives: &derive_store_dependent,
-                            store_dependent_resources: &self.store_readers,
+                            store_dependent_resources: crate::vm::Column::rows(
+                                &self.resources,
+                                |row| &row.store_reader,
+                            ),
                         };
                         vm::eval(self.plan.code(code), &env, &[])
                     };
@@ -352,10 +378,14 @@ impl<D: DataSource> Runner<D> {
                             progress = true;
                         }
                         Err(Trap::Pending { .. }) => all = false,
-                        Err(t) => return Err(t.into()),
+                        Err(t) => {
+                            return Err(RunnerError::from(t).evaluated(|| {
+                                format!("derive {:?}", self.plan.str(self.plan.derives[i].name))
+                            }))
+                        }
                     }
                 }
-                for i in 0..self.plan.resources.len() {
+                for i in 0..self.resources.len() {
                     if settled_res[i] {
                         continue;
                     }
@@ -373,8 +403,10 @@ impl<D: DataSource> Runner<D> {
                         if !listed {
                             // Leaving: let go when this settlement stands.
                             states[i] = None;
-                            self.store_readers[i] = false;
+                            self.resources[i].store_reader = false;
                             settled_res[i] = true;
+                            current_res[i] =
+                                self.is_current(i, states[i].as_ref(), &resource_args[i]);
                             progress = true;
                             continue;
                         }
@@ -389,26 +421,43 @@ impl<D: DataSource> Runner<D> {
                             let (value, pending) = self.gather(i, &order, &resources, &pending_res);
                             pending_res[i] = pending;
                             let fresh = Held::new(value);
-                            let shown = match &self.resource_values[i] {
+                            let shown = match &self.resources[i].value {
                                 Some(old) if Held::equivalent(old, &fresh) => old.clone(),
                                 _ => fresh,
                             };
                             resource_changed[i] = !matches!(
-                                &self.resource_values[i],
+                                &self.resources[i].value,
                                 Some(old) if Held::same(old, &shown)
                             );
-                            resources[i] = Some(shown.clone());
+                            let answer = Value::list(
+                                order
+                                    .iter()
+                                    .map(|&m| {
+                                        states[m]
+                                            .as_ref()
+                                            .expect("settled")
+                                            .value
+                                            .get(&self.plan)
+                                            .clone()
+                                    })
+                                    .collect(),
+                            );
+                            resources[i] = Some(shown);
                             states[i] = Some(ResourceState {
                                 inspection_generation: 0,
                                 args: Vec::new(),
-                                value: shown,
+                                value: Held::new(answer),
                                 store_revision: self.store.revision(),
                                 placeholder: false,
                                 kept_seed: false,
                                 origin: 0,
                                 answered_for: None,
+                                asleep: false,
+                                slept: false,
                             });
                             settled_res[i] = true;
+                            // A family is current when every listed member is (LLP 1161.001).
+                            current_res[i] = order.iter().all(|&m| current_res[m]);
                             progress = true;
                             continue;
                         }
@@ -422,29 +471,37 @@ impl<D: DataSource> Runner<D> {
                                 geometry: None,
                                 slots: &self.slots,
                                 derives: &derives,
-                                resources: &resources,
+                                resources: (&resources).into(),
                                 params: &[],
                                 frames: &[],
                                 now_ms: self.now_ms,
-                                pending_resources: &pending_res,
-                                failed_resources: &self.failed_args,
-                                failed_why: &self.failed_why,
+                                pending_resources: (&pending_res).into(),
+                                current_resources: (&current_res).into(),
+                                failed_resources: crate::vm::Column::rows(&self.resources, |row| {
+                                    &row.failed_args
+                                }),
+                                failed_why: crate::vm::Column::rows(&self.resources, |row| {
+                                    &row.failed_why
+                                }),
                                 pending_mutations: &self.pending_mut,
                                 failed_mutations: &self.failed_mut,
                                 store_dependent_derives: &derive_store_dependent,
-                                store_dependent_resources: &self.store_readers,
+                                store_dependent_resources: crate::vm::Column::rows(
+                                    &self.resources,
+                                    |row| &row.store_reader,
+                                ),
                             };
                             match self.elements(i, &env) {
-                                Ok(elements) => elements?,
-                                Err(Trap::Pending { .. }) => {
+                                Ok(elements) => elements,
+                                Err(RunnerError::Trap(Trap::Pending { .. })) => {
                                     all = false;
                                     continue;
                                 }
-                                Err(t) => return Err(t.into()),
+                                Err(error) => return Err(error),
                             }
                         };
-                        let (order, gone, _) = self.join(i, elements);
-                        let n = self.plan.resources.len();
+                        let (order, gone, added) = self.join(i, elements);
+                        let n = self.resources.len();
                         states.resize(n, None);
                         effects.resize_with(n, || RequestEffect::None);
                         adopted.resize(n, false);
@@ -454,6 +511,17 @@ impl<D: DataSource> Runner<D> {
                         awaiting.resize(n, false);
                         settled_res.resize(n, false);
                         resource_changed.resize(n, false);
+                        current_res.resize(n, false);
+                        // A row a new member took may have settled empty in
+                        // this pass already, while it was a left element's.
+                        for m in added {
+                            states[m] = None;
+                            resources[m] = None;
+                            pending_res[m] = false;
+                            awaiting[m] = false;
+                            settled_res[m] = false;
+                            resource_changed[m] = false;
+                        }
                         // A refresh of the list refreshes each element.
                         if force.contains(&i) {
                             force.retain(|f| *f != i);
@@ -469,7 +537,128 @@ impl<D: DataSource> Runner<D> {
                         progress = true;
                         continue;
                     }
-                    let row = self.plan.resources[i].clone();
+                    let row = self.resource_row(i).clone();
+                    let ready = self.source_ready(self.plan.str(row.source));
+                    // @ref LLP 1161.002 D2 — a closed gate asks nothing.
+                    let open = match row.gate.iter().next() {
+                        None => true,
+                        Some(gate) => {
+                            let code = self.plan.arg(gate).expr;
+                            let result = {
+                                let env = Env {
+                                    plan: &self.plan,
+                                    strings: &self.strings,
+                                    router: self.router.as_deref(),
+                                    lists: self.links.lists,
+                                    format: self.links.format,
+                                    geometry: None,
+                                    slots: &self.slots,
+                                    derives: &derives,
+                                    resources: (&resources).into(),
+                                    params: &[],
+                                    frames: &[],
+                                    now_ms: self.now_ms,
+                                    pending_resources: (&pending_res).into(),
+                                    current_resources: (&current_res).into(),
+                                    failed_resources: crate::vm::Column::rows(
+                                        &self.resources,
+                                        |row| &row.failed_args,
+                                    ),
+                                    failed_why: crate::vm::Column::rows(&self.resources, |row| {
+                                        &row.failed_why
+                                    }),
+                                    pending_mutations: &self.pending_mut,
+                                    failed_mutations: &self.failed_mut,
+                                    store_dependent_derives: &derive_store_dependent,
+                                    store_dependent_resources: crate::vm::Column::rows(
+                                        &self.resources,
+                                        |row| &row.store_reader,
+                                    ),
+                                };
+                                vm::eval(self.plan.code(code), &env, &[])
+                            };
+                            match result {
+                                Ok(o) => o.value == Value::Bool(true),
+                                Err(Trap::Pending { .. }) => {
+                                    all = false;
+                                    continue;
+                                }
+                                Err(t) => {
+                                    return Err(RunnerError::from(t).evaluated(|| {
+                                        let name = self.plan.str(self.resource_row(i).name);
+                                        format!("resource {name:?} gate")
+                                    }))
+                                }
+                            }
+                        }
+                    };
+                    if !open {
+                        // Idle: a request in flight is let go when this
+                        // settlement stands, except an upload's, which goes on;
+                        // the value stays and stops being an answer. A refresh
+                        // or a store change asks nothing of it and is not
+                        // remembered: waking asks it anyway (LLP 1161.002 D2).
+                        force.retain(|f| *f != i);
+                        self.reconciling.retain(|r| *r != i);
+                        let upload = self.uploading(i);
+                        if !upload {
+                            // An earlier pass's `Later` was never handed out.
+                            if let RequestEffect::Later { requests, .. } =
+                                std::mem::replace(&mut effects[i], RequestEffect::Answered)
+                            {
+                                for request in &requests {
+                                    self.discard_request(request);
+                                }
+                            }
+                            pending_res[i] = false;
+                            self.resources[i].failed_args = None;
+                        }
+                        awaiting[i] = false;
+                        let state = match states[i].take() {
+                            Some(mut s) => {
+                                s.asleep = true;
+                                s.slept = true;
+                                s
+                            }
+                            None => {
+                                let Some(v) = self.placeholder(i, &row, &resources) else {
+                                    all = false;
+                                    continue;
+                                };
+                                ResourceState {
+                                    inspection_generation: 0,
+                                    args: Vec::new(),
+                                    value: Held::new(v),
+                                    store_revision: self.store.revision(),
+                                    placeholder: true,
+                                    kept_seed: false,
+                                    origin: 0,
+                                    answered_for: None,
+                                    asleep: true,
+                                    slept: true,
+                                }
+                            }
+                        };
+                        let args = state.answered_args().to_vec();
+                        let shown = self.shown(i, &args, &state.value, state.origin);
+                        resource_changed[i] = !matches!(
+                            &self.resources[i].value,
+                            Some(old) if Held::same(old, &shown)
+                        );
+                        resources[i] = Some(shown);
+                        resource_args[i] = state.args.clone();
+                        states[i] = Some(state);
+                        settled_res[i] = true;
+                        current_res[i] = false;
+                        progress = true;
+                        continue;
+                    }
+                    // Waking asks again, forced: no request is kept across
+                    // idleness (LLP 1161.002 D3).
+                    let waking = states[i].as_ref().is_some_and(|s| s.asleep);
+                    if waking && !force.contains(&i) {
+                        force.push(i);
+                    }
                     let mut args = Vec::with_capacity(row.args.len as usize);
                     let mut pending = false;
                     let mut store_dependent = false;
@@ -479,14 +668,15 @@ impl<D: DataSource> Runner<D> {
                         resources: &settled_res,
                         resource_changed: &resource_changed,
                         pending_res: &pending_res,
+                        current_res: &current_res,
                     };
                     let kept_args = self
                         .settled
                         .as_ref()
-                        .filter(|_| self.member(i).is_none())
+                        .filter(|_| self.member(i).is_none() && !waking)
                         .filter(|_| self.unchanged(&self.sites.deps().resource_args[i], &now))
                         .map(|s| s.resource_args[i].clone());
-                    for a in row.args.iter().filter(|_| kept_args.is_none()) {
+                    for (k, a) in row.args.iter().filter(|_| kept_args.is_none()).enumerate() {
                         let code = self.plan.arg(a).expr;
                         let result = {
                             let env = Env {
@@ -498,17 +688,25 @@ impl<D: DataSource> Runner<D> {
                                 geometry: None,
                                 slots: &self.slots,
                                 derives: &derives,
-                                resources: &resources,
+                                resources: (&resources).into(),
                                 params: self.member_params(i),
                                 frames: &[],
                                 now_ms: self.now_ms,
-                                pending_resources: &pending_res,
-                                failed_resources: &self.failed_args,
-                                failed_why: &self.failed_why,
+                                pending_resources: (&pending_res).into(),
+                                current_resources: (&current_res).into(),
+                                failed_resources: crate::vm::Column::rows(&self.resources, |row| {
+                                    &row.failed_args
+                                }),
+                                failed_why: crate::vm::Column::rows(&self.resources, |row| {
+                                    &row.failed_why
+                                }),
                                 pending_mutations: &self.pending_mut,
                                 failed_mutations: &self.failed_mut,
                                 store_dependent_derives: &derive_store_dependent,
-                                store_dependent_resources: &self.store_readers,
+                                store_dependent_resources: crate::vm::Column::rows(
+                                    &self.resources,
+                                    |row| &row.store_reader,
+                                ),
                             };
                             vm::eval(self.plan.code(code), &env, &[])
                         };
@@ -521,14 +719,22 @@ impl<D: DataSource> Runner<D> {
                                 pending = true;
                                 break;
                             }
-                            Err(t) => return Err(t.into()),
+                            Err(t) => {
+                                return Err(RunnerError::from(t).evaluated(|| {
+                                    format!(
+                                        "resource {:?} argument {}",
+                                        self.plan.str(row.name),
+                                        k + 1
+                                    )
+                                }))
+                            }
                         }
                     }
                     if pending {
                         all = false;
                         continue;
                     }
-                    // A placeholder row settles first,
+                    // @ref LLP 1048.003 D6 — a placeholder row settles first,
                     // so a source that answers later has something to show.
                     if row.placeholder.is_some_and(|p| !settled_res[p.0 as usize]) {
                         all = false;
@@ -538,37 +744,71 @@ impl<D: DataSource> Runner<D> {
                         args = kept;
                     }
                     resource_args[i] = args.clone();
+                    // @ref LLP 1048.000 D6 — give an element that a boot from
+                    // a page makes the page's answer at its arguments, and
+                    // what it read, to which its arguments' provenance below
+                    // adds, as to a declared resource's.
+                    if states[i].is_none() {
+                        states[i] = self.seed_member(i, &args, &mut force);
+                    }
                     // Store provenance follows the values used to form a
                     // resource query, including through derives. Such a
                     // resource is device data just like a direct reader.
-                    self.store_readers[i] |= store_dependent;
+                    self.resources[i].store_reader |= store_dependent;
                     let forced = force.contains(&i);
                     let refreshed = forced || refreshing.contains(&i);
                     self.forget_refused(i, &args);
+                    // Invalid arguments take the query's refusal path, which fails
+                    // reconciliation without undoing the write's end.
+                    let valid_args =
+                        super::query::check_arguments(self.plan.str(row.name), &args).is_ok();
                     // A stand-in a refused activation failed holds for a kept
-                    // seed's identifying arguments, whatever its context
+                    // seed's identifying arguments, whatever its context.
+                    // NaN must keep its validation failure across unrelated commits.
                     let identity = &args[..row.args.len as usize - usize::from(row.context)];
-                    let failed_for =
-                        |f: &Vec<Value>| *f == args || (self.stale[i] && f == identity);
-                    // An upload is asked once for its
+                    let stale = self.resources[i].stale;
+                    let failed_for = |f: &Vec<Value>| {
+                        crate::compare::unchanged_arguments(f, &args)
+                            || (stale && crate::compare::unchanged_arguments(f, identity))
+                    };
+                    // @ref LLP 1016.000 D10 — an upload is asked once for its
                     // arguments: in flight, ended or failed, nothing asks it
                     // again at them, not a store write it read nor a refresh.
-                    let mark = self.upload_at(i, &args).cloned();
+                    let mark = self.upload_at(i, &args).filter(|_| valid_args).cloned();
                     // An upload's failure stands through a refresh.
                     let upload_failed = matches!(mark, Some(super::UploadEnd::Failed(_)))
-                        && self.failed_args[i].as_ref().is_some_and(failed_for);
+                        && self.resources[i]
+                            .failed_args
+                            .as_ref()
+                            .is_some_and(failed_for);
                     if forced && !upload_failed
-                        || self.failed_args[i].as_ref().is_some_and(|f| !failed_for(f))
+                        || self.resources[i]
+                            .failed_args
+                            .as_ref()
+                            .is_some_and(|f| !failed_for(f))
                     {
-                        self.failed_args[i] = None;
+                        self.resources[i].failed_args = None;
                     }
-                    let failed = self.failed_args[i].as_ref().is_some_and(failed_for);
+                    let failed = self.resources[i]
+                        .failed_args
+                        .as_ref()
+                        .is_some_and(failed_for);
                     // On its way under a ticket kept for other arguments (the same
-                    // request): these arguments' again.
+                    // request, LLP 1054.000.000 D3): these arguments' again.
                     if let Some(super::UploadEnd::Sent(t)) = &mark {
                         if let Some(p) = self.pending.iter_mut().find(|p| p.ticket == *t) {
                             p.args.clone_from(&args);
                         }
+                    }
+                    // @ref LLP 1027.005 D3/D4 — only a persisted boot seed, or
+                    // an entry waiting for its identity, ignores context, and
+                    // only for known, equal identifying arguments (`kept_wait`).
+                    // A refused commit restores `states` and the resource row.
+                    let kept = self.admit_kept(i, &args, valid_args, ready, &mut states);
+                    let (kept_seed, hold) = (kept.kept_seed, kept.hold);
+                    if kept.admitted_early {
+                        pending_res[i] = false;
+                        awaiting[i] = false;
                     }
                     // The value may still answer older arguments while a
                     // request is in flight. Reuse follows the current ask;
@@ -584,45 +824,16 @@ impl<D: DataSource> Runner<D> {
                             .find(|p| p.target == Target::Resource(i))
                             .map(|p| &p.args),
                     };
-                    // Only a persisted boot seed
-                    // ignores context, and only until its source is ready.
-                    // Consume the mark on mismatch or activation even when
-                    // the old value stands during an asynchronous request.
-                    // `states` is tentative, so a refused pass restores both.
-                    // A seed whose identity reads a resource still on its
-                    // fallback is not this launch's answer yet: it is
-                    // neither admitted nor reused.
-                    let unknown = states[i].as_ref().is_some_and(|s| s.kept_seed)
-                        && !self.data.ready()
-                        && self.identity_unknown(i, &states);
-                    let kept_seed = !unknown
-                        && states[i].as_ref().is_some_and(|s| {
-                            s.kept_seed
-                                && !self.data.ready()
-                                && s.args
-                                    == args[..row.args.len as usize - usize::from(row.context)]
-                        });
-                    if let Some(state) = states[i].as_mut().filter(|s| s.kept_seed && !kept_seed) {
-                        // Refused before readiness, not consumed by it: say so.
-                        if !self.data.ready() {
-                            let identity = row.args.len as usize - usize::from(row.context);
-                            let kept = state.args.clone();
-                            let now = (!unknown).then(|| &args[..identity]);
-                            super::kept::refuse(&mut self.keeping, &self.plan, i, &kept, now);
-                        }
-                    }
-                    if let Some(state) = &mut states[i] {
-                        state.kept_seed = kept_seed;
-                    }
                     // A store-reading resource is reusable only at the exact
                     // store revision it observed. `answer` and `parse` both
                     // write through Store, so this is the one dirtying point.
                     // Host facts always come from this candidate, never a baked
-                    // or carried delivery answer.
+                    // or carried delivery answer (LLP 1030 D7).
                     let upload = mark.is_some() || self.uploading(i);
                     let reuse = states[i]
                         .as_ref()
-                        .filter(|_| !unknown)
+                        .filter(|_| valid_args || failed)
+                        .filter(|_| !hold)
                         .filter(|s| {
                             kept_seed
                                 || failed
@@ -630,15 +841,15 @@ impl<D: DataSource> Runner<D> {
                                 && !exact_plan::runner_owned_source(self.plan.str(row.source))
                                 && (upload
                                     || !forced
-                                        && (!self.store_readers[i]
+                                        && (!self.asks_on_store_change(i)
                                             || s.store_revision == self.store.revision()
                                             || self.asks_again_after_reply(i)))
-                                // A placeholder stands
+                                // @ref LLP 1054.000.002 D4 — a placeholder stands
                                 // in only while its answer is on the way.
                                 && (!s.placeholder || pending_res[i] || awaiting[i]))
                         })
                         // A compiled answer a launch holding secrets passes
-                        // over is never reused, failed or not,
+                        // over (LLP 1027 D4) is never reused, failed or not,
                         // even one that came to read the store at equal
                         // arguments.
                         .filter(|s| {
@@ -646,11 +857,12 @@ impl<D: DataSource> Runner<D> {
                         })
                         .map(|s| s.value.clone());
                     // A child its ask would let go, or arguments refused for
-                    // one, keeps what shows, and a refresh is spent.
+                    // one, keeps what shows, and a refresh is spent (LLP
+                    // 1133.007 D13).
                     let reuse = match reuse {
                         Some(v) => Some(v),
                         None => (states[i].as_ref())
-                            .filter(|_| self.data.ready())
+                            .filter(|_| valid_args && ready)
                             .map(|state| state.value.clone())
                             .filter(|_| self.keeps_resource(i, &args, forced))
                             .inspect(|_| force.retain(|f| *f != i)),
@@ -672,7 +884,7 @@ impl<D: DataSource> Runner<D> {
                     } else {
                         None
                     };
-                    // Whether what shows is a stand-in, not an answer.
+                    // Whether what shows is a stand-in, not an answer (D4).
                     let mut placeholder =
                         reuse.is_some() && states[i].as_ref().is_some_and(|s| s.placeholder);
                     // Every ResourceState was checked for this index in this
@@ -688,28 +900,33 @@ impl<D: DataSource> Runner<D> {
                     let compiled = std::mem::replace(&mut adopted[i], false);
                     let value = match reuse {
                         Some(v) => v,
-                        None if (boot || !self.data.ready())
+                        None if valid_args
+                            && (boot || !ready)
                             && !exact_plan::runner_owned_source(self.plan.str(row.source))
                             && row.initial.len > 0
                             && !self.secrets_unseen(i, &row, &resources)
-                            && (!self.data.ready()
+                            && (!ready
                                 || (Value::from_bytes(self.plan.bytes(row.initial_args))
                                     .map_err(RunnerError::Plan)?
                                     == Value::list(args.clone())
-                                    && (!self.store_readers[i] || self.stale[i]))) =>
+                                    && (!self.resources[i].store_reader
+                                        || self.resources[i].stale))) =>
                         {
                             // Keep deferred placeholders until activation, even
                             // when timers or a deep launch change arguments after
-                            // boot. The bake's answer
+                            // boot (LLP 1038 D5, LLP 1027 D4). The bake's answer
                             // is the first frame, not the answer: data_ready asks
                             // the current arguments once the executor can answer,
-                            // as the web asks its module at launch. An `else` row is the
+                            // as the web asks its module at launch (LLP 1048.003
+                            // D6, 2026-10-04; feed F24). An `else` row is the
                             // bake's for every launch and is never asked again
                             // (each was a worker turn, c318ed04), unless forced.
-                            if !self.data.ready()
-                                && (forced || self.store_readers[i] || !self.is_placeholder_row(i))
+                            if !ready
+                                && (forced
+                                    || self.resources[i].store_reader
+                                    || !self.is_placeholder_row(i))
                             {
-                                self.stale[i] = true;
+                                self.resources[i].stale = true;
                                 self.note_deferred(i, &args);
                             }
                             adopted[i] = true;
@@ -723,24 +940,25 @@ impl<D: DataSource> Runner<D> {
                             // Shown for the bake's arguments, not these (state
                             // a launch restored changed them), it is a stand-in
                             // like a placeholder: pending until `data_ready`
-                            // asks the source.
-                            awaiting[i] = answered_for.is_some() && self.stale[i];
+                            // asks the source (LLP 1048.003 D6, 2026-10-27).
+                            awaiting[i] = answered_for.is_some() && self.resources[i].stale;
                             Held::compiled(
                                 Value::from_bytes(self.plan.bytes(row.initial))
                                     .map_err(RunnerError::Plan)?,
                                 row.initial,
                             )
                         }
-                        // The source can't answer yet
+                        // @ref LLP 1048.003 D6 — the source can't answer yet
                         // (its module isn't loaded) and nothing is compiled,
-                        // or what is was passed over (`secrets_unseen`): the
-                        // placeholder shows, pending;
+                        // or what is was passed over (`secrets_unseen`, LLP
+                        // 1027 D4): the placeholder shows, pending;
                         // `data_ready` asks.
-                        None if !self.data.ready()
+                        None if valid_args
+                            && !ready
                             && !exact_plan::runner_owned_source(self.plan.str(row.source))
                             && self.placeholder(i, &row, &resources).is_some() =>
                         {
-                            self.stale[i] = true;
+                            self.resources[i].stale = true;
                             self.note_deferred(i, &args);
                             pending_res[i] = true;
                             awaiting[i] = true;
@@ -752,22 +970,25 @@ impl<D: DataSource> Runner<D> {
                         None => {
                             awaiting[i] = false;
                             // A resource that consults the store is the device's,
-                            // not the build's: bake gives it no compiled value.
+                            // not the build's: bake gives it no compiled value
+                            // (LLP 1018 D4).
                             let reads_before = self.store.reads();
                             let draws_before = self.store.entropy_draws();
                             // Asked again in a later pass: an earlier
                             // `Later` answer was never handed out.
-                            if let RequestEffect::Later { request, .. } =
+                            if let RequestEffect::Later { requests, .. } =
                                 std::mem::replace(&mut effects[i], RequestEffect::None)
                             {
-                                self.discard_request(&request);
+                                for request in &requests {
+                                    self.discard_request(request);
+                                }
                             }
-                            pending_res[i] = self.pending_res[i];
+                            pending_res[i] = self.resources[i].pending;
                             self.store.take_topics();
                             let reconciling = self.reconciling.contains(&i);
                             self.reconciling.retain(|r| *r != i);
                             self.inspect_request(i);
-                            // An upload's arguments answer as it ended.
+                            // An upload's arguments answer as it ended (D10).
                             let ledger = self.ledger_answer(i, mark.as_ref());
                             let asked = match ledger.unwrap_or_else(|| self.query(i, &args)) {
                                 // A reconciling answer outside its shape fails
@@ -809,11 +1030,11 @@ impl<D: DataSource> Runner<D> {
                                         self.plan.str(row.name),
                                         &failure.message,
                                     ));
-                                    self.failed_args[i] = Some(args.clone());
-                                    self.failed_why[i] = Some(failure);
+                                    self.resources[i].failed_args = Some(args.clone());
+                                    self.resources[i].failed_why = Some(failure);
                                     force.retain(|forced| *forced != i);
                                     // Its newest ask is answered, by a failure: no
-                                    // answer is on the way
+                                    // answer is on the way (LLP 1054.000.002 D4)
                                     effects[i] = RequestEffect::Answered;
                                     awaiting[i] = false;
                                     pending_res[i] = false;
@@ -825,7 +1046,7 @@ impl<D: DataSource> Runner<D> {
                                         state.origin,
                                     );
                                     resource_changed[i] = !matches!(
-                                        &self.resource_values[i],
+                                        &self.resources[i].value,
                                         Some(old) if Held::same(old, &shown)
                                     );
                                     // The failed ask watched what it read, as an
@@ -833,43 +1054,48 @@ impl<D: DataSource> Runner<D> {
                                     // granted) asks it again; the shown value's
                                     // topics stay with it.
                                     for topic in self.store.take_topics() {
-                                        if !self.watching[i].contains(&topic) {
-                                            self.watching[i].push(topic);
+                                        if !self.resources[i].watching.contains(&topic) {
+                                            self.resources[i].watching.push(topic);
                                         }
                                     }
                                     // A failed ask that read the store makes a store
-                                    // reader too, so a reply's write asks it again.
-                                    if self.store.reads() > reads_before {
-                                        self.store_readers[i] = true;
-                                    }
+                                    // reader too, so a reply's write asks it again
+                                    // (LLP 1146 §2.3).
+                                    self.note_reads(i, reads_before, draws_before);
                                     resources[i] = Some(shown);
                                     settled_res[i] = true;
+                                    current_res[i] =
+                                        self.is_current(i, states[i].as_ref(), &resource_args[i]);
                                     progress = true;
                                     continue;
                                 }
                                 answer => answer,
                             };
                             force.retain(|forced| *forced != i);
-                            if self.store.reads() > reads_before {
-                                self.store_readers[i] = true;
-                            }
-                            if self.store.entropy_draws() > draws_before {
-                                self.entropy_readers[i] = true;
-                            }
+                            self.note_reads(i, reads_before, draws_before);
                             // What a fresh answer watches replaces what the
                             // last one did; its reply's parse may add more.
-                            self.watching[i] = self.store.take_topics();
+                            self.resources[i].watching = self.store.take_topics();
                             match answer {
                                 Err(RunnerError::Data {
-                                    error: DataError::DeferredAtBake(_),
-                                    ..
+                                    resource,
+                                    error: DataError::DeferredAtBake { message, warning },
                                 }) => {
-                                    // Storage belongs to the launched app. A bake has no
-                                    // request to dispatch: activation asks this source again.
+                                    if warning {
+                                        let warning = format!(
+                                            "warning [deferred-at-bake] resource `{resource}`: {message}; \
+                                             keeping its placeholder until launch, where this option is refused"
+                                        );
+                                        if !self.bake_warnings.contains(&warning) {
+                                            self.bake_warnings.push(warning);
+                                        }
+                                    }
+                                    // A bake has no request to dispatch: activation
+                                    // asks this source again, including refused options.
                                     let Some(value) = self.placeholder(i, &row, &resources) else {
                                         return Err(self.unanswerable(i));
                                     };
-                                    self.stale[i] = true;
+                                    self.resources[i].stale = true;
                                     self.note_deferred(i, &args);
                                     pending_res[i] = true;
                                     awaiting[i] = true;
@@ -878,7 +1104,7 @@ impl<D: DataSource> Runner<D> {
                                     generation = 0;
                                     Held::new(value)
                                 }
-                                // A TypeScript answer's
+                                // @ref LLP 1027.000 D3 — a TypeScript answer's
                                 // failure belongs to its resource, not its input.
                                 Err(RunnerError::Data {
                                     resource,
@@ -903,8 +1129,8 @@ impl<D: DataSource> Runner<D> {
                                     pending_res[i] = false;
                                     self.count_failure(i);
                                     self.alert(super::lines::failed_now(&resource, &why));
-                                    self.failed_args[i] = Some(args.clone());
-                                    self.failed_why[i] = Some(crate::failure::Failure {
+                                    self.resources[i].failed_args = Some(args.clone());
+                                    self.resources[i].failed_why = Some(crate::failure::Failure {
                                         code,
                                         message: why,
                                         reason,
@@ -915,7 +1141,7 @@ impl<D: DataSource> Runner<D> {
                                 // resource keeps what it shows and is held to be
                                 // asked again, an ask in flight; its streak
                                 // spent, it fails as any refusal does. The
-                                // asking commit stands.
+                                // asking commit stands (LLP 1027.000 D3).
                                 Err(e)
                                     if super::overrun::is_overrun(&e)
                                         && !self.streaming(i)
@@ -952,8 +1178,8 @@ impl<D: DataSource> Runner<D> {
                                             self.plan.str(row.name),
                                             &why.message,
                                         ));
-                                        self.failed_args[i] = Some(args.clone());
-                                        self.failed_why[i] = Some(why);
+                                        self.resources[i].failed_args = Some(args.clone());
+                                        self.resources[i].failed_why = Some(why);
                                     }
                                     kept
                                 }
@@ -967,16 +1193,22 @@ impl<D: DataSource> Runner<D> {
                                         pending_res[i] = false;
                                     }
                                     self.revalidated(i, states[i].as_ref(), &v);
-                                    self.stale[i] = false;
+                                    self.resources[i].stale = false;
                                     self.note_answered(i);
                                     self.keep_answer(i, &args, &v);
                                     origin = self.writes.tick();
                                     Held::new(v)
                                 }
                                 Ok(Answer::Later(request)) => {
+                                    let requests = self
+                                        .requests_for(Target::Resource(i), request)
+                                        .map_err(|error| RunnerError::Data {
+                                            resource: self.target_name(Target::Resource(i)),
+                                            error,
+                                        })?;
                                     // The host will run it. Meanwhile the resource
                                     // keeps the value it had — its last answer, or
-                                    // its compiled boot value.
+                                    // its compiled boot value (LLP 1016 D3).
                                     placeholder = states[i].as_ref().is_some_and(|s| s.placeholder);
                                     if let Some(state) = &states[i] {
                                         value_args = state.args.clone();
@@ -997,7 +1229,7 @@ impl<D: DataSource> Runner<D> {
                                             })
                                             .flatten()
                                         });
-                                    // Nothing kept for these
+                                    // @ref LLP 1048.003 D6 — nothing kept for these
                                     // arguments: the placeholder shows, pending.
                                     let kept = kept.or_else(|| {
                                         placeholder = true;
@@ -1008,7 +1240,7 @@ impl<D: DataSource> Runner<D> {
                                     };
                                     effects[i] = RequestEffect::Later {
                                         args: args.clone(),
-                                        request: Box::new(request),
+                                        requests,
                                         forced: refreshed,
                                     };
                                     pending_res[i] = true;
@@ -1049,10 +1281,15 @@ impl<D: DataSource> Runner<D> {
                         origin,
                     );
                     resource_changed[i] = !matches!(
-                        &self.resource_values[i],
+                        &self.resources[i].value,
                         Some(old) if Held::same(old, &shown)
                     );
                     resources[i] = Some(shown);
+                    // A value kept across idleness stays no answer until a
+                    // fresh one, asked since, replaces it (LLP 1161.001 D1).
+                    let slept = states[i]
+                        .as_ref()
+                        .is_some_and(|s| s.slept && s.origin == origin && !placeholder);
                     states[i] = Some(ResourceState {
                         inspection_generation: generation,
                         args: value_args,
@@ -1062,9 +1299,12 @@ impl<D: DataSource> Runner<D> {
                         kept_seed,
                         origin,
                         answered_for,
+                        asleep: false,
+                        slept,
                     });
                     self.inspected_success(i, generation);
                     settled_res[i] = true;
+                    current_res[i] = self.is_current(i, states[i].as_ref(), &resource_args[i]);
                     progress = true;
                 }
                 if all && settled_res.iter().all(|s| *s) {
@@ -1079,13 +1319,14 @@ impl<D: DataSource> Runner<D> {
             // A resource later in plan order may have written after an
             // earlier reader settled. Repeat against the tentative states;
             // the writer's state already carries the new revision, so it
-            // does not refresh itself.
+            // does not refresh itself, and a reader asleep behind a closed
+            // gate asks nothing (LLP 1161.002 D2).
             let stale_store_reader = states.iter().enumerate().any(|(i, state)| {
-                self.store_readers[i]
+                self.asks_on_store_change(i)
                     && !self.asks_again_after_reply(i)
                     && state
                         .as_ref()
-                        .is_none_or(|state| state.store_revision != revision)
+                        .is_none_or(|state| !state.asleep && state.store_revision != revision)
             });
             if stale_store_reader {
                 continue;
@@ -1095,7 +1336,11 @@ impl<D: DataSource> Runner<D> {
                 slots: self.slots.clone(),
                 now_ms: self.now_ms,
                 pending_res,
-                failed_res: crate::failure::states(&self.failed_args, &self.failed_why),
+                current_res: current_res.clone(),
+                failed_res: crate::failure::states(
+                    crate::vm::Column::rows(&self.resources, |row| &row.failed_args),
+                    crate::vm::Column::rows(&self.resources, |row| &row.failed_why),
+                ),
                 pending_mut: self.pending_mut.clone(),
                 failed_mut: self.failed_mut.clone(),
                 store_readers,
@@ -1103,9 +1348,17 @@ impl<D: DataSource> Runner<D> {
             });
             self.derive_store_dependent = derive_store_dependent;
             self.derives = derives;
-            self.resource_values = resources;
-            self.resources = states;
-            self.awaiting = awaiting;
+            for (((row, value), state), awaiting) in self
+                .resources
+                .iter_mut()
+                .zip(resources)
+                .zip(states)
+                .zip(awaiting)
+            {
+                row.value = value;
+                row.state = state;
+                row.awaiting = awaiting;
+            }
             self.adopt(&adopted);
             self.let_go_members(&leaving);
             for (i, effect) in effects.iter().enumerate() {
@@ -1114,13 +1367,13 @@ impl<D: DataSource> Runner<D> {
                 }
             }
             for (i, effect) in std::mem::take(effects).into_iter().enumerate() {
-                let source = self.plan.str(self.plan.resources[i].source).to_string();
+                let source = self.plan.str(self.resource_row(i).source).to_string();
                 match effect {
                     RequestEffect::Later {
                         args,
-                        request,
+                        requests,
                         forced,
-                    } => self.enqueue(Target::Resource(i), source, args, *request, forced),
+                    } => self.enqueue_requests(Target::Resource(i), source, args, requests, forced),
                     RequestEffect::Wait {
                         args,
                         reasks,
@@ -1134,21 +1387,21 @@ impl<D: DataSource> Runner<D> {
             self.sync_pending_flags();
             // A forced resource not asked in this settlement (an argument
             // still pending, a source not ready) is forced at the next one
-            // that can ask it.
+            // that can ask it (LLP 1054.000.000 D2).
             self.refresh_next = force;
             return Ok(());
         }
     }
 
     /// Hand each source the compiled value its resource just took, with the
-    /// arguments the bake answered it for: the one decoded
+    /// arguments the bake answered it for (LLP 1027 D11): the one decoded
     /// copy, shared.
     fn adopt(&mut self, adopted: &[bool]) {
         for (i, _) in adopted.iter().enumerate().filter(|(_, a)| **a) {
-            let row = &self.plan.resources[i];
+            let row = self.resource_row(i);
             let (Ok(Value::List(args)), Some(state)) = (
                 Value::from_bytes(self.plan.bytes(row.initial_args)),
-                self.resources[i].as_ref(),
+                self.resources[i].state.as_ref(),
             ) else {
                 continue;
             };
@@ -1169,9 +1422,8 @@ impl<D: DataSource> Runner<D> {
     /// update, when what the tree shows is what it last saw.
     pub(super) fn release_compiled(&mut self) {
         for i in 0..self.resources.len() {
-            let (Some(state), Some(Some(read))) =
-                (self.resources[i].as_mut(), self.resource_values.get_mut(i))
-            else {
+            let row = &mut self.resources[i];
+            let (Some(state), Some(read)) = (row.state.as_mut(), row.value.as_mut()) else {
                 continue;
             };
             let Some(released) = state.value.released() else {
@@ -1191,7 +1443,7 @@ impl<D: DataSource> Runner<D> {
     }
 }
 
-/// `ty`'s zero: `0`, `""`, `false`, `()`, `none`, `[]`,
+/// `ty`'s zero (LLP 1054.000.002 D1): `0`, `""`, `false`, `()`, `none`, `[]`,
 /// and a record's fields' zeros in order — the compiler's
 /// `contract_types::placeholder::zero`, over the plan's tables.
 pub(super) fn zero(plan: &exact_plan::Plan, ty: exact_plan::TypesId) -> Option<Value> {

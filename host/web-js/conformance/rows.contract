@@ -1,6 +1,6 @@
 // Synthetic conformance plan: per-row state in keyed rows, component
 // derives, fn, map/filter, string and number formatting in the roster. A
-// key that changes with its item unchanged is a new row.
+// key that changes with its item unchanged is a new row (jukebox F19).
 fn clamp(v: number, lo: number, hi: number): number = max(lo, min(hi, v))
 
 shape Location

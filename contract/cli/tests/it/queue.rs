@@ -1,4 +1,4 @@
-//! A `queue` mutation's sends wait their turn,
+//! LLP 1092 D1–D6 end to end: a `queue` mutation's sends wait their turn,
 //! one request in flight, each asked in a `next` commit of its own after
 //! the reply before it and its `then`.
 
@@ -64,7 +64,7 @@ component App
 "#;
 
 /// A desk that answers `save` now or later, counting every ask with its
-/// arguments (what the data module sees).
+/// arguments (what the data module sees, D5).
 #[derive(Default)]
 struct Desk {
     later: bool,
@@ -92,7 +92,7 @@ impl DataSource for Desk {
             }
             "big" if args[0].as_number() == Some(0.0) => Ok(Value::list(vec![])),
             // Doubled by a row key, past the runner's longest string: a trap
-            // in a key poisons the runner.
+            // in a key poisons the runner (LLP 1017.003 D3).
             "big" => Ok(Value::list(vec![ack(
                 &"x".repeat((exact_runner::vm::MAX_STRING / 2) + 1),
                 0,
@@ -402,8 +402,9 @@ fn a_failure_that_brings_no_answer_frees_the_queue() {
 }
 
 /// A storage step and its continuation finish before the next send is
-/// asked: a further `Later` round is not a reply, so the second send keeps
-/// the first's ticket and the save does not stop between its steps.
+/// asked: a further `Later` round is not a reply. Before LLP 1092 the
+/// second send forgot the first's ticket, and the save stopped between
+/// its steps.
 #[test]
 fn a_two_step_send_completes_behind_a_second_send() {
     let mut r = boot(true);
@@ -484,7 +485,7 @@ fn poison_and_reload_forget_waiting_sends_without_asking() {
 #[test]
 fn queue_parses_in_its_position_and_lowers_to_the_plan() {
     let plan = contract::compile(APP).unwrap();
-    assert!(plan.mutations.iter().all(|m| m.queue));
+    assert!((plan.mutations.iter()).all(|m| m.mode == exact_plan::MutationMode::Queue));
     // Only after the shape: `queue` is a keyword nowhere else.
     let e = contract::compile(&APP.replace(
         "as shape Ack queue refreshes probe then afterWrote",
@@ -501,7 +502,7 @@ fn queue_parses_in_its_position_and_lowers_to_the_plan() {
     contract::compile(&named).unwrap();
 }
 
-/// Two sends to a queue mutation compile; to any other, the
+/// LLP 1092 D6: two sends to a queue mutation compile; to any other, the
 /// refusal names `queue` — unless the action also assigns the slot, a
 /// reply it means to drop.
 #[test]
@@ -516,13 +517,13 @@ fn send_twice_is_accepted_for_a_queue_and_names_queue_otherwise() {
         (e.id.as_str(), e.message.as_str()),
         (
             "analyze-send-twice",
-            "`commitEdit` sends `edited` twice; only the last send's reply reaches `then afterEdit`. Send once, use a mutation per request, or declare `mutation edited … queue` to run both in order"
+            "`commitEdit` sends `edited` twice; only the last send's reply reaches `then afterEdit` (LLP 1016 D5). Send once, use a mutation per request, or declare `mutation edited … queue` to run both in order"
         )
     );
     let e = contract::compile(&app("", "    edited = none\n")).unwrap_err();
     assert_eq!(
         e.message,
-        "`commitEdit` sends `edited` twice; only the last send's reply reaches `then afterEdit`. Send once, or use a mutation per request"
+        "`commitEdit` sends `edited` twice; only the last send's reply reaches `then afterEdit` (LLP 1016 D5). Send once, or use a mutation per request"
     );
 }
 
@@ -544,7 +545,7 @@ fn a_shaped_failure_is_an_answer_and_runs_then() {
     assert_eq!(r.data().asks, ["save:a", "save:b"]);
 }
 
-/// A `next` whose answer makes a task's key no key is
+/// LLP 1092 D3, D8: a `next` whose answer makes a task's key no key is
 /// refused by the gate step, not by its ask: the head is kept and the
 /// queue stalls until a standing commit changes the state.
 #[test]
@@ -572,7 +573,7 @@ fn a_next_refused_by_a_task_key_keeps_its_head_and_stalls() {
     assert_eq!(r.queued(), [("rec".to_string(), 1)]);
 }
 
-/// The gate step is on every commit's settlement path — a
+/// LLP 1092 D8: the gate step is on every commit's settlement path — a
 /// reply's (`fulfill_inner`) and a commit made again after a failed reply
 /// (`commit_again`) — and a key that is no key refuses that commit.
 #[test]
@@ -718,7 +719,7 @@ impl DataSource for Late {
 }
 
 /// b6 review A2: `data_ready`'s commit, which sends what waited for the
-/// module, runs the gate step as every commit does: a gate
+/// module, runs the gate step as every commit does (LLP 1092 D8): a gate
 /// its answer opens arms the task, and a key that is no key refuses it.
 #[test]
 fn data_ready_s_sends_open_a_gate_and_a_bad_key_refuses_them() {

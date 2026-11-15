@@ -1,6 +1,22 @@
-// Development observations. None of these identifiers decide
+// Development observations (LLP 1142 D9). None of these identifiers decide
 // whether a value or a ticket can be reused.
 import { equal } from './shape.js';
+
+let memberIds, nextMemberId = 0;
+// A member's runtime identity survives reordering; opaque ids expose no request arguments or keys.
+export function resourceKey(r) {
+  if (!r.member) return r.name;
+  memberIds ??= new WeakMap();
+  if (!memberIds.has(r)) memberIds.set(r, ++nextMemberId);
+  return `${r.name}[${memberIds.get(r)}]`;
+}
+
+// Called after a successful commit: a refused settlement spends no diagnostic.
+export function retainedAnswer(r, say) {
+  if (r.reportedPreviousAnswer || r.gone || r.asleep || r.placeholder || r.settled === undefined || r.asked === undefined || equal(r.settled, r.asked)) return;
+  r.reportedPreviousAnswer = true;
+  say(`resource ${r.name} shows its answer for previous arguments (LLP 1016 D3)`);
+}
 
 export function resourceInspection(enabled, now) {
   let serial = 0;
@@ -20,7 +36,7 @@ export function resourceInspection(enabled, now) {
       };
       r.resourcesMeasuredFrom = since;
     },
-    // `asks`: how often its source was asked, which `perf` reports; kept off `inspection`, which a refused commit puts back.
+    // `asks`: how often its source was asked, which `perf` reports (LLP 1146 D3); kept off `inspection`, which a refused commit puts back.
     begin(r) { if (r.inspection) { r.inspection.request = ++serial; r.asks = (r.asks ?? 0) + 1; } },
     placeholder(r) { if (r.inspection) r.inspection.placeholder = true; },
     take(r, generation = r.inspection?.request) {

@@ -1,4 +1,4 @@
-//! MIDI: the ports `exactMIDI()` answers, the queue of
+//! MIDI (LLP 1125 D6–D8): the ports `exactMIDI()` answers, the queue of
 //! timed messages `sendMIDI` and a sequence's notes and clock put on it, and
 //! what the inputs delivered — kept by the runner, so it is the same on
 //! every host and under the driver, which sends nothing.
@@ -21,12 +21,14 @@
 //!   or after `t`, but a note-off whose note-on was handed stays; a stop
 //!   takes back every waiting one and moves such a note-off to the later of
 //!   `t` and its note-on. A second note-on of one output, channel and note
-//!   moves the earlier note's waiting note-off to it, sent first. No CC 123:
-//!   other notes on a shared channel are not the sequence's.
-//! - **Clock out**: Timing Clock on each beat `k / 24` from the
+//!   moves the earlier note's waiting note-off to it, sent first. No CC 123
+//!   (D4): other notes on a shared channel are not the sequence's.
+//! - **Clock out** (D7): Timing Clock on each beat `k / 24` from the
 //!   arming's, Start before the first at a beat ≥ 0, Stop at a stop or the
 //!   end no earlier than the last tick handed. Ticks are counted, not
 //!   listed in the record or the journal one by one.
+//!
+//! @ref LLP 1125 D6–D8
 
 use crate::agent::num;
 use exact_plan::Value;
@@ -43,11 +45,11 @@ pub const PORT_FIELDS: &[&str] = &["id", "name", "manufacturer", "state"];
 pub const SENT_FIELDS: &[&str] = &["output", "data", "timeStamp"];
 /// The messages `exactMIDI().sent` lists: the last that went out.
 pub const SENT: usize = 128;
-/// How long before its time a host hands a message to its output, ms.
+/// How long before its time a host hands a message to its output, ms (D7).
 pub const HOLD: f64 = 50.0;
 /// Messages that may wait to be handed.
 pub const QUEUED: usize = 1024;
-/// Messages, and messages heard, that the record keeps.
+/// Messages, and messages heard, that the record keeps (D5).
 pub const RECORD: usize = 1024;
 /// The most clock ticks a second (a tempo of 2,500): a fill's work stays
 /// finite.
@@ -444,7 +446,7 @@ pub enum MidiOp {
         id: u64,
     },
     /// Listen to exactly these inputs, by id; forward Timing Clock only
-    /// from those in `clock`, which a sequence follows.
+    /// from those in `clock`, which a sequence follows (LLP 1125 D9).
     Open {
         /// The inputs.
         inputs: Vec<String>,
@@ -455,7 +457,7 @@ pub enum MidiOp {
     Request,
 }
 
-/// A host batch's `{"op":"midi",…}`: `boot` at a boot whose
+/// A host batch's `{"op":"midi",…}` (LLP 1125 D7): `boot` at a boot whose
 /// plan uses MIDI (the host loads its arm, and forgets what an earlier
 /// runner left held), then the ops — `{"op":"send","id","output","data":
 /// [bytes],"at"}` in runner ms, `{"op":"retract","id"}`, `{"op":"open",
@@ -513,7 +515,7 @@ pub fn batch_op(ops: &[MidiOp], boot: bool) -> Option<String> {
     Some(s)
 }
 
-/// Clock out's progress.
+/// Clock out's progress (D7).
 #[derive(Clone, Debug)]
 struct Clock {
     output: String,
@@ -709,7 +711,7 @@ impl Midi {
     }
 
     /// What a host reported, merged over what was seen; `false` when
-    /// nothing changed. Without the grant nothing is taken.
+    /// nothing changed. Without the grant nothing is taken (rulings #5).
     pub(crate) fn set_ports(&mut self, reported: Ports, log: &mut Vec<String>) -> bool {
         if !self.granted {
             return false;
@@ -767,7 +769,7 @@ impl Midi {
 
     /// `requestMIDIAccess()` at `t`, once its commit stood: refused without
     /// the grant; on a seek clock (the agent, a test) answered at once from
-    /// the agent's environment, else asked of the host.
+    /// the agent's environment (rulings #3), else asked of the host.
     pub(crate) fn request(&mut self, t: f64, seek: bool, log: &mut Vec<String>) {
         if !self.granted {
             log.push(
@@ -961,15 +963,15 @@ impl Midi {
 
     /// Whether messages can go to `output` now: a connected output, or
     /// `""`, no output, which no host is handed but `sent` lists as any
-    /// other, so an app logs what it plays without a device.
+    /// other (LLP 1125 D6), so an app logs what it plays without a device.
     pub(crate) fn can_send(&self, output: &str) -> bool {
         output.is_empty() || self.ports.connected_output(output)
     }
 
-    /// One sequence note on `output`: `on` at `on_at`, its
+    /// One sequence note on `output` (LLP 1125 D7): `on` at `on_at`, its
     /// note-off at `off_at`, for the step at `step_at`, queued at `t`. A
     /// waiting note-off of the same output, channel and note that ends
-    /// after `on_at` is moved to it first. A note-on due within
+    /// after `on_at` is moved to it first (rulings #7). A note-on due within
     /// the hold is handed at once and takes no waiting place, so a full
     /// queue never blocks a note that is due.
     #[allow(clippy::too_many_arguments)] // a note's fields
@@ -1046,10 +1048,10 @@ impl Midi {
         Queued::Done
     }
 
-    /// An edit at `t`: every waiting message the sequence
+    /// An edit at `t` (LLP 1125 D3, D7): every waiting message the sequence
     /// queued for a step at or after `t` is taken back, but a note-off whose
-    /// note-on was handed stays; the clock goes on from its
-    /// first tick taken back. A clock's Start or new anchor takes back
+    /// note-on was handed stays (rulings #6); the clock goes on from its
+    /// first tick taken back. A clock's Start or new anchor (D9) takes back
     /// those for a step `from` takes the same way, `by` `clock`.
     pub(crate) fn retract_seq(
         &mut self,
@@ -1075,7 +1077,7 @@ impl Midi {
         }
     }
 
-    /// A stop at `t`: every waiting message the sequence queued is
+    /// A stop at `t` (D4): every waiting message the sequence queued is
     /// taken back (`cancelled`), a note-off whose note-on was handed moved
     /// to the later of `t` and its note-on; clock out sends Stop.
     pub(crate) fn stop_seq(&mut self, t: f64, log: &mut Vec<String>) {
@@ -1117,7 +1119,7 @@ impl Midi {
     }
 
     /// Clock out ends at `t`: Stop no earlier than the last tick handed,
-    /// once Start was sent.
+    /// once Start was sent (rulings #9).
     fn stop_clock(&mut self, t: f64, log: &mut Vec<String>) {
         let Some(output) = self.clock.as_ref().map(|c| c.output.clone()) else {
             return;
@@ -1315,7 +1317,7 @@ pub struct Incoming {
     pub data: Vec<u8>,
 }
 
-/// One host delivery's messages, coalesced: a Control
+/// One host delivery's messages, coalesced (D8; rulings #2): a Control
 /// Change, pitch bend, channel pressure or polyphonic aftertouch keeps only
 /// the latest of its input, channel and controller or note, never across a
 /// note or transport message of the same input and channel (a transport

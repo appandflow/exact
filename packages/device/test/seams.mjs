@@ -1,4 +1,4 @@
-// The seam is public: two tests
+// The seam is public (LLP 1133.001 D8, LLP 1133.031 §12 stage 5): two tests
 // that need nothing an outside author lacks.
 //
 // - Out of the tree: this package, packed as a registry would carry it

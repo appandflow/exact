@@ -1,4 +1,4 @@
-// The shared recorder cases: `canvas/tests/cases.txt` run
+// The shared recorder cases (LLP 1056 §4): `canvas/tests/cases.txt` run
 // against a 2D context. `runCases(make)` is what the TypeScript recorder's
 // test calls; `bun canvas/tests/cases.mjs --chrome` runs the same file in
 // headless Chrome, whose answers the file records, and prints any case
@@ -40,7 +40,7 @@ function caseSource(c) {
     if (l.throws) return `try{${stmt};fail.push(${JSON.stringify(l.call)}+' did not throw')}catch(e){if(e.name!==${JSON.stringify(l.throws)})fail.push(${JSON.stringify(l.call)}+' threw '+e.name)}`;
     return `try{${stmt}}catch(e){fail.push(${JSON.stringify(l.call)}+' threw '+e.name)}`;
   });
-  // A `(display-p3)` case runs in a `display-p3` canvas:
+  // A `(display-p3)` case runs in a `display-p3` canvas (LLP 1100 D12a):
   // Chrome's is made so; the recorder's is told, as the seam tells it.
   const p3 = c.p3 ? 'if(ctx._)ctx._.env.p3=true;' : '';
   return `(ctx)=>{const fail=[];let g;${p3}${body.join('\n')}\nreturn fail;}`;

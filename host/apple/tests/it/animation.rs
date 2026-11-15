@@ -1,4 +1,4 @@
-//! Keyframe animations on Apple: what Core Animation can
+//! Keyframe animations on Apple (LLP 1055 D5/D7): what Core Animation can
 //! say (a box's opacity) is lowered to it; the rest the host's engine
 //! samples under its clock and the presenter paints, as it does a
 //! transition. An endless one keeps frames coming; settling never waits.
@@ -97,7 +97,7 @@ fn an_animation_is_presented_from_boot_and_stops_when_its_row_does() {
     );
 }
 
-/// The batch says whether what moves changes place or size.
+/// LLP 1061 D4: the batch says whether what moves changes place or size.
 /// A breathing colour keeps frames coming but not at the panel's full rate; a
 /// slide asks for it.
 #[test]

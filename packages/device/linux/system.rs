@@ -30,7 +30,7 @@ const NETLINK_ROUTE: c_int = 0;
 const SOL_SOCKET: c_int = 1;
 const SO_RCVTIMEO: c_int = 20;
 
-/// The route, link and policy-rule groups: `RTNLGRP_LINK`,
+/// The route, link and policy-rule groups (D5): `RTNLGRP_LINK`,
 /// `RTNLGRP_IPV4_ROUTE`, `RTNLGRP_IPV4_RULE`, `RTNLGRP_IPV6_ROUTE`,
 /// `RTNLGRP_IPV6_RULE`, as the legacy bit mask (group n is bit n - 1).
 pub const ROUTE_GROUPS: u32 = 1 | (1 << 6) | (1 << 7) | (1 << 10) | (1 << 18);
@@ -88,7 +88,7 @@ impl Netlink {
     }
 }
 
-/// The network's `type` (the Linux row): the link of the route a global
+/// The network's `type` (D2's Linux row): the link of the route a global
 /// destination takes, IPv4's when both families have one; `none` with no
 /// route; `unknown` when rtnetlink cannot be asked.
 pub fn network_type() -> &'static str {
@@ -298,7 +298,7 @@ pub fn battery() -> readers::Battery {
         .unwrap_or(readers::NO_BATTERY)
 }
 
-/// Where low power is read (the Linux row), and its value now.
+/// Where low power is read (D3's Linux row), and its value now.
 pub enum LowPower {
     Portal(bool),
     Profiles(usize, bool),
@@ -323,7 +323,7 @@ pub fn low_power() -> LowPower {
     LowPower::Neither
 }
 
-/// The Network Monitor portal's `GetMetered` and `GetConnectivity` (the
+/// The Network Monitor portal's `GetMetered` and `GetConnectivity` (D9's
 /// `linux` words), or None without the portal.
 pub fn network_words() -> Option<(bool, &'static str)> {
     let mut bus = Bus::session()?;

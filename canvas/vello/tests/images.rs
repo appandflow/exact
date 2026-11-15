@@ -86,7 +86,7 @@ fn hundreds_of_images_replay_past_the_atlas_capacity_without_growing_at_rest() {
     }
     assert_eq!(input.calls, 400, "every source image reached the renderer");
     let after_400 = ecg_memory();
-    eprintln!("GPU images=400 bytes_at_300={after_300} bytes_at_400={after_400}");
+    eprintln!("D3 GPU images=400 bytes_at_300={after_300} bytes_at_400={after_400}");
     assert!(
         after_400 <= 320 * 1024 * 1024,
         "decoded pixels plus the 8192² atlas and fixed render buffers are bounded: {after_400}"

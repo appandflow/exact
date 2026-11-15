@@ -2,10 +2,11 @@
 //! cell: one column is 8 px and one row 16 px.
 //!
 //! In a monospace face at a fixed line height, `1ch × 1lh` is one terminal
-//! cell, so a terminal entry writes its lengths in them. The
+//! cell, so a terminal entry writes its lengths in them (LLP 1101 D3). The
 //! layout space keeps a 1:2 cell, whatever the physical terminal's, so a
 //! length in cells lands exactly on the grid and aspect ratios stay square.
 //! The terminal host snaps everything else to it.
+//! @ref LLP 1101 D3
 
 use crate::error::StyleValueError;
 use crate::generated::{StyleCodec, StyleId};
@@ -20,7 +21,7 @@ pub const ROW: f32 = 16.0;
 
 /// Each side's border as it occupies space in a terminal: a drawn side is
 /// one cell — a row on top and bottom, a column on the sides — whatever
-/// width was written (a declared deviation). Applied only
+/// width was written (LLP 1101 §4, a declared deviation). Applied only
 /// under a kernel's terminal border rule ([`crate::Env::cell_borders`]).
 pub fn border(widths: [f32; 4]) -> [f32; 4] {
     let cell = [ROW, COLUMN, ROW, COLUMN];
@@ -29,8 +30,8 @@ pub fn border(widths: [f32; 4]) -> [f32; 4] {
 
 /// A space (a padding, margin or gap) of `px` as a terminal lays it out,
 /// whole cells of `cell` (a [`ROW`] down, a [`COLUMN`] across): to the
-/// nearest, a tie toward zero, so half a cell of space is none (a deliberate
-/// deviation from CSS, as [`border`] is). Applied
+/// nearest, a tie toward zero, so half a cell of space is none (LLP 1101 §4,
+/// a declared deviation beside [`border`]; LLP 1121 stage 11 (c)). Applied
 /// only under a kernel's terminal space rule ([`crate::Env::cell_spaces`]).
 pub fn space(px: f32, cell: f32) -> f32 {
     // In f64, so a length already whole cells keeps every one of them.
@@ -55,7 +56,7 @@ impl Dimension {
     /// A space (padding, margin, gap) under `env`'s terminal space rule: a
     /// length that resolves to points is whole cells of `cell` on its axis
     /// ([`space`]); a percentage or a `calc()` with one is as it is.
-    pub(crate) fn spaced(self, env: &Env, cell: f32) -> Dimension {
+    pub(crate) fn spaced(&self, env: &Env, cell: f32) -> Dimension {
         match (env.cell_spaces, self.resolve(env)) {
             // (A calc() whose percentage is 0 is points on every basis.)
             (true, Dimension::Points(v)) => Dimension::Points(space(v, cell)),
@@ -65,10 +66,10 @@ impl Dimension {
             (true, Dimension::Compare(c)) => {
                 match (c.value(env, Some(0.0)), c.value(env, Some(1e4))) {
                     (Some(a), Some(b)) if a == b => Dimension::Points(space(a, cell)),
-                    _ => self,
+                    _ => self.clone(),
                 }
             }
-            _ => self,
+            _ => self.clone(),
         }
     }
 }
@@ -90,7 +91,7 @@ pub fn parse(text: &str) -> Option<f32> {
 }
 
 /// The row's value in pixels when `value` is in cells, refused where the row
-/// admits no length.
+/// admits no length or no negative one.
 pub(crate) fn of(
     id: StyleId,
     value: &StyleValue,
@@ -104,7 +105,17 @@ pub(crate) fn of(
     if !admits_relative(id) {
         return Err(StyleValueError::WrongKind {
             style: id,
-            expected: "no length: `ch` and `lh` are lengths",
+            expected: if super::relative::pixels_only(id) {
+                "px: `ch` and `lh` are not built on this row"
+            } else {
+                "no length: `ch` and `lh` are lengths"
+            },
+        });
+    }
+    if px < 0.0 && crate::style::calc::nonnegative_row(id) {
+        return Err(StyleValueError::WrongKind {
+            style: id,
+            expected: "a nonnegative length",
         });
     }
     Ok(Some(if id.codec() == StyleCodec::LineHeight {

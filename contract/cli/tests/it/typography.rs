@@ -1,7 +1,7 @@
-//! Book typography: `hyphens` and `text-indent` are rows every host lays out,
-//! and so are CSS multi-column layout and the break rules inside it; what
-//! exact2 leaves out of fragmentation (the spanning element, pages, regions) is
-//! refused by what it would need.
+//! The reader diary's book typography: `hyphens` and `text-indent` are rows
+//! every host lays out, and so are CSS multi-column layout and the break rules
+//! inside it (LLP 1093); what exact2 leaves out of fragmentation (the
+//! spanning element, pages, regions) is refused by what it would need.
 
 use exact_kernel::{Hyphens, Kernel, StyleMask};
 use exact_plan::Value;
@@ -112,7 +112,7 @@ fn multicol_rows_lower_with_their_keywords() {
     let node = |t: &str| k.node_by_key(k.find_by_test_id(t)[0]).unwrap();
     let flow = node("flow").style;
     assert_eq!(
-        (flow.rare.column_width, flow.column_count),
+        (flow.rare.column_width.clone(), flow.column_count),
         (Dimension::Points(120.0), 3)
     );
     assert_eq!(flow.column_fill, ColumnFill::Auto);
@@ -126,7 +126,7 @@ fn multicol_rows_lower_with_their_keywords() {
     assert_eq!(node("para").style.break_inside, BreakInside::Avoid);
     let rule = node("rule").style;
     assert_eq!(
-        (rule.column_count, rule.rare.column_width),
+        (rule.column_count, rule.rare.column_width.clone()),
         (0, Dimension::Points(200.0))
     );
     assert_eq!(
@@ -136,7 +136,7 @@ fn multicol_rows_lower_with_their_keywords() {
     assert!(rule.column_rule_color.is_some());
     let two = node("two").style;
     assert_eq!(
-        (two.column_count, two.rare.column_width),
+        (two.column_count, two.rare.column_width.clone()),
         (2, Dimension::Auto)
     );
     assert_eq!(two.column_rule_width, 5.0);
@@ -420,7 +420,7 @@ fn a_trimmed_paragraph_split_by_columns_is_cut_at_its_outer_ends() {
     );
 }
 
-/// CSS `text-wrap-style`: `auto | balance`; Chrome's other
+/// CSS `text-wrap-style` (LLP 1001 §6): `auto | balance`; Chrome's other
 /// breakers and the old `normal` are refused with what is implemented.
 #[test]
 fn unsupported_text_wrap_styles_name_the_css_values_we_support() {
@@ -439,7 +439,7 @@ fn unsupported_text_wrap_styles_name_the_css_values_we_support() {
     }
 }
 
-/// `-webkit-font-smoothing`: `auto | antialiased`, inherited;
+/// `-webkit-font-smoothing` (LLP 1019 D12): `auto | antialiased`, inherited;
 /// WebKit's other two keywords are refused with what is implemented.
 #[test]
 fn font_smoothing_is_inherited_and_refuses_what_no_host_draws() {

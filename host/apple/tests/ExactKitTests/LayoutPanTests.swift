@@ -1,4 +1,4 @@
-// Native samples commit viewport deltas while held.
+// @ref LLP 1043.000 §3 D8 — native samples commit viewport deltas while held.
 #if os(macOS)
 import AppKit
 import XCTest

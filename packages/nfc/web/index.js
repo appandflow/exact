@@ -1,28 +1,28 @@
-// @exact/nfc on the web: Web NFC's `NDEFReader`,
+// @exact/nfc on the web (LLP 1133.035 stage 1): Web NFC's `NDEFReader`,
 // which only Chrome on Android ships; every other browser reads `available`
 // false. The page runtime (host/web-js/modules.js) calls it outside the
 // agent, and under the agent when the fixture binds it (`--bind nfc`).
 //
-// - One reader serves the session's scans: it scans while any scan
+// - One reader serves the session's scans (D6): it scans while any scan
 //   claim lives and is aborted when the last ends. Each tag it reads is one
 //   `reading` (or `readingerror`) on the root, whatever the number of scans,
 //   and ends each `once` scan with `read`.
-// - A scan answers when it ends: `abortScan`, a call let go
+// - A scan answers when it ends (D4): `abortScan`, a call let go
 //   (`cancel(request)`), or the reader failing after it started
 //   (`interrupted`). A failure to start rejects at once.
-// - One write at a time: a newer `write` or `makeReadOnly` aborts the
+// - One write at a time (D6): a newer `write` or `makeReadOnly` aborts the
 //   waiting one, which fails `AbortError`, as Web NFC's replace does. While a
 //   write waits, the reader's `reading` for the tag being written is the
-//   write's, not the app's ("A written tag is not also read").
+//   write's, not the app's (D4: "A written tag is not also read").
 // - The page leaving the foreground fails a waiting write `AbortError`; the
-//   browser suspends a scan itself and resumes it on return.
+//   browser suspends a scan itself and resumes it on return (D6's table).
 // - Records reach Contract as `NDEFRecordInfo`, with `text` decoded for
-//   `url`, `absolute-url`, `text` and a smart poster's URL; the last 16
+//   `url`, `absolute-url`, `text` and a smart poster's URL (D2); the last 16
 //   readings' records, bytes and all, answer `ndefRecords`.
 
 const KEPT = 16;
 
-/** A DOMException's name as the error, with the platform's message. */
+/** A DOMException's name as D3's error, with the platform's message. */
 function failure(e, fallback = 'NetworkError') {
   const name = typeof e?.name === 'string' && e.name !== 'Error' ? e.name : fallback;
   return { error: name, message: typeof e?.message === 'string' && e.message ? e.message : null };
@@ -66,7 +66,7 @@ function inner(record) {
   try { return typeof record.toRecords === 'function' ? record.toRecords() ?? null : null; } catch { return null; }
 }
 
-/** `text`: the URL of a `url` or `absolute-url` record and of a smart poster, a `text` record's text. */
+/** `text` (D2): the URL of a `url` or `absolute-url` record and of a smart poster, a `text` record's text. */
 function textOf(record) {
   switch (record.recordType) {
     case 'url': case 'absolute-url': return decode(bytesOf(record), 'utf-8');
@@ -178,16 +178,17 @@ export function implementation({ changed, emit, foreground }) {
     },
     async scan(args, told = {}) {
       if (!has) return { error: 'NotSupportedError' };
-      try {
-        await started();
-      } catch (e) {
-        return failure(e, 'NotReadableError');
-      }
-      return new Promise(resolve => {
-        scans.set(told.request ?? `s${++last}`, { once: args?.once === true, resolve });
+      // The claim is the session's before the reader has started, so a cancel or `abortScan` meanwhile ends it at
+      // once, and the last claim ending aborts the start.
+      const id = told.request ?? `s${++last}`, claim = { once: args?.once === true };
+      const answer = new Promise(resolve => { claim.resolve = resolve; });
+      scans.set(id, claim);
+      started().then(
         // A reader that fails after it started ends every scan.
-        reader.addEventListener?.('error', () => { for (const id of [...scans.keys()]) end(id, { reason: 'interrupted', reading: null, message: null }); }, { once: true });
-      });
+        () => { if (scans.get(id) === claim) reader.addEventListener?.('error', () => { for (const id of [...scans.keys()]) end(id, { reason: 'interrupted', reading: null, message: null }); }, { once: true }); },
+        e => { if (scans.get(id) === claim) { scans.delete(id); claim.resolve(failure(e, 'NotReadableError')); } },
+      );
+      return answer;
     },
     async abortScan() {
       for (const id of [...scans.keys()]) end(id, { reason: 'stopped', reading: null, message: null });
@@ -214,7 +215,7 @@ export function implementation({ changed, emit, foreground }) {
       const kept = readings.find(r => r.id === args?.reading);
       return kept ? kept.records : { error: 'NotFoundError', message: String(args?.reading ?? '') };
     },
-    /** A call let go: a scan stops, a write aborts. */
+    /** A call let go (LLP 1133.016 D15 item 2): a scan stops, a write aborts. */
     cancel(request) {
       if (scans.has(request)) end(request, { reason: 'stopped', reading: null, message: null });
       else if (writing?.request === request) {

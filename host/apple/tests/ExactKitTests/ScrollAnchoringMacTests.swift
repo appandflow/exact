@@ -5,7 +5,7 @@ import XCTest
 
 /// A plain AppKit scroller keeps the reader's content still when a box above
 /// the port changes size or is inserted, as CSS scroll anchoring does in
-/// Chrome: a header folding 48 → 0 above row 20 left row 20 where
+/// Chrome (#138 X23d): a header folding 48 → 0 above row 20 left row 20 where
 /// it was on the web and moved it up 48 points here.
 final class ScrollAnchoringMacTests: XCTestCase {
     /// A 200-point scroller: a 48-point header (id 2), then twenty 30-point
@@ -63,7 +63,7 @@ final class ScrollAnchoringMacTests: XCTestCase {
     }
 
     /// A `scrollFollowEnd` scroller above its end is anchored as a plain one
-    /// (the web leaves it to the browser's anchoring); at its end it
+    /// (the web leaves it to the browser's anchoring, LLP 1001); at its end it
     /// follows the end.
     func testAFollowerAboveItsEndIsAnchoredAndAtItsEndFollows() {
         let (p, clip) = fixture(top: 200, followEnd: true)
@@ -72,6 +72,32 @@ final class ScrollAnchoringMacTests: XCTestCase {
         clip.scroll(to: NSPoint(x: 0, y: 400))
         p.apply(wireBatch([["op": "style", "id": 2, "style": ["height": 100.0]]] + rows(header: 100)))
         XCTAssertEqual(clip.bounds.minY, 500, "the end, followed")
+    }
+
+    /// An authored scroll owns a follower until it settles (LLP 1070.000 §15,
+    /// expo/exact#370). Turning the follow on in the batch that writes a smooth
+    /// `scrollTop` does not put the port at the end first, and the write holds
+    /// the scroller until its animation lands.
+    func testTurningTheFollowOnWithASmoothWriteDoesNotJumpToTheEndFirst() {
+        let (p, clip) = fixture(top: 200)
+        p.apply(wireBatch([["op": "style", "id": 1, "style": ["overflow_y": "scroll", "scroll_behavior": "smooth"]]]))
+        p.apply(wireBatch([["op": "props", "id": 1, "set": ["scrollFollowEnd": "true", "scrollTop": "100"]]]))
+        XCTAssertEqual(clip.bounds.minY, 200, "no jump to the end ahead of the write")
+        XCTAssertNotNil(p.views[1]!.scrollEnd?.elementAnimation, "the write owns the scroller")
+    }
+
+    /// While a reveal runs, rows arriving at a followed end are not followed.
+    func testARunningRevealOwnsAFollowedScroller() {
+        let (p, clip) = fixture(top: 448, followEnd: true)
+        let end = ScrollEnd()
+        p.views[1]!.scrollEnd = end
+        end.elementAnimation = UUID()
+        p.apply(wireBatch([["op": "style", "id": 2, "style": ["height": 100.0]]] + rows(header: 100)))
+        XCTAssertEqual(clip.bounds.minY, 448, "the reveal's, not the follow's")
+        end.elementAnimation = nil
+        clip.scroll(to: NSPoint(x: 0, y: 500))
+        p.apply(wireBatch([["op": "style", "id": 2, "style": ["height": 148.0]]] + rows(header: 148)))
+        XCTAssertEqual(clip.bounds.minY, 548, "rested at the end: followed again")
     }
 
     /// Past an edge, a correction that asks for no more than that edge is left

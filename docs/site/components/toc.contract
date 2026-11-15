@@ -1,0 +1,116 @@
+use Page from "./shapes.contract"
+
+style Label
+  text-transform="uppercase" font-family="var(--font-mono)" font-size="var(--text-xs)" font-weight=500 letter-spacing="-0.5px" color="var(--color-text-tertiary)" margin-bottom=4
+
+style ActionText
+  font-size="var(--text-xs)" font-weight=500 line-height=1.6 color="var(--color-text-secondary)" white-space="nowrap"
+
+style Round
+  display="flex" align-items="center" padding=8 border="0.5px solid var(--color-border-default)" border-radius="var(--radius-3xl)"
+
+style Item
+  display="flex" align-items="center" gap=4 height=27 padding="0 6px" border-radius=4
+
+component Helpful
+  props
+    href: string
+    voted: string
+    vote: action
+    place: string
+  view
+    column gap=8 align-items="flex-start" testId=`helpful${place}`
+      text "Is this helpful" class=Label
+      if voted == ""
+        row gap=4 padding="4px 0"
+          button press=vote("yes") appearance="none" aria-label="Yes" class=Round testId=`helpful-yes${place}`
+            image "symbol:icon.check" aria-hidden=true width=14 height=14 color="var(--color-icon-default)"
+          button press=vote("no") appearance="none" aria-label="No" class=Round testId=`helpful-no${place}`
+            image "symbol:icon.xclose" aria-hidden=true width=14 height=14 color="var(--color-icon-default)"
+      else
+        column gap=4 padding="4px 0"
+          text (voted == "yes" ? "Thanks for the feedback." : "Sorry about that.") font-size="var(--text-sm)" color="var(--color-text-secondary)" testId=`helpful-thanks${place}`
+          if voted == "no"
+            link href=href target="_blank" testId=`helpful-issue${place}`
+              row
+                text "Tell us what to improve" font-size="var(--text-sm)" color="var(--color-text-default)" text-decoration="underline"
+
+component PageActions
+  props
+    page: Page
+    copyLink: action
+    linked: bool
+    copyMarkdown: action
+    copied: bool
+  action openApp(url: string)
+    hidePopover("page-menu")
+    openURL(url)
+  view
+    row gap=4 align-items="center" flex-shrink=0 margin-left=-12 testId="page-actions"
+      link href=page.editUrl target="_blank" padding="4px 12px" border-radius="var(--radius-full)" testId="edit-page"
+        row align-items="center" gap=4
+          image "symbol:icon.edit" aria-hidden=true width=12 height=12 color="var(--color-icon-default)"
+          text "Edit page" class=ActionText
+      row align-items="center" border="0.5px solid var(--color-border-default)" border-radius="var(--radius-full)"
+        button press=copyLink appearance="none" display="flex" align-items="center" gap=4 padding="4px 2px 4px 12px" border-radius="var(--radius-full) 0 0 var(--radius-full)" testId="copy-link"
+          image (linked ? "symbol:checkmark" : "symbol:icon.copy") aria-hidden=true width=12 height=12 color="var(--color-icon-default)"
+          text (linked ? "Copied" : "Copy link") class=ActionText
+        button popovertarget="page-menu" appearance="none" display="flex" align-items="center" padding="4px 12px 4px 2px" border-radius="0 var(--radius-full) var(--radius-full) 0" aria-label="More page actions" testId="actions"
+          image "symbol:icon.chevrondown" aria-hidden=true width=12 height=12 color="var(--color-icon-default)"
+      column id="page-menu" popover="auto" role="menu" aria-label="Page actions" position="absolute" position-area="bottom span-left" margin="4px 0 0" padding=4 gap=4 min-width=200 border="0.5px solid var(--color-border-default)" border-radius="var(--radius-lg)" background-color="var(--color-background-default)" box-shadow="0 2px 4px rgba(0, 0, 0, 0.07), 0 3px 6px rgba(0, 0, 0, 0.08)" testId="actions-menu"
+        button press=copyMarkdown appearance="none" class=Item testId="copy-markdown"
+          image (copied ? "symbol:checkmark" : "symbol:icon.copy") aria-hidden=true width=12 height=12 color="var(--color-icon-default)"
+          text (copied ? "Copied" : "Copy markdown") class=ActionText
+        link href=page.markdownPath target="_blank" class=Item testId="view-markdown"
+          row align-items="center" gap=4
+            image "symbol:icon.file" aria-hidden=true width=12 height=12 color="var(--color-icon-default)"
+            text "View markdown" class=ActionText
+        link href=page.chatgptUrl target="_blank" class=Item testId="open-chatgpt"
+          row align-items="center" gap=4
+            image "symbol:icon.openai" aria-hidden=true width=12 height=12 color="var(--color-icon-default)"
+            text "Open in ChatGPT" class=ActionText
+        button press=openApp(page.codexUrl) appearance="none" class=Item testId="open-codex"
+          image "symbol:icon.codex" aria-hidden=true width=12 height=12 color="var(--color-icon-default)"
+          text "Open in Codex" class=ActionText
+        link href=page.claudeUrl target="_blank" class=Item testId="open-claude"
+          row align-items="center" gap=4
+            image "symbol:icon.claude" aria-hidden=true width=12 height=12 color="var(--color-icon-default)"
+            text "Open in Claude" class=ActionText
+        button press=openApp(page.claudeCodeUrl) appearance="none" class=Item testId="open-claude-code"
+          image "symbol:icon.claude" aria-hidden=true width=12 height=12 color="var(--color-icon-default)"
+          text "Open in Claude Code" class=ActionText
+        link href=page.cursorUrl target="_blank" class=Item testId="open-cursor"
+          row align-items="center" gap=4
+            image "symbol:icon.cursor" aria-hidden=true width=12 height=12 color="var(--color-icon-default)"
+            text "Open in Cursor" class=ActionText
+        link href=page.t3Url target="_blank" class=Item testId="open-t3"
+          row align-items="center" gap=4
+            image "symbol:messages" aria-hidden=true width=12 height=12 color="var(--color-icon-default)"
+            text "Open in T3 Chat" class=ActionText
+        link href=page.grokUrl target="_blank" class=Item testId="open-grok"
+          row align-items="center" gap=4
+            image "symbol:icon.grok" aria-hidden=true width=12 height=12 color="var(--color-icon-default)"
+            text "Open in Grok" class=ActionText
+        link href=page.metaUrl target="_blank" class=Item testId="open-meta"
+          row align-items="center" gap=4
+            image "symbol:icon.metaai" aria-hidden=true width=12 height=12 color="var(--color-icon-default)"
+            text "Open in Meta AI" class=ActionText
+
+component Rail
+  props
+    page: Page
+    roomy: bool
+    active: string
+    voted: string
+    vote: action
+  view
+    nav aria-label="Page" inert=(not roomy) width="calc(13rem - clamp(0px, (1280px - 100vw) * 1000, 13rem))" overflow="hidden" flex-shrink=0 margin-left="calc(56px - clamp(0px, (1280px - 100vw) * 1000, 56px))" padding="calc(4px - clamp(0px, (1280px - 100vw) * 1000, 4px)) 0 0 calc(8px - clamp(0px, (1280px - 100vw) * 1000, 8px))" position="sticky" top=24 align-self="flex-start" testId="toc"
+      column gap=24
+        Helpful(href=page.feedbackUrl, voted=voted, vote=vote, place="")
+        if page.toc.length > 0
+          column gap=8 border-left="1px solid var(--color-border-secondary)" padding-left=12
+            text "On this page" class=Label
+            for i in page.toc key=i.id
+              link href=`${page.path}${i.href}` margin-left=-13 padding-left=12 border-left=(i.href == `#${active}` ? "1px solid var(--color-text-default)" : "1px solid transparent") testId=(i.href == `#${active}` ? "toc-active" : `toc-${i.id}`)
+                row
+                  text i.title font-size="var(--text-sm)" color=(i.href == `#${active}` ? "var(--color-text-default)" : "var(--color-text-secondary)")

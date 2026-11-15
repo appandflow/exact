@@ -14,9 +14,9 @@ impl Module {
         // answers decode directly to Value, without a second full value tree.
         let captured = engine.has_reply_strings();
         let decoded = if captured {
-            serde_json::from_str(text)
+            exact_js_value::json::parse(text.as_bytes())
                 .map(|fields| exact_js_value::Reply {
-                    fields,
+                    fields: fields.into(),
                     value: Ok(Value::Unit),
                 })
                 .map_err(|e| e.to_string())
@@ -106,9 +106,12 @@ impl Module {
                     Some("Unavailable")
                         if baking && reply.get("code").and_then(Json::as_str) == Some("bake") =>
                     {
-                        DataError::DeferredAtBake(message)
+                        DataError::DeferredAtBake {
+                            message,
+                            warning: reply.get("bakeWarning").and_then(Json::as_bool) == Some(true),
+                        }
                     }
-                    // What it let through, by class (prelude.js `failureCode`).
+                    // What it let through, by class (LLP 1109 D3; reply.js `failureCode`).
                     _ => FailureCode::seam_error(
                         reply.get("failure").and_then(Json::as_str),
                         message,

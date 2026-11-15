@@ -1,4 +1,4 @@
-# The pins of the Material reference: the Material version every painted component and every island is matched to,
+# The pins of LLP 1115.001.001 D1: the Material version every painted component and every island is matched to,
 # the Android SDK level of the reference (the Pixels'), and the reference's renderer. The BOM resolves `material3`;
 # `material3` here is what it resolves to, and the reference module's `checkPins` fails when the two disagree.
 [versions]

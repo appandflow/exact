@@ -1,4 +1,4 @@
-// The seam is public: the package,
+// The seam is public (LLP 1133.001 D8, LLP 1133.012 stage 3): the package,
 // packed as a registry carries it (`bun pm pack`) and installed into an app
 // `exact new` made outside the repo, builds unchanged and speaks, in WebKit.
 // Synthesis consumes no other package's object, so there is no replacement

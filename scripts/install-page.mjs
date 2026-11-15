@@ -1,4 +1,4 @@
-// The standard install page: generated public UI, separate from the app boot graph.
+// @ref LLP 1030.003#d6a--the-standard-install-page — generated public UI, separate from the app boot graph.
 import { mkdirSync, writeFileSync, readFileSync, realpathSync } from 'node:fs';
 import { networkInterfaces } from 'node:os';
 import { resolve, extname, sep } from 'node:path';
@@ -76,7 +76,8 @@ function methodsFor(manifest, platform) {
  * the origin it was read from. A terminal method's `command` is shown for a
  * person to copy, never run. `reach` is null where the build did not compute
  * it (a JS development build has no bake receipt), never an empty claim;
- * `build.source` and `build.dirty` are null where git did not answer. */
+ * `build.source` and `build.dirty` are null where git did not answer.
+ * Release builds leave `builtAt` null so identical builds keep identical pages. */
 export function installData(manifest, build = {}) {
   const errors = installProblems(manifest);
   if (methodsFor(manifest, 'web').some(m => !validURL(m.url, 'browser'))) errors.push('install.web: invalid browser URL');
@@ -118,7 +119,7 @@ export function installPage(manifest, presentation = {}) {
       return `<article>${m.recommended ? '<span class="badge">Recommended</span>' : ''}<h3>${label}</h3>${detail ? `<p>${escape(detail)}</p>` : ''}${m.kind === 'browser' ? `<div class="browser-urls"><div class="browser-destination"><span class="url-label" data-current-label>This address</span><a class="browser-url" data-browser-url href="${escape(m.url)}">${escape(m.url)}</a></div>${urls.map(entry => `<div class="browser-destination"><span class="url-label">${escape(entry.label)}</span><a class="browser-url" href="${escape(entry.url)}">${escape(entry.url)}</a></div>`).join('')}</div>` : ''}${m.version ? `<p class="version">${escape(m.version)}</p>` : ''}${m.kind === 'terminal' ? `<pre><code id="command-${platform}">${escape(m.command)}</code></pre><button type="button" data-copy="command-${platform}">Copy command</button><a class="secondary" href="${escape(m.url)}" rel="noopener noreferrer">Installation instructions</a>` : `<a class="action" href="${escape(m.url)}" rel="noopener noreferrer">${label}<span aria-hidden="true"> ↗</span></a>`}${m.kind === 'go' && m.setupUrl ? `<a class="secondary" href="${escape(m.setupUrl)}" rel="noopener noreferrer">Get Exact2 Go</a>` : ''}</article>`;
     }).join('') : '<p class="unavailable-note">Not available yet</p>'}</section>`;
   }).join('');
-  // What this app can reach: the bake's rows, base-locale purposes.
+  // What this app can reach (LLP 1069.008 D7): the bake's rows, base-locale purposes.
   const rows = data.reach ?? [];
   const reach = rows.length ? `<section class="platform reach" id="reach" aria-labelledby="heading-reach"><h2 id="heading-reach">What this app can reach</h2><ul>${rows.map(r => `<li><code>${escape(r.grant)}</code>${r.purpose ? `<p>${escape(r.purpose)}</p>` : ''}<p class="enforced">Enforced by ${escape(r.enforced)}</p></li>`).join('')}</ul></section>` : '';
   return `<!doctype html>
@@ -161,7 +162,7 @@ ${presentation.font ? `@font-face{font-family:AppWordmark;src:url("${presentatio
 /** Add the Mac dev server's explicit build/install action to a baked page.
  * Static and published pages never call this, so they cannot grow a signing
  * service accidentally. The per-process token makes cross-site POSTs unable
- * to trigger a device build. */
+ * to trigger a device build. @ref LLP 1030.003#d6b--local-ios-installation */
 export function developmentInstallPage(page, token) {
   if (!/^[0-9a-f]{64}$/.test(token)) throw new Error('local iOS installer token must be 32 random bytes');
   const marker = '<!-- exact-local-ios -->';
@@ -176,7 +177,7 @@ export function developmentInstallPage(page, token) {
   const refresh = document.querySelector('#local-ios-refresh');
   const state = document.querySelector('#local-ios-state');
   const log = document.querySelector('#local-ios-log');
-  let polling = null;
+  let polling = null, building = false, failures = 0;
   async function request(method = 'GET', body, refresh = false) {
     const response = await fetch(endpoint + (refresh ? '?refresh=1' : ''), { method, headers: {'x-exact-install-token': token, ...(body ? {'content-type':'application/json'} : {})}, body: body ? JSON.stringify(body) : undefined });
     const value = await response.json().catch(() => ({message:'The development server returned an unreadable response.'}));
@@ -191,7 +192,7 @@ export function developmentInstallPage(page, token) {
       return option;
     }));
     if (selected && [...select.options].some(option => option.value === selected)) select.value = selected;
-    const busy = value.state === 'building';
+    const busy = building = value.state === 'building';
     select.disabled = busy || !value.available || !select.options.length;
     start.disabled = select.disabled;
     refresh.disabled = busy;
@@ -202,7 +203,17 @@ export function developmentInstallPage(page, token) {
     clearTimeout(polling);
     if (busy) polling = setTimeout(load, 1500);
   }
-  async function load(force = false) { try { paint(await request('GET', undefined, force)); } catch (error) { state.textContent = error.message; } }
+  // A poll that fails while a build runs is tried again, a few times, so a
+  // dropped connection does not hide the build's end; Refresh asks at once.
+  async function load(force = false) {
+    try { paint(await request('GET', undefined, force)); failures = 0; }
+    catch (error) {
+      state.textContent = error.message;
+      refresh.disabled = false;
+      clearTimeout(polling);
+      if (building && ++failures <= 5) polling = setTimeout(load, 1500 * 2 ** failures);
+    }
+  }
   refresh.addEventListener('click', () => load(true));
   start.addEventListener('click', async () => {
     start.disabled = true; refresh.disabled = true; state.textContent = 'Starting the local Apple build…';
@@ -271,7 +282,7 @@ export function installBrowserOrigins({host, port, interfaces = networkInterface
  * host, never through an allowed name, and never with a proxy's forwarding
  * headers: a tunnel that rewrites Host to 127.0.0.1 is still the internet. A
  * browser POST whose Origin is not the host it names is refused (cross-site).
- * The design tool's live copies are each
+ * The design tool's live copies (LLP 1122 T7, theme2's F1 ruling) are each
  * at a loopback name of its own, `exact-copy-<n>.localhost` at this port (n
  * 1 to 99), so six of them are not six streams on one host's six
  * connections: admitted, never local. */

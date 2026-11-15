@@ -9,7 +9,7 @@ import XCTest
 /// pan off starts on a vertical drag; any handle starts on a long press. The
 /// recognizer's phases make the web host's sequence (`ReorderMacTests`).
 final class ReorderIOSTests: XCTestCase {
-    override class func setUp() { super.setUp(); ExactDrag.install() }
+    override class func setUp() { super.setUp(); ExactDrag.install() } // LLP 1047.001 D4
     private var window: UIWindow!
 
     /// A pan whose phase, location and velocity the test sets.

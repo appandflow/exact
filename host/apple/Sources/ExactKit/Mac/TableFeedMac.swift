@@ -1,4 +1,4 @@
-// One list's rows in a real, view-based
+// @ref LLP 1115.002 D5 — one list's rows in a real, view-based
 // `NSTableView`, fed by the runner (`TableHost` says which lists; this is
 // one list's feed). The runner still owns which rows are mounted and layout
 // still owns every size; the table owns its cells, its selection and its
@@ -10,7 +10,7 @@
 // stay the runner's, and the table is put where its rows that show are
 // where layout has them.
 //
-// What keeps the feed's cost a frame down (measured):
+// What the feed costs a frame is what stage 3b cut (measured, D5):
 // - A mounted row of a list the runner windows goes straight into its cell
 //   and stays there until the runner destroys it. The table keeps a row
 //   view for every row of the mounted run the port is in, not only for the
@@ -104,13 +104,19 @@ final class TableRowCell: NSTableCellView {
         syncSelectionPaint()
         if node.superview !== self {
             // Where the presenter has it: layout's frame, in the document.
-            kernel = (node.superview as? TableRowCell)?.kernel ?? node.frame
+            // A row can come from another cell (its item moved, or the
+            // runner rebound it to this one's, LLP 1078): that cell lets it
+            // go, and the selected item's ink it took there goes with it.
+            let from = node.superview as? TableRowCell
+            let inked = from.map { $0.backgroundStyle == .emphasized && $0.paintsSelection } ?? false
+            if from?.row === node { from?.row = nil }
+            kernel = from?.kernel ?? node.frame
             node.prepareToMount()
             addSubview(node)
-            feed?.moved()
+            feed?.moved(across: from != nil || feed?.reattaches(node) == true)
             textMoved = true
             node.rowDisclosure(hidden: true)
-            if backgroundStyle == .emphasized { node.rowEmphasisChanged(paintsSelection) }
+            if backgroundStyle == .emphasized || inked { node.rowEmphasisChanged(backgroundStyle == .emphasized && paintsSelection) }
         }
         place()
     }
@@ -138,15 +144,24 @@ final class TableRowCell: NSTableCellView {
     }
     /// Give the row back to the list's document, where the presenter has
     /// its siblings; a row that was destroyed in the cell simply goes.
+    /// While the feed syncs, the row only leaves the cell: the sync's fill
+    /// puts it in its item's cell (a row rebound to another item, LLP 1078,
+    /// or one whose item moved goes from cell to cell), or in the document
+    /// when the table has no cell for it.
     func sendHome() {
         defer { row = nil }
         guard let row, row.superview === self else { return }
         guard let feed, let home = feed.home, feed.holds(row) else { row.removeFromSuperview(); return }
-        home.addSubview(row)
+        let inked = backgroundStyle == .emphasized
+        if feed.detaches(row) {
+            row.removeFromSuperview()
+        } else {
+            home.addSubview(row)
+            feed.moved(home: true)
+            row.rowDisclosure(hidden: false)
+        }
         row.frame = kernel
-        feed.moved()
-        row.rowDisclosure(hidden: false)
-        if backgroundStyle == .emphasized { row.rowEmphasisChanged(false) }
+        if inked { row.rowEmphasisChanged(false) }
     }
 
     func separatorAppearanceChanged(_ node: NodeView) {
@@ -314,9 +329,9 @@ final class TableFeed: NSObject, NSTableViewDataSource, NSTableViewDelegate {
     /// changed none of it.
     private var stamp: [UInt64] = []
     var dirty = true
-    /// The selected row's item while its row is mounted: its key in a list
-    /// the runner windows, its view in any other. The selection follows the
-    /// item when rows before it come and go.
+    /// The selected item's key in a list the runner windows, its view in
+    /// any other. The selection follows the item when rows before it come
+    /// and go.
     private(set) var selectedKey: String?
     private var selectedNode: UInt32?
     /// A row selected before the runner had made it (a key that jumps to
@@ -326,9 +341,11 @@ final class TableFeed: NSObject, NSTableViewDataSource, NSTableViewDelegate {
     private var syncing = false, aligning = false
     /// Rows the runner made that the feed took to mount, rows moved into a
     /// cell or the document, and the table's rows told of a new height,
-    /// since the feed began (the tests, the measures).
+    /// since the feed began (the tests, the measures); of the moves, those
+    /// from one cell to another (an item moved, or a row rebound to another,
+    /// LLP 1078) and those into the document.
     var arrivals = 0
-    private(set) var moves = 0, noted = 0
+    private(set) var moves = 0, noted = 0, crossed = 0, homed = 0
     private static let column = NSUserInterfaceItemIdentifier("exact.row")
 
     init(_ list: NodeView, presenter: Presenter, style: NSTableView.Style) {
@@ -373,7 +390,16 @@ final class TableFeed: NSObject, NSTableViewDataSource, NSTableViewDelegate {
     /// What the list shows of that: its port.
     private var port: NSRect { list?.scroll?.contentView.bounds ?? home?.bounds ?? .zero }
     func holds(_ node: NodeView) -> Bool { presenter?.views[node.id] === node && held.contains(node.id) }
-    fileprivate func moved() { moves += 1 }
+    fileprivate func moved(across: Bool = false, home: Bool = false) { moves += 1; if across { crossed += 1 }; if home { homed += 1 } }
+    /// Rows a cell let go during this sync, for its fill to place (`TableRowCell.sendHome`).
+    private var detached = Set<ObjectIdentifier>()
+    fileprivate func detaches(_ node: NodeView) -> Bool {
+        guard syncing else { return false }
+        detached.insert(ObjectIdentifier(node))
+        return true
+    }
+    /// A row a cell let go goes into another: a move from cell to cell.
+    fileprivate func reattaches(_ node: NodeView) -> Bool { detached.remove(ObjectIdentifier(node)) != nil }
     /// The table's row views now (the tests, the measures).
     var rowViews: Int {
         var n = 0
@@ -469,13 +495,18 @@ final class TableFeed: NSObject, NSTableViewDataSource, NSTableViewDelegate {
                 next.append(Row(index: row.index, node: node, root: row.root, kernel: kernel(node)))
             }
             if !ordered { next.sort { $0.index < $1.index } }
-            return (snapshot.count, next, [snapshot.revision, UInt64(snapshot.count), UInt64(snapshot.rows.count), snapshot.extent.bitPattern])
+            // Which row is at which index, not the snapshot's revision: a list's report that moved no row (a
+            // measurement's answer, most of a fling's batches) leaves the table as it is. A selection held by
+            // its item's key is looked up again at every revision: the item may have moved among unmounted rows.
+            var rowsAt = Hasher()
+            for row in next { rowsAt.combine(row.node.id); rowsAt.combine(row.index) }
+            return (snapshot.count, next, [selectedKey == nil ? 0 : snapshot.revision, UInt64(bitPattern: Int64(rowsAt.finalize())), UInt64(snapshot.count), snapshot.extent.bitPattern])
         }
         // A child is a row when it has a box in the list's flow. One with
         // none (`display: none`) is no row, and neither is a positioned
         // one, which stays in the document as the presenter has it. The
         // host is not told a child's `position`. It is told its paint rank
-        // among its siblings: none for a plain box in the flow,
+        // among its siblings (LLP 1083): none for a plain box in the flow,
         // some for a positioned box and for a scroller in the flow (a row
         // that swipes). So a ranked child is a row where it stands in the
         // flow: after the row before it and before the next plain box.
@@ -494,17 +525,24 @@ final class TableFeed: NSObject, NSTableViewDataSource, NSTableViewDelegate {
     /// After a batch's ops and before the list's offset is corrected: the
     /// table's row count and heights from layout, the table where layout
     /// has the rows, and each mounted row in the cell the table has for it.
-    func sync() {
+    /// `separators`: the batch may have changed a row's provenance, which
+    /// changes no row count, frame or placement: the separators are read
+    /// again even on that path.
+    func sync(separators: Bool = true) {
         guard let presenter, let list, presenter.views[id] === list, home != nil else { return }
-        // Provenance may change without a new row count, frame or collection
-        // revision. Refresh the row and its predecessor even on that path.
-        defer { syncSeparators() }
+        var separators = separators
+        defer { if separators { syncSeparators() } }
+        // The list's name is the table's, for VoiceOver: "Notes, table". A
+        // batch can rename it without moving a row.
+        let name = list.authoredLabel
+        if table.accessibilityLabel() != name { table.setAccessibilityLabel(name) }
         let pixel = 1 / (table.pixelScale ?? 1)
         let port = self.port
         // A batch that changed no row, no frame of one and nothing of the port's width leaves the table as it is.
         var (items, next, now) = read(presenter)
         now += [Double(port.width).bitPattern, Double(pixel).bitPattern]
         guard dirty || now != stamp || table.superview !== home else { return }
+        separators = true
         stamp = now
         dirty = false
 
@@ -523,9 +561,6 @@ final class TableFeed: NSObject, NSTableViewDataSource, NSTableViewDelegate {
         }
         rows = next
         held = Set(next.map(\.node.id))
-        // The list's name is the table's, for VoiceOver: "Notes, table".
-        let name = list.authoredLabel
-        if table.accessibilityLabel() != name { table.setAccessibilityLabel(name) }
 
         /// The commonest height among the mounted rows, and how many have it.
         func common() -> (height: CGFloat, rows: Int)? {
@@ -566,6 +601,10 @@ final class TableFeed: NSObject, NSTableViewDataSource, NSTableViewDelegate {
             }
         } else {
             selected = selectedNode.flatMap { node in next.first { $0.node.id == node }?.index }
+            if let node = selectedNode, selected == nil {
+                if presenter.views[node] == nil { selectedNode = nil }
+                disappeared = true
+            }
         }
 
         syncing = true
@@ -722,17 +761,24 @@ final class TableFeed: NSObject, NSTableViewDataSource, NSTableViewDelegate {
     /// nothing; a mounted row the table has no cell for is in the document,
     /// and so is a child that is no row (`children`).
     private func fill() {
+        defer { detached.removeAll() }
+        // Every cell takes its row before any lets one go: a row the runner
+        // rebound to another item (LLP 1078) goes from its old cell straight
+        // to its new one, not through the document.
+        var emptied: [TableRowCell] = []
         table.enumerateAvailableRowViews { view, index in
             guard let cell = view.view(atColumn: 0) as? TableRowCell else { return }
-            if let row = self.row(at: index) { cell.adopt(row.node) } else { cell.sendHome() }
+            if let row = self.row(at: index) { cell.adopt(row.node) } else { emptied.append(cell) }
         }
+        for cell in emptied { cell.sendHome() }
         guard let home else { return }
         var kept = false
         func keep(_ node: NodeView) {
             guard !(node.superview is TableRowCell), node.superview !== home else { return }
             node.prepareToMount()
             home.addSubview(node)
-            moves += 1
+            moves += 1; homed += 1
+            if detached.remove(ObjectIdentifier(node)) != nil { node.rowDisclosure(hidden: false) }
             kept = true
         }
         let all = children?.filter { presenter?.views[$0.id] === $0 } ?? rows.map(\.node)
@@ -822,23 +868,26 @@ final class TableFeed: NSObject, NSTableViewDataSource, NSTableViewDelegate {
         // is the mouse's alone, and so is every other row's press here.
         if let mounted, table.keying, navigates(mounted) { pressRow(row) }
         // The person took the selection off its row (a Command-click): a
-        // split's pane then shows nothing (SplitMac.swift).
+        // split's pane then shows nothing (LLP 1115.002 D4, SplitMac.swift).
         if row < 0 { presenter?.navigation.split.deselected(id) }
     }
-    /// The split's word on the selection (SplitMac.swift): the row whose
-    /// press shows the detail beside the list is the selected one, and with
+    /// The split's word on the selection (SplitMac.swift): the owning row,
+    /// else the current row for a detail no row owns, is selected, and with
     /// no detail none is. A row that is not mounted leaves what is selected.
     /// True when the table shows it.
     @discardableResult func show(selected press: UInt32?) -> Bool {
-        let index = press.flatMap { id in rows.first { pressing($0)?.id == id }?.index }
+        let index = press.flatMap { id in
+            let node = presenter?.views[id]
+            return rows.first { pressing($0)?.id == id || node?.isDescendant(of: $0.node) == true }?.index
+        }
         guard press == nil || index != nil else { return false }
         let want = index.map { IndexSet(integer: $0) } ?? IndexSet()
+        remember(index.flatMap { row(at: $0) })
         guard table.selectedRowIndexes != want else { return true }
         let was = syncing
         syncing = true
         defer { syncing = was }
         table.selectRowIndexes(want, byExtendingSelection: false)
-        remember(index.flatMap { row(at: $0) })
         return true
     }
     /// A click on a row, when the mouse comes up in it: the table's action.

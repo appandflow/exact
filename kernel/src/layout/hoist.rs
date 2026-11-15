@@ -1,11 +1,11 @@
 //! Which containing block holds each absolutely positioned box that is not
-//! its parent's.
+//! its parent's (LLP 1074 T1).
 use super::{LayoutTree, MeasureContext};
 use crate::id::IdMap;
 use taffy::{NodeId, TaffyTree};
 
 impl LayoutTree {
-    // An absolutely positioned box's containing block is its
+    // @ref LLP 1074 T1 — an absolutely positioned box's containing block is its
     // nearest ancestor that is not `static`, or the top of its tree. The engine
     // lays each box out from that ancestor (vendored Taffy, EXACT PATCH 20) and
     // is told here which ones are not the box's own parent. Every change that

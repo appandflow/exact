@@ -394,7 +394,7 @@ fn anchors_preserve_key_and_offset_through_prepend_reorder_and_height_changes() 
 }
 
 /// At its start a list anchors nothing, as CSS scroll anchoring selects no
-/// anchor at a zero offset: a row inserted on top shows. An end it
+/// anchor at a zero offset: a row inserted on top shows (mail F8). An end it
 /// follows still wins where the start is also the end.
 #[test]
 fn a_list_at_its_start_shows_rows_inserted_above() {
@@ -413,6 +413,65 @@ fn a_list_at_its_start_shows_rows_inserted_above() {
         short.restore_anchor(&transcript, 20.0).unwrap(),
         short.total_height() - 20.0
     );
+}
+
+/// LLP 1168.000 D1.2: a list that opens at its end holds its last visible
+/// row by its end's distance from the port's bottom, at a zero offset too,
+/// and through a change to its own height; a deleted row falls back as a
+/// top anchor's does. An end it follows wins.
+#[test]
+fn a_bottom_anchor_keeps_the_last_visible_row_off_the_ports_bottom() {
+    let mut index = index(&[10.0; 10]);
+    let top = index.capture_bottom_anchor(0.0, 20.0, false).unwrap();
+    let inside = index.capture_bottom_anchor(5.0, 20.0, false).unwrap();
+    assert_eq!(SizeIndex::anchor_key(&top), Some("k1"));
+    assert_eq!(SizeIndex::anchor_key(&inside), Some("k2"));
+    let follow = index.capture_bottom_anchor(80.0, 20.0, true).unwrap();
+    assert!(SizeIndex::follows_end(&follow));
+    let mut prepended: Vec<Rc<str>> = (0..5).map(|i| Rc::from(format!("p{i}"))).collect();
+    prepended.extend(keys(10));
+    index.replace_keys(prepended).unwrap();
+    assert_eq!(index.restore_anchor(&top, 20.0).unwrap(), 50.0);
+    assert!(index.kept_row(&top, 20.0));
+    assert_eq!(index.restore_anchor(&inside, 20.0).unwrap(), 55.0);
+    assert_eq!(index.restore_anchor(&follow, 20.0).unwrap(), 130.0);
+    let token = index.measurement_token("k1").unwrap();
+    index.set_measured_height("k1", token, 30.0).unwrap();
+    assert_eq!(
+        index.restore_anchor(&top, 20.0).unwrap(),
+        70.0,
+        "its end holds"
+    );
+    let mut without: Vec<Rc<str>> = index.order().iter().cloned().collect();
+    without.retain(|k| &**k != "k1");
+    index.replace_keys(without).unwrap();
+    assert_eq!(index.restore_anchor(&top, 20.0).unwrap(), 50.0, "k2 next");
+}
+
+/// A port in the padding before the rows keeps its place there, and one
+/// whose bottom is below the rows holds the last row with a height, not a
+/// zero-height tail (review r1).
+#[test]
+fn a_bottom_anchor_reads_the_padding_and_skips_a_zero_height_tail() {
+    let prepend = |index: &mut SizeIndex, rows: Vec<Rc<str>>| {
+        let mut order: Vec<Rc<str>> = (0..5).map(|i| Rc::from(format!("p{i}"))).collect();
+        order.extend(rows);
+        index.replace_keys(order).unwrap();
+    };
+    let mut padded = index(&[32.0; 20]);
+    padded.set_leading(20.0);
+    let anchor = padded.capture_bottom_anchor(-20.0, 320.0, false).unwrap();
+    prepend(&mut padded, keys(20));
+    assert_eq!(padded.restore_anchor(&anchor, 320.0).unwrap(), 30.0);
+    let mut tail = index(&[10.0, 10.0, 0.0]);
+    tail.set_trailing(20.0);
+    let anchor = tail.capture_bottom_anchor(0.0, 30.0, false).unwrap();
+    assert_eq!(SizeIndex::anchor_key(&anchor), Some("k1"));
+    prepend(
+        &mut tail,
+        vec!["k0".into(), "k1".into(), "new".into(), "k2".into()],
+    );
+    assert_eq!(tail.restore_anchor(&anchor, 30.0).unwrap(), 50.0);
 }
 
 #[test]
@@ -658,8 +717,8 @@ fn invalid_numbers_and_duplicates_leave_index_unchanged() {
         assert_eq!(index.total_height(), 30.0);
         assert_eq!(index.measurement_token("k0"), Some(token));
         assert!(index.row_at(bad).is_err());
-        // A negative offset is a port in the padding before the first row:
-        // at the rows' start.
+        // A negative offset is a port in the padding before the first row
+        // (LLP 1010 §6.9): at the rows' start.
         if bad < 0.0 && bad.is_finite() {
             assert_eq!(index.window(bad, 10.0, [None; 2]).unwrap().offset, 0.0);
             assert!(index.capture_anchor(bad, 10.0, false).is_ok());
@@ -1006,6 +1065,212 @@ fn measured_bands_require_current_rows_without_scanning_the_band() {
 }
 
 #[test]
+fn same_base_splices_reuse_both_tree_buffers() {
+    let mut i = index(&[10.; 10_000]);
+    let sums = i.tree.sums.as_ptr();
+    let measured = i.tree.measured.as_ptr();
+    for _ in 0..20 {
+        let middle = vec![(i.order[2].clone(), Some(2)), (i.order[1].clone(), Some(1))];
+        i.splice_keys(1, 3, middle).unwrap();
+        assert_eq!(i.tree.sums.as_ptr(), sums);
+        assert_eq!(i.tree.measured.as_ptr(), measured);
+    }
+}
+
+fn assert_same_splice_index(actual: &SizeIndex, expected: &SizeIndex) {
+    assert_eq!(actual.fingerprint(), expected.fingerprint());
+    assert_eq!(actual.tree.base, expected.tree.base);
+    assert_eq!(actual.tree.len, expected.tree.len);
+    assert_eq!(actual.tree.zeros, expected.tree.zeros);
+    for start in 0..=actual.len() {
+        assert_eq!(actual.prefix(start), expected.prefix(start));
+        let offset = actual.prefix(start).unwrap();
+        for offset in [offset, offset + 0.25] {
+            assert_eq!(actual.row_at(offset), expected.row_at(offset));
+            assert_eq!(
+                actual.tree.find(offset, true),
+                expected.tree.find(offset, true)
+            );
+            assert_eq!(
+                actual.window(offset, 2., [None; 2]),
+                expected.window(offset, 2., [None; 2])
+            );
+        }
+        for end in start..=actual.len() {
+            assert_eq!(
+                actual.range_measured(start..end),
+                expected.range_measured(start..end)
+            );
+            assert_eq!(
+                actual.tree.positive_ranges(&(start..end)),
+                expected.tree.positive_ranges(&(start..end))
+            );
+        }
+    }
+}
+
+#[test]
+fn same_base_splices_preserve_geometry_and_measurement_epochs() {
+    let make_index = || {
+        let mut i = index(&[0., 0.1, 0., 1e16, 1., 2.5]);
+        i.invalidate_all().unwrap();
+        for (key, height) in [("k0", 0.), ("k3", 1e16), ("k4", 1.)] {
+            let token = i.measurement_token(key).unwrap();
+            i.set_measured_height(key, token, height).unwrap();
+        }
+        i.invalidate_row("k2").unwrap();
+        i
+    };
+    let mut actual = make_index();
+    let mut expected = make_index();
+    let sums = actual.tree.sums.as_ptr();
+    let measured = actual.tree.measured.as_ptr();
+    for (start, end, middle) in [
+        (
+            1,
+            5,
+            vec![
+                ("k4", Some(4)),
+                ("fresh", None),
+                ("k2", None),
+                ("k1", Some(1)),
+            ],
+        ),
+        (4, 6, vec![("k5", Some(5))]),
+        (5, 5, vec![("new0", None), ("new1", None), ("new2", None)]),
+        (0, 3, vec![]),
+        (0, 1, vec![("new3", None)]),
+    ] {
+        let anchor = actual.capture_anchor(1.5, 2., false).unwrap();
+        let mut order = expected.order[..start].to_vec();
+        order.extend(middle.iter().map(|(key, _)| Rc::from(*key)));
+        order.extend_from_slice(&expected.order[end..]);
+        expected.replace_keys(order).unwrap();
+        actual
+            .splice_keys(
+                start,
+                end,
+                middle
+                    .into_iter()
+                    .map(|(key, old)| (key.into(), old))
+                    .collect(),
+            )
+            .unwrap();
+        assert_eq!(actual.tree.sums.as_ptr(), sums);
+        assert_eq!(actual.tree.measured.as_ptr(), measured);
+        assert_same_splice_index(&actual, &expected);
+        assert_eq!(
+            actual.restore_anchor(&anchor, 2.),
+            expected.restore_anchor(&anchor, 2.)
+        );
+    }
+    assert_eq!(actual.tree.zeros, 0);
+}
+
+#[test]
+fn splices_grow_and_shrink_across_tree_bases_including_empty() {
+    let mut actual = index(&[]);
+    let mut expected = index(&[]);
+    for count in [1, 0, 1, 2, 3, 4, 5, 8, 9, 8, 5, 4, 3, 2, 1, 0] {
+        let sums = actual.tree.sums.as_ptr();
+        let measured = actual.tree.measured.as_ptr();
+        let base = actual.tree.base;
+        let old_len = actual.len();
+        let middle = (old_len..count)
+            .map(|i| (Rc::from(format!("k{i}")), None))
+            .collect();
+        actual
+            .splice_keys(count.min(old_len), old_len, middle)
+            .unwrap();
+        expected.replace_keys(keys(count)).unwrap();
+        assert_eq!(actual.tree.sums.as_ptr() == sums, base == actual.tree.base);
+        assert_eq!(
+            actual.tree.measured.as_ptr() == measured,
+            base == actual.tree.base
+        );
+        if count > 0 {
+            let key = actual.order[count - 1].clone();
+            for i in [&mut actual, &mut expected] {
+                let token = i.measurement_token(&key).unwrap();
+                i.set_measured_height(&key, token, if count % 2 == 0 { 0. } else { 0.1 })
+                    .unwrap();
+            }
+        }
+        assert_same_splice_index(&actual, &expected);
+    }
+}
+
+#[test]
+fn tree_capacity_checks_rounding_slot_count_and_byte_count_overflow() {
+    for (len, capacity) in [(0, 2), (1, 2), (2, 4), (3, 8), (4, 8), (5, 16)] {
+        assert_eq!(SumTree::capacity(len), Ok(capacity));
+    }
+    for len in [
+        usize::MAX,
+        usize::MAX / 2 + 1,
+        isize::MAX as usize / std::mem::size_of::<f64>(),
+    ] {
+        assert_eq!(SumTree::capacity(len), Err(IndexError::CapacityOverflow));
+    }
+}
+
+#[test]
+fn rejected_splices_preserve_geometry_generations_and_buffers() {
+    for count in [3, 4, 7] {
+        let make_index = || {
+            let mut heights = vec![0.; count];
+            heights[0] = f64::MAX / 2.;
+            heights[count - 1] = 0.25;
+            let mut i = index(&heights);
+            i.estimate = f64::MAX;
+            i.invalidate_all().unwrap();
+            i.invalidate_row("k1").unwrap();
+            i
+        };
+        let mut actual = make_index();
+        let expected = make_index();
+        let order = actual.order.clone();
+        let sums = actual.tree.sums.as_ptr();
+        let measured = actual.tree.measured.as_ptr();
+        let end = if count == 7 { 4 } else { 2 };
+        for (middle, error) in [
+            (
+                vec![("k0".into(), None)],
+                IndexError::DuplicateKey("k0".into()),
+            ),
+            (
+                vec![("new".into(), None), ("new".into(), None)],
+                IndexError::DuplicateKey("new".into()),
+            ),
+            (
+                vec![("k1".into(), Some(1)), ("k1".into(), None)],
+                IndexError::DuplicateKey("k1".into()),
+            ),
+            (
+                vec![("new".into(), None), ("other".into(), None)],
+                IndexError::ExtentOverflow,
+            ),
+            (vec![("new".into(), None)], IndexError::ExtentOverflow),
+        ] {
+            assert_eq!(actual.splice_keys(1, end, middle), Err(error));
+            assert!(Rc::ptr_eq(&actual.order, &order));
+            assert_eq!(actual.tree.sums.as_ptr(), sums);
+            assert_eq!(actual.tree.measured.as_ptr(), measured);
+            assert_same_splice_index(&actual, &expected);
+        }
+        actual.next_generation = u64::MAX;
+        let before = actual.fingerprint();
+        assert_eq!(
+            actual.splice_keys(1, 2, vec![("new".into(), None)]),
+            Err(IndexError::GenerationExhausted)
+        );
+        assert_eq!(actual.fingerprint(), before);
+        assert_eq!(actual.tree.sums.as_ptr(), sums);
+        assert_eq!(actual.tree.measured.as_ptr(), measured);
+    }
+}
+
+#[test]
 fn a_splice_equals_the_replacement_and_refuses_a_repeat_untouched() {
     let spliced = |index: &mut SizeIndex| {
         // Keep k0 and k4; k2 moves ahead of a new key; k1 and k3 go.
@@ -1031,7 +1296,7 @@ fn a_splice_equals_the_replacement_and_refuses_a_repeat_untouched() {
     }
 }
 
-/// The padding after the last row extends the scroll range,
+/// The padding after the last row (LLP 1010 §6.9) extends the scroll range,
 /// not the rows: an offset past the rows' end keeps the last row in the
 /// window, follows the end there, and is where a followed end restores to.
 #[test]
@@ -1058,7 +1323,7 @@ fn trailing_padding_extends_the_range_past_the_rows() {
 }
 
 /// A list shorter than its port and paddings ends in the padding before its
-/// first row: the range's end is negative, down to that
+/// first row (LLP 1010 §6.9): the range's end is negative, down to that
 /// padding; a port there follows the end, one above it does not, and the
 /// window still starts at the first row.
 #[test]
@@ -1090,7 +1355,7 @@ fn reorder_anchor_keeps_signed_offsets_and_clamps_when_no_other_row_is_visible()
     ] {
         let mut i = index(&[20.; 30]);
         let a = i
-            .capture_anchor_excluding(offset, port, false, Some("k10"))
+            .capture_anchor_excluding(offset, port, false, &["k10"])
             .unwrap();
         let mut order = keys(30);
         let source = order.remove(10);
@@ -1100,7 +1365,7 @@ fn reorder_anchor_keeps_signed_offsets_and_clamps_when_no_other_row_is_visible()
     }
     let mut i = index(&[20.; 30]);
     let a = i
-        .capture_anchor_excluding(200., 100., false, Some("k10"))
+        .capture_anchor_excluding(200., 100., false, &["k10"])
         .unwrap();
     i.replace_keys(vec![
         "k11".into(),
@@ -1115,7 +1380,7 @@ fn reorder_anchor_keeps_signed_offsets_and_clamps_when_no_other_row_is_visible()
     assert!(!i.kept_row(&a, 100.));
     let mut i = index(&[20., 20., 0., 20., 20., 20.]);
     let a = i
-        .capture_anchor_excluding(20., 40., false, Some("k1"))
+        .capture_anchor_excluding(20., 40., false, &["k1"])
         .unwrap();
     i.replace_keys(vec![
         "k0".into(),
@@ -1133,7 +1398,7 @@ fn reorder_anchor_keeps_signed_offsets_and_clamps_when_no_other_row_is_visible()
 fn drop_anchor_requires_a_move_among_surviving_keys() {
     let mut i = index(&[20.; 30]);
     let a = i
-        .capture_anchor_excluding(200., 100., false, Some("k10"))
+        .capture_anchor_excluding(200., 100., false, &["k10"])
         .unwrap();
     let mut order = keys(30);
     order.insert(10, "new".into());

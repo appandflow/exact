@@ -1,26 +1,35 @@
-// The SVG parity smoke: `apps/svg-gallery` drawn by Chrome (the web host) is the
+// The SVG parity smoke (LLP 1055.000 §5; QUEUE: LLP 1055's hand comparison
+// made a smoke): `apps/svg-gallery` drawn by Chrome (the web host) is the
 // reference; each native host draws the same pages, and every `fx-*` box is
 // cropped from both screenshots by its own host's layout, brought to one
 // pixel per point, registered within ±3 px, and compared. A fixture fails
-// beyond mean |Δ| 4/255 or 6% of pixels off by more than 32 (the
+// beyond mean |Δ| 4/255 or 6% of pixels off by more than 32 (LLP 1055's
 // measured residue: antialiasing and Chrome's 1× raster). Failing crops are
 // written out in pairs. Run: `bun scripts/smoke.mjs svg [--hosts linux,macos,ios]`.
 import { spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
+import { webBuild } from './parity.mjs';
 import { crop, decodePng, encodePng } from './png.mjs';
 
 const MEAN = 4, OFF = 0.06, BAND = 32, SLOP = 3;
 // Linux paints text in its pinned font, not Chrome's system font, and does
 // not stroke text yet: its text fixtures are held to a looser bound.
 const TEXT = /^fx-(axis|baselines|runs|boxcolor)$/;
-// A fixture a host declares unsupported is not compared there: iOS has no
-// public blend on a layer.
-// Linux draws a box's or an image's CSS `filter` unfiltered for now.
-const UNSUPPORTED = { ios: /^fx-mix$/, linux: /^fx-(box|image)-filter$/ };
-// Core Animation blends in the display's colour space, CSS in sRGB:
-// macOS's blend fixture is held to a looser share.
+// A fixture is not compared on a host whose column in the schema says it
+// does not draw the row the fixture exercises (LLP 1159.000 D6): to excuse a
+// host here is to tell every author who ships to it.
+const EXERCISES = { 'fx-mix': ['mix_blend_mode', 'svg'], 'fx-box-filter': ['filter', 'box'], 'fx-image-filter': ['filter', 'box'] };
+const PAINTED = ['linux', 'windows', 'android'];
+
+/** The fixtures a host's column declares undrawn, from the schema's `hosts`. */
+export function undrawn(host, schema = JSON.parse(readFileSync(resolve(import.meta.dir, '../kernel/tables/schema.json'), 'utf8'))) {
+  return Object.entries(EXERCISES).filter(([, [field, scope]]) => (schema.styles.find((row) => row.field === field)?.hosts ?? [])
+    .some((e) => e.fidelity === 'none' && (e.host === host || (e.host === 'painted' && PAINTED.includes(host))) && (!e.on || e.on === scope))).map(([id]) => id);
+}
+// Core Animation blends in the display's colour space, CSS in sRGB (LLP
+// 1055.000 §0, stage 10): macOS's blend fixture is held to a looser share.
 const limits = (host, id) => (host === 'linux' && TEXT.test(id) ? { mean: 14, off: 0.16 } : host === 'macos' && id === 'fx-mix' ? { mean: MEAN, off: 0.16 } : { mean: MEAN, off: OFF });
 
 /** An RGBA image averaged down by an integer factor. */
@@ -53,7 +62,7 @@ function compare(a, b, dx, dy) {
 
 /** One host's fixtures on every page: `{page: {testId: RGBA crop at 1 px/pt}}`. */
 async function capture(open, host, dir, check) {
-  const s = await open({ host, app: 'svg-gallery', env: host === 'linux' ? { EXACT_PAINTER: 'cpu' } : undefined });
+  const s = await open({ host, app: 'svg-gallery', env: host === 'linux' ? { EXACT_PAINTER: 'cpu' } : undefined, ...(host === 'web' ? { webDist: webBuild('svg-gallery') } : {}) });
   try {
     const tree = await s.tree();
     const pages = tree.nodes.map((n) => n.props?.testId).filter((t) => t?.startsWith('page-')).sort();
@@ -85,8 +94,8 @@ async function capture(open, host, dir, check) {
       }
       void reply;
     }
-    // A tap on a tile's centre presses the element there — a point, `at` its middle: a plain
-    // tap names the `svg`, which has no press of its own, and never presses an element inside it.
+    // LLP 1055.000 D17: a tap on a tile's centre presses the element there — a point, `at` its middle: a plain
+    // tap names the `svg`, which has no press of its own, and never presses an element inside it (LLP 1012 §1).
     if (pages.includes('page-6')) {
       await s.tap('page-6');
       for (const [fixture, want] of [['fx-hit', 'disc'], ['fx-bars', 'bars']]) {
@@ -110,10 +119,11 @@ export async function svgParity({ open, check, hosts }) {
   const ref = await capture(open, 'web', dir, check);
   const rows = [];
   for (const host of hosts) {
+    const unsupported = undrawn(host);
     const got = await capture(open, host, dir, check);
     for (const [page, fixtures] of Object.entries(ref)) {
       for (const [id, a] of Object.entries(fixtures)) {
-        if (UNSUPPORTED[host]?.test(id)) { console.log(`svg parity ${host.padEnd(6)} ${page} ${id.padEnd(16)} declared unsupported`); continue; }
+        if (unsupported.includes(id)) { console.log(`svg parity ${host.padEnd(6)} ${page} ${id.padEnd(16)} declared unsupported`); continue; }
         const b = got[page]?.[id];
         if (!check(a && b && a.width === b.width && a.height === b.height, `${host} ${page} ${id}: no box to compare (off screen or missing)`)) continue;
         let best = null;

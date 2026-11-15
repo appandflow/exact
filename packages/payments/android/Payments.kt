@@ -1,4 +1,4 @@
-// @exact/payments on Android: the Google Pay API (`play-services-wallet`, in the
+// @exact/payments on Android (LLP 1133.034 D5, D6, D10, D11, D19): the Google Pay API (`play-services-wallet`, in the
 // app's one locked Gradle graph), one sheet at a time over the resumed activity. The build makes one per host when the
 // app binds the extension, outside the agent; under the agent the runner's substitute answers its names, and only the
 // button is drawn here.
@@ -6,14 +6,15 @@
 // - The request is the W3C call's words in Google's: the Google Pay method's `data` (`allowedPaymentMethods`,
 //   `merchantInfo`, …), the details as `transactionInfo` (the total, its display items), the shipping options as
 //   `shippingOptionParameters`, and the options as `emailRequired`, `shippingAddressRequired` and the phone. The
-//   environment is the bake's: `TEST` until the app has a production Google Pay merchant.
+//   environment is the bake's: `TEST` until the app has a production Google Pay merchant (§13 question 7).
 // - The sheet's callbacks (`PaymentCallbacks`, the service Google binds while the sheet is up) call the app's
-//   handlers through `invoke`, by the call's `request:<n>` handle, each with the budget: Google's address is
+//   handlers through `invoke`, by the call's `request:<n>` handle, each with D5's budget: Google's address is
 //   already redacted (a country, a region, a city, a postal code), and the full one comes with the payment.
-// - The final handler's answer is the table: `success` closes the sheet; `fail`, `unknown` and `retry` are Google's
+// - The final handler's answer is D6's table: `success` closes the sheet; `fail`, `unknown` and `retry` are Google's
 //   error result, which keeps the sheet up for another card or a corrected address.
-// - A call let go cannot withdraw Google's activity: the request is abandoned, and an authorization that arrives is
-//   answered as failed without calling the app.
+// - A call let go cannot withdraw Google's activity once it shows: the request is abandoned, and an authorization that
+//   arrives is answered as failed without calling the app (D6 phase 3). Let go before it shows (its start waiting for
+//   the activity's resume, or Google's answer not yet in), the sheet is never opened.
 package exact.payments
 
 import android.app.Activity
@@ -49,7 +50,7 @@ internal fun objectOf(value: Any?): JSONObject? = when (value) {
 
 class PaymentsModule(context: ExtensionContext) : ExactExtension(context) {
     companion object {
-        /** The app's access hatch: each request, after the module's words are set; its replacement. */
+        /** The app's access hatch (D11): each request, after the module's words are set; its replacement. */
         @JvmStatic var paymentDataRequest: ((PaymentDataRequest) -> PaymentDataRequest)? = null
         /** The module whose sheet is up, which the callbacks service reaches. */
         internal var current: PaymentsModule? = null
@@ -66,6 +67,8 @@ class PaymentsModule(context: ExtensionContext) : ExactExtension(context) {
         var authorizing = false
         var result: JSONObject? = null
         var option: String? = null
+        /** Withdraws the sheet's start while it waits for the resume ([ExtensionContext.startIntentSenderForResult]). */
+        var withdraw: () -> Boolean = { false }
         val details = JSONObject(args.optJSONObject("details")?.toString() ?: "{}")
     }
     private var sheet: Sheet? = null
@@ -172,8 +175,10 @@ class PaymentsModule(context: ExtensionContext) : ExactExtension(context) {
         client.loadPaymentData(made).addOnCompleteListener { task ->
             when {
                 task.isSuccessful -> finish(s, Activity.RESULT_OK, task.result)
+                // Let go before Google answered: nothing opens.
+                task.exception is ResolvableApiException && s.letGo -> finish(s, Activity.RESULT_CANCELED, null)
                 task.exception is ResolvableApiException -> {
-                    context.startIntentSenderForResult((task.exception as ResolvableApiException).resolution.intentSender) { code, intent ->
+                    s.withdraw = context.startIntentSenderForResult((task.exception as ResolvableApiException).resolution.intentSender) { code, intent ->
                         finish(s, code, intent?.let { PaymentData.getFromIntent(it) }, intent)
                     }
                 }
@@ -281,18 +286,21 @@ class PaymentsModule(context: ExtensionContext) : ExactExtension(context) {
             value?.opt("data")?.let { out.put("data", it.toString()) }
             s.result = out
             context.log("payments: ${s.id}: $result")
-            // Past the budget the request is abandoned: no later authorization calls the app.
-            if (value == null) s.letGo = true
+            // Past the budget the request ends for the app (D6): the send answers the failure now, though Google's
+            // sheet stays up, and the request is abandoned, so no later authorization calls the app.
+            if (value == null && !s.letGo) { s.letGo = true; s.reply(out) }
             complete(if (result == "success") JSONObject().put("transactionState", "SUCCESS").toString()
                 else failed("The payment didn’t go through.", "PAYMENT_AUTHORIZATION", "PAYMENT_DATA_INVALID"))
         }
     }
 
-    /** The call was let go: Google's activity stays, so the request is abandoned. */
+    /** The call was let go: a sheet waiting to open never does; one up stays, so the request is abandoned (D6
+     * phase 3). A final handler running then finishes, and its answer is Google's; a later authorization calls none. */
     override fun cancel(request: Int) {
         val s = sheet ?: return
-        if (s.request != request || s.authorizing) return
+        if (s.request != request) return
         s.letGo = true
+        if (s.withdraw()) return finish(s, Activity.RESULT_CANCELED, null)
         context.log("payment ${s.id}: abandoned, its call was let go; the sheet stays until it is closed")
     }
 

@@ -1,4 +1,4 @@
-// @exact/photos's fixture on Android: the photo
+// @exact/photos's fixture on Android (LLP 1133.019 stage 3): the photo
 // editor has no Android port, so this is the library's consumer there. The
 // status and the newest photos are read at launch (`photoAssets` asks
 // permission while `prompt`, so the dialog is the launch's), each photo drawn

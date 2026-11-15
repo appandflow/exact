@@ -1,4 +1,4 @@
-// The parity page for per-side border colours, the browser the oracle.
+// LLP 1053 G2's parity page: per-side border colours, the browser the oracle.
 // Twelve 100×70 border boxes on a 125×95 grid, no text. `flip` changes the
 // `color` the `currentcolor` sides follow; `dark` switches the scheme the
 // `light-dark()` sides resolve under. Chrome's pictures of it (the web host,

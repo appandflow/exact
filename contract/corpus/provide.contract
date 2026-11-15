@@ -1,5 +1,5 @@
 // Accept fixture: a component's `provide` section and `inject name: type`
-// — a value flows down to every component
+// (LLP 1017 P4a, LLP 1035.005.000 D9) — a value flows down to every component
 // used in the providing component's view, without a prop at each use; a bare
 // name provides the value of that name; the nearest providing component wins,
 // a slot's fill keeps its caller's; the compiler fills it.

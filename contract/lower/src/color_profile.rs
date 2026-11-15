@@ -1,4 +1,4 @@
-//! `@color-profile` declarations.
+//! `@color-profile` declarations (LLP 1100 D3).
 
 use crate::{LowerError, Lowerer};
 use contract_syntax::{Expr, File};

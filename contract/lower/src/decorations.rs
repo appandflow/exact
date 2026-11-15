@@ -1,4 +1,4 @@
-//! Literal declaration rows and the typed field record.
+//! Literal declaration rows and the typed field record (LLP 1114.007).
 use super::*;
 use exact_kernel::PropId;
 use serde_json::{json, Map, Value};
@@ -16,7 +16,7 @@ pub(super) fn check_field(tag: &str, attrs: &[Attr]) -> Result<(), LowerError> {
     {
         return err(
             "lower-decoration-field",
-            "`decorations` paints a plain `textarea`; an `input` takes none, and a `markup=\"markdown\"` field's paint is its Markdown editor's",
+            "`decorations` paints a plain `textarea`; an `input` takes none, and a `markup=\"markdown\"` field's paint is its Markdown editor's (LLP 1045)",
             decoration.span,
         );
     }
@@ -152,7 +152,7 @@ fn unsupported<T>(attr: &Attr) -> Result<T, LowerError> {
     err(
         "lower-decoration-style",
         format!(
-            "`{}` cannot style a decoration: a decoration paints and never moves text, so it takes what CSS's `::highlight()` admits: `color`, `background-color`, `text-decoration`, `text-decoration-line` or `text-shadow`",
+            "`{}` cannot style a decoration: a decoration paints and never moves text, so it takes what CSS's `::highlight()` admits: `color`, `background-color`, `text-decoration`, `text-decoration-line` or `text-shadow` (LLP 1114.007)",
             attr.name
         ),
         attr.span,

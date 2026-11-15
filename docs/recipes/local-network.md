@@ -1,7 +1,7 @@
 # Recipe: devices on the local network
 
 A light, a printer or a NAS is found by DNS-SD with `@exact/local-network` and
-reached with `fetch`. `apps/lights` is the whole app.
+reached with `fetch` (LLP 1133.036). `apps/lights` is the whole app.
 
 1. **Declare** the purpose, each service type, and the reach:
 

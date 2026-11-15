@@ -1,4 +1,4 @@
-// @exact/background on Apple: the
+// @exact/background on Apple (LLP 1133.017 D2, D8, D12, D17): the
 // registrations kept in `UserDefaults`; a `sync` fired while the path is
 // satisfied (`NWPathMonitor`) and the app runs; every other run asked of the
 // host's wake requests (`context.wakes`), which the host submits as iOS's
@@ -8,12 +8,12 @@
 //
 // - Each tag fired is its own invocation, raised through `context.wake` or a
 //   host wake's `raise`, and told its outcome.
-// - Retrying is the module's: a handler that registers its tag again keeps it,
+// - Retrying is D1's: a handler that registers its tag again keeps it,
 //   eligible after 5 minutes, doubling to an hour; the third attempt in a row
 //   is `lastChance`, after which it is retired unless registered again.
 // - iOS has no wake for the network's return: a `sync` waiting asks for the
 //   next refresh wake and a processing wake with a network connection, and
-//   fires at whichever comes first, or at the next launch.
+//   fires at whichever comes first, or at the next launch (D2).
 // - `periodicsync` asks for a wake at its due time, the refresh kind unless
 //   `apple.task` is `processing`; `apple.requiresExternalPower` asks a
 //   processing wake for power.
@@ -85,6 +85,7 @@ public final class BackgroundModule: NSObject, ExactPackage {
                 reply([:])
             case "unregisterPeriodicSync":
                 tags["periodicsync"]?[tag] = nil
+                if !context.agent { context.wakes.cancel(key: "periodicsync " + tag) }
                 keep("periodicsync")
                 reply([:])
             case "syncTags": reply(["exact:answer": listed("sync")])
@@ -236,7 +237,7 @@ public final class BackgroundModule: NSObject, ExactPackage {
         }
     }
 
-    /// The rules for an invocation's end.
+    /// D1's rules for an invocation's end.
     private func ended(_ kind: String, _ tag: String, _ outcome: String, registered: Bool) {
         guard var r = tags[kind]?[tag] else { return }
         if kind == "periodicsync" {

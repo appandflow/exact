@@ -3,6 +3,7 @@ use exact_game::{Affine3A, Entity, Parent, Transform, Vec3, World};
 use rapier3d::{
     math::{Pose, Rotation, Vector},
     parry::{
+        mass_properties::MassProperties,
         shape::{HeightFieldFlags, SharedShape, TriMeshFlags},
         utils::Array2,
     },
@@ -130,6 +131,33 @@ pub(crate) fn try_shape(s: &Shape, scale: Vec3) -> Result<SharedShape, &'static 
             )
             .map_err(|_| "physics: invalid mesh")?
         }
+        Shape::ConvexHull { points, round } => {
+            check(
+                (4..=MAX_HULL_POINTS).contains(&points.len())
+                    && points.iter().all(|p| p.is_finite())
+                    && round.is_finite()
+                    && *round >= 0.0,
+                "physics: invalid convex hull",
+            )?;
+            check(
+                *round == 0.0 || (scale.x == scale.y && scale.y == scale.z),
+                "physics: a rounded convex hull requires uniform scale",
+            )?;
+            let points: Vec<Vector> = points.iter().map(|p| vector(*p * scale)).collect();
+            let flat = "physics: convex hull points lie in one plane";
+            check(solid(&points), flat)?;
+            let hull = if *round > 0.0 {
+                SharedShape::round_convex_hull(&points, round * scale.x)
+            } else {
+                SharedShape::convex_hull(&points)
+            }
+            .ok_or("physics: degenerate convex hull")?;
+            // Parry flattens a hull thinner than its own tolerance into one without
+            // volume, which a dynamic body would carry as infinite mass.
+            let mass = hull.mass_properties(1.0).mass();
+            check(mass.is_finite() && mass > 0.0, flat)?;
+            hull
+        }
     })
     .and_then(|shape| {
         let aabb = shape.compute_local_aabb();
@@ -139,6 +167,67 @@ pub(crate) fn try_shape(s: &Shape, scale: Vec3) -> Result<SharedShape, &'static 
         )?;
         Ok(shape)
     })
+}
+// The mass properties of a rounded hull's solid, the hull swept by a ball, at a
+// density; None for any other shape. Parry gives a rounded shape those of its
+// inner shape. The solid is approximated from inside by the hull of the inner
+// hull's points, each face pushed out along its normal, and the inner hull's
+// support points in each of 386 fixed directions pushed out along that
+// direction: only rounded edges and corners fall short, by a few percent of the
+// radius. Every support point of a tied direction is pushed, so a symmetric
+// hull keeps its symmetry.
+pub(crate) fn rounded_hull_mass(shape: &SharedShape, density: f32) -> Option<MassProperties> {
+    let round = shape.as_round_convex_polyhedron()?;
+    let (hull, r) = (&round.inner_shape, round.border_radius);
+    let vertices = hull.points();
+    let mut points = vertices.to_vec();
+    let adjacent = hull.vertices_adj_to_face();
+    for face in hull.faces() {
+        let first = face.first_vertex_or_edge as usize;
+        let ids = &adjacent[first..first + face.num_vertices_or_edges as usize];
+        points.extend(ids.iter().map(|&i| vertices[i as usize] + face.normal * r));
+    }
+    // The integer points on the surface of the cube [-4, 4]³, as directions.
+    for x in -4i8..=4 {
+        for y in -4i8..=4 {
+            for z in -4i8..=4 {
+                if x.abs().max(y.abs()).max(z.abs()) < 4 {
+                    continue;
+                }
+                let d = Vector::new(x.into(), y.into(), z.into()).normalize();
+                let top = vertices.iter().map(|v| v.dot(d)).fold(f32::MIN, f32::max);
+                let support = vertices.iter().filter(|v| v.dot(d) == top);
+                points.extend(support.map(|v| *v + d * r));
+            }
+        }
+    }
+    Some(SharedShape::convex_hull(&points)?.mass_properties(density))
+}
+// PhysX's hard limit on a convex mesh's vertices (`PxConvexMeshDesc::vertexLimit`),
+// applied to the input points. Contact queries walk every hull vertex.
+const MAX_HULL_POINTS: usize = 255;
+// Whether the points span a solid: some point stands off the plane through three
+// spread-out points by more than 1e-4 of their spread. Parry's hull builder accepts
+// flat input and returns a hull without volume, hence mass; this refuses most such
+// input before building, and the mass check after building refuses the rest.
+fn solid(points: &[Vector]) -> bool {
+    let a = points[0];
+    let farthest = |key: &dyn Fn(Vector) -> f32| {
+        points.iter().copied().fold((a, 0.0f32), |best, p| {
+            let k = key(p);
+            if k > best.1 {
+                (p, k)
+            } else {
+                best
+            }
+        })
+    };
+    let (b, ab) = farthest(&|p| (p - a).length());
+    let (c, _) = farthest(&|p| (p - a).cross(b - a).length());
+    let n = (b - a).cross(c - a);
+    let (_, height) = farthest(&|p| (p - a).dot(n).abs());
+    let length = n.length();
+    ab > 0.0 && length > 0.0 && height / length > 1e-4 * ab
 }
 // Read current component writes, even before the engine propagates hierarchy.
 pub(crate) fn world_pose(world: &World, entity: Entity) -> Transform {

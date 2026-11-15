@@ -16,7 +16,7 @@ The toolchain of the crypto list bench's Expo app: Expo SDK 58 `58.0.0-preview.6
 
 | Package | Version | Used for |
 |---|---|---|
-| `@legendapp/list` | 3.4.0 | every list: the feed, the carousel, the filmstrip, the inbox (pure JS; not in Expo's list, so the latest; replaced FlashList 2.0.2 on 2026-09-27) |
+| `@legendapp/list` | 3.4.0 | every list: the feed, the carousel, the filmstrip, the inbox (pure JS; not in Expo's list, so the latest; replaced FlashList 2.0.2 on 2026-09-27, per Charlie) |
 | `@shopify/react-native-skia` | 2.11.2 | shader (RuntimeEffect + ImageShader), canvas kind, progress rings, waveform |
 | `react-native-reanimated` / `react-native-worklets` | 4.7.0 / 0.13.0 | motion clock (`useFrameCallback`), shimmer; the crypto bench's pairing (4.6 does not declare RN 0.88) |
 | `expo-image` | 58.0.6 | every JPEG, animated GIF and WebP |

@@ -1,9 +1,34 @@
-//! CSS's 3D transform properties: `rotate`'s axis forms,
+//! CSS's 3D transform properties (LLP 1077 D8): `rotate`'s axis forms,
 //! `translate`'s z, and `perspective`. `rotate` stays the angle row the
 //! engine animates; its axis is a row of its own, which the `rotate`
 //! attribute sets beside it, each row taking its part of one value.
 
-use super::{parse_pixel_length, Vec2};
+use super::{parse_pixel_length, StyleId, StyleValueError, Vec2};
+
+#[cfg(target_arch = "wasm32")]
+type Parsers = (
+    fn(&str) -> Option<([f32; 3], f32)>,
+    fn(&str) -> Option<RotateAxis>,
+);
+#[cfg(target_arch = "wasm32")]
+static LINKED: std::sync::OnceLock<Parsers> = std::sync::OnceLock::new();
+
+/// Link the rotation grammars on wasm (LLP 1047 D2). Native hosts parse directly.
+pub fn link() {
+    #[cfg(target_arch = "wasm32")]
+    let _ = LINKED.set((rotate_grammar, RotateAxis::grammar));
+}
+
+pub(super) fn velocity(text: &str) -> Result<Vec2, StyleValueError> {
+    let mut numbers = text.split_whitespace().map(str::parse::<f32>);
+    match (numbers.next(), numbers.next(), numbers.next()) {
+        (Some(Ok(x)), Some(Ok(y)), None) if x.is_finite() && y.is_finite() => Ok(Vec2 { x, y }),
+        _ => Err(StyleValueError::WrongKind {
+            style: StyleId::TranslateVelocity,
+            expected: "two finite numbers, x and y velocity in CSS px/s",
+        }),
+    }
+}
 
 /// The axis a `rotate` turns about, as authored (not normalised): `z` for
 /// a bare angle, CSS's initial.
@@ -35,6 +60,13 @@ fn angle(word: &str) -> Option<f32> {
 /// `rotate`'s value: `none`, `<angle>`, `x|y|z <angle>`, or
 /// `<number>{3} <angle>`, as its axis and its angle in degrees.
 pub fn rotate(text: &str) -> Option<([f32; 3], f32)> {
+    #[cfg(target_arch = "wasm32")]
+    return LINKED.get().and_then(|p| (p.0)(text));
+    #[cfg(not(target_arch = "wasm32"))]
+    rotate_grammar(text)
+}
+
+fn rotate_grammar(text: &str) -> Option<([f32; 3], f32)> {
     let words: Vec<&str> = text.split_ascii_whitespace().collect();
     match words[..] {
         [none] if none.eq_ignore_ascii_case("none") => Some(([0.0, 0.0, 1.0], 0.0)),
@@ -64,7 +96,14 @@ impl RotateAxis {
     /// (its wire form, `css()`). An axis along z is z: a `-z` one turns the
     /// angle the other way instead (`f32_row`), so the 2D path draws it.
     pub fn parse(css: &str) -> Option<Self> {
-        let axis = rotate(css)
+        #[cfg(target_arch = "wasm32")]
+        return LINKED.get().and_then(|p| (p.1)(css));
+        #[cfg(not(target_arch = "wasm32"))]
+        Self::grammar(css)
+    }
+
+    fn grammar(css: &str) -> Option<Self> {
+        let axis = rotate_grammar(css)
             .map(|(axis, _)| axis)
             .or_else(|| axis_only(css))?;
         Some(Self(if axis[0] == 0.0 && axis[1] == 0.0 {
@@ -120,7 +159,7 @@ fn axis_only(text: &str) -> Option<[f32; 3]> {
 /// percentage of the node's own border box, as `(lengths, percentages)` —
 /// an axis is one or the other, the other part zero. `none` is deliberately
 /// not zero: CSS gives the two different containing-block and stacking
-/// semantics. A third length is z, its own row; `calc()` is
+/// semantics. A third length is z, its own row (LLP 1077 D8); `calc()` is
 /// refused.
 pub fn translate(text: &str) -> Option<(Vec2, Vec2)> {
     // CSS whitespace is TAB, LF, FF, CR and SPACE; ASCII VT is not included.
@@ -188,10 +227,10 @@ pub fn font_stretch(text: &str) -> Option<f32> {
         .map(|(_, v)| *v)
 }
 
-/// The `f32` rows that take CSS text or a range of their own:
-/// `rotate`'s angle, `translate`'s z and `perspective`, a symbol's
-/// value, `-webkit-text-stroke`'s width and `font-stretch`
-///. `None` for any other row, which the plain number parse
+/// The `f32` rows that take CSS text or a range of their own (LLP 1077):
+/// `rotate`'s angle, `translate`'s z and `perspective` (D8), a symbol's
+/// value (D11), `-webkit-text-stroke`'s width (D7) and `font-stretch`
+/// (LLP 1019 D8). `None` for any other row, which the plain number parse
 /// takes.
 pub(crate) fn f32_row(
     value: &super::StyleValue,
@@ -242,7 +281,7 @@ pub(crate) fn f32_row(
             .map(|(w, _)| w)
             .map_err(|reason| StyleValueError::BadTextStroke { style, reason }),
         (StyleId::TextStrokeWidth, _) => wrong("a nonnegative width in px"),
-        // CSS Fonts 4 §2.4: a nonnegative percentage or a
+        // @ref LLP 1019 D8 — CSS Fonts 4 §2.4: a nonnegative percentage or a
         // keyword, never a bare number.
         (StyleId::FontStretch, StyleValue::Percent(p)) if (*p as f32).is_finite() && *p >= 0.0 => {
             Ok(*p as f32)

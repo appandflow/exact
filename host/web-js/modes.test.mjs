@@ -60,7 +60,7 @@ test('a boundary takes its tuple and the inherited token text, in document order
   expect(T(pinned, 'color', 'var(--x-text-secondary)')).toEqual({ names: ['text.secondary'], text: 'var(--x-text-secondary)', modes: 'dark-style=dim,ink=tint', implied: true });
   expect(T(page, 'color', 'var(--x-text-secondary)').implied).toBe(false);
   expect(T(page, 'color', '#123456')).toBeUndefined();
-  // A role's override is named too (a held row that reads it names it); a host's own property is not.
+  // A role's override is named too (stage 9 E: a held row that reads it names it); a host's own property is not.
   expect(T(page, 'color', 'var(--exact-canvas-text)').names).toEqual(['CanvasText']);
   expect(T(page, 'color', 'var(--exact-accent)')).toBeUndefined();
   // Off a boundary a clear is written as itself.
@@ -82,7 +82,7 @@ test('a boundary takes its tuple and the inherited token text, in document order
   expect(journal.at(-1)).toBe('setMode("dark-style", "grey") refused: an axis of the app\'s design and one of its values');
 });
 
-// A development build's live batch sets each changed
+// LLP 1121 stage 4: a development build's live batch sets each changed
 // token's property in every tuple's rule, on its base only.
 test('a live batch sets each tuple rule on its base, and a stale one asks for the snapshot', async () => {
   const document = createDocument();
@@ -93,11 +93,11 @@ test('a live batch sets each tuple rule on its base, and a stale one asks for th
   const { modes } = await import('./modes.js');
   modes([['dark-style', ['black', 'dim']]], {}, [], {}, ['--x-ink'], { '--x-ink': 'ink' }, 'd0', 's0');
   const design = globalThis.exact.design;
-  expect(design({ kind: 'tamber-batch', structure: 's0', base: 'other', design: 'd1', tokens: [] }).live).toBe('stale');
+  expect(design({ kind: 'forma-batch', structure: 's0', base: 'other', design: 'd1', tokens: [] }).live).toBe('stale');
   // A notice of the design it runs applies nothing; another structure's is refused.
-  expect(design({ kind: 'tamber-batch', structure: 's0', base: 'd0', design: 'd0', tokens: [] }).live).toBe('applied');
-  expect(design({ kind: 'tamber-snapshot', structure: 's1', base: null, design: 'd9', tokens: [{ name: 'ink', prop: '--x-ink', css: ['#000', '#000'] }] }).live).toBe('structure');
-  const batch = { kind: 'tamber-batch', structure: 's0', base: 'd0', design: 'd1', tokens: [{ name: 'ink', value: '#ff0000ff', slices: [], prop: '--x-ink', css: ['#ff0000ff', '#00ff00ff'] }] };
+  expect(design({ kind: 'forma-batch', structure: 's0', base: 'd0', design: 'd0', tokens: [] }).live).toBe('applied');
+  expect(design({ kind: 'forma-snapshot', structure: 's1', base: null, design: 'd9', tokens: [{ name: 'ink', prop: '--x-ink', css: ['#000', '#000'] }] }).live).toBe('structure');
+  const batch = { kind: 'forma-batch', structure: 's0', base: 'd0', design: 'd1', tokens: [{ name: 'ink', value: '#ff0000ff', slices: [], prop: '--x-ink', css: ['#ff0000ff', '#00ff00ff'] }] };
   expect(design(batch).live).toBe('applied');
   expect(black.style.map.get('--x-ink')).toBe('#ff0000ff');
   expect(dim.style.map.get('--x-ink')).toBe('#00ff00ff');
@@ -105,13 +105,13 @@ test('a live batch sets each tuple rule on its base, and a stale one asks for th
   expect(accent.style.map.get('--exact-accent')).toBe('#00ff00ff');
   // Its base is past now; a snapshot applies whatever this page ran.
   expect(design(batch).live).toBe('stale');
-  expect(design({ ...batch, kind: 'tamber-snapshot', base: null, design: 'd2', tokens: [{ ...batch.tokens[0], css: ['#000000ff', '#111111ff'] }] }).live).toBe('applied');
+  expect(design({ ...batch, kind: 'forma-snapshot', base: null, design: 'd2', tokens: [{ ...batch.tokens[0], css: ['#000000ff', '#111111ff'] }] }).live).toBe('applied');
   expect(dim.style.map.get('--x-ink')).toBe('#111111ff');
-  // A scrub's frames: each applies with transitions off, and
+  // A scrub's frames (LLP 1121 D13): each applies with transitions off, and
   // one older than the last of its scrub applied (a snapshot fetched late)
   // is dropped.
-  const frame = (design, rev, css, more = {}) => ({ ...batch, base: null, kind: 'tamber-snapshot', design, scrub: { id: 'scrub-1', rev }, tokens: [{ ...batch.tokens[0], css }], ...more });
-  expect(design(frame('d3', 2, ['#222222ff', '#333333ff'], { kind: 'tamber-batch', base: 'd2' })).live).toBe('applied');
+  const frame = (design, rev, css, more = {}) => ({ ...batch, base: null, kind: 'forma-snapshot', design, scrub: { id: 'scrub-1', rev }, tokens: [{ ...batch.tokens[0], css }], ...more });
+  expect(design(frame('d3', 2, ['#222222ff', '#333333ff'], { kind: 'forma-batch', base: 'd2' })).live).toBe('applied');
   expect(dim.style.map.get('--x-ink')).toBe('#333333ff');
   // Transitions stay off through the drag, and come back once it rests.
   expect(document.documentElement.getAttribute('data-x-scrub')).toBe('');
@@ -133,7 +133,7 @@ test('a live batch sets each tuple rule on its base, and a stale one asks for th
   expect(dim.style.map.get('--x-ink')).toBe('#ddddddff');
 });
 
-// A type token is a property a row it writes; a
+// Stage 6 C's follow-up: a type token is a property a row it writes; a
 // batch sets each of its `parts` in every tuple's rule.
 test('a live batch sets each part of a type token', async () => {
   const document = createDocument();
@@ -144,13 +144,13 @@ test('a live batch sets each part of a type token', async () => {
   const { modes } = await import('./modes.js');
   modes([['density', ['regular', 'compact']]], {}, [], {}, [], { '--x-type-a-size': 'type.a', '--x-type-a-weight': 'type.a' }, 'd0', 's0');
   const parts = [{ prop: '--x-type-a-size', css: ['1rem', '0.75rem'] }, { prop: '--x-type-a-weight', css: ['600', '700'] }];
-  expect(globalThis.exact.design({ kind: 'tamber-batch', structure: 's0', base: 'd0', design: 'd1', tokens: [{ name: 'type.a', value: '600 -exact-body', slices: [], parts }] }).live).toBe('applied');
+  expect(globalThis.exact.design({ kind: 'forma-batch', structure: 's0', base: 'd0', design: 'd1', tokens: [{ name: 'type.a', value: '600 -exact-body', slices: [], parts }] }).live).toBe('applied');
   expect(regular.style.map.get('--x-type-a-size')).toBe('1rem');
   expect(compact.style.map.get('--x-type-a-size')).toBe('0.75rem');
   expect(compact.style.map.get('--x-type-a-weight')).toBe('700');
 });
 
-// A role override's property is set in each tuple's rule,
+// LLP 1121 stage 5: a role override's property is set in each tuple's rule,
 // and the tint's (`root`) in the theme's own `:root` rule alone, so a tuple
 // rule on a boundary does not mask an authored accent above it.
 test('a live batch sets a role override, the tint in the theme rule', async () => {
@@ -166,7 +166,7 @@ test('a live batch sets a role override, the tint in the theme rule', async () =
     { name: 'CanvasText', value: '#222222ff', slices: [], prop: '--exact-canvas-text', css: ['#222222ff'] },
     { name: 'AccentColor', value: '#ff0000ff', slices: [], prop: '--exact-accent', css: ['#ff0000ff'], root: true },
   ];
-  expect(design({ kind: 'tamber-batch', structure: 's0', base: 'd0', design: 'd1', tokens }).live).toBe('applied');
+  expect(design({ kind: 'forma-batch', structure: 's0', base: 'd0', design: 'd1', tokens }).live).toBe('applied');
   expect(root.style.map.get('--exact-canvas-text')).toBe('#222222ff');
   expect(theme.style.map.get('--exact-accent')).toBe('#ff0000ff');
   expect(root.style.map.has('--exact-accent')).toBe(false);
@@ -187,6 +187,41 @@ test('a development build with no axes puts its boundaries in the empty tuple', 
   for (const f of After) f();
   expect(document.documentElement.getAttribute('data-x-modes')).toBe('');
   expect(b.getAttribute('data-x-modes')).toBe('');
+});
+
+// A boundary that does not set its own colour names the state looks whose
+// colour reaches it (`data-x-lc`): those up to and with the nearest element
+// that sets the colour, a token or a literal. One that sets its own names
+// none.
+test('a boundary names the looks whose colour reaches it', async () => {
+  const document = createDocument();
+  Object.assign(globalThis, { document, __exactRender: true });
+  const { modes } = await import('./modes.js');
+  const el = (parent, cls, attrs = {}) => { const e = document.createElement('div'); if (cls) e.setAttribute('class', cls); for (const k in attrs) e.setAttribute(k, attrs[k]); parent.append(e); return e; };
+  const root = document.getElementById('exact-root');
+  const page = el(root, 'c1', { 'data-exact-looks': '3' });
+  const link = el(page, '', { 'data-exact-looks': '1' });
+  const below = el(link, 'c2', { 'data-x-b': '0' });
+  const own = el(link, 'c3', { 'data-x-b': '1' });
+  const writer = el(link, 'c1', { 'data-exact-looks': '2' });
+  const inWriter = el(writer, 'c2', { 'data-x-b': '0' });
+  const plain = el(root, '');
+  const untinted = el(plain, 'c2', { 'data-x-b': '0' });
+  const literal = el(root, 'c4', { 'data-exact-looks': '4' });
+  const underLiteral = el(literal, 'c2', { 'data-x-b': '0' });
+  // Four looks deep: the nearest three by position, any further out sharing the last (looks.rs `LOOK_DEPTH`).
+  let deep = root;
+  for (const set of ['5', '6', '7', '8']) deep = el(deep, '', { 'data-exact-looks': set });
+  const underDeep = el(deep, 'c2', { 'data-x-b': '0' });
+  modes([], { c1: { 0: 0 }, c3: { 0: -1 }, c4: { 0: -1 } }, ['color:var(--x-ink)'], {}, [], { '--x-ink': 'ink' });
+  for (const f of After) f();
+  expect(below.getAttribute('data-x-lc')).toBe('1:1 2:3');
+  expect(inWriter.getAttribute('data-x-lc')).toBe('1:2');
+  expect(own.getAttribute('data-x-lc')).toBeNull();
+  expect(untinted.getAttribute('data-x-lc')).toBeNull();
+  // A literal base colour: the look's token still resolves on the boundary.
+  expect(underLiteral.getAttribute('data-x-lc')).toBe('1:4');
+  expect(underDeep.getAttribute('data-x-lc')).toBe('1:8 2:7 3:6 3:5');
 });
 
 // A dev reload's checkpoint carries the window's modes: each axis the

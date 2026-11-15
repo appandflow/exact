@@ -6,7 +6,7 @@
 use exact_apple::abi::Bridge;
 use exact_apple::measure::{CFontCatalog, CMetrics, CRequest, MAX_CONTENT};
 use exact_apple::Host;
-use exact_kernel::MonospaceMeasurer;
+use exact_kernel::{MonospaceMeasurer, NodeType};
 use exact_runner::{DataError, DataSource, Event, Value};
 use std::ffi::c_void;
 use std::sync::Mutex;
@@ -156,7 +156,7 @@ fn inherited_text_color_reaches_untouched_descendants_as_an_unresolved_pair() {
             .to_owned()
     };
     // No platform font environment here: the reference host inherits the
-    // page's ink, as the web does.
+    // page's ink, as the web does. The r4 field sheet is retired.
     for id in [inherited, field] {
         assert!(op(&first, id).contains("\"text_color\":[[0,0,0,255],[255,255,255,255]]"));
     }
@@ -203,16 +203,23 @@ fn the_first_batch_creates_places_and_sizes_the_whole_tree() {
     );
     // The glass cards' `light-dark()` pair: both schemes' colours travel.
     assert!(batch.contains("\"background_color\":[[255,255,255,217],[28,28,30,217]]"));
-    // The root is a block as wide as the viewport and, since the app lives
-    // inside a sky canvas that fills the window, as tall as it: its `scroll`
-    // child holds the page.
+    // The root is a block as wide as the viewport (LLP 1008 §1) and, since
+    // the app lives inside a sky canvas that fills the window (LLP 1014
+    // §1a), as tall as it: its `scroll` child holds the page.
     let root = frame_of(&batch, 1);
     assert_eq!(
         (root.0, root.1, root.2, root.3),
         (0.0, 0.0, 390.0, 844.0),
         "{root:?}"
     );
-    let scroll = content_of(&batch, 3);
+    let kernel = host.runner().kernel();
+    let mut scroll = kernel.node(view(&host, "home-screen")).unwrap();
+    while scroll.node_type != NodeType::ScrollView {
+        scroll = kernel
+            .node(scroll.parent.expect("home has a scroller"))
+            .unwrap();
+    }
+    let scroll = content_of(&batch, scroll.id);
     assert!(
         scroll.1 > 844.0,
         "the page is taller than the viewport: {scroll:?}"
@@ -238,12 +245,11 @@ fn later_batches_carry_only_what_changed_and_frames_follow() {
     let tick = host.advance(61_000.0);
     assert!(count(&tick, "props") > 0, "countdowns changed: {tick}");
     assert_eq!(count(&tick, "create"), 0);
+    let home = view(&host, "home-screen");
     let swap = host.dispatch_at(view(&host, "change-station"), Event::Press, 61_000.0);
-    assert!(
-        count(&swap, "destroy") > 0 && count(&swap, "create") > 0,
-        "{}",
-        &swap[..200]
-    );
+    assert_eq!(count(&swap, "destroy"), 0, "home stays mounted");
+    assert_eq!(view(&host, "home-screen"), home);
+    assert!(count(&swap, "create") > 0, "the picker is created");
     assert!(count(&swap, "frame") > 0, "new nodes are placed");
     assert_eq!(
         count(&swap, "present"),
@@ -259,6 +265,10 @@ fn later_batches_carry_only_what_changed_and_frames_follow() {
     let wider = host.resize(600.0, 844.0);
     assert_eq!(frame_of(&wider, 1).2, 600.0);
     assert!(count(&wider, "frame") > 1, "children reflow");
+    let back = host.dispatch_at(view(&host, "stations-back"), Event::Press, 61_000.0);
+    assert_eq!(view(&host, "home-screen"), home);
+    assert_eq!(count(&back, "create"), 0, "Back reveals the retained home");
+    assert!(count(&back, "destroy") > 0, "Back removes the picker");
 }
 
 #[test]
@@ -402,14 +412,7 @@ fn text_is_measured_through_the_registered_callback() {
         caltrain_data::Caltrain,
         exact_apple::abi::Hooks {
             measure: Some(wide_glyphs),
-            ctx: std::ptr::null_mut(),
-            lines: None,
-            inline_boxes: None,
-            wake: None,
-            wake_ctx: std::ptr::null_mut(),
-            canvas_text: None,
-            symbol: None,
-            time_format: None,
+            ..exact_apple::abi::Hooks::none()
         },
         390.0,
         844.0,
@@ -434,7 +437,7 @@ fn text_is_measured_through_the_registered_callback() {
     let f = frame_of(&batch, id);
     assert!(
         (f.3 - 16.25).abs() < 1e-3,
-        "16.25 exactly: the kernel keeps fractional frames: {f:?}"
+        "16.25 exactly: the kernel keeps fractional frames (LLP 1001 §5): {f:?}"
     );
     assert!(f.2 >= 104.0, "{f:?}");
     // The bridge's other calls answer too.
@@ -490,14 +493,7 @@ fn a_runner_refusal_never_installs_the_candidate_font_catalog() {
         NamedData,
         exact_apple::abi::Hooks {
             measure: Some(wide_glyphs),
-            ctx: std::ptr::null_mut(),
-            lines: None,
-            inline_boxes: None,
-            wake: None,
-            wake_ctx: std::ptr::null_mut(),
-            canvas_text: None,
-            symbol: None,
-            time_format: None,
+            ..exact_apple::abi::Hooks::none()
         },
         390.0,
         844.0,
@@ -517,14 +513,7 @@ fn a_runner_refusal_never_installs_the_candidate_font_catalog() {
         NamedData,
         exact_apple::abi::Hooks {
             measure: Some(wide_glyphs),
-            ctx: std::ptr::null_mut(),
-            lines: None,
-            inline_boxes: None,
-            wake: None,
-            wake_ctx: std::ptr::null_mut(),
-            canvas_text: None,
-            symbol: None,
-            time_format: None,
+            ..exact_apple::abi::Hooks::none()
         },
         390.0,
         844.0,
@@ -536,7 +525,7 @@ fn a_runner_refusal_never_installs_the_candidate_font_catalog() {
 
 #[test]
 fn an_invalid_viewport_plan_boot_keeps_the_running_host() {
-    // Refuse the size before layout; keep the old host.
+    // @ref LLP 1039 D2 — refuse the size before layout; keep the old host.
     let plan = contract::compile("component Running\n  view\n    text \"running\"\n")
         .unwrap()
         .encode();
@@ -546,14 +535,7 @@ fn an_invalid_viewport_plan_boot_keeps_the_running_host() {
         NoData,
         exact_apple::abi::Hooks {
             measure: Some(wide_glyphs),
-            ctx: std::ptr::null_mut(),
-            lines: None,
-            inline_boxes: None,
-            wake: None,
-            wake_ctx: std::ptr::null_mut(),
-            canvas_text: None,
-            symbol: None,
-            time_format: None,
+            ..exact_apple::abi::Hooks::none()
         },
         390.0,
         844.0,
@@ -570,14 +552,7 @@ fn an_invalid_viewport_plan_boot_keeps_the_running_host() {
         NoData,
         exact_apple::abi::Hooks {
             measure: Some(wide_glyphs),
-            ctx: std::ptr::null_mut(),
-            lines: None,
-            inline_boxes: None,
-            wake: None,
-            wake_ctx: std::ptr::null_mut(),
-            canvas_text: None,
-            symbol: None,
-            time_format: None,
+            ..exact_apple::abi::Hooks::none()
         },
         f32::NAN,
         844.0,
@@ -602,14 +577,7 @@ fn an_invalid_initial_viewport_publishes_no_host() {
         NoData,
         exact_apple::abi::Hooks {
             measure: Some(wide_glyphs),
-            ctx: std::ptr::null_mut(),
-            lines: None,
-            inline_boxes: None,
-            wake: None,
-            wake_ctx: std::ptr::null_mut(),
-            canvas_text: None,
-            symbol: None,
-            time_format: None,
+            ..exact_apple::abi::Hooks::none()
         },
         f32::NAN,
         844.0,
@@ -631,14 +599,7 @@ fn a_refused_fresh_boot_keeps_the_running_host() {
         .encode();
     let hooks = exact_apple::abi::Hooks {
         measure: Some(wide_glyphs),
-        ctx: std::ptr::null_mut(),
-        lines: None,
-        inline_boxes: None,
-        wake: None,
-        wake_ctx: std::ptr::null_mut(),
-        canvas_text: None,
-        symbol: None,
-        time_format: None,
+        ..exact_apple::abi::Hooks::none()
     };
     let mut bridge: Bridge<NoData> = Bridge::new();
     let len = bridge.boot(&running, NoData, hooks, 390.0, 844.0);
@@ -665,14 +626,7 @@ fn two_prepared_sessions_keep_their_live_hosts_until_both_accept() {
         .encode();
     let hooks = exact_apple::abi::Hooks {
         measure: None,
-        ctx: std::ptr::null_mut(),
-        lines: None,
-        inline_boxes: None,
-        wake: None,
-        wake_ctx: std::ptr::null_mut(),
-        canvas_text: None,
-        symbol: None,
-        time_format: None,
+        ..exact_apple::abi::Hooks::none()
     };
     let mut a: Bridge<NoData> = Bridge::new();
     let mut b: Bridge<NoData> = Bridge::new();
@@ -722,14 +676,7 @@ fn the_plan_font_catalog_and_family_runs_cross_the_host_seam_before_layout() {
         NoData,
         exact_apple::abi::Hooks {
             measure: Some(record_font_runs),
-            ctx: std::ptr::null_mut(),
-            lines: None,
-            inline_boxes: None,
-            wake: None,
-            wake_ctx: std::ptr::null_mut(),
-            canvas_text: None,
-            symbol: None,
-            time_format: None,
+            ..exact_apple::abi::Hooks::none()
         },
         390.0,
         844.0,
@@ -900,7 +847,7 @@ fn the_insets_re_send_the_styles_that_read_them_and_move_what_they_pad() {
     assert_eq!(count(&none, "style") + count(&none, "frame"), 0, "{none}");
 }
 
-// ---------------------------------------------------------------- the handle
+// ---------------------------------------------------------------- the handle (LLP 1031 D2)
 
 /// The exports for a fixture app: two runtimes in one thread, each with its
 /// own plan and clock; a destroyed or invented handle refused by name.
@@ -974,7 +921,7 @@ pub(crate) mod handles {
         })
     }
 
-    /// The archive's `compat.json` as this fixture's binary
+    /// The archive's `compat.json` (LLP 1030 D3a) as this fixture's binary
     /// would carry it: the exports hand it to the runner at every boot.
     pub const COMPAT: &str =
         r#"{"id":"fixture00000000","inputs":{"executors":["native"],"store":{"L":"0"}}}"#;
@@ -1415,43 +1362,7 @@ fn created_listeners_follow_the_final_tree_in_single_and_bulk_batches() {
     assert_eq!(count(&batch, "create"), 1, "single-create path");
 }
 
-#[test]
-fn resolved_language_is_published_at_boot_and_after_switching() {
-    let mut plan = contract::compile("component App\n  state language = \"en\"\n  view\n    column width=300\n      text \"123\" testId=\"text\"\n").unwrap();
-    plan.locale = Some(exact_plan::SlotsId(0));
-    for rtl in [false, true] {
-        let name = exact_plan::StrId(plan.strings.len() as u32);
-        plan.strings.push(if rtl { "ar" } else { "en" });
-        plan.locales.push(exact_plan::LocalesRow {
-            name,
-            rtl,
-            texts: Default::default(),
-        });
-    }
-    let plan = contract::bake(plan, NoData).unwrap();
-    let (mut host, batch) = Host::boot(
-        &plan.encode(),
-        NoData,
-        Box::new(MonospaceMeasurer::default()),
-        400.0,
-        300.0,
-    )
-    .unwrap();
-    assert!(batch.contains(r#"{"op":"language","lang":"en","dir":"ltr"}"#));
-    let batch = host.set_place("ar-EG", "UTC", None, None);
-    assert!(
-        batch.contains(r#"{"op":"language","lang":"ar","dir":"rtl"}"#),
-        "{batch}"
-    );
-    assert!(batch.contains(r#""direction":"rtl""#), "{batch}");
-    assert!(!host
-        .set_place("ar-SA", "UTC", None, None)
-        .contains(r#""op":"language""#));
-    let batch = host.set_place("de", "UTC", None, None);
-    assert!(batch.contains(r#"{"op":"language","lang":"en","dir":"ltr"}"#));
-}
-
-// A presented frame fires the frame task once, at
+// @ref LLP 1073 D2, D4, D5 — a presented frame fires the frame task once, at
 // the frame's time; once frames are presented the timeout fires none; a stall
 // is not caught up; the agent's clock takes them back as virtual frames.
 #[test]

@@ -1,4 +1,4 @@
-// The voice table's commands are commands to the semantics:
+// The voice table's commands (LLP 1096 D11) are commands to the semantics:
 // issued after the commit, in statement order, with their arguments in the
 // runner's positions (`none` where one is left to its default). The table
 // itself (ids, cuts, the bound) is the runner's, tested there.

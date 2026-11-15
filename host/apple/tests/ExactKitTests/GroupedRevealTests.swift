@@ -8,7 +8,7 @@ import UIKit
 import AppKit
 #endif
 
-/// A sheet inserts an offscreen custom row. The driver's reveal
+/// Issue #428: a sheet inserts an offscreen custom row. The driver's reveal
 /// must realize the row before its ordinary tap can reach the nested button.
 final class GroupedRevealTests: XCTestCase {
     func testRevealReachesACustomButtonInsertedByASheet() throws {

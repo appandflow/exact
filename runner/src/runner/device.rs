@@ -1,4 +1,4 @@
-//! Held device requests: under the agent a capability's
+//! Held device requests (LLP 1069.007 D3): under the agent a capability's
 //! arm never reaches the OS. It holds the request under a ticket from the
 //! runner's own counter, so `state.pending` lists every hold beside the
 //! requests in flight and no host number can alias a fetch. A hold is not
@@ -9,7 +9,7 @@
 //! `type @t`, [`Runner::answer_hold`]), or retired when its node goes. A
 //! second answer, or one to a retired hold, is refused by name
 //! (`not pending: @7`). A reload drops every hold, as it drops every
-//! request.
+//! request (LLP 1016).
 
 use super::{DataSource, Runner};
 use exact_kernel::ViewId;
@@ -26,15 +26,15 @@ pub struct Hold {
     pub name: String,
     /// The requesting node: the hold is retired when it is removed.
     pub node: Option<ViewId>,
-    /// The capability's inspection summary as a JSON object: what a
+    /// The capability's inspection summary as a JSON object (D7): what a
     /// test checks the app asked for, never a credential.
     pub args: String,
     /// What `tap @t <choice>` accepts besides `cancel`.
     pub choices: Vec<String>,
     /// Whether `type @t <value>` answers it.
     pub takes_value: bool,
-    /// An HTTP-shaped request held under its own ticket (an auth session):
-    /// retired when the runner forgets that ticket.
+    /// An HTTP-shaped request held under its own ticket (an auth session,
+    /// LLP 1069.006 D7): retired when the runner forgets that ticket.
     pub request: bool,
 }
 
@@ -104,13 +104,13 @@ impl<D: DataSource> Runner<D> {
         });
     }
 
-    /// A request an iframe's guest made under the agent, which a host
-    /// holds instead of showing the platform's sheet or
+    /// A request an iframe's guest made under the agent (@ref LLP 1020.002
+    /// §10), which a host holds instead of showing the platform's sheet or
     /// panel: `{"op":"frameRequest","node":7,"capability":"dialog",
     /// "args":{…}}` → `{"ticket":N}`. A `dialog` (`alert`, `confirm`,
     /// `prompt`) is answered by `tap @t ok` or `cancel`, and a `prompt` by
     /// `type @t <text>` too; `open-file` (a file input) and `save-file` (a
-    /// download's destination) as a document's are, and a download by
+    /// download's destination) as LLP 1069.010's are, and a download by
     /// `tap @t ok` for the agent's default place; a `print` (a page's
     /// `window.print()`) by `tap @t ok` for a PDF in its default place, or
     /// `type @t` with the PDF's path. Retired with its frame.
@@ -169,7 +169,7 @@ impl<D: DataSource> Runner<D> {
                 ));
             }
             // A picker's files are checked against its input before the
-            // hold is spent, so a refused answer can be
+            // hold is spent (LLP 1069.002 D9), so a refused answer can be
             // corrected.
             HoldAnswer::Value(v) if hold.capability == "pick" => {
                 let checked = self.device_links.picker.map_or(
@@ -182,7 +182,7 @@ impl<D: DataSource> Runner<D> {
                 let n = super::picker::answer_paths(v).len();
                 format!("answered: {n} {}", if n == 1 { "item" } else { "items" })
             }
-            // An export's answer is where the copy goes:
+            // An export's answer is where the copy goes (LLP 1069.010 D3):
             // an absolute path on the driver's machine, never journalled.
             HoldAnswer::Value(v) if hold.capability == "export" => {
                 let v = v.trim();
@@ -193,8 +193,8 @@ impl<D: DataSource> Runner<D> {
                 }
                 "answered: a file".to_owned()
             }
-            // A picker's answer is what the person would have chosen:
-            // absolute paths, one unless `multiple`.
+            // A picker's answer is what the person would have chosen (LLP
+            // 1069.010 D2): absolute paths, one unless `multiple`.
             HoldAnswer::Value(v)
                 if matches!(
                     hold.capability.as_str(),
@@ -219,8 +219,8 @@ impl<D: DataSource> Runner<D> {
                 let n = paths.len();
                 format!("answered: {n} {}", if n == 1 { "item" } else { "items" })
             }
-            // An auth callback is checked as a host checks a completion,
-            // before the hold is spent.
+            // An auth callback is checked as a host checks a completion
+            // (LLP 1069.006 D3, D7), before the hold is spent.
             HoldAnswer::Value(v) if hold.capability == "auth" => {
                 let checked = self.device_links.auth.map_or(
                     Err("openAuthSession is not linked into this artifact".into()),
@@ -232,7 +232,7 @@ impl<D: DataSource> Runner<D> {
                 "answered: a callback".to_owned()
             }
             // A date or time picker's answer is a value of its kind, in
-            // HTML's form, checked before it is spent.
+            // HTML's form (LLP 1115.001.000 D1), checked before it is spent.
             HoldAnswer::Value(v)
                 if matches!(hold.capability.as_str(), "date" | "time" | "datetime-local") =>
             {
@@ -255,7 +255,7 @@ impl<D: DataSource> Runner<D> {
                 }
                 "answered: a value".to_owned()
             }
-            // A module's value, checked before it is spent.
+            // A module's value (LLP 1133.002 §6), checked before it is spent.
             HoldAnswer::Value(v) if self.module_check(ticket, v).is_some() => {
                 self.module_check(ticket, v).expect("a module's hold")?;
                 "answered: a value".to_owned()
@@ -281,8 +281,8 @@ impl<D: DataSource> Runner<D> {
         Ok(hold)
     }
 
-    /// Retire the holds of `capabilities` on `nodes`: views a commit renewed,
-    /// each another item now, which the answer is not for.
+    /// Retire the holds of `capabilities` on `nodes`: views a commit renewed
+    /// (LLP 1078), each another item now, which the answer is not for.
     pub fn retire_holds_on(&mut self, nodes: &[ViewId], capabilities: &[&str]) {
         let (gone, live): (Vec<_>, Vec<_>) = std::mem::take(&mut self.device_holds)
             .into_iter()

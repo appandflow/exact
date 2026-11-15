@@ -1,6 +1,6 @@
 use AxisChoice, Build, GoneBuild, Pinned from "./shapes.contract"
 
-// The builds: every running copy, its effective
+// The builds (LLP 1122 D4): every running copy, its effective
 // facts from its own report, and pins, which last while the tool
 // runs (its long poll names it) and are handed back when it stops.
 component Builds

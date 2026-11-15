@@ -1,4 +1,4 @@
-//! The app's `UserDefaults` domain, for persisted state:
+//! The app's `UserDefaults` domain, for persisted state (LLP 1116 D5):
 //! CoreFoundation's preferences under the app's id, through their C
 //! interface on the main thread, never through Swift. Each persisted state
 //! is one string value, `exact.state.<name>` → its JSON text, so `defaults

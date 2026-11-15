@@ -1,11 +1,11 @@
-//! The Apple codec: ImageIO decodes and encodes, Core
+//! The Apple codec (LLP 1069.002 A1.3): ImageIO decodes and encodes, Core
 //! Graphics scales, all through their C interfaces, so it runs on whichever
 //! worker thread the storage operation landed on, with no Swift.
 //!
 //! Per size, ImageIO's thumbnail decode (orientation applied, subsampled
 //! while decoding JPEG and HEIC; other formats may be decoded whole) is
 //! drawn into an sRGB `w × h` bitmap: opaque and filled white for a JPEG,
-//! premultiplied RGBA and left clear for a PNG, so alpha survives. It
+//! premultiplied RGBA and left clear for a PNG (A1.11), so alpha survives. It
 //! is a second scale, since the thumbnail's own size is ImageIO's rounding,
 //! not `floor()`. Each trial encodes that bitmap. No source property is copied
 //! into the JPEG: no EXIF, GPS, TIFF, IPTC, XMP or orientation tag; the
@@ -288,7 +288,7 @@ pub(super) fn compress(
     let data =
         Owned::new(unsafe { CFDataCreate(ptr::null(), source.as_ptr(), source.len() as CFIndex) })
             .ok_or_else(undecodable)?;
-    // The source keeps no decoded copy between sizes.
+    // The source keeps no decoded copy between sizes (A1.5).
     // SAFETY: the key and value are immutable statics.
     let uncached = dictionary(unsafe { &[(kCGImageSourceShouldCache, kCFBooleanFalse)] })
         .ok_or_else(undecodable)?;
@@ -446,7 +446,7 @@ fn draw(source: CFTypeRef, w: u32, h: u32, format: Format) -> Option<Owned> {
         width: f64::from(w),
         height: f64::from(h),
     };
-    // sRGB on every host, as the web's canvas is: a Display P3 or
+    // sRGB on every host, as the web's canvas is (A1.3): a Display P3 or
     // HDR source is converted, and a grey or CMYK one too.
     // SAFETY: kCGColorSpaceSRGB is an immutable static; the space is +1.
     let srgb = Owned::new(unsafe { CGColorSpaceCreateWithName(kCGColorSpaceSRGB) })?;

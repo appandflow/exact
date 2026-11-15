@@ -1,4 +1,4 @@
-//! The optional delivery adapter boundary.
+//! The optional delivery adapter boundary (LLP 1030 D4).
 //! A binary-only app supplies neither hooks nor a C API; no store is linked.
 
 use exact_runner::Delivery;

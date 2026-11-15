@@ -1,4 +1,4 @@
-// A large title stays as the content under the bar changes
+// LLP 1116.005 D4: a large title stays as the content under the bar changes
 // in place, on iOS. Chat-rooms' shape: a large title over a grouped list that
 // collapses it; a failed load's reason appearing between the two, so the list
 // no longer follows the header and nothing collapses the title; and an error

@@ -1,11 +1,11 @@
-// The countdown of an alarm a package set through AlarmKit, on the Lock
-// Screen and in the Dynamic Island. AlarmKit starts, updates and ends this
-// Live Activity from `AlarmPresentationState`; without it "the system may
-// unexpectedly dismiss alarms and fail to alert" (AlarmKit). It reads
-// nothing of the app: no ExactCore, no app group, no cohort, only the
-// alarm's attributes and state. It shows no buttons, since a button here
-// runs a `LiveActivityIntent`, which the build does not process; the alert's
-// Stop and Repeat are the system's.
+// LLP 1133.030 D8 items 1 and 3: the countdown of an alarm a package set
+// through AlarmKit, on the Lock Screen and in the Dynamic Island. AlarmKit
+// starts, updates and ends this Live Activity from `AlarmPresentationState`;
+// without it "the system may unexpectedly dismiss alarms and fail to alert"
+// (AlarmKit). It reads nothing of the app: no ExactCore, no app group, no
+// cohort, only the alarm's attributes and state. It shows no buttons, since
+// a button here runs a `LiveActivityIntent`, which the build does not
+// process; the alert's Stop and Repeat are the system's.
 import ActivityKit
 import AlarmKit
 import SwiftUI

@@ -1,4 +1,4 @@
-// The activity Health Connect opens from its permission screen: the rationale on Android 13 and lower
+// The activity Health Connect opens from its permission screen (LLP 1133.026 D4): the rationale on Android 13 and lower
 // (`androidx.health.ACTION_SHOW_PERMISSIONS_RATIONALE`), the permission usage alias on 14 and later. It shows the
 // app's `privacy_policy`, which the manifest fragment puts in the application's `exact.privacy_policy` meta-data, in
 // the browser, and closes.

@@ -1,4 +1,4 @@
-// apps/library-gate's cells, read as the gate and its test
+// apps/library-gate's cells (LLP 1139 §5 E), read as the gate and its test
 // read them: the cells a component's variants need, the placements in the
 // app's one view (comments set aside), and each slot's marker.
 /** The cells a component needs: its first values, then each other value of each variant alone. */

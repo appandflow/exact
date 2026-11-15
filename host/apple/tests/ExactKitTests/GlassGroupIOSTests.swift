@@ -3,11 +3,11 @@ import UIKit
 import XCTest
 @testable import ExactKit
 
-/// On UIKit, a `glassGroup` node's container view is its
-/// innermost view and holds its children; a material, a scroll or a
-/// canvas wins over it; a grouped glass whose path fades, masks or
-/// clips is isolated in its slot, and joins again when the path clears;
-/// the group view is never a hit target; focus survives the moves.
+/// LLP 1053.000.000 on UIKit: a `glassGroup` node's container view is its
+/// innermost view and holds its children (D2); a material, a scroll or a
+/// canvas wins over it (D6); a grouped glass whose path fades, masks or
+/// clips is isolated in its slot, and joins again when the path clears
+/// (D4); the group view is never a hit target; focus survives the moves.
 /// UIKit, so a simulator runs it: bun host/apple/build.mjs --test --ios
 final class GlassGroupIOSTests: XCTestCase {
     private var window: UIWindow!
@@ -213,9 +213,9 @@ final class GlassGroupIOSTests: XCTestCase {
         XCTAssertEqual((native["glassGroup"] as? [String: Any])?["reason"] as? String, "spacing")
     }
 
-    /// An auto group's spacing is the points the Rust host resolved —
-    /// the props' at creation, then the style key a gap change sends —
-    /// and a number again when the prop is one.
+    /// LLP 1053.000.000.000 D2: an auto group's spacing is the points the
+    /// Rust host resolved — the props' at creation, then the style key a
+    /// gap change sends — and a number again when the prop is one.
     func testAnAutoGroupTakesItsSpacingFromWhatTheHostResolved() throws {
         let p = presenter(cluster(["glassGroup": "8", "glassGroupAuto": "true"]))
         let group = try XCTUnwrap(p.views[1])
@@ -384,9 +384,9 @@ final class GlassGroupIOSTests: XCTestCase {
         XCTAssertTrue(leafLayer(in: group), "and back")
     }
 
-    /// A view leaving the window has its touches cancelled by UIKit, so a
-    /// capsule that turns its glass off while the dice inside it are held
-    /// would end the hold: a material, a glass group, a clip box or a scroll that
+    /// A view leaving the window has its touches cancelled by UIKit. euxy's
+    /// capsule turned its glass off while the dice inside it were held, and
+    /// the swap ended the hold: a material, a glass group, a clip box or a scroll that
     /// comes or goes moves the children with no moment out of the window.
     func testChildrenStayInTheWindowWhileTheirContainerChanges() throws {
         let p = presenter(box(1, ["backgroundMaterial": "glass"], w: 200) + box(2)

@@ -1,4 +1,4 @@
-//! Rust-owned ECMA-402 NumberFormat semantics for the Linux and Windows Hermes
+//! Rust-owned ECMA-402 NumberFormat semantics for the Linux, Android and Windows Hermes
 //! adapters.
 //!
 //! JavaScript performs only observable `Get`/coercion order and object
@@ -6,7 +6,7 @@
 //! defaults, ICU configuration, formatting, parts, and native lifetime live.
 //! ICU is an in-process computation backend, never a second policy owner.
 //!
-//! Rust owns standard-library semantics.
+//! @ref LLP 0057#3-the-boundary — Rust owns standard-library semantics
 
 use crate::boundary::{HostArg, HostError, HostValue};
 use crate::host_opcodes::intl_number::{

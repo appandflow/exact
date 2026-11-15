@@ -1,12 +1,12 @@
-// @exact/attestation on Android: Play Integrity, for the app's own server. Under the agent it
-// asks Play for nothing and answers `exact-substitute` tokens over the per-account lifecycle (AgentAttestation),
+// @exact/attestation on Android (LLP 1133.028 D1, D4): Play Integrity, for the app's own server. Under the agent it
+// asks Play for nothing and answers `exact-substitute` tokens over D3's per-account lifecycle (AgentAttestation),
 // as the Apple implementation does; `--bind attestation` asks Play.
 //
 // - `clientData` is hashed here, SHA-256 of its UTF-8 bytes, and its base64url form (43 characters) is a standard
-//   request's `requestHash` or a classic request's `nonce`, so a server hashes the same bytes on every platform.
+//   request's `requestHash` or a classic request's `nonce` (D1), so a server hashes the same bytes on every platform.
 // - One `StandardIntegrityTokenProvider` per cloud project number: `prepareAttestation` makes it, `attest` makes it
-//   when none is held, and again once when a request fails `INTEGRITY_TOKEN_PROVIDER_INVALID`.
-// - `android.cloudProjectNumber` is required on Android: a call without it fails `TypeError`.
+//   when none is held, and again once when a request fails `INTEGRITY_TOKEN_PROVIDER_INVALID` (D4).
+// - `android.cloudProjectNumber` is required on Android (D4): a call without it fails `TypeError`.
 // - Play has no per-account key: `account` is ignored and `resetAttestation` answers at once.
 package exact.attestation
 
@@ -101,7 +101,7 @@ class AttestationModule(context: ExtensionContext) : ExactExtension(context) {
         provider(project, { provider ->
             val request = StandardIntegrityTokenRequest.builder().setRequestHash(requestHash).build()
             settle(provider.request(request), { token -> reply(answer(token.token())) }) { failure ->
-                // Google: prepare again when the provider is no longer valid.
+                // Google: prepare again when the provider is no longer valid (D4).
                 if (!retried && failure.optJSONObject("android")?.optInt("code") == StandardIntegrityErrorCode.INTEGRITY_TOKEN_PROVIDER_INVALID) {
                     providers.remove(project)
                     requestStandard(project, requestHash, retried = true, reply)
@@ -122,7 +122,7 @@ class AttestationModule(context: ExtensionContext) : ExactExtension(context) {
         task.addOnSuccessListener { done(it) }.addOnFailureListener { failed(failure(it)) }
     }
 
-    /** The names for Play's codes, the code beside. */
+    /** D1's names for Play's codes, the code beside. */
     private fun failure(e: Exception): JSONObject {
         val code = when (e) {
             is StandardIntegrityException -> e.errorCode

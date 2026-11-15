@@ -1,4 +1,4 @@
-// Check Live Activity sizes and drawing with Caltrain's
+// Check Live Activity sizes and drawing (LLP 1126.001 WP10) with Caltrain's
 // two activities and fixtures for links, gradients and region sizing.
 // Write PNGs to `EXACT_WP10_OUT`; `ActivityResolverTests` covers resolution
 // and presentation.
@@ -30,7 +30,7 @@ final class ActivityDriverTests: XCTestCase {
     static let assets = AssetResolver(root: FileManager.default.temporaryDirectory)
     static let margin = ActivityPlacementView.platformMargins.leading
 
-    /// The widths the system was seen to propose on one phone: the
+    /// The widths stage 0 saw the system propose (one phone's evidence): the
     /// expanded leading and trailing regions, the centre, the bottom and the
     /// Lock Screen; the tests take them as a set of region widths, not as facts.
     static let widths: [CGFloat] = [165, 109.33, 338, 362]
@@ -188,7 +188,7 @@ final class ActivityDriverTests: XCTestCase {
             // The preview state is what an unstated state renders.
             let lock = try render.layout(.lockScreen, width: 362, height: nil)
             XCTAssertTrue(texts(lock).contains { $0.contains(kind == "departure" ? "Mountain View" : "Service delay") }, "\(texts(lock))")
-            // The Lock Screen placement sits inside the content margins, the HIG's 14 pt when the system gives none.
+            // D5: the Lock Screen placement sits inside the content margins, the HIG's 14 pt when the system gives none.
             XCTAssertEqual(Self.margin, 14)
             let padded = image(SnapshotActivity.view(render, placement: .lockScreen, environment: environment(.lockScreen, margins: nil)), proposal: ProposedViewSize(width: 362, height: nil))
             let inner = try render.layout(.lockScreen, width: 362 - 2 * Self.margin, height: nil)
@@ -302,7 +302,7 @@ final class ActivityDriverTests: XCTestCase {
         XCTAssertEqual(try XCTUnwrap(render.laidOut(.expandedLeading, proposal: ProposedViewSize(width: 109.33, height: nil))).viewport.width, 109.33)
     }
 
-    // MARK: Account content is private but for a node that says `data-privacy="public"`
+    // MARK: D8: account content is private but for a node that says `data-privacy="public"`
 
     func testContentIsRedactedOnALockedPhoneUnlessANodeSaysPublic() throws {
         // Caltrain's departure says `data-privacy="public"` on every placement: a locked phone shows it unchanged.
@@ -329,7 +329,7 @@ final class ActivityDriverTests: XCTestCase {
         XCTAssertEqual(try comparisonPixels(placeholder), try comparisonPixels(placeholderLocked))
     }
 
-    // MARK: The tint, the gradient and the links of a Lock Screen placement
+    // MARK: D5 and D7: the tint, the gradient and the links of a Lock Screen placement
 
     func testTheTintIsTheLockScreenColourAndALinkIsThePlacementURL() throws {
         let base = URL(string: "https://tinted.exact.invalid")!
@@ -402,7 +402,7 @@ final class ActivityDriverTests: XCTestCase {
         XCTAssertGreaterThan(corner[0], corner[2] + 100, "the gradient's own red, not the tint's blue, over white: \(corner)")
     }
 
-    /// One session serves every placement: laid out again only at a
+    /// One session serves every placement (D9): laid out again only at a
     /// size it has not seen, and released with its render.
     func testOneSessionServesEveryPlacementAndIsReleased() throws {
         let plan = try Self.plan("SNAPSHOT_SERVICE_ALERT")

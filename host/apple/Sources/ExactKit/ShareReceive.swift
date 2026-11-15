@@ -1,9 +1,9 @@
-// A received share's claim: the Rust host claims it,
+// A received share's claim (LLP 1133.024 D2–D4): the Rust host claims it,
 // sets its tokens, delivers its location at the navigation root and lands
 // its files in `app:/tmp/shared/`. A share comes from the share extension's
 // inbox in the App Group, claimed at launch, at each foreground and on the
 // extension's Darwin notification; under the agent the driver's `share:`
-// form arrives here too. A host never takes `share:` from outside it.
+// form arrives here too (D9). A host never takes `share:` from outside it.
 #if canImport(UIKit)
 import UIKit
 #else
@@ -11,7 +11,7 @@ import AppKit
 #endif
 import Foundation
 
-/// The share extension's inbox: `<group>/shares/<uuid>/`, each complete
+/// The share extension's inbox (D4): `<group>/shares/<uuid>/`, each complete
 /// once its `share.json` is there.
 struct ShareInbox {
     /// The app's `share_target`, which the bake wrote into the Info.plist.
@@ -20,8 +20,9 @@ struct ShareInbox {
 
     /// The app's inbox, when it declares `share_target` and is entitled to
     /// the group (`ExactShareGroup` is written only then). Under the agent,
-    /// `EXACT_AGENT_SHARE_INBOX` names another directory, for a drive whose
-    /// build has no group (an ad-hoc Mac build).
+    /// `EXACT_AGENT_SHARE_INBOX` names another directory: a drive's own,
+    /// apart from the shares a person left (and, on an ad-hoc Mac build,
+    /// where there is no group).
     static var main: ShareInbox? {
         guard let json = Bundle.main.object(forInfoDictionaryKey: "ExactShareTarget") as? String,
               let target = try? JSONSerialization.jsonObject(with: Data(json.utf8)) else { return nil }
@@ -33,7 +34,7 @@ struct ShareInbox {
         return ShareInbox(target: target, directory: container.appendingPathComponent("shares", isDirectory: true))
     }
 
-    /// The complete shares, oldest first; a directory without
+    /// The complete shares, oldest first (D8's order); a directory without
     /// `share.json` is still being written, or was abandoned.
     func complete() -> [URL] {
         let dirs = (try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)) ?? []
@@ -59,20 +60,29 @@ struct ShareInbox {
 
 /// The inbox's Darwin notification, `<app id>.shares`, which the extension
 /// posts after writing a share: while the app runs it claims at once.
-private final class ShareInboxPing {
+final class ShareInboxPing {
     static let shared = ShareInboxPing()
-    weak var session: ExactSession?
+    /// The sessions that claim the inbox, in the order they began to.
+    private var sessions: [WeakSession] = []
     private var listening = false
 
+    /// The session a ping goes to: the newest not destroyed. One session
+    /// claims, so each share is delivered once.
+    var recipient: ExactSession? {
+        sessions.removeAll { $0.session == nil || $0.session?.state == .destroyed }
+        return sessions.last?.session
+    }
+
     func listen(_ name: String, for session: ExactSession) {
-        self.session = session
+        sessions.removeAll { $0.session == nil || $0.session === session }
+        sessions.append(WeakSession(session))
         guard !listening else { return }
         listening = true
         let center = CFNotificationCenterGetDarwinNotifyCenter()
         CFNotificationCenterAddObserver(center, Unmanaged.passUnretained(self).toOpaque(), { _, observer, _, _, _ in
             guard let observer else { return }
             let ping = Unmanaged<ShareInboxPing>.fromOpaque(observer).takeUnretainedValue()
-            DispatchQueue.main.async { ping.session?.claimInbox() }
+            DispatchQueue.main.async { ping.recipient?.claimInbox() }
         }, name as CFString, nil, .deliverImmediately)
     }
 }
@@ -81,9 +91,6 @@ private final class ShareInboxPing {
 nonisolated(unsafe) private var coldInboxShare: URL?
 
 extension ExactSession {
-    /// The sessions that claim at each foreground and on the ping, once each.
-    nonisolated(unsafe) private static var claiming = Set<ObjectIdentifier>()
-
     /// The agent's `share` op: `{"id": <navigation root>, "target", "share"}`.
     func receiveShare(_ req: [String: Any]) -> [String: Any] {
         guard booted, let root = navigationRoot else { return ["error": "share: the app has no navigation root to deliver it to"] }
@@ -119,22 +126,23 @@ extension ExactSession {
 
     /// The cold share's files, once activation has configured storage; then
     /// the inbox's other shares, as `navigate` events after the first
-    /// frame (the launch URL's order), and the foreground and the ping from
+    /// frame (LLP 1038 D8's order), and the foreground and the ping from
     /// now on.
     func landColdShare() {
+        guard state != .destroyed else { return }
         if (ExactEnv.agentMode && ExactEnv.environment["EXACT_AGENT_SHARE"] != nil) || coldInboxShare != nil {
             apply(runtime.landShare())
         }
         if let dir = coldInboxShare { try? FileManager.default.removeItem(at: dir); coldInboxShare = nil }
         guard ShareInbox.main != nil else { return }
         claimInbox()
-        guard Self.claiming.insert(ObjectIdentifier(self)).inserted else { return }
+        guard shareInboxObserver == nil else { return }
         #if canImport(UIKit)
         let foreground = UIApplication.willEnterForegroundNotification
         #else
         let foreground = NSApplication.didBecomeActiveNotification
         #endif
-        NotificationCenter.default.addObserver(forName: foreground, object: nil, queue: .main) { [weak self] _ in self?.claimInbox() }
+        shareInboxObserver = NotificationCenter.default.addObserver(forName: foreground, object: nil, queue: .main) { [weak self] _ in self?.claimInbox() }
         if let id = Bundle.main.object(forInfoDictionaryKey: "ExactAppIdentifier") as? String ?? Bundle.main.bundleIdentifier {
             ShareInboxPing.shared.listen("\(id).shares", for: self)
         }

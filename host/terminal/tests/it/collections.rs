@@ -1,4 +1,5 @@
 //! The terminal's real viewport drives the shared collection window.
+//! @ref LLP 1010 §6.5 / LLP 1101 D6-D7.
 
 use exact_terminal::host::{Host, Key, Mode};
 use exact_terminal::vt::Vt;
@@ -208,6 +209,26 @@ fn navigation_skips_rows_without_enabled_controls_in_both_directions() {
 }
 
 #[test]
+fn tab_passes_controls_that_cannot_take_focus_beside_a_list() {
+    let numbers = (0..20).map(|n| n.to_string()).collect::<Vec<_>>();
+    let source = format!(
+        "component App\n  state picked = -1\n  action pick(n: number)\n    picked = n\n  view\n    column width=\"100%\" height=\"100%\"\n      text `picked ${{picked}}`\n      button press=pick(-2) testId=\"first\"\n        text \"first\"\n      button inert=true press=pick(-3)\n        text \"inert\"\n      button visibility=\"hidden\" press=pick(-4)\n        text \"hidden\"\n      button press=pick(-5)\n        text \"last\"\n      list virtualized=true estimated-item-height=16 flex=1 min-height=0\n        for n in [{}] key=n\n{}\n",
+        numbers.join(", "),
+        rows()
+    );
+    let (mut host, mut vt) = boot(&source, 40, 8);
+    host.focus(host.by_test_id("first"));
+    host.key(Key::Named("Tab"));
+    host.key(Key::Named("Enter"));
+    vt.render(&mut host);
+    assert!(vt.text(false).contains("picked -5"), "{}", vt.text(false));
+    host.key(Key::BackTab);
+    host.key(Key::Named("Enter"));
+    vt.render(&mut host);
+    assert!(vt.text(false).contains("picked -2"), "{}", vt.text(false));
+}
+
+#[test]
 fn followed_end_tracks_changed_terminal_list_padding() {
     let source = app(
         "padding-top=\"1lh\" padding-bottom=(pad == 4 ? \"4lh\" : pad == 1 ? \"1lh\" : \"2lh\") scroll-start=\"end\" scrollFollowEnd=true",
@@ -231,7 +252,7 @@ fn followed_end_tracks_changed_terminal_list_padding() {
     }
 }
 
-/// A row's margin is whole cells, as the kernel lays
+/// LLP 1121 stage 11 (c): a row's margin is whole cells, as the kernel lays
 /// it out, when a keyed jump aligns it too: rows with 8 px of bottom margin
 /// (half a row: none, laid out) end at row 30 on the list's last row, and
 /// rows with 14 px (a row) put row 30's text on the last row, its margin

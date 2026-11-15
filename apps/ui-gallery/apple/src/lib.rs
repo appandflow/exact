@@ -1,4 +1,4 @@
-//! The UI gallery on apple.
+//! The UI gallery on apple (LLP 1100 §10).
 
 include!(concat!(env!("OUT_DIR"), "/module.rs"));
 include!(concat!(env!("OUT_DIR"), "/baked.rs"));

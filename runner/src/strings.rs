@@ -1,17 +1,17 @@
-//! Strings as JavaScript has them: order, `slice`,
-//! `replaceAll`, `indexOf` and `split` over UTF-16 code units, each
+//! Strings as JavaScript has them (LLP 1088 D1, D2): order, `slice`,
+//! `replaceAll`, `indexOf` and `split` (§9.1) over UTF-16 code units, each
 //! result made well formed once.
 //!
 //! The runner holds Unicode scalar values (Rust's `str`), so a cut that
 //! JavaScript would leave as a lone surrogate half is U+FFFD here, as
-//! `toWellFormed()` makes it — a declared deviation. A
+//! `toWellFormed()` makes it — a declared deviation (LLP 1006 §2). A
 //! fragment is never normalized on its own: an empty `find` splits `"😀"`
 //! into its halves, and `replaceAll("😀", "", "")` joins them again.
 
 use std::cmp::Ordering;
 
 /// JavaScript's `IsLessThan` for two Strings: UTF-16 code units in order,
-/// a proper prefix first, no locale and no normalization.
+/// a proper prefix first, no locale and no normalization (LLP 1088 D1).
 /// Rust's `str` order is code-point order, which differs between U+E000…
 /// U+FFFF and the astral planes.
 pub fn order(a: &str, b: &str) -> Ordering {
@@ -23,7 +23,7 @@ pub fn order(a: &str, b: &str) -> Ordering {
 pub struct TooLong;
 
 /// One result built from UTF-16 code units and well-formed pieces, counted
-/// as its concatenated, normalized UTF-8: a high surrogate is
+/// as its concatenated, normalized UTF-8 (LLP 1088 D2): a high surrogate is
 /// held until the next unit — a low one completing it adds the pair's 4
 /// bytes, anything else first settles it as U+FFFD's 3 — and the end
 /// settles a held half the same way, so the count is exactly the UTF-8
@@ -117,7 +117,7 @@ pub(crate) fn clamp(index: f64, len: usize) -> usize {
     }
 }
 
-/// `String.prototype.slice(start, end)`, well formed. An
+/// `String.prototype.slice(start, end)`, well formed (LLP 1088 D2). An
 /// omitted `end` is `Number.MAX_VALUE`, which clamps as `undefined` does. A slice
 /// never grows its input — a cut half's U+FFFD is 3 bytes of its pair's 4 —
 /// so it needs no bound of its own.
@@ -175,7 +175,7 @@ fn template(with: &str) -> Vec<Part> {
 }
 
 /// `String.prototype.replaceAll(find, with)` with a string `find`, well
-/// formed, in at most `limit` bytes: every match left to
+/// formed, in at most `limit` bytes (LLP 1088 D2): every match left to
 /// right, none overlapping; an empty `find` matches at every code-unit
 /// boundary, between a pair's halves too. The result is built piece by piece
 /// through one counter, so a `` $` ``/`$'` replacement that grows it
@@ -219,7 +219,7 @@ pub fn replace_all(s: &str, find: &str, with: &str, limit: usize) -> Result<Stri
     b.finish()
 }
 
-/// `String.prototype.indexOf(needle)`: the first match's
+/// `String.prototype.indexOf(needle)` (LLP 1088 §9.1): the first match's
 /// position in UTF-16 code units, `-1` for none, 0 for the empty needle. A
 /// non-empty needle is well formed, so its matches begin on character
 /// boundaries: the same first match as in UTF-16, found in UTF-8.
@@ -231,7 +231,7 @@ pub fn index_of(s: &str, needle: &str) -> f64 {
 }
 
 /// How many pieces `split(s, sep)` makes, counted before any is built, so
-/// the VM charges their list steps first.
+/// the VM charges their list steps first (LLP 1090 D3).
 pub fn pieces(s: &str, sep: &str) -> usize {
     if sep.is_empty() {
         s.encode_utf16().count()
@@ -240,7 +240,7 @@ pub fn pieces(s: &str, sep: &str) -> usize {
     }
 }
 
-/// `String.prototype.split(sep)` with a string separator:
+/// `String.prototype.split(sep)` with a string separator (LLP 1088 §9.1):
 /// the pieces between its matches, left to right, none overlapping. An
 /// empty `sep` splits into code units, each made well formed on its own
 /// (an astral character's halves are two U+FFFD), and `""` into none.
@@ -352,7 +352,7 @@ mod tests {
         assert_eq!(replace_all("😀😀", "", "", 8).as_deref(), Ok("😀😀"));
         assert_eq!(replace_all("😀😀", "", "", 7), Err(TooLong));
         // A result that ends on a completed pair past the limit (the JS
-        // target's budget.js holds the same).
+        // target's budget.js holds the same: review b5-a 1).
         assert_eq!(replace_all("xxx", "x", "😀", 8), Err(TooLong));
         assert_eq!(replace_all("xx", "x", "😀", 8).as_deref(), Ok("😀😀"));
         let many = "😀".repeat(100);

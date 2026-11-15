@@ -1,4 +1,4 @@
-// The agent's photo library: what @exact/photos reads and
+// The agent's photo library (LLP 1133.019 §10): what @exact/photos reads and
 // adds to under the agent, where it asks PhotoKit for nothing. Its photos
 // are this checkout's `fixture/agent-1.jpg` to `agent-6.jpg` (a drive runs
 // on this Mac or its simulators), with fixed creation dates, agent-1 the

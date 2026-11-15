@@ -1,4 +1,4 @@
-// The Dock menu: each `-exact-menu` button whose ids
+// @ref LLP 1133.025 D5 — the Dock menu: each `-exact-menu` button whose ids
 // include `dock` is also an item of the app's Dock menu, which AppKit asks
 // the app delegate for each time it opens (`applicationDockMenu(_:)`). The
 // item is the button as a menu bar item presents it: its label, `disabled`

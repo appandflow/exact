@@ -1,4 +1,4 @@
-//! The instance tree as a document's nodes, with no kernel.
+//! The instance tree as a document's nodes, with no kernel (LLP 1048.004).
 //!
 //! A render whose runner mirrors no kernel (a detached one, whose updates
 //! build no style or prop ops, [`Update::discard`]) writes its document from
@@ -34,6 +34,8 @@ pub struct DocNode {
     pub style: Rc<StyleProps>,
     /// Its props.
     pub props: PropList,
+    /// Whether its plan site has host-known state looks (LLP 1121 D8).
+    pub has_looks: bool,
     /// Whether it is a root.
     pub is_root: bool,
     /// The plan node it realizes; `None` for a virtualized list's spacer or
@@ -49,6 +51,7 @@ pub struct DocTree {
     roots: Vec<ViewId>,
     /// The nodes each `id` prop names, in tree order.
     ids: std::collections::HashMap<String, Vec<ViewId>>,
+    references: exact_kernel::svg::refs::IdIndex<ViewId>,
     /// Its styles' wide colours, kept from the table's sweep.
     kept: exact_kernel::style::wide::Keep,
 }
@@ -84,6 +87,7 @@ impl DocTree {
 
     /// Every node, mutably, for the props the runner adds after the fold.
     pub(crate) fn nodes_mut(&mut self) -> &mut [DocNode] {
+        self.references.clear();
         &mut self.nodes
     }
 
@@ -105,6 +109,7 @@ impl DocTree {
             node_type: node.node_type,
             style: &node.style,
             props: &node.props,
+            has_looks: node.has_looks,
             is_root: node.is_root,
             inline_run,
             symbol_color: self.symbol_color(node),
@@ -115,8 +120,9 @@ impl DocTree {
     /// nearest node that sets `color` decides, said when its author wrote
     /// it, and where its author wrote none a start of the neutral sheet's
     /// that sets `color` (`says`'s) stops the walk: a route header's, a
-    /// neutral alert's and its children's but its buttons'. (A field's start
-    /// sets it too, and a field holds no image.)
+    /// neutral alert's and its children's but its buttons', a plain dialog's
+    /// and a default-surface popover's. (A field's start sets it too, and a
+    /// field holds no image.)
     fn symbol_color(&self, node: &DocNode) -> bool {
         use exact_kernel::style::metrics::{column, Column};
         use exact_kernel::PropId;
@@ -135,6 +141,18 @@ impl DocTree {
                 && n.props.str(PropId::SemanticTag) == Some("dialog")
                 && n.props.str(PropId::AccessibilityRole) == Some("alertdialog")
         };
+        // The neutral surface's starts (`alert_context` 13, 15 and 17): a
+        // plain dialog, and a popover that is no menu on the default surface.
+        let surface = |n: &DocNode| {
+            let role = n.props.str(PropId::AccessibilityRole);
+            neutral
+                && if n.props.str(PropId::Popover).is_some() {
+                    role != Some("menu") && n.props.bool(PropId::DefaultSurface) == Some(true)
+                } else {
+                    n.props.str(PropId::SemanticTag) == Some("dialog")
+                        && role != Some("alertdialog")
+                }
+        };
         let button = |n: &DocNode| {
             n.node_type == NodeType::Pressable && n.props.str(PropId::Href).is_none()
                 || exact_kernel::control::ControlKind::of(n.node_type, &n.props)
@@ -147,6 +165,7 @@ impl DocTree {
                 && up.is_some_and(|p| p.props.get(PropId::NavigationKey).is_some())
                 || alert(n)
                 || up.is_some_and(&alert) && !button(n)
+                || surface(n)
         };
         let mut at = Some(node);
         while let Some(n) = at {
@@ -189,20 +208,17 @@ impl DocTree {
     /// rule (`Kernel::resolve_id`): the one node with that `id`, or of
     /// several the nearest to `from`.
     pub fn resolve_id(&self, from: ViewId, id: &str) -> Option<ViewId> {
-        match self.ids.get(id)?.as_slice() {
-            [] => None,
-            [one] => Some(*one),
-            several => exact_kernel::svg::refs::nearest(
-                several,
-                self.node(from)?.id,
-                |node| self.node(node).and_then(|n| n.parent),
-                |parent, child| {
-                    self.node(parent)
-                        .and_then(|p| p.children.iter().position(|c| *c == child))
-                        .unwrap_or(usize::MAX)
-                },
-            ),
-        }
+        self.references.resolve(
+            id,
+            self.node(from).map(|n| n.id),
+            || self.ids.get(id).into_iter().flatten().copied(),
+            |node| self.node(node).and_then(|n| n.parent),
+            |node| {
+                self.node(node)
+                    .into_iter()
+                    .flat_map(|n| n.children.iter().copied())
+            },
+        )
     }
 }
 
@@ -226,7 +242,7 @@ impl Tree {
         let _batch = exact_kernel::style::wide::Batch::open();
         build.children(&self.children, None, 0)?;
         // Its styles' wide colours, kept while the tree lives: it is no
-        // kernel's.
+        // kernel's (LLP 1121 stage 4).
         let nodes = &build.doc.nodes;
         build.doc.kept = exact_kernel::style::wide::Keep::of(|m| {
             for node in nodes {
@@ -328,6 +344,11 @@ impl Build<'_> {
             children,
             style,
             props,
+            has_looks: self
+                .plan
+                .looks
+                .binary_search_by_key(&n.node.0, |look| look.node.0)
+                .is_ok(),
             is_root: parent.is_none(),
             site: Some(n.node),
         });
@@ -363,6 +384,7 @@ impl Build<'_> {
                 children: roots.map(roots_of).unwrap_or_default(),
                 style: Rc::new(style),
                 props,
+                has_looks: false,
                 is_root: false,
                 site: None,
             });
@@ -390,7 +412,7 @@ impl Build<'_> {
     fn fold(&mut self, n: &NodeInst) -> Result<(Rc<StyleProps>, PropList), DocTreeError> {
         let plan = self.plan;
         let row = plan.node(n.node);
-        let deps = &self.sites.deps;
+        let deps = &self.sites.data.deps;
         let constant = row.bindings.iter().all(|b| {
             plan.binding(b).kind != BindingKind::Style || deps.bindings[b.0 as usize].is_constant()
         });
@@ -482,8 +504,8 @@ impl Build<'_> {
         }
         if !plan.axes.is_empty() || !plan.theme.is_empty() && patch.mask.has(StyleId::ColorScheme) {
             // A token's slice is the tuple around the node and a mode
-            // boundary's implied rows, which the instance tree keeps;
-            // the fold doesn't.
+            // boundary's implied rows, which the instance tree keeps
+            // (LLP 1121 D7); the fold doesn't.
             return Err(DocTreeError::Unsupported(
                 "a design's modes or a themed scheme boundary",
             ));

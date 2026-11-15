@@ -1,4 +1,4 @@
-// A single-producer, single-consumer ring of MIDI 1.0
+// @ref LLP 1125 D8. A single-producer, single-consumer ring of MIDI 1.0
 // input messages: CoreMIDI's receive block, on its realtime thread, pushes;
 // the arm's own thread pops. Neither side allocates or takes a lock, so the
 // receive block never waits on the main thread or the allocator. Notes and
@@ -6,7 +6,7 @@
 // Change, pressure, pitch bend) could be instead: the last
 // `EXACT_MIDI_HEADROOM` places are theirs alone, so a controller flood loses
 // its own messages (which the runner coalesces anyway) and not the note-off
-// behind it. A message that finds no place is counted and dropped.
+// behind it (D8). A message that finds no place is counted and dropped.
 #include <stdint.h>
 
 #define EXACT_MIDI_RING 4096

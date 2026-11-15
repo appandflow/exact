@@ -1,7 +1,8 @@
-//! Contract marks a node that styles its own disabled state (`disabledStyled`),
-//! and the hosts that dim a disabled custom pressable leave it as its author
-//! drew it. The rule (`contract/lower/src/disabled_look.rs`): `disabled`, and
-//! an `opacity` written, or a paint style that reads a name `disabled` reads.
+//! @ref LLP 1115.000 D6 (amended 2026-10-13, Charlie's ruling): Contract marks
+//! a node that styles its own disabled state (`disabledStyled`), and the
+//! hosts that dim a disabled custom pressable leave it as its author drew it.
+//! The rule (`contract/lower/src/disabled_look.rs`): `disabled`, and an
+//! `opacity` written, or a paint style that reads a name `disabled` reads.
 
 use exact_kernel::{Kernel, PropId};
 use exact_runner::{DataError, DataSource, Runner, Value};

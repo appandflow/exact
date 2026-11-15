@@ -1,10 +1,10 @@
-// The platform's Back from a navigation root's selected route, as pure
-// functions every host applies: UIKit's stack, the
-// Mac's toolbar and the watch's `NavigationStack`.
+// The platform's Back from a navigation root's selected route (LLP 1035.001
+// D1, LLP 1115 D5), as pure functions every host applies: UIKit's stack, the
+// Mac's toolbar and the watch's `NavigationStack` (LLP 1126.002 D5).
 import Foundation
 
 package enum NavigationBack {
-    /// The Back control is resolved at use, never captured at a
+    /// D1: the Back control is resolved at use, never captured at a
     /// gesture's start: the lowest view id among live controls whose HTML
     /// `id` is the container's `navigationBack`, that handle `press`, and are
     /// owned by the active route, else by no route at all (a header the
@@ -40,12 +40,13 @@ package enum NavigationBack {
         case pop
     }
 
-    /// Back is always there: a route that declares a Back
+    /// LLP 1115 D5, Back is always there: a route that declares a Back
     /// control (a live element in it whose `id` is the root's
     /// `navigationBack`) goes back by pressing it, and is refused while it
-    /// does not resolve (disabled, or no `press`) — the author's say. A
-    /// route that declares none still goes back, as a hand-built UIKit
-    /// screen does and as the web's history Back does: the root's `navigate` with the
+    /// does not resolve (disabled, or no `press`) — the author's say, as
+    /// D1 has it. A route that declares none still goes back, as a
+    /// hand-built UIKit screen does and as the web's history Back does
+    /// (LLP 1038 D11, amended 2026-10-03): the root's `navigate` with the
     /// location of the visit beneath, or with no `navigate` handler the
     /// runner's own `back` of the router, the same on the web. With no
     /// visit beneath there is nothing to go back to, and it is refused.

@@ -251,7 +251,7 @@ final class ResetGateTests: XCTestCase {
     }
 
     /// A timer coming due while held, and the list's report and the covers: the report and the covers are the new
-    /// runtime's, replayed once, in order. The 50 ms `every` is a task's native timer: its firing held is kept
+    /// runtime's, replayed once, in order. The 50 ms `every` is a task's native timer (#1144): its firing held is kept
     /// by its own queue and fires after the hold, not in the replay.
     func testWorkTheNewRuntimeMustSeeIsReplayedOnce() throws {
         let (session, _) = try boot()
@@ -283,7 +283,7 @@ final class ResetGateTests: XCTestCase {
     }
 
     /// The clock's other two calls, a timer's advance sent to the owner and a display frame, held: replayed as the
-    /// tick is. (Each, renamed, would fall out of `replayed` and be dropped.)
+    /// tick is. (#1141 and #1144 renamed all three; each fell out of `replayed`, and was dropped.)
     func testAnAdvanceAndAFrameSentWhileHeldAreReplayed() throws {
         let (session, _) = try boot()
         let landed = expectation(description: "the held advance is answered on the owner")
@@ -299,7 +299,7 @@ final class ResetGateTests: XCTestCase {
 
     /// A task's native firing held is kept by its own queue, which delivers it after (no replay), on the synchronous
     /// path (the Mac's) and the one posted to the owner; a firing queued when a real restart commits is dropped with
-    /// its generation, whose rows re-arm the task's timer (ResetGate.dropped). Each delivery is the queue's own.
+    /// its generation, whose rows re-arm the task's timer (#1144; ResetGate.dropped). Each delivery is the queue's own.
     func testANativeFiringHeldIsDeliveredAfterAndARestartReArmsIt() throws {
         let wasAsync = ExactSession.asyncFills
         defer { ExactSession.asyncFills = wasAsync }
@@ -343,7 +343,7 @@ final class ResetGateTests: XCTestCase {
         }
     }
 
-    /// A timer admission check held (`wait=update`), on both paths, leaves nothing pending; after a real
+    /// A timer admission check held (#1144's `wait=update`), on both paths, leaves nothing pending; after a real
     /// restart the new generation's next update check admits the firing (ResetGate.dropped). (An update-wait is
     /// admitted on an update by design: the check this test makes is the one the next update callback makes.)
     func testAnAdmissionCheckHeldLeavesNothingPendingAndARestartAdmits() throws {

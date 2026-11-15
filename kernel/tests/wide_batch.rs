@@ -1,5 +1,5 @@
 //! A batch parsed before its commit keeps its colours through the sweeps
-//! its own parsing sets off, however many it parses. Its
+//! its own parsing sets off, however many it parses (LLP 1121 stage 4). Its
 //! own process: the table is the process's.
 
 use exact_kernel::style::wide;

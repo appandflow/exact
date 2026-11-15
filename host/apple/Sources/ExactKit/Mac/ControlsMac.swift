@@ -1,8 +1,8 @@
-// `input type="checkbox"` is AppKit's checkbox
+// @ref LLP 1069.001 D5 — `input type="checkbox"` is AppKit's checkbox
 // (`NSButton`), and `switch` an `NSSwitch`, projected into the node's box as
 // a tablist's segmented control is. Contract owns the value: the control
-// flips at once, reports, and shows the committed `checked` after the action.
-// `appearance: none` draws nothing native.
+// flips at once, reports, and shows the committed `checked` after the action
+// (D4). `appearance: none` draws nothing native.
 #if os(macOS)
 import AppKit
 
@@ -74,6 +74,8 @@ final class ControlHost: NSObject {
     var kinds: [UInt32: String] = [:]
     /// The size last reported per control, so each is published once.
     private var reported: [UInt32: CGSize] = [:]
+    /// Sizes measured and not yet reported (`reportMeasured`).
+    private var measured: [(UInt32, CGSize?)] = []
     /// A select's menu as last built, so a batch that leaves it alone does not rebuild it.
     var menus: [UInt32: SelectMenu] = [:]
     /// A range's last reported value while it moves, so each is sent once.
@@ -96,16 +98,18 @@ final class ControlHost: NSObject {
     /// Asks for every face again at its next read.
     func facesChanged() { faces.removeAll() }
     /// A range's bound value last written into it: written again only when
-    /// it changes.
+    /// it changes (LLP 1069.001 D4, amended 2026-10-04).
     var appliedRange: [UInt32: String] = [:]
-    /// A radio's group from the kernel (`exact_radio_group`).
+    /// A radio's group from the kernel (`exact_radio_group`; x2apps survey #2).
     var radioGroup: ((UInt32) -> RadioGroup)?
+    /// A painted group's keys from the kernel (`exact_role_keys`; LLP 1166.000 D2).
+    var roleKeys: ((_ view: UInt32, _ key: String?, _ focused: UInt32?) -> RoleKeys?)?
     /// Each `progress`'s spinner (ProgressMac.swift): a view, not a
     /// control, so beside `controls`; and those turning, which AppKit does
     /// not say.
     var spinners: [UInt32: NSProgressIndicator] = [:]
     var animating: Set<UInt32> = []
-    /// Each determinate `progress`'s bar, beside them.
+    /// Each determinate `progress`'s bar (LLP 1116 D8), beside them.
     var bars: [UInt32: NSProgressIndicator] = [:]
 
     init(_ presenter: Presenter) { self.presenter = presenter }
@@ -130,12 +134,12 @@ final class ControlHost: NSObject {
         let made: NSControl
         switch kind {
         case "switch": made = SwitchMac()
-        case "button": made = makeNativeButton(node)
+        case "button": made = makeNativeButton(node) // LLP 1069.011
         case "checkbox":
             let box = CheckboxMac(checkboxWithTitle: "", target: nil, action: nil)
             box.imagePosition = .imageOnly
             made = box
-        case "radio": made = RadioButtonMac()
+        case "radio": made = RadioButtonMac() // x2apps survey #2
         default: made = makeValueControl(kind)
         }
         made.tag = Int(node.id)
@@ -150,7 +154,7 @@ final class ControlHost: NSObject {
     func sync() {
         let owners = ControlKinds.indexed.flatMap { presenter.carrying($0) }.filter { $0.kind == "control" }
         let live = Set(owners.map(\.id))
-        // A leaving control keeps drawing until its exit ends.
+        // A leaving control keeps drawing until its exit ends (LLP 1069.011 D9).
         let leaving = Set(presenter.leaving.values.flatMap { $0.members.map(\.id) })
         for id in Array(controls.keys) where !live.contains(id) && !leaving.contains(id) {
             controls.removeValue(forKey: id)?.removeFromSuperview()
@@ -172,14 +176,14 @@ final class ControlHost: NSObject {
             let mount = owner.controlMount
             if control.superview !== mount { mount.addSubview(control) }
             control.isHidden = owner.cssVisibilityHidden
-            // `outline: none`: AppKit draws the control no ring.
+            // `outline: none` (LLP 1104 D6): AppKit draws the control no ring.
             let ring: NSFocusRingType = owner.outlineNone ? .none : .default
             if control.focusRingType != ring { control.focusRingType = ring; control.noteFocusRingMaskChanged() }
             let accent = owner.channels("accent_color").map { TextEngine.color($0) }
             if let b = control as? NativeButtonMac {
                 configureNative(b, owner, accent: accent)
             } else if control is NSSwitch || kinds[owner.id] == "checkbox" || kinds[owner.id] == "radio" {
-                // A grouped form's switch is the size its
+                // @ref LLP 1115.002 D6 — a grouped form's switch is the size its
                 // sheet names (`-exact-control-size`, a metric: AppKit's mini).
                 if let s = control as? NSSwitch {
                     let named: [String: NSControl.ControlSize] = ["mini": .mini, "small": .small, "large": .large]
@@ -198,12 +202,12 @@ final class ControlHost: NSObject {
                 control.setAccessibilityLabel(owner.authoredLabel)
                 control.setAccessibilityIdentifier(owner.props["testId"])
             }
-            // A native button is sized by its node's box and has answered its fitting size already:
+            // A native button is sized by its node's box and has answered its fitting size already (D11):
             // its intrinsic size, an AppKit measure on every batch, is read only for the other controls.
             let natural = control is NativeButtonMac ? .zero : naturalSize(control)
             let box = control is NativeButtonMac ? owner.bounds : owner.contentBox()
             // A slider's track spans its box, as the web's does; a native
-            // button fills it, its chrome inside; the
+            // button fills it, its chrome inside (LLP 1069.011 D6); the
             // others keep their own size, centred.
             if control is NativeButtonMac {
                 // The box is the button's alignment rect, as its natural size
@@ -218,22 +222,36 @@ final class ControlHost: NSObject {
                 control.frame = CGRect(x: box.midX - width / 2, y: box.midY - natural.height / 2,
                                        width: width, height: natural.height)
             }
-            // Buttons already received their fitting answer before publication.
+            // Buttons already received their fitting answer before publication (D11).
             if !(control is NativeButtonMac), reported[owner.id] != natural {
                 reported[owner.id] = natural
                 sizes.append((owner.id, natural))
             }
         }
-        // Published outside the batch being applied, as images' are.
-        // A control destroyed before then reports nothing.
         if !sizes.isEmpty {
-            DispatchQueue.main.async { [weak self] in
-                guard let self else { return }
-                let live = sizes.filter { self.controls[$0.0] != nil && self.presenter.views[$0.0] != nil }
-                if !live.isEmpty { self.presenter.onIntrinsic?(live) }
-            }
+            measured += sizes
+            DispatchQueue.main.async { [weak self] in self?.presenter.session?.reportMeasured() }
         }
         syncProgress()
+    }
+
+    /// Sizes measured and not yet reported.
+    var owesSizes: Bool { !measured.isEmpty }
+
+    /// Lays out with the sizes measured since the last report, when the session
+    /// says (`ExactSession.reportMeasured`): once the batch being applied is,
+    /// before its frame shows, so a box under a layout transition never shows
+    /// where the default size put it (#134); else, for a sync outside a batch,
+    /// on the next turn or once the owner's earlier batches land. A control
+    /// destroyed before then reports nothing. A layout can size a control
+    /// again: a few rounds, as it settles.
+    func reportMeasured() {
+        for _ in 0..<3 where !measured.isEmpty {
+            var latest: [UInt32: CGSize?] = [:]
+            for (id, size) in measured where controls[id] != nil && presenter.views[id] != nil { latest[id] = size }
+            measured = []
+            if !latest.isEmpty { presenter.onIntrinsic?(latest.map { ($0.key, $0.value) }) }
+        }
     }
 
     @objc private func changed(_ sender: NSControl) {
@@ -246,13 +264,13 @@ final class ControlHost: NSObject {
         if node.handlers.contains("press") { presenter.press(id) }
         presenter.checked(id, on)
         // The committed state is authoritative: an action that refused the
-        // toggle snaps the control back.
+        // toggle snaps the control back (D4).
         if let committed = presenter.views[id]?.props["checked"].map({ $0 == "true" }) { setOn(sender, committed) }
     }
 
-    /// The agent's `tap`: the control's own activation.
+    /// The agent's `tap` (LLP 1069.001 D9): the control's own activation.
     func activate(_ node: NodeView) -> Bool? {
-        // A native button takes the ordinary click path.
+        // A native button takes the ordinary click path (LLP 1069.011 D10).
         guard let control = controls[node.id], !(control is NativeButtonMac) else { return nil }
         guard control.window != nil, control.isEnabled, !node.inert, !control.isHiddenOrHasHiddenAncestor else { return false }
         // A click at a slider's middle moves its knob there, as a click

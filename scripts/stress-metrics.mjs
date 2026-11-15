@@ -1,4 +1,4 @@
-// Callback/DOM observations, never a physical-display FPS claim.
+// @ref LLP 1041 §5 — callback/DOM observations, never a physical-display FPS claim.
 import { spawn, spawnSync } from 'node:child_process';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { arch, cpus, platform, tmpdir } from 'node:os';

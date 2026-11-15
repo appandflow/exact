@@ -1,5 +1,5 @@
 //! Raw HTML images: what `<img>` and `<picture>` draw, read as GitHub's
-//! sanitizer reads them, and the markup that stays literal.
+//! sanitizer reads them, and the markup that stays literal. @ref LLP 1033 D9
 
 use markdown_parse::{parse, parse_with, Block, Html, Kind};
 

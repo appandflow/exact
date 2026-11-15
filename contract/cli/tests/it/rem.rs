@@ -1,4 +1,4 @@
-//! `rem` and `em` from a Contract source to the
+//! @ref LLP 1069.000 D3 — `rem` and `em` from a Contract source to the
 //! kernel, and the root font size a host sets through the runner.
 use exact_kernel::{Dimension, Kernel, RowValue, StyleId};
 use exact_runner::{DataError, DataSource, Runner, RunnerError, Value};
@@ -202,7 +202,7 @@ fn a_literal_size_of_zero_and_a_string_are_refused_by_the_compiler() {
     }
 }
 
-/// `setPageZoom(factor)` takes one number above 0.
+/// LLP 1021 §5.3.1: `setPageZoom(factor)` takes one number above 0.
 #[test]
 fn a_page_zoom_is_one_factor_above_zero() {
     for good in ["setPageZoom(1.25)", "setPageZoom(n)"] {

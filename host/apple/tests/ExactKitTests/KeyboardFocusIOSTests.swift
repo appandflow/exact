@@ -330,7 +330,7 @@ final class KeyboardFocusIOSTests: XCTestCase {
 
     /// A press leaves its button focused (a vote, then the `select` below
     /// it): the select's menu keeps that focus and raises no keyboard over
-    /// its options, as with the view's shortcut focus (polls).
+    /// its options, as with the view's shortcut focus (polls, LLP 1116 D2).
     func testAButtonAPressLeftFocusedRequestsNoKeyboardForASelectsMenu() throws {
         guard #available(iOS 17.4, *) else { throw XCTSkip("UIKit menu activation requires iOS 17.4") }
         let session = ExactApp.shared.makeSession(label: "select-after-press")
@@ -451,7 +451,7 @@ final class KeyboardFocusIOSTests: XCTestCase {
         XCTAssertNil(first.focusRing, "a touch's focus shows no ring")
     }
 
-    /// `outline: none` takes the ring off a
+    /// LLP 1104 D6 (amended 2026-11-05): `outline: none` takes the ring off a
     /// control Tab reached, which still takes the focus; unset, it is back.
     func testOutlineNoneShowsNoRingOnAControlTabReached() {
         let (p, first, _, _, _) = fixture()
@@ -466,7 +466,7 @@ final class KeyboardFocusIOSTests: XCTestCase {
         XCTAssertNil(first.focusRing, "a restyle takes it off")
     }
 
-    /// HTML's `tabindex`: an explicit value makes a plain box
+    /// HTML's `tabindex` (LLP 1088 D7.3): an explicit value makes a plain box
     /// focusable and, ≥ 0, a Tab stop, positive first; a negative one takes
     /// the focus but not Tab; absent is never `0`; a disabled button stays
     /// out, and a disabled box is a stop (Chrome's `<div disabled>`).

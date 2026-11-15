@@ -1,9 +1,9 @@
-//! `frame` and `measure` on the web: the page answers.
+//! `frame` and `measure` on the web (LLP 1051.000 D4): the page answers.
 //!
 //! The browser lays out, so the kernel's layout there is not the page's: both
 //! reads ask the page through one import, `exact_geometry.read`, which
 //! `host/web/geometry-glue.js` answers from the live DOM within the call;
-//! `elementFromPoint` asks `exact_geometry.point` for the
+//! `elementFromPoint` (LLP 1094 D10) asks `exact_geometry.point` for the
 //! view hit, and the runner names it by its nearest `id`.
 //! Until that piece has loaded (after first paint), every read answers
 //! `unavailable`.

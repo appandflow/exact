@@ -1,5 +1,5 @@
 // The emoji picker emits a selection, never its keyboard's search text or
-// ordinary typing after the user switches input modes.
+// ordinary typing after the user switches input modes. LLP 1008 §9.
 import Foundation
 
 enum EmojiSelection {

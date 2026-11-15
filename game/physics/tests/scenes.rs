@@ -103,6 +103,62 @@ fn resume_and_replay_every_tick() {
         exact_game::json::from_str(include_str!("pins.json")).unwrap();
     assert_eq!(format!("0x{:016x}", a.world().hash()), pins["pile-600"]);
 }
+// Convex hulls (sharp, rounded and a static rock) and CCD bodies continue
+// identically when replayed, resumed or rebuilt, and every die settles on a face,
+// or a rounded one against the rock.
+#[test]
+fn dice_settle_on_a_face_and_continue_identically() {
+    let mut a = scene("dice").paranoid(Paranoid::Off);
+    let mut b = scene("dice").paranoid(Paranoid::Save);
+    let mut fresh = scene("dice").paranoid(Paranoid::FreshGame);
+    let mut restored = None;
+    let mut slept = 0;
+    for t in 1..=600 {
+        for s in [&mut a, &mut b, &mut fresh] {
+            tick(s, t);
+        }
+        if t == 30 {
+            let mut r = scene("dice");
+            r.restore(&a.save().unwrap()).unwrap();
+            tick(&mut r, t);
+            restored = Some(r);
+        } else if let Some(r) = &mut restored {
+            tick(r, t);
+        }
+        let hash = a.world().hash();
+        assert_eq!(hash, b.world().hash(), "replay tick {t}");
+        assert_eq!(hash, fresh.world().hash(), "fresh-game tick {t}");
+        if let Some(r) = &restored {
+            assert_eq!(hash, r.world().hash(), "resume tick {t}");
+        }
+        if slept == 0 && physics::quiescent(a.world()) {
+            slept = t;
+        }
+    }
+    assert!(slept > 0, "the dice never slept");
+    let w = a.world();
+    let rock = w.named("rock").unwrap();
+    for (i, (faces, round)) in [(4, 0.0), (8, 0.05), (20, 0.0), (20, 0.03)]
+        .into_iter()
+        .enumerate()
+    {
+        let e = w.named(&format!("die-{i}")).unwrap();
+        let pose = *w.get::<Transform>(e).unwrap();
+        eprintln!("d{faces} rests at {pose:?} from tick {slept}");
+        assert!(pose.position.y > 0.0, "d{faces} fell through the ground");
+        // A rounded die may come to rest leaning on the rock, its own shape in
+        // contact with it, and then not on a face. A sharp die must be on a face.
+        let shape = Shape::ConvexHull {
+            points: die(faces, 0.4),
+            round,
+        };
+        let leaning = round > 0.0 && physics::overlap(w, &shape, pose, u32::MAX).contains(&rock);
+        assert!(
+            leaning || on_face(&die(faces, 0.4), pose),
+            "d{faces} rests off a face"
+        );
+    }
+}
 #[test]
 fn slopes_box_static_and_sliding() {
     for angle in [20.0, 40.0] {
@@ -171,6 +227,144 @@ fn wake_supporter_edits_and_despawn() {
     tick(&mut s, 601);
     assert!(!s.world().get::<Body>(e).unwrap().asleep);
 }
+// Writing `asleep` sleeps a body whose whole island is at rest in the next step.
+// A box resting on the floor while another lands on it shares that box's island:
+// written alone, it must stay awake and on the floor until the island sleeps.
+#[test]
+fn forced_sleep_is_honoured_per_island_and_never_sinks() {
+    let mut w = World::new(120, 0);
+    physics::register(&mut w);
+    ground(&mut w);
+    let under = box_at(
+        &mut w,
+        "under",
+        Vec3::new(0.0, 0.5, 0.0),
+        Vec3::splat(0.5),
+        true,
+    );
+    let over = box_at(
+        &mut w,
+        "over",
+        Vec3::new(0.2, 1.6, 0.0),
+        Vec3::splat(0.5),
+        true,
+    );
+    let sleep = |w: &mut World, e: Entity| w.get_mut::<Body>(e).unwrap().asleep = true;
+    let pose = |w: &World, e: Entity| *w.get::<Transform>(e).unwrap();
+    physics::step(&mut w);
+    sleep(&mut w, under);
+    let rest = pose(&w, under);
+    physics::step(&mut w);
+    assert!(
+        w.get::<Body>(under).unwrap().asleep,
+        "alone, it sleeps at once"
+    );
+    assert_eq!(pose(&w, under), rest);
+    while w.get::<Body>(over).unwrap().velocity.y > -0.5 {
+        physics::step(&mut w);
+    }
+    for _ in 0..20 {
+        physics::step(&mut w);
+    }
+    assert!(
+        !w.get::<Body>(under).unwrap().asleep,
+        "the landing wakes it"
+    );
+    assert!(!w.get::<Body>(over).unwrap().asleep);
+    sleep(&mut w, under);
+    for t in 0..240 {
+        let before = w.get::<Transform>(under).unwrap().position;
+        physics::step(&mut w);
+        let b = w.get::<Body>(under).unwrap().clone();
+        let after = w.get::<Transform>(under).unwrap().position;
+        assert!(
+            !b.asleep || (before == after && b.velocity == Vec3::ZERO),
+            "tick {t}: reads asleep while moving {before} -> {after}, {:?}",
+            b.velocity
+        );
+        assert!(after.y > 0.49, "tick {t}: sank to {after}");
+    }
+    let mut ticks = 0;
+    while !physics::quiescent(&w) {
+        physics::step(&mut w);
+        ticks += 1;
+        assert!(ticks < 1200, "never slept");
+    }
+    assert!(w.get::<Transform>(under).unwrap().position.y > 0.49);
+    assert!(w.get::<Transform>(over).unwrap().position.y > 1.49);
+    for e in [under, over] {
+        w.get_mut::<Body>(e).unwrap().asleep = false;
+    }
+    physics::step(&mut w);
+    assert!(!physics::quiescent(&w));
+    let rest = [pose(&w, under), pose(&w, over)];
+    sleep(&mut w, under);
+    sleep(&mut w, over);
+    physics::step(&mut w);
+    assert!(physics::quiescent(&w), "the whole island sleeps at once");
+    assert_eq!([pose(&w, under), pose(&w, over)], rest);
+}
+// A sleep written on every body of an island stops it in that step even while it
+// moves: a lone falling body, two touching bodies sliding together, and a body
+// spawned asleep away from the origin.
+#[test]
+fn forced_sleep_of_a_whole_moving_island_stops_it_at_once() {
+    let mut w = World::new(60, 0);
+    physics::register(&mut w);
+    ground(&mut w);
+    let falling = box_at(
+        &mut w,
+        "falling",
+        Vec3::new(-5.0, 5.0, 0.0),
+        Vec3::splat(0.5),
+        true,
+    );
+    let a = box_at(
+        &mut w,
+        "a",
+        Vec3::new(5.0, 0.5, 0.0),
+        Vec3::splat(0.5),
+        true,
+    );
+    let b = box_at(
+        &mut w,
+        "b",
+        Vec3::new(6.0, 0.5, 0.0),
+        Vec3::splat(0.5),
+        true,
+    );
+    for e in [a, b] {
+        w.get_mut::<Body>(e).unwrap().velocity = Vec3::X * 3.0;
+    }
+    let spawned = w.spawn((
+        Transform::at(0.0, 5.0, 8.0),
+        Body {
+            asleep: true,
+            ..Body::default()
+        },
+        Collider::default(),
+    ));
+    physics::step(&mut w);
+    physics::step(&mut w);
+    let pose = |w: &World, e: Entity| *w.get::<Transform>(e).unwrap();
+    assert_eq!(
+        pose(&w, spawned).position.y,
+        5.0,
+        "spawned asleep, it stays"
+    );
+    assert!(w.get::<Body>(spawned).unwrap().asleep);
+    assert!(w.get::<Body>(falling).unwrap().velocity.y < -0.1);
+    assert!(w.get::<Body>(a).unwrap().velocity.x > 1.0);
+    for e in [falling, a, b] {
+        w.get_mut::<Body>(e).unwrap().asleep = true;
+    }
+    let rest = [falling, a, b, spawned].map(|e| pose(&w, e));
+    for _ in 0..30 {
+        physics::step(&mut w);
+        assert!(physics::quiescent(&w));
+        assert_eq!([falling, a, b, spawned].map(|e| pose(&w, e)), rest);
+    }
+}
 #[test]
 fn sensors_filter_events_and_journal() {
     let mut w = World::new(60, 0);
@@ -224,6 +418,78 @@ fn sensors_filter_events_and_journal() {
     w.get_mut::<Transform>(b).unwrap().position.y = 0.0;
     physics::step(&mut w);
     assert!(physics::events(&w).is_empty());
+}
+
+#[test]
+fn a_touch_within_one_step_keeps_event_and_journal_order() {
+    for moving_sensor in [false, true] {
+        let mut w = World::new(60, 0);
+        physics::register(&mut w);
+        let gate = w.spawn_named(
+            "gate",
+            (
+                Transform::default(),
+                physics::Announce,
+                Collider {
+                    sensor: true,
+                    shape: Shape::Box {
+                        half: Vec3::new(0.01, 1.0, 1.0),
+                    },
+                    ..Collider::default()
+                },
+            ),
+        );
+        let ball = w.spawn_named(
+            "ball",
+            (
+                Transform::at(-1.0, 0.0, 0.0),
+                Body {
+                    velocity: Vec3::X * 6.0,
+                    gravity: 0.0,
+                    ..Body::default()
+                },
+                Collider {
+                    shape: Shape::Sphere { radius: 0.03 },
+                    ..Collider::default()
+                },
+            ),
+        );
+        let mover = if moving_sensor {
+            gate
+        } else {
+            w.spawn((Transform::at(500.0, 0.0, 0.0), Collider::default()))
+        };
+        w.insert(
+            mover,
+            Body {
+                kind: BodyKind::Kinematic,
+                ..Body::default()
+            },
+        );
+        for _ in 0..10 {
+            physics::step(&mut w);
+            assert!(physics::events(&w).is_empty());
+        }
+        w.get_mut::<Transform>(mover).unwrap().position.z += 2.0;
+        physics::step(&mut w);
+        let events: Vec<_> = physics::events(&w)
+            .iter()
+            .map(|e| (e.a, e.b, e.began))
+            .collect();
+        assert_eq!(events, [(gate, ball, true), (gate, ball, false)]);
+        let journal = w.journal();
+        let lines: Vec<_> = journal
+            .iter()
+            .filter(|e| e.line.ends_with("gate × ball"))
+            .map(|e| e.line.as_str())
+            .collect();
+        assert_eq!(lines.len(), 2);
+        assert!(lines[0].ends_with(" touch gate × ball"), "{lines:?}");
+        assert!(lines[1].ends_with(" untouch gate × ball"), "{lines:?}");
+        drop(journal);
+        physics::step(&mut w);
+        assert!(physics::events(&w).is_empty());
+    }
 }
 
 #[test]

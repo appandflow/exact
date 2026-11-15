@@ -1,11 +1,11 @@
-//! The Windows readings: the battery and Energy
+//! The Windows readings (LLP 1133.031 D1–D3, D9): the battery and Energy
 //! Saver from the power management functions, and the internet connection
 //! profile from `Windows.Networking.Connectivity`. The package reaches the
 //! `windows` crate through `exact_windows::windows`, since the desktop
 //! builder writes no Cargo manifest of its own.
 
 use super::readers::{self, Battery};
-use exact_linux::package::{json, Json};
+use exact_painted::package::{json, Json};
 use exact_windows::windows;
 use std::sync::atomic::{AtomicU32, Ordering};
 use windows::Networking::Connectivity::{NetworkCostType, NetworkInformation};
@@ -49,7 +49,7 @@ static ENERGY_SAVER: AtomicU32 = AtomicU32::new(u32::MAX);
 static BATTERY_SAVER: AtomicU32 = AtomicU32::new(u32::MAX);
 
 /// Low power: Energy Saver not off where Windows has it, since it may stay
-/// on while plugged in; else battery saver on (the Windows row).
+/// on while plugged in; else battery saver on (D3's Windows row).
 pub fn low_power() -> bool {
     match ENERGY_SAVER.load(Ordering::Relaxed) {
         u32::MAX => BATTERY_SAVER.load(Ordering::Relaxed) == 1,
@@ -57,7 +57,7 @@ pub fn low_power() -> bool {
     }
 }
 
-/// The internet profile's `type` and the `windows` words.
+/// The internet profile's `type` and the `windows` words (D2, D9).
 pub fn network() -> (&'static str, Json) {
     let Ok(profile) = NetworkInformation::GetInternetConnectionProfile() else {
         return ("none", Json::Null);

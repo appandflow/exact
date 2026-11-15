@@ -1,4 +1,4 @@
-//! `keep-mounted`: rows a list keeps mounted wherever
+//! `keep-mounted` (@ref LLP 1010 §6.11): rows a list keeps mounted wherever
 //! its window is, named by key. VoiceOver moves from a transcript's first
 //! message to its last only if both are in the tree; a playing row keeps
 //! its player.
@@ -6,7 +6,7 @@ use super::*;
 
 /// The most keys a list keeps, `initial-item-count`'s bound: kept rows add
 /// at most this many to any window. The set is the author's and does not
-/// grow as the reader scrolls, so memory stays bounded.
+/// grow as the reader scrolls (§6.2's memory requirement).
 pub(crate) const MOST: usize = 64;
 
 /// The row identities `value` names: a list of at most [`MOST`] keys, each

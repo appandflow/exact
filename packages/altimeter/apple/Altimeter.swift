@@ -1,13 +1,13 @@
-// @exact/altimeter on Apple: Core Motion's
+// @exact/altimeter on Apple (LLP 1133.026 D13, D15, D16, D17): Core Motion's
 // `CMAltimeter`, answered in the interface's shapes. Under the agent the
 // runner's declared substitute answers and nothing here runs; a bound run
 // (`--bind altimeter`) reaches it on a simulator made for the drive.
 //
-// - One relative-altitude stream serves every reader group. Updates
+// - One relative-altitude stream serves every reader group (D13). Updates
 //   come every few seconds whatever a reader asks, so `frequency` is inert.
 //   Each group (a name with one `history`) keeps a ring of its own numbered
 //   samples, answered from the cursor the runner passes as `after`, as
-//   @exact/motion's do.
+//   @exact/motion's do (LLP 1133.013 D5).
 // - Pressure is Core Motion's kPa times ten: hectopascals.
 // - A group's relative altitude is the stream's less the group's first
 //   sample, and `since` is when that sample came.
@@ -18,8 +18,8 @@
 //   `SensorManager.getAltitude` uses, so each group's height stays
 //   continuous. Each group's next answer reads `interrupted`.
 // - The request starts updates while `notDetermined`, which shows the
-//   prompt, and stops them at the first callback.
-// - Tier 3: `AltimeterModule.hatch` is given the altimeter once,
+//   prompt, and stops them at the first callback (D13).
+// - Tier 3 (D17): `AltimeterModule.hatch` is given the altimeter once,
 //   before its first start; `forward` hears every update it receives.
 // - The Mac has no `CMAltimeter`; its module answers the status unavailable.
 import CoreMotion
@@ -28,7 +28,7 @@ import Foundation
 
 #if os(iOS)
 public final class AltimeterModule: ExactPackage {
-    /// The app's access hatch: given the altimeter once, before its first start.
+    /// The app's access hatch (D17): given the altimeter once, before its first start.
     public static var hatch: ((CMAltimeter) -> Void)?
     /// Every update the module receives, on the main queue, after the module's own handling.
     public static var forward: ((CMAltitudeData) -> Void)?
@@ -69,7 +69,7 @@ public final class AltimeterModule: ExactPackage {
 
     public func later(_ name: String, _ args: [String: Any], preferred: Any?, reply: @escaping ([String: Any]) -> Void) {
         DispatchQueue.main.async { [self] in
-            // Under the agent the declared substitute answers; nothing here may reach Core Motion.
+            // Under the agent the declared substitute answers; nothing here may reach Core Motion (D23 item 1).
             guard !context.agent else { return reply(["error": "NotSupportedError"]) }
             switch name {
             case "altimeterStatus": reply(status())
@@ -127,7 +127,7 @@ public final class AltimeterModule: ExactPackage {
         groups[key] = group
         restart()
         guard group.ring.isEmpty else { return reply(answer(group, args)) }
-        // A poll while hidden answers an empty batch, never an error.
+        // A poll while hidden answers an empty batch, never an error (D13).
         guard shown else { return reply(["error": "NotReadableError"]) }
         // The first answer waits for the stream's first update: they come every few seconds.
         var answered = false
@@ -148,12 +148,10 @@ public final class AltimeterModule: ExactPackage {
         out["dropped"] = 0
         out["interrupted"] = false
         if let after = (args["after"] as? Double).map(Int.init) {
-            let fresh = group.ring.filter { $0.sequence > after }
-            let kept = group.history > 0 ? Array(fresh.suffix(group.history)) : []
-            out["samples"] = kept.map(\.fields)
-            out["dropped"] = group.history > 0 ? max(0, newest.sequence - after - kept.count) : 0
-            out["interrupted"] = group.pauses.contains { $0 >= after }
-            if !shown { out["samples"] = [[String: Any]](); out["interrupted"] = true }
+            let batch = Self.batch(group.ring, after: after, history: group.history, shown: shown)
+            out["samples"] = batch.samples
+            out["dropped"] = batch.dropped
+            out["interrupted"] = !shown || group.pauses.contains { $0 >= after }
         }
         return out
     }
@@ -259,3 +257,15 @@ public final class AltimeterModule: ExactPackage {
     }
 }
 #endif
+
+extension AltimeterModule {
+    /// A poll's samples after the runner's cursor `after` (D13): the newest `history` of those in
+    /// `ring`, and none while the app is hidden. The answer's sequence, the newest, becomes the next
+    /// cursor, so every sample after `after` not answered is counted as dropped.
+    static func batch(_ ring: [(sequence: Int, fields: [String: Any])], after: Int, history: Int, shown: Bool)
+        -> (samples: [[String: Any]], dropped: Int) {
+        guard history > 0, let newest = ring.last?.sequence else { return ([], 0) }
+        let kept = shown ? ring.filter { $0.sequence > after }.suffix(history) : []
+        return (kept.map(\.fields), max(0, newest - after - kept.count))
+    }
+}

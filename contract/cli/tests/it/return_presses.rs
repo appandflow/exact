@@ -1,4 +1,4 @@
-//! `-exact-return-presses`: a container's opt-in to
+//! `-exact-return-presses` (LLP 1115.000 D7.3): a container's opt-in to
 //! Chromium's Return on a focused button, which the Mac host reads.
 
 use exact_kernel::{Kernel, PropId};

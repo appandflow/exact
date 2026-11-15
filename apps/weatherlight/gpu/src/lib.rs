@@ -1,4 +1,4 @@
-//! Weatherlight's living sky, loaded after the first pixel.
+//! Weatherlight's living sky, loaded after the first pixel (LLP 1009).
 //!
 //! `weather(cloudCover, precipitation, daylight, localHour, wind, animated)`
 //! consumes percentages, millimetres, a 0–1 daylight value, local hours,

@@ -268,7 +268,7 @@ fn composition_and_windowless_text() {
 }
 
 #[test]
-#[ignore = "Boot phase worker; run ten interleaved processes on a Windows desktop"]
+#[ignore = "S0 C6 boot phase worker; run ten interleaved processes on the NucBox"]
 fn boot_worker() {
     let arm = std::env::var("INK_BOOT_DEVICE").expect("INK_BOOT_DEVICE");
     let info = match arm.as_str() {
@@ -290,7 +290,7 @@ fn boot_worker() {
 }
 
 #[test]
-#[ignore = "native RichEdit editing and DPI; signed-in Windows desktop"]
+#[ignore = "Stage 1w native RichEdit editing and DPI; signed-in Windows desktop"]
 fn windowless_field_edit_and_scale() {
     use windows::Win32::UI::WindowsAndMessaging::*;
     let window = Window::fixture([600, 180]).unwrap();

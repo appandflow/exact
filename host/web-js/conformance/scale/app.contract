@@ -1,17 +1,17 @@
 // linux: layout
-// Synthetic conformance plan: the base spacing and radius scale.
-// Boxes whose padding and gap are space.xs to space.xl, and
+// Synthetic conformance plan: the base spacing and radius scale (LLP 1121
+// stage 11, D11). Boxes whose padding and gap are space.xs to space.xl, and
 // corners radius.sm to radius.full, inline and through a style, and rows
 // whose gaps are space.xs to space.xl; radius.full
 // on a wide and a tall box, a pill on each (every host clamps the one
-// oversized length by CSS's corner overlap rule);
-// the design's own space.md (an app's override) and space.header
-// (a name the scale does not reserve); and a bound corner that
+// oversized length by CSS's corner overlap rule, theme2's stage 11 C ruling);
+// the design's own space.md (an app's override, ruling 4) and space.header
+// (a name the scale does not reserve, ruling 5); and a bound corner that
 // moves between radius.md and radius.full. Every web build and the Linux host
 // draw the neutral column, so all three agree. A padded box its child fills
 // but for its padding holds the terminal's cells to the same rows above and
 // below. A box padded `box.pad`, `calc(space.lg * 2)`, holds each host to
-// its own column's evaluation of an expression: each of
+// its own column's evaluation of an expression (stage 12 B2): each of
 // expect.json's numbers for it is space.lg × 2 in that column (Apple 20,
 // neutral and Material 24, the terminal 2 cells of 8px), so a change to
 // space.lg's row owes a change there.

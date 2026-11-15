@@ -3,7 +3,7 @@ import AppKit
 import XCTest
 @testable import ExactKit
 
-/// The Mac's surface pairs (the theme's surface roles): a card on a plain page and a card
+/// The Mac's surface pairs (LLP 1095 D2's roles; theme2's Mac surface-roles ruling): a card on a plain page and a card
 /// on a grouped page each draw apart from their page, in light and dark, in AppKit's own colours (on current macOS the
 /// window's and a control's backgrounds are one colour, so a card names the under-page grey). The increased-contrast
 /// legs prove the `contrast: true` lookup agrees with AppKit's named high-contrast appearances; on the Mac those

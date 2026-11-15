@@ -1,5 +1,5 @@
-// A confirmation in the alert shape on AppKit: an `alertdialog` — a
-// `dialog` shown by `showModal` or its
+// A confirmation in the alert shape on AppKit (LLP 1115.000 D7.6; LLP 1115
+// D6's Mac half): an `alertdialog` — a `dialog` shown by `showModal` or its
 // `command="show-modal"`, or a popover opened by its invoker — whose rows are
 // text, one hide-only cancel and at most three buttons with it
 // (`ConfirmationShape`, the rule iOS's alert follows) is `NSAlert`, a sheet
@@ -15,8 +15,8 @@
 // after the sheet has ended, and only while the alert still showed what is
 // there (as the chooser's menu does, ChooserMac.swift). Any other shape is
 // no alert: a chooser is the `NSMenu`, and the rest is a sheet or a popover
-// holding its own subtree (SheetsMac.swift,
-// PopoversMac.swift). An alert has no outside: a click
+// holding its own subtree (LLP 1115.002 D7; SheetsMac.swift,
+// PopoversMac.swift). An alert has no outside (LLP 1115.000 D13.4): a click
 // on the window behind the sheet does nothing and Escape presses the cancel,
 // which is the `closedby` lowering implies for the shape, `closerequest`. So
 // a `dialog` whose author wrote `closedby="any"` is not presented as one: it
@@ -121,7 +121,7 @@ final class AlertHost {
         let cancels = children.filter { $0.isButton && !$0.handlers.contains("press") && closes($0, pop, popover: popover) }
         let texts = children.filter { $0.kind == "text" }
         let fields = children.filter(\.isPromptField)
-        // A prompt asks one thing, as lowering holds it to.
+        // A prompt asks one thing, as lowering holds it to (rules/DEFERRED.md).
         guard fields.count <= 1, children.count == actions.count + cancels.count + texts.count + fields.count, let cancel = cancels.first,
               actions.allSatisfy({ closes($0, pop, popover: popover) }),
               // A prompt's actions may all be disabled (Save, until a name is
@@ -149,7 +149,7 @@ final class AlertHost {
                     defaultRow: actions.isEmpty ? 0 : emphasized.flatMap { rows[$0].cancel ? nil : $0 })
     }
 
-    /// The row Return presses: the one `filled`,
+    /// The row Return presses (LLP 1115.000 D7.3): the one `filled`,
     /// non-destructive button, when there is exactly one. Emphasis alone
     /// never picks among several, and a destructive button is never it.
     static func defaultRow(filled: [Bool], destructive: [Bool]) -> Int? {
@@ -274,6 +274,7 @@ final class AlertHost {
         }
     }
 
+    private static let fieldWidth: CGFloat = 228
     /// A prompt (`kernel/src/confirmation.rs`): the alert's accessory view
     /// holds the authored input's field, lent as the toolbar's search field
     /// is (`NodeView.lendFieldToAlert`): the node is its delegate and it edits
@@ -288,7 +289,7 @@ final class AlertHost {
         for node in fields {
             guard let field = node.lendFieldToAlert() else { continue }
             field.translatesAutoresizingMaskIntoConstraints = false
-            owner.widths.append(field.widthAnchor.constraint(equalToConstant: 228))
+            owner.widths.append(field.widthAnchor.constraint(equalToConstant: Self.fieldWidth))
             stack.addArrangedSubview(field)
             owner.fields.append(node)
         }
@@ -296,6 +297,28 @@ final class AlertHost {
         stack.setFrameSize(stack.fittingSize)
         owner.alert.accessoryView = stack
         owner.alert.window.initialFirstResponder = owner.fields.first?.field
+    }
+    /// A prompt's input whose `type` changed to or from `password` while
+    /// its field is lent: a field of the new class takes the old one's place
+    /// in the accessory view, its width and its first responder, keeping
+    /// the editing and its selection (`NodeView.replaceField`).
+    func relend(_ node: NodeView) {
+        guard let owner = presented, let index = owner.fields.firstIndex(where: { $0 === node }), owner.widths.indices.contains(index),
+              let old = node.field, let stack = old.superview as? NSStackView, let at = stack.arrangedSubviews.firstIndex(of: old) else { return }
+        let lent = node.makeAlertField(like: old)
+        lent.translatesAutoresizingMaskIntoConstraints = false
+        owner.widths[index].isActive = false
+        owner.widths[index] = lent.widthAnchor.constraint(equalToConstant: Self.fieldWidth)
+        owner.widths[index].isActive = true
+        // Read first: AppKit gives the role to an alert button once the field leaves the window.
+        let first = owner.alert.window.initialFirstResponder === old
+        node.replaceField(old, with: lent) {
+            old.removeFromSuperview()
+            stack.insertArrangedSubview(lent, at: at)
+        }
+        if first { owner.alert.window.initialFirstResponder = lent }
+        node.syncFieldSide()
+        node.syncBarField()
     }
     /// Return in a prompt, one rule on every host (docs/contract-for-agents.md):
     /// the input's `key` handlers first (prevented, nothing more); its

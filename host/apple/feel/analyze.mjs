@@ -217,8 +217,8 @@ export function analyze(t, meta) {
     const last = moves.at(-1), base = moves.findLast((x) => last && last.t - x.t >= 0.03);
     const finger = last && base ? -(last.y - base.y) / (last.t - base.t) : null;
     // A fling that reaches the list's end decelerates until then: the bounce back, which `edgeBounce` measures, is
-    // no part of its curve. Its last frames settle within the half point `inside` allows (a notes app's 6,000 pt/s
-    // fling: two still frames 0.47 pt past an end off the pixel grid), and read as jumps.
+    // no part of its curve. Its last frames settle within the half point `inside` allows (notes-exact's 6,000 pt/s
+    // fling, rounds r25 to r29: two still frames 0.47 pt past an end off the pixel grid), and read as jumps.
     const glide = stepsIn(ended.t + P, Math.min(next, g.until)), edgeAt = glide.find((s) => !inside(s.f))?.f.t ?? Infinity;
     const dec = glide.filter((s) => s.f.t < edgeAt && s.f.down === 0 && s.f.de && inside(s.f) && inside(s.prev));
     const dir = Math.sign(dec.reduce((sum, s) => sum + s.v, 0));
@@ -525,7 +525,7 @@ export function report(r) {
 
 const UNITS = new Set(['ms/s', 'ms', 'ms/frame', 'frames', 'pt', 's']);
 // Metrics too unsure to put to an app author as a finding: blank bands measured without the check at rest read a
-// plain region (a grouped list's background, a uniform card) as blank on native lists too (SwiftUI's
+// plain region (a grouped list's background, a uniform card) as blank on native lists too (round r21: SwiftUI's
 // Settings 0.36, UIKit's inbox 0.22). With the check they are a finding.
 const unsure = (r, metric) => metric === 'blank samples' && !r.blank?.verified;
 

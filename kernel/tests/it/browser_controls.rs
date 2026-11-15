@@ -1,15 +1,15 @@
 //! Form-control boxes recorded from Chrome 154.0.8037.92 (Linux) on 2026-10-02.
-//! The switch and select rows were recorded again on 2026-10-10, from Chrome
-//! 154.0.8037.98 (macOS), when the page began drawing its own switch and
-//! select: the switch's 60 boxes are the same in Firefox 155 and in WebKit
-//! 26.6's own switch. A select's widths follow its option's text, so its
-//! intrinsic pair is the platform's font's (macOS here). The date, time and
-//! datetime-local rows were recorded again on 2026-10-11, from the same Chrome
-//! on macOS, when the page gave them the field look: a border box 36 px tall,
-//! as a select is.
+//! The switch and select rows were recorded again on 2026-10-10 (LLP 1116
+//! D1), from Chrome 154.0.8037.98 (macOS), when the page began drawing its
+//! own switch and select: the switch's 60 boxes are the same in Firefox 155
+//! and in WebKit 26.6's own switch. A select's widths follow its option's
+//! text, so its intrinsic pair is the platform's font's (macOS here). The
+//! date, time and datetime-local rows were recorded again on 2026-10-11
+//! (LLP 1116.001 D1), from the same Chrome on macOS, when the page gave them
+//! the field look: a border box 36 px tall, as a select is.
 //!
 //! The range and the determinate progress at `width: 100%`, which lowering
-//! writes for both, and the progress at `width: auto`
+//! writes for both (LLP 1115.000 D10.2), and the progress at `width: auto`
 //! and `height: auto`, were recorded on 2026-10-11 from Chrome 154.0.8037.98
 //! (macOS, headless), with the sheet's `contain-intrinsic-size` on the
 //! progress.
@@ -323,7 +323,7 @@ fn controls_without_a_host_intrinsic_use_chromes_bare_defaults() {
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
 
-/// A range is lowered `width: 100%`, and with that row
+/// LLP 1115.000 D10.2: a range is lowered `width: 100%`, and with that row
 /// it is as wide as what holds it in every placement, as Chrome's is; a
 /// variant's own `width` replaces the row. Its height is the control's.
 #[test]
@@ -411,7 +411,7 @@ fn progress_failures(implied: &str, expected: &[[(f32, f32); 10]; 6]) -> Vec<Str
     failures
 }
 
-/// A determinate `progress` is lowered `width: 100%`,
+/// LLP 1115.000 D10.2: a determinate `progress` is lowered `width: 100%`,
 /// and with that row it is as wide as what holds it in every placement, as
 /// Chrome's `<progress>` is, `1em` tall in its border box (the UA sheet's
 /// height); a variant's own `width` replaces the row, and a host's own size
@@ -437,7 +437,7 @@ fn a_determinate_progress_falls_back_to_10em_by_1em() {
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
 
-/// With no width row at all (no plan has none: lowering writes
+/// LLP 1116 D8: with no width row at all (no plan has none: lowering writes
 /// one) a determinate `progress` is HTML's UA box in every placement. The
 /// UA sheet's `width: 10em; height: 1em; box-sizing: border-box` are
 /// specified sizes, so a flex column or a grid keeps them where it
@@ -672,6 +672,7 @@ impl TextMeasurer for ChromeFieldMeasurer {
         TextMetrics {
             width,
             height,
+            pending: false,
             first_baseline: Some(height * 0.8),
         }
     }
@@ -987,7 +988,7 @@ fn the_block_sizing_marker_follows_a_pressables_href_from_its_initial_props() {
 // CDP, createElement/append (no parsed text between controls). The font is the
 // web reset's 16px system-ui. Button: 40x18 child, the reset's display:block
 // (re-recorded 2026-10-04; equal to the earlier flex-column recording).
-// Intrinsic sizing is host-owned; the field measurer supplies
+// Intrinsic sizing is host-owned (LLP 1069.001 D3); the field measurer supplies
 // Chrome's measured default size=20/cols=20/rows=2 for this box-layout test.
 // password/email/url/tel/search were recorded separately and equal TEXT.
 #[rustfmt::skip]
@@ -1053,7 +1054,7 @@ const DATETIME_LOCAL: [[(f32, f32); 10]; 6] = [
     [(247.0, 36.0), (300.0, 36.0), (247.0, 36.0), (247.0, 123.5), (300.0, 56.0), (247.0, 40.0), (247.0, 40.0), (247.0, 10.0), (247.0, 36.0), (247.0, 36.0)],
     [(400.0, 36.0), (300.0, 36.0), (300.0, 36.0), (400.0, 200.0), (300.0, 56.0), (400.0, 40.0), (400.0, 40.0), (400.0, 10.0), (400.0, 36.0), (300.0, 36.0)],
 ];
-// A range at `width: 100%`, variant by variant: the
+// A range at `width: 100%` (LLP 1115.000 D10.2), variant by variant: the
 // same in every context, since a percentage resolves against the 400 px
 // parent whatever lays the range out.
 #[rustfmt::skip]
@@ -1081,7 +1082,7 @@ const PROGRESS_AUTO: [[(f32, f32); 10]; 6] = [
     [(400.0, 16.0), (300.0, 16.0), (300.0, 20.0), (32.0, 16.0), (300.0, 20.0), (400.0, 40.0), (400.0, 40.0), (400.0, 10.0), (400.0, 16.0), (300.0, 16.0)],
 ];
 // `<progress value=0.5>` (no `max`) with no width row, recorded the same
-// way from Chrome 154.0 (macOS, headless) on 2026-10-10: every
+// way from Chrome 154.0 (macOS, headless) on 2026-10-10 (LLP 1116 D8): every
 // context the same, as its UA width and height are specified, not intrinsic.
 #[rustfmt::skip]
 const PROGRESS: [[(f32, f32); 10]; 6] = [

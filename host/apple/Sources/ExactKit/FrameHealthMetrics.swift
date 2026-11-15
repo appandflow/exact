@@ -7,7 +7,7 @@ enum FrameHealthMetrics {
     static let format = "exact.frame-health.metrics/2"
     static let histogramVersion = "frame-health-bins/2"
 
-    /// A histogram layout: 0.5 ms bins below `linear`, doubling tails above,
+    /// A histogram layout (LLP 1079.000 §5.3): 0.5 ms bins below `linear`, doubling tails above,
     /// and an open last bin.
     enum Layout {
         case duration(linearNs: UInt64, count: Int), refreshes
@@ -133,6 +133,14 @@ enum FrameHealthMetrics {
         return result
     }
 
+    /// The bounds of a population's median, p99 and maximum, or null where it is empty or its bins do not hold all
+    /// `count` of it.
+    static func bounds(_ bins: [UInt32], count: UInt64, overflows: UInt64, layout: Layout = .frames) -> Any {
+        guard count > 0, overflows == 0, bins.reduce(UInt64(0), { $0 + UInt64($1) }) == count else { return NSNull() }
+        return ["median": quantile(bins, fraction: 0.5, layout: layout), "p99": quantile(bins, fraction: 0.99, layout: layout),
+            "maximum": quantile(bins, fraction: 1, layout: layout)]
+    }
+
     /// The bounds of the bin holding `fraction` of the values, by nearest rank, or null without values.
     static func quantile(_ bins: [UInt32], fraction: Double, layout: Layout = .frames) -> Any {
         guard let index = bin(bins, fraction: fraction) else { return NSNull() }
@@ -169,7 +177,7 @@ enum FrameHealthMetrics {
 }
 
 /// Readers that keep history in the process: the cards. At most four keep it at once, which holds
-/// them, with the collectors, within the readers' storage budget.
+/// them, with the collectors, within LLP 1079.000 §5.2's storage budget.
 enum FrameHealthReaders {
     private static var open = 0
     static let full = "Four other frame health readers are open; close one to read here"

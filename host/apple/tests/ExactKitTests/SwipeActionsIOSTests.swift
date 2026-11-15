@@ -3,7 +3,7 @@ import UIKit
 import XCTest
 @testable import ExactKit
 
-/// A native swipe row costs no table and no scroll view at rest:
+/// A native swipe row (LLP 1008 §9) costs no table and no scroll view at rest:
 /// batches leave its content in the owner, clipped, where the authored scroll
 /// would hold it at its start; a touch landing on it projects the content into
 /// a clear UIKit cell that follows the row's height, and the projection goes
@@ -140,7 +140,7 @@ final class SwipeActionsIOSTests: XCTestCase {
         XCTAssertTrue(p.swipeActions.refusal(of: owner)?.contains("\"delete\" names no one descendant of it") == true, p.swipeActions.refusal(of: owner) ?? "none")
     }
 
-    /// A name resolves within its row: a `for` that
+    /// A name resolves within its row (LLP 1116.020 D1): a `for` that
     /// repeats `id="body"` and `id="delete"`, as `delete=`'s expansion does,
     /// gives every row its own swipe, not a refusal.
     func testRowsThatRepeatTheirNamesEachSwipe() throws {
@@ -288,7 +288,7 @@ final class SwipeActionsIOSTests: XCTestCase {
 
     /// A projected row mounted again with no batch's `prepare` first (as
     /// VoiceOver starting mounts every row) carries its content into its
-    /// cell, not its table, so a tap makes no layer cycle.
+    /// cell, not its table: r28's tasks crashed on a tap with a layer cycle.
     func testAProjectedRowMountedAgainKeepsItsTableOutOfItsCell() throws {
         let p = fixture()
         let owner = try XCTUnwrap(p.views[1]), row = try XCTUnwrap(p.views[2])

@@ -1,10 +1,11 @@
-// The parity page for `background-image` gradients, the browser the oracle.
-// Eighteen 100×70 boxes on a 125×95 grid, no text: linear by the default
+// LLP 1066's parity page: `background-image` gradients, the browser the oracle.
+// Eighteen 100×70 boxes on a 125×95 grid and two 100×50 below them, no text: linear by the default
 // direction, an angle and a magic corner; `transparent` into a colour over
 // the page and over a background colour (CSS mixes premultiplied); a hard
 // stop under a clip-path; radial ellipse, circle and corner extents; a
 // rounded box, a bordered one (the gradient box is the padding box), and
-// `light-dark()` stops; and two-, three- and four-stop zero periods. `dark`
+// `light-dark()` stops; two-, three- and four-stop zero periods; and
+// explicit radii, an ellipse's in percentages and a circle's in px. `dark`
 // switches the scheme. Chrome's pictures (the CSS declarations at 1×) are
 // gradients.web.png in light and gradients.web-dark.png in dark; Linux's
 // raster test and the Apple XCTests hold their own
@@ -34,4 +35,6 @@ component Gradients
       box testId="zero-two" position="absolute" left=20 top=495 width=100 height=70 background-image="repeating-linear-gradient(to right, red 0px, blue 0px)"
       box testId="zero-three" position="absolute" left=145 top=495 width=100 height=70 background-image="repeating-linear-gradient(to right, red 0px, lime 0px, blue 0px)"
       box testId="zero-four" position="absolute" left=270 top=495 width=100 height=70 background-image="repeating-linear-gradient(to right, red 0px, lime 0px, blue 0px, white 0px)"
+      box testId="radii" position="absolute" left=145 top=590 width=100 height=50 background-image="radial-gradient(120% 90% at 8% 0%, #e53935, #fdd835 58%, transparent)"
+      box testId="radius" position="absolute" left=270 top=590 width=100 height=50 background-image="radial-gradient(30px circle at 70px 30px, #43a047, #1e88e5 80%, light-dark(#fdd835, #e53935))"
       button testId="dark" press=scheme aria-label="Scheme" position="absolute" left=20 top=595 width=40 height=40 background-color="#757575"

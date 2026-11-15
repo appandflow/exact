@@ -1,4 +1,4 @@
-# The LLP reader in a terminal: the terminal host over the
+# The LLP reader in a terminal (LLP 1101): the terminal host over the
 # reader's own data module, full screen.
 [package]
 name = "llp-terminal"

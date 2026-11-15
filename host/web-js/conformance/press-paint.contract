@@ -1,5 +1,5 @@
 // data: svg-gallery
-// Synthetic conformance plan: the pressed paint. While a finger
+// Synthetic conformance plan: the pressed paint (LLP 1061 D7). While a finger
 // holds a node, the web host's input piece shows its -exact-press-opacity, its
 // active background-color and color (which its text
 // inherits, as `color` is, unless a text writes its own), with a press

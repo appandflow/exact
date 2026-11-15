@@ -1,9 +1,10 @@
 //! The tag and attribute table: Contract's view vocabulary onto the kernel's.
 //!
-//! Kernel ordinals come from `exact-kernel`, never redeclared. Names stay
-//! CSS: every row here is a CSS property or an HTML attribute by its
-//! CSS/HTML name, the literal CSS names, hyphens as grammar, no aliases
-//! (`testId` and explicitly declared host-policy props aside).
+//! @ref LLP 1004 D2 (kernel ordinals from `exact-kernel`, never redeclared)
+//! @ref LLP 1115 §2 (names stay CSS: every row here is a
+//! CSS property or an HTML attribute by its CSS/HTML name)
+//! @ref LLP 1017 §8.1 (the literal CSS names, hyphens as grammar, no aliases;
+//! `testId` and explicitly declared host-policy props aside)
 //!
 //! A tag names a kernel node type plus fixed rows (`column` is a `View` with
 //! `flex-direction: column`); an attribute names one or more kernel style rows
@@ -28,10 +29,10 @@ pub enum AttrTarget {
     Flex,
     /// CSS border and text-decoration shorthands.
     Shorthand,
-    /// A canvas's surface binding: `surface=name(args)`.
+    /// A canvas's surface binding: `surface=name(args)` (LLP 1009 D3).
     Surface,
     /// `metadata=MediaMetadata(…)` on `audio` or `video`: four string props,
-    /// one a field.
+    /// one a field (LLP 1098 D1).
     MediaMetadata,
 }
 /// A tag's node type, its fixed rows, and how positional arguments land.
@@ -81,7 +82,8 @@ pub fn tag(name: &str) -> Option<Tag> {
             &[(StyleId::PositionType, "absolute")],
             &[(PropId::SemanticTag, "dialog")],
         ),
-        // HTML's separator, one hairline; void.
+        // @ref LLP 1021 D1 — HTML's separator, one hairline (LLP 1115.000
+        // D10.3); void.
         "hr" => view(crate::menus::HR, &[(PropId::SemanticTag, "hr")]),
         "main" => view(&[], &[(PropId::SemanticTag, "main")]),
         "header" => view(&[], &[(PropId::SemanticTag, "header")]),
@@ -114,11 +116,12 @@ pub fn tag(name: &str) -> Option<Tag> {
             fixed_props: &[],
             positional: Some(PropId::Text),
         },
-        // Chrome's `<button>`: a block whose
+        // Chrome's `<button>` (Charlie, 2026-10-04, reversing 2026-09-23's
+        // "One native button, flex column"; LLP 1001 §1): a block whose
         // content the kernel centres as HTML's anonymous button box does,
         // with the UA sheet's `text-align: center`. An authored `display`
         // makes it a flex or grid container, as in Chrome.
-        // Lowering chooses native or bare from the
+        // @ref LLP 1104 D1, D2 — lowering chooses native or bare from the
         // author's rows and face; the tag has no fixed appearance.
         "button" => Tag {
             node_type: NodeType::Pressable,
@@ -155,7 +158,7 @@ pub fn tag(name: &str) -> Option<Tag> {
             fixed_props: &[],
             positional: None,
         },
-        // A bare <iframe> is a 300×150 replaced element:
+        // @ref LLP 1020 D1 — a bare <iframe> is a 300×150 replaced element:
         // the default object size, which the kernel gives it.
         "iframe" => Tag {
             node_type: NodeType::WebView,
@@ -176,7 +179,7 @@ pub fn tag(name: &str) -> Option<Tag> {
             fixed_props: &[],
             positional: Some(PropId::ImageSource),
         },
-        // Inline SVG: a 300×150 replaced box that
+        // @ref LLP 1055 D1/D3 — inline SVG: a 300×150 replaced box that
         // clips, as the UA's `svg:not(:root) { overflow: hidden }` does.
         "svg" => Tag {
             node_type: NodeType::Svg,
@@ -187,7 +190,7 @@ pub fn tag(name: &str) -> Option<Tag> {
             fixed_props: &[],
             positional: None,
         },
-        // Definitions and references; a `symbol`
+        // @ref LLP 1055.000 D7/D8 — definitions and references; a `symbol`
         // clips, as the UA's `symbol { overflow: hidden }` does.
         "symbol" => Tag {
             node_type: NodeType::SvgSymbol,
@@ -198,7 +201,7 @@ pub fn tag(name: &str) -> Option<Tag> {
             fixed_props: &[],
             positional: None,
         },
-        // A marker clips to its viewport, as the UA's
+        // @ref LLP 1055.000 D9 — a marker clips to its viewport, as the UA's
         // `marker { overflow: hidden }` does.
         "marker" => Tag {
             node_type: NodeType::SvgMarker,
@@ -209,7 +212,7 @@ pub fn tag(name: &str) -> Option<Tag> {
             fixed_props: &[],
             positional: None,
         },
-        // A mask and a pattern render only where
+        // @ref LLP 1055.000 D7/D10 — a mask and a pattern render only where
         // they are referenced; a pattern's tile clips its content, which the hosts do (no row says so).
         "mask" => Tag {
             node_type: NodeType::SvgMask,
@@ -223,7 +226,7 @@ pub fn tag(name: &str) -> Option<Tag> {
             fixed_props: &[],
             positional: None,
         },
-        // HTML inside an `svg`: its
+        // @ref LLP 1055.000 D13, §8 ruling 5 — HTML inside an `svg`: its
         // children are boxes. The web draws it; native hosts refuse it by
         // name at run time (one plan serves every host).
         "foreignObject" => Tag {
@@ -232,7 +235,7 @@ pub fn tag(name: &str) -> Option<Tag> {
             fixed_props: &[],
             positional: None,
         },
-        // A filter and its primitives; a primitive's
+        // @ref LLP 1055.000 D14 — a filter and its primitives; a primitive's
         // tag is its `fe` prop.
         "filter" => Tag {
             node_type: NodeType::SvgFilter,
@@ -264,7 +267,7 @@ pub fn tag(name: &str) -> Option<Tag> {
         "feDistantLight" => fe(&[(PropId::Fe, "feDistantLight")]),
         "fePointLight" => fe(&[(PropId::Fe, "fePointLight")]),
         "feSpotLight" => fe(&[(PropId::Fe, "feSpotLight")]),
-        // A run of SVG text, its string positional.
+        // @ref LLP 1055.000 D11 — a run of SVG text, its string positional.
         "tspan" => Tag {
             node_type: NodeType::SvgTSpan,
             fixed_styles: &[],
@@ -299,22 +302,25 @@ pub fn tag(name: &str) -> Option<Tag> {
             fixed_props: &[],
             positional: None,
         },
-        // HTML's `select`: the platform's pop-up
+        // @ref LLP 1069.001 D1, D2 — HTML's `select`: the platform's pop-up
         // control, its options its children. ARIA's role for a one-line
-        // select is `combobox`.
+        // select is `combobox`. @ref LLP 1115.000 D10.4 — no wider than what
+        // holds it: the web sizes a select to its longest option, which can
+        // outgrow a phone, where a pop-up button never runs past its
+        // container. Implied, so an authored `max-width` replaces it.
         "select" => Tag {
             node_type: NodeType::Control,
-            fixed_styles: &[],
+            fixed_styles: crate::controls::CONTAINED,
             fixed_props: &[
                 (PropId::Type, "select"),
                 (PropId::AccessibilityRole, "combobox"),
             ],
             positional: None,
         },
-        // HTML's `progress` with no
+        // @ref LLP 1069.001 (amended 2026-10-07) — HTML's `progress` with no
         // `value`, indeterminate: the platform's activity indicator, a
         // measured leaf (20 × 20 until sized); the lowering adds `aria-busy`.
-        // With a `value` (and `max`, strings as a
+        // @ref LLP 1116 D8 — with a `value` (and `max`, strings as a
         // range's), the determinate bar, sized by HTML's UA sheet. ARIA's
         // role is `progressbar` either way.
         "progress" => Tag {
@@ -334,14 +340,14 @@ pub fn tag(name: &str) -> Option<Tag> {
             fixed_props: &[(PropId::SemanticTag, "option")],
             positional: Some(PropId::Text),
         },
-        // The document's metadata: no space, no children.
+        // @ref LLP 1048.003 D1 — the document's metadata: no space, no children.
         "head" => Tag {
             node_type: NodeType::Head,
             fixed_styles: &[],
             fixed_props: &[],
             positional: None,
         },
-        // HTML's table and description list (`tables.rs`).
+        // @ref LLP 1153 D7 — HTML's table and description list (`tables.rs`).
         "table" | "caption" | "thead" | "tbody" | "tfoot" | "tr" | "th" | "td" | "dl" | "dt"
         | "dd" => crate::tables::tag(name),
         _ => return None,
@@ -370,7 +376,7 @@ pub fn prop_ty(prop: PropId) -> PropTy {
 }
 /// Whether an attribute sets style rows.
 pub fn style(name: &str) -> bool {
-    // A state part's row (`:disabled opacity`) is the row it is.
+    // A state part's row (`:disabled opacity`, LLP 1121 D8) is the row it is.
     let name = contract_syntax::state::state_of(name).map_or(name, |(_, row)| row);
     matches!(
         attr(name),
@@ -380,7 +386,7 @@ pub fn style(name: &str) -> bool {
 /// Look up an attribute as written, routed by its value where one name is
 /// two things: `resize` is CSS's property for a string, and given an action
 /// (an `Ident` or a `Call`, never valid CSS there) the element resize event,
-/// ResizeObserver's (routed by the value's form).
+/// ResizeObserver's (x2apps backlog: decided, route by value).
 pub fn attr_valued(name: &str, value: &contract_syntax::Expr) -> Option<AttrTarget> {
     use contract_syntax::Expr;
     if name == "resize" && matches!(value, Expr::Ident(..) | Expr::Call(..)) {
@@ -420,7 +426,7 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "format" => AttrTarget::Prop(PropId::TimeFormat),
         "start" => AttrTarget::Prop(PropId::Start),
         "end" => AttrTarget::Prop(PropId::End),
-        // handlers (the web's events)
+        // handlers (the web's events, LLP 1005 §3)
         "loadedmetadata" => AttrTarget::Handler("loadedmetadata"),
         "durationchange" => AttrTarget::Handler("durationchange"),
         "timeupdate" => AttrTarget::Handler("timeupdate"),
@@ -438,22 +444,22 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         // platform's own controls); the payload says which.
         "fullscreenchange" => AttrTarget::Handler("fullscreenchange"),
         // An `image` floated or stopped floating in picture in picture
-        // (`requestPictureInPicture`).
+        // (`requestPictureInPicture`, LLP 1042 §9).
         "enterpictureinpicture" => AttrTarget::Handler("enterpictureinpicture"),
         "leavepictureinpicture" => AttrTarget::Handler("leavepictureinpicture"),
         // The request failed: HTML's rejected promise, as an event with its reason.
         "pictureinpictureerror" => AttrTarget::Handler("pictureinpictureerror"),
         "canplay" => AttrTarget::Handler("canplay"),
-        // The media session: `metadata=` claims it,
+        // @ref LLP 1098 D1, D2 — the media session: `metadata=` claims it,
         // the six actions by `setActionHandler`'s names, and the seconds a
         // seek moves when the platform gives none.
         "metadata" => AttrTarget::MediaMetadata,
         "decorations" => AttrTarget::Prop(PropId::Decorations),
-        // A Markdown node's atom kinds and faces (the
+        // LLP 1045.000 D3: a Markdown node's atom kinds and faces (the
         // lowerer's `bind_atoms` and `bind_atom_faces` read them first).
         "atoms" => AttrTarget::Prop(PropId::Atoms),
         "atomFaces" => AttrTarget::Prop(PropId::AtomFaces),
-        // A Markdown editor's base direction per line.
+        // LLP 1045 D11: a Markdown editor's base direction per line.
         "paragraphDirs" => AttrTarget::Prop(PropId::ParagraphDirs),
         "alertPart" => AttrTarget::Prop(PropId::AlertPart),
         "defaultSurface" => AttrTarget::Prop(PropId::DefaultSurface),
@@ -466,18 +472,18 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "seekbackwardOffset" => AttrTarget::Prop(p("seekbackwardOffset")),
         "seekforwardOffset" => AttrTarget::Prop(p("seekforwardOffset")),
         "press" => AttrTarget::Handler("press"),
-        // HTML's two: `input` as the value moves (a
+        // @ref LLP 1069.001 D4 — HTML's two: `input` as the value moves (a
         // text field's every keystroke), `change` when it is committed.
         "change" => AttrTarget::Handler("change"),
         "input" => AttrTarget::Handler("input"),
         "checked" => AttrTarget::Prop(p("checked")),
-        // HTML's radio button group.
+        // HTML's radio button group (x2apps survey #2).
         "name" => AttrTarget::Prop(p("name")),
-        // A file input's types and count, and
+        // @ref LLP 1069.002 D1, D2 — a file input's types and count, and
         // HTML's `cancel` when its picker is dismissed.
         "accept" => AttrTarget::Prop(p("accept")),
         "multiple" => AttrTarget::Prop(p("multiple")),
-        // A range's and a date's bounds, HTML's.
+        // @ref LLP 1069.001 D1 — a range's and a date's bounds, HTML's.
         "min" => AttrTarget::Prop(p("min")),
         "max" => AttrTarget::Prop(p("max")),
         "step" => AttrTarget::Prop(p("step")),
@@ -494,30 +500,30 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "focusout" => AttrTarget::Handler("focusout"),
         "key" => AttrTarget::Handler("key"),
         "keycapture" => AttrTarget::Handler("keycapture"),
-        // DOM's `keyup`: a key's release, bubbling as `key` does.
+        // DOM's `keyup`: a key's release, bubbling as `key` does (#140).
         "keyup" => AttrTarget::Handler("keyup"),
         "submit" => AttrTarget::Handler("submit"),
         "load" => AttrTarget::Handler("load"),
         "message" => AttrTarget::Handler("message"),
         "contextmenu" => AttrTarget::Handler("contextmenu"),
         "dblclick" => AttrTarget::Handler("dblclick"),
-        "pointerdown" => AttrTarget::Handler("pointerdown"), // DOM's own
+        "pointerdown" => AttrTarget::Handler("pointerdown"), // LLP 1005 §Events, DOM's own
         "pointerup" => AttrTarget::Handler("pointerup"),
-        "pointermove" => AttrTarget::Handler("pointermove"),
-        // DOM's `beforeunload`: the window is closing or
+        "pointermove" => AttrTarget::Handler("pointermove"), // LLP 1056 §3 stage 3
+        // DOM's `beforeunload` (studio diary R17): the window is closing or
         // the app quitting; an action that calls `preventDefault()` keeps it.
         "beforeunload" => AttrTarget::Handler("beforeunload"),
-        // `MIDIInput`'s event: every mounted element that
+        // @ref LLP 1125 D8 — `MIDIInput`'s event: every mounted element that
         // declares it hears each message from an input its `midiinputs` lists.
         "midimessage" => AttrTarget::Handler("midimessage"),
         "midiinputs" => AttrTarget::Prop(p("midiInputs")),
-        // DOM's `wheel`, `drop` of files, and the
+        // DOM's `wheel` (studio diary R3), `drop` of files (R19), and the
         // `dragenter` and `dragleave` of a file drag over the node.
         "wheel" => AttrTarget::Handler("wheel"),
         "drop" => AttrTarget::Handler("drop"),
         "dragenter" => AttrTarget::Handler("dragenter"),
         "dragleave" => AttrTarget::Handler("dragleave"),
-        // A press on an inline atom.
+        // A press on an inline atom (LLP 1045.000 D7).
         "atompress" => AttrTarget::Handler("atompress"),
         "copy" => AttrTarget::Handler("copy"),
         "cut" => AttrTarget::Handler("cut"),
@@ -529,25 +535,28 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "intersect-margin" => AttrTarget::Prop(p("intersectMargin")),
         "reachend" => AttrTarget::Handler("reachend"),
         "swiperight" => AttrTarget::Handler("swiperight"),
+        "swipeleft" => AttrTarget::Handler("swipeleft"),
         "refresh" => AttrTarget::Handler("refresh"),
         "scroll" => AttrTarget::Handler("scroll"),
         "scrollend" => AttrTarget::Handler("scrollend"),
+        "scrolldragstart" => AttrTarget::Handler("scrolldragstart"),
+        "scrolldragend" => AttrTarget::Handler("scrolldragend"),
         "pan" => AttrTarget::Handler("pan"),
         "panrelease" => AttrTarget::Handler("panrelease"),
         "navigate" => AttrTarget::Handler("navigate"),
-        // the history swipe the host tracks.
+        // @ref LLP 1115.000 D5.5 — the history swipe the host tracks.
         "historyswipe" => AttrTarget::Handler("historyswipe"),
-        // an iframe's guest, by the Navigation API's
+        // @ref LLP 1020.002 D2 — an iframe's guest, by the Navigation API's
         // event names (an iframe's `navigate=` is its guest's too).
         "currententrychange" => AttrTarget::Handler("currententrychange"),
         "navigatesuccess" => AttrTarget::Handler("navigatesuccess"),
         "navigateerror" => AttrTarget::Handler("navigateerror"),
-        // A guest's window request and its downloads.
+        // @ref LLP 1020.002 D5 — a guest's window request and its downloads.
         "newwindow" => AttrTarget::Handler("newwindow"),
         "download" => AttrTarget::Handler("download"),
-        // The answer to a frame's `captureScreenshot`.
+        // @ref LLP 1020.002 D7 — the answer to a frame's `captureScreenshot`.
         "capture" => AttrTarget::Handler("capture"),
-        // An agent-controlled frame's dialog.
+        // @ref LLP 1020.002 D9 — an agent-controlled frame's dialog.
         "userpromptopened" => AttrTarget::Handler("userpromptopened"),
         "heightrelease" => AttrTarget::Handler("heightrelease"),
         "transformgeometry" => AttrTarget::Handler("transformgeometry"),
@@ -557,7 +566,7 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "reorderGroup" => AttrTarget::Prop(p("reorderGroup")),
         "transformDragFor" => AttrTarget::Prop(p("transformDragFor")),
         "heightDragFor" => AttrTarget::Prop(p("heightDragFor")),
-        "surface" => AttrTarget::Surface, // the canvas's surface
+        "surface" => AttrTarget::Surface, // the canvas's surface (LLP 1009 D3)
         // props (HTML and ARIA attribute names; `testId` is Exact's)
         "poster" => AttrTarget::Prop(p("poster")),
         "autoplay" => AttrTarget::Prop(p("autoplay")),
@@ -597,7 +606,7 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "preventsDisplaySleepDuringVideoPlayback" => {
             AttrTarget::Prop(p("preventsDisplaySleepDuringVideoPlayback"))
         }
-        // `head`'s fields; they belong to `head` alone.
+        // `head`'s fields (LLP 1048.003 D1); they belong to `head` alone.
         "title" => AttrTarget::Prop(p("headTitle")),
         "description" => AttrTarget::Prop(p("headDescription")),
         "image" => AttrTarget::Prop(p("headImage")),
@@ -605,7 +614,7 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "robots" => AttrTarget::Prop(p("headRobots")),
         "status" => AttrTarget::Prop(p("headStatus")),
         "edited" => AttrTarget::Prop(p("headEdited")),
-        // `scroll document=(expr)`: the page's scroller when it holds; bare is `=true`.
+        // `scroll document=(expr)`: the page's scroller when it holds (LLP 1048.003 D4); bare is `=true`.
         "document" => AttrTarget::Prop(p("scrollDocument")),
         "virtualized" => AttrTarget::Prop(p("virtualized")),
         "testId" => AttrTarget::Prop(p("testId")),
@@ -616,28 +625,33 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "navigationDetent" => AttrTarget::Prop(p("navigationDetent")),
         "navigationInitialDetent" => AttrTarget::Prop(p("navigationInitialDetent")),
         "navigationGrabber" => AttrTarget::Prop(p("navigationGrabber")),
-        // The Screen Wake Lock API's one type, on any element.
+        // @ref LLP 1125 D11 — the Screen Wake Lock API's one type, on any element.
         "wakelock" => AttrTarget::Prop(p("wakelock")),
-        // The Screen Orientation API's lock types, on any element.
+        // @ref LLP 1133.029 D1 — the Screen Orientation API's lock types, on any element.
         "orientationlock" => AttrTarget::Prop(p("orientationlock")),
-        // A route's say over the platform's bar:
+        // @ref LLP 1115.000 D5.2 — a route's say over the platform's bar:
         // `none` for a full-bleed screen.
         "navigationBar" => AttrTarget::Prop(p("navigationBar")),
         "navigationSource" | "sharedElement" => AttrTarget::Prop(p(name)),
-        // The route's content scroll view, by HTML id.
+        // @ref LLP 1075.003 §3.5 — the route's content scroll view, by HTML id.
         "navigationScroll" => AttrTarget::Prop(p("navigationScroll")),
-        // A wide window's split: "none", or the list column's width.
+        // @ref LLP 1116.004 D1.2 — a wide window's split: "none", or the list column's width.
         "navigationSplit" => AttrTarget::Prop(p("navigationSplit")),
-        // The node the app's native code receives.
+        // @ref LLP 1075.003.000 — the node the app's native code receives.
         "hatch" => AttrTarget::Prop(p("hatch")),
         "closedby" => AttrTarget::Prop(p("closedby")),
         "contextTarget" => AttrTarget::Prop(p("contextTarget")),
         "contextMagnify" => AttrTarget::Prop(p("contextMagnify")),
-        // The popover a node's context menu shows, and its preview row.
+        // @ref LLP 1021 §5.1 — the popover a node's context menu shows, and its preview row.
         "contextPopover" | "contextPreview" => AttrTarget::Prop(p(name)),
+        // @ref LLP 1035.006.000 D1, D2 — a tip over the element, and whether its lesson is done.
+        "tip" | "tipMessage" | "tipImage" | "tipDone" => AttrTarget::Prop(p(name)),
         "emojiPicker" => AttrTarget::Prop(p("emojiPicker")),
         "backgroundMaterial" => AttrTarget::Prop(p("backgroundMaterial")),
         "glassGroup" => AttrTarget::Prop(p("glassGroup")),
+        "glassInteractive" => AttrTarget::Prop(p("glassInteractive")),
+        // The order a trigger's menu shows its rows in (LLP 1115 §2).
+        "menuOrder" => AttrTarget::Prop(p("menuOrder")),
         "buttonStyle" => AttrTarget::Prop(p("buttonStyle")),
         "listStyle" => AttrTarget::Prop(p("listStyle")),
         "toolbarPlacement" => AttrTarget::Prop(p("toolbarPlacement")),
@@ -659,7 +673,7 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "aria-level" => AttrTarget::Prop(p("accessibilityHeadingLevel")),
         "role" => AttrTarget::Prop(p("accessibilityRole")),
         // `markup="markdown"` on a `text` or `textarea`: the host styles the
-        // node's own string. Not CSS; there is none for this.
+        // node's own string (LLP 1045 D3). Not CSS; there is none for this.
         "markup" => AttrTarget::Prop(p("markup")),
         "placeholder" => AttrTarget::Prop(p("placeholder")),
         "type" => AttrTarget::Prop(p("type")),
@@ -668,46 +682,48 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "inputmode" => AttrTarget::Prop(p("inputMode")),
         "enterkeyhint" => AttrTarget::Prop(p("enterKeyHint")),
         "autocomplete" => AttrTarget::Prop(p("autocomplete")),
-        // An image's accessible name by HTML's spelling.
+        // An image's accessible name by HTML's spelling (feed F1).
         "alt" => AttrTarget::Prop(p("accessibilityLabel")),
         "autocapitalize" => AttrTarget::Prop(p("autocapitalize")),
         "autocorrect" => AttrTarget::Prop(p("autocorrect")),
         "spellcheck" => AttrTarget::Prop(p("spellcheck")),
-        // The viewport meta's `viewport-fit=cover`, read from the first root:
-        // the layout viewport becomes the whole screen and
+        // The viewport meta's `viewport-fit=cover`, read from the first root
+        // (LLP 1008 §9): the layout viewport becomes the whole screen and
         // `env(safe-area-inset-*)` lengths carry the insets.
         "viewport-fit" => AttrTarget::Prop(p("viewportFit")),
-        // The status bar's text over this node's screen, from state.
+        // The status bar's text over this node's screen, from state (LLP 1105).
         "status-bar-style" => AttrTarget::Prop(p("statusBarStyle")),
         "status-bar-animation" => AttrTarget::Prop(p("statusBarAnimation")),
-        // The viewport meta's `interactive-widget`, read from the first root:
-        // `resizes-content` shrinks the layout viewport to a
+        // The status bar and the home indicator give way to this node's screen.
+        "system-bars-hidden" => AttrTarget::Prop(p("systemBarsHidden")),
+        // The viewport meta's `interactive-widget`, read from the first root
+        // (LLP 1008 §9): `resizes-content` shrinks the layout viewport to a
         // software keyboard's top, so what is pinned to the bottom rises with
-        // it, iOS's default; `resizes-visual`, the web's
+        // it, iOS's default (LLP 1116 D2); `resizes-visual`, the web's
         // default and iOS's opt-out, insets the viewport instead.
         "interactive-widget" => AttrTarget::Prop(p("interactiveWidget")),
         "value" => AttrTarget::Prop(p("value")),
         "estimated-item-height" => AttrTarget::Prop(p("estimatedItemHeight")),
-        // The row-axis twin: a virtualized row list's estimate.
+        // The row-axis twin (LLP 1070 H2): a virtualized row list's estimate.
         "estimated-item-width" => AttrTarget::Prop(p("estimatedItemWidth")),
         // How many rows a virtualized list builds before its first layout
-        // report — a served page's and the first window's.
+        // report — a served page's and the first window's (LLP 1010 §6.5).
         "initial-item-count" => AttrTarget::Prop(p("initialItemCount")),
-        // History's `scrollRestoration` values: whether a
+        // History's `scrollRestoration` values (LLP 1070 §4.2): whether a
         // nested list keeps its position across its row's retirement.
         "scroll-restoration" => AttrTarget::Prop(p("scrollRestoration")),
         // Where a virtualized list opens: at its start, or at its end (a
         // transcript), CSS Scroll Snap 2's container-level `scroll-start`.
         "scroll-start" => AttrTarget::Prop(p("scrollStart")),
-        // How far ahead a virtualized list's edges fire.
+        // @ref LLP 1145 D4 — how far ahead a virtualized list's edges fire.
         "reach-margin" => AttrTarget::Prop(p("reachMargin")),
-        // The rows a virtualized list keeps mounted.
+        // @ref LLP 1010 §6.11 — the rows a virtualized list keeps mounted.
         "keep-mounted" => AttrTarget::Prop(p("keepMounted")),
-        // A canvas's explicit bitmap size, HTML's
+        // @ref LLP 1056 D6 (r3): a canvas's explicit bitmap size, HTML's
         // `width`/`height` content attributes (Contract's are the CSS box).
         "bitmap-width" => AttrTarget::Prop(p("bitmapWidth")),
         "bitmap-height" => AttrTarget::Prop(p("bitmapHeight")),
-        // GetContext's settings.
+        // LLP 1100 D12a: getContext's settings.
         "color-space" => AttrTarget::Prop(p("colorSpace")),
         "color-type" => AttrTarget::Prop(p("colorType")),
         "scrollTop" => AttrTarget::Prop(p("scrollTop")),
@@ -719,7 +735,7 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "scrollFollowEnd" => AttrTarget::Prop(p("scrollFollowEnd")),
         "refreshing" => AttrTarget::Prop(p("refreshing")),
         "keyboardDismissMode" => AttrTarget::Prop(p("keyboardDismissMode")),
-        // What a discrete symbol effect plays on.
+        // @ref LLP 1077 D12 — what a discrete symbol effect plays on.
         "symbolEffectValue" => AttrTarget::Prop(p("symbolEffectValue")),
         "href" | "target" => AttrTarget::Prop(p(name)),
         "disabled" => AttrTarget::Prop(p("disabled")),
@@ -728,7 +744,7 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "lang" => AttrTarget::Prop(p("lang")),
         "src" => AttrTarget::Prop(p("src")),
         "sandbox" => AttrTarget::Prop(p("sandbox")),
-        // A top-level guest's own storage, and
+        // @ref LLP 1020.002 D1, §9 — a top-level guest's own storage, and
         // `WKWebView`'s words under the platform's key (`frames.rs`).
         "partition" => AttrTarget::Prop(p("partition")),
         "apple.allowsBackForwardNavigationGestures" => {
@@ -736,11 +752,11 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         }
         "apple.allowsMagnification" => AttrTarget::Prop(p("appleAllowsMagnification")),
         "apple.inactiveSchedulingPolicy" => AttrTarget::Prop(p("appleInactiveSchedulingPolicy")),
-        // The Popover API, by its own names: a container with `popover` is
+        // The Popover API, by its own names (LLP 1021 D1): a container with `popover` is
         // hidden until its invoker — a `button` whose `popovertarget` names the container's
-        // `id` — toggles it; open state is the host's, never the plan's. `aria-checked`
+        // `id` — toggles it; open state is the host's, never the plan's (D2). `aria-checked`
         // is the ARIA state a menu row's dot would hand-draw; a native menu renders it as the
-        // platform's checkmark.
+        // platform's checkmark (D3).
         "id" => AttrTarget::Prop(p("id")),
         "popover" => AttrTarget::Prop(p("popover")),
         "popovertarget" => AttrTarget::Prop(p("popovertarget")),
@@ -748,38 +764,41 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "commandfor" => AttrTarget::Prop(p("commandfor")),
         "command" => AttrTarget::Prop(p("command")),
         "aria-checked" => AttrTarget::Prop(p("accessibilityChecked")),
-        // Vertical tablists retain authored layout.
+        // @ref LLP 1039 D6 — vertical tablists retain authored layout.
         "aria-orientation" => AttrTarget::Prop(p("accessibilityOrientation")),
-        "aria-controls" => AttrTarget::Prop(p("accessibilityControls")), // A tab names its tabpanel.
+        "aria-controls" => AttrTarget::Prop(p("accessibilityControls")), // LLP 1075.003 §3.7: a tab names its tabpanel.
+        // @ref LLP 1141.002 D1 — HTML's link types; on a root tab, `search` names the search tab.
+        "rel" => AttrTarget::Prop(p("rel")),
+        "aria-activedescendant" => AttrTarget::Prop(p("accessibilityActiveDescendant")),
         "aria-selected" => AttrTarget::Prop(p("accessibilitySelected")),
         "aria-expanded" => AttrTarget::Prop(p("accessibilityExpanded")),
         "aria-pressed" => AttrTarget::Prop(p("accessibilityPressed")),
         "aria-disabled" => AttrTarget::Prop(p("accessibilityDisabled")),
         "aria-modal" => AttrTarget::Prop(p("accessibilityModal")),
         "aria-hidden" => AttrTarget::Prop(p("accessibilityElementsHidden")),
-        "aria-invalid" => AttrTarget::Prop(p("accessibilityInvalid")),
+        "aria-invalid" => AttrTarget::Prop(p("accessibilityInvalid")), // onboarding F22, spreadsheet F20
         "aria-describedby" => AttrTarget::Prop(p("accessibilityDescribedBy")),
         // ARIA's name by reference (ledger2 Rough 3): the ids, space-separated,
         // of the elements whose text names this one, before `aria-label`.
         "aria-labelledby" => AttrTarget::Prop(p("accessibilityLabelledBy")),
-        // HTML's `tabindex`, no alias: present makes a box
+        // HTML's `tabindex`, no alias (LLP 1088 D7.3): present makes a box
         // focusable, `>= 0` a Tab stop; absent is never `0`.
         "tabindex" => AttrTarget::Prop(p("tabIndex")),
         "aria-required" => AttrTarget::Prop(p("accessibilityRequired")),
         "aria-haspopup" => AttrTarget::Prop(p("accessibilityHasPopup")),
         "aria-current" => AttrTarget::Prop(p("accessibilityCurrent")), // Depot: a nav link's page
         "aria-sort" => AttrTarget::Prop(p("accessibilitySort")),
-        // A table cell's, held to its tag by `tables::check`.
+        // @ref LLP 1153 D7 — a table cell's, held to its tag by `tables::check`.
         "colspan" => AttrTarget::Prop(PropId::ColSpan),
         "rowspan" => AttrTarget::Prop(PropId::RowSpan),
         "scope" => AttrTarget::Prop(PropId::Scope),
-        // A range role's value (`progressbar`, `slider`,
+        // @ref LLP 1116 D8 — a range role's value (`progressbar`, `slider`,
         // `meter`, …), numbers written as HTML writes them (`aria_values`).
         "aria-valuenow" => AttrTarget::Prop(p("accessibilityValueNow")),
         "aria-valuemin" => AttrTarget::Prop(p("accessibilityValueMin")),
         "aria-valuemax" => AttrTarget::Prop(p("accessibilityValueMax")),
         "aria-valuetext" => AttrTarget::Prop(p("accessibilityValueText")),
-        // SVG 2 attributes CSS cannot set, by their SVG names.
+        // SVG 2 attributes CSS cannot set (LLP 1055 D1/D2), by their SVG names.
         "viewBox" => AttrTarget::Prop(p("viewBox")),
         "preserveAspectRatio" => AttrTarget::Prop(p("preserveAspectRatio")),
         "points" => AttrTarget::Prop(p("points")),
@@ -853,7 +872,7 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "refY" => AttrTarget::Prop(p("refY")),
         "orient" => AttrTarget::Prop(p("orient")),
         "markerUnits" => AttrTarget::Prop(p("markerUnits")),
-        // SVG text's positions (`x`, `y`, `dx`,
+        // @ref LLP 1055.000 D11 — SVG text's positions (`x`, `y`, `dx`,
         // `dy` on `text`/`tspan` lower to these) and its alignment.
         "textX" => AttrTarget::Prop(p("textX")),
         "textY" => AttrTarget::Prop(p("textY")),
@@ -867,7 +886,7 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
     })
 }
 
-/// The name an old nickname or DOM camelCase spelling became, so the refusal of
+/// The name an old nickname or DOM camelCase spelling became (LLP 1017 §8.1), so the refusal of
 /// `size=13` says `font-size`. Nothing here is accepted; it is only named.
 pub fn renamed(old: &str) -> Option<&'static str> {
     Some(match old {
@@ -876,6 +895,7 @@ pub fn renamed(old: &str) -> Option<&'static str> {
         "fontStyle" => "font-style",
         "fontStretch" => "font-stretch",
         "fontVariationSettings" => "font-variation-settings",
+        "fontFeatureSettings" => "font-feature-settings",
         "fontOpticalSizing" => "font-optical-sizing",
         "fontFamily" => "font-family",
         "background" | "backgroundColor" => "background-color",
@@ -928,7 +948,7 @@ pub fn renamed(old: &str) -> Option<&'static str> {
         "ellipsizeMode" => "text-overflow",
         "textTransform" => "text-transform",
         "fontVariant" => "font-variant-numeric",
-        // UIKit's, SwiftUI's and React Native's shrink-to-fit.
+        // UIKit's, SwiftUI's and React Native's shrink-to-fit (LLP 1116.001 D1.4).
         "adjustsFontSizeToFitWidth"
         | "adjustsFontSizeToFit"
         | "minimumScaleFactor"
@@ -947,11 +967,27 @@ pub fn renamed(old: &str) -> Option<&'static str> {
         "autoComplete" | "textContentType" | "autoCompleteType" => "autocomplete",
         "viewportFit" | "safeArea" | "safeAreaView" => "viewport-fit",
         "statusBarStyle" | "barStyle" | "StatusBar" => "status-bar-style",
-        // Android's view attribute, UIKit's idle timer, Expo's hook.
+        // UIKit's and SwiftUI's names for a menu's order.
+        "preferredMenuElementOrder" | "menu-order" | "menuElementOrder" => "menuOrder",
+        // UIKit's `UIGlassEffect` properties and SwiftUI's `.tint`/`.interactive()`.
+        "background-material-tint" | "backgroundMaterialTint" | "glassTint" | "glass-tint" => {
+            "-exact-glass-tint"
+        }
+        "isInteractive" | "glass-interactive" => "glassInteractive",
+        // React Native's and Expo's `hidden`, React Navigation's screen
+        // options, UIKit's controller properties, Android's immersive mode.
+        "status-bar-hidden"
+        | "statusBarHidden"
+        | "navigationBarHidden"
+        | "autoHideHomeIndicator"
+        | "prefersStatusBarHidden"
+        | "prefersHomeIndicatorAutoHidden"
+        | "immersive" => "system-bars-hidden",
+        // Android's view attribute, UIKit's idle timer, Expo's hook (LLP 1125 D11).
         "keepScreenOn" | "keep-screen-on" | "idleTimerDisabled" | "keepAwake" | "wakeLock" => {
             "wakelock"
         }
-        // The web's call, Android's activity attribute, UIKit's.
+        // The web's call, Android's activity attribute, UIKit's (LLP 1133.029 D1).
         "screenOrientation"
         | "screen-orientation"
         | "lockOrientation"
@@ -961,10 +997,10 @@ pub fn renamed(old: &str) -> Option<&'static str> {
         "interactiveWidget" | "keyboardAvoidingView" | "keyboardAvoiding" => "interactive-widget",
         "secureTextEntry" => "type",
         "onClick" | "onPress" => "press",
-        // Web MIDI's handler properties.
+        // Web MIDI's handler properties (LLP 1125 D8).
         "onMIDIMessage" | "onmidimessage" | "midiMessage" => "midimessage",
         "midiInputs" | "midi-inputs" => "midiinputs",
-        // The names Exact invents are spelled `-exact-`.
+        // LLP 1081 D2: the names Exact invents are spelled `-exact-`.
         "tint-color" => "-exact-tint-color",
         "exit-animation" => "-exact-exit-animation",
         "layout-transition" => "-exact-layout-transition",
@@ -974,7 +1010,7 @@ pub fn renamed(old: &str) -> Option<&'static str> {
         "symbol-value" => "-exact-symbol-value",
         "symbol-effect" => "-exact-symbol-effect",
         "press-haptic" => "-exact-press-haptic",
-        // The pressed paint, and React Native's
+        // LLP 1061 D7: the pressed paint, and React Native's
         // `TouchableOpacity`/`TouchableHighlight` props that set it.
         "press-opacity" | "activeOpacity" => "-exact-press-opacity",
         "-exact-press-background-color" | "press-background-color" | "underlayColor" => {
@@ -985,14 +1021,16 @@ pub fn renamed(old: &str) -> Option<&'static str> {
         "scroll-edge-effect" => "-exact-scroll-edge-effect",
         "hover-effect" => "-exact-hover-effect",
         "smart-invert" => "-exact-smart-invert",
+        // React Native's `hitSlop` (Charlie, 2026-11-10).
+        "hitSlop" | "hit-slop" => "-exact-hit-slop",
         "onChange" | "onChangeText" | "onInput" => "input",
         "className" | "class" | "style" => return None,
         _ => return None,
     })
 }
-// A list's row-size estimate is the virtualized list's host policy; there is
-// no fixed-height windowed list, so a hint without `virtualized=true` says
-// how to migrate.
+// A list's row-size estimate is the virtualized list's host policy (LLP 1010
+// §6.5); the fixed-height windowed list it once also named is deleted (LLP
+// 1070 stage 1), so a hint without `virtualized=true` says how to migrate.
 pub(crate) fn validate_list(
     tag: &str,
     expanded: &[contract_syntax::Attr],
@@ -1050,15 +1088,25 @@ pub(crate) fn validate_list(
     {
         return super::err(
             "lower-list-virtualized",
-            format!("`{}` is a virtualized list's estimate; add `virtualized=true` (the windowed list without it is deleted)", estimate.name),
+            format!("`{}` is a virtualized list's estimate; add `virtualized=true` (the windowed list without it is deleted, LLP 1070)", estimate.name),
             estimate.span,
         );
     }
-    if !matches!(estimate.value, Expr::Number(n, _) if n.is_finite() && n > 0.0) {
+    // A computed estimate is read again as it changes (LLP 1070, as amended
+    // for #226); a literal one is positive.
+    let positive = match (
+        super::values::numeric_literal(&estimate.value),
+        &estimate.value,
+    ) {
+        (Some(n), _) => n.is_finite() && n > 0.0,
+        (None, Expr::Str(..) | Expr::Bool(..)) => false,
+        _ => true,
+    };
+    if !positive {
         return super::err(
             "lower-list-height",
             format!(
-                "virtualized lists accept one positive literal `{}`",
+                "virtualized lists accept one positive `{}`, a literal or a computed number",
                 estimate.name
             ),
             estimate.span,
@@ -1066,7 +1114,7 @@ pub(crate) fn validate_list(
     }
     Ok(())
 }
-/// The attributes `head` takes, and only `head`.
+/// The attributes `head` takes, and only `head` (LLP 1048.003 D1).
 pub const HEAD_FIELDS: &[&str] = &[
     "title",
     "description",
@@ -1074,7 +1122,7 @@ pub const HEAD_FIELDS: &[&str] = &[
     "canonical",
     "robots",
     "status",
-    // The document has unsaved changes (a declared deviation).
+    // LLP 1069.010 D6: the document has unsaved changes (a declared deviation).
     "edited",
 ];
 pub(crate) use crate::spelling::{similar_attr, similar_tag};
@@ -1088,7 +1136,7 @@ pub(crate) fn html_tag(name: &str) -> Option<&'static str> {
             "a label is `text` beside its field, and the field is named by `aria-label` (or `aria-labelledby` with the text's `id`)"
         }
         "heading" => "a heading is `h1` (to `h6` for the level)",
-        // Common guesses: each names the Contract form
+        // The app farm's guesses (round 1): each names the Contract form
         // that does the job.
         "small" | "code" | "pre" | "paragraph" | "subtitle" => {
             "text is `text`, styled by its attributes (`font-size`, `font-family`, `white-space`)"
@@ -1121,7 +1169,7 @@ pub(crate) fn check_exclusion(
     parent_positioned: bool,
 ) -> Result<(), crate::LowerError> {
     use contract_syntax::Expr;
-    // Dynamic positioning is checked by layout.
+    // @ref LLP 1043.000 §3 D1 — dynamic positioning is checked by layout.
     if let Some(wrap) = attrs.iter().find(|a| a.name == "wrap-flow") {
         if matches!(&wrap.value, Expr::Str(v, _) if v == "both") {
             let position = attrs.iter().find(|a| a.name == "position");
@@ -1152,7 +1200,7 @@ pub(crate) fn check_exclusion(
 }
 
 /// Host transforms can address a box by its place in the expanded view, not
-/// just its attributes. Regions have no box. Geometry decides
+/// just its attributes (LLP 1074 D1). Regions have no box. Geometry decides
 /// which siblings move at runtime, so every possible recipient contains at rest.
 pub(crate) fn host_transform_recipients(
     lower: &crate::Lowerer<'_>,
@@ -1218,18 +1266,13 @@ pub(crate) fn host_transform_recipients(
                     });
                     collect(lower, children, Some(index), false, boxes);
                 }
-                Node::When {
-                    then, otherwise, ..
-                } => {
-                    collect(lower, then, parent, repeated, boxes);
-                    collect(lower, otherwise, parent, repeated, boxes);
+                Node::Use { .. } | Node::Children { .. } => {}
+                node => {
+                    let repeated = repeated || matches!(node, Node::Each { .. });
+                    for list in node.child_lists() {
+                        collect(lower, list, parent, repeated, boxes);
+                    }
                 }
-                Node::Each { body, .. } => collect(lower, body, parent, true, boxes),
-                Node::Match { some, none, .. } => {
-                    collect(lower, &some.1, parent, repeated, boxes);
-                    collect(lower, none, parent, repeated, boxes);
-                }
-                _ => {}
             }
         }
     }
@@ -1292,7 +1335,7 @@ pub(crate) fn host_transform_recipients(
 }
 
 /// How an element is a flex or grid container, if it is: its tag, or a
-/// literal `display`.
+/// literal `display` (LLP 1093 §1).
 pub(crate) fn flex_container<'a>(tag: &'a str, attrs: &[contract_syntax::Attr]) -> Option<&'a str> {
     let display = attrs
         .iter()
@@ -1311,7 +1354,7 @@ pub(crate) fn flex_container<'a>(tag: &'a str, attrs: &[contract_syntax::Attr]) 
     }
 }
 
-/// A flex or grid container is never a multi-column one:
+/// @ref LLP 1093 §1 — a flex or grid container is never a multi-column one:
 /// CSS ignores the rows there, so they are refused rather than dropped.
 pub(crate) fn multicol_on_flex(
     tag: &str,
@@ -1335,7 +1378,7 @@ pub(crate) fn multicol_on_flex(
 }
 
 impl crate::Lowerer<'_> {
-    /// A link's unsaid colour is the
+    /// @ref LLP 1115 §3, LLP 1115.000 D3.5 — a link's unsaid colour is the
     /// platform's link role (the tint on iOS, `linkColor` on macOS, the
     /// accent on the web), as the UA's `a:link` is: a run with an `href` in
     /// its paragraph, and a block `link` of text (a `tel:` or `mailto:`
@@ -1344,7 +1387,7 @@ impl crate::Lowerer<'_> {
     /// author's row or button and keeps inheriting. Pushed before the
     /// author's rows, so a `color` on the link, the run or a class wins. A
     /// terminal entry's block link is left as it is: what a terminal shows
-    /// for a link is the terminal's to decide.
+    /// for a link is the terminal's to decide (`QUEUE.md`).
     ///
     /// An `href` that turns out empty is no link (`Props::link` is how a
     /// host reads the value), so the row follows the value: a computed
@@ -1380,7 +1423,7 @@ impl crate::Lowerer<'_> {
 
     /// The colour a link's text takes when its author writes none: `LinkText`,
     /// or `inherit` where its computed target is empty; `None` for a node that
-    /// is no link's text (a state part's base reads it too).
+    /// is no link's text (a state part's base, LLP 1121 D8, reads it too).
     pub(crate) fn link_colour(
         &self,
         tag: &str,
@@ -1393,12 +1436,8 @@ impl crate::Lowerer<'_> {
         fn words(node: &Node) -> bool {
             match node {
                 Node::Element { tag, .. } => tag == "text" || tag == "image",
-                Node::When {
-                    then, otherwise, ..
-                } => then.iter().chain(otherwise).all(words),
-                Node::Each { body, .. } => body.iter().all(words),
-                Node::Match { some, none, .. } => some.1.iter().chain(none).all(words),
                 Node::Use { .. } | Node::Children { .. } => false,
+                node => node.children().all(words),
             }
         }
         let has = |name: &str| attrs.iter().any(|a| a.name == name);

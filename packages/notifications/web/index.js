@@ -1,16 +1,16 @@
-// @exact/notifications on the web: the
+// @exact/notifications on the web (LLP 1133.004 D1, D7, §8): the
 // Notification API in the page, the Badging API, and the permission. The
 // page runtime (host/web-js/modules.js) calls it outside the agent; under
 // the agent the runner's substitute answers and this is never loaded.
 //
-// - A post while the permission is `default` asks first; a browser
+// - A post while the permission is `default` asks first (Q4); a browser
 //   that shows notifications only from a service worker throws at the
 //   constructor (Chrome on Android), and the post refuses with its error.
 // - `showTrigger` is held by a timer while the page is open: the web has no
-//   trigger that outlives the page (a declared deviation).
+//   trigger that outlives the page (a declared deviation, §8).
 // - A click is bound through the host's `activation`, so only a trusted one
 //   raises `notificationclick` (or opens `navigate`); the notification is
-//   then closed, as Apple removes one its person opened.
+//   then closed, as Apple removes one its person opened (D2).
 // - The state is live: `PermissionStatus`'s change, and a look again when
 //   the page comes back to the foreground.
 
@@ -70,7 +70,7 @@ export function implementation({ changed, activation, log = () => {} }) {
       return null;
     },
     async closeNotification({ tag }) { close(tag); return null; },
-    // The Badging API: best effort; a browser that lacks it refuses.
+    // The Badging API (D1): best effort; a browser that lacks it refuses.
     async setAppBadge({ contents = null }) {
       if (!('setAppBadge' in navigator)) return { error: 'NotSupportedError' };
       try { await (contents == null ? navigator.setAppBadge() : navigator.setAppBadge(contents)); return null; }

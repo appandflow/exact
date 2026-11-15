@@ -1,4 +1,4 @@
-//! Enumeration: a parameterized route's pages, from the
+//! Enumeration (LLP 1048.000 D2): a parameterized route's pages, from the
 //! source its `pages=` names — asked once, in a render's environment, each
 //! value of the route's one parameter made a location by the route table.
 //! The build renders them; the server lists them in its sitemap.
@@ -55,12 +55,13 @@ pub fn pages<D: DataSource>(
         }
         ticket += 1;
         let out = RequestOut {
+            class: exact_runner::RequestClass::Ordered,
             ticket,
             target: format!("{route} pages"),
             request,
             forced: false,
         };
-        // A long poll on work that is no HTTP request: refused before its work runs.
+        // A long poll on work that is no HTTP request (LLP 1016.000 D8): refused before its work runs.
         let dispatch = match out.request.continuation {
             _ if out.request.long_poll_refusal().is_some() => Dispatch::Missing,
             Some(token) => data.dispatch(token, &store),
@@ -75,6 +76,7 @@ pub fn pages<D: DataSource>(
         }
         .map_err(|e| fail(e.into()))?;
         let outcome = loop {
+            executor.begin_pump();
             if let Some((_, outcome, _)) = executor.drain().pop() {
                 break outcome;
             }

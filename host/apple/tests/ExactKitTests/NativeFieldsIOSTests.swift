@@ -1,4 +1,4 @@
-// Configured UIKit geometry and the first-frame seam.
+// @ref LLP 1104 D3–D6: configured UIKit geometry and the first-frame seam.
 #if os(iOS)
 import UIKit
 import CExact
@@ -9,7 +9,7 @@ import XCTest
 final class NativeFieldsIOSTests: XCTestCase {
     // scripts/fixtures/fieldless.contract: no data or module, so preparation must still supply a
     // valid control environment even when no control is in the plan; its `hr` is a hairline,
-    // which the display's scale resolves.
+    // which the display's scale resolves (LLP 1115.000 D10.3).
     private func fieldlessPlan() throws -> Data { try fixturePlan("FIELDLESS") }
 
     func testInitialSelectedPlanLaunchAndReplacementOfARunningFieldlessPlan() throws {
@@ -33,7 +33,7 @@ final class NativeFieldsIOSTests: XCTestCase {
         XCTAssertEqual(session.fieldChrome.presentedProvisional, 0)
     }
 
-    /// A first screen with no field measures no field's chrome.
+    /// LLP 1104 D5: a first screen with no field measures no field's chrome.
     /// The boot registers the control font, and the first field to ask is
     /// measured then, before its answer, so its first layout is exact.
     func testABootWithNoFieldMeasuresNoFieldsChrome() throws {
@@ -62,7 +62,7 @@ final class NativeFieldsIOSTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(chrome.minimum_height, Float(body.lineHeight))
     }
 
-    /// A booted session tells the kernel its display's
+    /// LLP 1115.000 D10.3: a booted session tells the kernel its display's
     /// scale with the page's facts, so the plan's `hr` is one device pixel
     /// of this simulator's display (a third of a point at 3x, where a plan
     /// that is never told stays at a whole point), and a drive's `prefer
@@ -147,7 +147,7 @@ final class NativeFieldsIOSTests: XCTestCase {
                     XCTAssertEqual(exact.provisional, 0)
                     if kind != 3 {
                         // A search field is UIKit's search field, its clear
-                        // button's room kept.
+                        // button's room kept (LLP 1115).
                         let control: UITextField
                         if kind == 2 {
                             let search = UISearchTextField()
@@ -196,7 +196,7 @@ final class NativeFieldsIOSTests: XCTestCase {
         cache.presented(true)
         XCTAssertEqual(cache.presentedProvisional, 1, "count presented batches, independent of kernel relayouts")
     }
-    /// A field in a grouped list's row (the kind's cell
+    /// LLP 1116.005 D2: a field in a grouped list's row (the kind's cell
     /// bit) is measured as UIKit's borderless field, a textarea there as the
     /// text view with its own space above and below and none at its sides,
     /// where the cell's other text starts.
@@ -230,7 +230,7 @@ final class NativeFieldsIOSTests: XCTestCase {
         XCTAssertEqual(area.top, Float(standard.textContainerInset.top))
         XCTAssertEqual(area.bottom, Float(standard.textContainerInset.bottom))
     }
-    /// A field the kernel publishes as a grouped row's
+    /// LLP 1116.005 D2: a field the kernel publishes as a grouped row's
     /// (`cell`) is UIKit's borderless field, the cell being the field: no
     /// rounded rect, the editor over the whole box at the published insets.
     /// A textarea there has no line or corners. `appearance: none` is still
@@ -317,9 +317,9 @@ final class NativeFieldsIOSTests: XCTestCase {
         XCTAssertEqual(native.borderStyle, .none)
         XCTAssertEqual(native.frame, field.contentBox())
     }
-    /// A bare (`appearance="none"`) field's placeholder is UIKit's
+    /// LLP 1115: a bare (`appearance="none"`) field's placeholder is UIKit's
     /// `placeholderText`, which follows Increase Contrast, while the field's
-    /// `color` is not its own: no row, or a colour its
+    /// `color` is not its own (§2, LLP 1115.000 D2): no row, or a colour its
     /// author did not write on it, as the one a grouped list's row gives its
     /// field. A colour written on the field is the ink its placeholder
     /// mutes, the platform's label colour and the row's own colour included.
@@ -356,7 +356,7 @@ final class NativeFieldsIOSTests: XCTestCase {
         field.applyStyle(["appearance": .string("none"), "text_color": .array([.number(43), .number(86), .number(181), .number(255)])])
         XCTAssertEqual(ink(), .placeholderText, "the same colour from a sheet (no word that its author wrote it) is not")
     }
-    /// An in-content search field is `UISearchTextField`'s
+    /// LLP 1115 wave 2: an in-content search field is `UISearchTextField`'s
     /// look — its fill and magnifier behind the editing field, the text
     /// clear of the magnifier, the clear button while editing where UIKit's
     /// sits — and stops being one when its type or appearance changes.
@@ -437,8 +437,8 @@ final class NativeFieldsIOSTests: XCTestCase {
         XCTAssertGreaterThan(ink, 100, "native value draws; checking text alone misses a misplaced UIKit editor")
     }
 
-    /// A textarea whose authored padding leaves its content box shorter
-    /// than a line draws its placeholder at the content box's first line,
+    /// An unscrolled textarea whose authored padding leaves its content box
+    /// shorter than a line draws its placeholder at the content box's first line,
     /// clipped by the view, as the web clips it; it drew a sliver. The box is
     /// the kernel's for `rows=1 padding-top=13` in a 34 pt row: UIKit's 8 pt
     /// inset and the padding above it, 5 pt of content. Its text starts where
@@ -462,6 +462,12 @@ final class NativeFieldsIOSTests: XCTestCase {
             node.applyStyle(["font_size": .number(17)])
             node.applyFieldContent(["rect": rect])
             window.layoutIfNeeded()
+            if let area = node.textArea {
+                area.layoutIfNeeded()
+                area.contentOffset = .zero
+                area.setNeedsDisplay()
+                area.layer.displayIfNeeded()
+            }
             CATransaction.flush()
             let format = UIGraphicsImageRendererFormat()
             format.scale = 2
@@ -494,7 +500,73 @@ final class NativeFieldsIOSTests: XCTestCase {
         XCTAssertEqual(short.left, plain.left, accuracy: 0.5, "at the same inline start")
     }
 
-    /// An authored `::placeholder` colour is the placeholder's
+    func testAScrolledPaddedTextareasPlaceholderStaysOnItsFirstTypedLine() throws {
+        let session = ExactApp.shared.makeSession(label: "scrolled-placeholder")
+        defer { session.destroy() }
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 300, height: 200))
+        window.overrideUserInterfaceStyle = .light
+        window.backgroundColor = .white
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true }
+        for (direction, value) in [("ltr", "Comment"), ("rtl", "שלום")] {
+            let node = NodeView(id: 1, kind: "textarea", presenter: session.presenter)
+            node.frame = CGRect(x: 10, y: 10, width: 240, height: 160)
+            window.addSubview(node)
+            defer { node.removeFromSuperview() }
+            let black: BatchValue = .array([.number(0), .number(0), .number(0), .number(255)])
+            node.applyProps(set: ["value": "", "placeholder": value], clear: [])
+            node.applyStyle(["font_size": .number(17), "direction": .string(direction),
+                             "text_color": black, "placeholder_color": black])
+            node.applyFieldContent(["rect": [24.0, 64.0, 184.0, 0.0]])
+            let area = try XCTUnwrap(node.textArea)
+            func ink() throws -> CGRect {
+                area.layer.displayIfNeeded()
+                CATransaction.flush()
+                let format = UIGraphicsImageRendererFormat()
+                format.scale = 2
+                let image = UIGraphicsImageRenderer(bounds: node.bounds, format: format).image { ctx in
+                    UIColor.white.setFill(); ctx.fill(node.bounds)
+                    node.layer.render(in: ctx.cgContext)
+                }
+                let cg = try XCTUnwrap(image.cgImage), bytes = CapturePixels.bytes(cg)
+                var bounds = CGRect.null
+                for y in 8..<(cg.height - 8) {
+                    for x in 8..<(cg.width - 8) {
+                        let at = (y * cg.width + x) * 4
+                        if CapturePixels.painted(bytes, at: at), bytes[at] < 100, bytes[at + 1] < 100, bytes[at + 2] < 100 {
+                            bounds = bounds.union(CGRect(x: CGFloat(x) / 2, y: CGFloat(y) / 2, width: 0.5, height: 0.5))
+                        }
+                    }
+                }
+                XCTAssertFalse(bounds.isNull, "\(direction): \(area.text.isEmpty ? "placeholder" : "typed text") draws")
+                return bounds
+            }
+            let offsets = [CGPoint.zero, CGPoint(x: 0, y: 24), CGPoint.zero]
+            var placeholders: [CGRect] = []
+            for text in ["", value] {
+                node.applyProps(set: ["value": text], clear: [])
+                window.layoutIfNeeded()
+                area.layoutIfNeeded()
+                for (index, offset) in offsets.enumerated() {
+                    area.contentOffset = offset
+                    let bounds = try ink()
+                    XCTAssertEqual(area.contentOffset, offset, "\(direction): capture at the requested scroll offset")
+                    if text.isEmpty {
+                        placeholders.append(bounds)
+                    } else {
+                        let placeholder = placeholders[index]
+                        XCTAssertEqual(placeholder.minY, bounds.minY, accuracy: 0.5, "\(direction), \(offset): the same first line")
+                        XCTAssertEqual(placeholder.minX, bounds.minX, accuracy: 0.5, "\(direction), \(offset): the same inline start")
+                        XCTAssertEqual(placeholder.maxX, bounds.maxX, accuracy: 0.5, "\(direction), \(offset): the same available width")
+                    }
+                }
+            }
+            XCTAssertEqual(placeholders[1].minY, placeholders[0].minY - 24, accuracy: 0.5, "\(direction): scrolling moves the painted placeholder")
+            XCTAssertEqual(placeholders[2], placeholders[0], "\(direction): scrolling back restores its position")
+        }
+    }
+
+    /// LLP 1104 D3: an authored `::placeholder` colour is the placeholder's
     /// ink, its own alpha kept, on a field and a textarea; without the row
     /// each keeps UIKit's `placeholderText`.
     func testAnAuthoredPlaceholderColourIsThePlaceholdersInk() throws {

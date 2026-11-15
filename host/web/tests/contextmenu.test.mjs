@@ -1,4 +1,6 @@
-// A `contextmenu` from a control in a real browser: a
+import { glueCase, glueNode } from './glue-fixture.mjs';
+import { hostFixtureFile as readFileSync } from './glue-fixture.mjs';
+// A `contextmenu` from a control in a real browser (issues/closed/20261012-web-an-exact-contextmenu-inside-a.md): a
 // right-click, or on a Mac a Control-click, on a checkbox, switch, radio, range, date or time input inside a node
 // with `contextmenu` runs that node's handler and keeps the browser's own menu shut. Chrome sends the event from each
 // of them and macOS runs the node's (#487). A `contextPopover` above one opens. A text field and a textarea keep the
@@ -7,7 +9,7 @@
 // (navigation.js `editMenu`), which conformance's `menus` plan compares with this one.
 import { test, expect } from 'bun:test';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -15,8 +17,9 @@ import { open } from '../../../scripts/agent.mjs';
 import { chromium, suiteBrowser } from '../../../scripts/agent-launch.mjs';
 import { serveBuildTree } from '../serve.mjs';
 import { need } from '../../../scripts/coverage.mjs';
+import { fileURLToPath } from 'node:url';
 
-const ROOT = resolve(new URL('../../..', import.meta.url).pathname);
+const ROOT = resolve(fileURLToPath(new URL('../../..', import.meta.url)));
 const compiler = resolve(process.env.CARGO_TARGET_DIR ?? resolve(ROOT, 'target'), 'debug', process.platform === 'win32' ? 'contract.exe' : 'contract');
 const { unavailable } = chromium();
 const check = need('chrome', unavailable);
@@ -97,7 +100,7 @@ check('a contextmenu from a checkbox, switch, radio, range, date or time input i
 }, 120000);
 
 // The helper both targets call: real HTML popover methods, including omitted
-// source and the browser's queued, coalesced ToggleEvent.
+// source and the browser's queued, coalesced ToggleEvent (issue #319).
 check('popover commands preserve HTML source, focus, idempotence and toggle coalescing', async () => {
   const browser = await suiteBrowser();
   try {
@@ -137,8 +140,8 @@ check('popover commands preserve HTML source, focus, idempotence and toggle coal
 // Exercise the wasm dispatch arm and its end-of-batch queue over real DOM focus.
 check('wasm popover and focus commands preserve authored order', async () => {
   const glue = readFileSync(resolve(ROOT, 'host/web/glue.js'), 'utf8');
-  const dispatch = glue.slice(glue.indexOf('        else if (op.name === "focus"'), glue.indexOf('        else if (op.name === "preventDefault"'));
-  const drain = glue.slice(glue.indexOf('  // Focusing can dispatch an action:'), glue.indexOf('  focusAutofocus(); inputHandlers?.arrive();'));
+  const dispatch = glueCase(glue, 'command');
+  const drain = glueNode(glue, node => node.type === 'ForOfStatement' && node.right.name === 'focusCommands' && node);
   const browser = await suiteBrowser();
   try {
     const page = await browser.newPage();
@@ -148,7 +151,7 @@ check('wasm popover and focus commands preserve authored order', async () => {
       const { popoverCommand, runFocusCommands, inertAncestor } = await import('data:text/javascript;base64,' + navigation);
       const root = document.getElementById('root'), log = message => { throw new Error(message); };
       const apply = new Function('ops', 'root', 'popoverCommand', 'runFocusCommands', 'inertAncestor', 'log',
-        'const inputReady = true, focusCommands = []; for (const op of ops) { if (false) {} ' + dispatch + ' } ' + drain);
+        'const host = { inputReady: true }, focusCommands = []; for (const op of ops) { switch ("command") { ' + dispatch + ' } } ' + drain);
       const command = (name, ...args) => ({ name, args });
       const run = ops => { apply(ops, root, popoverCommand, runFocusCommands, inertAncestor, log); return document.activeElement.id; };
       const forward = run([command('focus', 'trigger'), command('showPopover', 'menu')]);

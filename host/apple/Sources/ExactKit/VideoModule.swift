@@ -1,4 +1,4 @@
-// AVKit belongs to an on-demand artifact, never ExactKit's link graph.
+// @ref LLP 1042. AVKit belongs to an on-demand artifact, never ExactKit's link graph.
 import Foundation
 #if os(macOS)
 import AppKit
@@ -50,7 +50,7 @@ private final class VideoModule {
 enum VideoArmLibrary { static var handle: UnsafeMutableRawPointer? { VideoModule.shared?.library } }
 
 /// Chrome's rule for a muted video its `autoplay` attribute started, with
-/// `paused` unbound: it plays only while some
+/// `paused` unbound (LLP 1042 §3, ruled 2026-09-28): it plays only while some
 /// of it is in the viewport, and one that loads off screen starts when first
 /// seen. A pause or play the rule did not ask for (native controls, the end
 /// of a video without `loop`) ends the rule, as HTML's pause() and play()
@@ -99,7 +99,7 @@ final class VideoView {
     /// Whether its full-screen player shows (the arm's `fullscreen` state).
     private(set) var isFullscreen = false
     /// The rule applies: armed, muted, `paused` unbound, a `video` (an
-    /// `audio` is never seen, so Chrome never holds it).
+    /// `audio` is never seen, so Chrome never holds it; LLP 1042 §8).
     private var autoplayRule: Bool {
         guard let owner else { return false }
         return autoplay.armed && owner.props["paused"] == nil && owner.props["muted"] == "true" && owner.props["semanticTag"] != "audio"
@@ -107,20 +107,20 @@ final class VideoView {
     /// The last source resolved per name (`src`, `poster`): its authored text
     /// and what it resolved to. A resolution reads the file system.
     private var resolved: [String: (source: String, url: URL?)] = [:]
-    /// `fastSeek` and `load`, each a numbered request the
+    /// `fastSeek` and `load` (podcast F8, F18), each a numbered request the
     /// arm runs once: a seek every time, even to the time it last sought.
     private var commands: (seek: Int, seconds: Double, load: Int) = (0, 0, 0)
-    /// The media events the arm reports, and the media
-    /// session's six, and fullscreenchange; others are not sent.
+    /// The media events the arm reports (LLP 1042 §3), and the media
+    /// session's six (LLP 1098 D2), and fullscreenchange; others are not sent.
     static let events: Set<String> = ["loadedmetadata", "canplay", "play", "playing", "pause", "ended", "waiting", "seeking", "seeked", "ratechange", "volumechange", "timeupdate", "durationchange", "error", "fullscreenchange", "seekbackward", "seekforward", "seekto", "previoustrack", "nexttrack", "stop"]
-    /// A remote play's latch over the visibility threshold:
+    /// A remote play's latch over the visibility threshold (LLP 1098 D3):
     /// it holds across the `paused` bound when it was set, the app's stale
     /// `true` included, until a later commit writes `true` or the element
     /// rises above the threshold.
     private var latched = false
     private var latchedFrom: String?
     /// The arm's media session report (NowPlaying.swift), and the driver's
-    /// last `tap … mediasession` request and answer.
+    /// last `tap … mediasession` request and answer (LLP 1098 D10).
     private(set) var sessionReport: [String: Any] = [:]
     private var remoteRequests = 0
     private var remoteRequest: String?
@@ -144,7 +144,7 @@ final class VideoView {
 
     #if os(iOS) || os(tvOS)
     /// Whether it holds the app's audio session: while it has sound (a
-    /// source, not muted).
+    /// source, not muted), LLP 1096 D8.
     private var holdsSession = false
     private func holdSession(_ audible: Bool) {
         guard audible != holdsSession else { return }
@@ -152,7 +152,10 @@ final class VideoView {
             // Held even when activation fails: the session activates it when
             // the interruption ends, and a mute still releases it.
             holdsSession = true
-            do { try AudioSession.hold(ObjectIdentifier(self)) } catch { fputs("exact audio session: \(error)\n", stderr) }
+            do { try AudioSession.hold(ObjectIdentifier(self), running: { [weak self] in
+                guard let self else { return false }
+                return self.observed["playing"] as? Bool == true && self.observed["muted"] as? Bool == false && (self.observed["volume"] as? Double ?? 0) > 0
+            }) } catch { fputs("exact audio session: \(error)\n", stderr) }
         } else {
             holdsSession = false
             AudioSession.release(ObjectIdentifier(self))
@@ -254,17 +257,18 @@ final class VideoView {
             owner.presenter?.videoVisibility?.remove(self)
         }
         props["objectFit"] = owner.style["object_fit"]?.string ?? "contain"
+        // @ref LLP 1100 D11
         props["dynamicRangeLimit"] = owner.style["dynamic_range_limit"]?.string ?? "no-limit"
         for name in ["src", "poster", "mediaArtwork"] {
             if let source = props[name], !source.isEmpty {
                 let url: URL?
                 if let hit = resolved[name], hit.source == source { url = hit.url } else {
-                    // The app's own file, as an `image`
-                    // shows one: a download its data module kept.
-                    url = source.hasPrefix("app:/") ? AppFiles.url(source) : NodeView.resolveSource(source, app: owner.presenter?.session?.app)
+                    // The app's own file (LLP 1069.002 D7), as an `image`
+                    // shows one: a download its data module kept (podcast F19).
+                    url = source.hasPrefix("app:/") ? AppFiles.file(source) : NodeView.resolveSource(source, app: owner.presenter?.session?.app)
                     resolved[name] = (source, url)
                 }
-                // The artwork keeps its authored source for `state`.
+                // The artwork keeps its authored source for `state` (LLP 1098 D1, D7).
                 props[name == "mediaArtwork" ? "mediaArtworkURL" : name] = url?.absoluteString ?? ""
                 if name == "src" && url == nil { props["sourceError"] = "Unsupported media source" }
             } else if name == "src", props[name] == "" {
@@ -275,15 +279,18 @@ final class VideoView {
         }
         if commands.seek > 0 { props["exactSeek"] = "\(commands.seek) \(commands.seconds)" }
         if commands.load > 0 { props["exactLoad"] = String(commands.load) }
-        // Under the driver the session is built and reported, never published.
+        // Under the driver the session is built and reported, never published (LLP 1098 D10).
         if ExactEnv.agentMode { props["exactPublish"] = "false" }
         if let remoteRequest { props["exactRemote"] = remoteRequest }
         var listeners = owner.handlers.intersection(Self.events)
         if autoplayRule { listeners.formUnion(["pause", "play"]) }
+        #if os(iOS) || os(tvOS)
+        listeners.formUnion(["playing", "waiting", "pause", "ended", "error", "volumechange"])
+        #endif
         if !listeners.isEmpty { props["exactListeners"] = listeners.sorted().joined(separator: " ") }
         // A video with sound, or a media-session claimant (Now Playing needs
         // a non-mixable category), holds the app's session; muted (applied to
-        // the player first) or gone, it gives it back.
+        // the player first) or gone, it gives it back (LLP 1096 D8).
         #if os(iOS) || os(tvOS)
         let audible = !ExactEnv.agentMode && (props["mediaTitle"] != nil || (props["muted"] != "true" && props["src"]?.isEmpty == false))
         #endif
@@ -327,7 +334,7 @@ final class VideoView {
         if autoplayRule { result["autoplayOffscreenPaused"] = autoplay.holding }
         return result
     }
-    /// The driver's `tap … mediasession`: the arm runs the
+    /// The driver's `tap … mediasession` (LLP 1098 D10): the arm runs the
     /// command target's own path; its status, or nil with no arm.
     func remote(_ action: String, seconds: Double?) -> String? {
         guard handle != nil else { return nil }
@@ -339,6 +346,9 @@ final class VideoView {
     }
     private func receive(_ message: [String: Any]) {
         if let state = message["state"] as? [String: Any] { observed = state; sessionReport = state["session"] as? [String: Any] ?? sessionReport }
+        #if os(iOS) || os(tvOS)
+        AudioSession.playbackChanged()
+        #endif
         if let result = message["remoteResult"] as? [String: String] { remoteResult = (result["n"] ?? "", result["status"] ?? "") }
         guard let owner else { return }
         if message["remote"] as? String == "play" { latched = true; latchedFrom = owner.props["paused"] }

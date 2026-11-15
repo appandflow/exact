@@ -1,8 +1,8 @@
 //! `lower-line-height-multiplier`: a unitless `line-height` no text is set
 //! with. CSS reads a bare number there as a multiple of the font size (CSS
 //! Inline 3 §5.1, `<number>`), while every length row reads one as pixels,
-//! so a React Native author's `line-height=28` is 28 lines' worth: a
-//! 22-point header becomes 616 points tall. No app in this repository
+//! so a React Native author's `line-height=28` is 28 lines' worth: the euxy
+//! port's 22-point header became 616 points tall. No app in this repository
 //! writes a multiplier above 2; one of [`IMPLAUSIBLE`] or more is named.
 
 use crate::LowerError;

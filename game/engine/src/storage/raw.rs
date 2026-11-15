@@ -734,7 +734,7 @@ mod tests {
     }
 
     // Row leases move and drop nothing: only replacing a value through a guard
-    // drops, and each owner drops exactly once.
+    // drops, and each owner drops exactly once. @ref llp/1046.003-game-engine-as-built.explainer.md#row-leases-2026-09-23
     #[test]
     fn row_leases_on_zero_sized_owners_neither_move_nor_drop() {
         thread_local! { static DROPS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) }; }

@@ -1,7 +1,8 @@
 # The plan runner: one app-independent binary's worth of loop — evaluate the
 # plan's expressions, manage keyed instances, emit kernel ops, dispatch events,
-# tick timers under a seekable clock, and ask the app's data source for data
-# across the data seam. A reload is a restart.
+# tick timers under a seekable clock, and ask the app's data source for data.
+#
+# @ref LLP 1004 D4 (the data seam) / D5 (a reload is a restart) / LLP 0485 (research).
 [package]
 name = "exact-runner"
 version.workspace = true
@@ -29,3 +30,5 @@ serde_json = "1.0"
 [dev-dependencies]
 # Compiles every app's Contract source for the incremental-equals-full test.
 contract = { path = "../contract/cli" }
+# The format data a table bakes, for the locales oracle (LLP 1054.000.003 D6).
+contract-lower = { path = "../contract/lower" }

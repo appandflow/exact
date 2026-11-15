@@ -1,6 +1,6 @@
 // data: interaction-gallery
-// Synthetic conformance plan: the photo pair's transform drag:
-// the handle's transformDragFor names the photo; the
+// Synthetic conformance plan: the photo pair's transform drag (LLP 1041
+// §8.5, LLP 1057.001 §4): the handle's transformDragFor names the photo; the
 // page reports its geometry (transformgeometry); a finger pans it and two
 // pinch it, one pair of holds; the release runs transformrelease with the
 // engine's velocities, and the photo springs to what the action decides.

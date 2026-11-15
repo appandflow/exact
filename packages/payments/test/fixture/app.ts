@@ -27,7 +27,7 @@ const post = async (path: string, body: unknown) => {
   return { status: res.status, ok: res.ok, json: await res.json().catch(() => ({})) };
 };
 
-// The sheet's handlers, as the photo editor's.
+// The sheet's handlers (LLP 1133.034 D5), as the photo editor's.
 export const tools = {
   async quoteShipping(e: { requestId: string; shippingAddress: unknown; shippingOption: string | null }) {
     return (await post(`/checkouts/${e.requestId}/quote`, { address: e.shippingAddress, option: e.shippingOption })).json;

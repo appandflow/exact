@@ -1,10 +1,10 @@
-// `input type="range"` is a `UISlider`: HTML's
+// @ref LLP 1069.001 D5 — `input type="range"` is a `UISlider`: HTML's
 // `input` as the thumb moves, `change` as the finger lifts, each value
 // clamped and snapped to `step` as HTML sanitizes it, and the thumb with it,
 // as a browser's moves from step to step (`step="any"` glides) with no tick
 // marks, as HTML draws none without a `list` and a stepped SwiftUI `Slider`
 // none on iOS 27; VoiceOver moves it a step at a time. The thumb stays where
-// the person put it until the bound value changes.
+// the person put it until the bound value changes (D4, amended).
 #if os(iOS)
 import UIKit
 
@@ -25,7 +25,7 @@ extension ControlHost {
         assign(slider, \.minimumValue, Float(range.min))
         assign(slider, \.maximumValue, Float(range.max))
         // The bound value is written when it changes, as the web build writes
-        // an input's `value`; new bounds
+        // an input's `value` (LLP 1069.001 D4, amended 2026-10-04); new bounds
         // or a new step sanitize the value again, as HTML's do.
         let bound = owner.props["value"] ?? ""
         if !slider.isTracking, appliedRange[owner.id] != bound {
@@ -63,7 +63,7 @@ extension ControlHost {
         if let owner = presenter.views[id] { configureRange(slider, owner) }
     }
 
-    /// The agent's `type <range> <n>`: the value a drag released
+    /// The agent's `type <range> <n>` (D9): the value a drag released
     /// there reports, `input` then `change`.
     func typeRange(_ slider: RangeSlider, _ node: NodeView, _ text: String) -> [String: Any] {
         guard let n = Double(text.trimmingCharacters(in: .whitespaces)), n.isFinite else { return ["error": "\"\(text)\" is not a number"] }
@@ -93,6 +93,15 @@ extension ControlHost {
 
 /// UIKit's slider, whose VoiceOver adjustments the host makes (`adjustRange`)
 final class RangeSlider: UISlider {
+    /// Where the surface draws it, inside a placed canvas child (PlacedAccessibilityIOS.swift).
+    override var accessibilityFrame: CGRect {
+        get { placedAccessibilityFrame ?? super.accessibilityFrame }
+        set { super.accessibilityFrame = newValue }
+    }
+    override var accessibilityActivationPoint: CGPoint {
+        get { placedActivationPoint(from: super.accessibilityActivationPoint) ?? super.accessibilityActivationPoint }
+        set { super.accessibilityActivationPoint = newValue }
+    }
     var adjust: ((RangeSlider, Double) -> Void)?
     /// The value it shows, which its `Float` `value` may round (a step of
     /// 1e-6): kept while the thumb stays where it was put

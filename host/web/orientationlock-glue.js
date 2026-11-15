@@ -1,4 +1,4 @@
-// `orientationlock` on the web: the Screen
+// @ref LLP 1133.029 D3, D7 — `orientationlock` on the web: the Screen
 // Orientation API's `screen.orientation.lock()`
 // (https://w3c.github.io/screen-orientation/), for the session's lock. Both
 // web targets load it once an element carries `data-exact-orientationlock`:
@@ -41,7 +41,7 @@ function tiers(el, root) {
   return out;
 }
 
-/** The session's lock under its three rules: `{by, types, natural, current}`
+/** The session's lock under D3's three rules: `{by, types, natural, current}`
  * with `by` the counted holders in tree order, or `{by: []}`. */
 export function session(root) {
   if (!root) return { by: [] };

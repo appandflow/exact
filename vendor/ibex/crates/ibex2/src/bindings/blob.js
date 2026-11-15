@@ -1,7 +1,7 @@
 // Blob, File, and FormData are JavaScript shapes over ordinary ArrayBuffers.
 // Rust is involved only when an ordered FormData entry list becomes RFC 7578
 // wire bytes. No Blob or File handle table exists.
-// JS owns shapes and bytes; Rust owns multipart wire encoding.
+// @ref LLP 0057.000#l6--blob-file-formdata — JS owns shapes and bytes; Rust owns multipart wire encoding
 (function (global) {
   "use strict";
 

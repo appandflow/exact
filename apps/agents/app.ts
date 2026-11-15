@@ -36,7 +36,7 @@ export const FEATURED: Option[] = [
   ['qwen/qwen3.8-max-prime', 'Qwen3.8 Max Prime', 'Qwen'],
   ['mistralai/mistral-large-4-0', 'Mistral Large 4', 'Mistral'],
 ].map(([id, name, maker]) => ({ id: id!, name: name!, maker: maker!, reasoning: true }));
-// The device's own model: no key, no service, nothing leaves the device.
+// The device's own model (LLP 1133.016 §10): no key, no service, nothing leaves the device.
 export const DEVICE: Option = { id: 'device', name: 'On this device', maker: 'Apple Intelligence, Gemini Nano or the browser', reasoning: false };
 export const EFFORTS: Record<string, string> ={ none: 'No Thinking', low: 'Low', medium: 'Medium', high: 'High', xhigh: 'Max' };
 
@@ -49,17 +49,18 @@ const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
 async function load(storage: Storage) {
   if (loaded) return;
+  // Only a missing file is a first launch. Any other failure (and the build's 'bake') leaves the
+  // module unloaded, so no command saves an empty list over the file.
+  const bytes = await storage.fs.readFile(FILE).catch((e: { code?: string }) => { if (e.code === 'ENOENT') return null; throw e; });
   try {
-    const data = JSON.parse(new TextDecoder().decode(await storage.fs.readFile(FILE)));
-    if (data.version === 1 && Array.isArray(data.conversations)) {
+    const data = bytes && JSON.parse(new TextDecoder().decode(bytes));
+    if (data?.version === 1 && Array.isArray(data.conversations)) {
       conversations = data.conversations;
       serial = Number(data.serial) || 0;
       // An answer that was streaming when the app quit is kept as far as it got.
       for (const c of conversations) { if (c.streaming) { c.streaming = false; c.job = ''; } c.session = ''; }
     }
-  } catch (e) {
-    if ((e as { code?: string }).code === 'bake') throw e;
-  }
+  } catch { /* A damaged file starts with no conversations. */ }
   loaded = true;
 }
 async function persist(storage: Storage) {
@@ -190,7 +191,7 @@ async function start(c: Conversation, at: number, storage: Storage) {
   await persist(storage);
 }
 
-// ---- the on-device model ----
+// ---- the on-device model (LLP 1133.016 §10) ----
 
 type Turn = { role: 'user' | 'assistant'; content: string };
 const code = (e: unknown) => (e as { code?: string }).code ?? '';
@@ -198,27 +199,39 @@ const unavailable = (e: unknown) => code(e) === 'NotSupportedError' ? 'The on-de
   : code(e) === 'QuotaExceededError' ? 'That message is too long for the on-device model.'
   : code(e) === 'NotAllowedError' ? 'The on-device model needs to be downloaded first. Choose it in New Conversation.'
   : `The on-device model had a problem (${code(e) || message(e)}). Try again.`;
-// The tool the model may call, where the platform runs tools: the person's earlier conversations.
+// The tool the model may call, where the platform runs tools: the person's earlier conversations (D9).
 const FIND = {
   name: 'findConversations',
   description: 'Finds the person’s earlier conversations about a topic, with their titles and an excerpt of each.',
   inputSchema: { type: 'object', properties: { query: { type: 'string', description: 'The topic, in a few words' } }, required: ['query'] },
 };
 
-/** The conversation's session: the one this launch made, or one made now from the history before `newest`. */
+/** The conversation's session: the one this launch made, or one made now from the history before `newest`.
+ *  `''` when the conversation stopped wanting one while it was made. */
 async function sessionFor(c: Conversation, earlier: Turn[]) {
   if (c.session) return c.session;
   const { tools } = await languageModelAvailability({});
   const made = await createLanguageModel({ initialPrompts: earlier, tools: tools ? [FIND] : [] });
+  // Deleted, moved to another model or given another session meanwhile: nothing would own this one.
+  if (!conversations.includes(c) || c.model !== DEVICE.id || c.session) {
+    try { await destroyLanguageModel({ session: made.id }); } catch { /* gone already */ }
+    return c.session ?? '';
+  }
   c.session = made.id;
   if (made.overflowed) c.overflowed = true;
   return made.id;
+}
+/** Let go of the conversation's session: the module keeps one alive until the app that made it destroys it. */
+async function release(c: Conversation) {
+  const session = c.session;
+  c.session = '';
+  if (session) try { await destroyLanguageModel({ session }); } catch { /* gone already */ }
 }
 async function startOnDevice(c: Conversation, history: Turn[], reply: Msg, storage: Storage) {
   const input = history.pop();
   try {
     const session = await sessionFor(c, history);
-    if (!c.streaming || c.reply !== reply.id) return;
+    if (!session || !c.streaming || c.reply !== reply.id) return;
     const response = await promptStreaming({ session, input: input?.content ?? '' });
     if (!c.streaming || c.reply !== reply.id) {
       try { await abortLanguageModelResponse({ response: response.id }); } catch { /* already ended */ }
@@ -231,7 +244,7 @@ async function startOnDevice(c: Conversation, history: Turn[], reply: Msg, stora
   }
   await persist(storage);
 }
-/** A reply on the device: its text so far, what it searched, and its end (read once a pulse). */
+/** A reply on the device: its text so far, what it searched, and its end (D7: read once a pulse). */
 async function pulseOnDevice(c: Conversation, reply: Msg, at: number, storage: Storage) {
   let r;
   try { r = await languageModelResponse({ response: c.job }); } catch (e) {
@@ -254,7 +267,7 @@ async function pulseOnDevice(c: Conversation, reply: Msg, at: number, storage: S
   // Awaited, so the pulse that lands the reply lands the title too: no later read is due once it ends.
   await name(c, storage);
 }
-/** A title by structured output, from a session of its own. */
+/** A title by structured output (D8), from a session of its own. */
 async function titleOnDevice(text: string) {
   const { id } = await createLanguageModel({});
   try {
@@ -268,7 +281,7 @@ async function titleOnDevice(text: string) {
   }
 }
 
-/** The on-device model's tools: it reads conversations and changes none. */
+/** The on-device model's tools (LLP 1133.016 D9): it reads conversations and changes none. */
 export const tools = {
   findConversations: async ({ query }: { query: string }, _store: Store, storage: Storage) => {
     await load(storage);
@@ -353,7 +366,7 @@ async function command(op: string, id: string, value: string, at: number, storag
     if (!c.titled && c.title === 'New Conversation') c.title = value.trim().split(/\s+/).slice(0, 6).join(' ').slice(0, 48);
     await start(c, at, storage);
   } else if (op === 'retry' && !c.streaming) {
-    c.session = ''; // the on-device session holds the failed turn: the retry makes one from the history
+    await release(c); // the on-device session holds the failed turn: the retry makes one from the history
     const last = c.messages[c.messages.length - 1];
     if (last && !last.mine) c.messages.pop();
     if (c.messages.length && c.messages[c.messages.length - 1]!.mine) await start(c, at, storage);
@@ -371,11 +384,12 @@ async function command(op: string, id: string, value: string, at: number, storag
     c.effort = value; await persist(storage);
   } else if (op === 'model') {
     const option = [DEVICE, ...FEATURED, ...catalogCache].find((m) => m.id === value);
-    if (option && !c.streaming) { c.session = ''; c.model = option.id; c.modelName = option.name; c.maker = option.maker; await persist(storage); }
+    if (option && !c.streaming) { c.model = option.id; c.modelName = option.name; c.maker = option.maker; await release(c); await persist(storage); }
   } else if (op === 'delete') {
-    if (c.session) try { await destroyLanguageModel({ session: c.session }); } catch { /* gone with it */ }
-    if (c.job && c.model !== DEVICE.id) try { await api(`/turns/${c.job}`, 'DELETE'); } catch { /* gone with it */ }
+    // Gone from the list first, so a session still being made for it is not adopted.
     conversations = conversations.filter((x) => x !== c);
+    await release(c);
+    if (c.job && c.model !== DEVICE.id) try { await api(`/turns/${c.job}`, 'DELETE'); } catch { /* gone with it */ }
     await persist(storage);
   }
   return change(c.id);

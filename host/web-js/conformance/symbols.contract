@@ -1,6 +1,6 @@
-// Opaque names, empty slots and source replacement; a
+// LLP 1035.004.000: opaque names, empty slots and source replacement; a
 // portable role no string of the plan names, built at runtime as data names
-// one.
+// one (ledger diary F10).
 component Symbols
   state part = "cal"
   state source = "symbol:sf/airpodsmax"

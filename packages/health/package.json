@@ -2,7 +2,7 @@
   "name": "@exact/health",
   "version": "1.0.0",
   "private": true,
-  "description": "The person's steps, distance, active energy and workouts from the platform's health store, read under a grant per type.",
+  "description": "The person's steps, distance, active energy and workouts from the platform's health store, read under a grant per type (LLP 1133.026 Part I).",
   "exports": {
     ".": "./exact.json",
     "./apple": "./apple/exact.json",

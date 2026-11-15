@@ -1,5 +1,5 @@
-// The photo pair's transform drag on the JS target:
-// the runner's half of `host/web/src/transform_drag.rs`,
+// The photo pair's transform drag on the JS target (LLP 1041 §8.5, LLP
+// 1057.001 §4): the runner's half of `host/web/src/transform_drag.rs`,
 // answering `motion-glue.js`'s transform packets (`transform-geometry`,
 // `-invalidate`, `-begin`, `-move`, `-action`) over the motion engine's pair
 // holds. Handles are bound to the one owner target (the first valid, never
@@ -38,7 +38,7 @@ export function transformDrags({ w, views, viewId, api, lower, ops, now, authore
     for (const target of reportedTargets) if (!targets.has(target)) reportedTargets.delete(target);
     for (const target of targets) if (target !== owner && !reportedTargets.has(target)) {
       reportedTargets.add(target);
-      say(`transformDragFor: target view #${target} passed over for owner view #${owner}; one owner (first valid, never stolen)`);
+      say(`transformDragFor: target view #${target} passed over for owner view #${owner}; one owner (first valid, never stolen; LLP 1071)`);
     }
     const out = [];
     for (const [serial, p] of [...pairs]) {
@@ -107,7 +107,7 @@ export function transformDrags({ w, views, viewId, api, lower, ops, now, authore
     if (!w.m_pair_update(serial, v[0], v[1], v[2], t)) return { accepted: false, batch: ops([...pairsValid(), ...lower()]) };
     if (f.op === 'transform-move') return { accepted: true, batch: ops(lower()) };
     // The release: the engine's velocities over every value the pair was
-    // given, the action run while both still hold.
+    // given (LLP 1057.001 §3), the action run while both still hold.
     p.fired = true;
     w.m_measured(serial, t); const [vx, vy] = [w.m_scratch(0), w.m_scratch(1)];
     w.m_measured(p.scale, t); const vs = w.m_scratch(0);

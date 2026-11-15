@@ -1,12 +1,12 @@
 // Accept fixture: `interactive-widget="resizes-content"` — the layout
 // viewport ends at a software keyboard's top, so a bar pinned to the bottom
 // rises with it, and the bottom safe-area inset is the keyboard's (zero) while
-// it is up. The other sides keep clear of the display's rounded corners.
-// This is Chrome's opt-in; the default, `resizes-visual`, is
+// it is up. The other sides keep clear of the display's rounded corners
+// (LLP 1123 D10). Chrome's opt-in; the default, `resizes-visual`, is
 // `insets.contract`. On iOS the frames move inside the keyboard's own
-// animation. `dismiss` drops the keyboard with `blur()`, the
+// animation (LLP 1008 §9). `dismiss` drops the keyboard with `blur()`, the
 // command — not by focusing something else.
-// The app sees the same keyboard-adjusted viewport.
+// @ref LLP 1039 §5 — the app sees the same keyboard-adjusted viewport.
 shape Viewport
   width: number
   height: number

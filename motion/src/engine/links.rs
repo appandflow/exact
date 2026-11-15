@@ -1,4 +1,4 @@
-//! What an engine plays, chosen once: every animation, or
+//! What an engine plays, chosen once (LLP 1047.001 D3): every animation, or
 //! only settled values. A plan that animates nothing (no transition, layout
 //! transition, shared element, keyframes, timeline, spring or hold) still
 //! needs the engine as the store of what the host presents, and nothing
@@ -38,6 +38,7 @@ pub struct EngineLinks {
     pub(super) join_clocks: fn(&mut Engine),
     pub(super) set_drag_timeline: fn(&mut Engine, u64, Option<bool>),
     pub(super) set_animation_timeline: fn(&mut Engine, u64, TimelineBinding),
+    pub(super) set_scroll_offset: fn(&mut Engine, u64, f64, f64),
     pub(super) seek_timelines: fn(&mut Engine),
     pub(super) play_transition: fn(&mut Engine, u64, Property) -> Option<PlayedTransition>,
     pub(super) observe_path: fn(&mut Engine, u64, Option<PathValue>),
@@ -71,6 +72,7 @@ impl EngineLinks {
         join_clocks: Engine::join_clocks_full,
         set_drag_timeline: Engine::set_drag_timeline_full,
         set_animation_timeline: Engine::set_animation_timeline_full,
+        set_scroll_offset: Engine::set_scroll_offset_full,
         seek_timelines: Engine::seek_timelines_full,
         play_transition: Engine::play_transition_full,
         observe_path: Engine::observe_path_full,
@@ -85,7 +87,7 @@ impl EngineLinks {
 
     /// Settled values only: every change is presented at once, and nothing
     /// starts. A plan that would start something is refused before its
-    /// engine is made, so these answers are never a
+    /// engine is made (LLP 1047.001 D5), so these answers are never a
     /// silent loss: a transition declared here moves nothing, a hold never
     /// begins, an exit ends where it starts.
     pub const SETTLE: EngineLinks = EngineLinks {
@@ -105,6 +107,7 @@ impl EngineLinks {
         join_clocks: |_| {},
         set_drag_timeline: |_, _, _| {},
         set_animation_timeline: |_, _, _| {},
+        set_scroll_offset: |_, _, _, _| {},
         seek_timelines: |_| {},
         play_transition: |_, _, _| None,
         observe_path: |_, _, _| {},

@@ -1,4 +1,4 @@
-//! Gated tasks: a task declared `when cond [key=expr]`
+//! Gated tasks (LLP 1092 D7–D10): a task declared `when cond [key=expr]`
 //! has a timer only while its gate holds, as an `if` arm has its nodes;
 //! a new key restarts it, as a new `for` key makes a new row. Nothing runs
 //! when the gate changes: the change arms or drops a deadline.
@@ -6,7 +6,7 @@
 //! The step runs inside each commit, right after its settlement succeeds
 //! and inside the rollback a settlement failure takes, so a refusal here
 //! (a key that is no key, a trap) refuses the whole commit and the
-//! checkpoint puts the timers back.
+//! checkpoint puts the timers back (D8).
 //!
 //! What a host's clock waits for lives here too: whether there are timers,
 //! frame tasks, and the soonest deadline of any of them.
@@ -14,21 +14,26 @@
 use super::*;
 
 impl<D: DataSource> Runner<D> {
-    /// The gate table, over the commit's settled state, at the commit's time:
+    /// D8's table, over the commit's settled state, at the commit's time:
     /// a false gate drops its timer; a gate that turns true arms it from
     /// now; a changed key re-arms it from now; anything else leaves it as
     /// it was (an `every` keeps its phase, a spent `after` stays spent).
     pub(super) fn gate_step(&mut self) -> Result<(), RunnerError> {
-        // A sequence's gate, key and arguments.
+        // A sequence's gate, key and arguments (LLP 1125 D2).
         self.sequence_step()?;
         let mut seen = Vec::new();
         for (i, row) in self.plan.timers.iter().enumerate() {
             if !row.gated && !row.keyed {
                 continue;
             }
-            let on = self.eval(row.gate, &[], &[])? == Value::Bool(true);
+            let on = self
+                .eval(row.gate, &[], &[])
+                .map_err(|e| e.evaluated(|| format!("task {:?} gate", self.plan.str(row.name))))?
+                == Value::Bool(true);
             let key = if row.keyed && on {
-                let value = self.eval(row.key, &[], &[])?;
+                let value = self.eval(row.key, &[], &[]).map_err(|e| {
+                    e.evaluated(|| format!("task {:?} key", self.plan.str(row.name)))
+                })?;
                 match crate::instance::key_text(&value) {
                     Some(k) => Some(k),
                     None => {
@@ -57,7 +62,7 @@ impl<D: DataSource> Runner<D> {
                 if row.frame {
                     // While the agent or a test seeks, the task's next
                     // virtual frame; a presenting host fires it at its
-                    // next frame.
+                    // next frame (D10).
                     t.base = now;
                     t.k = 1;
                     t.next_ms = super::virtual_frame(now, 1);
@@ -70,7 +75,7 @@ impl<D: DataSource> Runner<D> {
     }
 
     /// Whether the plan has timers (a host then drives `advance`): a task, a
-    /// `then`, or a queue's `next`.
+    /// `then`, or a queue's `next` (LLP 1092 D3).
     pub fn has_timers(&self) -> bool {
         !self.plan.timers.is_empty()
             || !self.plan.sequences.is_empty()
@@ -78,29 +83,29 @@ impl<D: DataSource> Runner<D> {
                 .plan
                 .mutations
                 .iter()
-                .any(|m| m.then.is_some() || m.queue)
+                .any(|m| m.then.is_some() || m.mode == MutationMode::Queue)
     }
 
-    /// Whether the plan has a frame task: a host keeps its
+    /// Whether the plan has a frame task (LLP 1073 D4): a host keeps its
     /// frame source running and calls [`Runner::frame`] each frame.
     pub fn wants_frames(&self) -> bool {
         if self.poisoned {
             return false;
         }
-        // An idle gated frame task keeps no frame source running.
+        // An idle gated frame task keeps no frame source running (LLP 1092 D10).
         self.plan
             .timers
             .iter()
             .zip(&self.timers)
             .any(|(t, s)| t.frame && s.armed)
-            // A font axis moving.
+            // A font axis moving (LLP 1019 §13 D10).
             || self.text_axes.running()
     }
 
     /// Soonest timer deadline in this runner's clock domain; no host polling.
     /// A frame task's next virtual frame counts only while the host doesn't
-    /// present frames: then its frame source wakes it.
-    /// Hosts wake near the authored timer's due time.
+    /// present frames: then its frame source wakes it (LLP 1073 D4).
+    /// @ref LLP 1043.000 §3 D8 — hosts wake near the authored timer's due time.
     pub fn timer_due_ms(&self) -> Option<f64> {
         if self.poisoned {
             return None;
@@ -110,7 +115,7 @@ impl<D: DataSource> Runner<D> {
             .zip(&self.plan.timers)
             .enumerate()
             .filter(|(_, (_, row))| !(row.frame && self.clock.presenting))
-            // No timer fires while a wake runs unseen.
+            // No timer fires while a wake runs unseen (LLP 1133.017 D6).
             .filter(|_| !self.wake_stops_timers())
             .map(|(i, _)| self.timer_execution(i))
             .chain(self.other_timer_due_ms())
@@ -151,6 +156,8 @@ impl<D: DataSource> Runner<D> {
     fn other_timer_due_ms(&self) -> Option<f64> {
         self.wake_due()
             .into_iter()
+            // An input held behind a change action's receipt (`inputs.rs`).
+            .chain(self.held_input_due())
             .chain(self.call_due())
             .chain(self.presence_due_ms())
             // A resource a turn over its budget refused, asked again (`overrun.rs`).
@@ -161,7 +168,7 @@ impl<D: DataSource> Runner<D> {
                     .filter(|_| !self.wake_stops_timers()),
             )
             .chain(self.then_due.iter().copied())
-            // A drop's hold waits a second for its move.
+            // A drop's hold waits a second for its move (LLP 1094 D8).
             .chain(self.reorder_deadline())
             // A module send the substitute answers after its span.
             .chain(self.span_due())
@@ -171,8 +178,8 @@ impl<D: DataSource> Runner<D> {
                     .then(|| super::virtual_frame(self.now_ms, 1)),
             )
             .chain(self.queues.next_due.iter().copied())
-            // A polled module source on the live clock;
-            // under the agent a poll never stops a jump.
+            // A polled module source on the live clock (LLP 1133.009 D10
+            // item 7); under the agent a poll never stops a jump.
             .chain(
                 self.clock
                     .sample
@@ -180,11 +187,11 @@ impl<D: DataSource> Runner<D> {
                     .then(|| self.poll_due_ms())
                     .flatten(),
             )
-            // The host's process work on the agent's clock,
+            // The host's process work on the agent's clock (LLP 1133.007 §7),
             // and what it owes, due now so a jump waits for it to land.
             .chain(self.work_due())
             .chain(self.work_owed().then_some(self.now_ms))
-            // A sequence's fill, count-in's end, end and answer.
+            // A sequence's fill, count-in's end, end and answer (LLP 1125 D3).
             .chain([
                 self.transport.wake_due(),
                 self.transport.ended_due(),
@@ -196,7 +203,7 @@ impl<D: DataSource> Runner<D> {
     }
 
     /// Each task's next due time, or `None` while it is idle or spent (the
-    /// agent's `state.tasks`).
+    /// agent's `state.tasks`, D10).
     pub fn tasks(&self) -> Vec<(String, Option<f64>)> {
         self.plan
             .timers

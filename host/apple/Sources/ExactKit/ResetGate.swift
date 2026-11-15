@@ -2,7 +2,7 @@
 // new runtime, then tears the old tree's views down, then applies the new runtime's committed batch. What the
 // teardown sets off (a cover cleared, a sheet giving focus back, an edit ended, a key window moving, a due timer, a
 // list's report) once reached the new runtime first, and the stale committed batch then undid what it answered: feed
-// rows the runtime kept mounted with no view (blank rows, every dev-joined iOS launch that reloaded).
+// rows the runtime kept mounted with no view (the Apple pass's blank rows, every dev-joined iOS launch that reloaded).
 // So every batch-answering runtime call is held over the teardown at its one entry (ExactCore `Runtime.on`, `held`):
 // it reaches nothing and is named. Here, per call, what becomes of it once the committed batch is in: DROPPED, being
 // about the old tree, or REPLAYED, being work the new runtime must still see, recomputed from the live presenter (the
@@ -62,6 +62,7 @@ enum ResetGate {
     /// Held calls dropped, by `Runtime` method, and why; any other held call is dropped too (as about the old tree).
     static let dropped: [String: String] = [
         "holdBegin(_:property:now:)": "a gesture beginning on the old tree",
+        "hostRoot(_:now:)": "a link in another window retargeting this rooted one over the teardown (LLP 1030.004 D2): it keeps its screen, as a press on the old tree would",
         "heightDragBegin(_:targetKey:now:)": "a height drag beginning on the old tree",
         "transformMotion(_:)": "a transform drag's packet for the old tree",
         "holdUpdate(_:x:y:now:)": "a gesture moving on the old tree",
@@ -70,6 +71,7 @@ enum ResetGate {
         "pan(_:dx:dy:now:)": "a pan on the old tree",
         "panRelease(_:vx:vy:now:)": "a pan released as its view goes",
         "scrolled(_:left:top:)": "an old scroller's offset as its view goes",
+        "timelineScrolled(_:left:top:)": "an old scroller's timelines as its view goes; the new tree's layout places its own",
         "canvasDrawAsync(done:)": "a draw of the old tree's canvases; the new tree's draw on mount",
         "intrinsics(_:)": "the old views' sizes; the new tree's views measure and report their own",
         "focus(_:now:)": "focus a teardown gives back (a dismissed sheet's) lands on the old tree",
@@ -82,14 +84,15 @@ enum ResetGate {
         "fieldEvent(_:_:_:now:)": "a field's beforeinput, input or change as the teardown ends its edit: the old field's",
         "submit(_:now:)": "a form the teardown submits (a return key's) is the old tree's",
         "clipboard(_:_:_:now:)": "a copy or a context menu line from the old tree",
-        "blocks(_:placements:shows:)": "an old sheet's block or placement as it goes; the new tree's owners publish their own",
+        "blocks(_:)": "an old sheet's block or placement as it goes; the new tree's owners publish their own",
         "checked(_:_:commit:now:)": "a toggle's state from the old tree",
         "fieldSelect(_:_:_:now:)": "a field's selection from the old tree",
         "press(_:held:at:now:)": "a press on a view going away",
         "hover(_:over:now:)": "a pointer leaving views going away",
+        "lookMotion(_:states:now:)": "hover or focus state of an old view; the new views report their own states",
         "key(_:_:up:capture:now:)": "a key down on the old tree",
         "scroll(_:metrics:now:)": "an old scroller's offset",
-        // Native timer calls: each recovers by itself, so a replay would fire it twice.
+        // #1144's timer calls: each recovers by itself, so a replay would fire it twice.
         "fireNativeTimer(_:now:)": "a task's native firing answered `held` stays at the front of its queue, which asks for it again a frame later (NativeTaskTimers `complete(retry:)`); a new generation's rows re-arm the task at its own deadline",
         "fireNativeTimerAsync(_:now:done:)": "a task's native firing sent to the owner, as `fireNativeTimer`'s: kept by its queue, asked for again",
         "timerWaits(kinds:cutoff:mode:)": "a timer admission check answered `held` leaves nothing pending (TimerAdmissions); the next frame or update checks again, against the new runtime's waits",
@@ -98,8 +101,11 @@ enum ResetGate {
         "contextmenu(_:now:)": "a context menu asked of the old tree",
         "dblclick(_:now:)": "a double click on the old tree",
         "swiperight(_:now:)": "a swipe on the old tree",
+        "swipeleft(_:now:)": "a swipe on the old tree",
         "historySwipe(_:phase:direction:amount:client:now:)": "a history swipe's progress told to the old tree's root",
         "scrollend(_:now:)": "an old scroller's end",
+        "scrolldragstart(_:now:)": "a drag of an old scroller",
+        "scrolldragend(_:velocity:target:now:)": "a drag of an old scroller let go",
         "refresh(_:now:)": "a pull to refresh on the old tree's list",
         "intoView(_:key:block:inline:)": "the agent's scroll into an old list",
         "heightDragUpdate(_:height:now:)": "a height drag moving on the old tree",
@@ -114,14 +120,18 @@ enum ResetGate {
         "groupFinish(_:now:)": "a grouped reorder finishing as its list goes",
         "media(_:event:payload:now:)": "an old media view's event as it goes",
         "load(_:now:)": "an old image's or frame's load",
+        "atomIconReady(geometryChanged:)": "an old atom icon's load; the new tree's text loads and measures its own",
         "frameNavigation(_:event:record:now:)": "an old web frame's navigation",
         "message(_:_:now:)": "an old web frame's message",
         "dialogClose(_:now:)": "an old dialog closing as its view goes",
         "pickerCancel(_:now:)": "an old picker dismissed as its view goes",
         "hostBack(_:now:)": "a back gesture the teardown set off is the old navigation's",
         "hostBack(from:to:now:)": "a back the teardown set off is the old navigation's",
+        "hostForward(_:now:)": "a forward gesture belongs to the old navigation, whose forward history is not carried",
+        "buildTabs(_:now:)": "the old tree's tab panels; the new tree's are built when More shows them",
         "beforeunload(_:now:)": "the old page's unload as it goes",
-        "surfaceRecord(_:_:)": "an old canvas publisher released as the teardown ends it: the new runner starts with no surface records (none is carried), and the new tree's publishers record their own",
+        "surfaceRecord(_:_:)": "an old canvas publisher released during teardown: its release must not clear a kept launch answer, and the new publishers record their own",
+        "canvasPerformanceRecord(_:_:)": "an old canvas publisher's performance sample or release; the new publishers report their own metrics",
         "regionComplete(_:)": "an old generation's region artifact: `RegionController` drops one from another generation before it is told, and the new tree asks its own",
         "fulfillSurface(_:kind:body:now:)": "an old-tree surface completing as its view goes: `completeSurface` drops a completion from another generation before it is told",
         // Told again before the reset returns (Session `presentCommitted`, `applyTogether`): moot.
@@ -132,6 +142,7 @@ enum ResetGate {
         "segments(_:)": "the posture and viewport segments: the view's `rebooted` tells them again",
         "listMargins(_:)": "UIKit's cell margins: the presenter's reset clears what was told (`RowCells.reset`), and the new rows report their own",
         "groupedMargins(_:)": "UIKit's grouped-card margins: the new tree's grouped lists measure and report their own",
+        "localInsets(_:)": "content owners' local insets (LLP 1123 D9): the navigation's reset clears what was told, and each route and block reports its own as the new tree lays out",
         "resizeBox(_:width:height:)": "a resize grip's drag on the old tree: a restart takes the size back to the plan's, as a reload does the browser's",
         // Never reached while held: their entry points wait for the replay first.
         "dataReady()": "never held: `activateData` holds first and is replayed (.activation), which asks it",
@@ -140,7 +151,7 @@ enum ResetGate {
         // The session's own steps, which run outside the hold: never set off by a teardown.
         "boot(width:height:)": "the session's boot, outside any hold",
         "bootPlan(_:width:height:)": "the session's boot, outside any hold",
-        "bootEntry(_:kind:props:width:height:)": "a widget entry's boot, outside any hold",
+        "bootEntry(_:kind:props:configuration:width:height:)": "a widget entry's boot, outside any hold",
         "preparePlan(_:width:height:token:)": "a restart's own preparation, before its reset",
         "prepareModule(_:module:token:width:height:letGo:)": "a restart's own preparation, before its reset",
         "commitPlan()": "a restart's own commit, before its reset",
@@ -168,7 +179,7 @@ enum ResetGate {
         "designRows(_:)": "a live design frame: the old design shows until the next",
         "setModes(_:check:)": "mode pins: not applied",
         "navigate(_:_:now:)": "a URL opened from outside (`openIncoming`), or a navigation from the old tree: the URL is not followed",
-        "hostGo(_:now:)": "a forward the platform delivers, or the old navigation's: not taken",
+        "hostGo(_:now:)": "a URL followed without a navigate handler: not taken",
         "share(_:now:)": "an incoming share: its inbox is deleted after delivery (`ShareReceive.claimInbox`), so it is gone",
         "picked(_:_:now:)": "a picker's chosen files, copied before the pick is told: told once, not again",
         "change(_:_:selection:now:)": "an edit the teardown ends (the Mac commits it as its field goes) is the old field's, moot; but a document's delivered file paths ride it too (`ExactDocuments.deliver`), and are lost",

@@ -1,6 +1,6 @@
 //! The page's environment: what CSS's `env()` lengths resolve to — the four
-//! safe-area insets, on a foldable the viewport segments
-//! (CSS-ENV-1 §2.3), and on a desktop window the title-bar
+//! safe-area insets (LLP 1001 §2), on a foldable the viewport segments
+//! (LLP 1078 D3; CSS-ENV-1 §2.3), and on a desktop window the title-bar
 //! area (Window Controls Overlay). The host sets them with the viewport; the
 //! kernel resolves every `env()` length against them where the engine style
 //! is derived. Text on a dimension row is parsed here, once, by CSS's grammar.
@@ -46,11 +46,12 @@ impl Edge {
     }
 }
 
-/// A layout region a native host reports beside the safe area: UIKit's and
-/// AppKit's `LayoutRegion`s, each an inset per edge from the layout viewport,
-/// which `env(-exact-<region>-inset-<edge>)` names. The `Corners` regions are
-/// the same region with the host's corner adaptation: left and right adapt on
-/// the horizontal axis, top and bottom on the vertical one.
+/// A layout region a native host reports beside the safe area (LLP 1123
+/// D10): UIKit's and AppKit's `LayoutRegion`s, each an inset per edge from
+/// the layout viewport, which `env(-exact-<region>-inset-<edge>)` names.
+/// The `Corners` regions are the same region with the host's corner
+/// adaptation: left and right adapt on the horizontal axis, top and bottom
+/// on the vertical one.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[repr(u8)]
 pub enum Region {
@@ -138,7 +139,7 @@ impl SegmentVar {
         SegmentVar::Bottom,
         SegmentVar::Right,
     ];
-    /// The largest index either axis takes (15 is plenty).
+    /// The largest index either axis takes (LLP 1078 D3: 15 is plenty).
     pub const MAX_INDEX: u8 = 15;
 
     /// The CSS name's tail: `width`, `height`, `top`, `left`, `bottom`, `right`.
@@ -273,7 +274,7 @@ impl TitleBarVar {
 /// set by the host with the viewport. The four safe-area insets (a phone's
 /// status bar and home indicator under `viewport-fit=cover`; zero everywhere
 /// else, as a browser reports them for a page without it), and the viewport
-/// segments a fold makes: `cols × rows` rects, row-major, in
+/// segments a fold makes (LLP 1078 D3): `cols × rows` rects, row-major, in
 /// the layout viewport's coordinates — none on a viewport with one segment,
 /// where CSS-ENV-1 defines no segment variable.
 #[derive(Debug, Clone, PartialEq)]
@@ -296,30 +297,30 @@ pub struct Env {
     pub viewport_width: f32,
     /// Layout viewport height in points.
     pub viewport_height: f32,
-    /// A terminal's border rule: a drawn
+    /// A terminal's border rule (LLP 1101 §4, LLP 1101.001 P13): a drawn
     /// side occupies one cell. Set by the terminal host on its own kernel;
     /// no other host sees it.
     pub cell_borders: bool,
     /// Device pixels per point when borders occupy whole device pixels.
     pub border_scale: Option<f32>,
-    /// A terminal's space rule: a
+    /// A terminal's space rule (LLP 1101 §4, LLP 1121 stage 11 (c)): a
     /// padding, margin or gap in points resolves to whole cells on its axis,
     /// rows down and columns across, to the nearest with a tie toward zero.
     /// Set by the terminal host on its own kernel; no other host sees it.
     pub cell_spaces: bool,
-    /// Platform control fonts. None preserves page inheritance.
+    /// Platform control fonts (LLP 1104 D4). None preserves page inheritance.
     pub control_text_styles: Option<crate::ControlTextStyles>,
     /// Optional per-size button fonts. Separate from `ControlTextStyles` so
     /// existing hosts' control-font struct literals remain source compatible.
     pub button_fonts: Option<crate::ButtonFonts>,
     /// The window's own size, whatever is presented in it, on a host that
     /// lays the page out in a smaller viewport while a sheet is up (iOS,
-    /// Every viewport unit resolves against it
+    /// LLP 1075.003 §9.11): every viewport unit resolves against it
     /// everywhere, root and every sheet, as CSS's resolve against the
     /// viewport and never a dialog, so no length follows a sheet's size.
     /// `None`: the layout viewport.
     pub screen: Option<(f32, f32)>,
-    /// The layout regions' insets, indexed by [`Region`],
+    /// The layout regions' insets (LLP 1123 D10), indexed by [`Region`],
     /// each top right bottom left, from the layout viewport. `None` on a
     /// host that reports none: every region is then the safe area.
     pub regions: Option<[[f32; 4]; 5]>,
@@ -334,6 +335,20 @@ pub struct Env {
     /// own ([`crate::Kernel::set_root_font_size`]), which the next commit
     /// writes here; [`crate::Kernel::set_env`] keeps it.
     pub root_font_size: f32,
+    /// The session root's `--exact-safe-area-inset-*` (LLP 1123 D9), top
+    /// right bottom left: the insets of the area the document covers, set
+    /// apart from `env()` by a host whose document covers its view while
+    /// `env()` is 0 (iOS under `viewport-fit=auto` with a native primary
+    /// container, D1); [`crate::Kernel::set_root_local_insets`]. `None`: the
+    /// safe-area insets. [`crate::Kernel::set_env`] keeps it.
+    pub root_local: Option<[f32; 4]>,
+    /// What `var(--exact-safe-area-inset-<edge>)` reads at one node, top
+    /// right bottom left: set only in an environment made for that node
+    /// (`NodeArena::env_of`, [`crate::Kernel::env_of`]), since the value
+    /// differs from box to box (an owner's, an author's override). The
+    /// document's environment has none, and a local inset resolved against
+    /// it is a caller's mistake ([`Env::local_inset`]).
+    pub local: Option<[f32; 4]>,
 }
 
 impl Default for Env {
@@ -364,7 +379,31 @@ impl Env {
             regions: None,
             titlebar_area: None,
             root_font_size: crate::style::relative::MEDIUM,
+            root_local: None,
+            local: None,
         }
+    }
+
+    /// `var(--exact-safe-area-inset-<edge>)`'s value (LLP 1123 D9): the
+    /// node's this environment was made for. One with none is the
+    /// document's, whose length reads the session root's inset where a
+    /// route's bar is: a reader that took it is a mistake, which a test
+    /// stops at and a development build reports once ([`misread`]).
+    pub fn local_inset(&self, edge: Edge) -> f32 {
+        match self.local {
+            Some(local) => local[edge as usize],
+            None => {
+                misread(edge);
+                self.root_inset(edge)
+            }
+        }
+    }
+
+    /// The session root's local inset at `edge` (LLP 1123 D9): the host's,
+    /// else the safe-area inset.
+    pub fn root_inset(&self, edge: Edge) -> f32 {
+        self.root_local
+            .map_or_else(|| self.inset(edge), |l| l[edge as usize])
     }
 
     /// The inset at an edge.
@@ -378,7 +417,7 @@ impl Env {
     }
 
     /// A layout region's inset at an edge: the host's, else the safe area's
-    ///.
+    /// (LLP 1123 D10).
     pub fn region_inset(&self, region: Region, edge: Edge) -> f32 {
         self.regions
             .map_or_else(|| self.inset(edge), |r| r[region as usize][edge as usize])
@@ -390,6 +429,10 @@ impl Env {
             .as_ref()
             .is_none_or(crate::ButtonFonts::is_valid)
             && Edge::ALL.iter().all(|e| self.inset(*e).is_finite())
+            && self.local.is_none_or(|l| l.iter().all(|v| v.is_finite()))
+            && self
+                .root_local
+                .is_none_or(|l| l.iter().all(|v| v.is_finite()))
             && self
                 .regions
                 .is_none_or(|r| r.iter().flatten().all(|v| v.is_finite()))
@@ -499,7 +542,7 @@ impl Env {
 }
 
 /// Why an `env()` text that names one of the kernel's variables is not a
-/// length: refused by name at the bake, never silently zero.
+/// length (LLP 1078 D10): refused by name at the bake, never silently zero.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EnvRefusal {
     /// `viewport-segment-*` takes exactly two indices, `x` then `y`.
@@ -510,7 +553,7 @@ pub enum EnvRefusal {
     IndexRange,
     /// Not one of the kernel's variables.
     UnknownVariable,
-    /// `viewport-segment-*` is linked by use: this artifact's
+    /// `viewport-segment-*` is linked by use (LLP 1047 D2): this artifact's
     /// plan never names a segment, so its grammar was not linked.
     Unlinked,
 }
@@ -523,13 +566,13 @@ impl EnvRefusal {
             EnvRefusal::IndexForm => "a viewport segment index is a non-negative integer",
             EnvRefusal::IndexRange => "a viewport segment index is at most 15",
             EnvRefusal::UnknownVariable => "env() names safe-area-inset-top/right/bottom/left, viewport-segment-width/height/top/left/bottom/right x y, titlebar-area-x/y/width/height, or a layout region's inset, -exact-<region>-inset-top/right/bottom/left for safe-area-corners, layout-margins, layout-margins-corners, readable-content or readable-content-corners",
-            EnvRefusal::Unlinked => "env(viewport-segment-*) is not linked into this artifact (linked by use)",
+            EnvRefusal::Unlinked => "env(viewport-segment-*) is not linked into this artifact (LLP 1078 D3; linked by use, LLP 1047 D2)",
         }
     }
 }
 
 /// The variable an `env(...)` term names, with its points added (zero).
-/// The segment half of the grammar, linked by use: the
+/// The segment half of the grammar, linked by use (LLP 1047 D2): the
 /// `viewport-segment-*` term, a segment length's resolution, its CSS text
 /// and its wire decode. Until a host links it (`link`), a text naming a
 /// segment is refused as unlinked, a kind 8–13 on the wire is unknown, and
@@ -546,7 +589,7 @@ struct Hooks {
 static LINKED: std::sync::OnceLock<Hooks> = std::sync::OnceLock::new();
 
 /// Link the viewport segment grammar, its resolution, CSS text and wire
-/// decode.
+/// decode (LLP 1078 D3).
 pub fn link() {
     let _ = LINKED.set(Hooks {
         term: segment_term,
@@ -587,7 +630,7 @@ pub(crate) fn resolve_wide(var: SegmentVar, x: u8, y: u8, env: &Env) -> Option<f
 }
 
 /// A segment length as CSS-ENV-1's text, for a host whose browser resolves
-/// it; nothing when the grammar is not linked.
+/// it (LLP 1078 D6); nothing when the grammar is not linked.
 pub fn css(var: SegmentVar, x: u8, y: u8, plus: f32, out: &mut String) {
     if let Some(h) = LINKED.get() {
         (h.css)(var, x, y, plus, out);
@@ -655,19 +698,26 @@ fn segment_term(tail: &str, indices: &[&str]) -> Result<Dimension, EnvRefusal> {
     ))
 }
 
-/// The `env()` variable families `term` reads, each with its kind: CSS
-/// Environment Variables 1's, Window Controls Overlay's, and Exact's layout
-/// regions, whose names begin `-exact-`.
+/// The `env()` variable families `term` reads, each with its kind (LLP 1081
+/// D8): CSS Environment Variables 1's, Window Controls Overlay's, and
+/// Exact's layout regions (LLP 1123 D10), whose names begin `-exact-`.
 pub const ENV_NAMES: [(&str, &str); 8] = [
     ("safe-area-inset-", "css CSS Environment Variables 1"),
     ("viewport-segment-", "css CSS Environment Variables 1"),
-    ("-exact-safe-area-corners-inset-", "exact"),
-    ("-exact-layout-margins-inset-", "exact"),
-    ("-exact-layout-margins-corners-inset-", "exact"),
-    ("-exact-readable-content-inset-", "exact"),
-    ("-exact-readable-content-corners-inset-", "exact"),
+    ("-exact-safe-area-corners-inset-", "exact LLP 1123 D10"),
+    ("-exact-layout-margins-inset-", "exact LLP 1123 D10"),
+    ("-exact-layout-margins-corners-inset-", "exact LLP 1123 D10"),
+    ("-exact-readable-content-inset-", "exact LLP 1123 D10"),
+    (
+        "-exact-readable-content-corners-inset-",
+        "exact LLP 1123 D10",
+    ),
     (TitleBarVar::PREFIX, "css Window Controls Overlay"),
 ];
+
+/// The custom property a local inset is read through, before its edge:
+/// `var(--exact-safe-area-inset-<edge>)` (LLP 1123 D9).
+pub const LOCAL_PREFIX: &str = "--exact-safe-area-inset-";
 
 pub(super) fn term(inner: &str) -> Result<Dimension, EnvRefusal> {
     let inner = inner.trim();
@@ -715,10 +765,10 @@ pub(super) fn named(name: &str, indices: &[&str]) -> Result<Dimension, EnvRefusa
 /// A bare `env()` length by CSS's grammar: `env(safe-area-inset-<edge>)`,
 /// `env(viewport-segment-<var> <x> <y>)`, `env(titlebar-area-<var>)` (a
 /// calculation, since it may be undefined) or a layout region's
-/// `env(-exact-<region>-inset-<edge>)`. `Ok(None)` when the text is not
+/// `env(-exact-<region>-inset-<edge>)` (LLP 1123 D10). `Ok(None)` when the text is not
 /// one (a math function, or one with a fallback, is [`super::calc`]'s); `Err`
 /// when it names one of the
-/// kernel's variables wrongly.
+/// kernel's variables wrongly (LLP 1078 D10).
 pub fn parse(text: &str) -> Result<Option<Dimension>, EnvRefusal> {
     let t = text.trim();
     if t.starts_with("env(") {
@@ -727,8 +777,8 @@ pub fn parse(text: &str) -> Result<Option<Dimension>, EnvRefusal> {
     Ok(None)
 }
 
-/// A calculation's CSS text for a browser, which has no layout regions: each
-/// region's name is the safe area's, which is what the
+/// A calculation's CSS text for a browser, which has no layout regions (LLP
+/// 1123 D10): each region's name is the safe area's, which is what the
 /// region resolves to on a host that reports none. Names are matched as CSS
 /// identifiers, escapes decoded, and the rest of the text is kept as written.
 pub fn browser_css(c: super::Comparison, out: &mut String) {
@@ -829,5 +879,39 @@ impl Env {
             },
             ..self.clone()
         }
+    }
+}
+
+/// Whether a process stops at a local inset read against the document's
+/// environment: one with `EXACT_STRICT_LOCAL_INSETS=1`, which the repository
+/// sets for what Cargo runs (`.cargo/config.toml`: `cargo test`, `cargo run`)
+/// and for the Swift host tests (`host/apple/xctest.mjs`). An app the build
+/// scripts make and launch has none.
+static STRICT: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+static WARNED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// A box's local inset read against the document's environment (LLP 1123
+/// D9): the reader should have taken the box's own (`NodeArena::env_of`,
+/// `Kernel::env_of`). A test stops there ([`STRICT`], and the kernel's own
+/// tests always); otherwise the read takes the session root's inset, which
+/// a development build says once on the console.
+fn misread(edge: Edge) {
+    use std::sync::atomic::Ordering::Relaxed;
+    let strict = cfg!(test)
+        || *STRICT.get_or_init(|| {
+            std::env::var_os("EXACT_STRICT_LOCAL_INSETS").is_some_and(|v| v == "1")
+        });
+    let message = || {
+        format!(
+            "var(--exact-safe-area-inset-{}) resolved against the document's environment: \
+             resolve a box's lengths with NodeArena::env_of or Kernel::env_of (LLP 1123 D9)",
+            edge.name()
+        )
+    };
+    if strict {
+        panic!("{}", message());
+    }
+    if cfg!(debug_assertions) && !WARNED.swap(true, Relaxed) {
+        eprintln!("exact: {}; the session root's inset stands in", message());
     }
 }

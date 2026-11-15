@@ -14,6 +14,140 @@ fn create(ids: impl IntoIterator<Item = u32>, node_type: NodeType) -> Vec<Op> {
         .collect()
 }
 
+fn staged_capacities(staged: &super::Staged<'_>) -> [usize; 6] {
+    [
+        staged.created.capacity(),
+        staged.destroyed.capacity(),
+        staged.parents.capacity(),
+        staged.children.capacity(),
+        staged.roots_added.capacity(),
+        staged.roots_removed.capacity(),
+    ]
+}
+
+#[test]
+fn transaction_capacity_follows_the_operations_and_is_bounded_by_nodes() {
+    let kids: Vec<_> = (10..1_010).collect();
+    let mut ops = create([1, 2], NodeType::View);
+    ops.extend(create(kids.iter().copied(), NodeType::View));
+    ops.extend([children(1, &kids), Op::AttachRoot { id: 1 }]);
+    let k = kernel(&ops);
+    let arena = k.arena();
+
+    for ops in [vec![], vec![tall(1, 20.0); 100]] {
+        let capacity = super::capacity::Batch::new(arena, &ops);
+        let staged = super::Staged::new(arena, &capacity);
+        assert_eq!(staged_capacities(&staged), [0; 6]);
+    }
+    // Both incoming children and those detached from an existing list can
+    // outnumber operations. Repeated lists still name only this tree's IDs.
+    for ops in [
+        vec![children(2, &kids)],
+        vec![children(1, &[])],
+        vec![children(2, &kids); 100],
+    ] {
+        let capacity = super::capacity::Batch::new(arena, &ops);
+        assert!(capacity.parents >= kids.len());
+        assert!(capacity.parents <= arena.live_count());
+        let staged = super::Staged::new(arena, &capacity);
+        assert!(staged.parents.capacity() >= kids.len());
+        assert!(staged.parents.capacity() < 2 * arena.live_count());
+        assert_eq!(staged.created.capacity(), 0);
+        assert_eq!(staged.destroyed.capacity(), 0);
+        assert_eq!(staged.roots_added.capacity(), 0);
+        assert_eq!(staged.roots_removed.capacity(), 0);
+    }
+
+    let ops = create(2_000..2_020, NodeType::View);
+    let capacity = super::capacity::Batch::new(arena, &ops);
+    let staged = super::Staged::new(arena, &capacity);
+    assert!(staged.created.capacity() >= 20);
+    assert!(staged.parents.capacity() >= 20);
+    assert!(staged.children.capacity() >= 20);
+    assert_eq!(staged.destroyed.capacity(), 0);
+    assert_eq!(staged.roots_added.capacity(), 0);
+    assert_eq!(staged.roots_removed.capacity(), 0);
+
+    for (ops, added, removed) in [
+        (vec![Op::DestroyView { id: 10 }], 0, 0),
+        (vec![Op::DestroyView { id: 1 }], 0, 1),
+        (
+            vec![Op::AttachRoot { id: 2 }, Op::DestroyView { id: 2 }],
+            1,
+            1,
+        ),
+    ] {
+        let capacity = super::capacity::Batch::new(arena, &ops);
+        assert_eq!(capacity.roots_added, added);
+        assert_eq!(capacity.roots_removed, removed);
+    }
+}
+
+#[test]
+fn subtree_reservation_uses_the_staged_tree() {
+    let kids: Vec<_> = (10..1_010).collect();
+    let mut ops = create([1, 2, 3], NodeType::View);
+    ops.extend(create(kids.iter().copied(), NodeType::View));
+    ops.extend([children(2, &kids), children(1, &[2, 3])]);
+    let k = kernel(&ops);
+    let arena = k.arena();
+    let ops = [Op::DestroyView { id: 3 }];
+    let capacity = super::capacity::Batch::new(arena, &ops);
+    let mut staged = super::Staged::new(arena, &capacity);
+    // A preceding op moves a sibling and its children under this target.
+    staged.parents.insert(2, Some(3));
+    staged.children.insert(3, vec![2]);
+    staged.destroy(3);
+    assert_eq!(staged.destroyed.len(), 1_002);
+    assert!(!staged.destroyed.contains(&1));
+    assert_eq!(staged.parent_of(3), None);
+    assert!(kids.iter().all(|id| staged.destroyed.contains(id)));
+}
+
+#[test]
+fn continuation_reserves_each_phases_creations_and_keeps_receipt_order() {
+    use crate::arena::NodeArena;
+    use crate::layout::Unmirrored;
+    use crate::selector::SelectorIndex;
+
+    let mut arena = NodeArena::new();
+    let mut layout = Unmirrored;
+    let mut selectors = SelectorIndex::default();
+    let mut commit = super::DocumentCommit::new(7, 0, 1);
+    let mut expected = Vec::new();
+    for ids in [1..21, 21..61] {
+        let ops = create(ids.clone(), NodeType::View);
+        super::continue_document(
+            super::Target {
+                arena: &mut arena,
+                layout: &mut layout,
+                selectors: &mut selectors,
+            },
+            &ops,
+            None,
+            &mut commit,
+        )
+        .unwrap();
+        expected.extend(ids.map(|id| arena.key_of(id).unwrap()));
+        assert_eq!(commit.created.len(), expected.len());
+        assert!(commit.created.capacity() >= expected.len());
+    }
+    let before = commit.created.capacity();
+    super::continue_document(
+        super::Target {
+            arena: &mut arena,
+            layout: &mut layout,
+            selectors: &mut selectors,
+        },
+        &[tall(1, 10.0)],
+        None,
+        &mut commit,
+    )
+    .unwrap();
+    assert_eq!(commit.created.capacity(), before);
+    assert_eq!(super::finish_document(&arena, commit).created, expected);
+}
+
 fn children(id: u32, children: &[u32]) -> Op {
     Op::SetChildren {
         id,
@@ -32,6 +166,243 @@ fn tall(id: u32, height: f64) -> Op {
     }
 }
 
+fn relative_style(id: u32, rows: &[(StyleId, &str)]) -> Op {
+    let mut patch = StyleProps::default();
+    for &(row, value) in rows {
+        patch
+            .set_dynamic(row, &StyleValue::Text(value.into()))
+            .unwrap();
+    }
+    Op::SetStyle {
+        id,
+        patch: Box::new(patch),
+    }
+}
+
+fn relative_work(f: impl FnOnce()) -> usize {
+    super::relative::RESOLVED.with(|count| count.set(0));
+    f();
+    super::relative::RESOLVED.with(|count| count.get())
+}
+
+#[test]
+fn viewport_resolution_visits_only_changed_bases_and_their_font_dependents() {
+    let mut ops = create(1..=4, NodeType::View);
+    ops.extend([
+        relative_style(2, &[(StyleId::FontSize, "5vw")]),
+        relative_style(3, &[(StyleId::FontSize, "5vh")]),
+        relative_style(4, &[(StyleId::Width, "2em")]),
+        children(2, &[4]),
+        children(1, &[2, 3]),
+        Op::AttachRoot { id: 1 },
+    ]);
+    let mut k = kernel(&ops);
+    k.compute_layout(1, Offer::definite(400.0, 600.0)).unwrap();
+    assert_eq!(
+        relative_work(|| {
+            k.compute_layout(1, Offer::definite(400.0, 800.0)).unwrap();
+        }),
+        1
+    );
+    assert_eq!(
+        relative_work(|| {
+            k.compute_layout(1, Offer::definite(800.0, 800.0)).unwrap();
+        }),
+        2
+    );
+    assert_eq!(
+        relative_work(|| {
+            k.set_env(crate::Env::new(10.0, 0.0, 0.0, 0.0)).unwrap();
+            k.compute_layout(1, Offer::definite(800.0, 800.0)).unwrap();
+            k.apply(0, 2, &[]).unwrap();
+        }),
+        0
+    );
+}
+
+#[test]
+fn unrelated_commits_do_not_resolve_relative_rows() {
+    let mut ops = create(1..=1_001, NodeType::View);
+    let ramp = format!("-exact-{}", crate::LENGTH_RAMPS[0].0);
+    for id in 2..=1_001 {
+        let rows: &[(StyleId, &str)] = match id % 5 {
+            0 => &[
+                (StyleId::PaddingLeft, "1rem"),
+                (StyleId::MarginBottom, "1rem"),
+            ],
+            1 => &[(StyleId::FontSize, "2em"), (StyleId::Width, "1em")],
+            2 => &[(StyleId::FontSize, "-exact-body")],
+            3 => &[(StyleId::BorderWidthTop, "-exact-hairline")],
+            _ => &[(StyleId::Height, &ramp)],
+        };
+        ops.push(relative_style(id, rows));
+    }
+    ops.extend([
+        children(1, &(2..=1_001).collect::<Vec<_>>()),
+        Op::AttachRoot { id: 1 },
+    ]);
+    let mut k = kernel(&ops);
+    assert_eq!(
+        relative_work(|| {
+            k.apply(0, 2, &[prop(1, PropId::TestId, "renamed")])
+                .unwrap();
+            k.apply(0, 3, &[prop(1_001, PropId::TestId, "leaf")])
+                .unwrap();
+            k.apply(0, 4, &[]).unwrap();
+            k.set_bold_text(true);
+            k.apply(0, 5, &[]).unwrap();
+        }),
+        0
+    );
+    assert_eq!(
+        relative_work(|| {
+            k.apply(
+                0,
+                6,
+                &[relative_style(1_000, &[(StyleId::PaddingLeft, "2rem")])],
+            )
+            .unwrap();
+        }),
+        1
+    );
+    assert_eq!(
+        k.node(1_000).unwrap().style.padding_left,
+        crate::Dimension::Points(32.0)
+    );
+    assert_eq!(
+        relative_work(|| {
+            k.set_root_font_size(24.0).unwrap();
+            k.set_display_scale(2.0).unwrap();
+            k.apply(0, 7, &[]).unwrap();
+        }),
+        1_000
+    );
+    assert_eq!(
+        k.node(1_000).unwrap().style.padding_left,
+        crate::Dimension::Points(48.0)
+    );
+    assert_eq!(k.node(3).unwrap().style.border_width_top, 0.5);
+    assert_eq!(
+        relative_work(|| {
+            k.apply(0, 8, &[]).unwrap();
+        }),
+        0
+    );
+}
+
+#[test]
+fn relative_font_changes_resolve_only_the_dependent_branch_in_parent_order() {
+    let mut ops = create(1..=9, NodeType::View);
+    ops.extend([
+        relative_style(1, &[(StyleId::FontSize, "10px")]),
+        relative_style(3, &[(StyleId::FontSize, "2em")]),
+        relative_style(5, &[(StyleId::FontSize, "3em")]),
+        relative_style(6, &[(StyleId::Width, "1em")]),
+        relative_style(7, &[(StyleId::FontSize, "40px")]),
+        relative_style(8, &[(StyleId::FontSize, "2em")]),
+        relative_style(9, &[(StyleId::Width, "1em")]),
+        children(1, &[2, 7]),
+        children(2, &[3]),
+        children(3, &[4]),
+        children(4, &[5]),
+        children(5, &[6]),
+        children(7, &[8]),
+        children(8, &[9]),
+        Op::AttachRoot { id: 1 },
+    ]);
+    let mut k = kernel(&ops);
+    // The leaf is already queued when resolving 3 discovers that 5 needs
+    // resolving too. Its new font must reach 6 before 6 resolves its width.
+    assert_eq!(
+        relative_work(|| {
+            k.apply(
+                0,
+                2,
+                &[
+                    relative_style(6, &[(StyleId::Width, "2em")]),
+                    relative_style(1, &[(StyleId::FontSize, "12px")]),
+                ],
+            )
+            .unwrap();
+        }),
+        3
+    );
+    assert_eq!(k.node(3).unwrap().style.font_size, 24.0);
+    assert_eq!(k.node(5).unwrap().style.font_size, 72.0);
+    assert_eq!(
+        k.node(6).unwrap().style.width,
+        crate::Dimension::Points(144.0)
+    );
+    assert_eq!(
+        k.node(9).unwrap().style.width,
+        crate::Dimension::Points(80.0)
+    );
+    assert_eq!(
+        relative_work(|| {
+            k.apply(0, 3, &[children(7, &[8, 3])]).unwrap();
+        }),
+        3
+    );
+    assert_eq!(k.node(3).unwrap().style.font_size, 80.0);
+    assert_eq!(
+        k.node(6).unwrap().style.width,
+        crate::Dimension::Points(480.0)
+    );
+    assert_eq!(
+        relative_work(|| {
+            k.apply(0, 4, &[children(7, &[8]), Op::AttachRoot { id: 3 }])
+                .unwrap();
+        }),
+        3
+    );
+    assert_eq!(k.node(3).unwrap().style.font_size, 32.0);
+    assert_eq!(
+        k.node(6).unwrap().style.width,
+        crate::Dimension::Points(192.0)
+    );
+}
+
+#[test]
+fn pending_relative_rows_do_not_survive_removal_or_slot_reuse() {
+    let mut k = kernel(&create([1, 2], NodeType::View));
+    assert_eq!(
+        relative_work(|| {
+            k.apply(
+                0,
+                2,
+                &[
+                    relative_style(1, &[(StyleId::Width, "1em")]),
+                    Op::ClearStyle {
+                        id: 1,
+                        mask: crate::StyleMask::of(StyleId::Width),
+                        written: false,
+                    },
+                    relative_style(2, &[(StyleId::Width, "1em")]),
+                    Op::DestroyView { id: 2 },
+                    Op::CreateView {
+                        id: 3,
+                        node_type: NodeType::View,
+                    },
+                    relative_style(3, &[(StyleId::Width, "2rem")]),
+                ],
+            )
+            .unwrap();
+        }),
+        1
+    );
+    assert_eq!(k.node(1).unwrap().style.width, crate::Dimension::Auto);
+    assert_eq!(
+        k.node(3).unwrap().style.width,
+        crate::Dimension::Points(32.0)
+    );
+    assert_eq!(
+        relative_work(|| {
+            k.apply(0, 3, &[]).unwrap();
+        }),
+        0
+    );
+}
+
 /// `color` on `id`, written by its author or implied by the compiler.
 fn colour(id: u32, value: &str, written: bool) -> Op {
     let mut patch = StyleProps::default();
@@ -47,7 +418,7 @@ fn colour(id: u32, value: &str, written: bool) -> Op {
     }
 }
 
-/// "written" is a fact each row carries. A patch says it
+/// LLP 1115.000 D2: "written" is a fact each row carries. A patch says it
 /// for each row it sets, the node keeps it beside the row, and a child that
 /// only inherits the value has no row and so no bit.
 #[test]
@@ -319,6 +690,55 @@ fn moving_or_destroying_many_children_is_linear_in_them() {
         assert!(engine_matches);
         assert_eq!(k.live_count(), 3);
     }
+}
+
+/// Destroying a subtree once grouped its departing selector names by
+/// inserting each into a sorted vector, which moved the vector's tail for
+/// every name that arrived before the last: N²/2 moves when the names
+/// descend (40,000 children: 682 ms, release). Destroying one parent of
+/// 40,000 children takes about as long in either order.
+#[test]
+fn destroying_a_subtree_takes_as_long_whatever_its_selector_names_order() {
+    let n = 40_000u32;
+    let destroy = |descending: bool| {
+        let kids: Vec<u32> = (10..10 + n).collect();
+        let mut ops = create([1], NodeType::View);
+        ops.extend(create(kids.iter().copied(), NodeType::View));
+        for (i, &id) in kids.iter().enumerate() {
+            let rank = if descending { n as usize - i } else { i };
+            let name = format!("row-{rank:08}");
+            // Every hundredth child shares one test id; every tenth also
+            // carries an `id`.
+            if i % 100 == 0 {
+                ops.push(prop(id, PropId::TestId, "shared"));
+            } else {
+                ops.push(prop(id, PropId::TestId, &name));
+            }
+            if i % 10 == 0 {
+                ops.push(prop(id, PropId::Id, &name));
+            }
+        }
+        ops.extend([children(1, &kids), Op::AttachRoot { id: 1 }]);
+        let mut k = kernel(&ops);
+        assert_eq!(k.find_by_test_id("shared").len(), n as usize / 100);
+        let start = std::time::Instant::now();
+        let receipt = k.apply(0, 2, &[Op::DestroyView { id: 1 }]).unwrap();
+        let elapsed = start.elapsed();
+        assert_eq!(receipt.destroyed.len(), n as usize + 1);
+        assert_eq!(k.live_count(), 0);
+        assert!(k.find_by_test_id("shared").is_empty());
+        for rank in [1, 5, n as usize - 10, n as usize - 1] {
+            let name = format!("row-{rank:08}");
+            assert!(k.find_by_test_id(&name).is_empty(), "{name}");
+            assert!(k.find_by_id(&name).is_empty(), "{name}");
+        }
+        elapsed
+    };
+    let (up, down) = (destroy(false), destroy(true));
+    assert!(
+        down < up * 2 + std::time::Duration::from_millis(100),
+        "descending names took {down:?}, ascending {up:?}"
+    );
 }
 
 /// The batched detach against what one op at a time built: destroys
@@ -749,7 +1169,7 @@ fn continuation_resynchronizes_text_created_in_an_earlier_phase() {
     }
 }
 
-/// A node's looks hold the look rows only, set or
+/// @ref LLP 1121 D8 — a node's looks hold the look rows only, set or
 /// cleared (a written-only `width` is refused, as a set one is), each state
 /// once; they go with the node.
 #[test]

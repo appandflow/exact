@@ -1,4 +1,4 @@
-// A package feeds a canvas: what its implementation
+// A package feeds a canvas (LLP 1133.013 D6): what its implementation
 // writes into a surface's input (`ExactSurfaceInput`, through the host
 // table's `surface_sensor`) waits here until the next display frame, which
 // delivers every sample since the last, in order, to the live canvas of

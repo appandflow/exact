@@ -1,4 +1,4 @@
-# The Markdown reader's parser: text to ordered blocks and styled
+# The Markdown reader's parser (LLP 1033): text to ordered blocks and styled
 # runs, plus the one conversion into the plan's values. Shared by both
 # readers — `apps/markdown` opens a file, `apps/llp` a directory of them.
 [package]

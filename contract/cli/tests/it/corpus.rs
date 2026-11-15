@@ -1,4 +1,4 @@
-//! The corpus: every accept fixture compiles byte-identically,
+//! The corpus (LLP 1004 D6): every accept fixture compiles byte-identically,
 //! round-trips, and runs; every reject fixture is refused with exactly its id.
 
 use exact_kernel::{Dimension, Kernel, NodeType, PropId};
@@ -38,11 +38,17 @@ fn symbols_admit_roles_and_opaque_sf_names_but_refuse_misspelled_roles() {
         "cart",
         "sort",
         "filter",
+        "bag",
+        "bag-fill",
+        "phone",
+        "smartphone",
+        "article",
+        "radio",
     ] {
         contract::compile(&format!("component App\n  view\n    image \"symbol:{role}\" -exact-tint-color=\"light-dark(#123456,#abcdef)\"\n")).unwrap();
     }
     contract::compile("component App\n  state selected = true\n  view\n    button role=\"tab\" aria-selected=selected\n      text \"Questions\"\n").unwrap();
-    // An empty name is no symbol, as an empty `sf/` one is (see
+    // An empty name is no symbol, as an empty `sf/` one is (stage 9 H,
     // vocab.rs's an_empty_symbol_name_is_no_symbol).
     for role in [
         "Search",
@@ -56,7 +62,7 @@ fn symbols_admit_roles_and_opaque_sf_names_but_refuse_misspelled_roles() {
         ))
         .unwrap_err();
         assert!(error.to_string().contains("not a role"), "{error}");
-        // After the roles, the form that names any SF Symbol.
+        // LLP 1116 D8: after the roles, the form that names any SF Symbol.
         let sf = format!("`symbol:sf/{role}`");
         assert!(
             error.message.contains("`symbol:sf/<name>`") && error.message.contains(&sf),
@@ -290,7 +296,7 @@ fn state_initializers_keep_earlier_bindings_after_local_shadowing() {
 #[test]
 fn state_initializers_refuse_later_names_and_leaked_locals() {
     for (declarations, id, line) in [
-        // A later state is named as one.
+        // LLP 1088 D4: a later state is named as one.
         (
             "  state next = later\n  state later = 1\n",
             "type-initializer-scope",
@@ -313,8 +319,8 @@ fn state_initializers_refuse_later_names_and_leaked_locals() {
         assert_eq!(error.id, id, "{source}");
         assert_eq!(error.span.line, line, "{source}");
     }
-    // A mutation and an action of one name. The message says the kinds share
-    // their names.
+    // The survey diary: a mutation and an action of one name. The message
+    // says the kinds share their names.
     let source = "shape Ok\n  ok: bool\ncomponent App\n  mutation exported as shape Ok\n  action exported\n    exported = none\n  view\n    text \"value\"\n";
     let error = contract::compile(source).unwrap_err();
     assert_eq!(error.id, "type-duplicate-name", "{error}");
@@ -350,10 +356,11 @@ fn button_primary_text_is_a_real_accessible_text_child() {
     assert_eq!(label.props.str(PropId::Text), Some("Post"));
 }
 
-/// A `button` is Chrome's `<button>`: a block with the UA sheet's
-/// `text-align: center` whose content the kernel centres in its height. An
-/// author's `display` makes a CSS flex row or a grid, and an author's own
-/// row wins, as on any tag.
+/// A `button` is Chrome's `<button>` (Charlie, 2026-10-04, reversing
+/// 2026-09-23's "One native button, flex column"; LLP 1001 §1): a block with
+/// the UA sheet's `text-align: center` whose content the kernel centres in
+/// its height. An author's `display` makes a CSS flex row or a grid, and an
+/// author's own row wins, as on any tag.
 #[test]
 fn a_button_is_chromes_button_whose_rows_an_author_overrides() {
     let src = "component App\n  state n = 0\n  action bump\n    n = n + 1\n  view\n    column\n      button \"Save\" appearance=\"none\" press=bump height=40 testId=\"save\"\n      button appearance=\"none\" press=bump display=\"flex\" text-align=\"start\" testId=\"row\"\n        text \"Row\"\n";
@@ -538,7 +545,7 @@ fn the_now_screen_fixture_compiles_and_behaves_like_the_hand_built_plan() {
         "/",
     )
     .unwrap();
-    // Bake records exactly the arguments this unchanged boot evaluates.
+    // @ref LLP 1038 D5 — bake records exactly the arguments this unchanged boot evaluates.
     for row in &r.plan().resources {
         let name = r.plan().str(row.name);
         assert_eq!(
@@ -600,10 +607,10 @@ fn the_now_screen_fixture_compiles_and_behaves_like_the_hand_built_plan() {
     assert_eq!(r.take_commands()[0].name, "setScheme");
 }
 
-/// A module tag's prop named like an SVG element's own attribute (`fx`) is
-/// the module's, and a name refused for what it means elsewhere (a renamed
-/// spelling, another element's attribute, an event) says to give the module
-/// prop another name.
+/// LLP 1024 D1: a module tag's prop named like an SVG element's own
+/// attribute (`fx`) is the module's, and a name refused for what it means
+/// elsewhere (a renamed spelling, another element's attribute, an event)
+/// says to give the module prop another name.
 #[test]
 fn a_module_tag_keeps_svg_names_and_names_the_fix_for_known_ones() {
     let src = "component A\n  view\n    step-strip testId=\"strip\" width=320 fx=\"bloom\" offset=\"2\"\n";
@@ -656,9 +663,9 @@ fn a_module_tag_keeps_svg_names_and_names_the_fix_for_known_ones() {
     );
 }
 
-/// A module tag's leftover attributes are its props, one object; a known row
-/// its box never uses is refused by name instead of being bound to nothing,
-/// and a class's rows on the tag stay the style's.
+/// LLP 1024 D1: a module tag's leftover attributes are its props, one
+/// object; a known row its box never uses is refused by name instead of
+/// being bound to nothing, and a class's rows on the tag stay the style's.
 #[test]
 fn a_module_tag_keeps_its_props_and_refuses_a_rows_name() {
     let src = "component A\n  state dark = true\n  view\n    ghostty-terminal testId=\"term\" width=320 height=200 scheme=(dark ? \"dark\" : \"light\") cwd=\"/tmp\" mode=\"x\" font-size=13\n";
@@ -675,8 +682,8 @@ fn a_module_tag_keeps_its_props_and_refuses_a_rows_name() {
         ("placeholder=\"x\"", "a form control's prop"),
         ("autofocus=true", "a form control's prop"),
         ("color=\"#fff\"", "a text row"),
-        // An allow-list: a `command` prop would set a host command the
-        // module never saw.
+        // LLP 1088 D7.2: an allow-list — paint F7's `command` set a host
+        // command the module never saw.
         ("command=\"zoom\"", "another element's attribute"),
         ("href=\"/x\"", "another element's attribute"),
     ] {
@@ -713,7 +720,7 @@ fn a_module_tag_keeps_its_props_and_refuses_a_rows_name() {
     );
     assert_eq!(node.style.width, Dimension::Points(320.0));
     // `disabled` and `inert` are the box's (the module's interaction
-    // suppression reads them), never a module prop.
+    // suppression reads them, LLP 1088 D7.2), never a module prop.
     let src = "component A\n  view\n    ghostty-terminal testId=\"term\" mode=\"x\" disabled=true inert=true\n";
     let r = Runner::boot(
         contract::compile(src).unwrap_or_else(|e| panic!("{e}")),
@@ -761,7 +768,7 @@ fn the_iframe_fixture_lowers_and_records_its_events() {
     assert_eq!(node.node_type, NodeType::WebView);
     assert_eq!(node.props.str(PropId::Src), Some("/deck/index.html"));
     assert_eq!(node.props.str(PropId::Sandbox), Some("allow-scripts"));
-    // 300×150 is the default object size, not authored rows:
+    // 300×150 is the default object size, not authored rows (LLP 1001 §1):
     // a stretching column widens the iframe and leaves it 150 tall, as
     // Chrome lays out an <iframe> in a flex column.
     assert_eq!(node.style.width, Dimension::Auto);
@@ -779,7 +786,7 @@ fn the_iframe_fixture_lowers_and_records_its_events() {
     assert_eq!(r.slot("received"), Some(&Value::str("deck-ready")));
 }
 
-/// HTML `<img>`'s `load` and `error`: `load` carries nothing,
+/// HTML `<img>`'s `load` and `error` (LLP 1011 §2): `load` carries nothing,
 /// `error` the reason the host gives; `load` stays an `iframe`'s and an
 /// `image`'s.
 #[test]
@@ -928,7 +935,7 @@ fn content_sized_composer_grows_wraps_and_stops_at_its_maximum() {
         ),
     )
     .unwrap();
-    // No compiled field sheet adds padding or border.
+    // No compiled field sheet adds padding or border (LLP 1104 r8 D1).
     assert_eq!(height(&mut r), 88.0);
     assert_eq!(
         r.kernel().node_by_key(fixed).unwrap().frame.height,
@@ -1006,7 +1013,7 @@ fn scroll_events_append_two_numeric_offsets_after_authored_arguments() {
 }
 
 /// An action taking one more parameter hears the scroller's extents, the
-/// web's `Element` fields, so "at the end" is the web's arithmetic.
+/// web's `Element` fields, so "at the end" is the web's arithmetic (chat F4).
 #[test]
 fn a_scroll_action_taking_one_more_parameter_hears_the_scroll_event() {
     let src = r#"component App
@@ -1259,8 +1266,8 @@ fn the_motion_fixtures_after_task_fires_once_and_its_timer_is_then_spent() {
     assert_eq!(r.advance(2_500.0).unwrap().len(), 2);
 }
 
-// `every(frame, a)` lowers to a frame timer: the frame source's, never a
-// deadline; each seek fires its virtual frames.
+// @ref LLP 1073 D1, D4 — `every(frame, a)` lowers to a frame timer: the
+// frame source's, never a deadline; each seek fires its virtual frames.
 #[test]
 fn every_frame_lowers_to_a_frame_timer_the_frame_source_drives() {
     let plan = contract::compile(
@@ -1430,7 +1437,7 @@ fn deep_expressions_are_refused_by_name_on_a_small_stack() {
         (app(chain(200_000)), Some("more than 100 operations deep")),
         (app(nested(100_000)), Some("nest more than 64")),
         (
-            app(format!("{}n", "-".repeat(100_000))),
+            app(format!("{}n", "- ".repeat(100_000))),
             Some("nest more than 64"),
         ),
         (

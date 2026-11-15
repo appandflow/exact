@@ -1,5 +1,5 @@
 {
-  "about": "Where each value of the schema's Material column comes from in Compose Material 3 at the pinned version, by symbol, never by line. `token`: a generated token (a shape's `corner` names which); `defaults`: a public `*Defaults` member, as the reference reads it at run time (`InputsTest`, `defaults.json`); `source`: a constant declared in a library file; `computed`: an expression of tokens, where the library computes it. `tokens.mjs` checks each against the schema.",
+  "about": "LLP 1115.001.001 D2.4: where each value of the schema's Material column comes from in Compose Material 3 at the pinned version, by symbol, never by line. `token`: a generated token (a shape's `corner` names which); `defaults`: a public `*Defaults` member, as the reference reads it at run time (`InputsTest`, `defaults.json`); `source`: a constant declared in a library file; `computed`: an expression of tokens, where the library computes it. `tokens.mjs` checks each against the schema.",
   "rows": {
     "field-height": { "defaults": "TextFieldDefaults.MinHeight" },
     "field-corner": { "token": "FilledTextFieldTokens.ContainerShape", "corner": "topStart" },
@@ -28,7 +28,7 @@
     "mark-size": {
       "source": "Checkbox.kt",
       "expr": "CheckboxSize + 2 * CheckboxDefaultPadding",
-      "in": "a checkbox's and a radio's box: the drawn control and its own padding, without the 48 dp floor; RadioButton.kt pads its 20 dp by RadioButtonPadding, 2 dp, alike"
+      "in": "a checkbox's and a radio's box: the drawn control and its own padding, without the 48 dp floor (LLP 1115.001.001 §5 Q5); RadioButton.kt pads its 20 dp by RadioButtonPadding, 2 dp, alike"
     },
     "filled-button-height": { "defaults": "ButtonDefaults.MinHeight" },
     "filled-button-min-width": { "defaults": "ButtonDefaults.MinWidth" },
@@ -36,6 +36,15 @@
     "filled-button-padding-block": { "defaults": "ButtonDefaults.ContentPadding.top" },
     "filled-button-disabled-container": { "token": "FilledButtonTokens.DisabledContainerOpacity" },
     "filled-button-disabled-label": { "token": "FilledButtonTokens.DisabledLabelTextOpacity" },
+    "segmented-button-height": { "token": "OutlinedSegmentedButtonTokens.ContainerHeight" },
+    "segmented-button-min-width": { "defaults": "ButtonDefaults.MinWidth" },
+    "segmented-button-padding-inline": { "defaults": "SegmentedButtonDefaults.ContentPadding.start" },
+    "segmented-button-padding-block": { "defaults": "SegmentedButtonDefaults.ContentPadding.top" },
+    "segmented-button-outline": { "token": "OutlinedSegmentedButtonTokens.OutlineWidth" },
+    "segmented-button-icon": { "token": "OutlinedSegmentedButtonTokens.IconSize" },
+    "segmented-button-icon-gap": { "source": "SegmentedButton.kt", "name": "IconSpacing" },
+    "segmented-button-disabled-outline": { "token": "OutlinedSegmentedButtonTokens.DisabledOutlineOpacity" },
+    "segmented-button-disabled-label": { "token": "OutlinedSegmentedButtonTokens.DisabledLabelTextOpacity" },
     "checkbox-corner": { "source": "Checkbox.kt", "name": "RadiusSize" },
     "checkbox-stroke": { "defaults": "CheckboxDefaults.StrokeWidth" },
     "checkbox-disabled-opacity": { "token": "CheckboxTokens.SelectedDisabledContainerOpacity" },

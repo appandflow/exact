@@ -1,4 +1,4 @@
-//! Bold Text weights the system font one step, as
+//! LLP 1115.000 D12.3: Bold Text weights the system font one step, as
 //! UIKit's does, where each host measures and paints it. Its own process:
 //! the column is the process's.
 use exact_kernel::style::metrics::{set_column, Column};
@@ -13,7 +13,7 @@ impl DataSource for NoData {
     }
 }
 
-/// Bold Text weights the system font one step, as
+/// LLP 1115.000 D12.3: Bold Text weights the system font one step, as
 /// UIKit's does (400 to 600, 600 to 800), an authored weight included, and
 /// leaves a family the app names alone; turned off, the weights come back.
 #[test]

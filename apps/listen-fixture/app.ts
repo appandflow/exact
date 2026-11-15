@@ -1,4 +1,4 @@
-// The local listener's fixture: `exactListen`
+// The local listener's fixture (LLP 1133.005 §10 step 6): `exactListen`
 // on a `unix:` path, each line echoed on its own connection by the mapper;
 // `later` kept for a mutation to answer, `bye` ending the connection.
 import type { Answer, Result } from './app.contract.d.ts';

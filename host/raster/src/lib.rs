@@ -1,4 +1,4 @@
-//! Native raster ownership, shared by Apple and Linux.
+//! Native raster ownership (LLP 1010 §6.3), shared by Apple and Linux.
 //!
 //! Keep one [`RasterSession`] across active/candidate/retiring app generations.
 //! Native codecs and the two process workers remain in the adapters. Requests

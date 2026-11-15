@@ -3,84 +3,64 @@ use super::*;
 use crate::host::Restyle;
 
 impl<D: DataSource> Bridge<D> {
-    /// What native containers cover of boxes, from the input buffer's first
-    /// `len` bytes: LE records of (u32 view, u32 kind — 0 clears, 1 edges, 2
-    /// whole, 3 a scroller's platform inset (top and bottom) — and f32 top,
-    /// right, bottom, left), one layout. And the containing blocks they give
-    /// subtrees: kind 4 with f32 width, height and, for each, 0 for a size, 1
-    /// for a maximum, 2 for a content-fit limit that an authored size may
-    /// exceed, or 3 for a position-area's region (`BlockAxis::Region`); kind 5
-    /// takes a block back. Kinds 6 and 13 place a block: f32 x, y, width,
-    /// height, then the u32 containing view and f32 content offsets x and y
-    /// (36 bytes). Kind 6 is a fixed allocation and ignores the offsets; kind
-    /// 13 is a scrollport, including at offset zero. Kind 7 forgets either
-    /// placement. Kind 8 reports UIKit's grouped-list card and cell margins:
-    /// f32 the card's left and right insets, then the cell's left and right
-    /// margins; kind 9 clears them. Kind 12 reports scrollbar gutters in the
-    /// right and bottom fields. Kind 14 shows a split's own placeholder
-    /// (`Runner::show_split_placeholder`) and kind 15 hides it again; their
-    /// four floats are unused. Kind 16 is the border box a person dragged the
-    /// box's `resize` grip to (`Runner::resize_box`): f32 width and height, a
-    /// NaN keeping that axis, and two unused.
+    /// A collection's nearest logical row snap position; NaN when absent
+    /// (`Runner::collection_snap`).
+    pub fn collection_snap(&self, view: u32, geometry: [f64; 5]) -> f64 {
+        self.host
+            .as_ref()
+            .and_then(|h| h.runner().collection_snap(view, geometry))
+            .unwrap_or(f64::NAN)
+    }
+
+    /// A collection's first unmounted `always` snap position past a release
+    /// toward its rest; NaN when absent (`Runner::collection_snap_stop`).
+    pub fn collection_snap_stop(&self, view: u32, travel: [f64; 2], snapport: [f64; 3]) -> f64 {
+        self.host
+            .as_ref()
+            .and_then(|h| h.runner().collection_snap_stop(view, travel, snapport))
+            .unwrap_or(f64::NAN)
+    }
+
+    /// What native containers cover of boxes (LLP 1075.003 §3.5), from the
+    /// input buffer's first `len` bytes: LE records of (u32 view, u32 kind —
+    /// 0 clears, 1 edges, 2 whole, 3 a scroller's platform inset (top and
+    /// bottom) — and f32 top, right, bottom, left), one layout. And the
+    /// containing blocks they give subtrees (LLP 1115.002 D8.2): kind 4
+    /// with f32 width, height and, for each, 0 for a size, 1 for a maximum,
+    /// 2 for a content-fit limit that an authored size may exceed, or 3 for a
+    /// position-area's region (`BlockAxis::Region`);
+    /// then a u32 tactic: four two-bit side indices, top/right/bottom/left
+    /// (28 bytes including view and kind). Kind 5 takes a block back.
+    /// Kinds 6 and 13 place a block (LLP 1123 D2):
+    /// f32 x, y, width, height, then the u32 containing view and f32 content
+    /// offsets x and y (36 bytes). Kind 6 is a fixed allocation and ignores
+    /// the offsets; kind 13 is a scrollport, including at offset zero.
+    /// Kind 7 forgets either placement. Kind 8 reports UIKit's grouped-list
+    /// card and cell margins: f32 the card's left and right
+    /// insets, then the cell's left and right margins; kind 9 clears them.
+    /// Kind 12 reports scrollbar gutters in the right and bottom fields.
+    /// Kind 14 shows a split's own placeholder (LLP 1116.006 D2,
+    /// `Runner::show_split_placeholder`) and kind 15 hides it again; their
+    /// four floats are unused. Kind 16 is the border box a person dragged
+    /// the box's `resize` grip to (`Runner::resize_box`): f32 width and
+    /// height, a NaN keeping that axis, and two unused.
     pub fn covers(&mut self, len: usize) -> u32 {
         let bytes = self.input.get(..len).unwrap_or(&[]);
-        let mut records = Vec::new();
-        let mut rest = bytes;
-        while rest.len() >= 8 {
-            let size = if rest[4..8] == 6u32.to_le_bytes() || rest[4..8] == 13u32.to_le_bytes() {
-                36
-            } else {
-                24
-            };
-            let Some((record, after)) = rest.split_at_checked(size) else {
-                break;
-            };
-            records.push(record);
-            rest = after;
-        }
-        let out = if !rest.is_empty() {
-            self.refusal("covers: truncated record")
-        } else {
-            let (mut covers, mut blocks, mut placements, mut margins, mut lists, mut restyles) = (
-                Vec::new(),
-                Vec::new(),
-                Vec::new(),
-                Vec::new(),
-                Vec::new(),
-                Vec::new(),
-            );
+        let out = if let Ok(records) = records(bytes) {
+            let (mut covers, mut margins, mut lists, mut restyles) =
+                (Vec::new(), Vec::new(), Vec::new(), Vec::new());
+            let mut locals = Vec::new();
+            let mut owners = BlockChanges::default();
             for r in records {
+                match owners.push(r) {
+                    Ok(true) => continue,
+                    Ok(false) => {}
+                    Err(why) => return self.refuse(why),
+                }
                 let word = |i: usize| [r[i], r[i + 1], r[i + 2], r[i + 3]];
                 let edge = |i: usize| f32::from_le_bytes(word(i));
                 let (view, kind) = (u32::from_le_bytes(word(0)), u32::from_le_bytes(word(4)));
-                let axis = |length: usize, policy: usize| block_axis(edge(length), edge(policy));
                 match kind {
-                    4 | 5 => {
-                        let block = exact_kernel::HostBlock {
-                            width: axis(8, 16),
-                            height: axis(12, 20),
-                        };
-                        blocks.push((view, (kind == 4).then_some(block)));
-                        if kind == 5 {
-                            placements.push((view, None));
-                        }
-                    }
-                    6 | 13 => {
-                        let rect = [8, 12, 16, 20].map(|i| f64::from(edge(i)));
-                        let offset = [f64::from(edge(28)), f64::from(edge(32))];
-                        if !offset.iter().all(|value| value.is_finite()) {
-                            continue;
-                        }
-                        placements.push((
-                            view,
-                            Some((
-                                rect,
-                                u32::from_le_bytes(word(24)),
-                                (kind == 13).then_some(offset),
-                            )),
-                        ));
-                    }
-                    7 => placements.push((view, None)),
                     8 => margins.push((
                         view,
                         Some(exact_kernel::GroupedMargins {
@@ -94,6 +74,13 @@ impl<D: DataSource> Bridge<D> {
                         let axis = |i: usize| Some(edge(i)).filter(|v| !v.is_nan());
                         restyles.push((view, Restyle::Size([axis(8), axis(12)])));
                     }
+                    // A content owner's local insets, or the session root's
+                    // (LLP 1123 D9): set, or taken back
+                    17 | 19 => locals.push((
+                        (kind == 17).then_some(view),
+                        Some([edge(8), edge(12), edge(16), edge(20)]),
+                    )),
+                    18 | 20 => locals.push(((kind == 18).then_some(view), None)),
                     10 => lists.push((view, Some([edge(8), edge(12)]))),
                     11 => lists.push((view, None)),
                     1 => {
@@ -113,20 +100,43 @@ impl<D: DataSource> Bridge<D> {
                 }
             }
             self.host.as_mut().map_or_else(not_booted, |h| {
-                h.set_claims(&covers, &blocks, &placements, &margins, &lists, &restyles)
+                h.set_claims(
+                    &covers,
+                    &owners.blocks,
+                    &owners.placements,
+                    &margins,
+                    &lists,
+                    &restyles,
+                    &locals,
+                )
             })
+        } else {
+            self.refusal("covers: truncated record")
         };
         self.emit(out)
     }
 
     /// What `view`'s subtree would measure in a block (`Kernel::measure_block`,
-    /// a popover's position-area option): the border box's width and height,
-    /// then the margins, top, right, bottom and left, as the layout resolved
-    /// them, six LE f32s in the output buffer, and 24; 0 when refused. Each axis is a
+    /// a pane's fitting proposal or a popover's position-area option): the used
+    /// width and height, the border box's width and height, then the margins,
+    /// top, right, bottom and left, as the layout resolved them. Eight LE f32s
+    /// in the output buffer, and 32; 0 when refused. Each axis is a
     /// length and a policy as `covers`' kind 4 takes them, 3 being a region.
+    /// The tactic is the side permutation in kind 4's final word.
     /// No batch: nothing is laid out, published or sent.
-    pub fn measure_block(&mut self, view: u32, lengths: [f32; 2], policies: [u32; 2]) -> u32 {
+    pub fn measure_block(
+        &mut self,
+        view: u32,
+        lengths: [f32; 2],
+        policies: [u32; 2],
+        tactic: u32,
+    ) -> u32 {
+        self.output.clear();
+        let Some(tactic) = block_tactic(tactic) else {
+            return 0;
+        };
         let block = exact_kernel::HostBlock {
+            tactic,
             width: block_axis(lengths[0], policies[0] as f32),
             height: block_axis(lengths[1], policies[1] as f32),
         };
@@ -136,10 +146,12 @@ impl<D: DataSource> Bridge<D> {
             .and_then(|h| h.measure_block(view, block));
         self.output = used.map_or_else(Vec::new, |m| {
             let [top, right, bottom, left] = m.margin;
-            [m.border.0, m.border.1, top, right, bottom, left]
-                .iter()
-                .flat_map(|v| v.to_le_bytes())
-                .collect()
+            [
+                m.used.0, m.used.1, m.border.0, m.border.1, top, right, bottom, left,
+            ]
+            .iter()
+            .flat_map(|v| v.to_le_bytes())
+            .collect()
         });
         self.output.len() as u32
     }
@@ -185,6 +197,7 @@ impl<D: DataSource> Bridge<D> {
                     exact_kernel::TextMetrics {
                         width: metrics.width,
                         height: metrics.height,
+                        pending: false,
                         first_baseline: (metrics.baseline >= 0. || !metrics.baseline.is_finite())
                             .then_some(metrics.baseline),
                     },
@@ -268,7 +281,7 @@ impl<D: DataSource> Bridge<D> {
         }
     }
 
-    /// `key\nblock\ninline` in the input buffer; the key may hold a newline.
+    /// `key\nblock\ninline` in the input buffer (LLP 1070.000 §5); the key may hold a newline.
     pub fn into_view(&mut self, view: u32, len: usize) -> u32 {
         let text = String::from_utf8_lossy(self.input.get(..len).unwrap_or(&[])).into_owned();
         let mut parts = text.rsplitn(3, '\n');
@@ -292,5 +305,91 @@ fn block_axis(length: f32, policy: f32) -> exact_kernel::BlockAxis {
         2.0 => exact_kernel::BlockAxis::Fit(length),
         3.0 => exact_kernel::BlockAxis::Region(length),
         _ => exact_kernel::BlockAxis::AtMost(length),
+    }
+}
+
+/// Four two-bit physical side indices, least significant first.
+fn block_tactic(bits: u32) -> Option<exact_kernel::position_try::BlockTactic> {
+    if bits > 255 {
+        return None;
+    }
+    exact_kernel::position_try::BlockTactic::from_sides(std::array::from_fn(|i| {
+        ((bits >> (2 * i)) & 3) as u8
+    }))
+}
+
+/// Shared record boundaries for covers and a viewport's owner changes.
+pub(super) fn records(bytes: &[u8]) -> Result<Vec<&[u8]>, &'static str> {
+    let mut records = Vec::new();
+    let mut rest = bytes;
+    while rest.len() >= 8 {
+        let size = match u32::from_le_bytes(rest[4..8].try_into().unwrap()) {
+            4 => 28,
+            6 | 13 => 36,
+            _ => 24,
+        };
+        let Some((record, after)) = rest.split_at_checked(size) else {
+            return Err("covers: truncated record");
+        };
+        records.push(record);
+        rest = after;
+    }
+    if rest.is_empty() {
+        Ok(records)
+    } else {
+        Err("covers: truncated record")
+    }
+}
+
+#[derive(Default)]
+pub(super) struct BlockChanges {
+    pub blocks: Vec<(u32, Option<exact_kernel::HostBlock>)>,
+    pub placements: Vec<(u32, Option<exact_runner::BlockPlacement>)>,
+}
+
+impl BlockChanges {
+    /// Whether this record is an owner allocation or placement; an error
+    /// for a block whose try tactic is no side permutation.
+    pub fn push(&mut self, r: &[u8]) -> Result<bool, &'static str> {
+        let word = |i: usize| [r[i], r[i + 1], r[i + 2], r[i + 3]];
+        let edge = |i: usize| f32::from_le_bytes(word(i));
+        let (view, kind) = (u32::from_le_bytes(word(0)), u32::from_le_bytes(word(4)));
+        let axis = |length: usize, policy: usize| block_axis(edge(length), edge(policy));
+        match kind {
+            4 | 5 => {
+                let tactic = if kind == 4 {
+                    block_tactic(u32::from_le_bytes(word(24))).ok_or("block: invalid try tactic")?
+                } else {
+                    Default::default()
+                };
+                let block = exact_kernel::HostBlock {
+                    tactic,
+                    width: axis(8, 16),
+                    height: axis(12, 20),
+                };
+                self.blocks.push((view, (kind == 4).then_some(block)));
+                if kind == 5 {
+                    self.placements.push((view, None));
+                }
+            }
+            6 | 13 => {
+                let rect = [8, 12, 16, 20].map(|i| f64::from(edge(i)));
+                let offset = [f64::from(edge(28)), f64::from(edge(32))];
+                if !offset.iter().all(|value| value.is_finite()) {
+                    return Ok(true);
+                }
+                self.placements.push((
+                    view,
+                    Some((
+                        rect,
+                        u32::from_le_bytes(word(24)),
+                        (kind == 13).then_some(offset),
+                    )),
+                ));
+            }
+            7 => self.placements.push((view, None)),
+            _ => return Ok(false),
+        }
+        Ok(true)
     }
 }

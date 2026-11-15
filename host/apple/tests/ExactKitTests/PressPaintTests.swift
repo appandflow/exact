@@ -7,7 +7,7 @@ import AppKit
 import XCTest
 @testable import ExactKit
 
-/// The author's pressed paint on UIKit and AppKit: while a
+/// The author's pressed paint (LLP 1061 D7) on UIKit and AppKit: while a
 /// node is pressed it shows its `press_opacity` as an additive fade, its
 /// `press_background_color` in place of its own, and its `press_color` as
 /// the text colour of its subtree (not of a text with a colour of its own);
@@ -107,6 +107,88 @@ final class PressPaintTests: XCTestCase {
         XCTAssertEqual(keeps.style["text_color"], ink(green))
     }
 
+    func testABatchUnderTheReleasedNodeEndsItsCrossFade() throws {
+        try XCTSkipIf(ExactEnv.agentFreezes, "the agent's frozen clock shows the paint at once")
+        let (p, v) = try fixture(["press_background_color": navy])
+        p.apply(wireBatch([
+            ["op": "create", "id": 4, "kind": "view", "style": ["background_color": green]],
+            ["op": "roots", "ids": [1, 4]],
+            ["op": "frame", "id": 4, "x": 50.0, "y": 200.0, "w": 200.0, "h": 40.0],
+        ]))
+        v.pressed = true
+        v.press.start -= 1; v.pressPaint.at -= 1 // released a moment later
+        v.pressed = false
+        XCTAssertNotNil(layer(v)?.animation(forKey: kCATransition), "the colours fade back")
+        p.apply(wireBatch([["op": "frame", "id": 4, "x": 50.0, "y": 210.0, "w": 200.0, "h": 40.0]]))
+        XCTAssertNotNil(layer(v)?.animation(forKey: kCATransition), "a batch elsewhere leaves it")
+        p.apply(wireBatch([
+            ["op": "props", "id": 2, "props": ["text": "Following"]],
+        ]))
+        XCTAssertNil(layer(v)?.animation(forKey: kCATransition), "the new content shows at once")
+    }
+
+    private func releaseWithFade(_ node: NodeView) throws {
+        try XCTSkipIf(ExactEnv.agentFreezes, "the frozen clock shows paint at once")
+        node.pressed = true
+        node.press.start -= 1; node.pressPaint.at -= 1
+        node.pressed = false
+        XCTAssertNotNil(layer(node)?.animation(forKey: kCATransition))
+    }
+
+    func testAnOriginOnlyMoveKeepsTheFadeButAResizeEndsIt() throws {
+        let (p, v) = try fixture(["press_background_color": navy])
+        try releaseWithFade(v)
+        p.apply(wireBatch([["op": "frame", "id": 1, "x": 30.0, "y": 80.0, "w": 200.0, "h": 100.0]]))
+        XCTAssertNotNil(layer(v)?.animation(forKey: kCATransition), "the snapshot moves with the unchanged button")
+        p.apply(wireBatch([["op": "frame", "id": 1, "x": 30.0, "y": 80.0, "w": 220.0, "h": 100.0]]))
+        XCTAssertNil(layer(v)?.animation(forKey: kCATransition), "the old size must not ghost")
+    }
+
+    func testAnOriginOnlyChildMoveEndsOnlyTheAncestorFade() throws {
+        let (p, v) = try fixture(["press_background_color": navy])
+        p.apply(wireBatch([
+            ["op": "create", "id": 4, "kind": "view", "handlers": ["press"],
+             "style": ["background_color": blue, "press_background_color": navy]],
+            ["op": "children", "id": 1, "ids": [2, 3, 4]],
+            ["op": "frame", "id": 4, "x": 0.0, "y": 40.0, "w": 20.0, "h": 20.0],
+        ]))
+        let child = try XCTUnwrap(p.views[4])
+        try releaseWithFade(v)
+        try releaseWithFade(child)
+        p.apply(wireBatch([["op": "frame", "id": 4, "x": 40.0, "y": 40.0, "w": 20.0, "h": 20.0]]))
+        XCTAssertNil(layer(v)?.animation(forKey: kCATransition), "the ancestor snapshot holds the child's old position")
+        XCTAssertNotNil(layer(child)?.animation(forKey: kCATransition), "the child's snapshot moves with it")
+    }
+
+    func testAnSVGOnlyChangeEndsTheAncestorFade() throws {
+        let (p, v) = try fixture(["press_background_color": navy])
+        func scene(_ color: [Double]) -> [String: Any] {
+            ["op": "svg", "id": 4, "scene": ["box": [0, 0, 20, 20], "t": [1, 0, 0, 1, 0, 0],
+                "els": [["id": 5, "n": 5, "h": true, "o": 1, "p": [0, 0, 0, 1, 20, 0, 1, 20, 20, 1, 0, 20, 3], "f": color]]]]
+        }
+        p.apply(wireBatch([["op": "create", "id": 4, "kind": "svg"],
+            ["op": "children", "id": 1, "ids": [2, 3, 4]], scene(blue)]))
+        try releaseWithFade(v)
+        p.apply(wireBatch([scene(green)]))
+        XCTAssertNil(layer(v)?.animation(forKey: kCATransition), "an icon-only update must not ghost")
+    }
+
+    #if os(iOS)
+    func testAFlatChildOnlyChangeEndsTheAncestorFade() throws {
+        let (p, v) = try fixture(["press_background_color": navy])
+        p.apply(wireBatch([["op": "create", "id": 4, "kind": "view", "style": ["background_color": blue]],
+            ["op": "children", "id": 1, "ids": [2, 3, 4]],
+            ["op": "frame", "id": 4, "x": 0.0, "y": 40.0, "w": 20.0, "h": 20.0]]))
+        XCTAssertNil(p.views[4]); XCTAssertTrue(p.flats.isFlat(4))
+        try releaseWithFade(v)
+        p.apply(wireBatch([["op": "style", "id": 4, "style": ["background_color": green]]]))
+        XCTAssertNil(layer(v)?.animation(forKey: kCATransition), "the old indicator must not ghost")
+        try releaseWithFade(v)
+        p.apply(wireBatch([["op": "frame", "id": 4, "x": 40.0, "y": 40.0, "w": 20.0, "h": 20.0]]))
+        XCTAssertNil(layer(v)?.animation(forKey: kCATransition), "moving a flat indicator invalidates its host's snapshot")
+    }
+    #endif
+
     func testADroppedPressColourTakesTheHeldAncestorsColour() throws {
         let (p, outer) = try fixture(["press_color": yellow])
         p.apply(wireBatch([
@@ -177,7 +259,8 @@ final class PressPaintTests: XCTestCase {
     /// An ancestor's quick release (it waits out `PressFeedback.unseen`), with
     /// a descendant pressed inside that wait: the release gives back only the
     /// text colour it lent, not the descendant's own press, which holds while
-    /// it is down, nor a label the descendant's own press colours now.
+    /// it is down, nor a label the descendant's own press colours now (LLP
+    /// 1061 D7, stage 9 G4).
     private func pressedInsideTheWait(_ inner: [String: Any]) throws -> (Presenter, NodeView, NodeView, NodeView) {
         try XCTSkipIf(ExactEnv.agentFreezes, "the agent's frozen clock lets a press go at once")
         let (p, v) = try fixture(["press_background_color": navy, "press_color": yellow])
@@ -504,7 +587,7 @@ final class PressPaintTests: XCTestCase {
         XCTAssertEqual(try XCTUnwrap(fade(v)?.toValue as? Float), -0.6, accuracy: 1e-6)
     }
 
-    /// A platform field's text is its own colour,
+    /// LLP 1115 D4, LLP 1121 D9: a platform field's text is its own colour,
     /// its own press's included, else FieldText: an inherited colour and an
     /// ancestor's press colour never tint it.
     func testAFieldsInkIsItsOwnOrItsOwnPressNeverAnAncestors() throws {
@@ -529,7 +612,10 @@ final class PressPaintTests: XCTestCase {
         XCTAssertTrue(own.showsOwnTextColor, "its own press's colour is its own")
         XCTAssertEqual(rgba(own.fieldInk.cgColor), green)
     }
-    func testAPresslessLinkTracksActivationWithoutShowingActivePaintOrPlatformFeedback() throws {
+    /// A link with no `press` is pressed as CSS's `:active` holds on it
+    /// (LLP 1121 D8): the platform's press where it declares none, its own
+    /// active paint where it does.
+    func testAPresslessLinkShowsItsPressAsALinksActiveDoes() throws {
         let (p, _) = try fixture([:])
         p.apply(wireBatch([
             ["op": "create", "id": 4, "kind": "button", "props": ["href": "/destination"]],
@@ -537,27 +623,25 @@ final class PressPaintTests: XCTestCase {
             ["op": "roots", "ids": [1, 4]]
         ]))
         let link = try XCTUnwrap(p.views[4])
-        for authored in [false, true] {
-            link.applyStyle(authored ? ["press_scale": .number(0.9), "press_background_color": ink(navy)] : [:])
-            link.pressed = true
-            XCTAssertEqual(link.defaultLink, "/destination")
-            XCTAssertEqual(link.press.to, 1)
-            XCTAssertFalse(link.pressPaint.down)
-            #if os(iOS)
-            XCTAssertFalse(link.platformPressDims)
-            XCTAssertNil(link.press.dimmedAt)
-            #else
-            XCTAssertFalse(link.pressTinted)
-            #endif
-            link.pressFollows(inside: true)
-            XCTAssertEqual(link.press.to, 1)
-            XCTAssertFalse(link.pressPaint.down)
-            link.pressed = false
-        }
-        link.handlers = ["press"]
+        XCTAssertEqual(link.defaultLink, "/destination")
         link.pressed = true
-        XCTAssertEqual(link.press.to, 0.9, "a declared handler gets its active feedback")
-        XCTAssertTrue(link.pressPaint.down)
+        XCTAssertFalse(link.pressPaint.down)
+        #if os(iOS)
+        XCTAssertTrue(link.platformPressDims)
+        XCTAssertNotNil(link.press.dimmedAt, "the platform's dim, as a pressable with none of its own")
+        #else
+        XCTAssertTrue(link.pressTinted, "the platform's pressed look")
+        #endif
+        link.pressed = false
+        link.applyStyle(["press_scale": .number(0.9), "press_background_color": ink(navy)])
+        link.pressed = true
+        XCTAssertEqual(link.press.to, 0.9, "its `:active` scale")
+        XCTAssertTrue(link.pressPaint.down, "its `:active` paint")
+        link.pressFollows(inside: false)
+        XCTAssertEqual(link.press.to, 1, "let go while the pointer is outside, as any press")
+        link.pressFollows(inside: true)
+        XCTAssertEqual(link.press.to, 0.9, "and pressed again back inside")
+        link.pressed = false
     }
 
 }

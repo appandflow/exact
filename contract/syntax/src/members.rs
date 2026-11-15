@@ -1,11 +1,11 @@
-//! A component's members written in other files. The parser
+//! A component's members written in other files (LLP 1091.002). The parser
 //! records each `members "…"` line and where it stands; the loader reads the
 //! files, scopes each through its own `use` lines with every member of the
 //! component bound, then splices each file's block in at its line.
 
 use crate::{Component, Span, SyntaxError};
 
-/// A `members "./file.contract"` line in a component's body.
+/// A `members "./file.contract"` line in a component's body (D1).
 #[derive(Debug, Clone, PartialEq)]
 pub struct MembersLine {
     /// The path as written.
@@ -17,7 +17,7 @@ pub struct MembersLine {
 }
 
 /// How many of each kind of member the component declares before a line:
-/// where that file's members are inserted.
+/// where that file's members are inserted (D4).
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub struct Splice {
     /// `state`s before the line.
@@ -54,7 +54,7 @@ impl Splice {
     }
 }
 
-/// A component's members files and the names they share.
+/// A component's members files and the names they share (D5).
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct Members {
     /// Its `members` lines, in order.
@@ -69,7 +69,7 @@ pub struct Members {
 
 /// A refusal the parser cannot decide in a file that is part of a component
 /// across files: whether a method's name (`trim`) is an action, which another
-/// of the component's files may declare. The
+/// of the component's files may declare (LLP 1116.015 D2, 1116.016 D2). The
 /// loader decides it once the component is whole, as the parser would in the
 /// one file the members are pasted into: against the actions of every
 /// component of the file that lists the block, for a call in a block, or of

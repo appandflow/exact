@@ -1,13 +1,13 @@
 // NSURLSessionWebSocketTask behind SocketTransport: the platform half of a
-// WebSocket. The platform owns TLS with the system trust store, proxies,
-// pings and the closing handshake and send queue; Rust owns admission and the
-// message vocabulary.
+// WebSocket (LLP 0057 §3; LLP 0059.000 §3.12). The platform
+// owns TLS with the system trust store, proxies, pings and the closing
+// handshake and send queue; Rust owns admission and the message vocabulary.
 //
 // Each socket has its own ephemeral session (no cookies, no cache) whose
 // delegate refuses redirects: a handshake that redirects fails, as it does in
 // a browser, and the grant was checked for this origin only. Nothing is ever
-// The platform executes; it does not decide.
-// Send does not require replacing the platform task.
+// @ref LLP 0057#3-the-boundary — the platform executes; it does not decide
+// @ref LLP 0057.000#l4--websocket--completed-2026-10-04 — send does not require replacing the platform task
 
 #import <Foundation/Foundation.h>
 #import <Security/Security.h>
@@ -55,6 +55,7 @@ char *dup_utf8(NSString *value) {
 @property(nonatomic, assign) BOOL ended;
 @property(nonatomic, assign) BOOL cancelled;
 @property(nonatomic, assign) BOOL closing;
+@property(nonatomic, assign) BOOL closeCompleted;
 @property(nonatomic, strong) NSString *failure;
 @property(nonatomic, strong) NSString *protocol;
 @property(nonatomic, assign) NSUInteger pendingBytes;
@@ -90,6 +91,7 @@ char *dup_utf8(NSString *value) {
               reason:(NSData *)reason {
   [self.condition lock];
   self.ended = YES;
+  self.closeCompleted = YES;
   [self.condition broadcast];
   [self.condition unlock];
 }
@@ -368,7 +370,7 @@ int send_message(Ibex2Socket *socket, NSURLSessionWebSocketMessage *message,
   await_test_send(testGate);
   note_test_send_submission(testGate);
   __weak Ibex2Socket *weak = socket;
-  // Admission and NSURLSession submission are atomic with close.
+  // @ref LLP 0059.000#312-websocket--delegating-capability-bearing-author-required — admission and NSURLSession submission are atomic with close
   [socket.task sendMessage:message completionHandler:^(NSError *error) {
     Ibex2Socket *strong = weak;
     if (strong == nil) return;
@@ -436,6 +438,17 @@ void ibex2_darwin_ws_close(void *handle, int code,
   [socket.task cancelWithCloseCode:platformCode
                             reason:data];
   [socket.condition unlock];
+}
+
+// The delegate confirms the handshake, rather than mere submission to NSURLSession.
+int ibex2_darwin_ws_wait_close(void *handle, double timeout_seconds) {
+  Ibex2Socket *socket = (__bridge Ibex2Socket *)handle;
+  NSDate *limit = [NSDate dateWithTimeIntervalSinceNow:timeout_seconds];
+  [socket.condition lock];
+  while (!socket.ended && !socket.cancelled && [socket.condition waitUntilDate:limit]) {}
+  BOOL completed = socket.closeCompleted;
+  [socket.condition unlock];
+  return completed ? 1 : 0;
 }
 
 void ibex2_darwin_ws_test_pause_next_send(void *handle) {

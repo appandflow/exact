@@ -1,4 +1,4 @@
-// The agent's `reveal` on UIKit: before
+// The agent's `reveal` on UIKit (ledger F7, shop F11; LLP 1116.003): before
 // a tap or a type, a target out of what a person sees is scrolled into it, as
 // a finger would scroll it, and the press then measures where it rests.
 #if os(iOS) || os(tvOS)
@@ -12,7 +12,7 @@ extension Agent {
     /// range allows; their delegates tell the app, as a finger's scroll does.
     /// In view is what a person sees (`visiblePort`). A row a grouped list
     /// draws, or a view in its custom row, scrolls its list by the row's cell
-    /// first: with no cell, its views wait in the hidden
+    /// first (LLP 1084 D8): with no cell, its views wait in the hidden
     /// authored scroll, which moves nothing on screen (r5 password generator).
     func reveal(_ req: [String: Any]) -> [String: Any] {
         guard let v = view(req) else { return miss(req) }
@@ -109,9 +109,10 @@ extension Agent {
     /// content: a scroller UIKit does not inset runs under them). The
     /// keyboard's top is the presenter's last, or its layout guide's, so the
     /// viewport's own end (`resizes-content`) or inset (`resizes-visual`)
-    /// and `overlays-content`, which insets nothing, all count it.
+    /// and `overlays-content`, which insets nothing, all count it
+    /// (LLP 1086.000.000 D2).
     /// With a target (`v`, the agent's `reveal`), also clear of each sticky box of `sv`'s content that a finger at its
-    /// middle lands on and that doesn't hold `v` (a design tool's edit dock, say): a person scrolls
+    /// middle lands on and that doesn't hold `v` (the design tool's edit dock; theme2's 14:49 ruling): a person scrolls
     /// a row out from under it. Never a popover or a top-layer box, which no scroll takes away.
     func visiblePort(_ sv: UIScrollView, for v: UIView? = nil) -> CGRect {
         var port = sv.pageBounds.inset(by: sv.adjustedContentInset)

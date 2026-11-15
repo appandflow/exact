@@ -3,9 +3,9 @@ import UIKit
 import XCTest
 @testable import ExactKit
 @testable import ExactGroupedLists
-/// On UIKit, a grouped list (`listStyle`) is a UICollectionView
+/// LLP 1084 on UIKit: a grouped list (`listStyle`) is a UICollectionView
 /// with a list layout as the list's only scroller;
-/// its rows are list cells configured from the kernel's model; a tap
+/// its rows are list cells configured from the kernel's model (D5); a tap
 /// selects, highlights and presses; a toggle flips its control; a custom
 /// row's views are carried into their cell and given back before a batch.
 /// UIKit, so a simulator runs it: bun host/apple/build.mjs --test --ios
@@ -27,7 +27,7 @@ class GroupedListFixture: XCTestCase {
     }
 
     func presenter(height: Double = 874, handlers: [String] = [], props: [String: String] = [:], style: [String: Any] = [:],
-                           nativeButtonRow: Bool = false, on given: Presenter? = nil, _ m: @escaping () -> GroupedListModel) -> Presenter {
+                           nativeButtonRow: Bool = false, on given: Presenter? = nil, _ m: @escaping () -> GroupedListModel?) -> Presenter {
         ExactGroupedLists.install()
         let p = given ?? Presenter()
         host(p).model = { $0 == 1 ? m() : nil }
@@ -109,7 +109,7 @@ final class GroupedListIOSTests: GroupedListFixture {
         XCTAssertEqual(seen["rows"] as? Int, 5)
     }
 
-    /// The collection view is what a finger drags, so it
+    /// LLP 1115.000 D9.1: the collection view is what a finger drags, so it
     /// puts the keyboard away as the list's own scroll would: following the
     /// drag with nothing written, and as the author says otherwise.
     func testADragOnTheListTakesTheKeyboardAsItsScrollWould() throws {
@@ -122,7 +122,7 @@ final class GroupedListIOSTests: GroupedListFixture {
         XCTAssertEqual(l.collection.keyboardDismissMode, UIScrollView.KeyboardDismissMode.none)
     }
 
-    /// Pull-to-refresh is on the list that shows. The
+    /// LLP 1115.000 D11.3: pull-to-refresh is on the list that shows. The
     /// control was on the list's own scroll, which a grouped list hides
     /// under its collection view, so nothing could be pulled.
     func testPullToRefreshIsOnTheListThatShows() throws {
@@ -221,7 +221,7 @@ final class GroupedListIOSTests: GroupedListFixture {
         XCTAssertEqual(pressed, [10])
     }
 
-    /// In a grouped row a radio is the row's checkmark
+    /// LLP 1115.000 D13.2: in a grouped row a radio is the row's checkmark
     /// accessory, as a list of choices in Settings has it, and a tap on the
     /// row checks the radio: `input` and `change` carry its value, and the
     /// checkmark follows the bound `checked`. It had been a custom row
@@ -364,7 +364,7 @@ final class GroupedListIOSTests: GroupedListFixture {
         XCTAssertFalse(row.accessibilityTraits.contains(.notEnabled))
     }
 
-    /// A real finger aimed at what a list draws lands on
+    /// LLP 1080.000 D4: a real finger aimed at what a list draws lands on
     /// UIKit's view, not the hidden authored node: a row's cell, its
     /// toggle's switch, its detail button; never the row for a control
     /// that is not shown.
@@ -412,10 +412,10 @@ final class GroupedListIOSTests: GroupedListFixture {
         XCTAssertEqual(try refusal(10), "its cell is outside the list's port; scroll it into view first")
     }
 
-    /// A tap that names the list never selects the row its middle holds:
-    /// every cell is in the list's node, so the row comes from the
-    /// cell's projection, and the tap is refused, naming it, as a real
-    /// touch's aim is.
+    /// A tap that names the list never selects the row its middle holds
+    /// (LLP 1012 §1; Astra, round 1): every cell is in the list's node, so
+    /// the row comes from the cell's projection, and the tap is refused,
+    /// naming it, as a real touch's aim is.
     func testATapNamingTheListNeverSelectsTheRowAtItsMiddle() throws {
         ExactGroupedLists.install()
         let session = ExactApp.shared.makeSession(label: "grouped-addressed")
@@ -432,7 +432,7 @@ final class GroupedListIOSTests: GroupedListFixture {
     }
 
     /// A custom row's own views are carried into its cell and take the
-    /// ordinary path: a tap that names the row presses it.
+    /// ordinary path: a tap that names the row presses it (round 2).
     func testATapNamingACustomRowPressesIt() throws {
         ExactGroupedLists.install()
         let session = ExactApp.shared.makeSession(label: "grouped-custom")
@@ -481,7 +481,7 @@ final class GroupedListIOSTests: GroupedListFixture {
         let cell = try cell(p, 21)
         XCTAssertTrue(row.superview === cell.contentView, "carried into its cell")
         XCTAssertEqual(row.frame.minX, 16, "at its place in its group")
-        XCTAssertEqual(cell.bounds.height, 61, accuracy: 0.5, "the row's height: its separator is decoration")
+        XCTAssertEqual(cell.bounds.height, 61, accuracy: 0.5, "the row's height: its separator is decoration (LLP 1084 D7)")
         XCTAssertTrue(host(p).projects(row))
         host(p).prepare()
         XCTAssertTrue(row.superview === p.views[5]?.container, "back where the presenter put it")
@@ -595,7 +595,7 @@ final class GroupedListIOSTests: GroupedListFixture {
         XCTAssertGreaterThanOrEqual(cell.bounds.height - bottom.maxY, margins.bottom, "at least UIKit's own content margin")
     }
 
-    /// The symbol's tint is the sheet's, the author's over its own: the
+    /// The symbol's tint is the sheet's (D7), the author's over its own: the
     /// shown symbol the model named, each side of a light-dark() pair for its
     /// appearance, and a row whose tint changes is configured again.
     func testASymbolTakesItsAuthoredTintForEachAppearance() throws {
@@ -627,7 +627,7 @@ final class GroupedListIOSTests: GroupedListFixture {
         XCTAssertEqual(try rgb(.dark), [1, 0, 0, 1])
     }
 
-    /// A row's `-exact-tint-adjustment` is its cell's, and a change to it alone configures
+    /// A row's `-exact-tint-adjustment` is its cell's (LLP 1077 D19), and a change to it alone configures
     /// the row again: under a dimmed list, `normal` keeps the cell's tint and `auto` dims it with the list
     func testARowsTintAdjustmentIsItsCellsAndFollowsAChange() throws {
         let p = presenter { self.model() }
@@ -640,7 +640,7 @@ final class GroupedListIOSTests: GroupedListFixture {
         XCTAssertEqual(try cell(p, 10).tintAdjustmentMode, .dimmed, "auto: the cell dims with its list")
     }
 
-    /// The cell is the field. A touch in a custom row's
+    /// LLP 1116.005 D2: the cell is the field. A touch in a custom row's
     /// cell that no control of the row takes (the cell's margin, a text
     /// under the field) goes to the row's one field, published as the cell's;
     /// a button in the row keeps its touch, and a disabled field takes none.
@@ -681,10 +681,10 @@ final class GroupedListIOSTests: GroupedListFixture {
         XCTAssertFalse(hit(CGPoint(x: 4, y: 4)) === field, "a disabled field takes no touch from its cell")
     }
 
-    /// The sheet's accent is `AccentColor`, the platform's tint, and a symbol
-    /// that follows it is UIKit's: the cell tints it with its own `tintColor`,
-    /// which the root's accent sets. The sheet's fixed blue had drawn a vote's
-    /// checkmark blue under a teal accent.
+    /// LLP 1116.004 D2 (polls, round 6): the sheet's accent is `AccentColor`,
+    /// the platform's tint, and a symbol that follows it is UIKit's: the cell
+    /// tints it with its own `tintColor`, which the root's accent sets. The
+    /// sheet's fixed blue had drawn a vote's checkmark blue under a teal accent.
     func testASymbolInTheAccentTakesTheCellsTint() throws {
         let p = presenter { self.model() }
         p.apply(wireBatch([
@@ -703,8 +703,8 @@ final class GroupedListIOSTests: GroupedListFixture {
 
     /// Outside a batch (a sheet's dismissal replaying geometry, a subtree's
     /// appearance), the projections sync on the next turn with no batch to
-    /// carry them: the collection autoresizes with its owner, then the switch
-    /// reads its current control.
+    /// carry them (LLP 1079's amendment of 2026-10-04): the collection
+    /// autoresizes with its owner, then the switch reads its current control.
     func testAnOutOfBatchChangeReachesTheProjectionOnTheNextTurn() throws {
         let p = presenter { self.model() }
         let l = try list(p)
@@ -769,7 +769,7 @@ final class GroupedListIOSTests: GroupedListFixture {
         XCTAssertEqual(try cell(p, 20).backgroundConfiguration?.backgroundColor, .clear, "and gone again")
     }
 
-    /// An authored space is above the later section, above
+    /// LLP 1084 §6.4: an authored space is above the later section, above
     /// its header when it has one; nil keeps UIKit's gaps.
     func testAnAuthoredSpaceSitsAboveTheSectionAndItsHeader() throws {
         var space: (CGFloat?, CGFloat?) = (nil, nil)
@@ -939,7 +939,9 @@ final class GroupedListIOSTests: GroupedListFixture {
         XCTAssertEqual(paragraph?.hyphenationFactor, 0.45)
     }
 
-    /// The agent's reveal scrolls the list UIKit draws to a row with no cell yet, by
+    /// LLP 1116.003 (r5 password generator: `tap history-0` refused, a
+    /// different UIKit view "covering its middle" each time): the agent's
+    /// reveal scrolls the list UIKit draws to a row with no cell yet, by
     /// that row's cell, and carries a custom row's views into it, so the tap
     /// lands on them. The hidden authored scroll, which moves nothing on
     /// screen, stays where it is.
@@ -1047,13 +1049,13 @@ final class GroupedListIOSTests: GroupedListFixture {
         return p
     }
 
-    /// A custom row that names swipe actions (the
+    /// LLP 1116.001 D1: a custom row that names swipe actions (the
     /// `list-rows` recipe's scroll, in a grouped section) swipes as a
     /// hand-built list's cell does: UIKit's actions on its list cell, a full
     /// swipe the first. Its content need not fill the row (the sheet's
     /// inset and padding), no table is projected, and its controls stay
-    /// hidden while the row is carried (in a grocery list the row was refused
-    /// and swiped 27 points by its scroll, the action clipped).
+    /// hidden while the row is carried (grocery-list, round 3: the row was
+    /// refused and swiped 27 points by its scroll, the action clipped).
     func testASwipeRowTakesItsListCellsOwnActions() throws {
         var pressed: [UInt32] = []
         let p = swipeRow { pressed.append($0) }
@@ -1095,14 +1097,14 @@ final class GroupedListIOSTests: GroupedListFixture {
         XCTAssertEqual(p.swipeActions.perform(23), false)
     }
 
-    /// The row's own horizontal snap scroll never takes a pan the list cell's
-    /// swipe should. At rest it is no view at all (above); where something
-    /// made it one (an authored `scroll` handler or position, the agent's
-    /// wheel) it is stilled and at its start while the cell is UIKit's, and
-    /// every batch gives it back and stills it again, so UIKit's swipe sees
-    /// the first pan of a short drag as a native list's does (the grader's
-    /// "short swipe" was Maestro's nine-point drag from the checkbox, which a
-    /// hand-built UIKit list takes no differently).
+    /// LLP 1116.008 D4 (grocery-list, round 10): the row's own horizontal snap
+    /// scroll never takes a pan the list cell's swipe should. At rest it is no
+    /// view at all (above); where something made it one (an authored `scroll`
+    /// handler or position, the agent's wheel) it is stilled and at its start
+    /// while the cell is UIKit's, and every batch gives it back and stills it
+    /// again, so UIKit's swipe sees the first pan of a short drag as a native
+    /// list's does (the grader's "short swipe" was Maestro's nine-point drag
+    /// from the checkbox, which a hand-built UIKit list takes no differently).
     func testAGroupedSwipeRowsOwnScrollNeverPansWhileItsCellSwipes() throws {
         let p = swipeRow(scrolls: true)
         let owner = try XCTUnwrap(p.views[21])
@@ -1121,13 +1123,13 @@ final class GroupedListIOSTests: GroupedListFixture {
         XCTAssertTrue(try XCTUnwrap(owner.scroll).isScrollEnabled)
     }
 
-    /// A contact in a swipe row that leaves the slop toward a side with
-    /// actions is the swipe's, never a press, whether or not UIKit's swipe
-    /// goes on to begin. Maestro's "fast" swipe from the row's checkbox
-    /// moved nine points, short of UIKit's threshold, and the checkbox took
-    /// it as a tap. The row's claim cancels the touch beneath and stands in
-    /// no one's way; a drag toward a side with no actions, or up the list,
-    /// stays the press's.
+    /// LLP 1116.004 D2 (grocery-list, round 6): a contact in a swipe row
+    /// that leaves the slop toward a side with actions is the swipe's, never
+    /// a press, whether or not UIKit's swipe goes on to begin. Maestro's
+    /// "fast" swipe from the row's checkbox moved nine points, short of
+    /// UIKit's threshold, and the checkbox took it as a tap. The row's claim
+    /// cancels the touch beneath and stands in no one's way; a drag toward
+    /// a side with no actions, or up the list, stays the press's.
     func testASidewaysDragTowardTheRowsActionsIsTheSwipesNotAPress() throws {
         let p = swipeRow()
         let owner = try XCTUnwrap(p.views[21])
@@ -1169,11 +1171,11 @@ final class GroupedListIOSTests: GroupedListFixture {
         XCTAssertNil(host(p).lists[1])
     }
 
-    /// A countdowns app: the commit that lands while a
+    /// LLP 1116.002 D2, round 4's countdowns: the commit that lands while a
     /// sheet covers the list (the saved event's refresh, before `then`
     /// closes the form) inserts a row and a sibling section, the "next up"
     /// card, and grows a row. The list behind keeps the document's layout
-    /// while the sheet is up, so their boxes apply at once.
+    /// while the sheet is up, so their boxes apply at once (LLP 1123 D1).
     /// All of it shows on the batch that closes the sheet, not after the
     /// screen is left: a cell first sized to nothing is one UIKit never
     /// shows again, and a box given back to a row that a layout pass in that
@@ -1259,13 +1261,13 @@ final class GroupedListIOSTests: GroupedListFixture {
         try shown(80, 73, "the new row, after a batch")
     }
 
-    /// A password generator: at launch the list lays out before its box
-    /// settles, so UIKit configures and shows every row of a long list, then
-    /// keeps the cells that leave its port for when they come back. A batch
-    /// that leaves the list alone gives the rows home and carries them again
-    /// only into the cells shown, so a kept cell came back on a scroll
-    /// without its row, blank until scrolled away and back. A cell UIKit
-    /// shows again is given its row as it shows.
+    /// LLP 1116.003 D7, round 5's password-generator: at launch the list
+    /// lays out before its box settles, so UIKit configures and shows every
+    /// row of a long list, then keeps the cells that leave its port for
+    /// when they come back. A batch that leaves the list alone gives the
+    /// rows home and carries them again only into the cells shown, so a kept
+    /// cell came back on a scroll without its row, blank until scrolled away
+    /// and back. A cell UIKit shows again is given its row as it shows.
     func testAKeptCellShowsItsRowWhenItComesBack() throws {
         var m = model(custom: true)
         let ids = (100..<112).map { UInt32($0) }
@@ -1357,7 +1359,7 @@ final class GroupedListIOSTests: GroupedListFixture {
         XCTAssertTrue(text.textRasterReady, "what shows is painted, not left blank")
     }
 
-    /// A chat-rooms app: a room's last message, its
+    /// LLP 1116.003 D7, round 5's chat-rooms: a room's last message, its
     /// subtitle line written `line-clamp=1`, grew the row to 13 lines, as
     /// UIKit wraps a cell's text unless told. The model's look is the
     /// author's clamp, and the cell keeps to it; a text that says nothing
@@ -1385,9 +1387,9 @@ final class GroupedListIOSTests: GroupedListFixture {
         XCTAssertGreaterThan(wrapped.bounds.height, short * 3, "unclamped, every line")
     }
 
-    /// A unit converter: its validation message, a
+    /// LLP 1116.003 D7, round 5's unit-converter: its validation message, a
     /// footer's text written `color="-exact-system-red"`, was red on the web
-    /// and the footer's grey on iOS. Author > platform: a footer,
+    /// and the footer's grey on iOS. Author > platform (LLP 1115): a footer,
     /// a header and a standard cell draw the colour and font their author
     /// gave the text, a destructive row's included; what is unsaid stays
     /// UIKit's.
@@ -1437,7 +1439,7 @@ final class GroupedListIOSTests: GroupedListFixture {
         XCTAssertEqual(notes.textProperties.font, platform.textProperties.font)
     }
 
-    /// Over `scripts/fixtures/navigation-bars.contract`'s
+    /// LLP 1115.000 D11.3 over `scripts/fixtures/navigation-bars.contract`'s
     /// `rows` route, a grouped list in a stack: a tapped row that pushes a
     /// screen stays selected under it and lets go as the reader comes back,
     /// as a table view's row does (`clearsSelectionOnViewWillAppear`); a row

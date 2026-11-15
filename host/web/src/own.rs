@@ -1,7 +1,7 @@
 //! The platform's own navigation, under a navigation root with no `navigate`
 //! handler: the runner writes the router itself, as one commit, and the page
-//! gets its batch. Back, the browser's Forward and a link to a declared
-//! route all go this way.
+//! gets its batch. Back is LLP 1115 D5's; the browser's Forward and a link to
+//! a declared route are LLP 1115.000 D4.3's.
 use super::Host;
 use exact_kernel::CommitReceipt;
 use exact_runner::{DataSource, RunnerError, Timed};

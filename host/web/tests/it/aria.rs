@@ -2,7 +2,7 @@
 
 use exact_web::Host;
 
-/// `aria-modal` is the DOM's attribute, beside the dialog role.
+/// `aria-modal` (LLP 1080.003) is the DOM's attribute, beside the dialog role.
 #[test]
 fn aria_modal_is_the_html_attribute() {
     let plan = contract::compile(
@@ -20,7 +20,7 @@ fn aria_modal_is_the_html_attribute() {
     assert!(batch.contains("\"role\":\"dialog\""), "{batch}");
 }
 
-/// A form's states and a menu button's
+/// Onboarding F22 and spreadsheet F20: a form's states and a menu button's
 /// are the DOM's attributes.
 #[test]
 fn form_states_and_haspopup_are_the_html_attributes() {
@@ -47,7 +47,7 @@ fn form_states_and_haspopup_are_the_html_attributes() {
     }
 }
 
-/// A drawn range's value is ARIA's own attributes, numbers as
+/// LLP 1116 D8: a drawn range's value is ARIA's own attributes, numbers as
 /// HTML writes them.
 #[test]
 fn range_values_are_the_aria_attributes() {
@@ -73,7 +73,7 @@ fn range_values_are_the_aria_attributes() {
     }
 }
 
-/// An alert has no outside. The page's `<dialog>` is
+/// LLP 1115.000 D13.4: an alert has no outside. The page's `<dialog>` is
 /// given HTML's own `closedby`, which the browser enforces: for a dialog of
 /// the alert's shape `closerequest` (Escape and the browser's Back close it,
 /// a click on its backdrop does nothing), where every `alertdialog` was
@@ -123,7 +123,7 @@ fn an_alert_shaped_dialog_is_closedby_closerequest_on_the_page() {
 /// A heading is HTML's heading element at its level: a text block with
 /// `role="heading"`, at its `aria-level` or ARIA's default 2. Past h6 it is
 /// a div with its role; an inline run stays a span. An `aria-level` with no
-/// `role="heading"` is no heading, on any host: it
+/// `role="heading"` is no heading, on any host (LLP 1115.000 D12.5): it
 /// stays a div, where Chrome's accessibility tree ignores the level, as it
 /// does beside another role.
 #[test]
@@ -178,8 +178,8 @@ fn headings_are_heading_elements_and_a_level_alone_is_not() {
 
 /// A role an element has natively is not restated (ARIA in HTML): a single
 /// `select` is a combobox already, and a restated one makes an accessibility
-/// checker demand the `aria-expanded` a native control never carries. A
-/// role an element lacks
+/// checker demand the `aria-expanded` a native control never carries (LLP
+/// 1153 §1, the Pokédex runs' accessibility score). A role an element lacks
 /// stays.
 #[test]
 fn a_native_elements_own_role_is_not_restated() {

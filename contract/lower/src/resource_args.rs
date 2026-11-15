@@ -1,4 +1,5 @@
-//! A resource's arguments and `with` context, and, over a list, its list and key: the arguments and the key read
+//! A resource's arguments and `with` context, and, over a list (LLP 1017.000
+//! P4c, amended 2026-11-04), its list and key: the arguments and the key read
 //! the element as their one parameter, which the runner passes each
 //! element's request.
 
@@ -13,6 +14,12 @@ impl Lowerer<'_> {
         scope: &Scope,
     ) -> Result<(), LowerError> {
         for (i, r) in root.resources.iter().enumerate() {
+            if r.keep {
+                if r.source != "exactSurface" || r.transient {
+                    return Err(LowerError { id: "lower-resource-keep", message: "`keep` is only for an exactSurface reader and cannot combine with `transient`".into(), span: r.span });
+                }
+                self.b.set_resource_keep(self.resources[i]);
+            }
             let mut inner = scope.clone();
             if let Some(each) = &r.each {
                 if exact_plan::runner_owned_source(&r.source) {
@@ -41,7 +48,12 @@ impl Lowerer<'_> {
             }
             let range = self.b.args(&args);
             self.b.set_resource_args(self.resources[i], range);
-            // declare first, install the full argument
+            // @ref LLP 1161.002 D1 — read in the root's scope, as the arguments are.
+            if let Some(gate) = &r.gate {
+                let code = self.expr_code(gate, &inner, 0)?;
+                self.b.set_resource_gate(self.resources[i], code);
+            }
+            // @ref LLP 1027.005 D6 — declare first, install the full argument
             // list, then count its context tail. No `with` keeps the default 0.
             if let Some(identity) = r.identity {
                 let context = u16::try_from(r.args.len() - identity).map_err(|_| LowerError {

@@ -21,8 +21,8 @@ pub fn report(json: &str) {
 mod tests {
     use super::*;
 
-    /// A role's report is what the kernel then resolves it to, in its scheme, under the theme's replacement of it,
-    /// which still wins. The reported table is process-wide, so the test reports a role no other test
+    /// A role's report is what the kernel then resolves it to, in its scheme, under the theme's replacement of it
+    /// (LLP 1095 D4), which still wins. The reported table is process-wide, so the test reports a role no other test
     /// of this crate names, and withdraws it; the theme is the thread's own.
     #[test]
     fn a_reported_role_is_what_the_kernel_resolves_under_the_theme() {

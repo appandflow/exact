@@ -1,5 +1,5 @@
 // data: svg-gallery
-// Synthetic conformance plan: dynamic composite style rows —
+// Synthetic conformance plan: dynamic composite style rows (LLP 1071 §7) —
 // `clip-path`, SVG paint and dashes, `filter`, and `animation` swapped
 // between rules and paused — over a dist that links their grammars.
 keyframes grow

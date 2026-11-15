@@ -1,13 +1,14 @@
-// @exact/in-app-browser on Android: a Custom Tab from androidx.browser, over the app when a
+// @exact/in-app-browser on Android (LLP 1133.024 D11–D13): a Custom Tab from androidx.browser, over the app when a
 // browser provides Custom Tabs, else the default browser.
 //
-// - The embedder decides first ([ExtensionContext.leave]): a refusal answers `NotAllowedError`.
+// - The embedder decides first ([ExtensionContext.leave], D22 item 7): a refusal answers `NotAllowedError`.
+// - The intent carries no package (D12, ruled 2026-11-11), so a link an installed app claims opens that app.
 // - It answers `opened` at launch: the platform reports a tab's navigation and hiding only to a bound
-//   `CustomTabsSession`, which the module does not keep.
-// - `overApp` is whether a Custom Tabs provider resolves, read again at each resume; the package's `queries`
+//   `CustomTabsSession`, which the module does not keep (§18).
+// - `overApp` is whether a Custom Tabs provider resolves, read again at each resume (D11); the package's `queries`
 //   entry makes the providers visible under Android 11's package visibility.
 // - Under the agent nothing opens: the `browser` ticket's tap is the answer. The journal names the URL's origin.
-// - Tier 3: [InAppBrowserModule.customTabsBuilder] is handed the builder after the module's words are set and
+// - Tier 3 (D13): [InAppBrowserModule.customTabsBuilder] is handed the builder after the module's words are set and
 //   before `build()`; the launch stays the module's.
 package exact.inappbrowser
 
@@ -20,7 +21,7 @@ import org.json.JSONObject
 
 class InAppBrowserModule(context: ExtensionContext) : ExactExtension(context) {
     companion object {
-        /** The app's hatch: each tab's builder, after the module's words are set. */
+        /** The app's hatch (D13): each tab's builder, after the module's words are set. */
         @JvmStatic var customTabsBuilder: ((CustomTabsIntent.Builder) -> Unit)? = null
     }
 
@@ -58,7 +59,8 @@ class InAppBrowserModule(context: ExtensionContext) : ExactExtension(context) {
         if (uri == null || uri.scheme?.lowercase() !in setOf("http", "https") || uri.host.isNullOrEmpty()) {
             return reply(JSONObject().put("error", "TypeError").put("message", "openBrowser takes an absolute http or https URL; open any other with openURL"))
         }
-        val origin = "${uri.scheme}://${uri.authority}"
+        // Not `uri.authority`, which carries the user name and password the URL may have.
+        val origin = "${uri.scheme}://${uri.host}${if (uri.port != -1) ":${uri.port}" else ""}"
         if (context.agent) {
             val action = tap ?: "opened"
             say("$action $origin")
@@ -91,7 +93,8 @@ class InAppBrowserModule(context: ExtensionContext) : ExactExtension(context) {
         }
         customTabsBuilder?.invoke(builder)
         try {
-            builder.build().launchUrl(activity, uri)
+            val tab = builder.build()
+            dev.exact.canvas.SystemBrowser.launch(activity, uri, tab.intent, options = tab.startAnimationBundle)
         } catch (e: android.content.ActivityNotFoundException) {
             return reply(JSONObject().put("error", "NotSupportedError").put("message", "no browser opens this page"))
         }

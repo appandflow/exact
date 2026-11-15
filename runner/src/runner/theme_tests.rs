@@ -1,5 +1,5 @@
-//! A Markdown node's faces in the theme index:
-//! read again when a pin above them, the mode or a token moves; kept
+//! A Markdown node's faces in the theme index (LLP 1045.000 D2, LLP 1121
+//! D7): read again when a pin above them, the mode or a token moves; kept
 //! as they were when a read again finds a colour the first read took is
 //! none, and never for one the first read refused; and gone from the index
 //! when they read no token, are cleared, or their node is unmounted.
@@ -18,14 +18,14 @@ impl DataSource for NoData {
 
 /// A design with a token whose slice the `dark-style` axis picks, and one
 /// that does not vary.
-const MODES: &str = "tamber t\n\naxes\n  dark-style = black | dim  under scheme=dark\n\ntheme\n  ink = light-dark(#111111, #eeeeee)\n    when dark-style=dim: light-dark(#111111, #cccccc)\n  brand = #c8102e\n";
+const MODES: &str = "forma t\n\naxes\n  dark-style = black | dim  under scheme=dark\n\ntheme\n  ink = light-dark(#111111, #eeeeee)\n    when dark-style=dim: light-dark(#111111, #cccccc)\n  brand = #c8102e\n";
 
 /// `contract`'s plan beside the design.
 fn plan(name: &str, contract: &str) -> exact_plan::Plan {
     let dir = std::env::temp_dir().join(format!("exact2-faces-{name}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
-    std::fs::write(dir.join("app.tamber"), MODES).unwrap();
+    std::fs::write(dir.join("app.forma"), MODES).unwrap();
     std::fs::write(dir.join("app.contract"), contract).unwrap();
     let plan = contract::compile_path(&dir.join("app.contract")).unwrap();
     let _ = std::fs::remove_dir_all(&dir);
@@ -75,7 +75,7 @@ const FACE: &str =
     "AtomFace(source=\"@a\", label=\"\", icon=\"\", title=\"\", direction=\"\", ariaLabel=\"\"";
 
 /// A pin above the node that moves reads its faces again in the slice the
-/// pin makes, though nothing they read changed (as a row's text does).
+/// pin makes, though nothing they read changed (D7, as a row's text).
 #[test]
 fn a_pin_above_reads_a_faces_colour_again() {
     let mut r = boot(plan(
@@ -143,7 +143,7 @@ fn a_token_that_is_no_colour_leaves_the_faces_as_they_were() {
 /// A colour the faces' first read refused, said once there, keeps no edit
 /// from them: beside a token, a mode switch and a token's edit set the
 /// token's colour and leave the refused one empty, with no other line.
-/// So for a colour in a profile the app declares: the first
+/// So for a colour in a profile the app declares (LLP 1100 D3): the first
 /// read refuses it, and every read again does, as the first.
 #[test]
 fn a_refused_colour_beside_a_token_blocks_no_edit() {
@@ -305,4 +305,61 @@ fn cleared_faces_leave_the_index() {
     let (_, set) = r.set_token("ink", "#0000ff", &[]).unwrap();
     assert_eq!(set, 0);
     assert_eq!(faces(&r), None);
+}
+
+#[test]
+fn shared_indexing_keeps_theme_flips_and_token_edits_local() {
+    let program = shared("shared-plan");
+    let boot = || boot_shared(&program);
+    let (mut first, mut second) = (boot(), boot());
+    for _ in 0..3 {
+        first.set_mode("dark-style", "dim").unwrap();
+        assert_eq!(paint(&first, "color"), "light-dark(#111111ff, #ccccccff)");
+        assert_eq!(paint(&second, "color"), "light-dark(#111111ff, #eeeeeeff)");
+        first.set_mode("dark-style", "black").unwrap();
+        assert_eq!(paint(&first, "color"), paint(&second, "color"));
+    }
+    first.set_token("brand", "#00ff00", &[]).unwrap();
+    second.set_mode("dark-style", "dim").unwrap();
+    assert_eq!(paint(&first, "backgroundColor"), "#00ff00ff");
+    assert_eq!(paint(&second, "backgroundColor"), "#c8102eff");
+    assert_eq!(paint(&boot(), "backgroundColor"), "#c8102eff");
+}
+
+#[test]
+fn a_runner_booted_after_an_edited_one_is_dropped_starts_from_its_tokens() {
+    let program = shared("shared-plan-dropped");
+    // Each boot clones the retained program's plan, so the clone's buffers
+    // are free to land where the dropped edited runner's were.
+    for _ in 0..8 {
+        let mut edited = boot_shared(&program);
+        edited.set_token("brand", "#00ff00", &[]).unwrap();
+        assert_eq!(paint(&edited, "backgroundColor"), "#00ff00ff");
+        drop(edited);
+        assert_eq!(
+            paint(&boot_shared(&program), "backgroundColor"),
+            "#c8102eff"
+        );
+    }
+}
+
+/// A program, retained by the test, whose faces read `ink` and `brand`.
+fn shared(name: &str) -> crate::Program {
+    crate::Program::new(plan(
+        name,
+        &format!("atom mention prefix=\"@\"\ncomponent App\n  derive faces = [{FACE}, color=\"ink\", backgroundColor=\"brand\")]\n  view\n    column\n      textarea value=\"@a \" markup=\"markdown\" atoms=\"mention\" atomFaces=faces testId=\"editor\"\n"),
+    ))
+}
+
+fn boot_shared(program: &crate::Program) -> Runner<NoData> {
+    Runner::boot_at(
+        program,
+        NoData,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+        1000.0,
+        Default::default(),
+    )
+    .unwrap()
 }

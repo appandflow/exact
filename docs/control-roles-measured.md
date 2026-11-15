@@ -1,4 +1,4 @@
-# The control-role table, measured
+# The control-role table, measured (LLP 1121 D9, stage 8 C)
 
 Each cell of `kernel/tables/schema.json`'s `controls`, with where its fidelity comes from.
 `scripts/measure-controls.test.mjs` holds the table to this page: a cell that changes changes here, with its measurement.
@@ -9,11 +9,11 @@ neither, and compares each control's pixels, closed and at rest, the two builds 
 any pixel either build moved between two looks with the app's clock held (an animation the clock does not drive):
 
 - **exact**: at least 4 pixels within ΔE00 3 of the authored colour where the plain build's are not;
-- **best-effort**: none so close, but at least 4 pixels further than ΔE00 3 from the
+- **best-effort** (theme2's ruling): none so close, but at least 4 pixels further than ΔE00 3 from the
   authored colour yet nearer it than the plain build's pixel there: moved by more than ΔE00 1, of the
   authored colour's hue (within 30°, chroma 10 or more), and not another colour the fixture asks for blended
-  over the pixel or the control's ground (an authored grey, chroma under 10, has no hue and is judged by
-  ΔE00 alone);
+  over the pixel or the control's ground (theme2's 08:42 ruling adds the hue; an authored grey, chroma under
+  10, is judged by ΔE00 alone);
 - **none**: otherwise;
 - **unmeasured**: a frame with fewer than 16 pixels, frames that differ between the builds, or a frame the
   screenshot does not hold whole (the run fails).
@@ -35,10 +35,10 @@ the table's `select` is the closed button, as a person first sees it.
 **Provenance:**
 
 - `measured`: the run above gave it.
-- `inferred: same painter, not measured`: Windows draws with the Linux painter (`host/windows` depends on `exact-linux`); Linux's row, until a Windows box exists.
-- A `none` whose why says the host does not read a role yet is Exact's gap, not the platform's: fixing the host flips the cell after a re-measure.
+- `inferred: same painter, not measured`: Windows draws with Linux's painter (`host/windows` and `host/linux` both depend on `exact-painted`); Linux's row, until a Windows box exists.
+- A `none` whose why says the host does not read a role yet is Exact's gap, not the platform's: each has a QUEUE line, and fixing the host flips the cell after a re-measure.
 - `none by construction`: the terminal draws no colour and no control but progress as text.
-- `measured, key window via EXACT_AGENT_ACTIVATE`: the Mac's accent cells. An agent's Mac app is never activated by design (an accessory app, ordered front, so a drive takes no focus), and AppKit draws an inactive app's controls grey; `measure-controls` activates the one run.
+- `measured, key window via EXACT_AGENT_ACTIVATE`: the Mac's accent cells. An agent's Mac app is never activated by design (an accessory app, so a drive takes no focus), and AppKit draws an inactive app's controls grey; `measure-controls` activates the one run (stage 9 F2, 2026-10-18).
 
 | control | parameter | host | fidelity | ΔE00 | pixels | provenance |
 | --- | --- | --- | --- | --- | --- | --- |

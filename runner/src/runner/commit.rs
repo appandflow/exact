@@ -18,13 +18,9 @@ pub(super) struct Checkpoint {
     /// How many let-go requests with effects were collected before it.
     letting: usize,
     slots: Vec<Value>,
-    resources: Option<Vec<Option<ResourceState>>>,
-    stale: Vec<bool>,
-    store_readers: Vec<bool>,
-    watching: Vec<Vec<String>>,
-    failed_args: Vec<Option<Vec<Value>>>,
+    resources: Vec<super::resources::ResourceRow>,
+    module_readers: std::collections::BTreeMap<String, std::collections::BTreeMap<usize, String>>,
     uploads: super::uploads::Uploads,
-    failed_why: Vec<Option<crate::failure::Failure>>,
     failed_mut: Vec<Option<crate::failure::Failure>>,
     refresh_next: Vec<usize>,
     writes: super::writes::Writes,
@@ -35,32 +31,27 @@ pub(super) struct Checkpoint {
     timers: Vec<super::Timer>,
     published: Option<Box<Published>>,
     commands: usize,
-    /// Socket batches of earlier commits, not yet taken:
+    /// Socket batches of earlier commits, not yet taken (LLP 1016.000 D7):
     /// a refusal takes back the batches staged after them.
     sockets: usize,
     /// The root font size, and the window's app tuple (`setMode`).
     root_font: (super::root_font::RootFont, f32, u32),
-    /// Kept answers refused before this commit (`kept::refuse`).
+    /// Kept-answer lines made before this commit (`Keeping::refused`).
     refused: usize,
-    resource_inspection: Vec<crate::perf::ResourceWork>,
-    /// Who each request and `then` is from.
+    /// Who each request and `then` is from (LLP 1133.023 D7).
     origins: super::modules::OriginsSaved,
-    /// The arguments refused a child's resource.
+    /// The arguments refused a child's resource (LLP 1133.007 D13).
     refused_args: super::modules::Refused,
-    gone: Vec<bool>, // which elements of resources over lists had left (`each.rs`)
 }
 
 /// What a settlement publishes that a refusal after it — the gate step
-/// — must put back; taken only for a plan with a gated task
-/// or a sequence, whose gate steps are the one refusal that
+/// (LLP 1092 D8) — must put back; taken only for a plan with a gated task
+/// or a sequence (LLP 1125 D2), whose gate steps are the one refusal that
 /// follows a settlement that stood.
 pub(super) struct Published {
     settled: Option<super::settlement::Settled>,
     derives: Vec<Option<Value>>,
     derive_store_dependent: Vec<bool>,
-    resource_values: Vec<Option<crate::held::Held>>,
-    resources: Vec<Option<ResourceState>>,
-    awaiting: Vec<bool>,
     requests: usize,
 }
 
@@ -73,26 +64,21 @@ impl<D: DataSource> Runner<D> {
         self.scrolled.inline = read;
     }
 
-    /// Before a commit. `resources`: the commit edits the settled caches
-    /// before settling (a reply does).
-    pub(super) fn checkpoint(&mut self, resources: bool) -> Checkpoint {
+    /// Before a commit, including every resource field a refusal restores.
+    pub(super) fn checkpoint(&mut self) -> Checkpoint {
         self.start_commit();
         self.derives_evaluated = 0;
         self.copied_at_checkpoint = self.store.copied_bytes();
         let store = self.store.checkpoint();
         // What the presence backend moved since the last commit shows in
-        // this one; a refused commit puts it back.
+        // this one (LLP 1133.010 D5); a refused commit puts it back.
         self.adopt_presence();
         Checkpoint {
             store,
             slots: self.slots.clone(),
-            resources: resources.then(|| self.resources.clone()),
-            stale: self.stale.clone(),
-            store_readers: self.store_readers.clone(),
-            watching: self.watching.clone(),
-            failed_args: self.failed_args.clone(),
+            resources: self.resources.clone(),
+            module_readers: self.extensions.readers.clone(),
             uploads: self.uploads.clone(),
-            failed_why: self.failed_why.clone(),
             failed_mut: self.failed_mut.clone(),
             refresh_next: self.refresh_next.clone(),
             writes: self.writes.clone(),
@@ -108,9 +94,6 @@ impl<D: DataSource> Runner<D> {
                     settled: self.settled.clone(),
                     derives: self.derives.clone(),
                     derive_store_dependent: self.derive_store_dependent.clone(),
-                    resource_values: self.resource_values.clone(),
-                    resources: self.resources.clone(),
-                    awaiting: self.awaiting.clone(),
                     requests: self.requests.len(),
                 })
             }),
@@ -122,11 +105,9 @@ impl<D: DataSource> Runner<D> {
                 self.ids.theme.window,
             ),
             refused: self.keeping.refused.len(),
-            resource_inspection: self.ids.work.resources.clone(),
             origins: self.origins_saved(),
             refused_args: self.refused_saved(),
             letting: self.letting_len(),
-            gone: self.gone_members(),
         }
     }
 
@@ -164,20 +145,21 @@ impl<D: DataSource> Runner<D> {
                 self.forgot = true;
                 let kept = self.restore_store_refused(c.store);
                 self.slots = c.slots;
-                if let Some(resources) = c.resources {
-                    self.resources = resources;
+                let mut resources = c.resources;
+                // A refused call still drew randomness; the bake must not keep its answer.
+                for (old, attempted) in resources.iter_mut().zip(&self.resources) {
+                    old.entropy_reader |= attempted.entropy_reader;
                 }
-                self.stale = c.stale;
-                self.store_readers = c.store_readers;
-                // A spent reply's turn read the store: its failure stands, and so does the read.
-                if let Some(i) = self.module_work.reply_reader.take() {
-                    self.store_readers[i] = true;
+                self.resources = resources;
+                self.extensions.readers = c.module_readers;
+                self.release_sampled();
+                // A spent reply's turn read the store: its failure stands, and so does the read,
+                // which a draw of randomness alone doesn't make a contents read (LLP 1069.005 D2).
+                if let Some((i, contents)) = self.module_work.reply_reader.take() {
+                    self.resources[i].store_reader = true;
+                    self.resources[i].contents_reader |= contents;
                 }
-                self.watching = c.watching;
-                self.failed_args = c.failed_args;
                 self.uploads = c.uploads;
-                self.ids.work.resources = c.resource_inspection;
-                self.failed_why = c.failed_why;
                 self.failed_mut = c.failed_mut;
                 self.refresh_next = c.refresh_next;
                 if kept {
@@ -187,15 +169,20 @@ impl<D: DataSource> Runner<D> {
                 let seq = self.writes.seq;
                 self.writes = c.writes;
                 self.writes.seq = seq;
-                self.overlays.iter_mut().for_each(|o| *o = None);
+                self.resources
+                    .iter_mut()
+                    .map(|row| &mut row.overlay)
+                    .for_each(|o| *o = None);
                 self.unsent = c.unsent;
                 self.reconciling = c.reconciling;
                 // A send its source refused when it was sent stays ended.
-                for (m, id) in std::mem::take(&mut self.refused_unsent) {
-                    self.unsent.retain(|u| u.0 != m);
+                for (target, id) in std::mem::take(&mut self.refused_unsent) {
+                    self.unsent.retain(|u| u.0 != target);
                     self.writes.records.retain(|r| Some(r.id) != id);
                     // And what it showed in is still read again.
-                    self.reconcile_after(m);
+                    if let Some(m) = target.mutation() {
+                        self.reconcile_after(m);
+                    }
                 }
                 self.pending = c.pending;
                 self.letting_restored(c.letting);
@@ -207,9 +194,6 @@ impl<D: DataSource> Runner<D> {
                     self.settled = p.settled;
                     self.derives = p.derives;
                     self.derive_store_dependent = p.derive_store_dependent;
-                    self.resource_values = p.resource_values;
-                    self.resources = p.resources;
-                    self.awaiting = p.awaiting;
                     // A resource request the settlement handed out goes
                     // with it: never taken, its continuation is let go.
                     let dropped: Vec<RequestOut> = self.requests.drain(p.requests..).collect();
@@ -217,7 +201,6 @@ impl<D: DataSource> Runner<D> {
                         self.discard_request(&r.request);
                     }
                 }
-                self.restore_members(&c.gone);
                 self.sync_pending_flags();
                 self.commands.truncate(c.commands);
                 // A refusal the restore undid is not said.
@@ -228,11 +211,13 @@ impl<D: DataSource> Runner<D> {
             }
         }
         self.refused_unsent.clear();
-        // What a refused commit's gate step read is let go.
+        // What a refused commit's gate step read is let go (LLP 1125 D2).
         self.transport.pending = None;
         self.hear_forgotten();
         // Every commit ends so: what the source set aside is kept or let go.
         self.keep_sent(refused);
+        self.hear_aborted();
+        self.pin_canvas_captures();
         self.sample();
     }
 
@@ -248,6 +233,7 @@ impl<D: DataSource> Runner<D> {
                     target: p.target,
                     source: &p.source,
                     args: &p.args,
+                    fetch: p.fetch,
                     continuation: p.continuation,
                 })
                 .collect();
@@ -278,8 +264,8 @@ impl<D: DataSource> Runner<D> {
 
     /// Run an action: its body, its sends, its writes, settlement, the
     /// update — one commit. What it kept in the store is journaled once the
-    /// commit stands and rolled back with everything else when it does not:
-    /// nothing reaches the host from a refused action.
+    /// commit stands and rolled back with everything else when it does not
+    /// (LLP 1018 D1): nothing reaches the host from a refused action.
     pub(super) fn run_action(
         &mut self,
         action: ActionsId,
@@ -287,7 +273,7 @@ impl<D: DataSource> Runner<D> {
         frames: &[Frame],
     ) -> Result<CommitReceipt, RunnerError> {
         let was_poisoned = self.poisoned;
-        let checkpoint = self.checkpoint(false);
+        let checkpoint = self.checkpoint();
         let result = self.run_action_inner(action, args, frames);
         self.conclude(checkpoint, &result, was_poisoned);
         self.arm_then(result.is_ok());
@@ -377,7 +363,7 @@ impl<D: DataSource> Runner<D> {
             .iter()
             .map(|w| self.plan.write(w).slot.0)
             .collect();
-        // Geometry: every `measure` in the body is
+        // Geometry (LLP 1051.000 D2): every `measure` in the body is
         // answered now, with the kernel's engine tree to lay out; `frame`
         // reads through the borrowed kernel while the body runs.
         let measured;
@@ -399,80 +385,96 @@ impl<D: DataSource> Runner<D> {
             None => None,
         };
         let outcome = {
-            // The frames in force at the view the event hit:
+            // The frames in force at the view the event hit (LLP 1017 P4c):
             // a row action reads and writes its row through them.
             let mut env = self.env(&args, frames);
             env.geometry = geometry.as_ref();
-            vm::eval(self.plan.code(row.body), &env, &allowed)?
+            vm::eval(self.plan.code(row.body), &env, &allowed).map_err(|t| {
+                RunnerError::from(t).evaluated(|| format!("action {:?}", self.plan.str(row.name)))
+            })?
         };
-        // Sends: each asks the source now. An answer lands in
+        // Sends (LLP 1016 §4): each asks the source now. An answer lands in
         // the mutation's slot inside this commit; a request goes to the host
         // once the commit stands. A queue mutation's send is asked only when
         // the mutation is free and it is the commit's first; else it waits
-        // its turn.
-        let mut later: Vec<(usize, String, Vec<Value>, Request)> = Vec::new();
+        // its turn (LLP 1092 D2). A parallel one's is always asked, as its
+        // own target (LLP 1161.000 D2, D5).
+        let mut later: Vec<Later> = Vec::new();
         let mut answered: Vec<(u32, Value)> = Vec::new();
         let mut asked: Vec<usize> = Vec::new();
         let mut landed_now: Vec<usize> = Vec::new();
         let mut failed_now = Vec::new();
-        // Non-queue mutations whose send replaces one in flight without a
+        // Newest-wins mutations whose send replaces one in flight without a
         // request of its own: an answer at once, or one waiting for the source.
         let mut replaced: Vec<usize> = Vec::new();
         // A send before the source can answer — a TypeScript module a native
-        // host loads after first pixel — waits for it, pending,
+        // host loads after first pixel (LLP 1027 D4) — waits for it, pending,
         // as a resource's ask does and as the web's send to a module still
-        // loading does: `data_ready` sends it, so a document opened at launch
-        // is not refused and lost. A queue's waits in its
+        // loading does: `data_ready` sends it (notes diary: a document
+        // opened at launch was refused, and lost). A queue's waits in its
         // queue instead, every send in order, its head asked once the source
-        // is ready.
+        // is ready (LLP 1092 D2).
         let mut unsent: Vec<Unsent> = Vec::new();
         for (m, source, sargs) in &outcome.sends {
             let m = *m as usize;
-            self.accept_write(m, source, sargs);
-            let queue = self.plan.mutations[m].queue;
-            let early = !self.data.ready() && !exact_plan::runner_owned_source(source);
+            let mode = self.plan.mutations[m].mode;
+            let queue = mode == MutationMode::Queue;
+            if mode == MutationMode::Parallel {
+                let more = (later.iter().map(|l| l.0)).chain(unsent.iter().map(|u| u.0));
+                if let Err(e) =
+                    self.parallel_bound(m, more.filter(|t| t.mutation() == Some(m)).count())
+                {
+                    self.discard_later(&later);
+                    return Err(e);
+                }
+            }
+            let target = self.send_target(m);
+            let write = self.accept_write(target, source, sargs);
+            let early = !self.source_ready(source) && !exact_plan::runner_owned_source(source);
             if early && !queue {
-                unsent.retain(|u| u.0 != m);
-                unsent.push((m, source.clone(), sargs.clone(), self.sent_by()));
+                if let Err(e) = self.check_send_arguments(m, sargs) {
+                    self.discard_later(&later);
+                    return Err(e);
+                }
                 // It replaces a send still in flight (newest wins).
-                replaced.push(m);
+                if mode == MutationMode::Newest {
+                    unsent.retain(|u| u.0.mutation() != Some(m));
+                    replaced.push(m);
+                }
+                unsent.push((target, source.clone(), sargs.clone(), self.sent_by()));
                 continue;
             }
             if queue && (early || asked.contains(&m) || !self.asks_now(m)) {
-                if let Err(e) = self.wait_turn(m, source, sargs) {
+                if let Err(e) = self.wait_turn(m, source, sargs, write) {
                     self.discard_later(&later);
                     return Err(e);
                 }
                 continue;
             }
             asked.push(m);
-            match self.ask_send(m, source, sargs) {
+            match self.ask_send(target, source, sargs, write) {
                 Ok(super::queue::Asked::Now(slot, v)) => {
                     answered.push((slot as u32, v));
                     self.landed.push(m);
                     landed_now.push(m);
                     // It replaces an earlier send of this action still to go
                     // out (newest wins): that request never goes.
-                    if !queue {
-                        let earlier: Vec<_> = later
-                            .iter()
-                            .filter(|l| l.0 == m)
-                            .map(|l| l.3.clone())
-                            .collect();
-                        for request in &earlier {
-                            self.discard_request(request);
-                        }
-                        later.retain(|l| l.0 != m);
+                    if mode == MutationMode::Newest {
+                        let (older, rest) = later.into_iter().partition(|l| l.0 == target);
+                        later = rest;
+                        self.discard_later(&older);
                     }
                 }
                 Ok(super::queue::Asked::Later(request)) => {
-                    later.push((m, source.clone(), sargs.clone(), request))
+                    later.push((target, source.clone(), sargs.clone(), request))
                 }
                 Ok(super::queue::Asked::Failed) => {
-                    let (older, rest) = later.into_iter().partition(|l| l.0 == m);
-                    later = rest;
-                    self.discard_later(&older);
-                    self.pending_mut[m] = false;
+                    if mode != MutationMode::Parallel {
+                        let (older, rest) = later.into_iter().partition(|l| l.0 == target);
+                        later = rest;
+                        self.discard_later(&older);
+                        self.pending_mut[m] = false;
+                    }
                     failed_now.push(m);
                 }
                 Err(e) => {
@@ -531,14 +533,15 @@ impl<D: DataSource> Runner<D> {
                 source: self.input_source,
             });
         }
+        // The app's chosen language, before the settlement reads its tables.
+        self.take_set_locale(first_command);
         // An assignment to a mutation's slot tentatively makes it not
         // pending. The pending map is changed only after settlement stands:
         // a refused assignment did not change what reply the view wants.
-        // A queue's assignment forgets nothing: every reply still lands.
+        // A queue's or a parallel mutation's assignment forgets nothing:
+        // every reply still lands (LLP 1092 D4, LLP 1161.000 D4).
         let assigned: Vec<usize> = (0..self.plan.mutations.len())
-            .filter(|m| {
-                written.contains(&self.plan.mutations[*m].slot.0) && !self.plan.mutations[*m].queue
-            })
+            .filter(|m| written.contains(&self.plan.mutations[*m].slot.0) && self.newest_wins(*m))
             .collect();
         for m in 0..self.plan.mutations.len() {
             if written.contains(&self.plan.mutations[m].slot.0) {
@@ -556,31 +559,40 @@ impl<D: DataSource> Runner<D> {
         }
         // A send answered at once replaces one in flight: not pending.
         for m in &landed_now {
-            if !self.plan.mutations[*m].queue {
+            if self.newest_wins(*m) {
                 self.pending_mut[*m] = false;
             }
         }
-        for (m, _, _, _) in &later {
-            if !assigned.contains(m) {
-                self.pending_mut[*m] = true;
+        let of = |t: Target| t.mutation().expect("a send's target names its mutation");
+        for m in later.iter().map(|l| of(l.0)) {
+            if !assigned.contains(&m) {
+                self.pending_mut[m] = true;
             }
         }
         // A send that goes now replaces one still waiting for the source
         // (newest wins)
-        for m in asked.iter().filter(|m| !self.plan.mutations[**m].queue) {
-            self.unsent.retain(|u| u.0 != *m);
+        for m in asked
+            .iter()
+            .copied()
+            .filter(|m| self.newest_wins(*m))
+            .collect::<Vec<_>>()
+        {
+            self.unsent.retain(|u| u.0 != Target::Mutation(m));
         }
         // Waiting from here, so the settlement sees them pending; a refusal
         // puts the waiting sends back as they were (the checkpoint).
-        for (m, source, args, by) in &unsent {
-            self.unsent.retain(|u| u.0 != *m);
-            if !assigned.contains(m) {
-                self.unsent.push((*m, source.clone(), args.clone(), *by));
-                self.pending_mut[*m] = true;
+        for u in &unsent {
+            let m = of(u.0);
+            if self.newest_wins(m) {
+                self.unsent.retain(|w| w.0 != u.0);
+            }
+            if !assigned.contains(&m) {
+                self.unsent.push(u.clone());
+                self.pending_mut[m] = true;
             }
         }
-        // What the action refreshes, added to what is already waiting.
-        // A mutation answered at once has landed:
+        // What the action refreshes, added to what is already waiting
+        // (LLP 1054.000.000 D2). A mutation answered at once has landed:
         // what it changes is asked, as a reply's landing asks it
         // (`fulfill`). A send still in flight asks nothing: its write shows
         // through the overlay.
@@ -598,7 +610,7 @@ impl<D: DataSource> Runner<D> {
         let replacing: Vec<usize> = (assigned.iter().chain(&landed_now).chain(&replaced))
             .chain(&failed_now)
             .copied()
-            .filter(|m| !self.plan.mutations[*m].queue)
+            .filter(|m| self.newest_wins(*m))
             .collect();
         let mut let_go = Vec::new();
         for m in replacing {
@@ -611,7 +623,7 @@ impl<D: DataSource> Runner<D> {
         }
         // A refusal from here is put back by the checkpoint (run_action);
         // row slots live in the tree, so they are undone here. The gate
-        // step joins this path: before `enqueue` and
+        // step joins this path (LLP 1092 D8): before `enqueue` and
         // `into_view`, which a refusal there must not leave applied.
         if let Err(e) = self
             .router_change()
@@ -620,8 +632,8 @@ impl<D: DataSource> Runner<D> {
                 // Settlement's flags follow the tickets, and this commit's
                 // requests are handed out after the step: a gate reads them
                 // pending, as the settled derives did.
-                for (m, _, _, _) in &later {
-                    self.pending_mut[*m] |= !assigned.contains(m);
+                for m in later.iter().map(|l| of(l.0)) {
+                    self.pending_mut[m] |= !assigned.contains(&m);
                 }
                 self.gate_step()
             })
@@ -661,29 +673,33 @@ impl<D: DataSource> Runner<D> {
         // A send answered at once, or waiting for the source, replaces one
         // still in flight (newest wins): the older reply is not wanted.
         for m in landed_now.into_iter().chain(replaced).chain(failed_now) {
-            if !self.plan.mutations[m].queue {
+            if self.newest_wins(m) {
                 self.forget_ticket(Target::Mutation(m));
             }
         }
         self.sync_pending_flags();
-        for (m, source, args, request) in later {
-            self.enqueue(Target::Mutation(m), source, args, request, false);
-            if assigned.contains(&m) {
-                self.forget(Target::Mutation(m));
+        for (target, source, args, request) in later {
+            self.enqueue(target, source, args, request, false);
+            if assigned.contains(&of(target)) {
+                self.forget(target);
             }
         }
-        for (m, ..) in unsent.iter().filter(|u| !assigned.contains(&u.0)) {
+        for m in unsent
+            .iter()
+            .map(|u| of(u.0))
+            .filter(|m| !assigned.contains(m))
+        {
             self.log(super::lines::unsent(
-                self.plan.str(self.plan.mutations[*m].name),
+                self.plan.str(self.plan.mutations[m].name),
             ));
         }
         self.take_set_modes(first_command);
-        // A module's sends that answer nothing: the
+        // A module's sends that answer nothing (LLP 1133.004 D5): the
         // runner's, run once the commit stands.
         let effects = self.take_module_effects(first_command);
         self.refuse_in_wake(first_command);
         self.skip_in_call(first_command);
-        // The scheme and root size a development host holds: kept as asked, not applied.
+        // The scheme and root size a development host holds: kept as asked, not applied (LLP 1122 T7).
         self.take_held(first_command);
         // `setRootFontSize` is the runner's too: the size lands in this
         // commit's layout, and the command stays for a host that mirrors it;
@@ -718,8 +734,8 @@ impl<D: DataSource> Runner<D> {
                 s
             })
             .collect();
-        // `scrollIntoView` of a list's row is the runner's own:
-        // it runs in this commit, after the update, and never
+        // `scrollIntoView` of a list's row is the runner's own (LLP
+        // 1070.000): it runs in this commit, after the update, and never
         // reaches a host. An element's (its id and three options, not the
         // row form's seven arguments) is the host's, as `focus` is.
         let stated: Vec<Command> = self.commands.drain(first_command..).collect();
@@ -786,41 +802,6 @@ impl<D: DataSource> Runner<D> {
         Ok(self.plan.mutation(mutation).slot.0 as usize)
     }
 
-    pub(super) fn target_name(&self, t: Target) -> String {
-        match t {
-            Target::Resource(i) => self.plan.str(self.plan.resources[i].name).to_string(),
-            Target::Mutation(m) => self.plan.str(self.plan.mutations[m].name).to_string(),
-        }
-    }
-
-    /// Drop the request in flight for `target`, if any: its reply, when it
-    /// comes, is dropped too (a `POST` already sent is not unsent).
-    pub(super) fn forget(&mut self, target: Target) {
-        self.forget_ticket(target);
-        if let Target::Mutation(m) = target {
-            self.unsent.retain(|u| u.0 != m);
-        }
-        self.sync_pending_flags();
-    }
-
-    /// Let go of `target`'s request in flight, keeping a send that waits
-    /// for the source; `false` keeps a child.
-    pub(super) fn forget_ticket(&mut self, target: Target) -> bool {
-        if self.holds_child(target) {
-            return false;
-        }
-        if let Some(pos) = self.pending.iter().position(|p| p.target == target) {
-            let p = self.pending.remove(pos);
-            self.note_retired(&p);
-            let t = p.ticket;
-            self.note_let_go(t, target);
-            self.let_go_request(p);
-            self.forgot = true;
-            self.log(super::lines::forgot(t, &self.target_name(target)));
-        }
-        true
-    }
-
     /// The resources mutation `m` declares it refreshes.
     pub(super) fn declared_refreshes(&self, m: usize) -> Vec<usize> {
         let range = self.plan.mutations[m].refreshes;
@@ -832,16 +813,33 @@ impl<D: DataSource> Runner<D> {
 
     /// Ask resource `r` again, forced, at the next settlement that can.
     pub(super) fn force_refresh(&mut self, r: usize) {
+        // A refresh ends the launch's exemption for every resource and every
+        // wait, not only `r`: a list's members and whatever the refresh's cause
+        // also changed are then asked fresh. The cost is a fetch a preload
+        // could have answered, never an old answer (LLP 1162.000 D1).
+        self.launch.clear();
+        for p in &mut self.pending {
+            p.launch = false;
+        }
         if !self.refresh_next.contains(&r) {
             self.refresh_next.push(r);
         }
     }
 
-    /// Hand `request` to the host under a fresh ticket, replacing any
-    /// request in flight for the same target — unless only the arguments
-    /// moved and the request is the one already in flight: then that
-    /// ticket is kept, to be parsed
-    /// with the newer arguments, and nothing is sent.
+    /// Ask resource `r` in place of the stand-in the launch shows: at the
+    /// next settlement when its source can answer now, else at `data_ready`.
+    /// The ask replaces whatever is in flight, as a refresh does, and is
+    /// sent as an ordinary one (LLP 1162.000 D1).
+    pub(super) fn ask_at_launch(&mut self, r: usize) {
+        if !self.source_ready(self.plan.str(self.resource_row(r).source)) {
+            self.resources[r].stale = true;
+        } else if !self.refresh_next.contains(&r) {
+            self.launch.push(r);
+            self.refresh_next.push(r);
+        }
+    }
+
+    /// One request uses the same replacement rules as a resource's set.
     pub(super) fn enqueue(
         &mut self,
         target: Target,
@@ -850,35 +848,56 @@ impl<D: DataSource> Runner<D> {
         request: Request,
         forced: bool,
     ) {
-        let keepable = matches!(target, Target::Resource(_))
-            && request.continuation.is_none()
-            && request.storage.is_none()
-            && request.surface.is_none();
-        if keepable && !forced {
+        self.enqueue_requests(target, source, args, vec![request], forced);
+    }
+
+    /// Replace the target's answer. Only one equal request on each side can
+    /// keep its ticket when arguments move (LLP 1162 D2).
+    pub(super) fn enqueue_requests(
+        &mut self,
+        target: Target,
+        source: String,
+        args: Vec<Value>,
+        requests: Vec<Request>,
+        forced: bool,
+    ) {
+        let single =
+            requests.len() == 1 && self.pending.iter().filter(|p| p.target == target).count() == 1;
+        let request = &requests[0];
+        if single && Self::keepable(target, request) && !forced {
             if let Some(p) = self.pending.iter_mut().find(|p| {
                 p.target == target
                     && !p.refused
                     && p.refusal.is_none()
                     && p.args != args
-                    // Who asked it is stamped as it goes out,
-                    // so it is no part of the same request.
-                    && (p.keepable.as_ref())
-                        .is_some_and(|k| request == Request { reach: request.reach, ..k.clone() })
+                    // Prefetch is a plain fetch (LLP 1162.000 D5); who asked
+                    // is stamped as it goes out (LLP 1133.036 D6).
+                    && p.keepable.as_ref().is_some_and(|k| {
+                        *request
+                            == Request {
+                                reach: request.reach,
+                                prefetch: request.prefetch,
+                                ..k.clone()
+                            }
+                    })
             }) {
                 p.args = args;
                 // (new arguments: a new streak after a turn over its budget)
                 p.reasks = 0;
                 if let Target::Resource(i) = target {
-                    p.inspection_generation =
-                        self.ids.work.resources.get(i).map_or(0, |w| w.request);
+                    p.inspection_generation = self
+                        .resources
+                        .get(i)
+                        .map(|row| &row.inspection)
+                        .map_or(0, |w| w.request);
                 }
                 let (ticket, upload) = (p.ticket, p.upload);
-                // An upload kept for newer arguments is asked at them too.
+                // An upload kept for newer arguments is asked at them too (D10).
                 if upload {
                     let args = p.args.clone();
                     self.upload_sent(target, &args, ticket);
                 }
-                // The newer arguments' causes join the request's.
+                // The newer arguments' causes join the request's (LLP 1133.035 D16 item 6).
                 self.note_kept(target, ticket);
                 // A source that parks calls hears the kept ticket's newer
                 // arguments and drops the call parked under the old ones.
@@ -888,23 +907,48 @@ impl<D: DataSource> Runner<D> {
             }
         }
         if self.holds_child(target) {
-            return self.discard_request(&request);
+            for request in &requests {
+                self.discard_request(request);
+            }
+            return;
         }
-        // A re-ask after a turn over its budget carries its streak on.
         let reasks = self.overrun_reasks(target, &args, forced);
-        if let Some(pos) = self.pending.iter().position(|p| p.target == target) {
-            let p = self.pending.remove(pos);
-            self.note_retired(&p);
-            let t = p.ticket;
-            self.note_let_go(t, target);
-            self.let_go_request(p);
-            self.forgot = true;
-            self.log(super::lines::forgot(t, &self.target_name(target)));
+        self.forget_ticket(target);
+        let first = self.pending.len();
+        let launch = matches!(target, Target::Resource(i) if self.launch.contains(&i));
+        let refresh = forced && !launch;
+        for request in requests {
+            self.append_request(target, source.clone(), args.clone(), request, refresh);
         }
+        let origin = self.pending[first].origin;
+        for p in &mut self.pending[first..] {
+            p.origin = origin;
+            p.reasks = reasks;
+        }
+    }
+
+    fn keepable(target: Target, request: &Request) -> bool {
+        matches!(target, Target::Resource(_))
+            && request.continuation.is_none()
+            && request.storage.is_none()
+            && request.surface.is_none()
+    }
+
+    /// `refresh`: the executor bypasses what it holds for the request.
+    pub(super) fn append_request(
+        &mut self,
+        target: Target,
+        source: String,
+        args: Vec<Value>,
+        request: Request,
+        refresh: bool,
+    ) {
+        let keepable = Self::keepable(target, &request);
         let ticket = self.next_ticket;
         self.next_ticket += 1;
         let name = self.target_name(target);
         let mut request = request;
+        crate::canvas_capture::from_fetch(&mut request);
         self.number_data_call(&mut request);
         request.reach = self.reach_of(self.origin_for(Some(target)));
         self.log(super::lines::enqueued(ticket, &name, &request));
@@ -914,9 +958,13 @@ impl<D: DataSource> Runner<D> {
         self.note_send(ticket, &request.body);
         self.presence_noted(ticket, &request);
         self.pending.push(PendingReq {
+            module: request
+                .module
+                .clone()
+                .or_else(|| self.data.module_identity(&source).map(|m| m.instance())),
             inspection_generation: match target {
                 Target::Resource(i) => self.inspected_request(i),
-                Target::Mutation(_) => 0,
+                Target::Mutation(_) | Target::Sent(..) => 0,
             },
             refusal: refusal.map(|why| (why, false)),
             refused: false,
@@ -941,14 +989,15 @@ impl<D: DataSource> Runner<D> {
             replay_unsafe: request.has_effects(),
             origin: self.writes.tick(),
             write: match target {
-                Target::Mutation(m) => self.asked_write(m),
+                Target::Mutation(_) | Target::Sent(..) => self.asked_write(target),
                 Target::Resource(_) => None,
             },
             held: request.is_held(),
             long_poll: request.stream && request.long_poll.is_some(),
             replied: false,
             reask_at: None,
-            reasks,
+            launch: false,
+            reasks: 0,
         });
         self.note_child(ticket, &request);
         if request.stream && request.upload_progress {
@@ -963,8 +1012,15 @@ impl<D: DataSource> Runner<D> {
             .extend(refusal.is_none().then_some(RequestOut {
                 ticket,
                 target: name,
+                class: match target {
+                    Target::Resource(_) if request.is_plain_http() => RequestClass::Read,
+                    Target::Sent(m, _) if request.is_plain_http() => {
+                        RequestClass::Parallel(m as u32)
+                    }
+                    _ => RequestClass::Ordered,
+                },
                 request,
-                forced,
+                forced: refresh,
             }));
         // An abort heard before this request was enqueued (in the same
         // commit, or a worker's turn that landed late) names it now.
@@ -972,9 +1028,44 @@ impl<D: DataSource> Runner<D> {
         self.sync_pending_flags();
     }
 
-    /// The requests the host is to run since the last take.
-    /// The module's background round goes out here when it has one,
-    /// and its journal lines come in.
+    pub(super) fn requests_for(
+        &mut self,
+        target: Target,
+        first: Request,
+    ) -> Result<Vec<Request>, DataError> {
+        let module = first.module.clone();
+        let mut requests = vec![first];
+        requests.extend(self.data.more_for(target).into_iter().map(|mut request| {
+            request.module = module.clone();
+            request
+        }));
+        if target.mutation().is_some() && requests.len() > 1 {
+            for request in &requests {
+                self.discard_request(request);
+            }
+            return Err(DataError::Unavailable(
+                "a mutation's answer hands over one request at a time".into(),
+            ));
+        }
+        Ok(requests)
+    }
+
+    pub(super) fn single_answer(
+        &mut self,
+        target: Target,
+        answer: Result<Answer, DataError>,
+    ) -> Result<Answer, DataError> {
+        match answer? {
+            Answer::Later(request) => self
+                .requests_for(target, request)
+                .map(|mut requests| Answer::Later(requests.remove(0))),
+            answer => Ok(answer),
+        }
+    }
+
+    /// The requests the host is to run since the last take (LLP 1016 D2).
+    /// The module's background round goes out here when it has one (LLP
+    /// 1097 D5), and its journal lines come in.
     pub fn take_requests(&mut self) -> Vec<RequestOut> {
         self.take_data_logs();
         self.arm_background();
@@ -985,12 +1076,13 @@ impl<D: DataSource> Runner<D> {
         self.hold_data_timers(requests)
     }
 
-    /// The work behind continuation `token`: a host asks
+    /// The work behind continuation `token` (LLP 1027.002 D3): a host asks
     /// on this thread, after the commit that handed the request out, so a
     /// worker's snapshot is the store as committed then.
     pub fn dispatch_work(&mut self, token: u64) -> Dispatch {
-        // A module request the runner holds for the agent.
-        if let Some(dispatch) = self.module_dispatch(token) {
+        self.hear_aborted();
+        // A module request the runner holds for the agent (LLP 1133.002 §6).
+        if let Some(dispatch) = self.module_dispatch(token).or(Self::held_dispatch(token)) {
             return dispatch;
         }
         self.store.set_clock_ms(self.now_ms);
@@ -999,7 +1091,7 @@ impl<D: DataSource> Runner<D> {
 
     /// Where this app's long native calls go: the source's own slot, or,
     /// for a source with none (a Rust source), the runner's. The host
-    /// installs the app module in it.
+    /// installs the app module in it (LLP 1067.000 Q6, Q9).
     pub fn native_slot(&self) -> crate::Native {
         self.data.native().unwrap_or_else(|| self.native.clone())
     }
@@ -1009,17 +1101,17 @@ impl<D: DataSource> Runner<D> {
     /// worker, which returns at once — the module's own thread answers.
     pub fn native_work(&mut self, request: &Request) -> Dispatch {
         // A module request whose reply carries handles: watched as it leaves
-        // the implementation.
+        // the implementation (LLP 1133.009 D6).
         if let Some(dispatch) = self.handled_work(&request.body) {
             return dispatch;
         }
         // A store's presence call: the host's backend, on the store's own
-        // path, never a module's.
+        // path, never a module's (LLP 1133.010 D13).
         if let Some(dispatch) = self.presence_call(&request.body) {
             return dispatch;
         }
         // A module's name called from data code: the runner's admission, then
-        // the module.
+        // the module (LLP 1133.002 D14).
         if let Some(dispatch) = self.module_call(&request.body) {
             return dispatch;
         }
@@ -1038,6 +1130,7 @@ impl<D: DataSource> Runner<D> {
     /// order, then the waits an answer's timer released (`data_timers.rs`);
     /// a host asks after every commit and advance.
     pub fn release_work(&mut self) -> Vec<(u64, Dispatch)> {
+        self.hear_aborted();
         let mut out = self.data.release(&self.store);
         out.extend(self.module_release());
         // A wait whose answer's timer came due (`data_timers.rs`).
@@ -1058,419 +1151,9 @@ impl<D: DataSource> Runner<D> {
     }
 
     /// The `Later` sends an action collected before a refusal dropped them.
-    pub(super) fn discard_later(&mut self, later: &[(usize, String, Vec<Value>, Request)]) {
+    pub(super) fn discard_later(&mut self, later: &[Later]) {
         for (_, _, _, request) in later {
             self.discard_request(request);
         }
-    }
-
-    /// A long poll's reply, an event or not: from its first
-    /// it is held, and each raises `heldReplies` for `clock held`.
-    fn long_poll_replied(&mut self, pos: usize) {
-        let p = &mut self.pending[pos];
-        p.replied = true;
-        let target = p.target;
-        self.count_held_reply(target);
-        self.sync_pending_flags();
-    }
-
-    fn count_held_reply(&mut self, target: Target) {
-        let name = self.target_name(target);
-        match self.held_replies.iter_mut().find(|(n, _)| *n == name) {
-            Some((_, count)) => *count += 1,
-            None => self.held_replies.push((name, 1)),
-        }
-    }
-
-    /// Whether resource `i` has a stream open that has delivered: it is not
-    /// pending, but a newer answer must still let its ticket go.
-    pub(super) fn streaming(&self, i: usize) -> bool {
-        self.pending
-            .iter()
-            .any(|p| p.target == Target::Resource(i) && !p.in_flight())
-    }
-
-    /// Whether request `ticket` is still wanted. A host asks after each
-    /// commit and lets go of the work for any it holds that isn't:
-    /// a superseded or forgotten reply would only be dropped here.
-    pub fn holds(&self, ticket: u64) -> bool {
-        self.is_background(ticket)
-            || self.is_tool(ticket)
-            || self.is_module_work(ticket)
-            || self.pending.iter().any(|p| p.ticket == ticket)
-    }
-
-    /// The host brought back the outcome of request `ticket`: the source
-    /// parses it, the resource takes its value or the mutation's slot its
-    /// `some`, and everything downstream settles as after an action — one
-    /// commit. A ticket no longer held (forgotten) is dropped with a
-    /// journal line and no commit.
-    pub fn fulfill(
-        &mut self,
-        ticket: u64,
-        outcome: Outcome,
-    ) -> Result<Option<CommitReceipt>, RunnerError> {
-        self.fulfill_measured(ticket, outcome, None)
-    }
-
-    /// Fulfill with elapsed wall milliseconds measured by the executor, never
-    /// by the seekable agent clock. Missing measurements stay unnamed.
-    pub fn fulfill_measured(
-        &mut self,
-        ticket: u64,
-        outcome: Outcome,
-        elapsed_ms: Option<u64>,
-    ) -> Result<Option<CommitReceipt>, RunnerError> {
-        // A let-go request's reply: it has ended, and an abort names it no more.
-        self.retired_fetches.retain(|r| r.1 != ticket);
-        let answering = std::mem::replace(&mut self.churn.answering, true);
-        let out = self.arrived(|r| r.fulfill_now(ticket, outcome, elapsed_ms));
-        self.churn.answering = answering;
-        out
-    }
-
-    fn fulfill_now(
-        &mut self,
-        ticket: u64,
-        outcome: Outcome,
-        elapsed_ms: Option<u64>,
-    ) -> Result<Option<CommitReceipt>, RunnerError> {
-        if self.is_background(ticket) {
-            // Its own path: no commit, no `then`, no update.
-            self.background_landed(outcome);
-            return Ok(None);
-        }
-        if self.is_tool(ticket) {
-            // A handler's request: its turn resumes, no commit.
-            self.tool_landed(ticket, outcome);
-            return Ok(None);
-        }
-        if self.is_module_work(ticket) {
-            // Module work's: its turn, then a commit of its own.
-            return self.module_work_landed(ticket, outcome);
-        }
-        let mut summary = outcome.summary();
-        if let Some(ms) = elapsed_ms {
-            exact_num::push_text!(&mut summary, "; wall {} ms", ms);
-        }
-        let Some(pos) = self.pending.iter().position(|p| p.ticket == ticket) else {
-            self.log(super::lines::dropped(ticket, &summary));
-            // A module's reply carrying handles that is not delivered
-            // disposes of them.
-            self.dispose_dropped();
-            return Ok(None);
-        };
-        let handles = self.landed_handles(ticket);
-        self.landed_send(ticket);
-        if let (Some(_), Outcome::Message(m)) = (self.pending[pos].stream, &outcome) {
-            // A long poll's reply that is no event: it holds.
-            if self.pending[pos].long_poll && m.event == crate::LONG_POLL_REPLY {
-                self.long_poll_replied(pos);
-                return Ok(None);
-            }
-            // A listener's word on its address alone.
-            if self.listen_event(pos, m) {
-                return Ok(None);
-            }
-            // An upload's start: noted; no mapper sees it.
-            if self.pending[pos].upload && m.upload_started() {
-                self.pending[pos].sent = true;
-                return Ok(None);
-            }
-            return self.message(pos, outcome, &summary);
-        }
-        // A re-ask's wait was never sent (`overrun.rs`): only its invocation's end fails it.
-        if self.pending[pos].reask_at.is_some() {
-            return self.reask_answered(ticket, outcome, &summary);
-        }
-        self.overrun.replied = false;
-        let was_poisoned = self.poisoned;
-        let checkpoint = self.checkpoint(true);
-        let p = self.pending.remove(pos);
-        self.sync_pending_flags();
-        if p.held || p.long_poll {
-            self.count_held_reply(p.target);
-        }
-        let what = super::lines::fulfilling(ticket, &self.target_name(p.target), &summary);
-        let target = p.target;
-        // An answer lands as a commit of its request's origin,
-        // with every cause the request has.
-        let (origin, id) = (self.ticket_origin(ticket), self.ticket_id(ticket));
-        let causes = self.ticket_causes(ticket);
-        let result = self.as_invocation_caused(origin, id, causes, |r| r.fulfill_inner(p, outcome));
-        self.conclude(checkpoint, &result, was_poisoned);
-        // Its `then` is armed under the same origin, invocation and causes.
-        self.as_invocation_caused(origin, id, causes, |r| r.arm_then(result.is_ok()));
-        self.arm_next(result.is_ok());
-        self.log_outcome(&what, &result, was_poisoned);
-        if let (Some(handles), Err(_)) = (handles, &result) {
-            self.dispose(handles, "its commit was refused");
-        }
-        if let Err(e) = &result {
-            // A one-shot reply is spent whatever refused its commit: the host
-            // delivers it once, so left in flight by the rollback it would be
-            // pending forever (a mutation's write shown, a resource's
-            // `pending(…)`, a clock waiting on it), whether the source failed
-            // to take it, a refusal's shaped failure trapped, or a value it
-            // took trapped in a derive. The failure is in the journal (above);
-            // what the host needs now is the commit that takes the target out
-            // of `pending`. Admission refusal alone cannot restart a source
-            // whose earlier turns may have written.
-            if self.holds(ticket) {
-                // Its own turn over its budget: asked again (`overrun.rs`).
-                if self.hold_overrun_reply(ticket, target, e) {
-                    return Ok(None);
-                }
-                return self.release_failed(ticket, target, crate::failure::Failure::of(e));
-            }
-        }
-        result.map(Some)
-    }
-
-    /// One message of the open stream at `pos`: parsed
-    /// like a single reply and committed as its own settlement, with the
-    /// ticket kept open. A message the source cannot take ends the stream,
-    /// as a failed reply ends a request.
-    fn message(
-        &mut self,
-        pos: usize,
-        outcome: Outcome,
-        summary: &str,
-    ) -> Result<Option<CommitReceipt>, RunnerError> {
-        let was_poisoned = self.poisoned;
-        // An upload's bytes sent: it has reached the network, which a
-        // refused commit of this message does not undo.
-        let upload = self.pending[pos].upload;
-        self.pending[pos].sent |= upload;
-        let checkpoint = self.checkpoint(true);
-        if self.pending[pos].long_poll {
-            self.long_poll_replied(pos);
-        }
-        let p = &mut self.pending[pos];
-        if let (Some(count), Outcome::Message(m)) = (p.stream.as_mut(), &outcome) {
-            count.messages += 1;
-            count.coalesced += u64::from(m.coalesced);
-            sockets::socket_message(count, m);
-        }
-        let p = p.clone();
-        self.note_child_outcome(p.ticket, &outcome);
-        self.sync_pending_flags();
-        let (ticket, target, name) = (p.ticket, p.target, self.target_name(p.target));
-        let what = super::lines::fulfilling(ticket, &name, summary);
-        let before = self.sockets.len();
-        crate::stream_timing::entered(ticket);
-        // A frame lands as a commit of its stream's origin,
-        // with every cause its request has,
-        // as a one-shot's reply does: a stream a tool asked answers as the
-        // tool's, frame after frame.
-        let (origin, id) = (self.ticket_origin(ticket), self.ticket_id(ticket));
-        let causes = self.ticket_causes(ticket);
-        let result = self.as_invocation_caused(origin, id, causes, |r| r.fulfill_inner(p, outcome));
-        // What the mapper staged answering this frame:
-        // addressed for the commit, or left staged by a frame that failed.
-        // The commit's answers may have sent too;
-        // their batches are not the mapper's.
-        let left = !self.store.take_sockets().is_empty();
-        let mapper = |b: &crate::SocketSend| matches!(b.origin, crate::SocketOrigin::Mapper(_));
-        let replied = left || self.sockets[before..].iter().any(mapper);
-        self.conclude(checkpoint, &result, was_poisoned);
-        crate::stream_timing::committed(result.is_ok());
-        self.as_invocation_caused(origin, id, causes, |r| r.arm_then(result.is_ok()));
-        self.arm_next(result.is_ok());
-        self.log_outcome(&what, &result, was_poisoned);
-        // Or by one whose answer reopened the stream, which sends none.
-        if replied && (result.is_err() || left) {
-            let why = (result.as_ref().err())
-                .map_or("its answer reopened the stream".into(), |e| {
-                    crate::failure::Failure::of(e).message
-                });
-            self.log(sockets::refused(&crate::SocketOrigin::Mapper(name), &why));
-        }
-        if let (Err(e), true) = (&result, self.holds(ticket)) {
-            return self.release_failed(ticket, target, crate::failure::Failure::of(e));
-        }
-        result.map(Some)
-    }
-
-    pub(super) fn fulfill_inner(
-        &mut self,
-        p: PendingReq,
-        outcome: Outcome,
-    ) -> Result<CommitReceipt, RunnerError> {
-        if self.poisoned {
-            return Err(RunnerError::Poisoned);
-        }
-        let name = self.target_name(p.target);
-        let message = p.stream.is_some() && matches!(outcome, Outcome::Message(_));
-        let failed_end = matches!(outcome, Outcome::Failed { .. });
-        let ty = match p.target {
-            Target::Resource(i) => self.plan.resources[i].ty,
-            Target::Mutation(m) => self.plan.mutations[m].ty,
-        };
-        self.store.take_topics();
-        self.snapshot_sockets();
-        // A live module source's answer may name when it goes stale,
-        // whether Contract or data code reads it.
-        let live = (self.plan.module_named(&p.source))
-            .filter(|row| row.live && !row.send)
-            .map(|row| self.key(row))
-            .or_else(|| (p.keepable.as_ref()).and_then(|r| self.module_topic(&r.body)));
-        let outcome = match (live, outcome) {
-            (Some(key), Outcome::Response(mut response)) => {
-                response.body = self.take_stale(&key, std::mem::take(&mut response.body));
-                Outcome::Response(response)
-            }
-            (_, outcome) => outcome,
-        };
-        self.store.set_clock_ms(self.now_ms);
-        let (reads_before, revision_before) = (self.store.reads(), self.store.revision());
-        let parsed = if Self::activity_send(&p.source) {
-            Self::activity_reply(&self.plan, ty, outcome)
-        } else if self.plan.module_named(&p.source).is_some() {
-            self.module_parse(p.target, ty, &p.source, outcome)
-        } else {
-            let parsed =
-                self.data
-                    .parse_for(p.target, &mut self.store, &p.source, &p.args, outcome);
-            self.refuse_locked(parsed)
-        };
-        // What the turn of a reply to a request with effects wrote stands,
-        // whatever the commit then does: it keeps what the server did, as a
-        // browser's continuation keeps it outside every commit.
-        if p.effects {
-            self.module_work.standing = Some(self.store.checkpoint());
-        }
-        if self.store.revision() != revision_before {
-            self.ask_failed_readers(Some(p.target));
-        }
-        // Only a socket's mapper answering a frame stages for this commit;
-        // a turn of an answer sends whatever it answered.
-        if !message {
-            self.store.take_sockets();
-        }
-        self.stage_answer(p.target);
-        self.hear_aborted();
-        for line in self.data.take_logs() {
-            self.log(line);
-        }
-        // What this reply's turn watched joins the resource's topics whatever
-        // the reply says: a turn that yields another request (a long native
-        // call) watched them as much as the one that answers.
-        if let Target::Resource(i) = p.target {
-            // A read in a later turn (after an `await`) makes a store reader
-            // as one in the first does.
-            if self.store.reads() > reads_before {
-                self.store_readers[i] = true;
-                self.module_work.reply_reader = Some(i);
-            }
-            // A module's source that data code read: the answer is asked
-            // again when that source's answer changes.
-            let module = (p.keepable.as_ref()).and_then(|r| self.module_topic(&r.body));
-            for topic in self.store.take_topics().into_iter().chain(module) {
-                if !self.watching[i].contains(&topic) {
-                    self.watching[i].push(topic);
-                }
-            }
-        }
-        self.overrun.replied = matches!(parsed, Err(DataError::Overrun(_)));
-        let value = match parsed.map_err(|error| RunnerError::Data {
-            resource: name.clone(),
-            error,
-        })? {
-            Answer::Now(value) => value,
-            Answer::Later(request) if message && !request.stream => {
-                // A message commits as its own settlement; a request that is
-                // not a stream would replace the stream's ticket with one
-                // answer.
-                return Err(RunnerError::Data {
-                    resource: name,
-                    error: DataError::Unavailable(
-                        "a stream's message answers now, or reopens the stream".into(),
-                    ),
-                });
-            }
-            Answer::Later(request) => {
-                // One more round: the target keeps its value, a new ticket goes
-                // out for the same arguments, and this commit changes only the pending set. The
-                // round carries an ask made before a watched topic changed on to its last;
-                // a continuation, the rest of this reply's answer (a worker's later
-                // turn too), keeps the request's obligation to finish.
-                self.log(super::lines::one_more(&name));
-                let (ticket, effects) = (self.next_ticket, p.admitted_effects());
-                self.enqueue(p.target, p.source, p.args, request, false);
-                // `enqueue` may keep a ticket or a running child, and push none.
-                if let Some(next) = self.pending.last_mut().filter(|n| n.ticket >= ticket) {
-                    next.ask_again |= p.ask_again;
-                    next.module_again = next.module_again.or(p.module_again);
-                    next.origin = p.origin;
-                    next.inspection_generation = p.inspection_generation;
-                    next.write = p.write;
-                    next.reasks = p.reasks;
-                    next.effects |= next.continuation.is_some() && effects;
-                    next.replay_unsafe |= p.replay_unsafe;
-                }
-                return self.update();
-            }
-        };
-        if !self.conforms(&value, ty) {
-            return Err(self.shape(name, &value, ty));
-        }
-        // Its replies go out once this frame's commit stands.
-        if message {
-            if let Err(why) = self.stage_replies(&p) {
-                let error = DataError::Unavailable(why);
-                return Err(RunnerError::Data {
-                    resource: name,
-                    error,
-                });
-            }
-        }
-        match p.target {
-            Target::Resource(i) => {
-                let shown = self.resources[i].take();
-                self.revalidated(i, shown.as_ref(), &value);
-                self.stale[i] = false;
-                self.failed_args[i] = None;
-                self.keep_answer(i, &p.args, &value);
-                // An upload's end is the answer it stands on at its arguments;
-                // one that never reached the network is an ordinary answer.
-                if p.upload && !message {
-                    let end = super::UploadEnd::Answered(value.clone());
-                    self.upload_over(p.ticket, p.sent || !failed_end, end);
-                }
-                if p.ask_again {
-                    self.log(super::lines::asked_again(p.ticket, &name));
-                    self.force_refresh(i);
-                }
-                self.resources[i] = Some(ResourceState {
-                    inspection_generation: p.inspection_generation,
-                    args: p.args,
-                    value: crate::held::Held::new(value),
-                    store_revision: self.store.revision(),
-                    placeholder: false,
-                    kept_seed: false,
-                    answered_for: None,
-                    origin: p.origin,
-                });
-                self.inspected_success(i, p.inspection_generation);
-            }
-            Target::Mutation(m) => {
-                self.failed_mut[m] = None;
-                let slot = self.mutation_slot(m)?;
-                self.land_write(m, p.write, &value);
-                self.slots[slot] = Value::some(value);
-                self.landed.push(m);
-                // The reply landed: what the mutation changed is asked again
-                // in this commit; its write shows until
-                // that answer lands.
-                for r in self.declared_refreshes(m) {
-                    self.force_refresh(r);
-                }
-            }
-        }
-        self.router_change()
-            .and_then(|_| self.settle(false))
-            .and_then(|_| self.gate_step())?;
-        self.update()
     }
 }

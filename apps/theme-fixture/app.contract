@@ -1,4 +1,4 @@
-// The theme fixture: a page in the window's app modes
+// The theme fixture (LLP 1121 stage 2): a page in the window's app modes
 // (`setMode`), and three previews pinned beside it: Light, Dim and Black,
 // each a `color-scheme` and, for the dark two, an `-exact-mode` pin. Text
 // whose colour the page sets is inherited into each preview, so a mode

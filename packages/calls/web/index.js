@@ -1,4 +1,4 @@
-// @exact/calls on the web. The call is the module's own state: every name is the declared keyed
+// @exact/calls on the web (LLP 1133.033 D19). The call is the module's own state: every name is the declared keyed
 // list's answer (`declared`). What the web adds is the browser's in-call controls: while a call is `connected`, Media
 // Session's `hangup` and `togglemicrophone` actions (https://w3c.github.io/mediasession/#enumdef-mediasessionaction)
 // take the call's `hangup` and `mute`/`unmute` choices, which raise `callhangup` and `callmute` as the person's, and

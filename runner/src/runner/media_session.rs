@@ -1,4 +1,4 @@
-//! The media session's six actions, `setActionHandler`'s
+//! @ref LLP 1098 D2, D11 — the media session's six actions, `setActionHandler`'s
 //! names, as a host sends them through host kind 19 (`name\npayload`), and
 //! the `MediaSessionActionDetails` an action may take as its last parameter
 //! (`contract_types::event_record`). The payload is `seekOffset seekTime

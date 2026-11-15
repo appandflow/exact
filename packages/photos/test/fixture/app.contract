@@ -1,4 +1,4 @@
-// The conformance fixture: each name of
+// The conformance fixture (LLP 1133.001 D7, LLP 1133.019 §11): each name of
 // @exact/photos, its answers shown by testId for the suite. The list is read
 // once `read` is pressed; its first six photos are drawn as pictures, each
 // counting its `load` and `error`.

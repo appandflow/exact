@@ -1,4 +1,4 @@
-# MIDI: ports the drive prefers and a request the agent
+# MIDI (LLP 1125 D6–D8): ports the drive prefers and a request the agent
 # answers; sendMIDI's at=, a late one and a malformed one; notes on two
 # outputs (one not connected) and on no output, clock out, a tempo edit, an
 # offset edit, a key restart, the gate's stop, a finite take's ended=;

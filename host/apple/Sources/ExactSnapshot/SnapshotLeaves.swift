@@ -1,7 +1,7 @@
-// The leaves: a paragraph as one single-line `Text` per kernel line,
+// The leaves: a paragraph as one single-line `Text` per kernel line (D4),
 // an image from the bundle or the app group, a symbol, and the platform's
-// live time and progress. Text and symbols are the accented group:
-// the glyphs take `widgetAccentable`; a raster image stays in the
+// live time and progress (D6). Text and symbols are the accented group
+// (D5): the glyphs take `widgetAccentable`; a raster image stays in the
 // default group, desaturated unless the author says otherwise.
 #if canImport(WidgetKit)
 import SwiftUI
@@ -31,32 +31,68 @@ struct SnapshotTextView: View {
             let frames = node.lines.map { line in
                 CGRect(x: box.minX + line.origin.x, y: box.minY + line.origin.y - line.ascent, width: max(0, line.width), height: line.ascent + line.descent)
             }
+            let groups = opacityGroups()
+            groupView(0, groups: groups, frames: frames)
+        }
+    }
+
+    private struct Group {
+        var alpha = 1.0
+        var runs: Set<Int> = []
+        var children: [Int] = []
+    }
+
+    private func opacityGroups() -> [Group] {
+        var groups = [Group()], byId: [UInt32: Int] = [:]
+        for (index, run) in node.runs.enumerated() {
+            var owner = 0
+            for step in run.opacityGroups {
+                let child: Int
+                if let found = byId[step.box] { child = found }
+                else {
+                    child = groups.count
+                    groups.append(Group(alpha: step.alpha))
+                    byId[step.box] = child
+                    groups[owner].children.append(child)
+                }
+                owner = child
+            }
+            groups[owner].runs.insert(index)
+        }
+        return groups
+    }
+
+    private func groupView(_ index: Int, groups: [Group], frames: [CGRect]) -> AnyView {
+        let group = groups[index]
+        return AnyView(ZStack(alignment: .topLeading) {
             FrameLayout(frames: frames, size: node.frame.size) {
                 ForEach(Array(node.lines.enumerated()), id: \.offset) { _, line in
-                    text(line)
-                        .lineLimit(1)
-                        .fixedSize()
-                        .widgetAccentable()
+                    text(line, selected: group.runs).lineLimit(1).fixedSize().widgetAccentable()
                 }
             }
-        }
+            ForEach(group.children, id: \.self) { child in
+                groupView(child, groups: groups, frames: frames)
+            }
+        }.compositingGroup().opacity(group.alpha))
     }
 
     /// The line's runs, each in the font the kernel measured it in and its
     /// own colour or the paragraph's, concatenated into one `Text`. The
-    /// text is the line's `Line.text`: a clamped line's cut and "…" come from
+    /// text is WP1's `Line.text`: a clamped line's cut and "…" come from
     /// there. A run's background and `href` are refused by the profile.
-    private func text(_ line: HeadlessSession.Line) -> Text {
+    private func text(_ line: HeadlessSession.Line, selected: Set<Int>) -> Text {
         let dark = scheme == .dark
         let ink = SnapshotColor.style(SnapshotStyle(node).color("text_color"), dark: dark, context: .ink) ?? AnyShapeStyle(.primary)
         let segments = line.segments.isEmpty ? [HeadlessSession.Segment(run: 0, text: line.text)] : line.segments
         return segments.reduce(Text(verbatim: "")) { whole, segment in
             guard segment.run < node.runs.count else { return whole + Text(verbatim: segment.text) }
             let run = node.runs[segment.run]
-            let part = Text(verbatim: segment.text)
-                .font(Font(run.font))
-                .foregroundStyle(SnapshotColor.style(ColorRow(run.color), dark: dark, context: .ink) ?? ink)
-            return whole + SnapshotTextPaint.styled(part, run: run, node: node)
+            // Every group lays out the whole line; another group's runs keep
+            // their metrics and paint nothing.
+            let shown = selected.contains(segment.run) && !run.hidden
+            let part = Text(verbatim: segment.text).font(Font(run.font))
+                .foregroundStyle(shown ? (SnapshotColor.style(ColorRow(run.color), dark: dark, context: .ink) ?? ink) : AnyShapeStyle(Color.clear))
+            return whole + SnapshotTextPaint.styled(part, run: run, node: node, paints: shown)
         }
     }
 }
@@ -68,9 +104,11 @@ package enum SnapshotTextPaint {
     package static func decoration(_ run: HeadlessSession.Run, node: HeadlessSession.Node) -> String {
         [node.style["text_decoration_line"]?.string ?? "", run.decoration].filter { !$0.isEmpty }.joined(separator: " ")
     }
-    static func styled(_ text: Text, run: HeadlessSession.Run, node: HeadlessSession.Node) -> Text {
+    /// Without `paints`, only the tracking, which moves the text after it.
+    static func styled(_ text: Text, run: HeadlessSession.Run, node: HeadlessSession.Node, paints: Bool = true) -> Text {
         var part = text
         if run.letterSpacing != 0 { part = part.tracking(run.letterSpacing) }
+        guard paints else { return part }
         let decoration = decoration(run, node: node)
         if decoration.contains("underline") { part = part.underline() }
         if decoration.contains("line-through") { part = part.strikethrough() }
@@ -78,7 +116,7 @@ package enum SnapshotTextPaint {
     }
 }
 
-/// Under the accented rendering mode, text and symbols are the accented
+/// D5: under the accented rendering mode, text and symbols are the accented
 /// group (their glyphs take the tint); a raster image is the default
 /// group, desaturated unless the author wrote `data-rendering="full-color"`.
 package enum SnapshotAccent {
@@ -94,7 +132,7 @@ package enum SnapshotAccent {
     }
 }
 
-/// `time` and `progress` as the platform's live views, which update
+/// D6: `time` and `progress` as the platform's live views, which update
 /// with no code running. A `time` has `datetime` (an instant: epoch
 /// milliseconds, or ISO 8601 with or without fractional seconds) and
 /// `format` (the prop `timeFormat` on the wire): `relative` is
@@ -175,30 +213,50 @@ struct SnapshotLiveText: View {
 /// determinate bar; else the activity indicator. A ring where the platform
 /// draws one: in the circular accessory family, or a `progress` the author
 /// rounded into a circle (`border-radius: 50%`, or at least half its box),
-/// as SwiftUI's circular capacity gauge draws the value.
+/// as SwiftUI's circular capacity gauge draws the value. A bar draws in the
+/// tint, which an `accent-color` sets (`SnapshotNodeView`), as UIKit's
+/// progress view does; the indicator in its own `color`, else the tint
+/// (`docs/contract-grammar.md`, "Progress").
 @available(iOS 17.0, macOS 14.0, watchOS 10.0, visionOS 26.0, *)
 struct SnapshotProgressView: View {
     let node: HeadlessSession.Node
     let environment: SnapshotEnvironment
     @Environment(\.colorScheme) private var scheme
+    @Environment(\.snapshotTint) private var around
+
+    /// A bar's and a ring's own tint: a share of the tint in effect where its
+    /// accent is one (`Highlight`), as the iOS host's bar takes it
+    /// (`accentShare`), else its accent; none for `AccentColor` itself, which
+    /// is the tint in effect. The ring, unaccented, takes the box's colour.
+    private func barTint(ring: Bool = false) -> Color? {
+        let style = SnapshotStyle(node)
+        return SnapshotTint.given(style.color("accent_color") ?? (ring ? style.color("text_color") : nil), around: around, dark: scheme == .dark)
+    }
+    /// The indicator's own `color`, where it wrote one, else its accent.
+    private var indicatorTint: Color? {
+        let style = SnapshotStyle(node)
+        return SnapshotTint.given(style.wrote("text_color") ? style.color("text_color") : style.color("accent_color"), around: around, dark: scheme == .dark)
+    }
 
     var body: some View {
         Group {
             if let interval = SnapshotLive.interval(node), let date = environment.frozenDate {
                 let fraction = min(1, max(0, date.timeIntervalSince(interval.lowerBound) / max(0.001, interval.upperBound.timeIntervalSince(interval.lowerBound))))
                 let shown = (node.props["timeFormat"] ?? node.props["format"]) == "countdown" ? 1 - fraction : fraction
-                if circular { gauge(shown, total: 1) } else { ProgressView(value: shown) }
+                if circular { gauge(shown, total: 1) } else { ProgressView(value: shown).modifier(OwnTint(color: barTint())) }
             } else if let interval = SnapshotLive.interval(node) {
                 if circular {
                     ProgressView(timerInterval: interval, countsDown: (node.props["timeFormat"] ?? node.props["format"]) == "countdown") { EmptyView() } currentValueLabel: { EmptyView() }
                         .progressViewStyle(.circular)
+                        .modifier(OwnTint(color: barTint(ring: true)))
                 } else {
                     ProgressView(timerInterval: interval, countsDown: (node.props["timeFormat"] ?? node.props["format"]) == "countdown") { EmptyView() } currentValueLabel: { EmptyView() }
+                        .modifier(OwnTint(color: barTint()))
                 }
             } else if let value = Double(node.props["value"] ?? "") {
-                if circular { gauge(min(value, total), total: total) } else { ProgressView(value: min(value, total), total: total) }
+                if circular { gauge(min(value, total), total: total) } else { ProgressView(value: min(value, total), total: total).modifier(OwnTint(color: barTint())) }
             } else {
-                ProgressView()
+                ProgressView().modifier(OwnTint(color: indicatorTint))
             }
         }
         .frame(width: node.contentBox.width, height: node.contentBox.height)
@@ -211,9 +269,9 @@ struct SnapshotProgressView: View {
         #if os(iOS) || os(watchOS)
         Gauge(value: value, in: 0...total) { EmptyView() }
             .gaugeStyle(.accessoryCircularCapacity)
-            .tint(SnapshotColor.color(SnapshotStyle(node).color("accent_color") ?? SnapshotStyle(node).color("text_color"), dark: scheme == .dark))
+            .modifier(OwnTint(color: barTint(ring: true)))
         #else
-        ProgressView(value: value, total: total).progressViewStyle(.circular)
+        ProgressView(value: value, total: total).progressViewStyle(.circular).modifier(OwnTint(color: barTint(ring: true)))
         #endif
     }
 
@@ -287,8 +345,26 @@ struct SnapshotImageView: View {
             }
             .font(.system(size: points, weight: Font.Weight(css: Int(weight))))
             .foregroundStyle(ink)
+        } else if let svg = node.props["symbolAsset"],
+                  let asset = IconAsset.image(named: IconAsset.name(svg),
+                    bundles: environment.imageRoots.compactMap { Bundle(url: $0) }.flatMap { IconAsset.bundles(for: $0) } + SnapshotBundles.all,
+                    scale: displayScale) {
+            let style = SnapshotStyle(node)
+            let natural = IconAsset.size(asset.size, points: style.number("font_size") ?? 17)
+            let ink = SnapshotColor.style(style.color("tint_color") ?? style.color("text_color"), dark: scheme == .dark, context: .ink) ?? AnyShapeStyle(.tint)
+            #if canImport(UIKit)
+            let image = Image(uiImage: asset)
+            #else
+            let image = Image(nsImage: asset)
+            #endif
+            let box = node.contentBox.size
+            // Symbol fill keeps the file's aspect, matching the page hosts.
+            let fit = fit == "fill" ? "contain" : fit
+            SnapshotRaster(image: image.renderingMode(style.string("symbol_rendering") == "multicolor" ? .original : .template),
+                           natural: natural, fit: fit, box: box, fullColor: true)
+                .foregroundStyle(ink)
         } else if let commands = node.props["symbolPath"] {
-            // An icon with no SF Symbol draws its own path, as the page hosts do: its
+            // An icon with no SF Symbol draws its own path (LLP 1121 D10, stage 9 A), as the page hosts do: its
             // em square placed by `object-fit` in the box, the viewBox met in that square, each path filled
             // by its rule (nonzero, or even-odd by `symbolFillRule`) into one mask that its tint (else its
             // colour) shows through once.
@@ -318,7 +394,7 @@ private struct IconShape: Shape {
     }
 }
 
-/// Raster decoding, bounded (an extension's memory ceiling): ImageIO's
+/// Raster decoding, bounded (D8: an extension's memory ceiling): ImageIO's
 /// thumbnail at the pixels the box shows, never the full image, kept for
 /// the invocation under a decoded-byte budget (the oldest evicted past it;
 /// an image larger than the budget is never retained) and released with
@@ -350,8 +426,10 @@ public final class SnapshotRasters {
     package var keptKeys: [String] { lock.lock(); defer { lock.unlock() }; return kept.map(\.key) }
 
     public func decode(_ source: String?, roots: [URL], appGroup: URL?, appID: String?, box: CGSize, fit: String, scale: CGFloat) -> Decoded? {
-        guard let source, !source.isEmpty, let url = Self.resolve(source, roots: roots, appGroup: appGroup, appID: appID) else { return nil }
-        return decode(url, box: box, fit: fit, scale: scale)
+        guard let source, !source.isEmpty, let input = Self.input(source, roots: roots, appGroup: appGroup, appID: appID),
+              let provider = FileImageSource.provider(input.file),
+              let imageSource = CGImageSourceCreateWithDataProvider(provider, nil) else { return nil }
+        return decode(imageSource, key: input.url.path, box: box, fit: fit, scale: scale)
     }
 
     /// The decode a box needs: its own pixels for `fill`, `contain` and
@@ -359,8 +437,13 @@ public final class SnapshotRasters {
     /// dimension fills the box, which is the window shown; either scaled
     /// down to the pixel budget's area.
     public func decode(_ url: URL, box: CGSize, fit: String, scale: CGFloat) -> Decoded? {
+        guard let imageSource = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
+        return decode(imageSource, key: url.path, box: box, fit: fit, scale: scale)
+    }
+
+    private func decode(_ imageSource: CGImageSource, key: String, box: CGSize, fit: String, scale: CGFloat) -> Decoded? {
         let pixels = CGSize(width: box.width * scale, height: box.height * scale)
-        guard let natural = Self.natural(url), natural.width > 0, natural.height > 0 else { return nil }
+        guard let natural = Self.natural(imageSource), natural.width > 0, natural.height > 0 else { return nil }
         var size: CGSize
         if fit == "cover" {
             let cover = max(pixels.width / natural.width, pixels.height / natural.height)
@@ -375,15 +458,14 @@ public final class SnapshotRasters {
             let factor = (CGFloat(pixelBudget) / area).squareRoot()
             size = CGSize(width: size.width * factor, height: size.height * factor)
         }
-        return decode(url, longest: Int(max(1, max(size.width, size.height).rounded(.up))), natural: natural)
+        return decode(imageSource, key: key, longest: Int(max(1, max(size.width, size.height).rounded(.up))), natural: natural)
     }
 
-    private func decode(_ url: URL, longest: Int, natural: CGSize) -> Decoded? {
-        let key = "\(url.path)|\(longest)"
+    private func decode(_ imageSource: CGImageSource, key: String, longest: Int, natural: CGSize) -> Decoded? {
+        let key = "\(key)|\(longest)"
         lock.lock()
         if let hit = kept.first(where: { $0.key == key }) { lock.unlock(); return hit.value }
         lock.unlock()
-        guard let imageSource = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
         let options: [CFString: Any] = [
             kCGImageSourceCreateThumbnailFromImageAlways: true,
             kCGImageSourceCreateThumbnailWithTransform: true,
@@ -406,8 +488,12 @@ public final class SnapshotRasters {
 
     /// The image's pixel size, upright (EXIF orientations 5–8 swap the sides).
     public static func natural(_ url: URL) -> CGSize? {
-        guard let imageSource = CGImageSourceCreateWithURL(url as CFURL, nil),
-              let properties = CGImageSourceCopyPropertiesAtIndex(imageSource, 0, nil) as? [CFString: Any],
+        guard let imageSource = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
+        return natural(imageSource)
+    }
+
+    private static func natural(_ imageSource: CGImageSource) -> CGSize? {
+        guard let properties = CGImageSourceCopyPropertiesAtIndex(imageSource, 0, nil) as? [CFString: Any],
               let width = (properties[kCGImagePropertyPixelWidth] as? NSNumber)?.doubleValue,
               let height = (properties[kCGImagePropertyPixelHeight] as? NSNumber)?.doubleValue else { return nil }
         let orientation = (properties[kCGImagePropertyOrientation] as? NSNumber)?.intValue ?? 1
@@ -418,19 +504,23 @@ public final class SnapshotRasters {
     /// `app:/tmp/…` under the app's directories in the group container,
     /// laid out as the app lays them out (`picker::app_dirs`), so a widget
     /// reads the file the app wrote; any other name under one of the bundle
-    /// roots; `..` and a root alone are refused, and the resolved path must
-    /// stay under its root.
-    public static func resolve(_ source: String, roots: [URL], appGroup: URL?, appID: String?) -> URL? {
+    /// roots. An app file opens through no symbolic link; `..` and a root
+    /// alone are refused. The descriptor survives replacement of its name.
+    public static func open(_ source: String, roots: [URL], appGroup: URL?, appID: String?) -> FileHandle? {
+        input(source, roots: roots, appGroup: appGroup, appID: appID)?.file
+    }
+
+    private static func input(_ source: String, roots: [URL], appGroup: URL?, appID: String?) -> (url: URL, file: FileHandle)? {
         if source.hasPrefix("app:/") {
             let parts = source.dropFirst(5).split(separator: "/", omittingEmptySubsequences: false).map(String.init)
             guard let appGroup, let appID, parts.count >= 2, let root = appRoots(group: appGroup, appID: appID)[parts[0]],
-                  !parts.dropFirst().contains(where: { $0.isEmpty || $0 == "." || $0 == ".." }) else { return nil }
-            return confined(parts.dropFirst().reduce(root) { $0.appending(path: $1) }, under: root)
+                  let file = AppFileWalk.open(root, Array(parts.dropFirst())) else { return nil }
+            return (parts.dropFirst().reduce(root) { $0.appending(path: $1) }, file)
         }
         for root in roots {
             let candidate: URL = source.hasPrefix("/") ? URL(fileURLWithPath: source)
                 : root.appending(path: source.hasPrefix("assets/") ? source : "assets/" + source)
-            if let url = confined(candidate, under: root) { return url }
+            if let url = confined(candidate, under: root), let file = try? FileHandle(forReadingFrom: url) { return (url, file) }
         }
         return nil
     }
@@ -456,7 +546,7 @@ public final class SnapshotRasters {
 /// CSS `object-fit` over the image's natural size: `fill` stretches,
 /// `contain` and `cover` keep the aspect, `scale-down` keeps the natural
 /// size when it fits, else contains; `none` is the profile's to refuse and
-/// draws as `scale-down` here. Under the accented mode the raster is
+/// draws as `scale-down` here. D5: under the accented mode the raster is
 /// desaturated (the default group keeps its detail) unless the author
 /// asked for full colour; the modifier is iOS 18's, and older systems draw
 /// the default.

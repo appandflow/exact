@@ -1,19 +1,20 @@
-// @exact/health on Android: Health Connect through the Jetpack client
-// (`androidx.health.connect:connect-client`), answered in the interface's shapes.
+// @exact/health on Android (LLP 1133.026 D5, D6, D8, D10, D11): Health Connect through the Jetpack client
+// (`androidx.health.connect:connect-client`, §16 question 6), answered in the interface's shapes.
 //
 // - `available` is `getSdkStatus` equal to `SDK_AVAILABLE`; otherwise `android.sdkStatus` says whether the provider is
-//   missing or needs an update.
-// - Each type's `read` comes from `getGrantedPermissions`, and the one Android permission history keyed per permission: a type the person declined twice reads `denied`, since Health Connect shows nothing
+//   missing or needs an update (D5).
+// - Each type's `read` comes from `getGrantedPermissions`, and the one Android permission history (LLP 1133.008 D8
+//   item 7) keyed per permission: a type the person declined twice reads `denied`, since Health Connect shows nothing
 //   on a third request; one declined once, or revoked in Health Connect, reads `prompt`.
 // - A granted type is `complete` from `since`: 30 days before now without `READ_HEALTH_DATA_HISTORY`, the one window
-//   that holds however the first grant moved; none with it.
-// - The request starts the client's permission contract for the types still `prompt` and history when asked.
+//   that holds however the first grant moved (D5); none with it.
+// - The request starts the client's permission contract for the types still `prompt` and history when asked (D6).
 // - Statistics are `aggregateGroupByDuration` for hours and `aggregateGroupByPeriod` for days, weeks and months, in the
 //   device's zone. Workouts are every `ExerciseSessionRecord` in the range, paged by the interface's `start:id` cursor.
 // - Health Connect has no observer: the grants are read again at each resume, and a change, or a return to the
-//   foreground, asks every reader again.
+//   foreground, asks every reader again (D8).
 // - Under the agent no client is made: `AgentHealth` answers over the fixture with the states the runner told.
-// - Tier 3: `HealthModule.hatch` is given the client once, when it is made.
+// - Tier 3 (D11): `HealthModule.hatch` is given the client once, when it is made.
 package exact.health
 
 import android.content.Context
@@ -50,7 +51,7 @@ import kotlin.coroutines.startCoroutine
 
 class HealthModule(context: ExtensionContext) : ExactExtension(context) {
     companion object {
-        /** The app's access hatch: given the client once, when it is made. */
+        /** The app's access hatch (D11): given the client once, when it is made. */
         @JvmStatic var hatch: ((HealthConnectClient) -> Unit)? = null
 
         private const val PROVIDER = "com.google.android.apps.healthdata"
@@ -58,7 +59,7 @@ class HealthModule(context: ExtensionContext) : ExactExtension(context) {
         private val NAMES = listOf("healthStatus", "healthStatistics", "healthWorkouts")
         private const val HISTORY = HealthPermission.PERMISSION_READ_HEALTH_DATA_HISTORY
 
-        /** Tier 1's types: each one's permission, its record class's name and its aggregate. */
+        /** Tier 1's types (D1): each one's permission, its record class's name and its aggregate. */
         private val PERMISSIONS = mapOf(
             "steps" to HealthPermission.getReadPermission(StepsRecord::class),
             "distance" to HealthPermission.getReadPermission(DistanceRecord::class),
@@ -94,7 +95,7 @@ class HealthModule(context: ExtensionContext) : ExactExtension(context) {
             ExerciseSessionRecord.EXERCISE_TYPE_SWIMMING_OPEN_WATER to "swimming",
         )
 
-        /** The summary over the data types' `read` words; history's denial stays out of it. */
+        /** D5's summary over the data types' `read` words; history's denial stays out of it. */
         private fun summary(types: List<JSONObject>): String {
             val reads = types.map { it.optString("read") }
             val data = types.filter { it.optString("type") != "history" }.map { it.optString("read") }
@@ -106,7 +107,7 @@ class HealthModule(context: ExtensionContext) : ExactExtension(context) {
             }
         }
 
-        /** One page after the key cursor `after` (`<start>:<id>`). */
+        /** One page after the key cursor `after` (`<start>:<id>`), D8. */
         internal fun page(all: List<JSONObject>, after: String?, limit: Int, since: Double?, complete: Boolean): JSONObject {
             var rest = all
             if (after != null) {
@@ -186,7 +187,7 @@ class HealthModule(context: ExtensionContext) : ExactExtension(context) {
     private fun <T> call(block: suspend () -> T, done: (Result<T>) -> Unit) =
         block.startCoroutine(Continuation(EmptyCoroutineContext) { r -> main.post { if (!destroyed) done(r) } })
 
-    /** Every reader asked again, coalesced. */
+    /** Every reader asked again, coalesced (D8). */
     private fun announce() {
         if (announcing) return
         announcing = true
@@ -210,7 +211,7 @@ class HealthModule(context: ExtensionContext) : ExactExtension(context) {
 
     // MARK: status and the request
 
-    /** Each type's `read`, `since` and `complete`, from the grants or, under the agent, from what was told. */
+    /** Each type's `read`, `since` and `complete` (D5), from the grants or, under the agent, from what was told. */
     private fun types(names: List<String>, grants: Set<String>, now: Double): List<JSONObject> {
         val history = app.getSharedPreferences("exact.permissions", Context.MODE_PRIVATE)
         val historyGranted = if (context.agent) told.optString("health.history") == "granted" else HISTORY in grants

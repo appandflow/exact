@@ -3,7 +3,7 @@ package dev.exact.canvas
 import org.json.JSONObject
 
 /**
- * The session's track table: tracks and streams by id, each track with the
+ * The session's track table (LLP 1133.009 D3, D10 item 6): tracks and streams by id, each track with the
  * implementation that opened it ([TrackOwner]), through which a consuming implementation subscribes, so a recorder
  * records a track another package opened. Main thread.
  */
@@ -13,7 +13,7 @@ class Tracks internal constructor() {
     private val holds = HashSet<Hold>()
 
     /**
-     * An exclusive hold on the [kind] device, for a recognizer that opens it itself:
+     * An exclusive hold on the [kind] device, for a recognizer that opens it itself (LLP 1133.012 D8, D12 item 4):
      * granted only while no track of [kind] has a running capture ([TrackOwner.leased]), and while it lasts an owner
      * opens no capture of that kind ([held]). The returned function releases it; a running capture throws
      * `NotReadableError`.
@@ -35,6 +35,11 @@ class Tracks internal constructor() {
         val owner = entries[id]?.owner ?: throw TrackError("NotFoundError")
         return owner.subscribe(id, consumer, start, origin)
     }
+    /** Observe a track without starting or holding its capture (LLP 1133.027 D17). The returned function leaves. */
+    fun observe(id: String, observer: TrackConsumer): () -> Unit {
+        val owner = entries[id]?.owner ?: throw TrackError("NotFoundError")
+        return owner.observe(id, observer)
+    }
 }
 
 /** A track or a stream; a stream lists its tracks. */
@@ -42,19 +47,34 @@ class TrackEntry(val id: String, val kind: String, val tracks: List<String> = em
     /** A track's state as `mediaStreamTrack` answers it, for a package that consumes it. */
     var state: (() -> JSONObject)? = null
 
-    /** A video track's running capture while its lease is held; null otherwise. */
+    /** A video track's running capture while its lease is held (LLP 1133.008 D3, D8 item 3); null otherwise. */
     var video: (() -> VideoSource?)? = null
+
+    /** The agent picture drawn by a viewfinder, unmirrored; null while none is shown (LLP 1133.027 D17). */
+    var picture: android.graphics.Bitmap? = null
+        set(value) {
+            if (field === value) return
+            field = value
+            pictureObservers.toList().forEach { it() }
+        }
+    private val pictureObservers = LinkedHashSet<() -> Unit>()
+    fun observePicture(changed: () -> Unit): () -> Unit {
+        pictureObservers += changed
+        return { pictureObservers -= changed }
+    }
 }
 
 /** Why a track call failed: a `DOMException` name, as answered. */
 class TrackError(val code: String) : Exception(code)
 
-/** The implementation that opened a track: it decides whether a consumer joining takes the track's lease. */
+/** The implementation that opened a track: it decides whether a consumer joining takes the track's lease (D6). */
 interface TrackOwner {
     /** [start] is an explicit start, which reopens an idle track; [origin] is `app`, `tool` or `wake`. */
     fun subscribe(id: String, consumer: TrackConsumer, start: Boolean, origin: String): () -> Unit
     /** Whether track [id]'s capture runs: [Tracks.hold] is refused while one does. */
     fun leased(id: String): Boolean = false
+    /** Receives consumer notifications and may attach outputs, but never counts as a consumer or takes a lease. */
+    fun observe(id: String, observer: TrackConsumer): () -> Unit = throw TrackError("NotSupportedError")
 }
 
 /** A consumer of a track: a recorder, a level, a viewfinder. Main thread. */
@@ -79,15 +99,17 @@ interface AudioSource {
 }
 
 /**
- * A running camera capture: CameraX's one lifecycle's set of use cases, which a consumer
+ * A running camera capture (LLP 1133.008 D3, D8 item 3): CameraX's one lifecycle's set of use cases, which a consumer
  * adds to rather than reading frames. Its objects are CameraX's (`UseCase`, `Camera`), typed `Any` here so the reader
- * links no CameraX; a package that uses them names CameraX's coordinates. Main thread.
+ * links no CameraX; a package that uses them names CameraX's coordinates (D8 item 5). Main thread.
  */
 interface VideoSource {
     /** The bound `androidx.camera.core.Camera`, once the set is bound. */
     val camera: Any?
-    /** Add an `androidx.camera.core.UseCase` to the set, which is bound again with it. */
+    /** Add a CameraX use case and rebind. A bind rejection is swallowed; the case stays in the set. */
     fun add(useCase: Any)
+    /** Attach an output, returning false on rejection and restoring the previous set. */
+    fun attach(useCase: Any): Boolean
     fun remove(useCase: Any)
     /** A package's process object for this capture, made by [make] on first ask (the camera's `ImageCapture`). */
     fun <T : Any> shared(key: String, make: () -> T): T

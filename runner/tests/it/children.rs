@@ -1,11 +1,11 @@
 //! A child a person's input or the app's own code started, against a tool's
-//! commit: whatever the tool's commit asks of its
+//! commit (LLP 1133.007 D13): whatever the tool's commit asks of its
 //! resource, the child keeps running under its ticket; the arguments the
 //! tool asked stay refused after the child ends, or when no child ran, until
 //! the person's own commit changes them, and a refused commit puts them
 //! back; a tool's write to the child is dropped alone, its call ending
-//! `person-required`; and what a wake's commit leaves for
-//! `data_ready` keeps the wake's origin.
+//! `person-required` (LLP 1111 D4a); and what a wake's commit leaves for
+//! `data_ready` keeps the wake's origin (LLP 1133.002 D12).
 use exact_kernel::Kernel;
 use exact_plan::Value;
 use exact_runner::{
@@ -290,9 +290,7 @@ fn a_tools_write_is_dropped_alone_and_its_call_ends_person_required() {
         journal(&r)
     );
     assert!(
-        journal(&r).contains(
-            "person-required (tool origin): child.write; dropped, the batch's other operations go"
-        ),
+        journal(&r).contains("person-required (tool origin): child.write (LLP 1133.007 D13); dropped, the batch's other operations go"),
         "{}",
         journal(&r)
     );

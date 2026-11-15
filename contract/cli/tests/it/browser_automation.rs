@@ -1,4 +1,4 @@
-//! `@exact/browser-automation`'s grant, through this
+//! `@exact/browser-automation`'s grant (LLP 1020.002 D9), through this
 //! checkout's package installed beside the app: the compiler warns
 //! `grant-missing` until the app's grants name `browser.automation`, and the
 //! runner refuses every data-code call `NotAllowedError` without it, before

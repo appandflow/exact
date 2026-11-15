@@ -5,6 +5,7 @@
 //! this saved resource and samples it with the world's RNG, so a run replays
 //! exactly from its inputs. When the far player must swing and no answer has
 //! arrived, a deterministic fallback plays and the HUD says so.
+//! @ref game/diaries/003-tennis.md "Design: Jev plans, the engine executes"
 use crate::rules::{Match, Side};
 use exact_game::{json, math, Data, Resource, World};
 use std::collections::BTreeMap;

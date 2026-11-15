@@ -1,11 +1,14 @@
-// The document parity check: Caltrain's page as the
+import { symbolSheet, glueDeclarations, glueCase, wasmSource } from './glue-fixture.mjs';
+import { EXE } from '../../../scripts/paths.mjs';
+import { hostFixtureFile as readFileSync } from './glue-fixture.mjs';
+// The document parity check (LLP 1048.000 §4): Caltrain's page as the
 // projection renders it, parsed by Chrome with JavaScript off, against the
 // live host's DOM at the same URL once the runtime is ready. A difference
 // names the view. What the browser owns after layout — a symbol's sized
 // source, a surface's pixel size, focus — is left out of both sides.
 import { test, expect } from 'bun:test';
 import { spawn, spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
@@ -16,8 +19,9 @@ import { jsTargetBuild, serveStatic, serveBuildTree } from '../serve.mjs';
 import { withLook } from '../look.mjs';
 import { need, notApplicable } from '../../../scripts/coverage.mjs';
 import { decodePng } from '../../../scripts/png.mjs';
+import { fileURLToPath } from 'node:url';
 
-const ROOT = resolve(new URL('../../..', import.meta.url).pathname);
+const ROOT = resolve(fileURLToPath(new URL('../../..', import.meta.url)));
 // The shell as a default build ships it (look.mjs): what the stylesheet's own tests below draw on.
 const SHIPPED = withLook(readFileSync(resolve(ROOT, 'host/web/index.html'), 'utf8'));
 const dist = resolve(process.env.EXACT_WEB_DIST ?? resolve(ROOT, 'host/web/dist'));
@@ -90,7 +94,7 @@ const NORMALIZED = `(() => {
     if (tag === 'input') { delete attrs.checked; attrs['.checked'] = String(el.checked); }
     if (tag === 'a' && 'href' in attrs) attrs.href = el.href;
     for (const p of el.style) if (!p.startsWith('--exact-symbol-')) style[p] = el.style.getPropertyValue(p) + (el.style.getPropertyPriority(p) ? ' !important' : '');
-    // A surface's box follows its host's content box once laid out (canvas2d-glue.js report).
+    // A surface's box follows its host's content box once laid out (canvas2d-glue.js report, LLP 1056 D6).
     if (tag === 'canvas' && 'data-surface' in attrs) for (const p of ['top', 'right', 'bottom', 'left', 'width', 'height']) delete style[p];
     if (tag === 'canvas' && 'data-surface' in attrs) for (const p of Object.keys(style)) if (/^border-.*-radius$/.test(p)) delete style[p];
     const content = [];
@@ -179,7 +183,7 @@ async function withDocument(location, drive, { wasmAfter = null, glueAfter = nul
       await call('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 1, mobile: false });
       await call('Emulation.setScriptExecutionDisabled', { value: !scripts });
       if (onNew) await call('Page.addScriptToEvaluateOnNewDocument', { source: onNew });
-      // A returning reader's browser sends the viewport hints the server asked for:
+      // A returning reader's browser sends the viewport hints the server asked for (LLP 1048.006):
       // a first visit gets its user agent's class, a desktop's 1280 px, which a page that breaks
       // between the tab's width and 1280 renders differently and the runtime does not adopt.
       if (hints) {
@@ -212,14 +216,110 @@ async function withDocument(location, drive, { wasmAfter = null, glueAfter = nul
 
 const settled = 'new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => r(true))))';
 
+browserCheck('Markdown adoption keeps every document element and later source changes render', async () => {
+  const source = '**Read** [more](/before)\n\n- First';
+  const pieces = JSON.stringify([['Read', 1, 700, 0, ''], [' ', 1, 0, 0, ''],
+    ['more', 1, 0, 8, '/before'], ['\n\n', 1, 0, 0, ''], ['• ', 1, 0, 48, '', 40], ['First', 1, 0, 0, '', 40]]);
+  const changed = JSON.stringify([['Changed', 1, 700, 0, ''], [' link', 1, 0, 8, '/after']]);
+  const icon = 'data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1 1"><rect width="1" height="1"/></svg>');
+  const atoms = ['Quote', ''].map(label => {
+    const source = `[${label}](cite:1)`;
+    return JSON.stringify([[label, 1, 0, 64, '', 0,
+      ['citation', 'button', icon, '', 'cite:1', source, 0, source.length, '', '', '', 'Citation 1']]]);
+  });
+  const content = [
+    '<span style="font-weight:700">Read</span><span> </span><a href="/before">more</a>',
+    '<span><br></span><span><br></span>',
+    '<span style="display:block;padding-left:40px;text-indent:-40px">',
+    '<span style="opacity:0.62;display:inline-flex;justify-content:flex-end;width:40px;white-space:pre;text-indent:0">• </span>',
+    '<span>First</span></span>',
+  ].join('');
+  const html = `<!doctype html><div id="exact-root"><div data-view="1" markup="markdown">${content}</div></div>
+    <script type="module" src="/glue.js"></script>`;
+  const files = {
+    '/markdown.js': readFileSync(resolve(ROOT, 'host/web-js/markdown.js'), 'utf8'),
+    '/navigation.js': readFileSync(resolve(ROOT, 'host/web/navigation.js'), 'utf8'),
+    '/atoms.js': readFileSync(resolve(ROOT, 'host/web/atoms.js'), 'utf8'),
+    '/glue.js': `import { renderMarkup } from './navigation.js';
+      import { markdownText } from './markdown.js';
+      globalThis.exact = {};
+      const root = document.getElementById('exact-root'), el = root.firstElementChild;
+      const before = [...root.querySelectorAll('*')];
+      const host = { inputReady: true, page: { adopting: new Map([[1, el]]) } }, views = new Map();
+      const syncMedia = () => {}, syncMarkup = () => {}, noteFit = () => {}, attach = () => {}, listView = () => {};
+      const collectionOp = null;
+      ${glueDeclarations(wasmSource, ['applyProps', 'loadAfterPaint'])}
+      const create = op => { switch (op.op) { ${glueCase(wasmSource, 'create')} } return views.get(op.id); };
+      globalThis.createMarkdown = () => create({ op: 'create', id: 1, tag: 'div', css: '', props: { markupPieces: ${JSON.stringify(pieces)} }, handlers: [] });
+      globalThis.checkMarkdown = () => {
+        const after = [...root.querySelectorAll('*')];
+        return before.length === after.length && before.every((el, i) => el === after[i]);
+      };
+      globalThis.changeMarkdown = () => applyProps(el, { markupPieces: ${JSON.stringify(changed)} }, []);
+      globalThis.freshMarkdown = () => {
+        host.page.adopting = null;
+        const fresh = create({ op: 'create', id: 2, tag: 'div', css: '', props: { markupPieces: ${JSON.stringify(changed)} }, handlers: [] });
+        root.append(fresh); return fresh.textContent;
+      };
+      globalThis.adoptAtom = async (empty = false) => {
+        const placeholder = document.createElement('div');
+        if (!empty) placeholder.innerHTML = '<span data-exact-atom="citation">Quote</span>';
+        placeholder.setAttribute('data-atoms', '[{"name":"citation","link":"cite:"}]');
+        const presses = [];
+        placeholder.addEventListener('atompress', event => presses.push(event.detail));
+        host.page.adopting = new Map([[3, placeholder]]);
+        root.append(placeholder);
+        create({ op: 'create', id: 3, tag: 'div', css: '', props: { markupPieces: ${JSON.stringify(atoms)}[Number(empty)] }, handlers: [] });
+        const loading = document.querySelector('script[src$="/atoms.js"]');
+        if (loading && !exact.atoms) await new Promise((resolve, reject) => {
+          loading.addEventListener('load', resolve, { once: true });
+          loading.addEventListener('error', reject, { once: true });
+        });
+        const box = placeholder.querySelector('[role="button"]');
+        box?.click();
+        return { label: box?.textContent, icon: box?.querySelector('img')?.getAttribute('src'), name: box?.getAttribute('aria-label'), presses };
+      };
+      globalThis.jsMarkdown = () => {
+        let effect, value = ${JSON.stringify(source)};
+        globalThis.__exactMarkdownBuilt = [[value, '', '', ${JSON.stringify(pieces)}], ['changed', '', '', ${JSON.stringify(changed)}]];
+        markdownText(el, () => value, null, { effect: f => { effect = f; f(); }, inflight: { n: 0 }, adopting: () => true, renderMarkup });
+        return () => { value = 'changed'; effect(); };
+      };
+      globalThis.ready = true;`,
+  };
+  await withDocument('/', async tab => {
+    for (const runtime of ['wasm', 'js']) {
+      const live = await tab(true);
+      await live.until('globalThis.ready', 'the Markdown fixture');
+      await live(runtime === 'wasm' ? 'createMarkdown()' : 'globalThis.change = jsMarkdown()');
+      expect(await live('checkMarkdown()'), runtime).toBe(true);
+      await live(runtime === 'wasm' ? 'changeMarkdown()' : 'change()');
+      expect(await live(`(() => { const el = document.querySelector('[data-view="1"]'); return [el.textContent, el.querySelector('a')?.getAttribute('href'), el.querySelector('span')?.style.fontWeight]; })()`), runtime)
+        .toEqual(['Changed link', '/after', '700']);
+      if (runtime === 'wasm') {
+        expect(await live('freshMarkdown()')).toBe('Changed link');
+        for (const empty of [true, false, true]) {
+          const label = empty ? '' : 'Quote', source = `[${label}](cite:1)`;
+          expect(await live(`adoptAtom(${empty})`)).toEqual({
+            label, icon, name: 'Citation 1',
+            presses: [['citation', source, 'cite:1', 0, source.length, false, false, false, false]],
+          });
+        }
+      }
+    }
+  }, { html, files });
+}, 60000);
+
 check(`Caltrain's served document is the live host's DOM`, async () => {
-  // The live page launches at its own URL, agent query included; the
-  // document is rendered at that same location.
+  // The document is rendered at the page's URL, agent query included; the
+  // live page launches without the agent's parameters (LLP 1038 D5), and a
+  // query on the root visit spends no visit id, so its first tree is the
+  // document's.
   await withDocument('/?agent=1', async (tab) => {
     const plain = await tab(false);
     await plain.until("document.readyState === 'complete' && !!document.getElementById('exact-root')?.firstElementChild", 'the served document');
     const served = JSON.parse(await plain(NORMALIZED));
-    // The document stays on screen until the runtime's own
+    // LLP 1048.000 D6: the document stays on screen until the runtime's own
     // tree has settled; its wasm downloads with the document, the runtime
     // starts at idle, from the checkpoint, and adopts the document — its
     // first tree is the document's.
@@ -276,7 +376,7 @@ check(`a press on the document before the runtime starts is replayed once`, asyn
 }, 180000);
 
 check(`a press before the glue runs is captured, replays once, and a later one isn't doubled`, async () => {
-  // The page's inline capture script hears a
+  // LLP 1048.000 D6, 1048.001 D5: the page's inline capture script hears a
   // press from first parse; here the glue is held back until after it.
   let release;
   const glueAfter = new Promise((resolve) => { release = resolve; });
@@ -305,7 +405,7 @@ check(`a press before the glue runs is captured, replays once, and a later one i
   }, { glueAfter });
 }, 180000);
 
-// A link that leaves the page stops its runtime's download,
+// LLP 1048.000 D6: a link that leaves the page stops its runtime's download,
 // which would share the link with the next document; a page that stays gets
 // its runtime all the same. Here the wasm is held back, so it is still
 // downloading when the link is followed.
@@ -346,7 +446,7 @@ check(`Back from the bfcache downloads the runtime a link stopped`, async () => 
   }, { wasmAfter, answers: { '/elsewhere': [200, '<!doctype html><p>elsewhere</p>'] }, needs: ['bfcache'] });
 }, 180000);
 
-/** An app's render server over its dist, on loopback —
+/** An app's render server (LLP 1048.000 D10) over its dist, on loopback —
  * Caltrain's over dist/ unless told; `stop` ends the one process it started. */
 async function renderServer({ app = 'caltrain', dir = dist, name = 'Caltrain' } = {}) {
   const child = spawn('cargo', ['run', '-q', '-p', `${app}-linux`, '--bin', `${app}-render`, '--', '--serve', dir, '--name', name],
@@ -390,7 +490,7 @@ check(`the render server's page is the document, and the runtime adopts it`, asy
 }, 240000);
 
 
-// A TypeScript app through the server: Weatherlight's
+// A TypeScript app through the server (LLP 1048.000 D6, D11): Weatherlight's
 // first frame answers offline (revision 0 is the empty forecast), so its
 // document renders at build and per request with no network. The runtime
 // adopts it, and the module's realm runs under the server's CSP: its two
@@ -584,8 +684,9 @@ browserCheck(`early capture updates keep the same view's bubble handler`, async 
   }, { html, files });
 }, 60000);
 
-// The shipped shell isolates button layout and
-// truncates only the requested titles. A disabled button is the disabled look whatever
+// LLP 1069.011.001 D5/D6: the shipped shell isolates button layout and
+// truncates only the requested titles. LLP 1116.005 D8 (superseding D16's
+// kept accent on the web): a disabled button is the disabled look whatever
 // its accent, a glass its own material (form-chrome.test.mjs has the rest).
 for (const concern of ['defaults', 'nowrap', 'clamp', 'floor', 'disabled accent', 'disabled plain accent', 'disabled glass accent', 'disabled clear-glass accent']) browserCheck(`native button ${concern}`, async () => {
   const shell = SHIPPED;
@@ -612,7 +713,7 @@ for (const concern of ['defaults', 'nowrap', 'clamp', 'floor', 'disabled accent'
       expect(facts.nowrap.scroll).toBeGreaterThan(facts.nowrap.width);
       expect(facts.nowrap.ellipsis).toBe('ellipsis');
     }
-    // A wrapping title keeps its min-content floor in a squeezed
+    // LLP 1116 D1: a wrapping title keeps its min-content floor in a squeezed
     // row, so no word is cut to an ellipsis.
     if (concern === 'floor') {
       expect(facts.floor.width).toBeGreaterThan(40);
@@ -653,13 +754,13 @@ browserCheck('native button stacked image', async () => {
   }, {html});
 });
 
-// As the neutral look draws it:
+// LLP 1116.003 D3.1, as the neutral look draws it (LLP 1115.000 D4 part B):
 // the ink on an accent fill is white or black, whichever reads at 4.5:1 or
 // better on the accent as the scheme resolves it. A pale dark-scheme accent
 // (event-rsvp's, recipe-finder's) takes black, and so does a mid-light blue
 // (`#007aff`, on which white is 4.0:1); the unsaid accent and the destructive
 // red are dark in light and light in dark, so white and then black; an
-// authored colour wins.
+// authored colour wins. (LLP 1116 D1's look kept white down to 3:1.)
 browserCheck('the ink on an accent fill is chosen for contrast in each scheme', async () => {
   const shell = SHIPPED;
   const cases = {
@@ -699,12 +800,13 @@ browserCheck('the ink on an accent fill is chosen for contrast in each scheme', 
   }, {html});
 });
 
-// A symbol is drawn in its `color`, as the Apple hosts
-// draw a page symbol, not the nearest accent: under an authored accent an unstyled symbol is still its
+// LLP 1081 stage 2: a symbol is drawn in its `color`, as the Apple hosts
+// draw a page symbol (130e009940), not the nearest accent (LLP 1116.003 D3.2
+// had it so): under an authored accent an unstyled symbol is still its
 // text's colour. Both targets' symbol sheets; an ink a native face or a bar
 // sets (`--exact-tint`) still wins.
 for (const sheet of ['host/web/glue.js', 'host/web-js/symbols.js']) browserCheck(`an untinted symbol is its text's colour (${sheet})`, async () => {
-  const style = readFileSync(resolve(ROOT, sheet), 'utf8').match(/'(@property --exact-tint[^']*)'/)[1];
+  const style = symbolSheet(readFileSync(resolve(ROOT, sheet), 'utf8'));
   const shell = SHIPPED;
   const img = (id, css = '') => `<img id="${id}" data-symbol-path="M0 0h16v16H0Z" style="width:16px;height:16px;${css}">`;
   const html = shell.replace('<div id="exact-root"></div>', `<style>${style}</style><div id="exact-root"><div style="--exact-accent:light-dark(#6652c5, #b5a4ff)"><div style="color-scheme:light">${img('light')}</div><div style="color-scheme:dark">${img('dark')}</div>${img('authored', '--exact-tint:rgb(255, 0, 0)')}</div>${img('unsaid')}<span id="system" style="color:var(--exact-accent, AccentColor)"></span></div>`).replace('<script type="module" src="./glue.js"></script>', '');
@@ -719,26 +821,25 @@ for (const sheet of ['host/web/glue.js', 'host/web-js/symbols.js']) browserCheck
   }, {html});
 });
 
-// A symbol nobody tinted draws
-// in its `color`, written (`data-symbol-color`, element.rs) or inherited, a
-// `light-dark()` one by its scheme and a later one at once; an ink set on it
+// LLP 1081 stage 2: a symbol nobody tinted draws in its `color`, written
+// or inherited, a `light-dark()` one by its scheme and a later one at once; an ink set on it
 // (`--exact-tint`) still wins. Both targets' sheets.
 for (const sheet of ['host/web/glue.js', 'host/web-js/symbols.js']) browserCheck(`a symbol draws in its written colour (${sheet})`, async () => {
-  const style = readFileSync(resolve(ROOT, sheet), 'utf8').match(/'(@property --exact-tint[^']*)'/)[1];
-  const img = (id, css = '', marked = true) => `<img id="${id}" data-symbol-path="M0 0h16v16H0Z"${marked ? ' data-symbol-color' : ''} style="width:16px;height:16px;${css}">`;
-  const html = SHIPPED.replace('<div id="exact-root"></div>', `<style>${style}</style><div id="exact-root" style="--exact-accent:rgb(102, 82, 197)"><div id="ink" style="color:rgb(10, 20, 30)">${img('written')}${img('authored', '--exact-tint:rgb(255, 0, 0)')}${img('unmarked', '', false)}${['light', 'dark'].map(scheme => `<div style="color-scheme:${scheme};color:light-dark(rgb(1, 2, 3), rgb(4, 5, 6))">${img(scheme)}</div>`).join('')}</div></div>`).replace('<script type="module" src="./glue.js"></script>', '');
+  const style = symbolSheet(readFileSync(resolve(ROOT, sheet), 'utf8'));
+  const img = (id, css = '') => `<img id="${id}" data-symbol-path="M0 0h16v16H0Z" style="width:16px;height:16px;${css}">`;
+  const html = SHIPPED.replace('<div id="exact-root"></div>', `<style>${style}</style><div id="exact-root" style="--exact-accent:rgb(102, 82, 197)"><div id="ink" style="color:rgb(10, 20, 30)">${img('inherited')}${img('authored', '--exact-tint:rgb(255, 0, 0)')}${img('own', 'color:rgb(30, 20, 10)')}${img('cleared', 'color:inherit')}${img('refused', 'color:not-a-colour')}${['light', 'dark'].map(scheme => `<div style="color-scheme:${scheme};color:light-dark(rgb(1, 2, 3), rgb(4, 5, 6))">${img(scheme)}</div>`).join('')}</div></div>`).replace('<script type="module" src="./glue.js"></script>', '');
   await withDocument('/', async tab => {
     const page = await tab(true);
     await page.until("document.readyState === 'complete'", 'symbol fixture');
-    const read = `(() => Object.fromEntries(['written', 'authored', 'unmarked', 'light', 'dark'].map(id => [id, getComputedStyle(document.getElementById(id)).backgroundColor])))()`;
+    const read = `(() => Object.fromEntries(['inherited', 'authored', 'own', 'cleared', 'refused', 'light', 'dark'].map(id => [id, getComputedStyle(document.getElementById(id)).backgroundColor])))()`;
     const tint = await page(read);
-    expect(tint).toEqual({ written: 'rgb(10, 20, 30)', authored: 'rgb(255, 0, 0)', unmarked: 'rgb(10, 20, 30)', light: 'rgb(1, 2, 3)', dark: 'rgb(4, 5, 6)' });
+    expect(tint).toEqual({ inherited: 'rgb(10, 20, 30)', authored: 'rgb(255, 0, 0)', own: 'rgb(30, 20, 10)', cleared: 'rgb(10, 20, 30)', refused: 'rgb(10, 20, 30)', light: 'rgb(1, 2, 3)', dark: 'rgb(4, 5, 6)' });
     await page(`document.getElementById('ink').style.color = 'rgb(0, 128, 0)'`);
-    expect((await page(read)).written).toBe('rgb(0, 128, 0)');
+    expect(await page(read)).toEqual({ ...tint, inherited: 'rgb(0, 128, 0)', cleared: 'rgb(0, 128, 0)', refused: 'rgb(0, 128, 0)' });
   }, {html});
 });
 
-// An SVG shape nobody filled is its text's colour, where
+// LLP 1115.000 D3.8: an SVG shape nobody filled is its text's colour, where
 // the browser's own initial `fill` is black. The page's sheet says it on the
 // outermost `svg`, so a `fill` on a shape or on a group wins and reaches a
 // nested `svg` below the group; `currentcolor` is each element's own colour;
@@ -773,7 +874,7 @@ browserCheck('an unsaid SVG fill is the text colour', async () => {
   }, {html});
 });
 
-// A date, time or local date-time control takes the text
+// LLP 1116.001 D1: a date, time or local date-time control takes the text
 // field's look (a 1 px line, 8 px corners, the field's background, 36 px
 // tall at the body size) in light and dark, as a border box the kernel
 // models; the author's rows win, and `appearance: none` (no marker) is bare.
@@ -811,7 +912,7 @@ browserCheck('date and time controls take the field look', async () => {
   }, {html});
 });
 
-// A determinate progress is the platform's bar, as UIKit draws
+// LLP 1116.003: a determinate progress is the platform's bar, as UIKit draws
 // its own and Linux paints it: a 4 px capsule centred across its box, the
 // accent's over a track of the system fill, the same fill whatever the
 // accent, in light and dark. Chrome's own takes its track by contrast with
@@ -1006,7 +1107,7 @@ async function withFocusContract(target, webDist, contract, drive) {
   try {
     const source = resolve(dir, 'app.contract'), plan = resolve(dir, 'app.plan');
     writeFileSync(source, contract);
-    const compiler = resolve(app.target, 'debug/contract');
+    const compiler = resolve(app.target, `debug/contract${EXE}`);
     const built = spawnSync(compiler, ['build', source, '-o', plan], { cwd: ROOT, encoding: 'utf8' });
     if (built.error) throw built.error;
     if (built.status !== 0) throw new Error(built.stderr);

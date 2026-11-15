@@ -5,7 +5,7 @@ impl<D: DataSource> Runner<D> {
         &mut self,
         mut ops: Vec<exact_kernel::Op>,
     ) -> Result<CommitReceipt, RunnerError> {
-        let _roles = self.bind_roles(); // Its own.
+        let _roles = self.bind_roles(); // Its own (LLP 1121 stage 5).
                                         // The queued patches' colours stay kept until this commit marks them.
         let (mut prefix, _queued) = self.take_reorder_ops();
         if !prefix.is_empty() {
@@ -54,7 +54,7 @@ impl<D: DataSource> Runner<D> {
             self.tally(&cleanup, &tail.touched);
             take_tail(&mut receipt, tail);
         }
-        // The font rows' presented values.
+        // The font rows' presented values (LLP 1019 §13 D10).
         if let Some(tail) = self.settle_text_axes(axes, &receipt)? {
             take_tail(&mut receipt, tail);
         }

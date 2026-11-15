@@ -1,5 +1,5 @@
 // A pointerdown action's preventDefault() keeps the focus where it is, places no caret and starts
-// no selection; the press still fires (as Chrome). Driven by host/web/tests/prevent-focus.test.mjs,
+// no selection; the press still fires (LLP 1005 §3, as Chrome). Driven by host/web/tests/prevent-focus.test.mjs,
 // PreventFocusMacTests and PreventFocusIOSTests: "a" is focused first; b, box, btn, nbtn (the platform's button, in a row that prevents), t, plain and para prevent; c, free, hear and ctx (which hear pointerdown) do not.
 component App
   state heard = ""
@@ -14,7 +14,7 @@ component App
   action noted(e: PointerEvent)
     heard = `${heard} down-hear`
   view
-    column padding=20 gap=8 width="100%"
+    column padding=20 gap=8 width="100%" box-sizing="border-box"
       input testId="a" value="alpha" width=240 height=28 focus=focused("a") change=changedA
       input testId="b" value="beta" width=240 height=28 pointerdown=keep focus=focused("b")
       box testId="box" tabindex=0 width=120 height=32 pointerdown=keep press=hit("box") focus=focused("box")

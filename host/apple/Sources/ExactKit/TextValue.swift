@@ -9,6 +9,8 @@
 // controlled input never tears a marked range; a different value that
 // arrives during IME composition (marked text) is held and applied when the
 // composition ends (`FieldComposition.swift`).
+//
+// @ref LLP 1045 D5 — the write-back fix that leads slice 2.
 import Foundation
 
 /// The shortest replacement that turns `old` into `new`, in UTF-16 units.

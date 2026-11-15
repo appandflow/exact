@@ -1,11 +1,11 @@
-//! One data-module turn's clocks: the turn is held to its budget in the
-//! calling thread's CPU time, the module's own work, with a wall-clock
-//! backstop for a turn that waits rather than works. Under CPU load the
-//! calling thread is taken off the core mid-turn; a wall-clock budget
-//! refused a turn of 60 ms of work that read 247 ms, and the resource kept
-//! its old value. Still post hoc: the budget never ends a turn, an
-//! interrupt does. A test times turns on a ticking clock instead
-//! ([`Module::set_turn_step`]).
+//! One data-module turn's clocks (LLP 1027 §budgets, as amended): the turn
+//! is held to its budget in the calling thread's CPU time, the module's own
+//! work, with a wall-clock backstop for a turn that waits rather than
+//! works. Under CPU load the calling thread is taken off the core mid-turn;
+//! a wall-clock budget refused a turn of 60 ms of work that read 247 ms, and
+//! the resource kept its old value. Still post hoc, as before: the budget
+//! never ends a turn, an interrupt does (LLP 1048.000 D10). A test times
+//! turns on a ticking clock instead ([`Module::set_turn_step`]).
 
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
@@ -117,20 +117,21 @@ impl TurnClock {
 impl TurnClock {
     /// What the turn took against `budget_ms` (`Took::over`); a turn within it that still held a
     /// thread the UI waits on (`main_thread`: `Main` placement) past the budget on the wall clock
-    /// is said in `journal`, beside the slow-load line, never refused (a refusal after the fact
-    /// shortens no freeze).
+    /// is said in `journal`, beside the slow-load line, never refused (theme2's 15:57 ruling: a
+    /// refusal after the fact shortens no freeze).
     pub(crate) fn judge(
         &self,
         budget_ms: f64,
         deadline: bool,
         main_thread: bool,
         source: &str,
-        journal: &mut Vec<String>,
+        journal: &mut crate::Logs,
     ) -> Option<String> {
         let took = self.took();
         let over = took.over(budget_ms, deadline);
         if over.is_none() {
-            journal.extend(took.held(main_thread, deadline, source, budget_ms));
+            let held = took.held(main_thread, deadline, source, budget_ms);
+            journal.extend(held.map(|line| (None, line)));
         }
         over
     }

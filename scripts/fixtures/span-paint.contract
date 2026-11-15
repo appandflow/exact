@@ -1,4 +1,4 @@
-// Paint per inline run: a `text` run's own `text-shadow` and
+// LLP 1077 D3/D7 per inline run: a `text` run's own `text-shadow` and
 // `-webkit-text-stroke`, which CSS paints per inline box (each run's shadow
 // under its own glyphs, a run's value overriding its paragraph's). Five
 // paragraphs on 95-point rows: a shadow on one run only; a paragraph's

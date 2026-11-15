@@ -3,7 +3,7 @@ import UIKit
 import XCTest
 @testable import ExactKit
 
-/// "Confirmations are the platform's alert": an alertdialog
+/// LLP 1115 D6, "Confirmations are the platform's alert": an alertdialog
 /// with explanatory text, a cancel and at most three buttons is
 /// `UIAlertController(.alert)` — its `aria-label` the title, its text the
 /// message, its Cancel kept — where it had been an arrowed action-sheet
@@ -278,9 +278,9 @@ final class ConfirmationAlertIOSTests: XCTestCase {
         XCTAssertEqual(box.midY, window!.bounds.midY, accuracy: 40, "centred")
     }
 
-    /// An alert has one tint, the colour its first action's
+    /// LLP 1115.000 D2: an alert has one tint, the colour its first action's
     /// author wrote on it, a platform colour as much as a literal. A colour
-    /// the action only inherits leaves UIKit's.
+    /// the action only inherits leaves UIKit's (LLP 1115 D4).
     func testAnAlertsTintIsTheColourItsFirstActionsAuthorWrote() throws {
         let red: [String: Any] = ["sys": "systemRedColor", "c": [[255, 56, 60, 255], [255, 66, 69, 255]]]
         func tint(_ lead: [String: Any]) throws -> [CGFloat] {
@@ -674,7 +674,7 @@ final class ConfirmationAlertIOSTests: XCTestCase {
         XCTAssertEqual(p.menus.activate(try XCTUnwrap(p.views[1])), true)
         let alert = try XCTUnwrap(controller.presentedViewController as? UIAlertController)
         XCTAssertEqual(alert.preferredStyle, .actionSheet)
-        XCTAssertEqual(alert.title, "Block contact?", "titled by its label")
+        XCTAssertEqual(alert.title, "Block contact?", "titled by its label (D6)")
         XCTAssertEqual(alert.message, "They will not reach you.")
         XCTAssertNotNil(alert.popoverPresentationController?.sourceView, "anchored at its invoker")
         XCTAssertEqual(p.menus.observation()?["presentation"] as? String, "popover")
@@ -734,7 +734,7 @@ final class ConfirmationAlertIOSTests: XCTestCase {
         XCTAssertEqual(pressed, [3])
     }
 
-    /// Text and its one closing button: the
+    /// Text and its one closing button (Charlie, 2026-10-18): the
     /// one-button alert, which tells. Its button is the cancel UIKit keeps
     /// (a hardware keyboard's Escape), and choosing it presses nothing.
     func testTextAndOneClosingButtonIsTheOneButtonAlert() throws {
@@ -784,7 +784,7 @@ final class ConfirmationAlertIOSTests: XCTestCase {
     // MARK: the native fixture
 
     private func boot() throws -> ExactSession {
-        if ExactEnv.agentMode { throw XCTSkip("under the agent the context menu is painted") }
+        if ExactEnv.agentMode { throw XCTSkip("under the agent the context menu is painted (D4)") }
         let plan = try Data(contentsOf: URL(fileURLWithPath: try XCTUnwrap(ProcessInfo.processInfo.environment["EXACT_FIXTURE_PLAN"], "build.mjs --test --ios compiles the fixture's plan")))
         let session = ExactApp.shared.makeSession(label: "confirmation-alert")
         self.session = session
@@ -837,7 +837,7 @@ final class ConfirmationAlertIOSTests: XCTestCase {
         // covers both, so the tap's reply comes after the press has landed.
         XCTAssertEqual(p.menus.activate(try node(session, "clear-confirm-clear")), true)
         XCTAssertTrue(try counts(session).hasPrefix("count 1"), "the press waits for the dismissal")
-        XCTAssertTrue(session.agentInstance.awaitModalTransitions())
+        XCTAssertTrue(session.agentInstance.awaitTransitions())
         XCTAssertNil(p.menus.observation())
         XCTAssertTrue(try counts(session).hasPrefix("count 0"), "the press has landed")
         settle { controller.presentedViewController == nil }

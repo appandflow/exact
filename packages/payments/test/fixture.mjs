@@ -1,4 +1,4 @@
-// The conformance fixture, as the web suites make it: an app
+// The conformance fixture (LLP 1133.001 D7), as the web suites make it: an app
 // `exact new` made outside the repo, its files replaced by `fixture/`'s,
 // depending on this package by `file:` and installed; the print lab it pays;
 // and a built fixture's page in a Playwright browser.

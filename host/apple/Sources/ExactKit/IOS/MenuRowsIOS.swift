@@ -1,12 +1,12 @@
-// What a menu row shows in UIKit's menu: its title, subtitle
+// What a menu row shows in UIKit's menu (LLP 1021 D3): its title, subtitle
 // and image, read from the row's nodes, which a closed menu never lays out.
 
 #if os(iOS) || os(tvOS)
 import UIKit
 
 extension MenuHost {
-    /// A row's item image: its symbol, custom or native, else its `img` —
-    /// a provider's own icon — once that has loaded.
+    /// A row's item image: its symbol, custom or native (LLP 1069.011.000
+    /// D5), else its `img` — a provider's own icon — once that has loaded.
     /// The menu reads what the hidden row already holds; opening it never
     /// fetches, and an image still loading is no image until the next open.
     func image(of row: NodeView) -> UIImage? {
@@ -70,7 +70,7 @@ extension MenuHost {
         // A native button's children are its face, not views: its title, else its label.
         if v.isNativeButton { return v.face?.shown ?? "" }
         // A custom button whose face fits shows it too: a symbol-only row its
-        // label; other content keeps its text.
+        // label (LLP 1069.011.000 D5); other content keeps its text.
         if v.isButton, let face = v.face, face.fits, let shown = face.shown { return shown }
         // Its accessible name: an `aria-hidden` child (a submenu row's `›`,
         // which the platform menu draws itself) is not part of it.

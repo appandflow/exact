@@ -1,4 +1,4 @@
-//! An arrival in the declared substitute: an
+//! An arrival in the declared substitute (LLP 1133.035 D16 item 1, §10): an
 //! agent word that stands for something arriving rather than a fact. The
 //! interface's `"substitute": {"arrival": …}` names the words and the names
 //! an arrival reaches: `field`, the word whose setting brings a fixture tag
@@ -10,13 +10,13 @@
 //! against the tag (the fixture takes the records, or is locked, or the
 //! write fails as the fixture's `write` says) and nothing is read; else a
 //! waiting scan raises `reading`, or `readingerror` for a tag with no NDEF
-//! (on iOS only for a scan with `apple.polling`), and each `once` scan
-//! answers `read`. A tag outside a scan or write is the system's.
+//! (on iOS only for a scan with `apple.polling`, D11), and each `once` scan
+//! answers `read`. A tag outside a scan or write is the system's (D9).
 //!
 //! The record model is Web NFC's NDEF records, the one consumer's: a
 //! fixture's `data` is a string for `text`, `url` and `absolute-url`, else
 //! `{"base64": …}`, as bytes cross the seam. Several sessions sharing one
-//! reader is the native registry's, not this.
+//! reader is the native registry's (D6), not this.
 
 use super::super::{DataSource, Runner};
 use super::{CallOrigin, Decision, Json, ModulesRow, Waits};
@@ -101,7 +101,7 @@ impl<D: DataSource> Runner<D> {
             .unwrap_or_default()
     }
 
-    /// A claim's reader settings: the reader it needs and the
+    /// A claim's reader settings (D6): the reader it needs and the
     /// platform's poll and flag words, a word left out being the default.
     fn reader_settings(args: &Json) -> Json {
         json!({
@@ -113,7 +113,7 @@ impl<D: DataSource> Runner<D> {
         })
     }
 
-    /// What the arrival's own names decide now: a scan or a write
+    /// What the arrival's own names decide now (§10): a scan or a write
     /// whose settings another claim's exclude is `busy`; a write whose
     /// message cannot be encoded fails `TypeError`; `ndefRecords` answers a
     /// kept reading's records. `None` where the ticket decides.
@@ -306,7 +306,7 @@ impl<D: DataSource> Runner<D> {
         }
         let plain = tag["ndef"] == false;
         if plain {
-            // The NDEF reader session never reports a tag without NDEF.
+            // The NDEF reader session never reports a tag without NDEF (D11).
             let polled = scans
                 .iter()
                 .any(|c| (c.args["apple"]["polling"].as_array()).is_some_and(|p| !p.is_empty()));
@@ -354,7 +354,7 @@ impl<D: DataSource> Runner<D> {
     }
 
     /// The answer of a write (or, `lock`, a lock) to `tag`, which the
-    /// fixture takes when it succeeds (by the fixture's `write`).
+    /// fixture takes when it succeeds (D7's steps, by the fixture's `write`).
     fn tag_written(
         &mut self,
         extension: &str,
@@ -400,7 +400,7 @@ impl<D: DataSource> Runner<D> {
         json!({ "serialNumber": tag["serialNumber"].as_str().unwrap_or("") })
     }
 
-    /// The app left the foreground (`hidden`) or came back: a
+    /// The app left the foreground (`hidden`) or came back (D6's table): a
     /// waiting write fails `AbortError`; a scan behind the system's sheet
     /// (`readerUI` `system`) ends `interrupted`, and one the app draws for
     /// is suspended, and on return reads a tag still in the field.
@@ -444,8 +444,12 @@ impl<D: DataSource> Runner<D> {
                     }
                 }
             } else {
-                let resumed = std::mem::take(&mut self.extensions.arrivals.suspended);
-                if resumed.is_empty() {
+                // Only this extension's scans: the set holds every extension's.
+                let mut resumed = false;
+                for c in self.claims(&extension, &[&name("scan")]) {
+                    resumed |= self.extensions.arrivals.suspended.remove(&c.token);
+                }
+                if !resumed {
                     continue;
                 }
                 self.log(format!("{extension}: scans resumed"));
@@ -524,7 +528,7 @@ fn record_bytes(record: &Json) -> Vec<u8> {
 }
 
 /// A fixture record as Contract reads it (`NDEFRecordInfo`): its `text`
-/// decoded for the well-known text and URL record types, its size in bytes.
+/// decoded for the record types D2 names, its size in bytes.
 fn record_info(record: &Json) -> Json {
     let record_type = record["recordType"].as_str().unwrap_or("empty");
     let text = match record_type {

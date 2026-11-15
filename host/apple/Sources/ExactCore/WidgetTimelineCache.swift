@@ -1,4 +1,4 @@
-// Account data expires on a store change.
+// @ref LLP 1126.000 WP5, LLP 1126 D8 — account data expires on a store change.
 import Foundation
 
 /// A refresh captures the app's store counter before reading any account data.

@@ -1,4 +1,4 @@
-//! The backend's guarantees: moves are the host's,
+//! The backend's guarantees (LLP 1133.010 D4, D6): moves are the host's,
 //! each recorded before it begins, a half-done one resolves toward locked at
 //! the next boot, and one queue per name orders every operation.
 
@@ -578,4 +578,44 @@ fn protection_and_migration_wait_for_durable_plain_deletion() {
             usize::from(kind != "cannot-lock")
         );
     }
+}
+
+/// A write whose deletion of the older generation failed leaves that
+/// generation behind; `unprotect` deletes it too before it answers, and
+/// waits while it cannot, so no boot finds an obsolete locked value to
+/// prefer over the plain copy.
+#[test]
+fn unprotect_deletes_every_locked_generation_before_it_answers() {
+    let memory = MemoryVault::default();
+    memory.clone().put_plain("a", Some(b"old")).unwrap();
+    let failure = std::sync::Arc::new(std::sync::Mutex::new(None));
+    let vault = UnavailableVault {
+        memory: memory.clone(),
+        failure: failure.clone(),
+    };
+    let presence = vec![("a".into(), Some(optional()))];
+    let mut backend = Backend::new(Box::new(vault.clone()), presence.clone());
+    let mut drive = Drive::new();
+    backend.enqueue("a", Op::Protect, Some(1));
+    assert_eq!(done(&drive.pump(&mut backend), 1), Some(Done::Ok));
+    *failure.lock().unwrap() = Some("delete");
+    backend.enqueue("a", Op::Write(Some(b"new".to_vec())), None);
+    drive.pump(&mut backend);
+    assert_eq!(memory.generations("a").unwrap(), [1, 2]);
+
+    backend.enqueue("a", Op::Unprotect, Some(2));
+    drive.pump(&mut backend);
+    backend.checked(2, Checked::Passed);
+    let events = drive.pump(&mut backend);
+    assert_eq!(done(&events, 2), None, "it waits for the deletions");
+    assert_eq!(backend.occupancy("a"), Some(Occupancy::Pending));
+    *failure.lock().unwrap() = None;
+    drive.now_ms = RETRY_MS;
+    let events = drive.pump(&mut backend);
+    assert_eq!(done(&events, 2), Some(Done::Ok));
+    assert!(memory.generations("a").unwrap().is_empty());
+
+    let backend = Backend::new(Box::new(vault), presence);
+    assert_eq!(backend.occupancy("a"), Some(Occupancy::Plain));
+    assert_eq!(memory.plain("a").unwrap(), Some(b"new".to_vec()));
 }

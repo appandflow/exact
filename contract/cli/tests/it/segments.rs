@@ -1,4 +1,4 @@
-//! Viewport segments in Contract: the three fold facts
+//! Viewport segments in Contract (LLP 1078 D1–D3, D9): the three fold facts
 //! are `exactViewport` fields the bake answers (`continuous`, 1, 1) and a host
 //! re-answers through `Runner::set_fold`; `env(viewport-segment-<var> <x> <y>)`
 //! lengths in style attributes reach the kernel as segment rows the arena's
@@ -112,7 +112,7 @@ fn two_segments_put_the_panes_on_the_duos_division_and_one_again_stacks_them() {
         rows: 1,
     };
     // The fold's facts switch the screen to its positioned panes; the grid
-    // gives their lengths. The host sends both in one batch.
+    // gives their lengths. The host sends both in one batch (D4).
     r.set_fold(folded).unwrap().unwrap();
     assert!(r.kernel_mut().set_segments(2, 1, duo_segments()).unwrap());
     assert_eq!(text_of(r.kernel(), "fact-posture"), "folded");

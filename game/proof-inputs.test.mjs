@@ -28,7 +28,7 @@ test('authored edits during a build refuse the proof and force the next build', 
   try {
     mkdirSync(dirname(receipt), {recursive:true});
     for (const file of ['game/games/sample/logic/src/lib.rs', 'game/games/sample/art/crate.gltf',
-      'game/games/sample/assets/authored.bin', 'host/linux/src/lib.rs']) {
+      'game/games/sample/assets/authored.bin', 'host/painted/src/lib.rs']) {
       writeFixtureFile(dir, file, 'v1');
       let product = 'old', builds = 0;
       writeFileSync(receipt, 'old receipt');
@@ -65,6 +65,26 @@ test('a split proof also rejects authored changes while building its host', asyn
     expect(existsSync(resolve(out, 'build-linux-host.sha256'))).toBe(false);
   } finally { rmSync(dir, {recursive:true, force:true}); }
 });
+
+test('paired handwritten level files remain authored inputs during compilation', () => {
+  const root = mkdtempSync(resolve(tmpdir(), 'proof-handwritten-level-')), app = resolve(root, 'game/games/sample');
+  try {
+    writeFixtureFile(app, 'config.level.json', '{"seed":1}');
+    const asset = writeFixtureFile(app, 'assets/config.level.json', '{"seed":1}');
+    const source = writeFixtureFile(app, 'logic/src/lib.rs', 'fn main() { print!("{}", include_str!("../../assets/config.level.json")); }');
+    const binary = resolve(app, 'target/fixture');
+    mkdirSync(dirname(binary), {recursive:true});
+    const read = proofInputReader(root, app), before = read();
+    const built = spawnSync('rustc', [source, '-o', binary], {encoding:'utf8'});
+    expect(built.status, built.stderr).toBe(0);
+    writeFileSync(asset, '{"seed":2}');
+    expect(spawnSync(binary, [], {encoding:'utf8'}).stdout).toBe('{"seed":1}');
+    expect(read).toThrow('authored proof inputs changed during build');
+    const after = proofInputs(root, app);
+    expect(after.authored).not.toBe(before.authored);
+    expect(after.authoredState).not.toBe(before.authoredState);
+  } finally { rmSync(root, {recursive:true, force:true}); }
+}, 30_000);
 
 test('transient sources consumed by a build invalidate its receipt, including in empty directories', async () => {
   const dir = mkdtempSync(resolve(tmpdir(), 'proof-transient-')), app = resolve(dir, 'game/games/sample');
@@ -256,7 +276,7 @@ test('an initially absent assets tree cannot appear, feed a build and disappear 
   } finally { rmSync(dir, {recursive:true, force:true}); }
 });
 
-test('receipts and proof provenance bind post-bake generated assets', async () => {
+test('E11 receipts and proof provenance bind post-bake generated assets', async () => {
   const dir=mkdtempSync(resolve(tmpdir(),'e11-generated-')), app=resolve(dir,'game/games/sample'), out=resolve(dir,'artifacts/linux');
   const write=(file,bytes)=>writeFixtureFile(dir,file,bytes);
   const generated=bytes=>{write('game/games/sample/assets/textures/crate.astc.tex',bytes);write('game/games/sample/.baked-assets.json',JSON.stringify({'textures/crate.astc.tex':createHash('sha256').update(bytes).digest('hex')}));};
@@ -285,13 +305,13 @@ test('receipts and proof provenance bind post-bake generated assets', async () =
   } finally {rmSync(dir,{recursive:true,force:true});}
 });
 
-test('clean Git blobs and stat-cached dirty inputs have stable identities', async () => {
+test('E11 clean Git blobs and stat-cached dirty inputs have stable identities', async () => {
   const {spawnSync}=await import('node:child_process');
   const dir=mkdtempSync(resolve(tmpdir(),'e11-digest-')), app=resolve(dir,'game/games/sample');
   const write=(file,text)=>writeFixtureFile(dir,file,text);
   const git=(...args)=>{const r=spawnSync('git',args,{cwd:dir,encoding:'utf8'});expect(r.status).toBe(0);};
   try {
-    write('game/games/sample/logic/src/lib.rs','logic');write('host/linux/src/lib.rs','host');
+    write('game/games/sample/logic/src/lib.rs','logic');write('host/painted/src/lib.rs','host');
     write('game/games/sample/app.contract','plan');git('init','-q');git('add','.');
     const cache=resolve(dir,'cache'), read=()=>proofInputs(dir,app,cache);
     const a=read(); expect(a.reads).toBe(0);
@@ -523,16 +543,27 @@ test('a development table edit refuses a pin even when its hash matches', () => 
   expect(failures).toEqual(['pin 0 refused: development table edits are in the journal']);
 });
 
-test('a baked table transaction is an asset product; its authored JSON owns provenance', () => {
-  const root=mkdtempSync(resolve(tmpdir(),'proof-tables-')),app=resolve(root,'game/games/sample');
+for (const level of [false, true]) test(`a baked ${level ? 'level' : 'table transaction'} is an asset product; its authored JSON owns provenance`, () => {
+  const root=mkdtempSync(resolve(tmpdir(),'proof-carrier-')),app=resolve(root,'game/games/sample');
+  const source = level ? 'levels/start.level.json' : 'movement.json';
+  const carrier = level ? source : 'exact-tables.json';
+  const baked = speed => level ? `{"speed":${speed}}` : JSON.stringify({'movement.json':`{"speed":${speed}}`});
   try {
-    writeFixtureFile(app,'movement.json','{"speed":4}');
+    writeFixtureFile(app,source,'{"speed":4}');
+    if (level) writeFixtureFile(app, '.shells/level.json', JSON.stringify(source));
+    writeFixtureFile(app,'assets/handwritten.level.json','{"speed":1}');
     const read=proofInputReader(root,app),before=read();
-    writeFixtureFile(app,'assets/exact-tables.json','{"movement.json":"{\\"speed\\":4}"}');
+    writeFixtureFile(app,'assets/' + carrier,baked(4));
     expect(()=>read()).toThrow('asset directories changed during build');
     const after=proofInputs(root,app);
     expect(after.authored).toBe(before.authored); expect(after.all).not.toBe(before.all);
-    writeFileSync(resolve(app,'movement.json'),'{"speed":8}');
+    writeFileSync(resolve(app,'assets',carrier),baked(8));
+    const replaced=proofInputs(root,app);
+    expect(replaced.authored).toBe(after.authored); expect(replaced.all).not.toBe(after.all);
+    writeFileSync(resolve(app,source),'{"speed":8}');
+    expect(proofInputs(root,app).authored).not.toBe(after.authored);
+    writeFileSync(resolve(app,source),'{"speed":4}');
+    writeFileSync(resolve(app,'assets/handwritten.level.json'),'{"speed":2}');
     expect(proofInputs(root,app).authored).not.toBe(after.authored);
   } finally {rmSync(root,{recursive:true,force:true});}
 });
@@ -722,6 +753,7 @@ impl Game for Carriers {
     const env = {...process.env, CARGO_TARGET_DIR:resolve(app,'target'), CARGO_BUILD_BUILD_DIR:resolve(app,'target')};
     prepareProofTree(app, env);
     expect(readFileSync(resolve(app,'assets/levels/start.level.json'),'utf8')).toBe('{"speed":8}');
+    expect(JSON.parse(readFileSync(resolve(app, '.shells/level.json'), 'utf8'))).toBe('levels/start.level.json');
     const assets = require('node:fs').readdirSync(resolve(app,'assets'));
     expect(assets.length).toBe(2);
     const table = assets.find(name => name !== 'levels');

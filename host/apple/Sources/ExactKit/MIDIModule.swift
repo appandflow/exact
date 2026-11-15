@@ -1,4 +1,4 @@
-// The runner's MIDI queue, sent: a session's `midi`
+// @ref LLP 1125 D6–D8. The runner's MIDI queue, sent: a session's `midi`
 // batch op carries `send`, `retract`, `open` and `request` in runner
 // milliseconds, which become host seconds — runner time is
 // `(CACurrentMediaTime() - t0) × 1000`, as for sound (SoundModule.swift) —
@@ -8,8 +8,8 @@
 // enumeration reports `granted` and the ports. One arm serves the process:
 // every session that asked hears its ports, an input goes to each session
 // that opened it, and each session's message ids are its own. Timing Clock
-// goes only to a session that follows its input (the open op's `clock`):
-// ticks alone wait up to 50 ms from the oldest, and anything
+// goes only to a session that follows its input (the open op's `clock`,
+// LLP 1125 D9): ticks alone wait up to 50 ms from the oldest, and anything
 // else is delivered at once with the ticks ahead of it. Nothing loads under
 // the agent, whose clock is virtual: the runner answers a request itself
 // there.
@@ -44,7 +44,7 @@ final class MIDILibrary {
     }
     static let shared: MIDILibrary? = {
         #if os(tvOS)
-        return nil // no CoreMIDI on tvOS: `unavailable`
+        return nil // no CoreMIDI on tvOS (LLP 1125 D6: `unavailable`)
         #elseif os(macOS)
         return load(Bundle.main.executableURL!.deletingLastPathComponent().path + "/libexact_midi.dylib")
         #else
@@ -281,7 +281,7 @@ final class MIDIOutput {
                 let bytes = (op["data"] as? [NSNumber] ?? []).map { UInt8(truncatingIfNeeded: $0.intValue) }
                 let global = hub.id()
                 ids[id] = global
-                // Runner time to host seconds on CACurrentMediaTime's timebase.
+                // Runner time to host seconds on CACurrentMediaTime's timebase (D7).
                 hub.op(1, global, uid, ExactEnv.t0 + at / 1000, bytes)
                 // A handed message is never taken back: keep the newest half's ids.
                 if ids.count > 4096 { let cut = ids.keys.sorted()[2048]; ids = ids.filter { $0.key >= cut } }

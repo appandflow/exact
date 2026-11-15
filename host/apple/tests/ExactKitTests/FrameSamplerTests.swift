@@ -8,7 +8,7 @@ import AppKit
 #endif
 @testable import ExactKit
 
-/// Frame sampling on Apple: the trailer's `seq`, the sampler's arithmetic
+/// LLP 1079 D3–D5 on Apple: the trailer's `seq`, the sampler's arithmetic
 /// against the link's own target period, its journal line, and Save Trace.
 final class FrameSamplerTests: XCTestCase {
     func testObservationReturnsOnlyItsWindowAndReportsRingDrops() throws {
@@ -342,6 +342,25 @@ final class FrameSamplerTests: XCTestCase {
         XCTAssertEqual(steady["late"], 0)
         t += 2 * fast; sampler.observe(now: t, target: t + fast)  // one 120 Hz frame shown again
         XCTAssertEqual((sampler.reply()["lifetime"] as? [String: Int])?["missed"], 1)
+    }
+
+    /// A callback whose target is its own timestamp announces a period of
+    /// zero; the next interval is not counted against it.
+    func testAZeroPeriodIsNotSampled() throws {
+        let session = ExactApp.shared.makeSession()
+        defer { session.destroy() }
+        XCTAssertNil(session.boot(size: CGSize(width: 390, height: 844)).error)
+        let sampler = try XCTUnwrap(session.sampler)
+        let p = 1.0 / 60
+        var t = ExactEnv.t0 + 70
+        sampler.observe(now: t, target: t + p)
+        t += p; sampler.observe(now: t, target: t)
+        let before = sampler.observedCount
+        t += p; sampler.observe(now: t, target: t + p)
+        XCTAssertEqual(sampler.observedCount, before)
+        t += p; sampler.observe(now: t, target: t + p)
+        XCTAssertEqual(sampler.observedCount, before + 1)
+        XCTAssertEqual((sampler.reply()["lifetime"] as? [String: Int])?["missed"], 0)
     }
 
     /// The batch that lets the session's sampler go (a production bake's
@@ -1083,7 +1102,7 @@ final class FrameSamplerTests: XCTestCase {
 
     #endif
 
-    /// A late frame names the hatch calls that
+    /// LLP 1075.003.000.001 §3.1: a late frame names the hatch calls that
     /// overlapped its interval, each charged its overlap; an on-time one names none.
     func testALateFrameNamesTheHatchesThatRanInIt() throws {
         let session = ExactApp.shared.makeSession()
@@ -1134,12 +1153,21 @@ final class FrameSamplerTests: XCTestCase {
         XCTAssertEqual((reply["period"] as? [String: Any])?["source"] as? String, "target")
         XCTAssertTrue(session.agent(#"{"op":"logs","since":0}"#).contains("frame late at "), "a late frame is one journal line")
 
-        // What a hatch recorded is in the trace's `hatches`, as `state` and `perf hatches` give it.
+        // What a hatch recorded is in the trace's `hatches`, as `state` and `perf hatches` give it (LLP 1075.003.000.001 §3.3).
         _ = session.hatchDiagnostics.record(kind: 1, node: 0, scope: "module", name: "swipes", value: 3, text: Data())
         let url = try session.saveTrace().get()
         defer { try? FileManager.default.removeItem(at: url) }
         let trace = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
-        for key in ["identity", "proxies", "plan", "journal", "frames", "perf", "hatches"] { XCTAssertNotNil(trace[key], key) }
+        for key in ["identity", "proxies", "plan", "journal", "frames", "perf", "hatches", "tree", "state", "layout", "observation"] { XCTAssertNotNil(trace[key], key) }
+        let observation = try XCTUnwrap(trace["observation"] as? [String: Any])
+        XCTAssertEqual(observation["clockChanged"] as? Bool, false)
+        XCTAssertEqual(observation["clockMode"] as? String, session.clock == nil ? "real" : "virtual")
+        XCTAssertEqual(observation["settlingReads"] as? [String], [])
+        let reads = try XCTUnwrap(observation["reads"] as? [String: [String: String]])
+        for name in ["tree", "state", "layout", "journal", "perf"] { XCTAssertEqual(reads[name]?["class"], "passive") }
+        XCTAssertNotNil((trace["tree"] as? [String: Any])?["nodes"])
+        XCTAssertNotNil((trace["state"] as? [String: Any])?["slots"])
+        XCTAssertNotNil((trace["layout"] as? [String: Any])?["viewport"])
         let hatches = try XCTUnwrap(trace["hatches"] as? [String: [String: Any]])
         XCTAssertEqual(((hatches["perf"]?["counters"] as? [String: Any])?["module"] as? [String: Int])?["swipes"], 3)
         XCTAssertEqual((((hatches["state"]?["scopes"] as? [String: Any])?["module"] as? [String: Any])?["counters"] as? [String: Int])?["swipes"], 3)
@@ -1159,8 +1187,8 @@ final class FrameSamplerTests: XCTestCase {
         XCTAssertNotEqual(try Data(contentsOf: latest), first)
     }
 
-    /// A release build's sessions count their sites' work from the first ask,
-    /// and one made after it, a second window, counts from its
+    /// A release build's sessions count their sites' work from the first ask
+    /// (LLP 1079 D1), and one made after it, a second window, counts from its
     /// boot: making it does not undo the ask.
     func testASessionMadeAfterTheFirstAskCountsItsWorkFromBoot() throws {
         let first = ExactApp.shared.makeSession()
@@ -1175,7 +1203,7 @@ final class FrameSamplerTests: XCTestCase {
         XCTAssertTrue(second.agent(#"{"op":"perf"}"#).contains("\"sites\""), "the second session counts from boot")
     }
 
-    /// A release build measures nothing until something asks:
+    /// A release build measures nothing until something asks (LLP 1079):
     /// its first trace still has the journal and the sites' work, its frames
     /// and hatch timings empty and saying so, and starts the measuring that
     /// the next trace and the agent's `perf` read.

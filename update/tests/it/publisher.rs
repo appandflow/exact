@@ -3,24 +3,31 @@
 //! Node with `crypto.sign(null, canonicalBytes, key)` over the direct
 //! recursively key-sorted serialization — is read and verified here, byte for
 //! byte, by the client's own reader, and the whole published stream is staged
-//! by the store. The signature is over the canonical bytes and the head binds
-//! the stream.
+//! by the store.
+//!
+//! @ref LLP 1026 D11 (the signature over the canonical bytes) / LLP 1030 D3a
+//! (the head binds the stream) / LLP 1030.000 D3 item 5, §4 stage 4 (the
+//! publisher)
 //!
 //! `fixtures/publisher/` is the stream directory as the publisher wrote it
 //! (`bun scripts/deploy.mjs caltrain --yes --origin <dir>` with a throwaway
 //! key, whose public half is `caltrain-2026.pub` in the manifest's base64
-//! form): `exact.json`, `app.plan`, `assets/<name>`; plus `canonical.bin`,
-//! the bytes Node signed, written by the same `canonicalBytes`. The private
-//! key was discarded; the manifest's real key is the operator's, and the release
+//! form): `exact.json`, `assets.json` (the asset index it names),
+//! `app.plan`, `assets/<name>`; plus `canonical.bin`, the bytes Node signed,
+//! written by the same `canonicalBytes`. The head and index were last
+//! written by the publisher's own `streamHead` and `streamIndex` over the
+//! same plan and assets, signed with a fresh throwaway key. The private key
+//! was discarded; the manifest's real key is Charlie's, and the release
 //! record was left out (it is the publisher's, not the client's). The head's
 //! cards point at the origin-wide immutable blob tree, as a live publisher's
-//! stream does.
+//! stream does; the index's cards resolve against the index's own blob URL.
 
 use crate::support::{finished, open_store};
 use exact_update::{canonical_bytes, Check, Embedded, Envelope};
 use std::path::{Path, PathBuf};
 
 const HEAD: &[u8] = include_bytes!("fixtures/publisher/exact.json");
+const INDEX: &[u8] = include_bytes!("fixtures/publisher/assets.json");
 const CANONICAL: &str = include_str!("fixtures/publisher/canonical.bin");
 const PUBLIC_KEY: &str = include_str!("fixtures/publisher/caltrain-2026.pub");
 const KEY_ID: &str = "caltrain-2026";
@@ -104,13 +111,19 @@ fn a_head_the_node_publisher_signed_verifies_with_the_manifests_key() {
     assert_eq!(head.plan.url, format!("../../blobs/{}", head.plan.sha256));
     assert_eq!(head.format_version, Some(4));
     assert_eq!(head.kernel_schema.as_deref().map(str::len), Some(16));
-    assert_eq!(head.assets.len(), 6);
+    let index = head.index.clone().expect("the head names an asset index");
+    assert_eq!(index.card.url, format!("../../blobs/{}", index.card.sha256));
+    assert_eq!(index.count, 6);
+    let mut head = head;
+    head.read_index(INDEX).unwrap();
+    assert_eq!(head.assets().unwrap().len(), 6);
     let png = head
-        .assets
+        .assets()
+        .unwrap()
         .iter()
         .find(|a| a.name == "assets/caltrain.png")
         .expect("the icon is an asset");
-    assert_eq!(png.url, format!("../../blobs/{}", png.sha256));
+    assert_eq!(png.url, format!("./{}", png.sha256));
     assert_eq!(png.bytes, 699);
     assert!(head.release.as_deref().unwrap().starts_with("r-"));
     assert_eq!(head.sunset, None);
@@ -149,7 +162,7 @@ fn one_byte_changed_anywhere_is_refused() {
         .unwrap_err();
     assert!(err.contains("does not verify"), "{err}");
 
-    // The channel: a head replayed onto another stream.
+    // The channel: a head replayed onto another stream (LLP 1030 D3a).
     let replayed = text().replacen("\"channel\":\"prod\"", "\"channel\":\"beta\"", 1);
     let err = Envelope::parse(replayed.as_bytes())
         .unwrap()
@@ -166,10 +179,14 @@ fn one_byte_changed_anywhere_is_refused() {
 }
 
 #[test]
-#[cfg_attr(windows, ignore = "Windows durable store is not qualified")]
+#[cfg_attr(
+    windows,
+    ignore = "Windows durable store is not qualified (LLP 1026 D11a)"
+)]
 fn the_published_stream_is_staged_whole_by_a_client() {
     let temp = Temp::new("stream");
-    let head = Envelope::parse(HEAD).unwrap();
+    let mut head = Envelope::parse(HEAD).unwrap();
+    head.read_index(INDEX).unwrap();
     let mut store = open_store(
         &temp.0,
         Embedded {
@@ -187,7 +204,7 @@ fn the_published_stream_is_staged_whole_by_a_client() {
     .unwrap();
     // The store asks for `<origin>/.exact/<channel>/<compatibilityId>/exact.json`
     // (`head_url`) and resolves each card's url against it — the layout the
-    // publisher writes (a channel is a prefix). Payload cards
+    // publisher writes (LLP 1030.000 D7: a channel is a prefix). Payload cards
     // resolve out to `.exact/blobs/<sha256>` and this closure maps those
     // content-addressed URLs back to the fixture bytes.
     let origin = "https://caltrain.exact.invalid";
@@ -210,9 +227,11 @@ fn the_published_stream_is_staged_whole_by_a_client() {
             .ok_or_else(|| format!("{url} is not under the blob tree"))?;
         let path = if digest == head.plan.sha256 {
             fixture.join("app.plan")
+        } else if digest == head.index.as_ref().unwrap().card.sha256 {
+            fixture.join("assets.json")
         } else {
             let card = head
-                .assets
+                .assets()?
                 .iter()
                 .find(|card| card.sha256 == digest)
                 .ok_or_else(|| format!("{url} names no card"))?;
@@ -231,14 +250,20 @@ fn the_published_stream_is_staged_whole_by_a_client() {
         entry, head.digest,
         "the entry is named by the head's digest"
     );
-    // The head, the plan, and every asset were fetched by the head's urls.
+    // The head, the index, the plan, and every asset were fetched by the
+    // head's and the index's urls.
     let urls = asked.borrow().clone();
-    assert_eq!(urls.len(), 8, "{urls:?}");
+    assert_eq!(urls.len(), 9, "{urls:?}");
     assert_eq!(urls[0], format!("{prefix}exact.json"));
     assert!(urls.contains(&format!("{blob_prefix}{}", head.plan.sha256)));
+    assert_eq!(
+        urls[1],
+        format!("{blob_prefix}{}", head.index.as_ref().unwrap().card.sha256)
+    );
     assert!(urls.contains(&format!(
         "{blob_prefix}{}",
-        head.assets
+        head.assets()
+            .unwrap()
             .iter()
             .find(|card| card.name == "assets/caltrain.png")
             .unwrap()
@@ -247,7 +272,8 @@ fn the_published_stream_is_staged_whole_by_a_client() {
     assert!(urls.iter().any(|url| url
         == &format!(
             "{blob_prefix}{}",
-            head.assets
+            head.assets()
+                .unwrap()
                 .iter()
                 .find(|card| card.name == "shaders/aurora.wgsl")
                 .unwrap()
@@ -259,6 +285,7 @@ fn the_published_stream_is_staged_whole_by_a_client() {
         std::fs::read(dir.join("app.plan")).unwrap(),
         std::fs::read(fixture.join("app.plan")).unwrap()
     );
+    assert_eq!(std::fs::read(dir.join("assets.json")).unwrap(), INDEX);
     assert!(dir.join("assets/assets/caltrain.png").is_file());
     assert!(dir.join("assets/deck/index.html").is_file());
     assert_eq!(store.staged().map(|s| s.seq), Some(1));

@@ -1,6 +1,6 @@
 // A wasm development build carries its plan's source map beside app.plan, as
 // the JS target's does, so the agent driving that dist names each node's
-// source: the bake's map, for exactly these plan bytes.
+// source (LLP 1012.001.000 D6): the bake's map, for exactly these plan bytes.
 // The slow lane (EXACT_SLOW_TESTS=1): a wasm build compiles the app's crate.
 import {describe, expect, test} from 'bun:test';
 import {spawnSync} from 'node:child_process';

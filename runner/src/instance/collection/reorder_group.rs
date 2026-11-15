@@ -1,7 +1,7 @@
-//! A reorder across the lists that share a `reorderGroup`:
+//! A reorder across the lists that share a `reorderGroup` (LLP 1094 D4):
 //! the target's `Incoming` gap, the source's `Outgoing` close, the dragged
 //! row hidden while a ghost stands for it, what a hold watches, and the
-//! keyboard's steps. The session itself is the runner's
+//! keyboard's steps (D9). The session itself is the runner's
 //! (`runner/reorder_group.rs`); a collection holds only its own half.
 use super::reorder::Offsets;
 use super::*;
@@ -44,7 +44,7 @@ impl Collection {
     }
 
     /// A grouped session's source: data that moves its rows moves the
-    /// offsets with them, at once.
+    /// offsets with them, at once (LLP 1094 D8).
     pub(crate) fn set_grouped(&mut self) {
         if let Some(p) = &mut self.preview {
             p.grouped = true;
@@ -117,7 +117,7 @@ impl Collection {
         }
     }
 
-    /// The source becomes the target again: today's preview,
+    /// The source becomes the target again (LLP 1094 D4): today's preview,
     /// placed by this sample, or left as it was when the sample is unproved.
     pub(crate) fn retarget_home(
         &mut self,
@@ -139,7 +139,7 @@ impl Collection {
     }
 
     /// The measured gap at content offset `y`, nothing excluded; an empty
-    /// list with a port certifies gap 0, the end. A gap
+    /// list with a port certifies gap 0, the end (LLP 1094 D4). A gap
     /// outside the port, or beside a non-string key, is not certified.
     pub(crate) fn move_incoming(
         &mut self,
@@ -227,10 +227,11 @@ impl Collection {
     }
 
     /// The source preview's drop when the session targets its own list:
-    /// the keys, the hold kept on.
+    /// the keys, the hold kept on (LLP 1094 D8).
     pub(crate) fn hold_drop(
         &mut self,
         g: &ReorderGeometry,
+        now_ms: f64,
     ) -> Result<Option<(String, Option<String>)>, InstanceError> {
         let Some(p) = &self.preview else {
             return Ok(None);
@@ -253,8 +254,8 @@ impl Collection {
         let item = self.keys[source].as_str().unwrap().to_owned();
         let p = self.preview.as_mut().unwrap();
         p.holding = true;
-        p.dropped = true;
         p.certified = None;
+        self.remember_drop(now_ms);
         Ok(Some((item, before)))
     }
 
@@ -266,7 +267,7 @@ impl Collection {
         }
     }
 
-    /// The hold is over: the previews close, at once when the
+    /// The hold is over (LLP 1094 D8): the previews close, at once when the
     /// rows moved in this commit, and the pin waits for `finish`.
     pub(crate) fn end_hold(
         &mut self,
@@ -275,9 +276,10 @@ impl Collection {
     ) -> Result<(), InstanceError> {
         if let Some(p) = &mut self.preview {
             p.holding = false;
-            p.dropped = false;
             p.terminal = true;
             p.certified = None;
+            let token = p.token;
+            self.end_drop_anchor(token);
         }
         let was = std::mem::replace(&mut self.instant, instant);
         let result = self.emit_preview(u);
@@ -338,8 +340,8 @@ impl Collection {
         Some((slot, len))
     }
 
-    /// Place the gap at `slot` (clamped), as a key or a custom action does:
-    /// no measured sample is needed for its drop.
+    /// Place the gap at `slot` (clamped), as a key or a custom action does
+    /// (LLP 1094 D9): no measured sample is needed for its drop.
     pub(crate) fn step_to(
         &mut self,
         u: &mut Update<'_>,

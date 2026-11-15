@@ -24,7 +24,7 @@ impl Ty {
         Ty::List(Box::new(t))
     }
 
-    /// Whether a state of this type may say `persist`: a
+    /// Whether a state of this type may say `persist` (LLP 1116 D5): a
     /// number, string or bool, or an option or list of one.
     pub(crate) fn persistable(&self) -> bool {
         let scalar = |t: &Ty| matches!(t, Ty::Num | Ty::Str | Ty::Bool);

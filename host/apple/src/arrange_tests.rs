@@ -1,5 +1,5 @@
 //! Arrange on the Apple host, against the web (`host/web/src/reorder_tests.rs`)
-//! and Linux (`host/linux/tests/it/arrange.rs`) sequences.
+//! and Linux (`host/painted/tests/it/arrange.rs`) sequences.
 use super::*;
 use exact_kernel::MonospaceMeasurer;
 use exact_runner::{CollectionFeedback, DataError, RowMeasurement, Value as DataValue};
@@ -268,7 +268,7 @@ fn refusals_take_no_hold_and_invalid_samples_change_nothing() {
 
 #[test]
 fn eager_lists_do_not_admit_physical_reorder() {
-    // An eager list never reorders: the compiler refuses it (3f8cbb165).
+    // An eager list never reorders: the compiler refuses it (3f8cbb165, LLP 1094).
     let source = SOURCE.replace("virtualized=true", "virtualized=false");
     assert_eq!(
         contract::compile(&source).unwrap_err().id,

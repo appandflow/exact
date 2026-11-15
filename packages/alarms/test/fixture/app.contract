@@ -1,4 +1,4 @@
-// The fixture: @exact/alarms's
+// The fixture (LLP 1133.030 §14 stage 2, §15 question 6): @exact/alarms's
 // names read and sent as an app would, each answer shown by testId. It is
 // Android's acceptance app, since Metronome has no Android build.
 use scheduleAlarm, cancelAlarm, pauseAlarm, resumeAlarm, requestAlarmPermission, alarms, alarmStatus, AlarmStatus, Alarm from "@exact/alarms"

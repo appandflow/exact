@@ -1,5 +1,5 @@
 // Accept fixture: `style Name` at file scope and `class=Name` on a node
-// — the web's class list without the cascade. A node's own
+// (LLP 1017 P6) — the web's class list without the cascade. A node's own
 // attribute replaces the style's for the same name; two bindings for one
 // row resolve to the last, so `padding=4` beats the style's `padding=16`.
 // A colour is hex or CSS `rgb()`/`rgba()`; both spell the same rgba8.

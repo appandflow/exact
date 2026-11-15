@@ -1,0 +1,27 @@
+{
+  "ticks": {
+    "0": "0x68106967367bba41",
+    "1080": "0x1e5dd38f9b0ce70a"
+  },
+  "saves": {
+    "continuation": "0c9fbbcfe3ee7ab1e1167706a4853eb66b823c0490010fe296ce6457898e0363"
+  },
+  "hosts": [
+    "linux",
+    "web"
+  ],
+  "modes": [
+    "0",
+    "1",
+    "fresh-game"
+  ],
+  "profiles": [
+    "gpu-dev"
+  ],
+  "inputs": "9df8dfb34074e94f35075a42a0128ad06eae3882674fbdab789ff8c9a305ce94",
+  "sourceInputs": "6f6a911aef9be8d7f7a77beb1a297ed9344e8f8fc79a21c78b556d72ba486614",
+  "game": "rivals",
+  "generated": "bun game/prove.mjs rivals --repin --hosts 'linux,web'",
+  "at": "c8ad75897c85f8b3e278415a47e37d2fb0011e5f",
+  "reason": "Publication journals now use the JSON delivered to the app (a46ab292); simulation tick hashes are unchanged"
+}

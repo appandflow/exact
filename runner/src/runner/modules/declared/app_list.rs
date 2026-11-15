@@ -1,5 +1,5 @@
-//! A keyed list kept by the app, with a due time and the person's choices:
-//! `"list": {"state", "key", "scope": "app",
+//! A keyed list kept by the app, with a due time and the person's choices
+//! (LLP 1133.030 D12 item 2): `"list": {"state", "key", "scope": "app",
 //! "due", "tap": {"choices"}}`, and the `update` effect beside `list` and
 //! `unlist`.
 //!
@@ -16,8 +16,8 @@
 //! - **`"tap": {"choices"}`**: `tap @ref <choice>` on a delivered entry
 //!   does what the platform's button would: `{"retire": true}` takes it
 //!   away; `{"after": <field>, "set": {…}}` makes it due again that field's
-//!   length from now; `{"when", "set", "event", "args"}`
-//!   is refused by name unless the entry matches `when`, sets `set`
+//!   length from now; `{"when", "set", "event", "args"}` (LLP 1133.033
+//!   D21) is refused by name unless the entry matches `when`, sets `set`
 //!   and leaves it listed, then raises `event` as an activation. Such an
 //!   entry refuses a tap without a choice.
 //! - **`"update": {"state", "key", "when", "else", "set", "pause" |

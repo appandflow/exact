@@ -1,4 +1,4 @@
-// Which platform control a `Control` node is, and
+// @ref LLP 1069.001 D2, D5 — which platform control a `Control` node is, and
 // a select's menu as the runtime reads it from the kernel: both hosts'
 // presenters build the platform's own control from these.
 import Foundation
@@ -9,16 +9,16 @@ enum ControlKinds {
     static let indexed = ["type:checkbox", "type:radio", "type:select", "type:range", "type:date", "type:time", "type:datetime-local", "type:button"]
     static let dates: Set<String> = ["date", "time", "datetime-local"]
     /// The chrome index's key for a `progress`, the platform's activity
-    /// indicator or, with a `value`, its
-    /// progress bar: a view, not a control, so its own pass,
+    /// indicator (LLP 1069.001, amended 2026-10-07) or, with a `value`, its
+    /// progress bar (LLP 1116 D8): a view, not a control, so its own pass,
     /// outside `indexed`.
     static let progress = "type:progress"
     /// `switch`, `checkbox`, or the `type` prop's value (`radio`, a select, …).
     static func kind(_ props: [String: String]) -> String {
         switch props["type"] {
-        case "button": return "button" // before the checkbox default
+        case "button": return "button" // LLP 1069.011 D3: before the checkbox default
         case "select": return "select"
-        case "radio": return "radio"
+        case "radio": return "radio" // x2apps survey #2
         case "range": return "range"
         case let t? where dates.contains(t): return t
         default: return props["accessibilityRole"] == "switch" ? "switch" : "checkbox"
@@ -59,7 +59,7 @@ struct RangeSpec {
 }
 
 /// A determinate progress's `value` and `max` by HTML's rules
-/// (`exact_kernel::Progress`): `max` is 1 unless it reads as a
+/// (`exact_kernel::Progress`, LLP 1116 D8): `max` is 1 unless it reads as a
 /// number above 0; `value` is 0 unless it reads as one, held to 0 and `max`.
 struct ProgressSpec {
     var value = 0.0, max = 1.0
@@ -78,7 +78,7 @@ struct ProgressSpec {
 /// platform's `Date` at UTC: HTML's values carry no zone, so the picker
 /// shows the wall time the string names and never converts it.
 enum DateValue {
-    /// What an empty date control says: its author's
+    /// What an empty date control says (LLP 1115.000 D13.1): its author's
     /// `placeholder`, or no words. A date format (`mm/dd/yyyy`) is a
     /// browser's empty field, which the platform's control does not have.
     static func placeholder(_ props: [String: String]) -> String {
@@ -94,23 +94,98 @@ enum DateValue {
         f.dateFormat = pattern
         return f
     }
-    private static let date = formatter("yyyy-MM-dd"), time = formatter("HH:mm"), seconds = formatter("HH:mm:ss"),
-                       local = formatter("yyyy-MM-dd'T'HH:mm"), localSeconds = formatter("yyyy-MM-dd'T'HH:mm:ss")
+    private static let date = formatter("yyyy-MM-dd"), clock = formatter("HH:mm:ss")
+    private static let calendar: Calendar = {
+        var calendar = Calendar(identifier: .iso8601)
+        calendar.timeZone = utc
+        return calendar
+    }()
 
+    /// `s` by HTML's value grammar for `kind`, as the kernel holds a value to
+    /// it (`ControlKind::valid_value`): a date `yyyy-mm-dd` (the year four or
+    /// more digits, never 0), a time `hh:mm` with optional `:ss` and one to
+    /// three fraction digits, a local date and time the two joined by `T` or
+    /// a space, and nothing after. A value HTML's sanitization would empty is
+    /// nil.
     static func parse(_ kind: String, _ s: String) -> Date? {
-        switch kind {
-        case "date": return date.date(from: s)
-        case "time": return time.date(from: s) ?? seconds.date(from: String(s.prefix(8)))
-        default: return local.date(from: s) ?? localSeconds.date(from: String(s.prefix(19)))
+        let digits = { (part: Substring, count: ClosedRange<Int>) -> Int? in
+            count.contains(part.count) && part.allSatisfy({ ("0"..."9").contains($0) }) ? Int(part) : nil
         }
+        var day: Substring?, clock: Substring?
+        switch kind {
+        case "date": day = s[...]
+        case "time": clock = s[...]
+        default:
+            guard let at = s.firstIndex(where: { $0 == "T" || $0 == " " }) else { return nil }
+            day = s[..<at]
+            clock = s[s.index(after: at)...]
+        }
+        var fields = DateComponents(year: 1970, month: 1, day: 1, hour: 0, minute: 0, second: 0, nanosecond: 0)
+        if let day {
+            let f = day.split(separator: "-", omittingEmptySubsequences: false)
+            guard f.count == 3, let y = digits(f[0], 4...Int.max), y > 0, let m = digits(f[1], 2...2), let d = digits(f[2], 2...2) else { return nil }
+            fields.year = y
+            fields.month = m
+            fields.day = d
+        }
+        if let clock {
+            let f = clock.split(separator: ":", omittingEmptySubsequences: false)
+            guard (2...3).contains(f.count), let h = digits(f[0], 2...2), h < 24, let m = digits(f[1], 2...2), m < 60 else { return nil }
+            fields.hour = h
+            fields.minute = m
+            if f.count == 3 {
+                let second = f[2].split(separator: ".", omittingEmptySubsequences: false)
+                guard second.count <= 2, let whole = digits(second[0], 2...2), whole < 60 else { return nil }
+                fields.second = whole
+                if second.count == 2 {
+                    guard let fraction = digits(second[1], 1...3) else { return nil }
+                    fields.nanosecond = fraction * [100_000_000, 10_000_000, 1_000_000][second[1].count - 1]
+                }
+            }
+        }
+        // A day the month does not have (February's 30th) is not a date.
+        guard fields.isValidDate(in: calendar) else { return nil }
+        return calendar.date(from: fields)
     }
 
+    /// `d` as HTML's normalized value for `kind`, as `el.value` reads a local
+    /// date and time: seconds only when they or the fraction are not zero,
+    /// and the fraction, in whole milliseconds, in as few digits as it needs.
     static func format(_ kind: String, _ d: Date) -> String {
-        switch kind {
-        case "date": return date.string(from: d)
-        case "time": return time.string(from: d)
-        default: return local.string(from: d)
+        // Whole milliseconds, rounded: a Date's binary fraction reads .5 as .4999….
+        let (q, r) = Int64((d.timeIntervalSince1970 * 1000).rounded()).quotientAndRemainder(dividingBy: 1000)
+        let second = Date(timeIntervalSince1970: Double(r < 0 ? q - 1 : q)), fraction = r < 0 ? r + 1000 : r
+        if kind == "date" { return date.string(from: second) }
+        var time = clock.string(from: second)
+        if fraction != 0 {
+            time += "." + String(String(format: "%03d", fraction).reversed().drop(while: { $0 == "0" }).reversed())
+        } else if time.hasSuffix(":00") {
+            time.removeLast(3)
         }
+        return kind == "time" ? time : date.string(from: second) + "T" + time
+    }
+
+    /// What a picker showing `d` reads after the agent's `type` gave it
+    /// `typed`: `typed`, the value the app heard, while the picker still
+    /// shows that value, else what an action wrote over it. A picker shows
+    /// no finer than a minute and UIKit's may drop the seconds it is given,
+    /// so the minute is what is compared.
+    static func shown(_ kind: String, typed: String, _ d: Date) -> String {
+        let minute = { (d: Date) in (d.timeIntervalSince1970 / 60).rounded(.down) }
+        guard let value = parse(kind, typed), minute(value) == minute(d) else { return format(kind, d) }
+        return typed
+    }
+
+    /// The wall clock's fields in the picker's zone-free representation,
+    /// using the same reference day as parsed bounds for a time-only input.
+    static func initial(_ kind: String, now: Date = Date(), timeZone: TimeZone = .current,
+                        minimum: Date? = nil, maximum: Date? = nil) -> Date {
+        let f = formatter(kind == "date" ? "yyyy-MM-dd" : kind == "time" ? "HH:mm" : "yyyy-MM-dd'T'HH:mm")
+        f.timeZone = timeZone
+        var value = parse(kind, f.string(from: now))!
+        if let minimum { value = max(value, minimum) }
+        if let maximum { value = min(value, maximum) }
+        return value
     }
 }
 
@@ -130,9 +205,9 @@ struct SelectMenu: Equatable {
         chosen = (obj["chosen"] as? Int).flatMap { $0 < options.count ? $0 : nil }
     }
 
-    /// The agent's `type <select> <value>`: the enabled
+    /// The agent's `type <select> <value>` (LLP 1069.001 D9): the enabled
     /// option with that value, else the one option with that label, as the
-    /// web host chooses (Playwright's `selectOption`);
+    /// web host chooses (Playwright's `selectOption`; kanban F17, shop F10);
     /// else the refusal, naming the options.
     func choose(_ text: String, id: UInt32) -> (value: String?, refusal: String?) {
         let enabled = options.filter { !$0.disabled }
@@ -145,12 +220,12 @@ struct SelectMenu: Equatable {
     }
 }
 
-/// A button's face (`exact_press_face`), custom or
+/// A button's face (`exact_press_face`, LLP 1069.011.000 D1), custom or
 /// native, as the kernel reads it from its children: its title, its symbol as
 /// the platform names it (an svg-only icon's path as its `FaceSymbol` token), whether its image is a raster instead, whether the
 /// image leads, its `aria-label`, whether its children fit (one text, one
-/// image, nothing else); and a native button's `buttonStyles` row — each
-/// platform's draw, a `~` marking a stand-in. `style` is
+/// image, nothing else); and a native button's `buttonStyles` row (LLP
+/// 1069.011 D2) — each platform's draw, a `~` marking a stand-in. `style` is
 /// the `buttonStyle` its author wrote, nil when they wrote none: the face
 /// then carries no row, and the platform columns keep their defaults here,
 /// which are what a button with no style draws (`unsaid`; the Mac's push
@@ -175,6 +250,9 @@ struct ButtonFace: Equatable {
     var leading = true
     var label: String?
     var fits = true
+    /// A tab's badge (LLP 1075.003 §9.9): the text of the filled box beside
+    /// its face, which the kernel reads from the tab's children.
+    var badge: String?
     var style: String?
     var ios = ButtonFace.unsaid
     var iosBefore26 = ButtonFace.unsaid
@@ -189,7 +267,7 @@ struct ButtonFace: Equatable {
         subtitle = o["subtitle"] as? String
         placement = o["placement"] as? String
         rows = ButtonFaceRows(o["rows"] as? [String: Any] ?? [:])
-        // An svg-only icon's path as its token (FaceSymbol).
+        // An svg-only icon's path as its token (FaceSymbol, stage 9 A2).
         symbol = FaceSymbol.of(o)
         symbolIcon = o["symbolIcon"] as? String
         raster = o["raster"] as? Bool ?? false
@@ -200,6 +278,7 @@ struct ButtonFace: Equatable {
         leading = o["leading"] as? Bool ?? true
         label = o["label"] as? String
         fits = o["fits"] as? Bool ?? true
+        badge = o["badge"] as? String
         style = o["style"] as? String
         ios = o["ios"] as? String ?? ios
         iosBefore26 = o["iosBefore26"] as? String ?? iosBefore26
@@ -208,7 +287,7 @@ struct ButtonFace: Equatable {
     }
 
     /// What UIKit draws for a button whose author wrote no `buttonStyle`, by
-    /// its name in the table's iOS column. On iOS it is
+    /// its name in the table's iOS column (LLP 1115.000 D15). On iOS it is
     /// the plain configuration, tinted text with no fill, as `UIButton(type:
     /// .system)` and SwiftUI's `Button` are; `buttonStyle="bordered"` is what
     /// an author writes for the grey capsule. tvOS keeps the bordered button:
@@ -252,7 +331,7 @@ enum LinkedDesign {
 }
 
 
-/// Only authored rows cross this dictionary; absence is UIKit's answer.
+/// Only authored rows cross this dictionary; absence is UIKit's answer (D1–D2).
 struct ButtonFaceRows: Equatable {
     var title: NodeStyle = [:], subtitle: NodeStyle = [:], symbol: NodeStyle = [:], button: NodeStyle = [:]
     var imageGap: CGFloat?

@@ -1,6 +1,6 @@
 # The Caltrain app's data crate: the schedule model and the queries over it,
 # behind the runner's one data seam. App code in Rust, linked into every host
-# and into the compiler's bake.
+# and into the compiler's bake. @ref LLP 1004 D4.
 [package]
 name = "caltrain-data"
 version.workspace = true

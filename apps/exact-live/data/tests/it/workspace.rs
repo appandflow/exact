@@ -128,7 +128,7 @@ fn real_job_tickets_survive_navigation_resize_and_scene_reset() {
     )
     .unwrap();
     // 128 held lanes, and the wave's progress over server-sent events and a
-    // socket.
+    // socket (LLP 1069.004).
     let (streams, requests): (Vec<_>, Vec<_>) = r
         .take_requests()
         .into_iter()
@@ -206,7 +206,7 @@ fn all_job_resources_belong_to_the_root_not_a_conditional_pane() {
     }
 }
 
-/// A pinch's release adopts its scale between Fit and 4×.
+/// LLP 1057.001 §4: a pinch's release adopts its scale between Fit and 4×.
 #[test]
 fn a_pinch_release_sets_the_photo_zoom_within_fit_and_four_times() {
     let mut r = boot(390.);

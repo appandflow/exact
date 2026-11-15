@@ -1,9 +1,31 @@
 //! Asking one resource of its source: the runner's own sources, then the
-//! data seam.
+//! data seam (LLP 1030 D7, LLP 1039 D1, LLP 1038 D5).
 
 use super::{lines, DataError, DataSource, Runner, RunnerError};
 use crate::request::Answer;
 use exact_plan::Value;
+
+/// Every executor must be able to carry an argument (LLP 1027 D2).
+pub(super) fn check_arguments(name: &str, args: &[Value]) -> Result<(), RunnerError> {
+    fn finite(value: &Value) -> bool {
+        match value {
+            Value::Number(n) => n.is_finite(),
+            Value::Option(Some(value)) => finite(value),
+            Value::List(items) | Value::Record(items) => items.iter().all(finite),
+            _ => true,
+        }
+    }
+    if let Some(i) = args.iter().position(|arg| !finite(arg)) {
+        return Err(RunnerError::Data {
+            resource: name.to_string(),
+            error: DataError::BadArguments(format!(
+                "argument {} contains a non-finite number",
+                i + 1
+            )),
+        });
+    }
+    Ok(())
+}
 
 /// Asks of one resource made by answers' commits, each with arguments unlike
 /// the last, within a second, that say an argument moves on every answer.
@@ -23,11 +45,21 @@ pub(super) struct Churn {
 }
 
 impl<D: DataSource> Runner<D> {
+    /// Invalid options deferred until launch, once per resource and explanation.
+    pub fn bake_warnings(&self) -> &[String] {
+        &self.bake_warnings
+    }
+
+    pub(super) fn check_send_arguments(&self, m: usize, args: &[Value]) -> Result<(), RunnerError> {
+        check_arguments(self.plan.str(self.plan.mutations[m].name), args)
+    }
+
     pub(super) fn query(&mut self, i: usize, args: &[Value]) -> Result<Answer, RunnerError> {
-        let row = &self.plan.resources[i];
+        let row = self.resource_row(i);
         let source = self.plan.str(row.source).to_string();
         let resource = self.plan.str(row.name).to_string();
-        // Delivery is the runner's own: the data seam never
+        check_arguments(&resource, args)?;
+        // Delivery is the runner's own (LLP 1030 D7): the data seam never
         // sees it, and a data crate could not answer it if it did.
         if source == "exactActivities" {
             return self
@@ -41,7 +73,7 @@ impl<D: DataSource> Runner<D> {
                 .map(Answer::Now)
                 .map_err(|error| RunnerError::Data { resource, error });
         }
-        // Host facts never reach the app data source.
+        // @ref LLP 1039 D1 — host facts never reach the app data source.
         if source == crate::viewport::SOURCE {
             return self
                 .viewport_answer(i)
@@ -72,20 +104,43 @@ impl<D: DataSource> Runner<D> {
                 .map(Answer::Now)
                 .map_err(|error| RunnerError::Data { resource, error });
         }
-        if source == crate::surface_record::SOURCE {
+        if matches!(
+            source.as_str(),
+            crate::surface_record::SOURCE | crate::canvas_performance::SOURCE
+        ) {
             let answer = self.links.surface_answer.ok_or_else(|| RunnerError::Data {
                 resource: resource.clone(),
                 error: DataError::Unavailable("this host links no surfaces".into()),
             })?;
-            return answer(&self.plan, &self.surface_records, i)
+            let records = if source == crate::canvas_performance::SOURCE {
+                crate::canvas_performance::validate(&self.plan, self.resource_row(i).ty).map_err(
+                    |error| RunnerError::Data {
+                        resource: resource.clone(),
+                        error: DataError::Unavailable(error),
+                    },
+                )?;
+                &self.canvas_performance
+            } else {
+                &self.surface_records
+            };
+            return answer(&self.plan, records, i)
                 .map(Answer::Now)
                 .map_err(|error| RunnerError::Data { resource, error });
         }
-        // A native module's source is the module's, never the app data's.
+        // A native module's source is the module's, never the app data's
+        // (LLP 1133.002 D13).
         if self.plan.module_named(&source).is_some() {
             return self.module_answer(i, &source, args);
         }
-        // Distinguish asked sources from compiled boot values.
+        // A source declared in Contract is the runner's to ask (LLP 1162.001).
+        if self.plan.fetch_named(&source).is_some() {
+            self.log(lines::query(&resource, &source));
+            self.count_ask(i);
+            return self
+                .fetch_answer(&source, args)
+                .map_err(|error| RunnerError::Data { resource, error });
+        }
+        // @ref LLP 1038 D5 / §8 — distinguish asked sources from compiled boot values.
         self.log(lines::query(&resource, &source));
         self.count_ask(i);
         if self.live.admitted {
@@ -97,19 +152,16 @@ impl<D: DataSource> Runner<D> {
             self.data
                 .answer_for(super::Target::Resource(i), &mut self.store, &source, args);
         let answer = self.refuse_locked(answer);
-        // What its turn sent on its module's sockets,
-        // whatever it answered.
+        // What its turn sent on its module's sockets (LLP 1016.000 D7, the
+        // amendment of 2026-10-18), whatever it answered.
         self.stage_answer(super::Target::Resource(i));
-        self.hear_aborted();
-        for line in self.data.take_logs() {
-            self.log(line);
-        }
+        self.take_data_logs();
         answer.map_err(|error| RunnerError::Data { resource, error })
     }
 
     /// Say once, in a development build, that resource `i` is asked again
     /// and again, its arguments new each time: [`CHURN_ASKS`] in a second.
-    /// An alert, so it reaches the platform's log.
+    /// An alert, so it reaches the platform's log (LLP 1146 D4).
     fn count_churn(&mut self, i: usize, args: &[Value], resource: &str) {
         let (now, answering) = (self.now_ms, self.churn.answering);
         let row = self
@@ -184,6 +236,159 @@ mod tests {
         .unwrap()
     }
 
+    /// A source whose storage is not ready yet: `answer` refuses with its
+    /// error, or (with none) hands the host a continuation to finish once it is.
+    struct NotReady(Option<DataError>);
+    impl DataSource for NotReady {
+        fn query(&mut self, source: &str, _: &[Value]) -> Result<Value, DataError> {
+            Err(DataError::Unavailable(source.into()))
+        }
+        fn answer(&mut self, _: &mut Store, _: &str, _: &[Value]) -> Result<Answer, DataError> {
+            match self.0.clone() {
+                Some(error) => Err(error),
+                None => Ok(Answer::Later(crate::Request::continuation(1))),
+            }
+        }
+    }
+
+    // `docs/reference.md`, "Rust data sources": a resource the build left
+    // unbaked is asked at boot. `Unavailable`, `UnknownSource`, `BadArguments`
+    // and `Interface` from `answer` refuse the boot. On a resource with a
+    // value to show (here its type's zero), `Failed` boots with it failed,
+    // `DeferredAtBake` and `Answer::Later` boot with it pending, and `Overrun`
+    // boots pending, is asked again at 250 ms and 1 s, and fails on the third.
+    // A row that is another's `else source()` has nothing to show, and each of
+    // those refuses the boot there.
+    #[test]
+    fn what_an_answer_at_boot_does_by_its_kind() {
+        let plan = |fallback: bool| {
+            let mut b = PlanBuilder::new(exact_kernel::SCHEMA_DIGEST, 1);
+            let string = b.primitive(TypeKind::String);
+            let arg = b.constant(&Value::Number(0.));
+            let r = b.resource("r", "src", &[arg], string, None);
+            if fallback {
+                // `resource s = src(0) else source()`: `r` is `s`'s placeholder row.
+                let s = b.resource("s", "src", &[arg], string, None);
+                b.set_resource_placeholder(s, r);
+            }
+            b.node(NodeType::View as u8, None, None, 0, &[], &[], None);
+            b.finish().unwrap()
+        };
+        let boot_on = |plan, error| {
+            Runner::boot(
+                plan,
+                NotReady(error),
+                Kernel::with_monospace(),
+                Default::default(),
+                "/",
+            )
+        };
+        let boot = |error| boot_on(plan(false), error);
+        for error in [
+            DataError::Unavailable("storage is not ready".into()),
+            DataError::UnknownSource("src".into()),
+            DataError::BadArguments("no account".into()),
+            DataError::Interface("the module trapped".into()),
+        ] {
+            assert!(
+                matches!(
+                    boot(Some(error.clone())),
+                    Err(RunnerError::Data { ref resource, error: ref refused }) if resource == "r" && *refused == error
+                ),
+                "{error:?} refuses the boot"
+            );
+        }
+        let failed = boot(Some(DataError::Failed(
+            crate::failure::FailureCode::Storage,
+            "storage is not ready".into(),
+            String::new(),
+        )))
+        .unwrap();
+        assert_eq!(failed.resource("r"), Some(&Value::str("")));
+        assert_eq!(
+            failed.failed_resources(),
+            vec![("r", "storage is not ready")]
+        );
+        assert_eq!(
+            failed.resources[0].failed_why.as_ref().map(|f| f.code),
+            Some(crate::failure::FailureCode::Storage)
+        );
+        assert!(!failed.resources[0].pending);
+        for pending in [
+            Some(DataError::DeferredAtBake {
+                message: "at bake".into(),
+                warning: false,
+            }),
+            None,
+        ] {
+            let deferred = boot(pending).unwrap();
+            assert!(deferred.resources[0].pending);
+            assert!(deferred.bake_warnings().is_empty());
+        }
+        let why = "exactTimeout: a stream has no timeout";
+        let mut warned = boot(Some(DataError::DeferredAtBake {
+            message: why.into(),
+            warning: true,
+        }))
+        .unwrap();
+        for _ in 0..2 {
+            warned.refresh_next.push(0);
+            warned.settle(false).unwrap();
+        }
+        assert_eq!(warned.bake_warnings().len(), 1);
+        assert!(warned.bake_warnings()[0].contains("resource `r`"));
+        assert!(warned.bake_warnings()[0].contains(why));
+        warned.data.0 = Some(DataError::DeferredAtBake {
+            message: "exactIdleTimeout must be an integer".into(),
+            warning: true,
+        });
+        warned.refresh_next.push(0);
+        warned.settle(false).unwrap();
+        assert_eq!(warned.bake_warnings().len(), 2);
+        let mut overrun = boot(Some(DataError::Overrun("over budget".into()))).unwrap();
+        assert!(overrun.resources[0].pending && overrun.failed_resources().is_empty());
+        let t0 = overrun.now_ms();
+        overrun.advance(t0 + 250.).unwrap();
+        assert!(overrun.resources[0].pending && overrun.failed_resources().is_empty());
+        overrun.advance(t0 + 1250.).unwrap();
+        assert!(!overrun.resources[0].pending);
+        assert_eq!(overrun.failed_resources(), vec![("r", "over budget")]);
+        // The same plan with `r` as `s`'s `else source()` row: each of the
+        // kinds that booted above refuses, `Failed` and `Overrun` as `r`'s,
+        // and an answer later as `s`'s, whose placeholder must answer now.
+        let fallback = boot_on(plan(true), None).err();
+        assert!(
+            matches!(&fallback, Some(RunnerError::Data { resource, error: DataError::Unavailable(why) })
+                if resource == "s" && why.contains("a placeholder answers now")),
+            "{fallback:?}"
+        );
+        for error in [
+            DataError::Failed(
+                crate::failure::FailureCode::Storage,
+                "not ready".into(),
+                String::new(),
+            ),
+            DataError::Overrun("over budget".into()),
+        ] {
+            assert!(
+                matches!(boot_on(plan(true), Some(error.clone())), Err(RunnerError::Data { ref resource, error: ref refused }) if resource == "r" && *refused == error),
+                "{error:?} refuses the boot of a placeholder row"
+            );
+        }
+        let deferred = boot_on(
+            plan(true),
+            Some(DataError::DeferredAtBake {
+                message: "at bake".into(),
+                warning: false,
+            }),
+        )
+        .err();
+        assert!(
+            matches!(&deferred, Some(RunnerError::Data { resource, .. }) if resource == "s"),
+            "{deferred:?}"
+        );
+    }
+
     fn said(r: &Runner<Later>) -> Vec<String> {
         r.journal()
             .filter(|l| l.contains("times in a second"))
@@ -233,7 +438,7 @@ mod tests {
         assert!(said(&r).is_empty());
     }
 
-    // While measuring, `perf` counts each resource's asks,
+    // LLP 1146 D3 and D4: while measuring, `perf` counts each resource's asks,
     // and the churn line is an alert the host writes to its platform's log.
     #[test]
     fn asks_are_counted_for_perf_and_churn_is_an_alert_while_measuring() {

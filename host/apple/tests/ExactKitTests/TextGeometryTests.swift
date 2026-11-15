@@ -1,4 +1,5 @@
 // Authored CSS line boxes remain fractional before rasterization.
+// @ref LLP 1008 §3, LLP 1001 §5
 import XCTest
 import CoreText
 import CExact
@@ -75,7 +76,7 @@ final class TextGeometryTests: XCTestCase {
     func testInlineTextIsDataAndCanBecomeAParagraphAgain() {
         let presenter = Presenter()
         let clipping: [String: Any] = ["rule": "nonzero", "commands": [["M", [0.0, 0.0]], ["L", [100.0, 0.0]], ["L", [0.0, 30.0]], ["Z", [Double]()]]]
-        // A positioned box: CSS's used `z-index` is the row's.
+        // A positioned box: CSS's used `z-index` is the row's (LLP 1074 T1).
         let style: [String: Any] = ["position_type": "relative", "z_index": 3.0, "clip_path": clipping]
         let run: [String: Any] = ["id": 3, "parent": 2, "paint": true, "style": style,
                                   "props": ["text": "retained run", "testId": "run"], "handlers": ["press"]]
@@ -595,7 +596,7 @@ final class TextGeometryTests: XCTestCase {
         node.props = ["text": "First line\nSecond link", "href": "example.md"]
         session.presenter.root.addSubview(node)
         for (alignment, flush) in [("left", 0.0), ("center", 0.5), ("right", 1.0)] {
-            // The line break is a preserved segment break (CSS).
+            // The line break is a preserved segment break (CSS; LLP 1053 G5).
             node.style = ["font_size": 16.0, "line_height": "20px", "text_align": .string(alignment),
                           "padding_left": 20.0, "padding_top": 25.0, "padding_right": 30.0,
                           "border_width": 2.0, "white_space": "pre-wrap"]
@@ -1360,8 +1361,9 @@ extension TextGeometryTests {
     /// CSS Text 3 §7.1: a line wider than its box is start-aligned and
     /// overflows the end edge, whatever `text-align` says (Chrome draws
     /// `text-align: right` and `center` that way). CoreText's own flush puts
-    /// the overlong line left of the box, over a neighbour (in a weather app, a right-aligned "High"
-    /// header at an accessibility text size would run into "Low"). A line that fits is CoreText's.
+    /// the overlong line left of the box, over a neighbour: round 13's
+    /// weather, a right-aligned "High" header at an accessibility text size
+    /// ran into "Low". A line that fits is CoreText's.
     func testALineWiderThanItsBoxIsStartAlignedAndOverflowsTheEndEdge() {
         var input = spec("Today")
         input.runs[0].size = 33; input.runs[0].weight = 600; input.runs[0].lineHeight = nil

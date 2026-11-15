@@ -1,4 +1,4 @@
-// The MIDI arm: CoreMIDI on a thread of its own with
+// @ref LLP 1125 D6–D8. The MIDI arm: CoreMIDI on a thread of its own with
 // its own run loop. The client is made there (`MIDIClientCreateWithBlock`),
 // so its setup notifications arrive on that run loop and a cold MIDIServer's
 // first call (up to about 600 ms) never blocks the main thread. Loaded on
@@ -8,8 +8,8 @@
 //   "outputs":[…]}`, each port's `id` its `kMIDIPropertyUniqueID`, stable
 //   across replug where an endpoint ref is not. They are enumerated again on
 //   each setup notification, on `exact_midi_refresh`, and on a 3 s watchdog
-//   while an input is open or a message went out in the last 10 s (hardware
-//   misses notifications).
+//   while an input is open or a message went out in the last 10 s (euxy saw
+//   notifications missed on hardware).
 // - A send is held on this thread and handed to CoreMIDI 50 ms before it is
 //   due (`HOLD`), stamped with its host time, so a retraction can still take
 //   it back; `MIDIFlushOutput` is never called, since it empties a whole
@@ -18,8 +18,8 @@
 //   packet's host time in CoreMIDI's receive block, which runs on CoreMIDI's
 //   realtime thread: it only copies them into a preallocated lock-free ring
 //   (midi_ring.h) and wakes this thread, which passes them on. Active
-//   Sensing is dropped; Timing Clock is passed on for clock in,
-// which the host keeps only from an input a sequence follows.
+//   Sensing is dropped; Timing Clock is passed on for clock in (LLP 1125
+//   D9), which the host keeps only from an input a sequence follows.
 // - Everything else that touches CoreMIDI's ports or this arm's state runs
 //   on this thread, setup notifications included.
 import CoreMIDI

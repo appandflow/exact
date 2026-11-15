@@ -1,9 +1,10 @@
-//! Pointer events against what the terminal last showed: one record of the
-//! presented painting — its boxes, its scrollers, the open layer's bounds, and
-//! where its first row sits on the screen — answers every click and wheel, in
-//! both modes. Inline, the origin is the live region's screen row, learned from
-//! the terminal's answer to a cursor-position query; until it is known, a
-//! pointer event goes nowhere.
+//! Pointer events against what the terminal last showed (LLP 1101.002 §0
+//! P3): one record of the presented painting — its boxes, its scrollers,
+//! the open layer's bounds, and where its first row sits on the screen —
+//! answers every click and wheel, in both modes. Inline, the origin is the
+//! live region's screen row, learned from the terminal's answer to a
+//! cursor-position query; until it is known, a pointer event goes nowhere.
+
 use crate::grid::CellRect;
 use crate::host::Host;
 use crate::paint::Painted;
@@ -251,7 +252,7 @@ impl<D: DataSource> Host<D> {
         if !Self::is_scroller(&n) {
             return;
         }
-        let [bt, _, bb, _] = n.style.border_widths_in(&kernel.env());
+        let [bt, _, bb, _] = n.style.border_widths_in(&kernel.env_of(n.id));
         let reach = (n.content.1 - (n.frame.height - bt - bb)).max(0.0);
         self.scroll_by(id, reach, (y / ROW).round() as i32);
     }

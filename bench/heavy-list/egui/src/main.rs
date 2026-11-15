@@ -1,4 +1,4 @@
-//! The egui whole-app arm of the heavy-list benchmark, using heavy-list/SPEC.md's data.
+//! The egui whole-app arm of LLP 1149 §4.1, using heavy-list/SPEC.md's data.
 use egui::{
     Color32, FontData, FontDefinitions, FontFamily, Rect, ScrollArea, Ui, UiBuilder, pos2, vec2,
 };

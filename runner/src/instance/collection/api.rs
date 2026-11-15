@@ -3,6 +3,13 @@
 use exact_kernel::ViewId;
 use exact_plan::bytes::{Reader, Writer};
 
+/// Candidates from one accepted geometry report. The second edge may run only
+/// after a pure no-op first action. State changes defer it until settlement.
+pub(crate) struct CollectionEdges {
+    pub first: exact_plan::EventKind,
+    pub end_after_noop: bool,
+}
+
 /// A mounted wrapper's measured border-box size on the list's main axis,
 /// using its published epoch.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -26,7 +33,7 @@ pub struct CollectionFeedback {
     /// Actual offset on the main axis from the first row's start, clamped
     /// past rubber-banding: `scrollTop` less the padding before the rows for
     /// a vertical list. Negative while the port is in that padding, down to
-    /// it (`scrollTop` 0).
+    /// it (`scrollTop` 0, LLP 1010 §6.9).
     pub offset: f64,
     /// Actual inner scrollport size on the main axis.
     pub port_main: f64,
@@ -37,7 +44,7 @@ pub struct CollectionFeedback {
     pub cross: f64,
     /// The main-axis padding before the first row and after the last, as
     /// the host laid it out: the room `offset` counts past and the scroll
-    /// range runs into.
+    /// range runs into (LLP 1010 §6.9).
     pub padding: [f64; 2],
     /// Only currently mounted row wrappers may be measured.
     pub measurements: Vec<RowMeasurement>,
@@ -46,7 +53,7 @@ pub struct CollectionFeedback {
     /// Active interaction descendant; pins at most one additional row.
     pub interaction_view: Option<ViewId>,
 }
-/// What one report may build beyond the rows it owes.
+/// What one report may build beyond the rows it owes (LLP 1050.000 §6).
 /// The host owns time: it turns its slice into `limit` from measured cost.
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub struct CollectionFill {
@@ -56,16 +63,16 @@ pub struct CollectionFill {
     /// Rows this report may create beyond the owed set (visible and pinned
     /// rows), and a bound on the rows it retires. `None` is unlimited.
     pub limit: Option<u32>,
-    /// An ancestor list is being dragged, flung or wheeled.
+    /// An ancestor list is being dragged, flung or wheeled (LLP 1070 F2).
     /// Carried on the wire from version 3; nesting reads it.
     pub ancestor_moving: bool,
-    /// Build only: a report the host commits off its main
+    /// Build only (LLP 1072 §5): a report the host commits off its main
     /// thread creates rows and destroys none. Rows the window no longer
     /// wants stay mounted and no edge action runs; the report is `pending`,
     /// and the host's next report, made where it applies, settles both.
     /// Refused with a new port, width or pin: those reports are immediate.
     pub create_only: bool,
-    /// Retire only: the report builds what it owes and no
+    /// Retire only (LLP 1072 §5): the report builds what it owes and no
     /// optional row, retires within `limit` as a slice does, and runs edge
     /// actions. The immediate report after a build-only one.
     pub no_build: bool,
@@ -88,18 +95,22 @@ pub struct CollectionFill {
     /// drag's, a wheel's or a key's motion, the momentum after, or a live
     /// scroll, on a host whose platform carries momentum on through a
     /// programmatic scroll (browsers, AppKit). A `scrollIntoView` made
-    /// meanwhile waits for it to end. A host whose jump
+    /// meanwhile waits for it to end (LLP 1070.000 §2.6). A host whose jump
     /// ends the momentum (UIKit, Android's reader) never sets it. Flag bit 5.
     pub scrolling: bool,
     /// The reader began a gesture on the port (a touch, a press, or a wheel
     /// where the host tells a new one from momentum) since the host learnt
     /// of the list's `scrollIntoView`, or moved the port after its
-    /// admission: it cancels the request. Flag bit 6.
+    /// admission: it cancels the request (§2.5). Flag bit 6.
     pub gesture: bool,
     /// The host is animating a smooth correction: the offset it reports is
-    /// where the animation is headed, so a request is not
+    /// where the animation is headed (LLP 1070.000 §11), so a request is not
     /// done until it has landed. Flag bit 7.
     pub animating: bool,
+    /// Actual port offset for first-reveal animations when `offset` plans
+    /// the window at a smooth scroll's destination (LLP 1055 D13).
+    /// `None` uses the report's offset and subsequent anchor corrections.
+    pub view_offset: Option<f64>,
 }
 /// A mounted row; unmounted keys and records never cross the host seam.
 #[derive(Debug, Clone, PartialEq)]
@@ -128,7 +139,7 @@ pub struct AnchorCorrection {
     pub scroll_sequence: u64,
     /// Corrected content-relative offset on the main axis: negative in the
     /// padding before the first row (an authored `scrollIntoView` down to
-    /// `scrollTop` 0; a short list's end), and past the end
+    /// `scrollTop` 0, LLP 1010 §6.9; a short list's end), and past the end
     /// while a finger or a fling holds the list there.
     pub offset: f64,
     /// An anchor's correction: the offset the anchor was taken at, so
@@ -139,11 +150,11 @@ pub struct AnchorCorrection {
     pub from: Option<f64>,
     /// Animate to `offset` with the platform's scroll animation (a smooth
     /// `scrollIntoView`, or a `scroll-behavior: smooth` list following its
-    /// end), rather than set it. Absolute only.
+    /// end), rather than set it (LLP 1070.000 §6.2). Absolute only.
     pub smooth: bool,
 }
 /// The axis a collection scrolls on, fixed when it is created from its
-/// list's style: `display: block` is vertical, `display:
+/// list's style (LLP 1070 H1): `display: block` is vertical, `display:
 /// flex` (a `row`) horizontal. JSON names it as CSS's `scroll-snap-type`
 /// and `overscroll-behavior-x` do: `y` or `x`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -170,16 +181,16 @@ pub struct CollectionSnapshot {
     pub view: ViewId,
     /// The main axis: what `offset`, `start`, `size` and the extent measure.
     pub axis: ListAxis,
-    /// The outer list whose mounted row holds this one.
+    /// The outer list whose mounted row holds this one (LLP 1070 G3).
     pub parent: Option<ViewId>,
-    /// It started where a kept position said.
+    /// It started where a kept position said (LLP 1070 §4.2).
     pub restored: bool,
-    /// A `scrollIntoView` is under way: its corrections are
+    /// A `scrollIntoView` is under way (LLP 1070.000): its corrections are
     /// authored moves, which a host applies whatever it has sampled since,
     /// until the reader's own input takes the port over.
     pub seeking: bool,
     /// A `scrollIntoView` waits for the reader's scroll to end, or for a
-    /// report of where the port is: it moves nothing
+    /// report of where the port is (LLP 1070.000 §2.6): it moves nothing
     /// yet, and the port's motion is the reader's travel. A host reports a
     /// gesture begun since it learnt of it.
     pub waiting: bool,
@@ -189,7 +200,8 @@ pub struct CollectionSnapshot {
     /// learnt of this one, not of the one before. It writes it as
     /// `lastRequest` once there has been one, under way or ended: a host
     /// tells from it whether a handler asked for a row since an input (the
-    /// selected tab's scroll to the top gives way to one its press made).
+    /// selected tab's scroll to the top gives way to one its press made,
+    /// LLP 1070.000 §2.6).
     pub request: u64,
     /// Monotonic revision; old feedback cannot mutate a newer snapshot.
     pub revision: u64,
@@ -201,7 +213,7 @@ pub struct CollectionSnapshot {
     pub total_extent: f64,
     /// Only live wrappers, in logical order, including at most two pinned
     /// rows and, where rows are rebound, the few held past the window for
-    /// the rows it needs next.
+    /// the rows it needs next (LLP 1078).
     pub rows: Vec<CollectionRow>,
     /// Optional anchor correction; consume at most once per revision.
     pub correction: Option<AnchorCorrection>,
@@ -218,17 +230,24 @@ impl CollectionFeedback {
     pub fn encode(&self) -> Result<Vec<u8>, FeedbackError> {
         self.encode_with(CollectionFill::default())
     }
-    /// Portable LE wire version 4: u32 version, u32 view, u64
+    /// Portable LE wire version 4 (LLP 1070 H1): u32 version, u32 view, u64
     /// revision, u64 sequence, f64 offset/port_main/port_cross/cross, f64
-    /// padding start/end, u32
+    /// padding start/end (LLP 1010 §6.9), u32
     /// focus and interaction (zero means none), f64 velocity, u32 limit
     /// (`u32::MAX` means none), u32 flags (bit 0: an ancestor list is
     /// moving; bit 1: build only; bit 2: retire only; bit 3: lean; bit 4: a glimpse; bit 5: the reader is scrolling;
-    /// bit 6: a gesture since the request; bit 7: a smooth correction animates), u32 count, then count × (u32 wrapper, u64 epoch, f64 size).
+    /// bit 6: a gesture since the request; bit 7: a smooth correction animates; bit 8: a view offset follows the rows),
+    /// u32 count, then count × (u32 wrapper, u64 epoch, f64 size), then
+    /// the optional f64 actual view offset.
     /// Main and cross are the list's axes. No keys, strings, or JSON parsing.
     pub fn encode_with(&self, fill: CollectionFill) -> Result<Vec<u8>, FeedbackError> {
         self.validate()?;
-        if !fill.velocity.is_finite() || fill.limit == Some(u32::MAX) {
+        if !fill.velocity.is_finite()
+            || fill
+                .view_offset
+                .is_some_and(|n| !n.is_finite() || n.abs() > f32::MAX as f64)
+            || fill.limit == Some(u32::MAX)
+        {
             return Err(FeedbackError);
         }
         let mut w = Writer::default();
@@ -258,7 +277,8 @@ impl CollectionFeedback {
                 | u32::from(fill.glimpse) << 4
                 | u32::from(fill.scrolling) << 5
                 | u32::from(fill.gesture) << 6
-                | u32::from(fill.animating) << 7,
+                | u32::from(fill.animating) << 7
+                | u32::from(fill.view_offset.is_some()) << 8,
         );
         w.u32(
             self.measurements
@@ -270,6 +290,9 @@ impl CollectionFeedback {
             w.u32(row.view);
             w.u64(row.epoch);
             w.f64(row.size);
+        }
+        if let Some(offset) = fill.view_offset {
+            w.f64(offset);
         }
         Ok(w.into_vec())
     }
@@ -299,13 +322,13 @@ impl CollectionFeedback {
             let limit = r.u32()?;
             let flags = r.u32()?;
             // A glimpse is built where it applies, and bounded.
-            if flags > 255
+            if flags > 511
                 || flags & 6 == 6
                 || (flags & 16 != 0 && (flags & 2 != 0 || limit == u32::MAX))
             {
                 return Err(exact_plan::PlanError::BadCount(flags));
             }
-            let fill = CollectionFill {
+            let mut fill = CollectionFill {
                 velocity,
                 limit: (limit != u32::MAX).then_some(limit),
                 ancestor_moving: flags & 1 != 0,
@@ -316,9 +339,14 @@ impl CollectionFeedback {
                 scrolling: flags & 32 != 0,
                 gesture: flags & 64 != 0,
                 animating: flags & 128 != 0,
+                view_offset: None,
             };
             let count = r.u32()? as usize;
-            if count.checked_mul(20) != Some(r.remaining()) {
+            if count
+                .checked_mul(20)
+                .and_then(|n| n.checked_add(if flags & 256 != 0 { 8 } else { 0 }))
+                != Some(r.remaining())
+            {
                 return Err(exact_plan::PlanError::BadCount(count as u32));
             }
             let mut measurements = Vec::with_capacity(count);
@@ -328,6 +356,9 @@ impl CollectionFeedback {
                     epoch: r.u64()?,
                     size: r.f64()?,
                 });
+            }
+            if flags & 256 != 0 {
+                fill.view_offset = Some(r.f64()?);
             }
             let facts = Self {
                 view,
@@ -346,7 +377,12 @@ impl CollectionFeedback {
         })()
         .map_err(|_| FeedbackError)?;
         out.0.validate()?;
-        if !out.1.velocity.is_finite() {
+        if !out.1.velocity.is_finite()
+            || out
+                .1
+                .view_offset
+                .is_some_and(|n| !n.is_finite() || n.abs() > f32::MAX as f64)
+        {
             return Err(FeedbackError);
         }
         Ok(out)
@@ -479,7 +515,8 @@ impl super::Collection {
                     root: super::super::first_root(&row.row.roots).expect("a row has a root"),
                     index: row.position,
                     start: self.index.prefix(row.position).unwrap(),
-                    size: self.index.height(row.position).unwrap(),
+                    size: (self.index.height(row.position).unwrap() - self.index.item_gap())
+                        .max(0.0),
                     epoch: row.epoch,
                     measured: self.index.is_measured_at(row.position),
                 })

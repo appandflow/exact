@@ -1,4 +1,4 @@
-// Sampled sources on the JS target, as the runner's
+// Sampled sources on the JS target (LLP 1133.013 D5, §9), as the runner's
 // `modules/samples.rs`: a polled source that declares `"samples"` answers
 // each reader with the latest reading and, when it asks a bound, every
 // sample on its grid since its last answer, with what the bound left out
@@ -12,7 +12,7 @@
 // before each point: a reading, or steps each `at` ms after the moment it was
 // preferred. It computes nothing about the values.
 //
-// A count (`"counts"`) is polled the same way and answers
+// A count (`"counts"`, LLP 1133.026 §11) is polled the same way and answers
 // the track's reading now, with the moment it counts from (`since`): a
 // step's own, else the later of the reader's `start` and its group's first
 // ask less `reach`; a hidden page does not pause it.
@@ -59,7 +59,7 @@ export function samples(epochAt = t => t) {
       if (!isHidden && last && last[1] == null) last[1] = now;
       if (hidden.length > 64) hidden.shift();
     },
-    /** Each computed option clamped to its declared bounds, with the journal's line. */
+    /** Each computed option clamped to its declared bounds (D12 item 2), with the journal's line. */
     clamp(row, args, say) {
       for (const [option, b] of Object.entries(row.sub.bounds ?? {})) {
         const given = args?.[option];
@@ -99,7 +99,7 @@ export function samples(epochAt = t => t) {
       track.push([clock.now, value === "clear" ? null : value]);
       if (track.length > 64) track.shift();
     },
-    /** The substitute's answer to `reader` of sampled source `row`. */
+    /** The substitute's answer to `reader` of sampled source `row` (§9). */
     substitute(row, args, reader) {
       if (row.sub.counts) return counted(row, args);
       const d = decl(row), field = d.cursor ?? "sequence", stamp = d.stamp ?? "timestamp";
@@ -113,7 +113,7 @@ export function samples(epochAt = t => t) {
       const latest = last && last[1] == null && last[0] > start ? atOrBefore(last[0] - 1e-6) : now;
       const reading = n => ({ ...readingAt(row, point(n)), [stamp]: point(n) });
       const out = { ...reading(latest), [field]: latest, samples: [], dropped: 0, interrupted: false };
-      // When the group's zero was taken (an altimeter's `since`).
+      // When the group's zero was taken (an altimeter's `since`, LLP 1133.026 D13).
       if (d.since) out[d.since] = epochAt(start);
       const after = cursors.get(`${row.key} ${reader}`);
       if (after != null) {

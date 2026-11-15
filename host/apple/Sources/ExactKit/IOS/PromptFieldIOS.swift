@@ -1,4 +1,4 @@
-// A prompt's text field (`kernel/src/confirmation.rs`): an
+// A prompt's text field (LLP 1115 D6; `kernel/src/confirmation.rs`): an
 // `alertdialog` of the alert's shape with an `input` among its rows is
 // `UIAlertController` with a text field, as a hand-built rename prompt is.
 // UIKit makes the field; it goes through the authored input's own field
@@ -131,7 +131,7 @@ final class PromptField: NSObject, UITextFieldDelegate {
     func textFieldDidChangeSelection(_ textField: UITextField) {
         alertDelegate?.textFieldDidChangeSelection?(textField)
         if let node = live() { presenter?.fieldSelections.changed(node) }
-        live()?.applyFieldDirection() // a `direction` that came while it composed
+        live()?.applyFieldDirection() // a `direction` that came while it composed (LLP 1001 §1)
     }
     func textFieldDidEndEditing(_ textField: UITextField) {
         alertDelegate?.textFieldDidEndEditing?(textField)
@@ -173,7 +173,7 @@ final class PromptField: NSObject, UITextFieldDelegate {
         node.typedText(field.text ?? "")
         // The page's value written while text was marked waited (`writeValue`).
         if field.markedTextRange == nil, let held = node.pendingValue { node.writeValue(held, into: field) }
-        node.applyFieldDirection() // a `direction` that came while it composed
+        node.applyFieldDirection() // a `direction` that came while it composed (LLP 1001 §1)
     }
 
     /// A hardware key at the field, as `PromptKeys` hears it before UIKit

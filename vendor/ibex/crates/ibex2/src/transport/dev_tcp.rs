@@ -1,18 +1,19 @@
 //! A development transport, and a placeholder for the platform's.
 //!
-//! The platform owns sockets, TLS, proxy configuration, HTTP/2
+//! LLP 0057 §3 gives the platform sockets, TLS, proxy configuration, HTTP/2
 //! and /3, connection pooling, and the system certificate store. This is none
 //! of that: it is plaintext HTTP/1.1 over a raw socket, one connection per
 //! request, so the semantics above it can be exercised end to end before any
 //! platform binding exists.
 //!
 //! **It does not speak TLS, and that is deliberate rather than unfinished.** A
-//! hand-rolled TLS client is like a hand-rolled URL parser: a partial
-//! implementation of a security-critical protocol is a vulnerability, not a
-//! missing feature. `https` is refused here and belongs to `NSURLSession` on
-//! Apple platforms and the equivalent elsewhere.
+//! hand-rolled TLS client is exactly the kind of thing LLP 0059.000 §3.4 warns
+//! about for URL parsing — a partial implementation of a security-critical
+//! protocol is a vulnerability, not a missing feature. `https` is refused here
+//! and belongs to `NSURLSession` on Apple platforms and the equivalent
+//! elsewhere.
 //!
-//! The platform owns transport; this stands in for it.
+//! @ref LLP 0057#3-the-boundary — the platform owns transport; this stands in for it
 
 use crate::boundary::HostError;
 use crate::stdlib::abort::{AbortRegistration, AbortSignal};

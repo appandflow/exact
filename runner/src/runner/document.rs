@@ -1,4 +1,4 @@
-//! The document of a runner that mirrors no kernel.
+//! The document of a runner that mirrors no kernel (LLP 1048.004).
 use super::{DataSource, Runner};
 use crate::instance::{DocTree, DocTreeError};
 

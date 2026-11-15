@@ -1,6 +1,7 @@
 //! CSS animations in the engine: when each one started, and its value now.
 //!
-//! Two executors, sampled and lowered; settling ignores infinite iterations.
+//! @ref LLP 1055 D5 (start, restart, re-timing, pause), D7 (sampled and
+//! lowered executors), D10 (settle ignores infinite iterations)
 //!
 //! A node's `animation` row arrives with each commit, as its `transition`
 //! row does. An entry whose name was not in the node's previous list starts
@@ -24,17 +25,18 @@ pub struct AnimationPlay {
     /// Engine time the animation started (its local time zero).
     pub start: f64,
     /// While paused, the local time it holds. NaN is an unresolved time
-    /// (an inactive timeline's): the animation has no effect.
+    /// (an inactive timeline's, LLP 1057.003 D4): the animation has no effect.
     pub hold: Option<f64>,
     /// The appearance its `light-dark()` keyframes took when it started, as
-    /// a browser resolves a rule once.
+    /// a browser resolves a rule once (LLP 1062 D9).
     pub dark: bool,
-    /// While it waits for the first presented frame, the
+    /// While it waits for the first presented frame (LLP 1003.001 D1), the
     /// engine time it began: it holds the local time it had then, and the
     /// frame moves its start by the wait.
     pub pending: Option<f64>,
     /// While pending, whether it joined a clock origin that waits for the
-    /// frame too: then the frame gives it the origin's phase, not a start of its own.
+    /// frame too: then the frame gives it the origin's phase (LLP 1003.001
+    /// D8), not a start of its own.
     pub(crate) clock_wait: bool,
 }
 
@@ -45,7 +47,7 @@ impl AnimationPlay {
             .unwrap_or(self.pending.unwrap_or(now) - self.start)
     }
 
-    /// When it ends if the frame at `now` starts it.
+    /// When it ends if the frame at `now` starts it (LLP 1003.001 D1).
     pub fn end_at(&self, now: f64) -> f64 {
         self.start + self.animation.end_time() + self.pending.map_or(0.0, |b| (now - b).max(0.0))
     }
@@ -66,7 +68,7 @@ impl AnimationPlay {
     }
 }
 
-/// How a play joins its clock timeline.
+/// How a play joins its clock timeline (LLP 1055.002).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Join {
     Started,
@@ -95,7 +97,7 @@ impl Engine {
         let now = self.sample_time();
         let pend = self.start_on_frame.then_some(now);
         // A timeline-bound play keeps its held time: the timeline, not the
-        // row's play state, holds it.
+        // row's play state, holds it (LLP 1057.003 D2).
         let bound = self.timeline_bound(node);
         let old = self.animations.remove(&node).unwrap_or_default();
         if old.is_empty() && animations.0.is_empty() {
@@ -106,8 +108,8 @@ impl Engine {
         // entries of one name are two animations and a reorder restarts none.
         let mut used = vec![false; old.len()];
         let mut plays = Vec::with_capacity(animations.0.len());
-        // On a clock timeline a play that starts or resumes joins its phase,
-        // from now until the clock picks its start.
+        // On a clock timeline a play that starts or resumes joins its phase
+        // (LLP 1055.002 D4, D6), from now until the clock picks its start.
         let on_clock = self.animation_clock(node).is_some();
         let mut joins = Vec::with_capacity(animations.0.len());
         for a in animations.0.iter().rev() {
@@ -122,13 +124,13 @@ impl Engine {
                     used[i] = true;
                     let prior = &old[i];
                     // A pending play keeps waiting; a pause takes the
-                    // local time it waits at; a resume waits at its held one.
-                    // A clock's join decides for its own.
+                    // local time it waits at; a resume waits at its held one
+                    // (LLP 1003.001 D3). A clock's join decides for its own.
                     let (start, hold, pending) = match (prior.hold, a.paused) {
                         (hold, _) if bound => (prior.start, hold, None),
                         (None, true) => (prior.start, Some(prior.local(now)), None),
                         // A play on a clock timeline rejoins its phase
-                        //; any other continues.
+                        // (LLP 1055.002 D6); any other continues.
                         (Some(_), false) if on_clock => (now, None, None),
                         (Some(held), false) => (now - held, None, pend),
                         (hold, _) => (prior.start, hold, prior.pending),
@@ -161,7 +163,7 @@ impl Engine {
         plays.reverse();
         joins.reverse();
         // A resume from where it was held (an animation that waited for its
-        // list row) shows what it showed: nothing to present.
+        // list row, LLP 1055 D13) shows what it showed: nothing to present.
         let resumed = !bound
             && old.len() == plays.len()
             && old
@@ -210,7 +212,7 @@ impl Engine {
         );
         let plays = self.animations.get(&node).map_or(&[][..], Vec::as_slice);
         // A pending play keeps the clock until the frame starts it, lowered
-        // or not.
+        // or not (LLP 1003.001 D1).
         if plays
             .iter()
             .any(|p| p.pending.is_some() || (p.live(now) && p.sampled(&lowered, forced)))
@@ -231,7 +233,7 @@ impl Engine {
         self.animations.keys().copied()
     }
 
-    /// A lowering host executes animations itself: the engine
+    /// A lowering host (LLP 1055 D7) executes animations itself: the engine
     /// tracks their starts and pauses but never samples them into frames or
     /// keeps the clock busy for them. The web lowers every property.
     pub fn set_lowered(&mut self, lowered: bool) {
@@ -265,7 +267,7 @@ impl Engine {
 
     /// Sample (or stop sampling) every animation on `node`, whatever the
     /// lowered set says: its host's compositor cannot play this node's
-    /// animations faithfully. Its properties are marked
+    /// animations faithfully (LLP 1055.000 D15). Its properties are marked
     /// dirty so the next frame shows the switch.
     pub fn set_node_sampled(&mut self, node: u64, sampled: bool) {
         let changed = if sampled {
@@ -314,7 +316,7 @@ impl Engine {
         })
     }
 
-    /// Play a node's `-exact-exit-animation` as it leaves, from the
+    /// Play a node's `-exact-exit-animation` as it leaves (LLP 1063), from the
     /// current clock, after the animations it already plays: as a browser
     /// appends the exit to the element's `animation` list, those keep
     /// running and the exit composites over them. An exit naming keyframes
@@ -352,7 +354,7 @@ impl Engine {
     }
 
     /// The host's appearance, which a keyframe's `light-dark()` colour takes
-    /// when its animation starts: Chrome resolves the rule
+    /// when its animation starts (LLP 1062 D9): Chrome resolves the rule
     /// once, and a playing animation keeps its colours across a flip. With
     /// `playing`, those take it too, in place and keeping their start: a
     /// host's first report correcting the appearance it booted under.
@@ -373,8 +375,8 @@ impl Engine {
     }
 
     /// One node's own appearance, where it differs from the host's (`None`:
-    /// the host's again): a view whose appearance is not its window's. With
-    /// `playing`, its playing animations take it in place, as
+    /// the host's again): a view whose appearance is not its window's (LLP
+    /// 1062 D4). With `playing`, its playing animations take it in place, as
     /// [`Engine::set_dark`]'s first report does.
     pub fn set_node_dark(&mut self, node: u64, dark: Option<bool>, playing: bool) {
         match dark {
@@ -433,7 +435,7 @@ impl Engine {
     }
 
     /// When the last finite, running animation ends; infinite and paused ones
-    /// never settle and are left out.
+    /// never settle and are left out (LLP 1055 D10).
     pub(super) fn animations_settle_time(&self) -> Option<f64> {
         self.animations
             .values()

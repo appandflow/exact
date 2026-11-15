@@ -1,5 +1,5 @@
-//! Values across the seam as JSON, directed by the plan's declared shapes:
-//! records are objects keyed by their declared field names,
+//! Values across the seam as JSON, directed by the plan's declared shapes
+//! (LLP 1027 D2): records are objects keyed by their declared field names,
 //! lists are arrays, `option` is `null` or the value, numbers are finite.
 //! The plan's `sources` table says which shape each argument and each answer
 //! has; the conversion never guesses.
@@ -89,11 +89,18 @@ pub fn to_json(v: &Value, shape: &Shape) -> Result<serde_json::Value, String> {
 
 /// A value as the runner needs it, from serde_json's form (native callers).
 pub fn from_json(j: &serde_json::Value, shape: &Shape) -> Result<Value, String> {
-    decode_tree(j, shape)
+    decode_tree(j, shape, false)
+}
+
+/// A value read from a server's JSON into `shape` (LLP 1162.001 D2): a
+/// record reads the fields it declares and ignores the rest, and a field
+/// that is absent is `none` for an `option`; everything else as [`from_json`].
+pub fn project_json(j: &serde_json::Value, shape: &Shape) -> Result<Value, String> {
+    decode_tree(j, shape, true)
 }
 
 pub(crate) fn from_lean(j: &json::Json, shape: &Shape) -> Result<Value, String> {
-    decode_tree(j, shape)
+    decode_tree(j, shape, false)
 }
 
 /// A JSON value tree, as `decode_tree` reads one: the rules are written
@@ -161,7 +168,7 @@ impl Tree for serde_json::Value {
     }
 }
 
-fn decode_tree<T: Tree>(j: &T, shape: &Shape) -> Result<Value, String> {
+fn decode_tree<T: Tree>(j: &T, shape: &Shape, project: bool) -> Result<Value, String> {
     Ok(match (shape, j.kind()) {
         (Shape::Number, Kind::Number(n)) => {
             let n = n.ok_or("a number out of range")?;
@@ -174,22 +181,24 @@ fn decode_tree<T: Tree>(j: &T, shape: &Shape) -> Result<Value, String> {
         (Shape::String, Kind::String(s)) => Value::str(s),
         (Shape::Unit, Kind::Null) => Value::Unit,
         (Shape::Option(_), Kind::Null) => Value::Option(None),
-        (Shape::Option(inner), _) => Value::Option(Some(Rc::new(decode_tree(j, inner)?))),
+        (Shape::Option(inner), _) => Value::Option(Some(Rc::new(decode_tree(j, inner, project)?))),
         (Shape::List(inner), Kind::Array(items)) => Value::list(
             items
                 .iter()
-                .map(|i| decode_tree(i, inner))
+                .map(|i| decode_tree(i, inner, project))
                 .collect::<Result<_, _>>()?,
         ),
         (Shape::Record(fields), Kind::Object) => {
             let mut values = Vec::with_capacity(fields.len());
             for (name, shape) in fields {
-                let v = j
-                    .member(name)
-                    .ok_or_else(|| format!("field `{name}` is missing"))?;
-                values.push(decode_tree(v, shape).map_err(|e| format!("field `{name}`: {e}"))?);
+                let v = match (j.member(name), shape) {
+                    (Some(v), _) => decode_tree(v, shape, project),
+                    (None, Shape::Option(_)) if project => Ok(Value::Option(None)),
+                    (None, _) => return Err(format!("field `{name}` is missing")),
+                };
+                values.push(v.map_err(|e| format!("field `{name}`: {e}"))?);
             }
-            if j.members() != fields.len() {
+            if !project && j.members() != fields.len() {
                 let extra = j
                     .first_key(&|k| fields.iter().any(|(n, _)| n == k))
                     .unwrap_or_default();

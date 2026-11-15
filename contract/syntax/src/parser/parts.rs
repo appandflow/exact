@@ -1,4 +1,4 @@
-//! A CSS pseudo-element part: `::placeholder`
+//! A CSS pseudo-element part (LLP 1104 D3, Charlie 2026-10-12): `::placeholder`
 //! on its own line, then an indented block of the part's declarations, in a
 //! `style` (literal) or under a field (computed, as its own attributes are).
 //! Each declaration is carried as an attribute named for the part and the

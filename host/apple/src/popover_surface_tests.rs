@@ -1,6 +1,6 @@
-//! A popover's default surface: the compiler marks a popover whose author
-//! wrote no surface, and the host sends its corner from this platform's
-//! metrics, iOS's 30, the Mac none.
+//! A popover's default surface (LLP 1021; theme2 2026-10-21 19:55): the
+//! compiler marks a popover whose author wrote no surface, and the host
+//! sends its corner from this platform's metrics, iOS's 30, the Mac none.
 use super::*;
 use exact_kernel::style::metrics::Column;
 use exact_kernel::MonospaceMeasurer;

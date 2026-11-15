@@ -1,5 +1,5 @@
 // The Markdown command seam carries source edits and UTF-16 selections.
-// Native undo owns edits; the runner sees source and
+// @ref LLP 1045 D2, D6 — native undo owns edits; the runner sees source and
 // compact toolbar state, never a range or attributed document.
 import Foundation
 import CExact
@@ -58,7 +58,8 @@ enum MarkupCommands {
     }
 
     /// `range` (UTF-16) of `source` as plain text, each atom inside it its
-    /// label, or `spoken` its accessible name; the whole source when nil.
+    /// label; the whole source when nil. `spoken`: the whole source as the
+    /// reader draws it, each atom its accessible name, `range` unread.
     static func plain(_ source: String, atoms: UInt64 = 0, range: NSRange? = nil, spoken: Bool = false) -> String? {
         var text = source
         let (start, end) = range.map { (UInt32(clamping: $0.location), UInt32(clamping: NSMaxRange($0))) } ?? (0, .max)
@@ -68,8 +69,8 @@ enum MarkupCommands {
         return data.flatMap { String(data: $0, encoding: .utf8) }
     }
 
-    /// Each source line's direction under `paragraphDirs`' `auto`, as the
-    /// web editor decides it: 0 none, 1 left to right, 2 right to left.
+    /// Each source line's direction under `paragraphDirs`' `auto` (LLP 1045
+    /// D11), as the web editor decides it: 0 none, 1 left to right, 2 right to left.
     static func auto(_ source: String, atoms: UInt64 = 0) -> [UInt8] {
         var text = source
         let data = text.withUTF8 { text in read { out, count in

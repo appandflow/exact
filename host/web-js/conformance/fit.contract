@@ -1,4 +1,4 @@
-// Synthetic conformance plan: `-exact-fit="shrink"`. A
+// Synthetic conformance plan: `-exact-fit="shrink"` (LLP 1116.001 D1.4). A
 // readout too wide for its box draws at the scale that fits it, down to a
 // floor, as both web targets pick it (navigation.js `fitText`): a literal row
 // and a bound one, a text that grows and a row turned off and on again.

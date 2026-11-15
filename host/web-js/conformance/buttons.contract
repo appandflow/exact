@@ -1,5 +1,5 @@
 // linux: layout
-// A `button` is Chrome's `<button>`: the browser's DOM boxes
+// A `button` is Chrome's `<button>` (LLP 1001 §1): the browser's DOM boxes
 // are compared with the Linux host's kernel boxes by conform.mjs. A block
 // button centres its content, safely, in its height; a flex or grid button
 // is an ordinary container. Each step changes a bound row.

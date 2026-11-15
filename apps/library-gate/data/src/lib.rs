@@ -1,4 +1,4 @@
-//! The library gate's data source: it answers nothing.
+//! The library gate's data source: it answers nothing (LLP 1047.001 D8).
 
 #![deny(missing_docs)]
 

@@ -1,11 +1,11 @@
-// ICU computation backend for Ibex's Linux and Windows Intl.DateTimeFormat
+// ICU computation backend for Ibex's Linux, Android and Windows Intl.DateTimeFormat
 // binding.
 //
 // Rust chooses ECMA-402 policy and owns formatter state. This file is the
 // narrow native computation seam: CLDR pattern selection, calendar/time-zone
 // metadata, and formatting with field positions from the same UDateFormat.
 //
-// Rust owns semantics; ICU is the computation backend.
+// @ref LLP 0057#3-the-boundary — Rust owns semantics; ICU is the computation backend
 
 #if defined(_WIN32)
 #include "intl_icu_windows.h"

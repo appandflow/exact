@@ -1,4 +1,4 @@
-// Lowering (host/web-js/src/lower.rs, lower.js): a lowered node's computed
+// B5 (LLP 1071.001 part B; host/web-js/src/lower.rs, lower.js; theme2 07:30 and 07:33): a lowered node's computed
 // style is the inline build's, property by property, at every arm. Each page is built twice, the second with
 // EXACT_JS_NO_LOWER (the test-only comparison build: no flag, nothing in build.mjs's usage), and driven alike.
 //   - b5-edges (conformance/b5-edges.contract): every lowered kind and every refusal, through every arm, at rest
@@ -160,7 +160,7 @@ test('b5-edges: every lowered node and every refusal computes as inline, at ever
       await Promise.all([low, inline].map(p => p.evaluate(() => document.activeElement?.blur())));
     }
     expect(checks).toBe(13);
-    // A rule a site an arm, never an instance (the feed's seven runs share one site).
+    // Condition (8) and x2-perf4's ask: a rule a site an arm, never an instance (the feed's seven runs share one site).
     const rules = await low.evaluate(() => window.__armRules);
     const names = rules.map(r => /\.(xa[\w-]+)/.exec(r)[1]);
     expect(new Set(names).size).toBe(names.length);
@@ -189,9 +189,9 @@ test('b5-edges: agent layout reports a lowered node\'s rows as it reports the in
 }, 240000);
 
 test('a scheme flip and a mode change mid-session repaint a lowered node as the inline one (condition 5)', async () => {
-  const design = 'tamber t\n\naxes\n  ink = tint | plain\n\ntheme\n  surface.card = light-dark(#ffffff, #101010)\n    when ink=plain: light-dark(#eeeeee, #202020)\n  text.primary = light-dark(#0f1419, #e7e9ea)\n    when ink=plain: light-dark(#333333, #cccccc)\n';
+  const design = 'forma t\n\naxes\n  ink = tint | plain\n\ntheme\n  surface.card = light-dark(#ffffff, #101010)\n    when ink=plain: light-dark(#eeeeee, #202020)\n  text.primary = light-dark(#0f1419, #e7e9ea)\n    when ink=plain: light-dark(#333333, #cccccc)\n';
   const source = 'component App\n  state s = "a"\n  state plain = false\n  action set(v: string)\n    s = v\n  action ink\n    plain = not plain\n  view\n    column testId="root" -exact-mode=(plain ? "ink=plain" : "ink=tint")\n      button testId="to-b" press=set("b") "b"\n      button testId="ink" press=ink "ink"\n      text testId="card" "card" background-color=(s == "a" ? "surface.card" : "-exact-secondary-background") border-color=(s == "a" ? "text.primary" : "AccentColor") border-style="solid" border-width=2\n';
-  const [lowDist, inlineDist] = [await build('b5-modes', source, true, { files: { 'app.tamber': design } }), await build('b5-modes', source, false, { files: { 'app.tamber': design } })];
+  const [lowDist, inlineDist] = [await build('b5-modes', source, true, { files: { 'app.forma': design } }), await build('b5-modes', source, false, { files: { 'app.forma': design } })];
   expect(readFileSync(resolve(lowDist, '.gen/app.js'), 'utf8')).toContain('Pc(');
   const { suite, low, inline } = await pair(lowDist, inlineDist);
   try {
@@ -308,8 +308,8 @@ test('Conduit lowers nothing: its program and sheet are the comparison build\'s 
   for (const [mode, off] of [['low', false], ['inline', true]]) {
     const env = { ...process.env };
     if (off) env.EXACT_JS_NO_LOWER = '1'; else delete env.EXACT_JS_NO_LOWER;
-    const { cmd, pre } = webCompiler();
-    const r = Bun.spawnSync([cmd, ...pre, 'js', contract, '-o', out(mode)], { cwd: root, env, stdout: 'pipe', stderr: 'pipe' });
+    const { cmd, pre, env: { EXACT_ROOT } } = webCompiler();
+    const r = Bun.spawnSync([cmd, ...pre, 'js', contract, '-o', out(mode)], { cwd: root, env: { ...env, EXACT_ROOT }, stdout: 'pipe', stderr: 'pipe' });
     expect({ mode, status: r.exitCode }).toEqual({ mode, status: 0 });
   }
   const read = (mode, f) => readFileSync(resolve(out(mode), f), 'utf8');

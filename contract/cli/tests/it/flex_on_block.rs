@@ -93,7 +93,7 @@ fn a_flex_property_on_a_block_is_named_with_its_repair() {
         flagged("button appearance=\"none\" display=\"flex\" flex-direction=\"row\"").is_empty()
     );
     // A button that may be the platform's own lays out its face as a flex
-    // container: only `appearance="none"` is certain.
+    // container (LLP 1104): only `appearance="none"` is certain.
     for native in [
         "button appearance=\"auto\" buttonStyle=\"filled\" flex-direction=\"column\"",
         "button flex-direction=\"row\" gap=4",

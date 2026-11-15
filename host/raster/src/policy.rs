@@ -12,7 +12,7 @@ use std::time::{Duration, Instant};
 static NEXT_ID: AtomicU64 = AtomicU64::new(1);
 fn identity() -> u64 {
     NEXT_ID
-        .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |n| n.checked_add(1))
+        .try_update(Ordering::Relaxed, Ordering::Relaxed, |n| n.checked_add(1))
         .expect("native raster identity space exhausted")
 }
 
@@ -263,7 +263,7 @@ impl Gate {
     }
     /// A session that may hold `budget` decoded bytes (at least
     /// `SESSION_BYTES`): what views pin, plus a cache of what they left.
-    /// One decode's peak stays within `SESSION_BYTES` either way.
+    /// Each decode's peak must fit that budget, including its scratch and copies.
     pub fn session_with_budget(&self, budget: u64) -> RasterSession {
         let id = identity();
         let account = BudgetAccount::new(&self.inner.wake, budget.max(SESSION_BYTES));
@@ -526,6 +526,9 @@ impl RasterSession {
         }
         if session.paused {
             return Err(Refusal::Paused);
+        }
+        if demand.cost.peak()? > session.account.budget() {
+            return Err(Refusal::TooLarge);
         }
         let previous = session.views.get(&demand.view).copied();
         if let Some(entry) = session.entries.get(&demand.key) {
@@ -1124,7 +1127,7 @@ fn validate(d: Demand) -> Result<(), Refusal> {
         return Err(Refusal::SourcePixels);
     }
     // The variant names the output's storage, and with it the bytes a pixel
-    // costs; an unknown one is refused.
+    // costs (LLP 1100 D7); an unknown one is refused.
     let bytes = variant::bytes_per_pixel(d.key.variant).ok_or(Refusal::InvalidDimensions)?;
     let minimum = u64::from(d.key.pixels.width)
         .checked_mul(bytes)
@@ -1140,8 +1143,6 @@ fn validate(d: Demand) -> Result<(), Refusal> {
     {
         return Err(Refusal::InvalidDimensions);
     }
-    if d.cost.peak()? > SESSION_BYTES {
-        return Err(Refusal::TooLarge);
-    }
+    d.cost.peak()?;
     Ok(())
 }

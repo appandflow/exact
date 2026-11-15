@@ -33,13 +33,17 @@ pub enum StyleDomainError {
 #[allow(missing_docs)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DecodeError {
+    /// An incoming patch carried an invalid retained relative length.
+    InvalidRelativeLength,
     /// Invalid line-height tag, negative length or ratio.
     InvalidLineHeight,
     /// Fewer bytes remained than the field needs.
     Truncated { needed: usize, available: usize },
     /// A colour row's tag byte named neither a fixed colour nor a
-    /// `light-dark()` pair.
+    /// `light-dark()` pair (LLP 1034 D1).
     BadColorValue(u8),
+    /// An auto-integer tag was neither auto (0) nor an integer (1).
+    BadAutoI32(u8),
     /// The frame does not start with the EXWF magic.
     BadMagic,
     /// Invalid or unsupported CSS clipping path.
@@ -48,50 +52,56 @@ pub enum DecodeError {
     BadShapeOutside,
     /// Invalid CSS `aspect-ratio` value.
     BadAspectRatio,
-    /// Invalid or unsupported CSS `background-image` value.
+    /// Invalid or unsupported CSS `background-image` value (LLP 1066).
     BadBackgroundImage,
-    /// Invalid or unsupported CSS `box-shadow`.
+    /// Invalid or unsupported CSS `box-shadow` (LLP 1077 D4).
     BadBoxShadow,
-    /// Invalid or unsupported CSS `backdrop-filter`.
+    /// Invalid or unsupported CSS `backdrop-filter` (LLP 1053.000 D1).
     BadBackdropFilter,
-    /// Invalid CSS `rotate` axis.
+    /// Invalid CSS `rotate` axis (LLP 1077 D8).
     BadRotateAxis,
-    /// Invalid `-exact-symbol-palette`.
+    /// Invalid `-exact-symbol-palette` (LLP 1077 D10).
     BadSymbolPalette,
-    /// Invalid or unsupported CSS `text-shadow`.
+    /// Invalid or unsupported CSS `text-shadow` (LLP 1077 D3).
     BadTextShadow,
-    /// Invalid CSS `font-variation-settings`, or more than eight axes.
+    /// Invalid CSS `font-variation-settings`, or more than eight axes (LLP 1019 D9).
     BadFontVariations,
-    /// Invalid or unsupported CSS `mask-image`.
+    /// Invalid CSS `font-feature-settings`, or more than sixteen features.
+    BadFontFeatures,
+    /// Invalid or unsupported CSS `mask-image` (LLP 1077 D2).
     BadMaskImage,
-    /// Invalid CSS `corner-shape`.
+    /// Invalid CSS `corner-shape` (LLP 1077 D1).
     BadCornerShape,
-    /// Invalid `-exact-drag-timeline`.
+    /// Invalid `-exact-drag-timeline` (LLP 1057.003).
     BadDragTimeline,
-    /// Invalid `animation-timeline`.
+    /// Invalid `animation-timeline` (LLP 1057.003).
     BadAnimationTimeline,
-    /// Invalid `animation-range`.
+    /// Invalid `animation-range` (LLP 1057.003).
     BadAnimationRange,
-    /// Invalid `timeline-scope`.
+    /// Invalid `timeline-scope` (LLP 1057.003 D4).
     BadTimelineScope,
+    /// Invalid `scroll-timeline-name` or `view-timeline-name` (LLP 1057.003 D5).
+    BadTimelineName,
+    /// Invalid `view-timeline-inset` (LLP 1057.003 D5).
+    BadViewTimelineInset,
     /// Invalid invoker-popover flip fallback list.
     BadPositionTryFallbacks,
-    /// Invalid SVG paint.
+    /// Invalid SVG paint (LLP 1055 D2).
     BadPaint,
-    /// Invalid SVG `stroke-dasharray`.
+    /// Invalid SVG `stroke-dasharray` (LLP 1055 D2).
     BadDashArray,
-    /// Invalid CSS `transform` list.
+    /// Invalid CSS `transform` list (LLP 1055.000 D5).
     BadTransform,
-    /// Invalid CSS `transform-origin`.
+    /// Invalid CSS `transform-origin` (LLP 1055.000 D5).
     BadTransformOrigin,
-    /// Invalid SVG `paint-order`.
+    /// Invalid SVG `paint-order` (LLP 1055.000 D7).
     BadPaintOrder,
-    /// Invalid SVG `marker-start`/`-mid`/`-end`.
+    /// Invalid SVG `marker-start`/`-mid`/`-end` (LLP 1055.000 D9).
     BadMarker,
-    /// Invalid CSS `filter`.
+    /// Invalid CSS `filter` (LLP 1055.000 D14).
     BadFilter,
     /// An `animation` row carried more entries or keyframes than the wire
-    /// admits, or a direction/fill byte outside the table.
+    /// admits, or a direction/fill byte outside the table (LLP 1055 D5).
     BadAnimation,
     /// An `animation` row decoded but failed the sampler's validation.
     InvalidAnimation(exact_motion::AnimationError),
@@ -264,7 +274,7 @@ pub enum ApplyError {
         node_type: NodeType,
     },
     /// A `Text` was given a child that is neither a `Text` nor an `Image`. A
-    /// text node's children are its inline runs and images;
+    /// text node's children are its inline runs and images (LLP 1011.002);
     /// anything else has no place in a measured leaf.
     InlineRunNotText {
         op_index: usize,
@@ -274,7 +284,7 @@ pub enum ApplyError {
     },
     /// A style row carried an infinite or NaN number.
     NonFiniteStyle { op_index: usize, style: StyleId },
-    /// A state look set a row no look may, or a look's
+    /// A state look set a row no look may (LLP 1121 D8), or a look's
     /// state is unknown or repeated.
     LookRow { op_index: usize, state: u8 },
     /// `auto` was supplied for a dimension row whose grammar does not admit it.
@@ -303,7 +313,7 @@ pub enum ApplyError {
         error: exact_motion::AnimationError,
     },
     /// An SVG element's parent is not an `svg` or `g`, or an `svg` or `g`
-    /// was given a child that is not an SVG element.
+    /// was given a child that is not an SVG element (LLP 1055 D3).
     SvgContent {
         op_index: usize,
         parent: ViewId,
@@ -333,7 +343,7 @@ pub enum ApplyError {
 pub enum LayoutError {
     /// Explicit region registration/publication refused; no fake ready metrics.
     ContentRegion(&'static str),
-    /// A host's containing block refused.
+    /// A host's containing block refused (LLP 1115.002 D8.2).
     HostBlock(&'static str),
     /// A definite available-space offer is infinite or NaN.
     InvalidOffer,
@@ -349,11 +359,11 @@ pub enum LayoutError {
     InvalidEnv,
     /// A segment grid with a count that is not `cols × rows` (or any
     /// segment on a 1 × 1 grid), a zero count, or a non-finite rect
-    ///.
+    /// (LLP 1078 D3).
     InvalidSegments,
-    /// A root font size that is not finite and positive.
+    /// A root font size that is not finite and positive (LLP 1069.000 D3).
     InvalidRootFontSize,
-    /// A display scale that is not finite and positive.
+    /// A display scale that is not finite and positive (LLP 1115.000 D10.3).
     InvalidDisplayScale,
     /// A host text callback returned a non-finite or negative metric.
     InvalidTextMetrics(ViewId),
@@ -496,14 +506,14 @@ pub enum StyleValueError {
     BadGridPlacement {
         style: StyleId,
     },
-    /// An `env()` text that names one of the kernel's variables wrongly:
-    /// refused by name, never silently zero.
+    /// An `env()` text that names one of the kernel's variables wrongly
+    /// (LLP 1078 D10): refused by name, never silently zero.
     BadEnv {
         style: StyleId,
         refusal: crate::style::EnvRefusal,
     },
-    /// A `min()`, `max()` or `clamp()` length the kernel does not hold;
-    /// `reason` names what.
+    /// A `min()`, `max()` or `clamp()` length the kernel does not hold
+    /// (LLP 1001 §2, 2026-10-07); `reason` names what.
     BadComparison {
         style: StyleId,
         reason: &'static str,
@@ -522,23 +532,27 @@ pub enum StyleValueError {
     BadAspectRatio {
         style: StyleId,
     },
-    /// Not `none` or one gradient this kernel draws.
+    /// Not `none` or one gradient this kernel draws (LLP 1066).
     BadBackgroundImage {
         style: StyleId,
     },
-    /// Not `none` or one text shadow.
+    /// Not `none` or one text shadow (LLP 1077 D3).
     BadTextShadow {
         style: StyleId,
     },
-    /// Not `normal` or up to eight `"tag" <number>` axes.
+    /// Not `normal` or up to eight `"tag" <number>` axes (LLP 1019 D9).
     BadFontVariations {
         style: StyleId,
     },
-    /// Not `none` or one gradient mask.
+    /// Not `normal` or up to sixteen `"tag" [<integer> | on | off]` features.
+    BadFontFeatures {
+        style: StyleId,
+    },
+    /// Not `none` or one gradient mask (LLP 1077 D2).
     BadMaskImage {
         style: StyleId,
     },
-    /// Not one to four corner shapes.
+    /// Not one to four corner shapes (LLP 1077 D1).
     BadCornerShape {
         style: StyleId,
     },
@@ -558,24 +572,32 @@ pub enum StyleValueError {
     BadTimelineScope {
         style: StyleId,
     },
+    /// Not `none` or one `<dashed-ident>`.
+    BadTimelineName {
+        style: StyleId,
+    },
+    /// Not one or two of `auto` and a length or percentage.
+    BadViewTimelineInset {
+        style: StyleId,
+    },
     /// Not none or a list of flip-block/flip-inline/flip-start combinations.
     BadPositionTryFallbacks {
         style: StyleId,
     },
-    /// Not a CSS `rotate`.
+    /// Not a CSS `rotate` (LLP 1077 D8).
     BadRotateAxis {
         style: StyleId,
     },
-    /// Not `none` or one to three colours.
+    /// Not `none` or one to three colours (LLP 1077 D10).
     BadSymbolPalette {
         style: StyleId,
     },
-    /// Not `-webkit-text-stroke`; `reason` names what.
+    /// Not `-webkit-text-stroke` (LLP 1077 D7); `reason` names what.
     BadTextStroke {
         style: StyleId,
         reason: &'static str,
     },
-    /// Not `none` or a list of CSS `box-shadow`s exact2 draws;
+    /// Not `none` or a list of CSS `box-shadow`s exact2 draws (LLP 1077 D4);
     /// the compiler names the reason (`BoxShadows::check`).
     BadBoxShadow {
         style: StyleId,

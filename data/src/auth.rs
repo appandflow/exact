@@ -1,9 +1,9 @@
-//! `openAuthSession` and `authCallback` for a Rust source:
+//! `openAuthSession` and `authCallback` for a Rust source (LLP 1069.006):
 //! the same request a TypeScript source's binding makes, and the same
 //! callback. The host's `exact-auth:` arm does the rest.
 //!
-//! The session is a request, answered with the callback URL; the callback is
-//! known before PAR.
+//! @ref LLP 1069.006 D1 (a request, answered with the callback URL) / D2
+//! (the callback is known before PAR)
 
 use exact_runner::auth::Session;
 use exact_runner::{DataError, Outcome, Request, Store};
@@ -45,7 +45,8 @@ pub fn callback(store: &Store, grants: &str) -> Result<String, DataError> {
     store.observe_external_read();
     if cfg!(target_arch = "wasm32") {
         return Err(DataError::Unavailable(
-            "authCallback: a Rust source on the web cannot name its callback yet".into(),
+            "authCallback: a Rust source on the web cannot name its callback yet (LLP 1069.006)"
+                .into(),
         ));
     }
     exact_runner::auth::carrier_callback(grants, None).ok_or_else(|| {

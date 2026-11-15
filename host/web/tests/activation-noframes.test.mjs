@@ -1,9 +1,11 @@
-// A wasm client page given no frames still activates: a cross-origin frame scrolled out of
+// A wasm client page given no frames still activates (LLP 1122's queue item
+// (3), its QUEUE entry "The wasm client shell activates only after two
+// animation frames", from T4's gate): a cross-origin frame scrolled out of
 // view, the design tool's canvas scrolled away, gets no requestAnimationFrame.
 // glue.js activates a second on all the same, once, as the JS page's input
 // does (rt.js `input()`); a page with frames activates after its two frames,
-// and also once. A canvas's after-paint pieces likewise (navigation.js
-// `afterPaint`, canvas2d-glue.js's first geometry):
+// as before, and also once. A canvas's after-paint pieces likewise (its QUEUE
+// follow-up, navigation.js `afterPaint`, canvas2d-glue.js's first geometry):
 // in a cross-origin frame below the fold, which Chrome gives no frames and no
 // ResizeObserver entries, a Canvas 2D page loads its piece once and is ready.
 import { afterEach, expect, test } from 'bun:test';

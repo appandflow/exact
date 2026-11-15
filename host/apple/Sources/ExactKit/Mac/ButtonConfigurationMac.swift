@@ -1,4 +1,4 @@
-// NSButton as it is, including reported stand-ins.
+// @ref LLP 1069.011.001 D1–D17 and §6: NSButton as it is, including reported stand-ins.
 #if os(macOS)
 import AppKit
 
@@ -35,6 +35,25 @@ enum ButtonConfigurationMac {
             ? (capsuleRadius(face, size: size) ? .capsule : .automatic)
             : (face.rows.button["control_corner_style"]?.string == "capsule" ? .capsule : .automatic)
     }
+    /// An image-only borderless target uses the push button's height on
+    /// both axes. Authored padding replaces each side's share of that space.
+    static func imageSizing(_ face: ButtonFace, button: NSButton) -> (size: NSSize, padding: NSEdgeInsets)? {
+        guard !button.isBordered, button.imagePosition == .imageOnly, button.image != nil else { return nil }
+        let glyph = button.fittingSize
+        button.isBordered = true
+        let target = button.fittingSize.height
+        button.isBordered = false
+        let horizontal = max(0, target - glyph.width) / 2, vertical = max(0, target - glyph.height) / 2
+        func side(_ name: String) -> CGFloat? { face.rows.button["padding_" + name]?.number.map { CGFloat($0) } }
+        let top = side("top"), right = side("right"), bottom = side("bottom"), left = side("left")
+        let hasHorizontal = left != nil || right != nil, hasVertical = top != nil || bottom != nil
+        let padding = NSEdgeInsets(top: top ?? vertical, left: left ?? horizontal, bottom: bottom ?? vertical, right: right ?? horizontal)
+        let size = NSSize(width: glyph.width + padding.left + padding.right, height: glyph.height + padding.top + padding.bottom)
+        // Without an inset on an axis, AppKit centres the image in the
+        // whole box, including when an authored dimension makes it smaller.
+        return (size, NSEdgeInsets(top: hasVertical ? padding.top : 0, left: hasHorizontal ? padding.left : 0,
+            bottom: hasVertical ? padding.bottom : 0, right: hasHorizontal ? padding.right : 0))
+    }
     @discardableResult
     static func apply(_ face: ButtonFace, to button: NSButton, appearance: NSAppearance, accent: NSColor?, destructive: Bool = false, red: Bool = false) -> (look: String, glass: Bool) {
         let rows = face.rows
@@ -64,7 +83,7 @@ enum ButtonConfigurationMac {
         let platformFont = NSFont.systemFont(ofSize: NSFont.systemFontSize(for: button.controlSize))
         let titleFont = font(platformFont, rows: rows.title)
         button.font = titleFont
-        // The destructive role: AppKit's own flag, which is all it draws on a plain push button of
+        // The destructive role (LLP 1116.008): AppKit's own flag, which is all it draws on a plain push button of
         // the system's, and the platform's red where the author painted no accent: the accent look's bezel (AppKit's
         // white title on it), else the ink.
         button.hasDestructiveAction = destructive
@@ -74,13 +93,13 @@ enum ButtonConfigurationMac {
         let foreground = authored ?? (red && !look.hasSuffix("-accent") ? NSColor.systemRed : nil)
         // SwiftUI's `.plain` draws in the label colour, `.borderless` in the
         // accent; the table draws both borderless, so the name tells them
-        // apart. An authored colour wins over either.
+        // apart (LLP 1115 wave 1). An authored colour wins over either.
         // (The destructive red is `foreground` above, where the author painted no title.)
         let platformInk: NSColor? = look != "borderless" ? nil : face.style == "plain" ? .labelColor : (accent ?? .controlAccentColor)
         button.contentTintColor = foreground ?? platformInk
         button.title = face.title ?? ""
         // Keep the author's settings. AppKit still substitutes disabled ink
-        // at draw time; observation reports that platform limitation.
+        // at draw time; observation reports that platform limitation (§6).
         if let foreground {
             let paragraph = NSMutableParagraphStyle()
             paragraph.alignment = alignment(rows.title["text_align"]?.string, rtl: button.userInterfaceLayoutDirection == .rightToLeft)
@@ -88,11 +107,13 @@ enum ButtonConfigurationMac {
         }
         let symbolFont = font(titleFont, rows: rows.symbol)
         let symbolWeight = rows.symbol["font_weight"]?.number.map(Int.init) ?? TextEngine.controlWeight(titleFont)
-        button.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: symbolFont.pointSize, weight: weight(symbolWeight))
-        // An svg-only icon's path: a template image at the symbol's point size.
+        let rendering = rows.symbol["symbol_rendering"]?.string
+        let symbolTint = color(rows.symbol["tint_color"], appearance: appearance, accent: accent) ?? button.contentTintColor ?? .controlTextColor
+        button.symbolConfiguration = FaceSymbol.configuration(NSImage.SymbolConfiguration(pointSize: symbolFont.pointSize, weight: weight(symbolWeight)), rendering: rendering, tint: symbolTint)
+        // An svg-only icon's path (stage 9 A2): a template image at the symbol's point size.
         var image = face.symbol.flatMap { FaceSymbol.image($0, points: symbolFont.pointSize) }
-        if let tint = color(rows.symbol["tint_color"], appearance: appearance, accent: accent), let source = image {
-            if face.symbol.map(FaceSymbol.isPath) == true {
+        if face.symbol.map(FaceSymbol.isOriginal) != true, let tint = color(rows.symbol["tint_color"], appearance: appearance, accent: accent), let source = image {
+            if face.symbol.map(FaceSymbol.isCustom) == true {
                 image = FaceSymbol.tinted(source, tint) // (a path has no palette)
             } else {
                 // Palette colours belong to the symbol, independently of the label.
@@ -100,6 +121,10 @@ enum ButtonConfigurationMac {
                 image = source.withSymbolConfiguration(config)
                 image?.isTemplate = false
             }
+        }
+        if rendering != nil, face.symbol.map(FaceSymbol.isCustom) != true {
+            image = image?.withSymbolConfiguration(button.symbolConfiguration!)
+            if rendering != "monochrome" { image?.isTemplate = false }
         }
         button.image = image
         if image == nil { button.imagePosition = .noImage }
@@ -116,6 +141,7 @@ enum ButtonConfigurationMac {
         button.alignment = alignment(rows.title["text_align"]?.string, rtl: button.userInterfaceLayoutDirection == .rightToLeft)
         button.lineBreakMode = .byTruncatingTail
         corners(face, to: button, size: button.fittingSize)
+        if let cell = button.cell as? NativeButtonCellMac { cell.imagePadding = imageSizing(face, button: button)?.padding }
         return (look, glass)
     }
     static func alignment(_ value: String?, rtl: Bool) -> NSTextAlignment {
@@ -160,7 +186,12 @@ enum ButtonConfigurationMac {
                 button.isEnabled || (rows.symbol["tint_color"] == nil && rows.title["text_color"] == nil) || button.image == nil ? nil : "AppKit dims the disabled image despite its authored colour")
         ]
         for side in ["top", "right", "bottom", "left"] {
-            result["padding-" + side] = row(rows.button["padding_" + side] != nil, "NSButton default insets", rows.button["padding_" + side] == nil ? nil : "NSButton has no content inset field; authored padding ignored")
+            let value = rows.button["padding_" + side]
+            if !button.isBordered, button.imagePosition == .imageOnly, button.image != nil, let padding = value?.number {
+                result["padding-" + side] = row(true, padding)
+            } else {
+                result["padding-" + side] = row(value != nil, "NSButton default insets", value == nil ? nil : "NSButton has no content inset field; authored padding ignored")
+            }
         }
         return result
     }

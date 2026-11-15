@@ -1,4 +1,4 @@
-//! A canvas holds children: they are laid out in its box — the
+//! A canvas holds children (LLP 1014 D1): they are laid out in its box — the
 //! web's `layoutsubtree`: block flow, the canvas as containing block — and
 //! never size it. Its size is its rows', else its natural 300×150 and
 //! ratio 2:1, as a replaced element's (`browser_replaced.rs`).
@@ -94,8 +94,8 @@ fn rows(rows: &[(StyleId, Dimension)]) -> StyleProps {
     let mut s = StyleProps::default();
     for (id, value) in rows {
         match id {
-            StyleId::Width => s.width = *value,
-            StyleId::Height => s.height = *value,
+            StyleId::Width => s.width = value.clone(),
+            StyleId::Height => s.height = value.clone(),
             _ => unreachable!(),
         }
         s.mask.set(*id);

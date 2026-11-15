@@ -1,4 +1,4 @@
-// The origins the tool frames: a dev loop's page, by hello's
+// The origins the tool frames (LLP 1122 D3): a dev loop's page, by hello's
 // `page`.
 
 // A dev loop's page the canvas may frame: a loopback origin, no path

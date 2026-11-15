@@ -1,18 +1,18 @@
-// `storage.fs.compressImage` on the web: the browser
+// `storage.fs.compressImage` on the web (LLP 1069.002 A1.3): the browser
 // decodes (`createImageBitmap`, orientation applied), a canvas scales (onto
 // white for a JPEG, clear for a PNG, A1.11), and `convertToBlob` encodes each
 // trial. Loaded by storage-fs.js on the first call, never before first
 // pixel. A JPEG's search is Bluesky's (A1.2), the same trials as
 // `exact_data::image::search` (scripts/fixtures/picker/compress-trials.json);
 // a PNG's only shrinks, as `exact_data::image::search_lossless` does.
-// `transformImage` and `compressImage`'s edit draw
+// `transformImage` (LLP 1133.019 D14) and `compressImage`'s edit (D15) draw
 // the bitmap once through one transform, `geometry`'s, the same map as
 // `exact_data::image::edit::Geometry`. A canvas has no metadata, no colour
 // space but sRGB and no gain map, so a transform's result says `srgb`,
-// `hdr: false` and `metadata: "none"` whatever was asked.
+// `hdr: false` and `metadata: "none"` whatever was asked (D16).
 
 // The platform's clock as storage-environment.js captured it, before a
-// worker realm refuses ambient time to app code.
+// worker realm refuses ambient time to app code (LLP 1027.002 D2).
 import { now } from './storage-environment.js';
 
 export const MAX_DIMENSION = 8192;
@@ -46,7 +46,7 @@ export function limits(options) {
 
 /** Where `edit` ({rotate, flip, crop}, as the prelude checked them) of a
  * `width × height` upright picture lands: the turned frame, the crop in it
- * (clipped, its edges rounded), and the map from upright
+ * (clipped, its edges rounded, LLP 1114.003 D2), and the map from upright
  * pixels to the crop's as a canvas `setTransform` takes it. A crop that
  * misses fails `outside`. */
 export function geometry(width, height, edit, call) {
@@ -91,7 +91,7 @@ const EXTENSIONS = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'web
 export const extension = type => EXTENSIONS[type];
 
 const WORDS = { flip: ['horizontal', 'vertical'], resizeQuality: ['pixelated', 'low', 'medium', 'high'], metadata: ['keep', 'no-location', 'none'] };
-/** An image edit's options checked, as the prelude's binary.js `imageOptions` checks
+/** D14's options checked, as the prelude's storage.js `imageOptions` checks
  * them, for a Rust source's request that did not pass it: `rotate`, `flip`
  * and `crop`, and with `transform` the rest. A bad one is a TypeError. */
 export function editOptions(api, options, transform) {
@@ -314,7 +314,7 @@ export async function transform(blob, options = {}, deadline = now() + DEADLINE_
     const g = geometry(bitmap.width, bitmap.height, options, call);
     const [w, h] = resized(...g.size, options.resizeWidth, options.resizeHeight);
     if (w * h > MAX_SOURCE_PIXELS) throw failure('too-large', `${w}×${h} pixels is over ${MAX_SOURCE_PIXELS}`, call);
-    // Unsaid, the source's type where the browser writes it, else JPEG.
+    // Unsaid, the source's type where the browser writes it, else JPEG (D14).
     const asked = options.type, own = asked === undefined ? await sourceType(blob) : null;
     for (const type of asked !== undefined ? [asked] : own && own !== 'image/jpeg' ? [own, 'image/jpeg'] : ['image/jpeg']) {
       late();
@@ -333,7 +333,7 @@ export async function transform(blob, options = {}, deadline = now() + DEADLINE_
 
 /** `blob` as a JPEG, or a PNG (`type`), within the budget: `{bytes:
  * ArrayBuffer, width, height}`. With `edit` ({rotate, flip, crop}) the
- * search runs on the edited picture. Nothing is decoded
+ * search runs on the edited picture (LLP 1133.019 D15). Nothing is decoded
  * or tried at or after `deadline`. */
 export async function compress(blob, maxDimension, maxBytes, deadline = now() + DEADLINE_MS, type = 'image/jpeg', edit = null) {
   const late = () => { if (now() >= deadline) throw failure('timeout', `the search ran past ${DEADLINE_MS / 1000} s`); };

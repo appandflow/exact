@@ -1,23 +1,24 @@
-//! @exact/gamepad on Linux and Windows, composed into the app's host crate by the Rust builder: the host's
-//! one pad registry (`exact_linux::pads`), the evdev pads on Linux and
+//! @exact/gamepad on Linux and Windows (LLP 1133.022 D4, D10 items 1 and 5,
+//! D12), composed into the app's host crate by the Rust builder: the host's
+//! one pad registry (`exact_painted::pads`), the evdev pads on Linux and
 //! XInput's slots on Windows, through the package context.
 //!
 //! - The list is the registry's, by slot index, with each pad's family by
-//!   its vendor (XInput's are Xbox-class) and the labels; `current` is the
+//!   its vendor (XInput's are Xbox-class) and D2's labels; `current` is the
 //!   pad whose button last went down.
 //! - `dual-rumble` is the registry's claim on the device: an `FF_RUMBLE`
 //!   effect on Linux, `XInputSetState` on Windows; it answers `complete`
 //!   after its span, or `preempted`. `trigger-rumble` and lights are `later`
-//!   on both: no pad lists them.
+//!   on both (D12): no pad lists them.
 //! - A reader with `interval` reads each pad's buttons and axes as they are
 //!   at its ask; the registry announces a pad's coming, going and use, not
 //!   each reading.
 
-use exact_linux::package::{json, Context, Json, Package, Reply};
-use exact_linux::pads::{Pad, Pads};
+use exact_painted::package::{json, Context, Json, Package, Reply};
+use exact_painted::pads::{Pad, Pads};
 use std::sync::{Arc, Mutex};
 
-/// The labels by family; the interface's `tables.labels`.
+/// D2's labels by family; the interface's `tables.labels`.
 const LABELS: [(&str, [&str; 17]); 4] = [
     (
         "xbox",
@@ -105,7 +106,7 @@ impl Package for Gamepad {
         let told: Arc<Mutex<Vec<Pad>>> = Arc::new(Mutex::new(pads.list().0));
         let notifier = context.notifier();
         pads.watch(move || {
-            let (now, _) = exact_linux::pads::list();
+            let (now, _) = exact_painted::pads::list();
             let mut was = told.lock().unwrap_or_else(|e| e.into_inner());
             let alike = |a: &Pad, b: &Pad| a.index == b.index && a.identity == b.identity;
             for gone in was.iter().filter(|p| !now.iter().any(|n| alike(n, p))) {
@@ -122,7 +123,7 @@ impl Package for Gamepad {
 
     fn later(&mut self, name: &str, args: &Json, _preferred: Option<&Json>, reply: Reply) {
         let (pads, current) = self.pads.list();
-        // A send without `index` is for the pad in use when it arrives.
+        // A send without `index` is for the pad in use when it arrives (D2).
         let index = args["index"].as_f64().map(|i| i as u8).or(current);
         let named = index.filter(|i| pads.iter().any(|p| p.index == *i));
         match name {
@@ -172,7 +173,7 @@ impl Package for Gamepad {
                 reply.send(json!({}))
             }
             "setLight" if named.is_none() => reply.error("NotFoundError", None),
-            // No pad here has a light the host can set.
+            // No pad here has a light the host can set (D12).
             "setLight" => reply.error("NotSupportedError", None),
             _ => reply.error("NotSupportedError", None),
         }

@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-// Opt-in sidecar diagnostic, never a new CI gate or FPS claim.
+// LLP 1041 §8: opt-in sidecar diagnostic, never a new CI gate or FPS claim.
 // Build the selected app first. Examples:
 //   bun host/apple/build.mjs messages-stress-apple
 //   bun scripts/native-resize-metrics.mjs macos --app messages-stress

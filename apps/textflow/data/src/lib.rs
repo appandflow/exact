@@ -1,5 +1,5 @@
 //! Offline geometry: the same clock and viewport produce the same scene.
-//! Geometry is data committed every 16 ms.
+//! @ref LLP 1043.000 §3 D8, §6.5 — geometry is data committed every 16 ms.
 use exact_plan::Value;
 use exact_runner::{DataError, DataSource};
 mod geometry;

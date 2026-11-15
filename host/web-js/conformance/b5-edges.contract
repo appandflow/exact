@@ -1,4 +1,4 @@
-// Lowering (host/web-js/src/lower.rs): enumerated style rows
+// B5 (LLP 1071.001 part B, host/web-js/src/lower.rs): enumerated style rows
 // lowered to an arm class, and every refusal kept inline, through every arm: an option match, a none and a blank arm,
 // a CSS-wide keyword, an arm changed during a transition, and a tinted image whose source and style change apart.
 shape Run

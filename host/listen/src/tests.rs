@@ -1,7 +1,6 @@
 //! The listener over real `unix:` sockets: lines in and out, the ends a
-//! connection can have, the hold within the process and publication
-//! under the lock. Real sockets and wall-clock waits, so the tests are
-//! ignored: `cargo test -p exact-listen -- --ignored` runs them.
+//! connection can have, the hold within the process (D2) and publication
+//! under the lock (D4). Real sockets and wall-clock waits: the async lane.
 use super::*;
 use std::io::{BufRead, BufReader};
 use std::sync::mpsc;
@@ -17,6 +16,8 @@ enum Seen {
     Error(&'static str),
 }
 
+/// A socket's path must fit `sun_path` (104 bytes on macOS), and the per-user
+/// `TMPDIR` there takes about 50 of them: keep `name` short.
 fn dir(name: &str) -> PathBuf {
     let base = std::env::temp_dir().canonicalize().unwrap();
     let dir = base.join(format!("exact-listen-{}-{name}", std::process::id()));
@@ -67,7 +68,7 @@ fn standing(rx: &mpsc::Receiver<Seen>) -> Seen {
 }
 
 #[test]
-#[ignore = "binds real unix sockets; `cargo test -- --ignored` runs it"]
+#[ignore = "async lane: binds real unix sockets"]
 fn lines_in_and_a_reply_out() {
     let d = dir("echo");
     let path = d.join("a.sock");
@@ -96,7 +97,7 @@ fn lines_in_and_a_reply_out() {
 }
 
 #[test]
-#[ignore = "binds real unix sockets; `cargo test -- --ignored` runs it"]
+#[ignore = "async lane: binds real unix sockets"]
 fn peer_timeout_overflow_and_the_connection_bound() {
     let d = dir("ends");
     let path = d.join("a.sock");
@@ -133,7 +134,7 @@ fn peer_timeout_overflow_and_the_connection_bound() {
 }
 
 #[test]
-#[ignore = "binds real unix sockets; `cargo test -- --ignored` runs it"]
+#[ignore = "async lane: binds real unix sockets"]
 fn within_the_process_a_newcomer_waits_or_takes_over() {
     let d = dir("hold");
     let path = d.join("a.sock");
@@ -168,7 +169,7 @@ fn within_the_process_a_newcomer_waits_or_takes_over() {
 }
 
 #[test]
-#[ignore = "binds real unix sockets; `cargo test -- --ignored` runs it"]
+#[ignore = "async lane: binds real unix sockets"]
 fn another_process_taking_over_displaces_and_its_close_gives_it_back() {
     let d = dir("watch");
     let path = d.join("a.sock");
@@ -189,7 +190,7 @@ fn another_process_taking_over_displaces_and_its_close_gives_it_back() {
 }
 
 #[test]
-#[ignore = "binds real unix sockets; `cargo test -- --ignored` runs it"]
+#[ignore = "async lane: binds real unix sockets"]
 fn a_takeover_while_the_older_closes_keeps_the_newer_socket() {
     let d = dir("race");
     let path = d.join("a.sock");
@@ -210,7 +211,7 @@ fn a_takeover_while_the_older_closes_keeps_the_newer_socket() {
 }
 
 #[test]
-#[ignore = "binds real unix sockets; `cargo test -- --ignored` runs it"]
+#[ignore = "async lane: binds real unix sockets"]
 fn a_live_socket_without_takeover_is_an_error() {
     let d = dir("busy");
     let path = d.join("a.sock");
@@ -224,7 +225,7 @@ fn a_live_socket_without_takeover_is_an_error() {
 #[test]
 #[ignore = "binds real unix sockets; `cargo test -- --ignored` runs it"]
 fn a_connection_can_be_answered_before_its_callback_returns() {
-    let d = dir("immediate-greeting");
+    let d = dir("greeting");
     let path = d.join("a.sock");
     let (seen, events) = mpsc::channel();
     let gate = Arc::new((Mutex::new(false), std::sync::Condvar::new()));
@@ -269,4 +270,30 @@ fn a_connection_can_be_answered_before_its_callback_returns() {
     assert_eq!(line, "welcome\n");
     listener.close();
     std::fs::remove_dir_all(&d).unwrap();
+}
+
+/// A socket directory renamed away and made again at its path is watched
+/// there: another process's takeover in it displaces, and its close gives
+/// the address back.
+#[test]
+#[ignore = "async lane: binds real unix sockets"]
+fn a_replaced_directory_is_watched_at_its_path() {
+    let d = dir("moved");
+    let path = d.join("a.sock");
+    let away = d.with_extension("old");
+    let _ = std::fs::remove_dir_all(&away);
+    let (listener, rx) = open(config(&path, false));
+    assert_eq!(next(&rx), Seen::Listening);
+    std::fs::rename(&d, &away).unwrap();
+    // Made again at its path: by this listener, binding again where its
+    // socket was, or here, whichever comes first.
+    let _ = std::fs::create_dir(&d);
+    let other = bind::publish(&path, true, false).unwrap();
+    assert_eq!(standing(&rx), Seen::Standing("displaced"));
+    bind::unpublish(&path, other.identity);
+    drop(other);
+    assert_eq!(standing(&rx), Seen::Standing("holding"));
+    listener.close();
+    std::fs::remove_dir_all(&d).unwrap();
+    std::fs::remove_dir_all(&away).unwrap();
 }

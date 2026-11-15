@@ -1,5 +1,5 @@
-// What the core's surface glue asks of this session's surfaces
-// (`ExactKit/SurfaceInput.swift`): its controls and the agent's world.
+// What the core's surface glue asks of this session's surfaces (LLP 1047.001
+// D4; `ExactKit/SurfaceInput.swift`): its controls and the agent's world.
 import Foundation
 #if os(macOS)
 import AppKit
@@ -25,7 +25,7 @@ extension CanvasesHost {
         }
     }
 
-    /// A surface control's phase from `node`.
+    /// A surface control's phase from `node` (LLP 1046.002 §3).
     func control(_ node: NodeView, _ phase: String, id contact: Int, point: CGPoint, timestamp: Double?) -> Bool {
         guard !modules.isEmpty else { return false }
         let entry: Entry?
@@ -51,20 +51,20 @@ extension CanvasesHost {
         return input(e, m, ["t":"control", "name":owner.name, "phase":phase, "id":contact, "x":owner.position.x, "y":owner.position.y], timestamp:timestamp)
     }
 
-    /// The agent's `world` op on a surface.
+    /// The agent's `world` op on a surface (LLP 1046.001).
     func world(_ agent: Agent, _ request: [String: Any]) -> [String: Any] {
         let id = request["id"] as? UInt32
         let missing: [String: Any] = ["error": "view \(request["id"] ?? "undefined") has no world"]
         guard let id, let e = live(id) else { return missing }
         let op = request["op"] as? String ?? ""
         if op == "screenshot", request["form"] as? String == "save" { return save(e) }
-        // A look frame: the module draws it offscreen and its pixels come back in the reply.
+        // A look frame (LLP 1127.000): the module draws it offscreen and its pixels come back in the reply.
         if op == "screenshot", request["form"] as? String == "look" { return self.agent(id, request) ?? missing }
         if op == "focus" {
             guard e.wantsInput else { return ["error": "view \(id)'s surface does not take input"] }
             return ["ok": e.view.focusCanvas()]
         }
-        // The agent's pad: the world queues it as a host's pad event.
+        // The agent's pad (LLP 1127.003 D3): the world queues it as a host's pad event.
         if (op == "type" && (request["key"] as? String)?.hasPrefix("Gamepad") == true) || (op == "tap" && request["stick"] != nil) {
             guard e.wantsInput else { return ["error": "view \(id)'s surface does not take input"] }
             return self.agent(id, request) ?? missing
@@ -72,7 +72,7 @@ extension CanvasesHost {
         guard ["layout", "state", "tree"].contains(op) else { return ["error": "world does not answer \(op)"] }
         var request = request
         let rect = agent.box(e.view)
-        // A `layout` with a point and no entity is the pick: a form, not a ninth name.
+        // A `layout` with a point and no entity is the pick (LLP 1046.001 D2): a form, not a ninth name.
         if op == "layout", request["entity"] == nil {
             if let x = request["x"] as? Double { request["x"] = x - rect.minX }
             if let y = request["y"] as? Double { request["y"] = y - rect.minY }

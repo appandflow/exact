@@ -1,4 +1,4 @@
-// Keep only a state this generation's plan can decode.
+// @ref LLP 1126.001 WP8 — keep only a state this generation's plan can decode.
 import Foundation
 import CommonCrypto
 

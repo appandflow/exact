@@ -1,50 +1,27 @@
 # Exact Live
 
-A device-local creative production workspace for **Outside, together**: six imagined photographic
-scenes, a crew transcript and a parsed runbook, from one `app.contract` on the web, macOS, iOS and
-Linux. Select Go live, rearrange scenes by their grips, open a photograph, and write crew notes.
+A device-local creative production workspace for **Outside, together**: six imagined photographic scenes, a crew transcript and a parsed runbook. One authored Contract uses the existing browser, AppKit, UIKit and Linux hosts. The workspace is device-local; the optional job service is shared and bounded. No account or cross-device workspace synchronization is implied.
 
-- **Scenes** reuse the interaction gallery's photo rows and viewer: a non-button grip reorders them
-  (Pick up, Earlier, Later, Place and Cancel do the same by hand), and a photograph opens at Fit or 2×
-  with pan.
-- **Crew notes** are eight curated messages and a local draft. Go live streams 10,000 records in
-  batches of 32; the workload drawer picks 100 to 100,000 records and batches of 1, 8 or 32.
-- **The runbook** is `runbook.md`, through the Markdown parser and renderer; explicit controls load
-  1 and 4 MiB stress documents.
-- **The job strip** runs waves against the Completion Storm job service: 128 held requests whose
-  progress arrives as server-sent events or over a WebSocket.
+Try the [browser preview](https://exact-live.tuft.host/): select Go live, rearrange scenes by their grips, open a photograph, and write crew notes.
 
-The workspace is device-local: there is no account and no cross-device sync. At 900px the work
-surface sits beside a 360px transcript; narrower, one pane shows at a time.
+The integrated source has **20 passing data/Contract tests** (10 data, 7 compiled/baked Runner lifecycle tests and 3 Arrange tests) and strict all-targets Clippy. Optimized Web v3 passes **19 actual browser checks**: ordinary desktop/narrow composition, a CDP mouse drag that changes presentation before committing the order, photo Fit/2× after the drop, the curated runbook, typing during full10,000-record/batch32 updates, draft retention, Pause, and a visible posted note at the actual transcript end. Public HTTPS boot also passes with the same Wasm/plan and no agent or clock override. These are browser correctness checks, not physical presentation timings or iPhone validation.
 
-## Run it
+A native Apple Silicon development bundle for macOS14+ is built and delivered. Its 68-command AppKit agent run passes six functional groups: curated boot, exact Unicode posting, Runbook/width controls, photo Fit/2×, compact Mac layout, and an actual HTTPS wave with128 valid outcomes and no pending/failed jobs. The run uses the seekable agent; it does not prove ordinary-clock responsiveness or physical gestures. Bundled image decoding succeeds without an asset-directory override, but view-cache captures are transparent and WindowServer capture is refused. Native appearance remains unverified. The ad-hoc signed ZIP passes extraction/hash/executable-mode and codesign verification; it is not notarized. Build, raw checks and capture failures remain under `target/exact-live-mac-delivery/current49/`; ZIP proof is under `target/exact-live-native-downloads/`. iPhone delivery still requires Xcode and valid signing/provisioning; no iPhone run is claimed.
 
-From the repository root:
+The earlier Web v2 replay remains failed: it reached the actual transcript end, then mounted a correct echo below the clip. A real DOM fixture and common regression established a mismatch between integer scroll heights and fractional measured rows; the separate collection fix admits half a logical unit of end rounding. The original failed app run lacks a pre-Post index snapshot, so the new passing replay does not retroactively establish that exact old state. Earlier driver/setup failures and the corrected initial photo-mode regression remain preserved.
 
-```sh
-bun apps/exact-live/fixture.mjs                       # the job service, on loopback 4339 and 4340
-bun host/web/build.mjs exact-live-web                 # the web app, into target/web-dist
-bun host/apple/build.mjs exact-live-apple --run       # macOS
-bun host/apple/build.mjs exact-live-apple --ios --run # an iOS Simulator
-cargo build --release -p exact-live-linux             # Linux
-bun scripts/smoke.mjs web --app exact-live            # the stream smoke, with its own fixture
-```
+Default content is eight curated crew messages, six photographs and the bundled runbook. At 900px the selected work surface sits beside a 360px transcript. Narrower layouts show one pane; crew notes also have an explicit height sheet with Peek/Full controls. Root resources and the producer task live outside pane branches. Draft and one posted local echo stay in root state; transcript scroll position is not retained across remounts. This is not a durable messaging service. Returning to Curated keeps the reusable source's one latest synthetic cache; it does not establish memory release.
 
-`job-origins.txt` names the job service's two origins, data and control, and the build compiles
-both the request URLs and their `net.fetch` grants from it. To build against the local fixture, set
-the same lines in `EXACT_LIVE_JOB_ORIGINS`:
+Go live selects **all 10,000 records**, batch 32, and the existing requested 250ms producer cadence for at most 120 ticks. The workload drawer independently selects 100/1,000/10,000/100,000 records and batches 1/8/32; Run selected load starts that combination. Unchanged records come from ReusableMessagesStress; the full source list remains O(N), with viewport mounting and the current Runner reconciliation. There is no app FPS counter or physical 120Hz claim.
 
-```sh
-EXACT_LIVE_JOB_ORIGINS=$'DATA=http://127.0.0.1:4339\nCONTROL=http://127.0.0.1:4340' \
-  bun host/web/build.mjs exact-live-web
-```
+The rundown uses Gallery's retained rows, identities, viewer lifetime and manual Pick up/Earlier/Later/Place/Cancel actions. Its non-button Arrange grip binds the existing virtual List; the typed terminal calls Gallery's atomic reorder with the latest revision, without switching out of Photos mode. Grips are disabled during manual moves. Common preview tests prove no data calls during32 samples and one terminal query before explicit pin retirement; the v3 browser drive moves the second scene first and then opens its photo. Manual controls remain available on every surface. Explicit stress loads retain 100/1,000/25,000 logical studies. Photographs reuse the six local generated illustrations with their original provenance. Fit/2× and pan reuse the approved transform binding; the height sheet has 180/360/640 controls. Native dragging, pinch and sheet-inner-scroll arbitration remain unvalidated for this app.
 
-An unavailable service reports its error; no job completes from a timer, and the app never starts
-the service.
+The job strip reflects actual Storm wave/result shapes. The app-local adapter retains one Storm owner and changes only the four known endpoint URLs. `job-origins.txt` supplies both destinations and capability grants: separate public HTTPS data/control origins are reachable off this machine. The current source uses those origins; the earlier Web v3 preview remains its original build until replaced. Eight adapter tests cover URL/grant boundaries, 128 current tickets, failures and stale replies; the 20 app tests also pass with the wired adapter. A separate real HTTPS check validates all 128 outcomes. The service uses the existing fixture with 8 live waves, 512 held requests and 30-second expiry; selected128 does not mean 128 simultaneous connections. It is shared across visitors, without accounts or per-visitor isolation. All 128 resource declarations stay at the root through pane navigation. An unavailable service reports its actual error; no job completes from a timer. The app does not start the service. Reset scene preserves the current wave; Pause stops future transcript ticks.
 
-## Tests
+The runbook uses the existing Markdown parser and inline/block renderer. Its default is small bundled content. Explicit 1/4MiB paragraph controls preserve the full existing Stress source and blocks, with NativeMarkdownStress's ordered generation/parse continuation on native and synchronous source behavior on Web. Projection/Value copies, rich-text layout and old-document destruction remain UI work. Source Pending can show a preparation label instead of the previous document. No macOS-only cold-region API is activated, and ordinary iPhone giant layout may block or exhaust memory. No giant native render pass is claimed from authored data tests.
 
-`data/tests/` holds the data source's tests (`cargo test -p exact-live-data`): full-source values
-and row identity, the bounded local echo, manual order and reset, runbook continuation, responsive
-composition, draft retention, request tickets across navigation, and the job origins' grants.
-Synthetic HTTP responses occur only in tests.
+New app paths are confined to this directory: app.contract/app.json, runbook.md, data source/tests, assets, and normal web/apple/linux entry crates. The workspace adds the four ordinary Cargo members `apps/exact-live/{data,web,apple,linux}` and their four local lock entries. All400 existing lockfile package blocks are unchanged. The app reuses existing hosts and common interaction APIs; the end-rounding fix is a separate collection change.
+
+Future entry builds use the repository's existing build commands for exact-live-web/exact-live-apple/exact-live-linux; no new build script or protocol is required. iPhone provisioning and actual device delivery use the existing Apple path, not an Expo replacement.
+
+The source-first tests are in `data/tests/{data,workspace,arrange}.rs`: exact full-source values and row identity, bounded local echo, manual order/reset and stale viewer tokens, native runbook continuation lifetime, responsive composition and typed binding resolution, producer/draft retention, 128 current request tickets across navigation/resize/reset, and Arrange preview/terminal ownership. Synthetic HTTP responses occur only in tests; these tests do not establish live networking, native input, layout latency or presentation.

@@ -1,4 +1,4 @@
-//! Platform typography and field geometry.
+//! Platform typography and field geometry. @ref LLP 1104 D4–D5, §4.
 use exact_kernel::*;
 use std::{cell::RefCell, rc::Rc};
 
@@ -10,6 +10,7 @@ impl TextMeasurer for Fields {
         TextMetrics {
             width: 100.0,
             height: font.line_height.unwrap_or(font.font_size * 1.25),
+            pending: false,
             first_baseline: Some(font.font_size),
         }
     }
@@ -360,6 +361,23 @@ fn relative_font_rows_start_at_platform_and_other_em_rows_use_authored_font() {
         k.node(2).unwrap().style.padding_top,
         Dimension::Points(40.0)
     );
+    k.apply(0, 0, &[prop(2, PropId::SemanticTag, "textarea")])
+        .unwrap();
+    assert_eq!(number(&k, 2, StyleId::FontSize), 44.0);
+    assert_eq!(
+        k.node(2).unwrap().style.padding_top,
+        Dimension::Points(44.0)
+    );
+    k.apply(
+        0,
+        0,
+        &[Op::ClearProp {
+            id: 2,
+            prop: PropId::SemanticTag,
+        }],
+    )
+    .unwrap();
+    assert_eq!(number(&k, 2, StyleId::FontSize), 40.0);
 }
 
 #[test]
@@ -491,7 +509,7 @@ fn provisional_counts_once_per_successful_layout_only_for_native_fields() {
     assert_eq!(k.node(2).unwrap().frame.width, 100.0);
 }
 
-/// `appearance: textfield` is the platform's field, its
+/// LLP 1116.007 D4: `appearance: textfield` is the platform's field, its
 /// chrome measured and its content rect published as `auto`'s are; only
 /// `none` is the author's box.
 #[test]
@@ -864,7 +882,7 @@ fn root_font_change_relayouts_web_fields_but_preserves_platform_fonts() {
     }
 }
 
-/// A native field in a grouped list's row, at any depth in
+/// LLP 1116.005 D2: a native field in a grouped list's row, at any depth in
 /// it, asks for the field a platform draws in a list's cell; a bare field, a
 /// search field, a field in a section's header, one in a section drawn with
 /// no card and one outside the list ask for nothing of the kind.

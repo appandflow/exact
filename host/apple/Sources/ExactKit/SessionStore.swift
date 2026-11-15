@@ -1,4 +1,4 @@
-// Store changes cross sessions as a re-ask.
+// @ref LLP 1126.001 WP12 — store changes cross sessions as a re-ask.
 #if canImport(UIKit)
 import UIKit
 #else
@@ -70,6 +70,19 @@ final class SessionStoreRefresh {
 }
 
 extension ExactSession {
+    /// A store write of this session's has landed: the app's other sessions
+    /// refresh their persisted slots and the resources that read the store,
+    /// as for a widget's write, so a setting changed in one window applies
+    /// in all; and they hear the topics its SQLite and file writes announced
+    /// (LLP 1030.004 D2).
+    func relayStore(_ batch: Batch) {
+        guard batch.stored || !batch.announced.isEmpty else { return }
+        for peer in app.sessions where peer !== self && peer.booted && peer.state != .destroyed {
+            if batch.stored { peer.refreshSharedStore { _ in } }
+            for topic in batch.announced { peer.runtime.peerChanged(topic) }
+        }
+    }
+
     func retryStoreActivation(attempts: Int = 3) {
         guard storeRefresh.pending, attempts > 0 else { return }
         DispatchQueue.main.async { [weak self] in

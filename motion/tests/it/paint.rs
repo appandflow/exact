@@ -1,4 +1,4 @@
-//! Paint properties: colours and `box-shadow` under `transition`
+//! Paint properties (LLP 1062): colours and `box-shadow` under `transition`
 //! and `animation`, held to what a browser computes.
 
 use crate::keyframed;
@@ -56,7 +56,7 @@ fn the_shorthand_names_every_paint_property_and_box_shadow_names_both_halves() {
     assert!(Transitions::parse("width 1s").is_err());
 }
 
-/// A spring on paint is its curve from rest, a `linear()`
+/// LLP 1062 D3: a spring on paint is its curve from rest, a `linear()`
 /// easing over its settle time — what the web's CSS plays — so it
 /// interrupts as CSS does, from where it is, and every host agrees.
 #[test]
@@ -230,7 +230,7 @@ fn keyframes_animate_colours_and_their_rule_reads_back() {
     assert!(keyframed("k 1s @keyframes k{to{box-shadow:0}}").is_err());
 }
 
-/// A keyframe's `light-dark()` colour takes the appearance its
+/// LLP 1062 D9: a keyframe's `light-dark()` colour takes the appearance its
 /// animation starts under, as Chrome 153 resolves the rule once: a flip
 /// leaves a playing animation's colours, and a host correcting its boot
 /// guess re-resolves them in place, keeping the start.
@@ -281,7 +281,7 @@ fn a_light_dark_keyframe_takes_the_appearance_it_starts_under() {
 }
 
 /// `box-shadow` in a keyframe: its geometry and colour together, one
-/// declaration in the rule, a `light-dark()` colour kept.
+/// declaration in the rule, a `light-dark()` colour kept (LLP 1062).
 #[test]
 fn box_shadow_keyframes_round_trip_and_play() {
     let text = "glow 1s linear both @keyframes glow{from{box-shadow:0px 0px 0px rgba(0,0,0,0)}to{box-shadow:0px 16px 24px light-dark(rgba(29,78,216,1),rgba(255,255,255,0.5))}}";
@@ -333,6 +333,7 @@ fn box_shadow_keyframes_round_trip_and_play() {
     assert_eq!(shade, [255.0, 255.0, 255.0, 0.5]);
 }
 
+/// LLP 1100 D2.
 #[test]
 fn a_modern_colour_moves_in_oklab() {
     use exact_motion::Value;
@@ -354,4 +355,57 @@ fn a_modern_colour_moves_in_oklab() {
     let (lin, _) = p3_red.linear_srgb();
     assert!(lin[0] > 1.0, "outside sRGB, unclipped: {lin:?}");
     assert_eq!(p3_red.to_rgba8()[0], 255, "an 8-bit reader gets the clip");
+}
+
+/// CSS Transitions §3.2: a reversal between a legacy and a modern colour is
+/// shortened as one between two legacy colours is, though the running
+/// transition keeps its ends in OKLab.
+#[test]
+fn a_reversal_between_colour_encodings_is_shortened() {
+    let legacy = Value::rgba8(255, 0, 0, 255);
+    let modern = Value::oklab(0.452, -0.032, -0.312, 1.0);
+    for (start, end) in [(legacy, modern), (modern, legacy)] {
+        let mut e = Engine::new();
+        e.set_transitions(NODE, Transitions::parse("color 1s linear").unwrap())
+            .unwrap();
+        set(&mut e, Property::Color, start);
+        e.frame();
+        set(&mut e, Property::Color, end);
+        e.advance(0.5).unwrap();
+        set(&mut e, Property::Color, start);
+        assert_eq!(e.settle_time(), Some(1.0), "half the duration back");
+        e.advance(0.75).unwrap();
+        set(&mut e, Property::Color, end);
+        assert_eq!(e.settle_time(), Some(1.5), "a reversal of the reversal");
+    }
+}
+
+/// CSS Color 4 §12.1: a keyframe's modern colour keeps its value and moves
+/// in Oklab, as Chrome plays the same rule; a legacy pair stays in sRGB.
+#[test]
+fn a_keyframes_modern_colour_moves_in_oklab_unclipped() {
+    exact_motion::color::css::link_wide();
+    let mid = |from: &str, to: &str| {
+        let text = format!("k 1s linear both @keyframes k{{from{{color:{from}}}to{{color:{to}}}}}");
+        let a = keyframed(&text).unwrap();
+        let rule = a.0[0].keyframes.css();
+        assert_eq!(Keyframes::parse(&rule).unwrap(), a.0[0].keyframes, "{rule}");
+        let mut e = Engine::new();
+        set(&mut e, Property::Color, rgba(0, 0, 0, 1.0));
+        e.set_animations(NODE, &a).unwrap();
+        e.advance(0.5).unwrap();
+        e.sampled_value(NODE, Property::Color).unwrap()
+    };
+    let modern = mid("color(srgb 1 0 0)", "color(srgb 0 0 1)");
+    assert!(modern.oklab);
+    assert_eq!(modern.to_rgba8(), [140, 83, 162, 255]);
+    let mixed = mid("#ff0000", "color(srgb 0 0 1)");
+    assert!(mixed.oklab, "a modern endpoint takes the pair into Oklab");
+    assert_eq!(mixed.to_rgba8(), [140, 83, 162, 255]);
+    let legacy = mid("#ff0000", "#0000ff");
+    assert!(!legacy.oklab);
+    assert_eq!(legacy.to_rgba8(), [128, 0, 128, 255]);
+    // Outside sRGB, unclipped until it is read.
+    let p3 = mid("color(display-p3 1 0 0)", "color(display-p3 1 0 0)");
+    assert!(p3.linear_srgb().0[0] > 1.0, "{:?}", p3.linear_srgb());
 }

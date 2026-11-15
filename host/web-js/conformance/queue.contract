@@ -1,6 +1,6 @@
 // data: completion-storm
-// Synthetic conformance plan: sends that wait their turn (`mutation … queue`)
-// on both executors, on Completion Storm's sources:
+// Synthetic conformance plan: sends that wait their turn (`mutation … queue`,
+// LLP 1092 D2–D4) on both executors, on Completion Storm's sources:
 // `settings` answers now; `fixtureStats` answers later, a loopback fetch whose
 // failure (no fixture on 127.0.0.1:4320) is the answer the source shapes;
 // `lost(n, _)` sends a request whose reply is never an answer for n > 0 and

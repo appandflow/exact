@@ -1,4 +1,5 @@
 //! Public, independently authored render-hook proof; no consumer game or ocean code.
+//! @ref llp/1046.006.000-render-hooks.rfc.md#5-order-of-work
 use exact_game::Args;
 use exact_game::{Environment, Game, Input, World};
 use exact_game_render::{

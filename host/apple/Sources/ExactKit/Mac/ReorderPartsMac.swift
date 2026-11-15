@@ -1,7 +1,7 @@
 #if os(macOS)
 import AppKit
 
-// Dropping across lists on AppKit: the ghost is the row's
+// Dropping across lists on AppKit (LLP 1094 D6): the ghost is the row's
 // cached display in a topmost image view; facts are in window coordinates,
 // which grow upward.
 /// The lifted row's stand-in, above everything in the window.
@@ -20,7 +20,7 @@ final class ReorderGhost {
         view = NSImageView(image: image)
         view.imageScaling = .scaleAxesIndependently
         view.wantsLayer = true
-        // The host's look: 0 8px 24px at 25% black (AppKit's y grows
+        // The host's look (D6): 0 8px 24px at 25% black (AppKit's y grows
         // up), and 1.03 unless motion is reduced.
         let shadow = NSShadow()
         shadow.shadowColor = NSColor.black.withAlphaComponent(0.25)
@@ -61,7 +61,7 @@ final class ReorderGhost {
 }
 
 /// A grouped list's port in the window, and its scrollTop as its collection
-/// feedback reports it.
+/// feedback reports it (D5).
 struct ReorderPort {
     let rect: CGRect
     let scrollTop: Double
@@ -75,12 +75,12 @@ struct ReorderPort {
     func contentY(_ p: CGPoint) -> Double { scrollTop + Double(rect.maxY - p.y) }
 }
 
-/// One scroller autoscroll may move, on its own axis.
+/// One scroller autoscroll may move, on its own axis (D7).
 struct ReorderScroller {
     let scroll: NSScrollView
     let vertical: Bool
     let rect: CGRect
-    /// An ancestor joins while it holds the centre,
+    /// D7, amended 2026-10-07: an ancestor joins while it holds the centre,
     /// or the contact once a ghost held off its middle has carried its centre
     /// past the edge (that edge's band then measures the centre beyond it).
     static func chain(from list: NodeView, holding centre: CGPoint, contact: CGPoint? = nil) -> [ReorderScroller] {
@@ -132,12 +132,12 @@ struct ReorderScroller {
 }
 
 extension NodeView {
-    /// Where focus goes after a keyboard or custom-action move.
+    /// Where focus goes after a keyboard or custom-action move (D9).
     func focusAfterReorder() {
         if acceptsFirstResponder { window?.makeFirstResponder(self) }
     }
     /// "Move earlier", "Move later", "Move to previous list", "Move to next
-    /// list" on a grouped grip.
+    /// list" on a grouped grip (D9).
     package override func accessibilityCustomActions() -> [NSAccessibilityCustomAction]? {
         guard reorderGroupList != nil else { return super.accessibilityCustomActions() }
         return ReorderGroupStep.actions.map { name, step in

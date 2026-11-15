@@ -638,8 +638,8 @@ mod tests {
             "if (x) /[/*]/.test(s); export const grants = 'device.midi purpose.midi'; // */",
             "while (ok(x)) /\\/*/.exec(s); export const grants = 'device.midi purpose.midi'; // */",
             "const q = /'/g; export const grants = 'device.midi purpose.midi';",
-            // A `/` after a postfix `++` or `--` divides (read as a regex, it
-            // would swallow the grant).
+            // A `/` after a postfix `++` or `--` divides (review round 1:
+            // read as a regex, it swallowed the grant).
             "const q=n++ / 2; export const grants=\"device.midi purpose.midi\"; const r=/x/;",
             "const q=n-- /2; export const grants=\"device.midi purpose.midi\"; const r=/x/;",
             // A unary `+` before a regex, and `+ +` that is no `++`.

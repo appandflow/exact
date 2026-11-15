@@ -1,11 +1,11 @@
-// The agent's waits on real time with the clock frozen, `clock held` and `clock
-// until state`, over the session's own ops (scripts/agent.mjs), so one
+// The agent's waits on real time with the clock frozen, `clock held` (LLP 1016.000 D9, theme2 2026-10-22) and `clock
+// until state` (rules/DEFERRED.md, "Agent API", 2026-10-26), over the session's own ops (scripts/agent.mjs), so one
 // implementation serves every host.
 import { MalformedOperation } from './agent-keys.mjs';
 
 // `clock held [<target>…] [<n>s|<n>ms]`: real time passes, the clock frozen, until each held request in flight now
 // (state.pending's `held`, or those named) has had one reply, a server's own timeout answer included, then `clock
-// data`; past the bound (20 s) `settled: false, reason: 'held'`, naming the targets with none.
+// data`; past the bound (20 s) `settled: false, reason: 'held'`, naming the targets with none (LLP 1016.000 D9).
 // A reply is the host's count of replies landed for a target's held requests (`state.heldReplies`) rising: a
 // request let go, or no longer counted held for a while, is no reply; a reply followed at once by another held
 // ask is one.
@@ -27,10 +27,14 @@ export async function heldClock(s, words) {
   // Looks back off from 25 ms to 200 ms, each wait, and each look itself, cut to what is left of the bound, so the
   // bound stays exact: a look that answers past it counts nothing.
   let left = targets, seen = first;
-  const until = (end) => new Promise((ok) => setTimeout(() => ok(null), Math.max(0, end - performance.now())));
+  const lookBy = (end) => {
+    let timer;
+    const late = new Promise((ok) => { timer = setTimeout(() => ok(null), Math.max(0, end - performance.now())); });
+    return Promise.race([look(), late]).finally(() => clearTimeout(timer));
+  };
   for (let end = performance.now() + bound, gap = 25; left.length && performance.now() < end; gap = Math.min(gap * 2, 200)) {
     await new Promise((ok) => setTimeout(ok, Math.max(0, Math.min(gap, end - performance.now()))));
-    const got = await Promise.race([look(), until(end)]);
+    const got = await lookBy(end);
     if (!got) break;
     seen = got;
     const now = seen.heldReplies ?? {};
@@ -46,9 +50,9 @@ const UNTIL = 'clock until state <path> == <literal> within <ms> (the literal is
 
 // `clock until state <path> == <literal> within <ms>`: real time passes, the clock frozen (no timer fires), until
 // `state <path>` reads the literal, for at most <ms>; a miss throws, naming the last value read. It is for state a
-// stream reaches after its first message, which no settlement waits for. Each look first lands
+// stream reaches after its first message, which no settlement waits for (LLP 1016.000 D5). Each look first lands
 // what has arrived, as an input's end does (`clock` with `land`: the `then`s of answers in, no timer fired), so a
-// protocol's later steps go on meanwhile: a chat client's IDENTIFY is sent from a write's `then`, and READY answers it.
+// protocol's later steps go on meanwhile: Excord's IDENTIFY is sent from a write's `then`, and READY answers it.
 export async function untilClock(s, spec) {
   // The path as an authored test writes it too: a space before a dot (`rows.0 .body`, `grid.0 .1`) is dropped.
   const m = /^until\s+state\s+(\S+(?:\s+\.\S+)*)\s*==\s*(\S.*?)\s+within\s+(\d+)$/s.exec(spec.trim());
@@ -60,15 +64,18 @@ export async function untilClock(s, spec) {
   if (bound < 1 || bound > 3_600_000) throw new MalformedOperation(`${UNTIL}: a bound is 1 ms up to an hour, not ${bound}`);
   // A name, then fields and list indexes, read from `state` as an authored `expect state` reads it.
   const [name, ...fields] = path.split('.'), has = (o, k) => o !== null && typeof o === 'object' && Object.hasOwn(o, k);
-  const read = async () => {
-    const landed = await s.op({ op: 'clock', land: true });
+  // Compared revealed, said masked: a password field's text is never printed (LLP 1156.001 D6). A revealed read says
+  // what it misses by kind alone, never by its text.
+  const kind = (v) => v === null ? 'null' : Array.isArray(v) ? `a list of ${v.length}` : typeof v === 'object' ? `a record of ${Object.keys(v).join(', ') || 'no fields'}` : `a ${typeof v}`;
+  const read = async (reveal = true) => {
+    const landed = reveal ? await s.op({ op: 'clock', land: true }) : null;
     if (landed?.error) throw new Error(`clock until state ${path}: ${landed.error}`);
-    const record = await s.op({ op: 'state' }), bag = { ...record.resources, ...record.derives, ...record.slots };
+    const record = await s.op({ op: 'state', reveal }), bag = { ...record.resources, ...record.derives, ...record.slots };
     const tasks = record.tasks ?? {};
     if (!has(bag, name) && !has(record, name)) return { unknown: Object.keys(bag), tasks };
     let got = has(bag, name) ? bag[name] : record[name], at = name;
     for (const field of fields) {
-      if (!has(got, field)) return { missing: `${at} has no field "${field}" (it is ${JSON.stringify(got)?.slice(0, 200)})`, tasks };
+      if (!has(got, field)) return { missing: `${at} has no field "${field}" (it is ${reveal ? kind(got) : JSON.stringify(got)?.slice(0, 200)})`, tasks };
       got = got[field]; at += `.${field}`;
     }
     return { value: got, tasks };
@@ -93,16 +100,21 @@ export async function untilClock(s, spec) {
     seen = got;
   }
   const real = Math.round(performance.now() - t0);
-  if (met(seen)) return { clock: s.now, real, until: 'met', value: seen.value };
-  const last = seen == null ? 'no look answered within the bound' : 'value' in seen ? `${path} was ${JSON.stringify(seen.value)?.slice(0, 200)}` : seen.missing ?? `no state named "${name}"`;
-  // A task due a commit later (`after(1, …)`) is a step the frozen clock never takes (a chat client's `record`, which sends IDENTIFY).
+  // What is said comes from one more read, masked; a value that read cannot give is not said, never taken revealed.
+  const said = seen && (seen.missing || typeof seen.value === 'string') ? await read(false).catch(() => null) : seen;
+  const shown = said != null && 'value' in said;
+  if (met(seen)) return { clock: s.now, real, until: 'met', ...(shown && { value: said.value }) };
+  const last = seen == null ? 'no look answered within the bound'
+    : 'value' in seen ? (shown ? `${path} was ${JSON.stringify(said.value)?.slice(0, 200)}` : `${path} could not be read masked, so its value is not said`)
+    : said?.missing ?? seen.missing ?? `no state named "${name}"`;
+  // A task due a commit later (`after(1, …)`) is a step the frozen clock never takes (Excord's `record`, which sends IDENTIFY).
   const soon = Object.entries(seen?.tasks ?? {}).filter(([, at]) => Number.isFinite(at) && at > s.now && at <= s.now + 1).map(([task]) => `\`${task}\``);
   const hint = soon.length ? `; ${soon.join(', ')} ${soon.length > 1 ? 'are' : 'is'} due a commit later (an \`after(1, …)\`), which the frozen clock never reaches: \`clock settle\` or \`clock +1\` before this step runs ${soon.length > 1 ? 'them' : 'it'}` : '';
   throw new Error(`clock until state ${path} == ${literal} within ${bound}: ${last} after ${real} ms of real time, the clock frozen at ${s.now} ms${hint}`);
 }
 
 /** A missed target's note on what is still out (`state.pending`): requests `clock data` lands, and held asks, whose
- * replies `clock held` waits for. */
+ * replies `clock held` waits for (LLP 1016.000 D9). */
 export function inFlightNote(pending) {
   const named = (held) => [...new Set(pending.filter((p) => !!p.held === held).map((p) => p.name).filter(Boolean))];
   const waited = named(false), heldBy = named(true);

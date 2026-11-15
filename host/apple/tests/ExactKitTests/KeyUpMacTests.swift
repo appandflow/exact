@@ -3,7 +3,7 @@ import AppKit
 import XCTest
 @testable import ExactKit
 
-/// AppKit's keyUp and a flags change that releases a modifier reach the
+/// #140: AppKit's keyUp and a flags change that releases a modifier reach the
 /// `keyup` handlers at the focus and above, as the monitor routes a keyboard's
 /// keys; each key event carries DOM's `code` and a keydown its `repeat`.
 final class KeyUpMacTests: XCTestCase {
@@ -131,14 +131,14 @@ final class KeyUpMacTests: XCTestCase {
     }
     private let leftCommand = NSEvent.ModifierFlags(rawValue: NSEvent.ModifierFlags.command.rawValue | 0x8)
 
-    /// A ⌘ chord during a composition. Chrome hands the page the chord's
-    /// keydown before the input method's result, with the composed text
-    /// already in the field and reported to `input` (CDP's
+    /// A ⌘ chord during a composition (#140). Chrome hands the page the
+    /// chord's keydown before the input method's result, with the composed
+    /// text already in the field and reported to `input` (CDP's
     /// `Input.imeSetComposition`, then ⌘B: `input 한`, then the keys). So
-    /// it is here: the text was heard as it was composed, the chord commits it
-    /// and that is not heard again, ⌘'s own keys pass through the
-    /// composition, and the keyups follow. ⌘'s keydown came composing; the
-    /// chord, after the commit, did not.
+    /// it is here: the text was heard as it was composed (LLP 1115.000 §5,
+    /// ruling 6), the chord commits it and that is not heard again, ⌘'s own
+    /// keys pass through the composition, and the keyups follow. ⌘'s keydown
+    /// came composing; the chord, after the commit, did not.
     func testACommandChordCommitsTheCompositionThenReachesTheHandlers() throws {
         let p = try fixture()
         let heard = record(p)

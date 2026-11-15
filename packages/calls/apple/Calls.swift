@@ -1,11 +1,11 @@
-// @exact/calls on Apple. The runner keeps the
-// call list and hands it here (`exact:listed`):
+// @exact/calls on Apple (LLP 1133.033 D9, D10, D15, D19). The runner keeps the
+// call list and hands it here (`exact:listed`, Charlie's 2026-10-27 ruling):
 // this module follows it with CallKit on iOS, and reports what the person did
 // on the system's screen as the list's declared choices (`exact-choice:`).
 //
 // - One `CXProvider` and one `CXCallController` per process, made when the
 //   first session binds the module outside the agent; each session's module
-//   attaches to it. Under the agent none is made, and the runner's
+//   attaches to it. Under the agent none is made (D15), and the runner's
 //   substitute is the call.
 // - The app's own acts (`startCall`, `answerCall`, `setCallHeld`,
 //   `setCallMuted`, `endCall` with `local` or `declined`) have already moved
@@ -17,11 +17,11 @@
 //   a cellular call, muted on the in-call screen. Each fulfils at once and is
 //   reported as the choice `answer`, `hangup`, `hold`/`unhold` or
 //   `mute`/`unmute`, which raises the app's event with a person's origin.
-// - Audio: the call's claim on the host's audio owner is made in the
+// - Audio (D10): the call's claim on the host's audio owner is made in the
 //   start's or answer's `perform`, before it is fulfilled, and held while any
 //   call lasts. `didActivate`/`didDeactivate` reach the owner and the list
 //   (`activated`/`deactivated`, the call's `audio`).
-// - Tier 3: `CallsModule.providerConfiguration(_:)` changes the
+// - Tier 3 (D15): `CallsModule.providerConfiguration(_:)` changes the
 //   provider's configuration after the module sets its own words, and
 //   `CallsModule.callUpdate(_:)` each `CXCallUpdate` before it is reported.
 // - macOS has no CallKit provider: the call is the list alone, `systemUI`
@@ -83,14 +83,14 @@ public final class CallsModule: ExactPackage {
     nonisolated(unsafe) static var configurationHatch: ((CXProviderConfiguration) -> Void)?
     nonisolated(unsafe) static var updateHatch: ((CXCallUpdate, [String: Any]) -> Void)?
 
-    /// The app's access hatch: the provider's configuration, after the
+    /// The app's access hatch (D15): the provider's configuration, after the
     /// module sets `localizedName`, `supportsVideo` and the call groups.
     public static func providerConfiguration(_ hatch: @escaping (CXProviderConfiguration) -> Void) {
         configurationHatch = hatch
         CallProvider.reconfigure()
     }
 
-    /// The app's access hatch: each `CXCallUpdate` before it is
+    /// The app's access hatch (D15): each `CXCallUpdate` before it is
     /// reported, with the call's entry; the handle, the caller's name and
     /// `hasVideo` stay the module's.
     public static func callUpdate(_ hatch: @escaping (CXCallUpdate, [String: Any]) -> Void) {
@@ -265,7 +265,7 @@ final class CallProvider: NSObject, CXProviderDelegate {
         claim = nil
     }
 
-    // MARK: CXProviderDelegate. The host enforces, then tells: each action fulfils before the app hears it.
+    // MARK: CXProviderDelegate. The host enforces, then tells (D9): each action fulfils before the app hears it.
 
     func providerDidReset(_ provider: CXProvider) {
         for (id, _) in uuids where last[id]?["state"] as? String != "ended" { module?.choose(id, "failed") }

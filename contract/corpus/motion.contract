@@ -1,4 +1,4 @@
-// Accept fixture: motion under the agent's clock. Three boxes
+// Accept fixture: motion under the agent's clock (LLP 1012 §2). Three boxes
 // scale 1 → 2: one on a press with a linear transition, one on a press with
 // a spring, one when a timer fires at t = 1000 ms — so a seek that crosses
 // the timer must attribute the transition to the timer's time. A fourth box

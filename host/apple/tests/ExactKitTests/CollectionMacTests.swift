@@ -298,7 +298,7 @@ final class CollectionMacTests: XCTestCase {
     }
     /// Rows put above the reader in the batch that also resizes the port (a
     /// pull-to-refresh zone closing as the new posts land) still move the
-    /// offset with them: the resize is not the reader moving.
+    /// offset with them: the resize is not the reader moving (feed F14).
     func testAnAnchorsCorrectionLandsInTheBatchThatResizesThePort() throws {
         let (p, list) = fixture()
         defer { p.collections.reset() }
@@ -371,7 +371,7 @@ final class CollectionMacTests: XCTestCase {
         XCTAssertEqual(interactions.last, 3, "a press inside a row still pins it")
     }
 
-    /// A row list: the snapshot says `x`, and every fact the
+    /// A row list (LLP 1070 H1): the snapshot says `x`, and every fact the
     /// host reports runs along it: the offset is the clip's x, the port's
     /// main size its width, the cross the wrapper's height, and a row's
     /// measured size its width. The cover and a correction are along x too.
@@ -706,7 +706,7 @@ final class CollectionMacTests: XCTestCase {
 
     /// A row playing `-exact-exit-animation` is a subview but no longer a child;
     /// ordering the rows keeps it, a paint ghost at its old place that paints
-    /// over them (its paint rank), instead of trapping.
+    /// over them (its paint rank), instead of trapping (mail F22).
     func testAnExitingRowKeepsARankWhileTheRowsReorder() throws {
         let (p, list) = fixture()
         defer { p.collections.reset(); p.reset() }
@@ -718,7 +718,7 @@ final class CollectionMacTests: XCTestCase {
             ["op": "children", "id": 1, "ids": [5, 4]],
         ]))
         XCTAssertEqual(list.container.subviews.compactMap { ($0 as? NodeView)?.id }, [2, 5, 4])
-        // The first of the nodes: a vertical list's table is under its rows in the same document.
+        // The first of the nodes: a vertical list's table is under its rows in the same document (LLP 1115.002 D5).
         XCTAssertTrue(try XCTUnwrap(list.container.subviews.compactMap { $0 as? NodeView }.first).paintGhost, "the leaving row is a paint ghost")
         p.apply(batch([["op": "destroy", "id": 2]]))
         XCTAssertEqual(list.container.subviews.compactMap { ($0 as? NodeView)?.id }, [5, 4])
@@ -814,7 +814,7 @@ final class CollectionMacTests: XCTestCase {
         }
     }
 
-    /// The reader's live scroll (a gesture and
+    /// LLP 1070.000 §2.6 on AppKit: the reader's live scroll (a gesture and
     /// its momentum, which AppKit carries on through a programmatic scroll)
     /// is reported until AppKit ends it, so the runner waits; a request's
     /// landing lands whatever the reader scrolled since the report it was
@@ -916,7 +916,7 @@ final class CollectionMacTests: XCTestCase {
     }
     /// While a request's corrections are the app's, a report carries no
     /// velocity: neither their moves nor what the host sampled before the
-    /// request are the reader's travel. Once the reader
+    /// request are the reader's travel (LLP 1070.000 §2.5). Once the reader
     /// begins a gesture, the travel is reported again.
     func testARequestUnderWayReportsNoTravelSampledBeforeIt() throws {
         let (p, _) = fixture()

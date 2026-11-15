@@ -1,4 +1,4 @@
-// What a drive hands an agent to read (2026-10-08): the transcript's short `tap` line and its
+// What a drive hands an agent to read (LLP 1012 §7, 2026-10-08): the transcript's short `tap` line and its
 // `state` one line a section, without an app's empty sections; a screenshot shrunk to `--scale` pixels a point. The fixture
 // (scripts/fixtures/transcript.txt, agent.test.mjs) pins the forms; these pin the edges.
 import { test, expect } from 'bun:test';

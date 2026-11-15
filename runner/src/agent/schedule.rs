@@ -1,4 +1,4 @@
-//! The agent's view of what is scheduled: each task's next
+//! The agent's view of what is scheduled (LLP 1092 D10): each task's next
 //! due time (`null` while idle or spent) and each queue's waiting sends.
 
 use super::{num, quote};

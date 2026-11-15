@@ -1,4 +1,5 @@
-// In Chrome, Firefox and WebKit: a pushed route's bar draws the system Back for the root's
+import { hostFixtureFile as readFileSync } from './glue-fixture.mjs';
+// LLP 1116.000 D4, in Chrome, Firefox and WebKit: a pushed route's bar draws the system Back for the root's
 // `navigationBack` control, where iOS draws UIKit's (NavigationBarIOS.swift `projectBack`): the arrow alone for a
 // control with no words, else its words, the control pressed through it. A control that is an item of the bar iOS makes
 // of its header is not shown; one elsewhere in the route, the title's own pressable or in a menu stays where it is, and
@@ -11,7 +12,7 @@
 // either writes them: an author's rows inline (the wasm runtime) or in a class (the JS target).
 import { test, expect } from 'bun:test';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
@@ -155,7 +156,7 @@ for (const engine of ['chromium', 'firefox', 'webkit']) test(`${engine}: a pushe
       ['long', true, 'Back', 'All my conversations', null, false], ['keys', true, '', 'Back', 'Meta+[', false],
       ['disabled', false, null, null, null, false], ['dimmed', false, null, null, null, false],
       ['dimmed-link', false, null, null, null, true], ['content', true, '', 'Back', null, true],
-      ['bare', false, null, null, null, true], ['bare-content', false, null, null, null, true], ['headless', false, null, null, null, true],
+      ['bare', false, null, null, null, true], ['bare-content', false, null, null, null, true], ['headless', true, '', 'Back', null, false],
       ['two', false, null, null, null, true], ['row', false, null, null, null, true], ['titled-tap', true, '', 'Back', null, false],
       ['authored', false, null, null, null, true], ['own-back', false, null, null, null, true], ['pressing', true, '', 'Back', null, false], ['commanded', true, '', 'Back', null, false],
       ['popover-first', true, '', 'Back', null, false], ['foreign', false, null, null, null, true], ['sheet', false, null, null, null, true], ['root', false, null, null, null, true],
@@ -178,7 +179,7 @@ for (const engine of ['chromium', 'firefox', 'webkit']) test(`${engine}: a pushe
     await back.focus();
     await page.keyboard.press('Enter');
     expect(await page.evaluate(() => [pressed.splice(0), (document.querySelector('#symbol #back').focus(), document.activeElement.id)])).toEqual([['symbol', 'symbol'], '']);
-    // The Back is a web app's: its arrow and words in the bar's label ink whatever accent the app,
+    // The Back is a web app's (LLP 1115.000 D4.14): its arrow and words in the bar's label ink whatever accent the app,
     // the root or a route says, in dark and in increased contrast, and hovered and held, over a different fill for each.
     const inks = () => page.evaluate(() => ['titled', 'route-accent', 'app-accent', 'nested-accent'].map((id) => {
       const back = document.querySelector(`#${id} > header`).shadowRoot.querySelector('button[part="back"]');
@@ -221,7 +222,7 @@ async function withBackPage(engine, run) {
     const path = new URL(request.url).pathname;
     if (path === '/') return new Response(html, { headers: { 'content-type': 'text/html' } });
     const file = Bun.file(resolve(ROOT, 'host/web', '.' + path));
-    return await file.exists() ? new Response(file) : new Response(null, { status: 404 });
+    return await file.exists() ? new Response(readFileSync(file.name), { headers: { 'content-type': file.type } }) : new Response(null, { status: 404 });
   } });
   let suite;
   try {
@@ -468,7 +469,7 @@ for (const [runtime, webDist] of Object.entries({ wasm: process.env.EXACT_WEB_DI
           // The routes, the bar's Back's words (null for none) and name, and whether the control shows.
           const shown = () => s.carrier.evaluate(`(() => { const routes = [...document.querySelectorAll('main > [navigationkey]')], back = routes.at(-1).querySelector(':scope > header').shadowRoot?.querySelector('button'), drawn = !!back && !back.hidden; return [routes.length, drawn ? back.lastChild.textContent : null, drawn ? back.getAttribute('aria-label') : null, document.querySelector('[data-testid=back]')?.getClientRects().length > 0]; })()`);
           expect([browser, await shown()]).toEqual([browser, [2, '', 'Back', false]]);
-          // The glue marks the bar, whose symbol is the bar's size, 22/17 of the 16 px body in its
+          // The glue marks the bar (LLP 1115.000 D4.15), whose symbol is the bar's size, 22/17 of the 16 px body in its
           // 1.2em box, over the 13 px written on it; a header iOS makes no bar of keeps the written size.
           const barOf = () => s.carrier.evaluate(`(() => { const route = [...document.querySelectorAll('main > [navigationkey]')].at(-1), box = route.querySelector('[data-testid=add] img').getBoundingClientRect(); return [route.querySelector(':scope > header').hasAttribute('data-exact-bar'), Math.round(box.width * 10) / 10]; })()`);
           const [marked, width] = await barOf();
@@ -504,7 +505,7 @@ for (const [runtime, webDist] of Object.entries({ wasm: process.env.EXACT_WEB_DI
             await s.tap(route);
             await s.clock('settle');
             expect([browser, route, await shown()]).toEqual([browser, route, expected]);
-            // A header iOS makes no bar of keeps the sizes written on its symbols: the Back
+            // A header iOS makes no bar of keeps the sizes written on its symbols (LLP 1115.000 D4.15): the Back
             // control's 20 px box, and Add's 13 px in a native button face's 1.5em box.
             if (expected === none) expect([browser, route, await s.carrier.evaluate(`(r => [r.width, r.height])(document.querySelector('[data-testid=back] img').getBoundingClientRect())`), await barOf()]).toEqual([browser, route, [20, 20], [false, 13 * 1.5]]);
             await s.tap('back');

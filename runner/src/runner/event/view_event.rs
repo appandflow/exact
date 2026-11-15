@@ -1,4 +1,4 @@
-//! A package view's declared event: the
+//! A package view's declared event (LLP 1133.021 §9 item 2): the
 //! implementation sends a message whose text is `{"exact:event": name,
 //! "args": [...]}`, and the lowering made each `name=action` a `message`
 //! handler whose one bound argument is `exact:event:<name>`
@@ -18,6 +18,7 @@ impl<D: DataSource> Runner<D> {
     /// ordinary dispatch to take the message.
     pub(super) fn view_event(
         &mut self,
+        view: exact_kernel::ViewId,
         node: NodesId,
         text: &str,
         frames: &[Frame],
@@ -57,8 +58,11 @@ impl<D: DataSource> Runner<D> {
         let Some(event) = sent["exact:event"].as_str() else {
             let h = plain?;
             let mut args = Vec::new();
-            for a in h.args.iter() {
-                match self.eval(self.plan.arg(a).expr, &[], frames) {
+            for (k, a) in h.args.iter().enumerate() {
+                match self
+                    .eval(self.plan.arg(a).expr, &[], frames)
+                    .map_err(|e| e.argument(view, node, "message", k))
+                {
                     Ok(v) => args.push(v),
                     Err(e) => return Some(Err(e)),
                 }

@@ -1,5 +1,6 @@
-// The design tool's Inspector on an app whose design declares no mode axes: exact2's library-gate, on the JS dev loop.
-// Its copy sits on the light column, not "the app's design is not read yet", and a library component's row that reads a token passed by name through a prop offers that token's edit
+// The design tool's Inspector on an app whose design declares no mode axes (stage 15 D4 batch 1 #1, theme2's 18:30
+// ruling): exact2's library-gate, on the JS dev loop. Its copy sits on the light column, not "the app's design is not
+// read yet", and a library component's row that reads a token passed by name through a prop offers that token's edit
 // (VerifiedBadge's check: `color=mark`, mark="cards.badge-mark").
 import { expect, onTestFinished, test } from 'bun:test';
 import { resolve } from 'node:path';
@@ -11,7 +12,7 @@ import { suiteBrowser } from './agent-launch.mjs';
 toolTurns();
 
 test('an app with no mode axes: a selection is placed on the light column, and a token a prop carries by name offers its edit', async () => {
-  // The gate's design server takes its .exact/tamber.lock: in turn with any other run here.
+  // The gate's design server takes its .exact/forma.lock: in turn with any other run here.
   const giveGate = await takePort(1000 + checkoutPort(resolve(ROOT, 'apps/library-gate')), { label: `design-tool-noaxes on ${ROOT}/apps/library-gate` });
   onTestFinished(giveGate);
   const listener = (await import('node:http')).createServer();
@@ -24,8 +25,8 @@ test('an app with no mode axes: a selection is placed on the light column, and a
   try {
     const base = `http://127.0.0.1:${port}`;
     await lines(dev).until(l => l.includes('design reader ready'), 900_000);
-    tool = spawnOwned(process.execPath, [resolve(ROOT, 'scripts/exact.mjs'), 'tamber', 'tool', resolve(ROOT, 'apps/library-gate'), '--via', base, '--no-open'], { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'] });
-    const url = await lines(tool).until(l => l.startsWith(`${TOOL_ORIGIN}/__tamber/tool/`), 600_000);
+    tool = spawnOwned(process.execPath, [resolve(ROOT, 'scripts/exact.mjs'), 'forma', 'tool', resolve(ROOT, 'apps/library-gate'), '--via', base, '--no-open'], { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'] });
+    const url = await lines(tool).until(l => l.startsWith(`${TOOL_ORIGIN}/__forma/tool/`), 600_000);
     const page = await browser.newPage({ viewport: { width: 1400, height: 1200 }, colorScheme: 'light' });
     await page.goto(url);
     await page.locator('[data-testid="name"]').fill('Ada');

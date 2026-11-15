@@ -157,7 +157,7 @@ extension GroupedListView {
     /// cell, so the layout places that row exactly. A row never shown has
     /// UIKit's estimated height until its cell sizes it: a scroll aimed at a
     /// row hours down a timetable stopped where the estimates put it, an
-    /// hour short, and the rows it passed grew under it.
+    /// hour short, and the rows it passed grew under it (r28's timetable).
     /// The list moves a page at a time, unanimated and unreported, to the
     /// row and back, and the first row that showed stays where it was.
     func measure(toward node: NodeView) {

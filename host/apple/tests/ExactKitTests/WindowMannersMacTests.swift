@@ -3,7 +3,7 @@ import AppKit
 import XCTest
 @testable import ExactKit
 
-/// A window the adapter makes opens with AppKit's own
+/// LLP 1115.000 D7.9: a window the adapter makes opens with AppKit's own
 /// animation (it was told `.none`), and window tabs are for an app whose
 /// documents have windows of their own: a one-window app offers none, where
 /// every window used to carry a tabbing identifier and AppKit's menus
@@ -69,7 +69,7 @@ final class WindowMannersMacTests: XCTestCase {
         func windowWillClose(_ notification: Notification) { closed = true }
     }
 
-    /// `host.macos.window.keepRunning` hides the one window
+    /// LLP 1069.010 D8: `host.macos.window.keepRunning` hides the one window
     /// of a one-window app on close, its session alive, and the
     /// reopen shows it again as it was. Unsaid, the window closes, which
     /// ends the app (`applicationShouldTerminateAfterLastWindowClosed`).

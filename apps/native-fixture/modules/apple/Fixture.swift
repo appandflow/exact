@@ -1,4 +1,4 @@
-// The native-module fixture on Apple hosts: a coloured box the
+// The native-module fixture (LLP 1024 D8) on Apple hosts: a coloured box the
 // smoke can drive through every part of the seam. `exact-fixture` paints its
 // colour with a layer background, which the ordinary `cacheDisplay` capture
 // does not see, so its colour in a screenshot is the tokened snapshot's; it
@@ -8,7 +8,7 @@
 // colour in `draw(_:)`, which the ordinary capture does see. Neither takes
 // hits: an agent `tap` lands on the node's own view.
 //
-// On iOS the module's hatches take the long tail: what
+// On iOS the module's hatches (LLP 1075.003 §3.2) take the long tail: what
 // the authored header does not say — the bar's tint, and a leading button
 // that clicks the authored control `data-menu` names, so a finger and the
 // agent run one handler. The title, large or inline, Back and the
@@ -17,14 +17,17 @@
 // which Exact owns (the development check journals it); `data-transition`
 // gives the stack a cross-fade through the forwarded delegate.
 //
-// On every Apple host, nodes the Contract marks `hatch`
-// reach `element`: the `badge` gets a context menu, an interaction Exact
-// leaves to the app; each list row's `dot` hatch does nothing, so what a
-// hatched node costs is the cost of being hatched; with `data-violate` the
-// detail's scroller (`detail-list`) gets an inset Exact owns; the `frame`
-// hatch names the app in its web view's user agent before the view is made.
+// On every Apple host, nodes the Contract marks `hatch` (LLP 1075.003.000)
+// reach `element`: the `badge` gets a seal and, on iOS and macOS, a context
+// menu, an interaction Exact leaves to the app; each list row's `dot` hatch
+// does nothing, so what a hatched node costs is the cost of being hatched;
+// with `data-violate` the detail's scroller (`detail-list`) gets an inset
+// Exact owns; the `frame` hatch names the app in its web view's user agent
+// before the view is made, on hosts with WebKit.
 import Foundation
+#if canImport(WebKit)
 import WebKit
+#endif
 #if os(macOS)
 import AppKit
 #else
@@ -38,7 +41,7 @@ final class FixtureModule: ExactModule {
          "exact-screen": ExactNativeFactory { _, events in Screen(events: events) }]
     }
 
-    // The app and window scopes: each moment is
+    // The app and window scopes (LLP 1075.003.000.001 §2.1): each moment is
     // counted and published for the smoke, and a window that is the
     // session's own takes the scheme's background, taken back at its end.
     private var scheme = "light"
@@ -75,7 +78,7 @@ final class FixtureModule: ExactModule {
         publishScopes("window-ended")
     }
 
-    // The frame clock. Each tick counts itself
+    // The frame clock (LLP 1075.003.000.001 §2.4). Each tick counts itself
     // and whether the node's `data-frames`, which a frame task advances, is
     // the tick's own number. The first tick chains `after`s: one for now, one
     // for 20 ms on, and one stopped before it can run. The third presses the
@@ -140,21 +143,21 @@ final class FixtureModule: ExactModule {
     private var shown: [ObjectIdentifier: ExactSpan] = [:]
 
     override func element(_ element: ExactElement) {
-        // What each hatch says of itself: a
+        // What each hatch says of itself (LLP 1075.003.000.001 §3.2): a
         // counter a moment, and for the badge a line, a span from its mount
         // to its end and a snapshot of its last tone.
         let moment = element.isNew ? "built" : "changed"
-        // The smoke's stand-in for a crash in hatch code: the process dies
-        // inside this call, with no report to dismiss, and the next launch's
-        // journal says where.
+        // The smoke's stand-in for a crash in hatch code (LLP 1075.003.000.001
+        // §4.4): the process dies inside this call, with no report to dismiss,
+        // and the next launch's journal says where.
         if element.hatch == .badge, ProcessInfo.processInfo.environment["EXACT_FIXTURE_DIE"] == "badge" { kill(getpid(), SIGKILL) }
         element.diagnostics.count(moment)
-        // What a hatch asks of an authored node, each queued: `feed`
+        // What a hatch asks of an authored node (§2.5), each queued: `feed`
         // replaces its field's value, `presser` clicks its own button once
         // when armed and on every change while looping.
         if element.hatch == .feed, !element.isNew, let text = element.data[.feed], !text.isEmpty { element.input(text) }
         if element.hatch == .presser, !element.isNew, element.data[.loop] != "off" || element.data[.armed] == "true" { element.click() }
-        // The frame clock: a ticket while the node says to run.
+        // The frame clock (§2.4): a ticket while the node says to run.
         if element.hatch == .clock {
             let run = element.data[.run] == "true"
             if run, clockTicket == nil { startClock(element) }
@@ -168,37 +171,39 @@ final class FixtureModule: ExactModule {
             if element.isNew { shown[ObjectIdentifier(element)] = element.diagnostics.begin("shown") }
         }
         #if os(iOS)
-        // Owned by Exact: the development check says so.
+        // Owned by Exact (LLP 1075.003.000 §3.6): the development check says so.
         if element.hatch == .detailList, element.data[.violate] == "true" { element.scrollView?.contentInset.bottom = 1 }
         // A row's dot takes a recognizer of its own, which `elementEnded`
         // takes back; with `data-reuse` the hatch says so, and its row may be
-        // reused.
+        // reused (LLP 1075.003.000.000 §8).
         if element.hatch == .dot {
-            // Declared: the agent is told whose it is.
+            // Declared (LLP 1075.003.000.001 §3.4): the agent is told whose it is.
             if element.isNew, let view = element.view { let press = DotPress(); view.addGestureRecognizer(press); element.owns(recognizer: press, "press: the dot's own recognizer") }
             element.reusable = element.data[.reuse] == "true"
             return
         }
         #endif
         guard element.hatch == .badge, let view = element.view else { return }
-        // Regions and parts: the badge draws a seal over itself
+        // Regions and parts (§3.4, §3.5): the badge draws a seal over itself
         // and says so; with `data-tone` busy the seal goes, and its region
         // stays a while as a tombstone.
         regionsAndParts(element, view)
         guard element.isNew else { return }
         #if os(iOS)
         view.addInteraction(UIContextMenuInteraction(delegate: badgeMenu))
-        #else
+        #elseif os(macOS)
         view.menu = NSMenu(title: "Badge \(element.data[.tone] ?? "")")
         #endif
     }
 
-    /// The frame's configuration before its web view is made.
+    #if canImport(WebKit)
+    /// The frame's configuration before its web view is made (LLP 1020.002 §9).
     override func elementConfiguration(_ element: ExactElement, _ configuration: AnyObject) {
         guard element.hatch == .frame, let configuration = configuration as? WKWebViewConfiguration else { return }
         element.diagnostics.count("configuring")
         configuration.applicationNameForUserAgent = "NativeFixture/1"
     }
+    #endif
 
     override func elementEnded(_ element: ExactElement) {
         element.diagnostics.count("ended")
@@ -234,15 +239,9 @@ final class FixtureModule: ExactModule {
     private let fade = Fade()
     private var targets: [String: Click] = [:]
 
-    /// The tabs the container hook was handed, kept when the UIKit tests ask
-    /// (`EXACT_FIXTURE_READ_TABS`): every navigation hook then reads every
-    /// tab's controller, its own included while Exact builds it.
-    private var tabContents: ExactTabContents?
-
     override func navigation(_ navigation: ExactNavigation) {
         navigation.controller.navigationBar.tintColor = .systemIndigo
         context.diagnostics.count("navigations")
-        for tab in tabContents?.tabs ?? [] { _ = tab.controller }
     }
 
     override func route(_ route: ExactRoute) {
@@ -275,7 +274,6 @@ final class FixtureModule: ExactModule {
     /// tests': `EXACT_FIXTURE_CONTAINER=app`): a segmented control over the
     /// selected tab's stack, through the seam alone.
     override func tabContainer(_ contents: ExactTabContents) -> UIViewController? {
-        if ProcessInfo.processInfo.environment["EXACT_FIXTURE_READ_TABS"] == "1" { tabContents = contents }
         return ProcessInfo.processInfo.environment["EXACT_FIXTURE_CONTAINER"] == "app" ? FixtureTabs(contents) : nil
     }
     #endif
@@ -322,9 +320,11 @@ final class FixtureTabs: UIViewController {
         control.selectedSegmentIndex = contents.selected
     }
 }
+#endif
 
+#if os(iOS) || os(tvOS)
 /// A native screen: a whole controller in the node's box, a child of the
-/// route's controller.
+/// route's controller (LLP 1075.003 §3.6).
 final class Screen: ExactNativeScreen {
     init(events: ExactNativeEvents) {
         let controller = UIViewController()
@@ -334,7 +334,9 @@ final class Screen: ExactNativeScreen {
         label.frame = controller.view.bounds
         label.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         controller.view.addSubview(label)
+        #if os(iOS)
         controller.view.backgroundColor = .secondarySystemBackground
+        #endif
         super.init(screen: controller, events: events)
     }
 }
@@ -370,7 +372,7 @@ private final class Click: NSObject {
 }
 
 /// A cross-fade for every push and pop: an app's custom transition, through
-/// the delegate Exact forwards.
+/// the delegate Exact forwards (LLP 1075.003 §3.5).
 private final class Fade: NSObject, UINavigationControllerDelegate, UIViewControllerAnimatedTransitioning {
     func navigationController(_ nav: UINavigationController, animationControllerFor operation: UINavigationController.Operation,
                               from: UIViewController, to: UIViewController) -> UIViewControllerAnimatedTransitioning? { self }

@@ -1,4 +1,5 @@
 //! Archive-only boot; a miss compiles away from the presentation queue.
+//! @ref LLP 1149 D6.3; LLP 1149.001 Stage 0b.
 use super::*;
 use crate::device::apple::{Layer, RenderLayer};
 use crate::present::Thread;

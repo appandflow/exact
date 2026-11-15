@@ -2,21 +2,37 @@
 //! (grant-checked transport, ordered and independent lanes, continuations on
 //! its workers), with a wake the rendering thread waits on instead of a UI
 //! loop. Dropping it aborts whatever is still in flight.
-use exact_runner::{Outcome, RequestOut, Work};
+pub use exact_executor::pump;
+use exact_executor::{Core, SharedHttpCache, StreamHost, WorkerBudget};
+use exact_runner::{CompletionTiming, Outcome, RequestOut, Work};
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::Instant;
-#[path = "../../apple/src/executor_core.rs"]
-#[allow(dead_code)] // `run` is the core's own tests' entry
-mod core;
-/// A new executor waits for a native-worker slot under test: the crate's own
-/// tests, and the integration binary, whose every test's servers and renders
-/// share one process's bound (`test-wait`, which only the dev-dependency on
-/// this crate turns on). A server refuses (`Busy`) at the bound instead.
-const WAIT_FOR_SLOT: bool = cfg!(any(test, feature = "test-wait"));
+/// Each test thread shares a worker budget among its servers and renders. The
+/// dev-dependency enables this for integration tests; production shares one process bound.
+const BUDGET: WorkerBudget = if cfg!(any(test, feature = "test-budget")) {
+    WorkerBudget::Thread
+} else {
+    WorkerBudget::Process
+};
+
+thread_local! {
+    static HTTP_CACHE: std::cell::RefCell<Option<SharedHttpCache>> = const { std::cell::RefCell::new(None) };
+}
+
+pub(crate) fn set_http_cache(cache: SharedHttpCache) {
+    HTTP_CACHE.with(|current| *current.borrow_mut() = Some(cache));
+}
+
+fn http_cache() -> SharedHttpCache {
+    static BUILD: std::sync::OnceLock<SharedHttpCache> = std::sync::OnceLock::new();
+    HTTP_CACHE
+        .with(|current| current.borrow().clone())
+        .unwrap_or_else(|| BUILD.get_or_init(SharedHttpCache::new).clone())
+}
 
 /// The native core with a condition variable for its wake.
 pub struct Executor {
-    core: core::Core,
+    core: Core,
     wake: Arc<(Mutex<bool>, Condvar)>,
 }
 
@@ -24,13 +40,13 @@ impl Executor {
     /// Start the core's owners under `grants` (the render's, never more
     /// than the app's).
     pub fn start(grants: &str) -> Self {
-        // A server, not an app on a device: its fetches go over rustls on
-        // macOS too, not NSURLSession, whose per-call cost was ~30% of a
-        // RealWorld page's CPU.
+        // @ref LLP 1048.000 D10 — a server, not an app on a device: its
+        // fetches go over rustls on macOS too (Charlie, 2026-09-29), not
+        // NSURLSession, whose per-call cost was ~30% of a RealWorld page's CPU.
         // `EXACT_RENDER_TRANSPORT=platform` keeps the platform's (a check
         // against the platform, or a way back).
         let platform = std::env::var("EXACT_RENDER_TRANSPORT").as_deref() == Ok("platform");
-        let transport: core::StreamHost = if platform {
+        let transport: StreamHost = if platform {
             Arc::new(ibex2::host::Host::new)
         } else {
             Arc::new(|| {
@@ -54,7 +70,7 @@ impl Executor {
             .map(|g| host.endow(g));
         let wake = Arc::new((Mutex::new(false), Condvar::new()));
         let signal = wake.clone();
-        let core = core::Core::start_on(
+        let core = Core::start_on(
             bindings,
             grants,
             Box::new(move || {
@@ -64,12 +80,14 @@ impl Executor {
                 ready.notify_all();
             }),
             transport,
+            BUDGET,
         );
+        core.set_shared_http_cache(http_cache());
         Self { core, wake }
     }
 
     /// Where an app's files are, for a request whose body is one of them
-    /// A render serves no app files and never sets them,
+    /// (LLP 1108 D6 R2). A render serves no app files and never sets them,
     /// so such a request is refused; an embedder that has them may.
     pub fn set_app_roots(&self, roots: [std::path::PathBuf; 3]) {
         self.core.set_app_roots(roots);
@@ -80,9 +98,13 @@ impl Executor {
         self.core.run_owned(request, work)
     }
 
-    /// At most one completion, oldest ordered first; more rewake.
-    pub fn drain(&self) -> Vec<(u64, Outcome, Option<u64>)> {
+    /// Acknowledge the wake before draining a bounded group of replies.
+    pub fn begin_pump(&self) {
         self.core.begin_pump();
+    }
+
+    /// Take the next ready completion; more ready outcomes wake again.
+    pub fn drain(&self) -> Vec<(u64, Outcome, Option<CompletionTiming>)> {
         self.core.drain()
     }
 
@@ -98,7 +120,8 @@ impl Executor {
     }
 
     /// Settle a re-ask (`Dispatch::Again`) in its ordered place, with no
-    /// work; kept pending while the window is full. An error is terminal, for the host to record.
+    /// work (LLP 1041 §8.4, amended 2026-10-09); kept pending while the
+    /// window is full. An error is terminal, for the host to record.
     pub fn again(&self, request: &RequestOut) -> Result<(), &'static str> {
         self.core.again(request.ticket)
     }
@@ -107,7 +130,7 @@ impl Executor {
         self.core.forget(held);
     }
     /// The uploads let go that had begun to go out, for
-    /// `Runner::uploads_started`.
+    /// `Runner::uploads_started` (LLP 1016.000 D10).
     pub fn let_go_started(&self, held: impl Fn(u64) -> bool) -> Vec<u64> {
         self.core.let_go_started(held)
     }
@@ -118,6 +141,9 @@ impl Executor {
 
     /// Wait until the core has news, or until `until`.
     pub fn wait(&self, until: Instant) {
+        // A direct drain may have consumed the wake: rearm before a later
+        // stream message must wake this waiter (LLP 1162 D3).
+        self.core.begin_pump();
         let (woken, ready) = &*self.wake;
         let mut guard = woken.lock().unwrap();
         while !*guard {

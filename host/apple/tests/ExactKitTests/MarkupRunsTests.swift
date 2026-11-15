@@ -1,5 +1,5 @@
-// Markdown source becomes the engine's runs through the archive's seam:
-// what measure expands is what paint expands.
+// Markdown source becomes the engine's runs through the archive's seam
+// (LLP 1045 D3): what measure expands is what paint expands.
 import XCTest
 @testable import ExactKit
 @testable import ExactMarkdown
@@ -7,7 +7,7 @@ import XCTest
 final class MarkupRunsTests: XCTestCase {
     override func setUp() {
         super.setUp()
-        ExactMarkdown.install() // the capability this tests
+        ExactMarkdown.install() // LLP 1047.001 D4: the capability this tests
     }
 
     func testNavigationTargetsUseSupportedParsedAbsoluteSchemes() {
@@ -28,7 +28,7 @@ final class MarkupRunsTests: XCTestCase {
             XCTAssertTrue(runs.allSatisfy { !$0.decoration.contains("underline") }, href)
         }
         // An absolute path needs no document base: a location in the app,
-        // followed through the navigation root.
+        // followed through the navigation root (notes diary, LLP 1045 D4).
         let path = MarkupRuns.expand("[Ideas](/note/3)", base: base, color: nil)
         XCTAssertEqual(path.first { $0.text == "Ideas" }?.href, "/note/3")
         XCTAssertEqual(path.first { $0.text == "Ideas" }?.decoration, "underline")
@@ -51,7 +51,7 @@ final class MarkupRunsTests: XCTestCase {
         XCTAssertEqual(MarkupRuns.expand("", base: base, color: nil), [])
     }
 
-    /// Under Bold Text the kernel steps the node's
+    /// LLP 1115.000 D12.3: under Bold Text the kernel steps the node's
     /// weight; a piece's own bold takes the same step (700 to 900).
     func testBoldTextStepsAPiecesOwnWeight() {
         let base = Run(text: "", size: 16, weight: 600, family: 0, italic: false, lineHeight: nil, letterSpacing: 0)
@@ -69,7 +69,7 @@ final class MarkupRunsTests: XCTestCase {
         XCTAssertEqual(runs.first { $0.text == "quoted" }?.color?[3], 255 * 0.62)
         // The item's text is its own run, followed by the block's newline glyph.
         XCTAssertEqual(runs.first { $0.text == "one" }?.color?[3], 255)
-        // The item's runs carry its indent, its marker hung before it.
+        // The item's runs carry its indent, its marker hung before it (LLP 1045 D4).
         XCTAssertTrue(bullet.hang); XCTAssertEqual(bullet.indent, 40)
         XCTAssertEqual(runs.first { $0.text == "one" }?.indent, 40)
         XCTAssertEqual(runs.first { $0.text == "quoted" }?.indent, 0)

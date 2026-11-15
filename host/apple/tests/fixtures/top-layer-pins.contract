@@ -1,4 +1,4 @@
-// TopLayerBlock tests, a chat app's Pins popover as a fixture: a
+// TopLayerBlock tests (stage 14 B), Harmony's Pins popover as a fixture: a
 // popover with no width, written in a header 100 points wide that is
 // positioned, holding cards that wrap. In the viewport, its block, it is as
 // wide as its cards on one line, as on the web: 4 x 80 + 3 x 8 + 2 x 12 =

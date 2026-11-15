@@ -1,5 +1,5 @@
 # Number text as std reads and writes it, without std's tables.
-# A leaf below motion, text flow, the kernel, the runner
+# @ref LLP 1047 §6 — a leaf below motion, text flow, the kernel, the runner
 # and the web host. No dependency; builds for wasm32-unknown-unknown.
 [package]
 name = "exact-num"

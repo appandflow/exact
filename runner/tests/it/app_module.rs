@@ -1,4 +1,4 @@
-//! A Rust source reaches the session's app module: it asks
+//! A Rust source reaches the session's app module (LLP 1067.000 Q9): it asks
 //! with `Request::native`, the runner hands the call to the handler the host
 //! installed in its own slot (the source has none), and an announced topic
 //! asks the watching resource again.
@@ -141,7 +141,7 @@ fn status(n: f64) -> Option<Value> {
     Some(Value::record(vec![Value::Number(n)]))
 }
 
-/// A topic announced while the watching
+/// LLP 1016.002 D4 (issue #109): a topic announced while the watching
 /// resource's request is in flight does not forget that request. Its reply
 /// lands and shows, then the resource is asked again once, however many
 /// announcements came meanwhile; `pending` holds until that ask lands.
@@ -321,7 +321,7 @@ impl DataSource for Stored {
 
 /// A store write asks a store reader again at once, though a topic it
 /// watches changed while its request was in flight: only module work's
-/// write waits for the reply.
+/// write waits for the reply (LLP 1146 §2.4).
 #[test]
 fn a_store_write_asks_a_store_reader_again_though_its_topic_waits_for_a_reply() {
     let plan = contract::compile(STORED).unwrap();

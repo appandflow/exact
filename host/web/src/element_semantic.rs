@@ -6,10 +6,10 @@
 pub(super) fn element(tag: &str) -> Option<&'static str> {
     const ELEMENTS: &[&str] = &[
         "time", "main", "header", "nav", "section", "footer", "article", "aside", "dialog",
-        // HTML's separator, void: the kernel gives it no
+        // @ref LLP 1021 D1 — HTML's separator, void: the kernel gives it no
         // children, and its UA rows are the node's own.
         "hr",
-        // HTML's own elements, laid out by the browser's
+        // @ref LLP 1153 D7 — HTML's own elements, laid out by the browser's
         // table algorithm and its UA sheet (`display: table` and the rest);
         // the plan carries no grid rows for them.
         "table", "caption", "thead", "tbody", "tfoot", "tr", "th", "td", "dl", "dt", "dd",

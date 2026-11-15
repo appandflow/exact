@@ -1,4 +1,4 @@
-// The stream fixture's data: the T3 Code device player's
+// The stream fixture's data (LLP 1133.003 §9): the T3 Code device player's
 // framing (`packages/client-runtime/src/device/stream.ts` at 74541bab17),
 // parsed in a stream's mapper. serve-sim's body is envelopes: a `u32`
 // big-endian length, a tag (1 the `avcC` description, 2 a key frame, 3 a

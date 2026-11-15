@@ -185,11 +185,12 @@ theorem initSlots_good {p : Program} {o : Oracle} (hp : WellTyped p) :
         exact app _ ⟨isSlot_of_state ham, .inr (.inl ⟨by simpa using hrouter, r, rfl⟩)⟩
       · simp only [throw, throwThe, MonadExceptOf.throw, bind, Except.bind, GoodW]; exact refusedS _
     next hrouter =>
-    obtain ⟨t, ht, -⟩ := hp.rootInits k a hka ho (by simpa using hlate) (by simpa using hrouter)
+    obtain ⟨t, ht, hle⟩ := hp.rootInits k a hka ho (by simpa using hlate) (by simpa using hrouter)
     refine GoodW.bind (eval_sound_E hfn (fun _ h hn => ⟨h, hn⟩) (initEnvOKE hp hk hb) LocalsOK.nil ht)
-      fun v _ => ?_
+      fun v hv => ?_
     split
-    · simp only [throw, throwThe, MonadExceptOf.throw, bind, Except.bind, GoodW]; exact refusedS _
+    · simp only [throw, throwThe, MonadExceptOf.throw, bind, Except.bind, GoodW]
+      rw [unfit_typed (typed_of_valTy v (ValTy.mono hv hle))]; exact refusedS _
     · next hc =>
       refine app _ ⟨isSlot_of_state ham, .inl ?_⟩
       rw [slotTy_state hp.names ham]; exact restore_conforms (by simpa using hc)
@@ -243,7 +244,7 @@ theorem lateEnvOKE {p : Program} (hp : WellTyped p) {k : Nat} {st : Settled} {sl
     (hpres : SlotsPresent p slots) (hb : ∀ x v, (x, v) ∈ slots → BootOK p (lateNames (p.states.drop k)) x v)
     (hst : SettledOK p st) (hc : Complete p st) :
     EnvOKE p Strict (lateScope p k)
-      { prog := p, slots, derives := st.derives, resources := st.resources, now := 0 } := by
+      { prog := p, slots, derives := st.derives, resources := st.resources, now := 0, idle := st.idle } := by
   have N := Names.of hp.names
   let L : String → Bool := fun x => !((lateScope p k).any (·.1 == x))
   have hL : ∀ x, L x = false → ∃ t, (x, t) ∈ lateScope p k := by
@@ -285,12 +286,13 @@ theorem lateSlots_good {p : Program} (hp : WellTyped p) {st : Settled} {slots₀
     next hskip =>
     have hla : a.late = true := by cases hl : a.late <;> simp_all
     have ho : a.owner = .none := by cases ho : a.owner <;> simp_all
-    obtain ⟨t, ht, -⟩ := hp.lateInits k a hka ho hla
+    obtain ⟨t, ht, hle⟩ := hp.lateInits k a hka ho hla
     have hpb : SlotsPresent p b := hpres.of_keys hkeys
     refine GoodW.bind (eval_sound_E hfn (fun _ h hn => ⟨h, hn⟩)
-      (lateEnvOKE hp hpb (by rw [← hrest]; exact hbk) hst hc) LocalsOK.nil ht) fun v _ => ?_
+      (lateEnvOKE hp hpb (by rw [← hrest]; exact hbk) hst hc) LocalsOK.nil ht) fun v hv => ?_
     split
-    · simp only [throw, throwThe, MonadExceptOf.throw, bind, Except.bind, GoodW]; exact ⟨trivial, by simp⟩
+    · simp only [throw, throwThe, MonadExceptOf.throw, bind, Except.bind, GoodW]
+      rw [unfit_typed (typed_of_valTy v (ValTy.mono hv hle))]; exact ⟨trivial, by simp⟩
     · next hconf =>
       refine ⟨k + 1, hdrop.symm, by rw [setSlot_keys]; exact hkeys, fun x w hx => ?_⟩
       obtain ⟨u, hu, hcase⟩ := mem_setSlot' hx
@@ -353,7 +355,7 @@ theorem boot_sound {p : Program} (hp : WellTyped p) (o : Oracle) : OutcomeOK (bo
     obtain ⟨t, htk, ha, hg, hk⟩ := startTimers_tasks ht tm htm
     refine ⟨by rw [ha]; exact hp.taskActions t htk, ?_⟩
     rw [hg, hk]; exact hp.taskGates t htk
-  -- The gate step at boot: a key that is no key refuses it.
+  -- The gate step at boot (LLP 1092 D8): a key that is no key refuses it.
   split
   · next e he =>
     exact ofW (gateStep_good hp
@@ -363,7 +365,7 @@ theorem boot_sound {p : Program} (hp : WellTyped p) (o : Oracle) : OutcomeOK (bo
   · trivial
   · next e he =>
     exact ofW (renderTabs_good hp (E := Strict) (fun _ h hn => ⟨h, hn⟩) fuel
-      (cx := { env := { prog := p, slots, derives := st.derives, resources := st.resources, now := 0 },
+      (cx := { env := { prog := p, slots, derives := st.derives, resources := st.resources, now := 0, idle := st.idle },
                store := [], tabs := { every := o.everyTab } })
       ⟨rfl, hs, hpres.of_keys hkeys, RowsOK.nil, hok.1, hok.2⟩ (.inl hc) StoreOK.nil) he
 
@@ -433,7 +435,7 @@ theorem observe_step_sound {p : Program} (hcheck : check p = true) {c : Config}
   have hstep : Reachable p (Observe.step p o c e).1 ∧ OutcomeOK (Observe.step p o c e).2 := by
     cases e with
     | tap t => exact at_ t "press" .none
-    | change t s => exact at_ t "change" (.some (.str s))
+    | change t s => exact at_ t (Observe.typed c t) (.some (.str s))
     | clock ms => exact one (.advance (c.now + ms)) h
     | other t ev v => exact at_ t ev v
   exact ⟨hstep.1, reachable_configOK hp hstep.1, hstep.2⟩
@@ -447,5 +449,20 @@ theorem never_wrong {p : Program} (hcheck : check p = true) :
       Legitimate e ∧ (∀ w, e ≠ .type w) ∧ (∀ x, e ≠ .unbound x) ∧ e ≠ .pending := by
   obtain ⟨hb, hr⟩ := dont_go_wrong hcheck
   exact ⟨fun o => (hb o).failure, fun c h o ev => ((hr c h).2 o ev).2.failure⟩
+
+/-- A press that writes `rhs` to a number slot. -/
+private def writes (rhs : Expr) : Program :=
+  { states := [{ name := "n", ty := .number, init := .num 0 }],
+    actions := [{ name := "a", params := [], body := [.assign "n" rhs] }],
+    view := [.element "button" [] [("testId", .str "b")] [("press", "a", [])] []] }
+
+private def says (p : Program) (line : String) : Bool :=
+  ((String.intercalate "\n" (Observe.run p {} [.tap "b"])).splitOn line).length > 1
+
+-- A string written to a number slot, which `check` refuses, is the type
+-- error the theorems rule out; `n / 0`, which `check` accepts, is refused.
+#guard !check (writes (.str "x")) && says (writes (.str "x")) "# type: a write of the wrong type"
+#guard check (writes (.binary .div (.var "n") (.num 0))) &&
+  says (writes (.binary .div (.var "n") (.num 0))) "# refused: a write of a number that is not finite"
 
 end Contract

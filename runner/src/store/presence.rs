@@ -1,4 +1,4 @@
-//! The store's half of presence secrets: a presence
+//! The store's half of presence secrets (LLP 1133.010 D5): a presence
 //! name's occupancy, never its bytes while it is locked or pending.
 //!
 //! Occupancy is a runner-owned entry, `exact.presence.<name>`, beside the
@@ -71,7 +71,7 @@ pub(super) fn settle_entries(
 }
 
 impl Store {
-    /// The runner's own prefix for presence occupancy; the
+    /// The runner's own prefix for presence occupancy (LLP 1133.010 D4); the
     /// prefix alone is the entry that says the host keeps locked secrets.
     pub const PRESENCE: &'static str = exact_grants::PRESENCE_PREFIX;
 
@@ -103,7 +103,7 @@ impl Store {
     }
 
     /// Whether this host keeps locked secrets now: it has a presence backend,
-    /// and a device credential is set.
+    /// and a device credential is set (D5).
     pub fn presence_capable(&self) -> bool {
         self.values.get(Store::PRESENCE).is_some_and(|v| v == b"1")
     }
@@ -253,7 +253,7 @@ impl Store {
     }
 
     /// Whether the launch opened with a presence name locked or pending: it
-    /// shows no kept answer.
+    /// shows no kept answer (D5).
     pub fn opened_locked(&self) -> bool {
         self.opened_locked
     }

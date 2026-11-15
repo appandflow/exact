@@ -1,6 +1,6 @@
-//! Per-side border colours by their CSS names — the four longhands,
-//! `border-color` with one to four values, and `currentcolor` kept a keyword
-//! that follows `color`, never an RGB baked at compile time.
+//! LLP 1053 G2: per-side border colours by their CSS names — the four
+//! longhands, `border-color` with one to four values, and `currentcolor`
+//! kept a keyword that follows `color`, never an RGB baked at compile time.
 
 use exact_kernel::{BorderStyle, Color, ColorValue, Kernel, StyleId, StyleMask, StyleProps};
 use exact_plan::Value;
@@ -259,10 +259,10 @@ fn border_radius_takes_one_to_four_corners() {
     let corners = |id: &str| {
         let s = style_of(&r, id);
         [
-            s.border_radius_top_left,
-            s.border_radius_top_right,
-            s.border_radius_bottom_right,
-            s.border_radius_bottom_left,
+            &s.border_radius_top_left,
+            &s.border_radius_top_right,
+            &s.border_radius_bottom_right,
+            &s.border_radius_bottom_left,
         ]
         .map(|c| format!("{c:?}"))
     };
@@ -351,7 +351,7 @@ fn a_computed_shorthand_list_is_refused_naming_the_longhands() {
         // grouped cells, which drew square corners).
         ("border-radius=corners(on)", "write `border-top-left-radius`/"),
         ("border-radius=(on ? \"4px\" : outer(on))", "write `border-top-left-radius`/"),
-        // A call both arms make is bound once by a `let`,
+        // A call both arms make is bound once by a `let` (review round 1),
         // and an arm inside a template or a concatenation is one of its texts.
         ("border-radius=both(on)", "write `border-top-left-radius`/"),
         ("border-radius=`${on ? \"12px 12px 2px 2px\" : \"12px\"}`", "write `border-top-left-radius`/"),
@@ -402,10 +402,10 @@ fn a_computed_shorthand_list_is_refused_naming_the_longhands() {
     let radii = style_of(&r, "radii");
     assert_eq!(
         [
-            radii.border_radius_top_left,
-            radii.border_radius_top_right,
-            radii.border_radius_bottom_right,
-            radii.border_radius_bottom_left,
+            &radii.border_radius_top_left,
+            &radii.border_radius_top_right,
+            &radii.border_radius_bottom_right,
+            &radii.border_radius_bottom_left,
         ]
         .map(|c| format!("{c:?}")),
         [
@@ -500,22 +500,26 @@ fn a_bound_zero_is_a_length_and_a_bound_list_is_refused_by_every_row() {
     );
 }
 
-/// An empty `font-family`, literal, a choice's arm or a component's prop,
-/// declares nothing, as an empty colour does.
+/// An empty family clears its own value and keeps the author's declaration.
 #[test]
-fn an_empty_font_family_declares_nothing() {
+fn an_empty_font_family_keeps_its_written_bit() {
     let mut r = boot(
         "component A\n  state plain = false\n  action flip\n    plain = not plain\n  view\n    column\n      button testId=\"flip\" press=flip width=10 height=10\n      text \"a\" testId=\"empty\" font-family=\"\"\n      text \"b\" testId=\"choice\" font-family=(plain ? \"\" : \"Georgia\")\n      Fam(f=\"\")\n\ncomponent Fam\n  props\n    f: string\n  view\n    text \"c\" testId=\"prop\" font-family=f\n",
     );
-    assert!(!style_of(&r, "empty").mask.has(StyleId::FontFamily));
-    assert!(!style_of(&r, "prop").mask.has(StyleId::FontFamily));
+    for id in ["empty", "prop"] {
+        let style = style_of(&r, id);
+        assert!(!style.mask.has(StyleId::FontFamily));
+        assert!(style.written.has(StyleId::FontFamily), "{id}");
+    }
     assert!(style_of(&r, "choice").mask.has(StyleId::FontFamily));
     let flip = {
         let k = r.kernel();
         k.node_by_key(k.find_by_test_id("flip")[0]).unwrap().id
     };
     r.dispatch(flip, Event::Press).unwrap();
-    assert!(!style_of(&r, "choice").mask.has(StyleId::FontFamily));
+    let style = style_of(&r, "choice");
+    assert!(!style.mask.has(StyleId::FontFamily));
+    assert!(style.written.has(StyleId::FontFamily));
 }
 
 /// A longhand bound to a list is not split: two lengths on a corner are
@@ -562,10 +566,10 @@ fn a_choice_of_corner_lists_sets_each_corner() {
     let corners = |id: &str| {
         let s = style_of(&r, id);
         [
-            s.border_radius_top_left,
-            s.border_radius_top_right,
-            s.border_radius_bottom_right,
-            s.border_radius_bottom_left,
+            &s.border_radius_top_left,
+            &s.border_radius_top_right,
+            &s.border_radius_bottom_right,
+            &s.border_radius_bottom_left,
         ]
         .map(|d| format!("{d:?}"))
     };
@@ -628,9 +632,10 @@ fn two_value_shorthands_split_into_their_rows() {
     assert!(e.message.contains("one or two values (row, column)"), "{e}");
 }
 
-/// A glass group on a box that scrolls is refused, the box's overflow computed
-/// as CSS Overflow 3 §3.1 does (a `visible` axis beside a non-`visible` one is
-/// `auto`), from every row and each literal arm of a choice.
+/// LLP 1053.000.000: a glass group on a box that scrolls is refused, the
+/// box's overflow computed as CSS Overflow 3 §3.1 does (a `visible` axis
+/// beside a non-`visible` one is `auto`), from every row and each literal
+/// arm of a choice (the review of the two-value split).
 #[test]
 fn a_glass_group_reads_every_overflow_row_and_arm() {
     for overflow in [

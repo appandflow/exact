@@ -13,9 +13,9 @@
 //! with tiny inputs, reduction boundaries and large inputs through 1e300.
 //! Each case also carries a numeral and two dates:
 //! `parseNumber` of the numeral and `calendarDiff` of the dates in years and
-//! in months, as `exact_runner::stdlib` reads them;
+//! in months (LLP 1102 §3.1, §3.4), as `exact_runner::stdlib` reads them;
 //! and two digit counts: `toFixed(a, d)`, `formatDecimal(a, g)` and
-//! `formatDecimal(trunc(a), g)`, as the `format` capability prints.
+//! `formatDecimal(trunc(a), g)` (§3.2), as the `format` capability prints.
 
 use crate::leanrun;
 use crate::rng::Rng;
@@ -83,11 +83,18 @@ fn expected(c: &Case) -> String {
     let bit = |p: bool| if p { '1' } else { '0' };
     let opt = |v: Option<String>| v.unwrap_or_else(|| "none".into());
     let diff = |months| opt(stdlib::calendar_diff(&c.from, &c.to, months).map(|n| n.to_string()));
-    let fmt =
-        |f, x: f64, d: u32| match formatting(f, &[Value::Number(x), Value::Number(f64::from(d))]) {
-            Some(v) => format!("[{}]", v.as_str().unwrap_or("?")),
-            None => "refused".into(),
-        };
+    // `toFixed` and `formatDecimal` read no table: a plan with none serves.
+    let plan = exact_plan::builder::PlanBuilder::new(exact_kernel::SCHEMA_DIGEST, 1)
+        .finish()
+        .expect("an empty plan");
+    let fmt = |f, x: f64, d: u32| match formatting(
+        f,
+        &[Value::Number(x), Value::Number(f64::from(d))],
+        &plan,
+    ) {
+        Some(v) => format!("[{}]", v.as_str().unwrap_or("?")),
+        None => "refused".into(),
+    };
     format!(
         "{:016x} {:016x} {:016x} {:016x} {:016x} {:016x} {:016x} {:016x} {:016x} {:016x} {:016x} {:016x} {:016x} {:016x} {:016x} {:016x} {}{}{} {} {} {} {} {} {}",
         canon(a + b),

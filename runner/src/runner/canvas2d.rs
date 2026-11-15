@@ -1,7 +1,7 @@
-//! Canvas 2D's half of the protocol in the runner.
+//! Canvas 2D's half of the protocol in the runner (LLP 1056 D4, D5).
 //!
-//! Geometry, generations, stamps, errors, limits and the first frame; time;
-//! and what the agent reads.
+//! @ref LLP 1056 D4 (geometry, generations, stamps, errors, limits, first
+//! frame) / D5 (time) / §5 (the agent)
 //!
 //! A `canvas surface=` whose name is in the data source's
 //! [`DataSource::canvas_surfaces`] roster is a 2D canvas: its surface
@@ -25,12 +25,12 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
 /// A canvas node's CSS `color` (for `currentColor`) and whether its
-/// `direction` is `rtl` (for `direction = "inherit"`).
+/// `direction` is `rtl` (for `direction = "inherit"`), LLP 1056 D3, D8.
 pub type NodeStyle<'a> = &'a dyn Fn(ViewId) -> (Option<Rgba>, bool);
 
 /// A canvas's content box in coordinate units and its device scale, as the
 /// host that lays it out reports it; `bitmap` is an explicit bitmap size
-/// (`bitmap-width`/`bitmap-height`), stretched to the box.
+/// (`bitmap-width`/`bitmap-height`, LLP 1056 D6 r3), stretched to the box.
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub struct Geometry {
     /// Content-box width, CSS px.
@@ -45,8 +45,8 @@ pub struct Geometry {
     pub settings: Settings,
 }
 
-/// A canvas's `color-space` and `color-type`, HTML's getContext settings.
-/// A change is a new generation, as a new context would be.
+/// A canvas's `color-space` and `color-type`, HTML's getContext settings
+/// (LLP 1100 D12a). A change is a new generation, as a new context would be.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct Settings {
     /// `display-p3`: colours and pixels are Display P3.
@@ -103,7 +103,7 @@ impl Backing {
     }
 }
 
-/// The size limits (r3): what browsers enforce, and a total
+/// The size limits (LLP 1056 D4, r3): what browsers enforce, and a total
 /// budget of a quarter of physical memory, counting two bitmaps a canvas.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Limits {
@@ -162,7 +162,7 @@ pub struct DrawRequest<'a> {
     pub current_color: Option<Rgba>,
     /// The canvas node's `direction` is `rtl`.
     pub rtl: bool,
-    /// The canvas is `display-p3`.
+    /// The canvas is `display-p3` (LLP 1100 D12a).
     pub p3: bool,
 }
 
@@ -299,7 +299,7 @@ pub struct CanvasList {
     /// The lists.
     pub lists: Vec<Vec<u8>>,
     /// The draw asked for the next frame: the canvas animates (a host may
-    /// present it differently).
+    /// present it differently, LLP 1056 §8.4).
     pub animating: bool,
     /// The bitmap's getContext settings.
     pub settings: Settings,
@@ -317,6 +317,8 @@ struct Record {
     generation: u32,
     next_seq: u64,
     applied_seq: u64,
+    rejected_seq: u64,
+    capture_requested: bool,
     geometry: Option<Geometry>,
     backing: Option<Backing>,
     /// A new generation not yet announced to the host.
@@ -333,10 +335,10 @@ struct Record {
     last_bytes: usize,
     last_draw: Option<f64>,
     draws: u64,
-    /// The clock value it was last drawn at for a frame (at most once per
-    /// clock value).
+    /// The clock value it was last drawn at for a frame (D5: at most once
+    /// per clock value).
     framed_at: Option<f64>,
-    /// Its last draw drew text: a font that loads redraws it.
+    /// Its last draw drew text: a font that loads redraws it (D8).
     text: bool,
     /// The colour and direction its last draw drew in: a change redraws it.
     drawn_in: Option<(Option<Rgba>, bool)>,
@@ -355,10 +357,10 @@ struct Canvases {
     images: ImageSlot,
 }
 
-/// Lists waiting for the host beyond this hold new draws back.
+/// Lists waiting for the host beyond this hold new draws back (LLP 1056 D4).
 const QUEUED_BYTES: usize = 8 << 20;
 
-/// Canvas 2D's engine, linked by use: only
+/// Canvas 2D's engine, linked by use (LLP 1047 D2, 1047.000 §9): only
 /// [`engine`] makes one, and only [`crate::RunnerLinks::ALL`] and a web
 /// artifact whose plan has a canvas with a surface name it, so a plan with
 /// none carries none of it. The [`Runner`]'s canvas methods are its whole
@@ -383,6 +385,8 @@ pub trait CanvasEngine {
     fn frame(&mut self, now: f64);
     /// [`Runner::canvas_wants_frame`].
     fn wants_frame(&self) -> bool;
+    /// Whether a draw is waiting on its executor.
+    fn in_flight(&self) -> bool;
     /// [`Runner::canvas_owed`].
     fn owed(&self, ready: bool, on_screen: &dyn Fn(ViewId) -> bool, style: NodeStyle<'_>) -> bool;
     /// Drop the canvases `alive` denies, and take the generations retired
@@ -413,6 +417,8 @@ pub trait CanvasEngine {
     fn take(&mut self) -> Vec<CanvasList>;
     /// [`Runner::is_canvas_2d`].
     fn is_2d(&self, view: ViewId) -> bool;
+    /// Whether this canvas lifetime still owns the view.
+    fn mounted(&self, view: ViewId, lifetime: u64) -> bool;
     /// `state.canvas`'s records.
     fn state(&self, s: &mut String);
     /// [`Runner::canvas_describe`].
@@ -425,8 +431,25 @@ pub trait CanvasEngine {
     fn images_pending(&self) -> bool;
     /// [`Runner::canvas_image`].
     fn image(&mut self, src: &str, result: Result<(u32, u32), String>, also: &[u64]);
+    /// [`Runner::canvas_image_released`].
+    fn release_image(&mut self, src: &str);
     /// [`Runner::canvas_fonts_loaded`].
     fn fonts_loaded(&mut self);
+    /// Bind a capture to its mounted lifetime and minimum completed sequence,
+    /// scheduling a drawing if none is in flight.
+    fn request_capture(
+        &mut self,
+        surface: &str,
+        alive: &dyn Fn(ViewId) -> bool,
+    ) -> Option<(ViewId, u64, u64)>;
+    /// The mounted canvas's latest completed drawing, or its refusal.
+    fn capture(
+        &self,
+        surface: &str,
+        path: &str,
+        target: Option<(ViewId, u64, u64)>,
+        alive: &dyn Fn(ViewId) -> bool,
+    ) -> Result<crate::canvas_capture::CanvasCapture, (&'static str, String)>;
 }
 
 /// A Canvas 2D engine: what [`crate::RunnerLinks::canvas`] names.
@@ -479,7 +502,7 @@ impl CanvasEngine for Canvases {
                     r.args = u.values;
                     r.names = u.names;
                     r.causes = r.causes.with(Causes::ARGS);
-                    // An error stops frames until the next args.
+                    // D4: an error stops frames until the next args.
                     r.error = None;
                 }
                 _ => {
@@ -497,6 +520,8 @@ impl CanvasEngine for Canvases {
                             generation: 0,
                             next_seq: 1,
                             applied_seq: 0,
+                            rejected_seq: 0,
+                            capture_requested: false,
                             geometry: None,
                             backing: None,
                             fresh: false,
@@ -594,6 +619,7 @@ impl CanvasEngine for Canvases {
         if had {
             self.retired.push((r.lifetime, r.generation));
             r.generation += 1;
+            r.applied_seq = 0;
             r.causes = r.causes.with(Causes::SIZE);
         }
         r.fresh = true;
@@ -609,6 +635,10 @@ impl CanvasEngine for Canvases {
                 r.causes = r.causes.with(Causes::FRAME);
             }
         }
+    }
+
+    fn in_flight(&self) -> bool {
+        self.records.values().any(|r| r.in_flight.is_some())
     }
 
     fn wants_frame(&self) -> bool {
@@ -631,7 +661,9 @@ impl CanvasEngine for Canvases {
                 if causes.has(Causes::FRAME) && !on_screen(*view) {
                     causes = Causes(causes.0 & !Causes::FRAME.0);
                 }
-                !causes.is_empty() || r.drawn_in.is_some_and(|was| was != style(*view))
+                r.capture_requested
+                    || !causes.is_empty()
+                    || r.drawn_in.is_some_and(|was| was != style(*view))
             })
     }
 
@@ -678,8 +710,8 @@ impl CanvasEngine for Canvases {
                 });
             }
             let Some(b) = r.backing else { continue };
-            // A module not yet active draws nothing yet (its canvases are
-            // transparent until its executor is active); the causes wait.
+            // A module not yet active draws nothing yet (D4: its canvases
+            // are transparent until its executor is active); the causes wait.
             if !ready || b.empty() || r.in_flight.is_some() || queued > QUEUED_BYTES {
                 continue;
             }
@@ -693,9 +725,10 @@ impl CanvasEngine for Canvases {
                 // causes draw now.
                 causes = Causes(causes.0 & !Causes::FRAME.0);
             }
-            if causes.is_empty() {
+            if causes.is_empty() && !r.capture_requested {
                 continue;
             }
+            r.capture_requested = false;
             r.causes = Causes(r.causes.0 & !causes.0);
             if causes.has(Causes::FRAME) {
                 r.framed_at = Some(now);
@@ -792,6 +825,8 @@ impl CanvasEngine for Canvases {
                     r.wants_frame = false;
                     self.retired.push((r.lifetime, r.generation));
                     r.generation += 1;
+                    r.applied_seq = 0;
+                    r.rejected_seq = seq;
                     r.fresh = true;
                     r.ctx = Context2d::new();
                     r.gradients.clear();
@@ -834,9 +869,7 @@ impl CanvasEngine for Canvases {
             settings: b.settings,
         };
         let surface = r.surface.clone();
-        if !out.lists.is_empty() {
-            self.out.push(out);
-        }
+        self.out.push(out);
         for n in reply.notes {
             self.notes.push(format!("canvas {view} ({surface}): {n}"));
         }
@@ -855,6 +888,12 @@ impl CanvasEngine for Canvases {
 
     fn is_2d(&self, view: ViewId) -> bool {
         self.records.contains_key(&view)
+    }
+
+    fn mounted(&self, view: ViewId, lifetime: u64) -> bool {
+        self.records
+            .get(&view)
+            .is_some_and(|r| r.lifetime == lifetime)
     }
 
     fn state(&self, s: &mut String) {
@@ -924,6 +963,109 @@ impl CanvasEngine for Canvases {
         s.push(']');
     }
 
+    fn request_capture(
+        &mut self,
+        surface: &str,
+        alive: &dyn Fn(ViewId) -> bool,
+    ) -> Option<(ViewId, u64, u64)> {
+        let mut found = self
+            .records
+            .iter_mut()
+            .filter(|(v, r)| r.surface == surface && alive(**v));
+        let (view, r) = found.next()?;
+        if found.next().is_some() {
+            return None;
+        }
+        // An in-flight draw can finish after this commit. Otherwise request a
+        // draw even when the canvas's arguments and geometry did not change.
+        if r.in_flight.is_none() {
+            r.capture_requested = true;
+        }
+        Some((
+            *view,
+            r.lifetime,
+            r.in_flight.map_or(r.next_seq, |(_, seq)| seq),
+        ))
+    }
+
+    fn capture(
+        &self,
+        surface: &str,
+        path: &str,
+        target: Option<(ViewId, u64, u64)>,
+        alive: &dyn Fn(ViewId) -> bool,
+    ) -> Result<crate::canvas_capture::CanvasCapture, (&'static str, String)> {
+        let mounted: Vec<_> = (self.records.iter())
+            .filter(|(v, r)| {
+                alive(**v)
+                    && target.map_or(r.surface == surface, |(view, lifetime, _)| {
+                        **v == view && r.lifetime == lifetime
+                    })
+            })
+            .collect();
+        let (view, r) = match mounted[..] {
+            [one] => one,
+            [] => {
+                return Err((
+                    "NotFoundError",
+                    format!("no canvas of surface {surface:?} is mounted"),
+                ))
+            }
+            _ => {
+                return Err((
+                    "InvalidStateError",
+                    format!(
+                        "{} canvases of surface {surface:?} are mounted; a capture names one",
+                        mounted.len()
+                    ),
+                ))
+            }
+        };
+        if target.is_some_and(|(_, _, first)| r.rejected_seq >= first) {
+            return Err(("EncodingError", "the capture's drawing was rejected".into()));
+        }
+        if let Some(why) = &r.refused {
+            return Err(("InvalidStateError", format!("its size was refused: {why}")));
+        }
+        let Some(b) = r.backing.filter(|b| !b.empty()) else {
+            return Err((
+                "IndexSizeError",
+                format!("the canvas of surface {surface:?} has no bitmap: its box has no area"),
+            ));
+        };
+        if b.settings.p3 || b.settings.float16 {
+            return Err((
+                "NotSupportedError",
+                "a capture is an sRGB PNG of 8-bit pixels: this canvas is display-p3 or float16"
+                    .into(),
+            ));
+        }
+        let pixels = b.pixel_width as u64 * b.pixel_height as u64;
+        if pixels > crate::canvas_capture::MAX_PIXELS {
+            return Err((
+                "QuotaExceededError",
+                format!(
+                    "{} × {} px is over the {} px a capture writes",
+                    b.pixel_width,
+                    b.pixel_height,
+                    crate::canvas_capture::MAX_PIXELS
+                ),
+            ));
+        }
+        Ok(crate::canvas_capture::CanvasCapture {
+            view: *view,
+            lifetime: r.lifetime,
+            generation: r.generation,
+            sequence: r.applied_seq,
+            job: None,
+            path: path.into(),
+            width: b.pixel_width,
+            height: b.pixel_height,
+            scale: b.scale,
+            encoding: crate::canvas_capture::Encoding::default(),
+        })
+    }
+
     fn describe(&self, view: ViewId) -> Option<Vec<String>> {
         let r = self.records.get(&view)?;
         if r.last_list.is_empty() {
@@ -953,6 +1095,12 @@ impl CanvasEngine for Canvases {
             if subscribers.contains(&r.lifetime) {
                 r.causes = r.causes.with(Causes::IMAGE);
             }
+        }
+    }
+
+    fn release_image(&mut self, src: &str) {
+        if let Some(t) = self.table() {
+            t.release(src);
         }
     }
 
@@ -1004,7 +1152,7 @@ impl<D: DataSource> Runner<D> {
         }
     }
 
-    /// The host's layout of one 2D canvas: natively the
+    /// The host's layout of one 2D canvas (LLP 1056 D4): natively the
     /// kernel's, on the web the browser's `ResizeObserver`. A change of
     /// backing size or scale starts a new generation; a refused size is
     /// reported through `state` and shows the box's background.
@@ -1012,10 +1160,11 @@ impl<D: DataSource> Runner<D> {
         if let Some(c) = self.canvases.as_mut() {
             c.set_geometry(view, geometry);
         }
+        self.complete_canvas_captures();
     }
 
     /// A canvas's explicit bitmap size, from `bitmap-width` and
-    /// `bitmap-height` (r3): an unset one is the web's
+    /// `bitmap-height` (LLP 1056 D6, r3): an unset one is the web's
     /// default, 300 or 150; neither set is the automatic default.
     pub fn canvas_bitmap(&self, view: ViewId) -> Option<(u32, u32)> {
         let node = self.kernel.node(view)?;
@@ -1031,8 +1180,8 @@ impl<D: DataSource> Runner<D> {
         (w.is_some() || h.is_some()).then(|| (w.unwrap_or(300), h.unwrap_or(150)))
     }
 
-    /// A canvas's getContext settings; an unknown value is the
-    /// default, as in HTML. A host that shows only sRGB has only sRGB canvases.
+    /// A canvas's getContext settings (LLP 1100 D12a); an unknown value is the
+    /// default, as in HTML. A host that shows only sRGB has only sRGB canvases (D10).
     pub fn canvas_settings(&self, view: ViewId) -> Settings {
         let Some(node) = self.kernel.node(view) else {
             return Settings::default();
@@ -1049,7 +1198,7 @@ impl<D: DataSource> Runner<D> {
     }
 
     /// A native host's geometry for every 2D canvas, from the kernel's
-    /// layout in this turn: the content box, the device
+    /// layout in this turn (LLP 1056 D4): the content box, the device
     /// `scale`, and an explicit bitmap size ([`Runner::canvas_bitmap`]).
     pub fn layout_canvases(&mut self, scale: f64) {
         for view in self.canvas_views() {
@@ -1072,7 +1221,7 @@ impl<D: DataSource> Runner<D> {
         }
     }
 
-    /// The host presented a frame: every canvas that asked
+    /// The host presented a frame (LLP 1056 D5): every canvas that asked
     /// for one is due, once per clock value.
     pub fn canvas_frame(&mut self) {
         // Sample a live display clock without firing timers or frame tasks
@@ -1094,7 +1243,7 @@ impl<D: DataSource> Runner<D> {
     /// Whether [`Runner::draw_canvases`] has work: a due draw (a frame
     /// request only while `on_screen`), a fresh bitmap to announce, or
     /// lists and retired generations waiting. A host that runs its draws
-    /// in a turn of their own asks after every other turn.
+    /// in a turn of their own (LLP 1072 §8.5) asks after every other turn.
     pub fn canvas_owed(&self, on_screen: &dyn Fn(ViewId) -> bool) -> bool {
         let (ready, dark) = (self.data.ready(), self.page_dark());
         let style = |view: ViewId| canvas_node_style(&self.kernel, view, dark);
@@ -1105,7 +1254,7 @@ impl<D: DataSource> Runner<D> {
 
     /// Run every due draw, in tree order, after this turn's commits and
     /// geometry. `on_screen` is the host's judgement; a frame request waits
-    /// for it, every other cause draws regardless.
+    /// for it, every other cause draws regardless (D4).
     pub fn draw_canvases(&mut self, on_screen: &dyn Fn(ViewId) -> bool) {
         let (kernel, dark) = (&self.kernel, self.page_dark());
         let Some(c) = self.canvases.as_mut() else {
@@ -1131,9 +1280,10 @@ impl<D: DataSource> Runner<D> {
         for line in lines {
             self.log(line);
         }
+        self.complete_canvas_captures();
     }
 
-    /// A draw's reply. Applied, in order, only if its stamps
+    /// A draw's reply (LLP 1056 D4). Applied, in order, only if its stamps
     /// are the canvas's live lifetime, generation and the draw in flight;
     /// otherwise discarded whole, with the recorder state it produced.
     /// A reply that fails the structural check starts a new generation, so
@@ -1157,6 +1307,7 @@ impl<D: DataSource> Runner<D> {
         for line in lines {
             self.log(line);
         }
+        self.complete_canvas_captures();
         result
     }
 
@@ -1170,7 +1321,7 @@ impl<D: DataSource> Runner<D> {
         self.canvases.as_ref().is_some_and(|c| c.is_2d(view))
     }
 
-    /// `state.canvas`: one record per 2D canvas.
+    /// `state.canvas` (LLP 1056 §5): one record per 2D canvas.
     pub(crate) fn canvas_state(&self, s: &mut String) {
         match self.canvases.as_ref() {
             Some(c) => c.state(s),
@@ -1178,14 +1329,14 @@ impl<D: DataSource> Runner<D> {
         }
     }
 
-    /// `layout <node>`'s readable form of a 2D canvas's last list:
-    /// at most 200 lines and 16 KiB, development builds only.
+    /// `layout <node>`'s readable form of a 2D canvas's last list (LLP 1056
+    /// §5): at most 200 lines and 16 KiB, development builds only.
     pub fn canvas_describe(&self, view: ViewId) -> Option<Vec<String>> {
         self.canvases.as_ref()?.describe(view)
     }
 
     /// The host's text engine for Canvas 2D, callable on the executor's
-    /// thread. Without one, text is measured by
+    /// thread (LLP 1056 D8). Without one, text is measured by
     /// [`exact_canvas::font::Estimate`].
     pub fn set_canvas_text(&mut self, engine: Arc<dyn TextEngine>) {
         if let Some(c) = self.canvases.as_mut() {
@@ -1194,7 +1345,7 @@ impl<D: DataSource> Runner<D> {
     }
 
     /// The image handles a draw asked for since the last take: the host
-    /// decodes each and answers [`Runner::canvas_image`].
+    /// decodes each and answers [`Runner::canvas_image`] (LLP 1056 D9).
     pub fn take_canvas_image_requests(&mut self) -> Vec<String> {
         self.canvases
             .as_mut()
@@ -1216,7 +1367,15 @@ impl<D: DataSource> Runner<D> {
         }
     }
 
-    /// A font finished loading (the web): every canvas whose
+    /// The host let the decoded `src` go (a cache past its budget): a later
+    /// draw that uses it requests it again (LLP 1056 D9).
+    pub fn canvas_image_released(&mut self, src: &str) {
+        if let Some(c) = self.canvases.as_mut() {
+            c.release_image(src);
+        }
+    }
+
+    /// A font finished loading (the web, LLP 1056 D8): every canvas whose
     /// last draw drew text draws again with cause `"font"`.
     pub fn canvas_fonts_loaded(&mut self) {
         if let Some(c) = self.canvases.as_mut() {
@@ -1225,7 +1384,7 @@ impl<D: DataSource> Runner<D> {
     }
 }
 
-/// A canvas's node `color` and `direction`:
+/// A canvas's node `color` and `direction` (LLP 1056 D3, D8):
 /// `currentColor` and `direction = "inherit"` resolve to them. The colour is
 /// its scheme's: the nearest `color-scheme`, else the page's (`dark`).
 fn canvas_node_style(

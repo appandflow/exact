@@ -1,4 +1,4 @@
-//! A received share at the bridge: claimed by the
+//! A received share at the bridge (LLP 1133.024 D2–D4): claimed by the
 //! running app, or before the boot, whose location and tokens it becomes.
 use super::*;
 use exact_runner::share_in::{Claims, Pending, ShareTarget};

@@ -2,11 +2,11 @@
 ///
 /// `$data` is the app's `DataSource` type (constructed with `Default`, or
 /// the sixth argument's factory for a deferred bytecode module);
-/// `$plan` a `&'static [u8]` of baked plan bytes. Every export takes the
-/// runtime handle `exact_create` returned.
+/// `$plan` a `&'static [u8]` of baked plan bytes. Session exports take the
+/// runtime handle `exact_create` returned (LLP 1031 D2).
 #[macro_export]
 macro_rules! host {
-    // A generated entry names what it links after the
+    // A generated entry names what it links (LLP 1047.001 D2, D3) after the
     // arguments, `; linked = EXACT_LINKED`, and invokes the export groups of
     // those capabilities itself; without it, every capability is linked.
     ($data:ty, $plan:expr, $compat:expr $(; linked = $linked:expr)?) => {
@@ -24,11 +24,12 @@ macro_rules! host {
     ($data:ty, $plan:expr, $compat:expr, $delivery:expr, $api:expr, $new:expr, $region:expr) => {
         $crate::grouped_list_exports!();
         $crate::markup_exports!();
+        $crate::presence_exports!();
 
         $crate::host!(@core $data, $plan, $compat, $delivery, $api, $new, $region, $crate::link::ALL);
     };
     (@core $data:ty, $plan:expr, $compat:expr, $delivery:expr, $api:expr, $new:expr, $region:expr, $linked:expr) => {
-        /// A textarea's decorations resolved against its text.
+        /// A textarea's decorations resolved against its text (LLP 1114.007).
         #[no_mangle]
         pub extern "C" fn exact_field_decorations(input: *const u8, len: usize, count: *mut usize) -> *const u8 {
             $crate::decorations::read(input, len, count)
@@ -47,8 +48,41 @@ macro_rules! host {
             static EXACT_RUNTIMES: ::std::cell::RefCell<$crate::abi::Registry<$data>> = ::std::cell::RefCell::new($crate::abi::Registry::default());
         }
         /// What every boot links, made from the entry's set in a `const` so
-        /// the linker sees nothing else.
+        /// the linker sees nothing else (LLP 1047.001 D3).
         const EXACT_LINKS: $crate::link::Links<$data> = $crate::link::Links::of($linked);
+        /// First statement of main; a prewarmed process reads and sends nothing.
+        #[no_mangle]
+        pub extern "C" fn exact_preloads_begin(prewarm: u32) {
+            if EXACT_LINKS.io.is_some() { $crate::launch_preloads::begin(prewarm != 0, $new); }
+        }
+        /// The app delegate initializer, including after prewarming.
+        #[no_mangle]
+        pub extern "C" fn exact_preloads_launched() {
+            if EXACT_LINKS.io.is_some() { $crate::launch_preloads::launched($new); }
+        }
+        /// A foreground launch known to have been opened by a person.
+        #[no_mangle]
+        pub extern "C" fn exact_preloads_opened() {
+            if EXACT_LINKS.io.is_some() { $crate::launch_preloads::opened($new); }
+        }
+        /// Number of definitions in the launch marks.
+        #[no_mangle]
+        pub extern "C" fn exact_preloads_count() -> u32 {
+            if EXACT_LINKS.io.is_none() { return 0; }
+            $crate::launch_preloads::current().map_or(0, |p| p.count() as u32)
+        }
+        /// One definition's monotonic seconds and first carrying commit.
+        #[no_mangle]
+        pub extern "C" fn exact_preloads_mark(index: u32) -> $crate::launch_preloads::LaunchMark {
+            if EXACT_LINKS.io.is_none() { return Default::default(); }
+            $crate::launch_preloads::current().and_then(|p| p.mark(index as usize)).map_or_else(Default::default, |(_, m)| m)
+        }
+        /// Copy a definition's name; returns the full UTF-8 byte count.
+        #[no_mangle]
+        pub extern "C" fn exact_preloads_name(index: u32, out: *mut u8, capacity: usize) -> usize {
+            if EXACT_LINKS.io.is_none() { return 0; }
+            $crate::launch_preloads::copy_name(index as usize, out, capacity)
+        }
         $crate::pan_velocity_exports!();
         $crate::frame_health_exports!();
 
@@ -63,7 +97,7 @@ macro_rules! host {
             id
         }
 
-        /// The text measurer for a runtime; `None` is the
+        /// The text measurer for a runtime (LLP 1008 §3); `None` is the
         /// monospace reference measurer.
         #[no_mangle]
         pub extern "C" fn exact_set_measure(
@@ -90,14 +124,15 @@ macro_rules! host {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, hooks| b.control_text_changed(hooks), |n| n)
         }
 
-        /// The text engine rounds line boxes to another scale: every
+        /// The text engine rounds line boxes to another scale (LLP 1008 §3,
+        /// a Mac window on a display of another backing scale): every
         /// paragraph is measured again.
         #[no_mangle]
         pub extern "C" fn exact_text_scale_changed(rt: u32) -> u32 {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.text_scale_changed(), |n| n)
         }
 
-        /// A paragraph's line boxes, called with the context
+        /// A paragraph's line boxes (LLP 1093 D6), called with the context
         /// `exact_set_measure` was given; `None` keeps paragraphs whole in a
         /// multi-column flow.
         #[no_mangle]
@@ -108,7 +143,7 @@ macro_rules! host {
             $crate::abi::with_entry(&EXACT_RUNTIMES, rt, |e| { e.hooks.lines = lines; });
         }
 
-        /// Each inline box's origin in its paragraph, with
+        /// Each inline box's origin in its paragraph (LLP 1011.002 D2), with
         /// the context `exact_set_measure` was given; `None` leaves an image
         /// at its paragraph's content origin.
         #[no_mangle]
@@ -138,7 +173,15 @@ macro_rules! host {
             $crate::abi::with_entry(&EXACT_RUNTIMES, rt, |e| { e.hooks.time_format = f; });
         }
 
-        /// The Canvas 2D text measurer: called on the runtime's
+        /// Where the app's `console` lines go (LLP 1027.009 D1): called on
+        /// this thread with each line as the runner journals it, once its
+        /// host is the one presented.
+        #[no_mangle]
+        pub extern "C" fn exact_set_console(rt: u32, console: Option<extern "C" fn(u8, *const u8, usize)>) {
+            $crate::abi::with_entry(&EXACT_RUNTIMES, rt, |e| { e.hooks.console = console; });
+        }
+
+        /// The Canvas 2D text measurer (LLP 1056 D8): called on the runtime's
         /// thread with the context `exact_set_measure` was given.
         #[no_mangle]
         pub extern "C" fn exact_set_canvas_text(
@@ -148,14 +191,14 @@ macro_rules! host {
             $crate::abi::with_entry(&EXACT_RUNTIMES, rt, |e| { e.hooks.canvas_text = measure; });
         }
 
-        /// A Canvas 2D image handle decoded: the handle is
+        /// A Canvas 2D image handle decoded (LLP 1056 D9): the handle is
         /// the input buffer's first `len` bytes; the batch's length.
         #[no_mangle]
         pub extern "C" fn exact_canvas_image(rt: u32, len: usize, width: u32, height: u32, ok: u32) -> u32 {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.canvas_image(len, width, height, ok != 0), |n| n)
         }
 
-        /// The wake for a request's reply, called on the
+        /// The wake for a request's reply (LLP 1016 D2), called on the
         /// executor's thread with `ctx`; `None` and replies wait for the next
         /// `exact_pump`.
         #[no_mangle]
@@ -167,7 +210,7 @@ macro_rules! host {
             $crate::abi::with_entry(&EXACT_RUNTIMES, rt, |e| { e.hooks.wake = wake; e.hooks.wake_ctx = ctx; });
         }
 
-        /// The session's app module: `later` takes each long
+        /// The session's app module (LLP 1067.000): `later` takes each long
         /// native call and answers it once with `exact_app_reply`; `call`
         /// answers a `native.call` with `exact_app_answer` before returning.
         /// `None` removes each.
@@ -181,7 +224,7 @@ macro_rules! host {
             $crate::abi::with_entry(&EXACT_RUNTIMES, rt, |e| e.bridge.set_app_module(later, call, ctx));
         }
 
-        /// Where a document the app forgot goes: off
+        /// Where a document the app forgot goes (LLP 1069.010.000 D5): off
         /// the platform's recents, by the Swift host.
         #[no_mangle]
         pub extern "C" fn exact_on_document_forgotten(forgotten: Option<extern "C" fn(u64, u64)>) {
@@ -190,11 +233,18 @@ macro_rules! host {
             }
         }
 
-        /// The app module announced a topic, on this thread.
+        /// The app module announced a topic (LLP 1016.002), on this thread.
         #[no_mangle]
         pub extern "C" fn exact_app_changed(rt: u32, topic: *const u8, len: usize) {
             let topic = $crate::app_module::text(topic, len);
             $crate::abi::with_entry(&EXACT_RUNTIMES, rt, |e| e.bridge.app_changed(&topic));
+        }
+
+        /// Another session of the app announced a topic (LLP 1030.004 D2).
+        #[no_mangle]
+        pub extern "C" fn exact_peer_changed(rt: u32, topic: *const u8, len: usize) {
+            let topic = $crate::app_module::text(topic, len);
+            $crate::abi::with_entry(&EXACT_RUNTIMES, rt, |e| e.bridge.peer_changed(&topic));
         }
 
         /// The plan-font hook, called synchronously by each boot on this
@@ -257,14 +307,14 @@ macro_rules! host {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, true, |b, _| b.protocol_location_of(len), |n| n)
         }
 
-        /// Whether the input location names a declared route.
+        /// Whether the input location names a declared route. @ref LLP 1038 §7
         #[no_mangle]
         pub extern "C" fn exact_route_matches(rt: u32, len: usize) -> u32 {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.route_matches(len), |_| 0)
         }
 
         /// A package's call of the app's handler, answered once through
-        /// `reply`.
+        /// `reply`. @ref LLP 1133.016 D15 item 1
         #[no_mangle]
         pub extern "C" fn exact_module_invoke(rt: u32, len: usize, reply: extern "C" fn(*mut std::ffi::c_void, *const u8, u32), ctx: *mut std::ffi::c_void) {
             let refused = |_| {
@@ -274,19 +324,25 @@ macro_rules! host {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.module_invoke(len, reply, ctx), refused)
         }
 
-        /// The location beneath a visit, UTF-8; empty for none.
+        /// 1 when the route table declares one location. @ref LLP 1115.000 D5.1
+        #[no_mangle]
+        pub extern "C" fn exact_route_one_location(rt: u32) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.route_one_location(), |_| 0)
+        }
+
+        /// The location beneath a visit, UTF-8; empty for none. @ref LLP 1115 D5
         #[no_mangle]
         pub extern "C" fn exact_location_beneath(rt: u32, id: u64) -> u32 {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.location_beneath(id), |_| 0)
         }
 
-        /// Where the platform's Back goes from the selected visit, UTF-8; empty for none.
+        /// Where the platform's Back goes from the selected visit, UTF-8; empty for none. @ref LLP 1115.000 D5.5
         #[no_mangle]
         pub extern "C" fn exact_location_behind(rt: u32) -> u32 {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.location_behind(), |_| 0)
         }
 
-        /// Where the platform's Forward goes, UTF-8; empty for none.
+        /// Where the platform's Forward goes, UTF-8; empty for none. @ref LLP 1115.000 D5.5
         #[no_mangle]
         pub extern "C" fn exact_location_ahead(rt: u32) -> u32 {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.location_ahead(), |_| 0)
@@ -304,10 +360,23 @@ macro_rules! host {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.host_back_to(source, destination, now_ms), |n| n)
         }
 
-        /// The platform's own Back from a visit, a batch.
+        /// The platform's own Back from a visit, a batch. @ref LLP 1115 D5
         #[no_mangle]
         pub extern "C" fn exact_host_back(rt: u32, id: u64, now_ms: f64) -> u32 {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.host_back(id, now_ms), |n| n)
+        }
+
+        /// Build the tab panels the input names, comma-separated view ids,
+        /// selecting none, a batch. @ref LLP 1075.003 §9.14
+        #[no_mangle]
+        pub extern "C" fn exact_build_tabs(rt: u32, len: usize, now_ms: f64) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.build_tabs(len, now_ms), |n| n)
+        }
+
+        /// Make a UTF-8 location the window's only visit, a batch. @ref LLP 1030.004 D2
+        #[no_mangle]
+        pub extern "C" fn exact_host_root(rt: u32, len: usize, now_ms: f64) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.host_root(len, now_ms), |n| n)
         }
 
         /// Follow a UTF-8 location with the runner's own go.
@@ -316,7 +385,13 @@ macro_rules! host {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.host_go(len, now_ms), |n| n)
         }
 
-        /// A received share, a batch.
+        /// Deliver native Forward at the navigation root, a batch.
+        #[no_mangle]
+        pub extern "C" fn exact_host_forward(rt: u32, root: u32, now_ms: f64) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.host_forward(root, now_ms), |n| n)
+        }
+
+        /// A received share, a batch. @ref LLP 1133.024 D2–D4
         #[no_mangle]
         pub extern "C" fn exact_share(rt: u32, len: usize, now_ms: f64) -> u32 {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.share(len, now_ms), |n| n)
@@ -328,14 +403,14 @@ macro_rules! host {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.share_land(), |n| n)
         }
 
-        /// Supply the launch location before the first boot.
+        /// Supply the launch location before the first boot. @ref LLP 1038 D5/D8
         #[no_mangle]
         pub extern "C" fn exact_set_launch_location(rt: u32, len: usize) -> u32 {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| { b.set_launch_location(len); 0 }, |n| n)
         }
 
         /// Boot the selected plan — the update store's entry when one is
-        /// selected, else the baked one; returns the first
+        /// selected (LLP 1026 D9), else the baked one; returns the first
         /// batch's length.
         #[no_mangle]
         pub extern "C" fn exact_boot(rt: u32, width: f32, height: f32) -> u32 {
@@ -358,7 +433,7 @@ macro_rules! host {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.sync_delivery(), |n| n)
         }
 
-        /// The executor's queued replies into the runner, on
+        /// The executor's queued replies into the runner (LLP 1016 D2), on
         /// this thread, after a wake; returns the batch's length.
         #[no_mangle]
         pub extern "C" fn exact_pump(rt: u32, now_ms: f64) -> u32 {
@@ -369,6 +444,12 @@ macro_rules! host {
         #[no_mangle]
         pub extern "C" fn exact_request_active(rt: u32, ticket: u64) -> u8 {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| u8::from(b.request_active(ticket)), |_| 0)
+        }
+
+        /// Mark an owned pixel copy before the presenter starts encoding it.
+        #[no_mangle]
+        pub extern "C" fn exact_canvas_snapshotted(rt: u32, ticket: u64) -> u8 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| u8::from(b.canvas_snapshotted(ticket)), |_| 0)
         }
 
         /// Complete presenter-owned surface work; the input is bytes or a failure message.
@@ -388,14 +469,14 @@ macro_rules! host {
             }, |n| n)
         }
 
-        /// Snapshot bytes, kind and optional props JSON, concatenated in the input buffer.
+        /// Snapshot bytes, kind, and optional props and configuration JSON, concatenated in the input buffer.
         #[no_mangle]
-        pub extern "C" fn exact_boot_entry(rt: u32, plan: usize, kind: usize, props: usize, width: f32, height: f32) -> u32 {
+        pub extern "C" fn exact_boot_entry(rt: u32, plan: usize, kind: usize, props: usize, configuration: usize, width: f32, height: f32) -> u32 {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, hooks| {
                 b.set_compat($compat);
                 if let Some(refusal) = b.refuse_analysis() { return refusal; }
                 b.set_delivery($delivery);
-                b.boot_entry(plan, kind, props, ($new)(), hooks, width, height)
+                b.boot_entry(plan, kind, props, configuration, ($new)(), hooks, width, height)
             }, |n| n)
         }
         /// Refresh the entry's declared source; returns a JSON timeline or an error.
@@ -443,14 +524,14 @@ macro_rules! host {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.data_ready(), |n| n)
         }
 
-        /// Re-read the shared store and ask its resources again.
+        /// Re-read the shared store and ask its resources again (LLP 1126.001 WP12).
         #[no_mangle]
         pub extern "C" fn exact_store_changed(rt: u32, retry_only: u32) -> u32 {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.store_changed(retry_only != 0), |n| n)
         }
 
         /// Prepare an admitted module generation, optionally carrying a delivery token;
-        /// `let_go`: the dev loop's, with requests in flight too.
+        /// `let_go`: the dev loop's, with requests in flight too (LLP 1007 §6).
         #[no_mangle]
         pub extern "C" fn exact_prepare_module(rt: u32, token: u64, plan: usize, receipt: usize, module: usize, width: f32, height: f32, let_go: u32) -> u32 {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, hooks| {
@@ -495,7 +576,7 @@ macro_rules! host {
         }
 
         /// A scroller (or, nonzero `page`, the page) now stands at `left`,
-        /// `top` CSS px: what `frame` subtracts. No batch.
+        /// `top` CSS px: what `frame` subtracts (LLP 1051.000 D1). No batch.
         #[no_mangle]
         pub extern "C" fn exact_scrolled(rt: u32, page: u32, view: u32, left: f64, top: f64) {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.scrolled(page != 0, view, left, top), |_| ())
@@ -513,8 +594,10 @@ macro_rules! host {
         /// `views` points to `count` valid ids, `rects` to `count * 4` doubles.
         /// `clips` is null or points to `count * 4` doubles; NaN at an
         /// entry's x means no clip.
+        /// `backdrop` is null or points to eight viewport doubles: the
+        /// backdrop bounds and an exclusion (NaN at x means no exclusion).
         #[no_mangle]
-        pub unsafe extern "C" fn exact_top_layer(rt: u32, views: *const u32, rects: *const f64, clips: *const f64, count: u32, modal: u32) {
+        pub unsafe extern "C" fn exact_top_layer(rt: u32, views: *const u32, rects: *const f64, clips: *const f64, count: u32, modal: u32, backdrop_view: u32, backdrop: *const f64) {
             let ids = if count == 0 { &[] } else {
                 // SAFETY: the caller keeps `count` ids live for this synchronous call.
                 unsafe { std::slice::from_raw_parts(views, count as usize) }
@@ -534,7 +617,13 @@ macro_rules! host {
                     (id, [r[0], r[1], r[2], r[3]], clip)
                 }).collect();
             let modal = (modal != u32::MAX).then_some(modal as usize);
-            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.top_layer(&frames, modal), |_| ())
+            let backdrop = if backdrop.is_null() { None } else {
+                // SAFETY: the caller keeps eight doubles live for this call.
+                let r = unsafe { std::slice::from_raw_parts(backdrop, 8) };
+                let excluding = (!r[4].is_nan()).then(|| [r[4], r[5], r[6], r[7]]);
+                Some((backdrop_view, [r[0], r[1], r[2], r[3]], excluding))
+            };
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.top_layer(&frames, modal, backdrop), |_| ())
         }
 
         /// Copy current region source/paint metadata. No returned bytes outlive exact_out.
@@ -598,17 +687,17 @@ macro_rules! host {
         pub extern "C" fn exact_reorder_end(rt: u32, token: u64, drop: u32, dy: f64, scroll_top: f64, inside: u32, velocity: f64, now_ms: f64) -> u32 {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.reorder_end(token, drop, dy, scroll_top, inside, velocity, now_ms), |n| n)
         }
-        /// Dropping across lists: lift a grouped grip, with a ghost or for keys.
+        /// Dropping across lists (LLP 1094): lift a grouped grip, with a ghost or for keys.
         #[no_mangle]
         pub extern "C" fn exact_reorder_group_begin(rt: u32, handle: u32, scroll_top: f64, ghost: u32, now_ms: f64) -> u32 {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.reorder_group_begin(handle, scroll_top, ghost, now_ms), |n| n)
         }
-        /// The ghost's centre at `content_y` in `target`'s content.
+        /// The ghost's centre at `content_y` in `target`'s content (LLP 1094 D5).
         #[no_mangle]
         pub extern "C" fn exact_reorder_move_into(rt: u32, token: u64, target: u32, content_y: f64, target_scroll_top: f64, inside: u32, now_ms: f64) -> u32 {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.reorder_move_into(token, target, content_y, target_scroll_top, inside, now_ms), |n| n)
         }
-        /// A key's or custom action's step: 1 earlier, 2 later, 3 previous list, 4 next.
+        /// A key's or custom action's step: 1 earlier, 2 later, 3 previous list, 4 next (LLP 1094 D9).
         #[no_mangle]
         pub extern "C" fn exact_reorder_step(rt: u32, token: u64, step: u32, now_ms: f64) -> u32 {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.reorder_group_step(token, step, now_ms), |n| n)
@@ -628,6 +717,12 @@ macro_rules! host {
         pub extern "C" fn exact_has_hold(rt: u32, token: u64) -> u32 {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| u32::from(b.has_hold(token)), |_| 0)
         }
+        /// A scroller marked `scrollTimeline` (the page, for `page` 1) now
+        /// stands at `left`, `top` CSS px: the timelines it drives, presented.
+        #[no_mangle]
+        pub extern "C" fn exact_timeline_scrolled(rt: u32, page: u32, view: u32, left: f64, top: f64) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.timeline_scrolled(page != 0, view, left, top), |n| n)
+        }
         /// Change a held property's presentation.
         #[no_mangle]
         pub extern "C" fn exact_hold_update(rt: u32, token: u64, x: f64, y: f64, now_ms: f64) -> u32 {
@@ -644,7 +739,7 @@ macro_rules! host {
             $crate::abi::gesture_constant(which)
         }
 
-        /// A route's header as its bar shows it: the
+        /// A route's header as its bar shows it (LLP 1115.001 D11): the
         /// kernel's rule (`exact_kernel::bars`) over the host's own mirror
         /// of the route, `count` words at `words`. Writes the answer to
         /// `out` and returns its length; 0 for a route that is not
@@ -691,6 +786,13 @@ macro_rules! host {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| { b.native_timers(enabled != 0); 0 }, |n| n)
         }
 
+        /// Nonzero: a retiring list row is rebound to the item its list
+        /// needs next, and the batch says `renew` for each of its views (LLP 1078).
+        #[no_mangle]
+        pub extern "C" fn exact_row_reuse(rt: u32, on: u32) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| { b.set_row_reuse(on != 0); 0 }, |n| n)
+        }
+
         /// Deliver one native timer instance without draining other native timers.
         #[no_mangle]
         pub extern "C" fn exact_fire_native_timer(rt: u32, index: u32, generation: u64, now: f64) -> u32 {
@@ -716,14 +818,14 @@ macro_rules! host {
         }
 
         /// `exact_frame` at the target `now_ms`, the wall at `wall_ms`
-        /// stopping the motion engine's input clock.
+        /// stopping the motion engine's input clock (LLP 1003.001 D5).
         #[no_mangle]
         pub extern "C" fn exact_frame_at(rt: u32, now_ms: f64, wall_ms: f64) -> u32 {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.frame_at(now_ms, wall_ms), |n| n)
         }
 
         /// Nonzero: motion an author's commit begins waits for the first
-        /// presented frame, in every host booted after;
+        /// presented frame (LLP 1003.001 D7), in every host booted after;
         /// zero at the agent's takeover, where what waits starts at `at_ms`.
         /// Returns the batch's length.
         #[no_mangle]
@@ -732,7 +834,7 @@ macro_rules! host {
         }
 
         /// Nonzero: the display drives frame tasks (`exact_frame` turns it
-        /// on); zero when the agent's clock takes over.
+        /// on); zero when the agent's clock takes over (LLP 1073 D4).
         #[no_mangle]
         pub extern "C" fn exact_present_frames(rt: u32, on: u32) -> u32 {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| { b.present_frames(on != 0); 0 }, |n| n)
@@ -740,7 +842,7 @@ macro_rules! host {
 
         /// The presenter's clock owns time (`wall`, in the runner's
         /// milliseconds), or the agent's seekable one does (null): a live
-        /// clock fires a repeat that missed beats once (the timers RFC).
+        /// clock fires a repeat that missed beats once (the timers RFC, D1).
         #[no_mangle]
         pub extern "C" fn exact_set_live_clock(rt: u32, wall: Option<$crate::abi::LiveClockFn>) -> u32 {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| { b.set_live_clock(wall); 0 }, |n| n)
@@ -750,6 +852,17 @@ macro_rules! host {
         #[no_mangle]
         pub extern "C" fn exact_surface_record(rt: u32, len: usize) -> u32 {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.surface_record(len), |n| n)
+        }
+
+        /// Whether this canvas name is read by a performance resource.
+        #[no_mangle]
+        pub extern "C" fn exact_canvas_performance_requested(rt: u32, len: usize) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.canvas_performance_requested(len), |n| n)
+        }
+        /// Publish or clear a canvas's performance record.
+        #[no_mangle]
+        pub extern "C" fn exact_canvas_performance_record(rt: u32, len: usize) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.canvas_performance_record(len), |n| n)
         }
 
         /// The date: Unix ms at clock zero and minutes east of UTC.
@@ -762,6 +875,12 @@ macro_rules! host {
         #[no_mangle]
         pub extern "C" fn exact_set_launch_time(rt: u32, epoch_at_zero: f64, utc_offset: f64) -> u32 {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| { b.set_launch_time(epoch_at_zero, utc_offset); 0 }, |n| n)
+        }
+
+        /// The window's name (UTF-8 input) and whether it launches rooted, for the next boot. @ref LLP 1030.004 D2
+        #[no_mangle]
+        pub extern "C" fn exact_set_launch_window(rt: u32, len: usize, rooted: u32) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| { b.set_launch_window(len, rooted != 0); 0 }, |n| n)
         }
 
         /// Where the viewer is (`locale NUL timeZone NUL seed` input) for the next boot or candidate, before it.
@@ -783,7 +902,7 @@ macro_rules! host {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.set_root_font_size(px), |n| n)
         }
 
-        /// Whether a confirmation's rows are an alert's: 1 for
+        /// Whether a confirmation's rows are an alert's (LLP 1115 D6): 1 for
         /// explanatory text, one cancel and at most three buttons. The rule
         /// is the kernel's; needs no runtime.
         #[no_mangle]
@@ -793,7 +912,7 @@ macro_rules! host {
 
         /// The display's scale, device pixels a point (UIKit's
         /// `displayScale`, AppKit's `backingScaleFactor`): what a hairline is
-        /// one device pixel of.
+        /// one device pixel of (LLP 1115.000 D10.3).
         #[no_mangle]
         pub extern "C" fn exact_set_display_scale(rt: u32, scale: f64) -> u32 {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.set_display_scale(scale), |n| n)
@@ -831,52 +950,53 @@ macro_rules! host {
         }
 
         /// The extensions the app's module composes, a name a line in the
-        /// input buffer.
+        /// input buffer (LLP 1133.001 D4).
         #[no_mangle]
         pub extern "C" fn exact_bind_extensions(rt: u32, len: usize) {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.bind_extensions(len), |_| ())
         }
 
-        /// An `img` source of a package's scheme, admitted:
-        /// the source in the input buffer; the output is
+        /// An `img` source of a package's scheme, admitted (LLP 1133.019 D11
+        /// item 1): the source in the input buffer; the output is
         /// `{"extension", "agent", "owned"?}`, `{"error", "message"}`, or
-        /// empty for a source of no package's scheme.
+        /// empty for a source of no package's scheme. `count` is 0 to
+        /// recheck admission without counting another draw.
         #[no_mangle]
-        pub extern "C" fn exact_picture(rt: u32, len: usize) -> u32 {
-            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.picture(len), |n| n)
+        pub extern "C" fn exact_picture(rt: u32, len: usize, count: u8) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.picture(len, count != 0), |n| n)
         }
 
-        /// The agent's `prefer extension` in the input buffer.
+        /// The agent's `prefer extension` in the input buffer (LLP 1124 D7).
         #[no_mangle]
         pub extern "C" fn exact_extension(rt: u32, len: usize) -> u32 {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.extension(len), |n| n)
         }
 
-        /// A module event the platform reported: `{"extension",
+        /// A module event the platform reported (LLP 1133.004 D6): `{"extension",
         /// "event", "args", "activation"}` in the input buffer.
         #[no_mangle]
         pub extern "C" fn exact_module_event(rt: u32, len: usize) -> u32 {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.module_event(len), |n| n)
         }
 
-        /// App modes, `axis=value` pins in the input buffer.
+        /// App modes, `axis=value` pins in the input buffer (LLP 1121 D5).
         #[no_mangle]
         pub extern "C" fn exact_set_mode(rt: u32, len: usize) -> u32 {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.set_mode(len), |n| n)
         }
 
-        /// A live design batch or snapshot in the input buffer;
-        /// development builds only.
+        /// A live design batch or snapshot in the input buffer (LLP 1121
+        /// stage 4); development builds only.
         #[no_mangle]
         pub extern "C" fn exact_design_rows(rt: u32, len: usize) -> u32 {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.design_rows(len), |n| n)
         }
 
-        /// The binding core: `{"view", "names"}` in the input
+        /// The binding core (LLP 1121 D12): `{"view", "names"}` in the input
         /// buffer, `{"inputs", "colors"}` UTF-8 in the output buffer.
         #[no_mangle]
-        pub extern "C" fn exact_tamber(rt: u32, len: usize) -> u32 {
-            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.tamber(len), |n| n)
+        pub extern "C" fn exact_forma(rt: u32, len: usize) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.forma(len), |n| n)
         }
 
         /// The design digest the running app runs, UTF-8; empty before boot.
@@ -897,15 +1017,22 @@ macro_rules! host {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.set_place(len), |n| n)
         }
 
-        /// The display's scale and physical memory for Canvas 2D;
-        /// callable before boot. Returns the batch length.
+        /// The display's scale and physical memory for Canvas 2D (LLP 1056
+        /// D4); callable before boot. Returns the batch length.
         #[no_mangle]
         pub extern "C" fn exact_canvas_display(rt: u32, scale: f64, memory: f64) -> u32 {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.canvas_display(scale, memory), |n| n)
         }
 
+        /// A Canvas 2D image handle the presenter let go (LLP 1056 D9): the
+        /// handle is the input buffer's first `len` bytes.
+        #[no_mangle]
+        pub extern "C" fn exact_canvas_image_released(rt: u32, len: usize) {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.canvas_image_released(len), |_| ())
+        }
+
         /// A 2D canvas's replay is behind (`held` 1) or caught up (0): a
-        /// frame request for it waits while held.
+        /// frame request for it waits while held (LLP 1056 D5).
         #[no_mangle]
         pub extern "C" fn exact_canvas_held(rt: u32, view: u32, held: u32) {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.canvas_held(view, held != 0), |_| ())
@@ -917,8 +1044,8 @@ macro_rules! host {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.resize(width, height), |n| n)
         }
 
-        /// A placement root's resolved margins and its width's authorship:
-        /// the output holds JSON `[left, top, right, bottom, authored]`, no batch
+        /// A placement root's resolved margins and its width's authorship (LLP 1126.001
+        /// WP10): the output holds JSON `[left, top, right, bottom, authored]`, no batch
         /// around it; returns its length.
         #[no_mangle]
         pub extern "C" fn exact_placement_box(rt: u32, view: u32) -> u32 {
@@ -929,6 +1056,19 @@ macro_rules! host {
         #[no_mangle]
         pub extern "C" fn exact_list_index(rt: u32, view: u32, len: u32) -> u32 {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.list_index(view, len as usize), |_| u32::MAX)
+        }
+
+        /// Nearest logical collection snap position, or NaN when absent.
+        #[no_mangle]
+        pub extern "C" fn exact_collection_snap(rt: u32, view: u32, proposed: f64, port: f64, minimum: f64, maximum: f64, distance: f64) -> f64 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.collection_snap(view, [proposed, port, minimum, maximum, distance]), |_| f64::NAN)
+        }
+
+        /// The first unmounted `always` snap position past a release toward its
+        /// rest, or NaN when there is none.
+        #[no_mangle]
+        pub extern "C" fn exact_collection_snap_stop(rt: u32, view: u32, release: f64, rest: f64, port: f64, minimum: f64, maximum: f64) -> f64 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.collection_snap_stop(view, [release, rest], [port, minimum, maximum]), |_| f64::NAN)
         }
 
         /// Copy logical text without materializing native views. Input is
@@ -944,7 +1084,7 @@ macro_rules! host {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.insets(top, right, bottom, left), |n| n)
         }
 
-        /// The layout regions' insets: `count` is 20 (five
+        /// The layout regions' insets (LLP 1123 D10): `count` is 20 (five
         /// regions of top, right, bottom, left) or 0 (every region is the safe
         /// area); returns the batch's length.
         #[no_mangle]
@@ -969,7 +1109,8 @@ macro_rules! host {
         }
 
         /// The window's size, which every viewport unit resolves
-        /// against everywhere, or none (a nonpositive size); returns the batch's length.
+        /// against everywhere, or none (a nonpositive size), LLP 1075.003
+        /// §9.11; returns the batch's length.
         #[no_mangle]
         pub extern "C" fn exact_screen(rt: u32, width: f32, height: f32) -> u32 {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.screen(width, height), |n| n)
@@ -983,27 +1124,27 @@ macro_rules! host {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.view(len), |n| n)
         }
 
-        /// The posture and the viewport segments; returns the batch's length.
+        /// The posture and the viewport segments (LLP 1078 D4); returns the batch's length.
         #[no_mangle]
         pub extern "C" fn exact_segments(rt: u32, posture: u32, cols: u32, rows: u32, count: u32) -> u32 {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.segments(posture, cols, rows, count), |n| n)
         }
 
-        /// The presenter's appearance: nonzero is dark; returns the batch's length.
+        /// The presenter's appearance: nonzero is dark (LLP 1062); returns the batch's length.
         #[no_mangle]
         pub extern "C" fn exact_scheme(rt: u32, dark: u32) -> u32 {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.scheme(dark != 0), |n| n)
         }
 
         /// One view's appearance (nonzero: dark), where it differs from the
-        /// session's; returns the batch's length.
+        /// session's (LLP 1062 D4); returns the batch's length.
         #[no_mangle]
         pub extern "C" fn exact_view_scheme(rt: u32, view: u32, dark: u32) -> u32 {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.view_scheme(view, dark != 0), |n| n)
         }
 
-        /// Every colour reference the presenter should resolve,
-        /// as JSON in the output buffer; returns its length.
+        /// Every colour reference the presenter should resolve (LLP 1095
+        /// D1), as JSON in the output buffer; returns its length.
         #[no_mangle]
         pub extern "C" fn exact_color_references(rt: u32) -> u32 {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.color_references(), |n| n)
@@ -1030,18 +1171,18 @@ macro_rules! host {
         }
 
         /// What native containers cover of boxes, from the input buffer, one
-        /// layout; returns the batch's length.
+        /// layout (LLP 1075.003 §3.5); returns the batch's length.
         #[no_mangle]
         pub extern "C" fn exact_host_covers(rt: u32, len: usize) -> u32 {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.covers(len), |n| n)
         }
 
-        /// A trial layout of a block's root (`Bridge::measure_block`): its border
-        /// box and margins, six LE f32s, in the output buffer; 0 when refused.
+        /// A trial layout of a block's root (`Bridge::measure_block`): its used
+        /// size, border box and margins, eight LE f32s, in the output buffer; 0 when refused.
         /// No batch.
         #[no_mangle]
-        pub extern "C" fn exact_measure_block(rt: u32, view: u32, width: f32, height: f32, width_policy: u32, height_policy: u32) -> u32 {
-            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.measure_block(view, [width, height], [width_policy, height_policy]), |_| 0)
+        pub extern "C" fn exact_measure_block(rt: u32, view: u32, width: f32, height: f32, width_policy: u32, height_policy: u32, tactic: u32) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.measure_block(view, [width, height], [width_policy, height_policy], tactic), |_| 0)
         }
 
         /// What moves whenever a block measure could answer differently
@@ -1058,7 +1199,7 @@ macro_rules! host {
         }
 
         /// `key\nblock\ninline` in the input buffer: the agent's `tap <list>
-        /// into <key>`; returns the batch's length.
+        /// into <key>` (LLP 1070.000 §5); returns the batch's length.
         #[no_mangle]
         pub extern "C" fn exact_into_view(rt: u32, view: u32, len: usize) -> u32 {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.into_view(view, len), |n| n)
@@ -1072,7 +1213,7 @@ macro_rules! host {
         }
 
         /// Canvas draws in a turn of their own (`deferred` nonzero), or in every
-        /// turn: the batch says `canvasOwed` and
+        /// turn (LLP 1072 §8.5): the batch says `canvasOwed` and
         /// `exact_canvas_draw` runs them, off the turns main waits on.
         #[no_mangle]
         pub extern "C" fn exact_canvas_defer(rt: u32, deferred: u32) {
@@ -1080,7 +1221,7 @@ macro_rules! host {
         }
 
         /// Runtimes booted from now count each plan site's work for `perf`
-        /// from the first ask, `exact_measure_work`, not from
+        /// (LLP 1079 D1) from the first ask, `exact_measure_work`, not from
         /// boot: a release build's choice.
         #[no_mangle]
         pub extern "C" fn exact_measure_work_later() {
@@ -1093,7 +1234,7 @@ macro_rules! host {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.measure_work(), |n| n)
         }
 
-        /// The canvas draws owed; returns the batch's length.
+        /// The canvas draws owed (LLP 1072 §8.5); returns the batch's length.
         #[no_mangle]
         pub extern "C" fn exact_canvas_draw(rt: u32) -> u32 {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.canvas_draw(), |n| n)
@@ -1105,8 +1246,8 @@ macro_rules! host {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.tick(now_ms), |n| n)
         }
 
-        /// A motion frame for the display frame presented at `frame_ms`;
-        /// returns the batch's length.
+        /// A motion frame for the display frame presented at `frame_ms`
+        /// (LLP 1003.001 D5); returns the batch's length.
         #[no_mangle]
         pub extern "C" fn exact_tick_at(rt: u32, now_ms: f64, frame_ms: f64) -> u32 {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.tick_at(now_ms, frame_ms), |n| n)
@@ -1118,16 +1259,16 @@ macro_rules! host {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, true, |b, _| b.agent(len), |n| n)
         }
 
-        /// A host line for the runner's journal (a refused intent is a
-        /// line, never silence): the input buffer's first `len` bytes.
-        /// Returns 0.
+        /// A host line for the runner's journal (LLP 1012 §3; LLP 1035.001
+        /// D6 — a refused intent is a line, never silence): the input
+        /// buffer's first `len` bytes. Returns 0.
         #[no_mangle]
         pub extern "C" fn exact_log(rt: u32, len: usize) -> u32 {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, true, |b, _| b.log(len), |_| 0)
         }
 
-        /// What the presenter applied of the orientation lock:
-        /// JSON in the input buffer's first `len` bytes, and whether
+        /// What the presenter applied of the orientation lock (LLP 1133.029
+        /// §8): JSON in the input buffer's first `len` bytes, and whether
         /// its resolution found a conflict. Returns 0.
         #[no_mangle]
         pub extern "C" fn exact_orientation_applied(rt: u32, len: usize, conflict: u8) -> u32 {
@@ -1140,37 +1281,28 @@ macro_rules! host {
             )
         }
 
-        /// An auth session's word: `hold` under the agent, or
+        /// An auth session's word (LLP 1069.006): `hold` under the agent, or
         /// `done` with the callback URL or a status; JSON in the input buffer.
         #[no_mangle]
         pub extern "C" fn exact_auth(rt: u32, len: usize) -> u32 {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, true, |b, _| b.auth(len), |_| 0)
         }
 
-        /// How a presence check the host made ended, JSON
+        /// How a presence check the host made ended (LLP 1133.010 D13), JSON
         /// in the input buffer, on the store's completion path.
         #[no_mangle]
         pub extern "C" fn exact_presence(rt: u32, len: usize) -> u32 {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, true, |b, _| b.presence(len), |_| 0)
         }
 
-        /// The keychain the presence backend keeps locked items in,
-        /// ExactKit's; once a process, before the first boot.
-        #[no_mangle]
-        pub extern "C" fn exact_on_presence_keychain(
-            keychain: Option<$crate::presence_secrets::KeychainFn>,
-        ) {
-            $crate::presence_secrets::on_keychain(keychain);
-        }
-
-        /// A native button's title and symbol, JSON;
+        /// A native button's title and symbol (LLP 1069.011 D5), JSON;
         /// returns its length.
         #[no_mangle]
         pub extern "C" fn exact_press_face(rt: u32, view: u32) -> u32 {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.press_face(view), |n| n)
         }
 
-        /// A select's options and the one it shows, JSON;
+        /// A select's options and the one it shows (LLP 1069.001 D5), JSON;
         /// returns its length.
         #[no_mangle]
         pub extern "C" fn exact_select_options(rt: u32, view: u32) -> u32 {
@@ -1184,22 +1316,30 @@ macro_rules! host {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.radio_group(view), |n| n)
         }
 
-        /// A navigation root's tabs by the kernel's rule,
-        /// JSON; returns its length.
+        /// A painted group's keys and Tab stop for a member (LLP 1166.000
+        /// D2), the key's name in the input buffer, JSON; returns its length.
+        #[no_mangle]
+        pub extern "C" fn exact_role_keys(rt: u32, view: u32, focused: u32, len: usize) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.role_keys(view, focused, len), |n| n)
+        }
+
+        /// A navigation root's tabs by the kernel's rule (LLP 1115.001
+        /// D11), JSON; returns its length.
         #[no_mangle]
         pub extern "C" fn exact_root_tabs(rt: u32, view: u32) -> u32 {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.root_tabs(view), |n| n)
         }
 
-        /// Whether a stack splits, by the runner's rule,
+        /// Whether a stack splits, by the runner's rule (LLP 1115.002 D4),
         /// JSON; returns its length.
         #[no_mangle]
         pub extern "C" fn exact_stack_split(rt: u32, view: u32, retained: u32, pressed: u32) -> u32 {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.stack_split(view, retained, pressed), |n| n)
         }
 
-        /// A command's data (`share` or `saveFile`), JSON in the input
-        /// buffer; returns the ruling's length (`refused`, `ticket`, `present`).
+        /// A command's data (`share`, LLP 1069.003; `saveFile`, LLP
+        /// 1069.010), JSON in the input buffer; returns the ruling's length
+        /// (`refused`, `ticket`, `present`).
         #[no_mangle]
         pub extern "C" fn exact_command(rt: u32, len: usize) -> u32 {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, true, |b, _| b.command(len), |n| n)
@@ -1207,12 +1347,20 @@ macro_rules! host {
 
         /// What SVG pixel work the live plan can need, as bits: 1 an island
         /// (a `mask` or a `filter`; `exact_runner::svg_islands`), when the
-        /// host should open its island module off the main thread now;
-        /// 2 a filter (`exact_runner::svg_filters`),
+        /// host should open its island module off the main thread now (LLP
+        /// 1055.000 §8 ruling 4); 2 a filter (`exact_runner::svg_filters`),
         /// when it should make its GPU filter pipelines now.
         #[no_mangle]
         pub extern "C" fn exact_svg_islands(rt: u32) -> u8 {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.svg_islands(), |_| 0)
+        }
+
+        /// 1 when the data source's activation evaluates a TypeScript module
+        /// on the owner, which the presenter then posts from the first draw
+        /// (LLP 1027.008 D1); 0 otherwise, and before a boot.
+        #[no_mangle]
+        pub extern "C" fn exact_evaluates_from_draw(rt: u32) -> u8 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| u8::from(b.evaluates_from_draw()), |_| 0)
         }
     };
 }
@@ -1244,12 +1392,12 @@ pub fn route_bar(facts: u32) -> u32 {
     exact_kernel::Bar::of(bit(0), bit(1), bit(2), bit(3)) as u32
 }
 
-/// The grouped list's export: beside `host!`,
+/// The grouped list's export (LLP 1084 D4; LLP 1047.001 D3): beside `host!`,
 /// whose runtimes it reads, in an archive that links grouped lists.
 #[macro_export]
 macro_rules! grouped_list_exports {
     () => {
-        /// A grouped list's sections and rows, JSON; returns
+        /// A grouped list's sections and rows (LLP 1084 D4), JSON; returns
         /// its length.
         #[no_mangle]
         pub extern "C" fn exact_grouped_list(rt: u32, view: u32) -> u32 {

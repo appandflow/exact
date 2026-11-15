@@ -1,4 +1,4 @@
-//! A call whose request the runner forgot is let go. Newer
+//! A call whose request the runner forgot is let go (LLP 1016 D5). Newer
 //! arguments replace a request in flight; a refused commit puts back the
 //! request it replaced. Either way the executor keeps parked only the calls
 //! whose requests are still in flight.
@@ -89,7 +89,7 @@ fn a_request_replaced_by_newer_arguments_lets_its_call_go() {
     let requests = r.take_requests();
     assert_eq!(requests.len(), 3);
     // The runner holds the newest for `session` and keeps the two it
-    // replaced: each is a POST, which runs to its end.
+    // replaced: each is a POST, which runs to its end (LLP 1146 D2).
     let pending = r.pending();
     assert_eq!(
         pending.iter().filter(|(name, _)| name == "session").count(),
@@ -160,7 +160,7 @@ component App
 
 /// A send replaced by an equal one in a commit that is then refused: the
 /// first call is put back with its request, and its reply reaches it, not
-/// the call that replaced it.
+/// the call that replaced it (LLP 1146 D2).
 #[test]
 fn a_refused_commit_puts_back_a_call_an_equal_one_replaced() {
     let mut module = Module::loaded(
@@ -200,7 +200,7 @@ fn a_refused_commit_puts_back_a_call_an_equal_one_replaced() {
 
 /// Three equal sends, each replacing the last, then a refused commit that
 /// puts the first one's request back: only the first call is parked again,
-/// and the reply reaches it.
+/// and the reply reaches it (LLP 1146 D2).
 #[test]
 fn a_refused_commit_puts_back_only_the_first_of_several_equal_calls() {
     use exact_plan::Value;
@@ -218,6 +218,7 @@ fn a_refused_commit_puts_back_only_the_first_of_several_equal_calls() {
         target: Target::Mutation(0),
         source: "tagged",
         args: &[],
+        fetch: None,
         continuation: None,
     };
     m.forgotten(&s, &[back]);
@@ -233,4 +234,24 @@ fn a_refused_commit_puts_back_only_the_first_of_several_equal_calls() {
         matches!(&a, Ok(Answer::Now(v)) if *v == Value::record(vec![Value::str("call 1 ok")])),
         "{a:?}"
     );
+}
+
+/// A stream queried in-process, where no host can run it, is let go whole:
+/// nothing of it stays in flight, so an answer pending on nothing is still
+/// refused as one rather than held for a stream that will never come.
+#[test]
+fn an_in_process_query_of_a_stream_leaves_nothing_in_flight() {
+    use exact_plan::Value;
+    use exact_runner::{DataError, DataSource};
+    let mut m = super::castle::module();
+    m.bind(&contract::compile("component App\n  resource feed = events(\"0\") as shape string\n  action stuck\n    send probe = stuck()\n  mutation probe as shape string\n  view\n    text feed\n").unwrap());
+    assert!(matches!(
+        m.query("events", &[Value::str("0")]),
+        Err(DataError::Unavailable(ref e)) if e.contains("no host to run it")
+    ));
+    assert_eq!(m.in_flight(), 0);
+    assert!(matches!(
+        m.answer(&mut super::castle::store(), "stuck", &[]),
+        Err(DataError::Failed(_, ref e, _)) if e.contains("pending on nothing")
+    ));
 }

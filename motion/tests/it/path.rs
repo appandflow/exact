@@ -1,4 +1,4 @@
-//! A path's `d` under `transition`, held to Chrome: a
+//! A path's `d` under `transition` (LLP 1055.000 D15), held to Chrome: a
 //! matched pair moves number by number, any other pair changes at once, and
 //! a change back reverses from where the path is.
 
@@ -69,6 +69,22 @@ fn a_matched_path_moves_under_d_and_all_and_settles_on_the_row() {
         e.advance(0.4).unwrap();
         assert_eq!(shown(&e), None, "settled: the row shows");
         assert!(e.quiescent());
+    }
+}
+
+#[test]
+fn an_unchanged_path_keeps_its_curve_only_while_covered() {
+    for next in ["none", "opacity 1s", "all 0s", "d 0s"] {
+        let mut e = engine("d 400ms linear");
+        e.observe_path(NODE, Some(up()));
+        e.advance(0.1).unwrap();
+        e.frame();
+        e.set_transitions(NODE, Transitions::parse(next).unwrap())
+            .unwrap();
+        e.observe_path(NODE, Some(up()));
+        let covered = matches!(next, "all 0s" | "d 0s");
+        assert_eq!(e.is_active(NODE, Property::D), covered, "{next}");
+        assert_eq!(e.settle_time(), covered.then_some(0.4));
     }
 }
 

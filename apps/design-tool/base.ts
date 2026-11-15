@@ -1,5 +1,5 @@
-// Where a token's value comes from (the wire's
-// shape is tamber/1.14's): Exact's base scale
+// Where a token's value comes from (LLP 1121 stage 11, D11; the wire's
+// shape is theme2's 16:17Z ruling for forma/1.14): Exact's base scale
 // (`space.*`, `radius.*`: describe's `base` rows, one value a platform
 // column, each with its source), a package's design (its rows carry
 // `package` and `file`; read-only, the app overrides it in its own file), or
@@ -47,7 +47,7 @@ export function sourceOf(t: any, base: any, shipped: string[], appFile = ''): So
   const startFrom = shown ? `${shown.label}'s ${shown.value === 'full' ? 'pill (9999px)' : shown.value}` : '';
   if (base && !base.override) return { source: 'base', package: '', of: 'base', over: '', back: '', columns, startFrom };
   if (base) return { source: 'app', package: '', of: 'base', over: `Set for this app, over Exact's base${shown ? ` (${shown.label} ${shown.value})` : ''}.`, back: 'Back to the base', columns, startFrom };
-  // (A package's token the app sets: its row names the app's design as its file; the tool reads that as the
+  // (A package's token the app sets: its row names the app's design as its file, A2; the tool reads that as the
   // app's line over the package's value.)
   if (t?.package && appFile && t.file === appFile) return { source: 'app', package: String(t.package), of: 'package', over: `Set for this app, over the ${t.package} package's value.`, back: 'Back to the package', columns: [], startFrom: '' };
   if (t?.package) return { source: 'package', package: String(t.package), of: 'package', over: '', back: '', columns: [], startFrom: '' };
@@ -58,5 +58,5 @@ export function sourceOf(t: any, base: any, shipped: string[], appFile = ''): So
 export const groupOf = (s: Source, prefix: string) => s.of === 'base' ? 'Base scale (Exact)' : s.of === 'package' ? `${s.package} package` : prefix;
 
 /** The scale columns the app's targets read, in their order, once each: describe's `targets`
- * (`[{target, column}]`: the server names the column, the tool maps nothing). */
+ * (`[{target, column}]`, theme2's 16:32Z ruling: the server names the column, the tool maps nothing). */
 export const shippedOf = (said: unknown): string[] => [...new Set<string>((Array.isArray(said) ? said : []).map((t: any) => String(t?.column ?? '')).filter(Boolean))];

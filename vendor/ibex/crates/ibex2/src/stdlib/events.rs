@@ -4,6 +4,8 @@
 //! does not choose a future type or async runtime for its caller. The handle's
 //! sole operation is cancellation. Dropping it performs the same cancellation
 //! so a forgotten watch cannot retain its source indefinitely.
+//!
+//! @ref LLP 0068#5-open-questions — OQ3 is answered by an mpsc receiver, not an executor
 
 use std::sync::{Arc, Mutex};
 
@@ -57,8 +59,8 @@ mod tests {
         sync::{mpsc, Weak},
     };
 
-    /// This source is deliberately test-only (WebSocket is the production
-    /// source); it proves the Rust door without pulling an
+    /// L3's first source is deliberately test-only. WebSocket is the first
+    /// production source, in L4; this proves the Rust door without pulling an
     /// engine or an executor into the crate.
     struct TestEventSource<T> {
         state: Arc<Mutex<TestState<T>>>,

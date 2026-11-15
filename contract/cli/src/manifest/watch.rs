@@ -1,6 +1,6 @@
 //! The watch entry: the app's own live plan for Apple Watch, rooted at a component the author
 //! writes for the wrist, in its own file. Not a widget: it keeps state, resources, timers and
-//! handlers.
+//! handlers. @ref LLP 1126.002 D4, LLP 1126 D10.
 use super::Manifest;
 use serde_json::Value;
 

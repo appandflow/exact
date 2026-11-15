@@ -1,4 +1,4 @@
-// Which text a reader can select:
+// @ref LLP 1115 D8, LLP 1115.000 D11.6 — which text a reader can select:
 // CSS `user-select`, its `auto` resolved as each platform resolves it.
 #if os(macOS)
 import AppKit
@@ -20,8 +20,8 @@ extension NodeView {
     /// What is left is `auto` with nothing above it, and the platform's.
     /// On iOS and tvOS it is not selectable: a hand-built screen's text is
     /// a `UILabel`, which selects nothing, and only text its author made
-    /// selectable is (`TextSelectionIOS.swift`). On the
-    /// Mac it is AppKit's, where a control's or the window
+    /// selectable is (LLP 1115.000 D11.6; `TextSelectionIOS.swift`). On the
+    /// Mac it is AppKit's (LLP 1115 D8), where a control's or the window
     /// chrome's label is not selectable (an `NSTextField` label, an
     /// `NSButton` title, a toolbar, a tab, a table row's cell) and a
     /// document's text is (an `NSTextView`):
@@ -31,12 +31,14 @@ extension NodeView {
     ///    or `tree` role;
     /// 5. else it is content and selectable, as a plain list's rows are (a
     ///    transcript): a row that is pressable is a control by 2.
-    /// ⌘A selects what this admits. The web host keeps the browser's own.
+    /// On the Mac, ⌘A selects what this admits in the current virtualized
+    /// list, including unmounted rows, or the window's mounted paragraphs
+    /// when the reader is outside a list. The web keeps the browser's own.
     var textSelectable: Bool {
         var document = false, chrome = false
         var current: AncestorView? = self
         while let view = current {
-            // Through a presented route's logical parents
+            // Through a presented route's logical parents (LLP 1123 D2)
             current = presenter?.eventParent(of: view) ?? view.superview
             guard let node = view as? NodeView else { continue }
             switch node.style["user_select"]?.string {
@@ -59,11 +61,20 @@ extension NodeView {
     /// The outermost view from here up that says `user-select: all`: CSS UI
     /// 4 §6.1 selects its content atomically, so a selection that takes part
     /// of it takes all of it. An element inside another is part of the outer.
+    /// The walk is `textSelectable`'s, through authored parents. When the
+    /// element is above a subtree shown in a view of its own (a dialog, a
+    /// popover, a presented route), this is that subtree's root: the part of
+    /// the element's content this text's selection can reach.
     var selectAllElement: NodeView? {
-        var found: NodeView?, current: AncestorView? = self
+        var found: NodeView?, root: NodeView?, crossed = false
+        var current: AncestorView? = self
         while let view = current {
-            if let node = view as? NodeView, node.style["user_select"]?.string == "all" { found = node }
-            current = view.superview
+            if let node = view as? NodeView {
+                if !crossed { root = node }
+                if node.style["user_select"]?.string == "all" { found = crossed ? root : node }
+            }
+            current = presenter?.eventParent(of: view) ?? view.superview
+            if current !== view.superview { crossed = true }
         }
         return found
     }

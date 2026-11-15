@@ -1,15 +1,15 @@
 // linux: layout
-// A control's spacing and size: the browser's DOM boxes
+// A control's spacing and size (LLP 1115.000 D10): the browser's DOM boxes
 // are compared with the Linux host's kernel boxes by conform.mjs, on the
 // wasm page and on the JS target. The siblings are boxes of a written size,
 // so no text metric is in the comparison.
 //
-// A checkbox, a radio and a range have no margin of their own. Each
+// D10.1: a checkbox, a radio and a range have no margin of their own. Each
 // sits where its row puts it and touches its neighbour until the row has a
 // `gap`, in a row and stacked in a block; one the author writes is the
 // control's.
 //
-// A range and a determinate `progress` are `width: 100%` by a row
+// D10.2: a range and a determinate `progress` are `width: 100%` by a row
 // lowering implies. Each is as wide as its column or its box; in a row it
 // takes what the row's other children leave, and shrinks below its own
 // width to do so; an authored `width` or `flex` wins; and where the
@@ -17,7 +17,7 @@
 // or the author writes `auto`, it is its intrinsic size: 129 for a range,
 // `10em` by `1em` for a progress, which follows its font size.
 //
-// An `hr` has no margin of its own and is one hairline, between two
+// D10.3: an `hr` has no margin of its own and is one hairline, between two
 // boxes in a block and in a flex column, where it is the column's width; a
 // margin its author writes is its own. Here every host is at 1x, where a
 // hairline is 1 px (`hairline.contract` and `hairline-3x.contract` are the

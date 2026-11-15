@@ -6,7 +6,8 @@
 // starts at an input within 1 s before it, else at the commit. A page hidden
 // during startup reports no further startup marks.
 // Events go to each launch module's web service, which receives earlier events first.
-import { inflight, Mutations, Resources, clock, After, Hosts, Routes, routeAt, busy } from './rt.js';
+import { inflight, Resources, clock, After, Hosts, Routes, routeAt, busy } from './rt.js';
+import { Counting } from './held.js';
 
 const STARTUP_TIMER_WINDOW_MS = 1000, TTI_TIMEOUT_MS = 30000;
 const events = [], services = [];
@@ -24,11 +25,10 @@ const record = (kind, fields = {}) => {
  * shown answer and a mutation the app sent don't hold TTI. A one-shot timer counts only when due within 1 s. */
 export function outstanding() {
   const out = [];
-  let tickets = 0;
-  for (const r of Resources) if (r.ticket) { tickets++; if (r.placeholder) out.push(`requests:${r.name}`); }
-  for (const m of Mutations) if (m.ticket) tickets++;
-  // Everything else in flight is the page's own loading (Markdown, canvas, motion, GPU).
-  if (inflight.n > tickets) out.push(`loading:${inflight.n - tickets}`);
+  for (const r of Resources) if (r.ticket && r.placeholder) out.push(`requests:${r.name}`);
+  // Count everything in `inflight` that is not a ticket (`Counting`) as the page's own loading (Markdown, canvas, motion, GPU)
+  const loading = inflight.n - Counting.size;
+  if (loading > 0) out.push(`loading:${loading}`);
   for (const t of clock.timers) if (t.once && t.ms <= STARTUP_TIMER_WINDOW_MS) out.push(`oneShots:${t.ms}`);
   for (const id of busy()) out.push(`busy:${id}`);
   return out;

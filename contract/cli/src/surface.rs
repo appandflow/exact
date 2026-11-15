@@ -54,9 +54,9 @@ pub(super) fn keys(app_root: &Path) -> BTreeMap<String, BTreeMap<String, Vec<Str
 }
 
 /// The game Rust newer than `.shells/surfaces.json`, when some is: the
-/// declaration is the last GPU build's, so it may predate an `Options` edit.
-/// Content-stable writes keep an unchanged declaration's time, so newer Rust
-/// only says it may be stale.
+/// declaration is the last GPU build's, so it may predate an `Options` edit
+/// (the platformer's diary, R4). Content-stable writes keep an unchanged
+/// declaration's time, so newer Rust only says it may be stale.
 pub(super) fn newer_rust(app_root: &Path) -> Option<std::path::PathBuf> {
     newer_rust_than(app_root, ".shells/surfaces.json")
 }
@@ -92,12 +92,14 @@ pub(super) fn newer_rust_than(app_root: &Path, declaration: &str) -> Option<std:
 /// Surface records are runner-owned and default before the module loads.
 pub(super) fn shape(plan: &Plan) -> Result<(), BakeError> {
     use exact_runner::surface_record::{surface_name, SOURCE};
-    for row in plan
-        .resources
-        .iter()
-        .filter(|r| plan.str(r.source) == SOURCE)
-    {
+    for row in plan.resources.iter().filter(|r| {
+        matches!(
+            plan.str(r.source),
+            SOURCE | exact_runner::canvas_performance::SOURCE
+        )
+    }) {
         let name = plan.str(row.name);
+        let source = plan.str(row.source);
         let fail = |message: String| BakeError::Lint {
             site: None,
             id: "bake-surface-record",
@@ -105,11 +107,14 @@ pub(super) fn shape(plan: &Plan) -> Result<(), BakeError> {
         };
         let surface = surface_name(plan, row).ok_or_else(|| {
             fail(format!(
-                "{SOURCE} takes exactly one string-literal surface name"
+                "{source} takes exactly one string-literal surface name"
             ))
         })?;
         if plan.type_(row.ty).kind != exact_plan::TypeKind::Record {
-            return Err(fail(format!("{SOURCE} must be `as shape` a record")));
+            return Err(fail(format!("{source} must be `as shape` a record")));
+        }
+        if source == exact_runner::canvas_performance::SOURCE {
+            exact_runner::canvas_performance::validate(plan, row.ty).map_err(fail)?;
         }
         if !plan.surfaces.iter().any(|s| plan.str(s.name) == surface) {
             return Err(fail(format!("surface `{surface}` is not used by a canvas")));

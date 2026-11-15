@@ -1,11 +1,11 @@
-// A loopback redirect for `openAuthSession` on macOS (RFC
+// A loopback redirect for `openAuthSession` on macOS (LLP 1133.005 D9, RFC
 // 8252 §7.3): the listener library's receiver binds the callback's port
 // before the default browser opens the authorization URL, answers the one
 // request whose path and `state` match, and hands back the callback URL;
 // the window then comes forward. `ASWebAuthenticationSession` is not used:
 // its callback matcher takes a private-use scheme or `https` only. The
-// receiver is the listener's separate artifact (`libexact_listen.dylib`),
-// carried by a build whose grants listen or name a
+// receiver is the listener's separate artifact (`libexact_listen.dylib`,
+// LLP 1133.005 D13), carried by a build whose grants listen or name a
 // loopback callback.
 #if os(macOS)
 import AppKit
@@ -67,12 +67,12 @@ final class LoopbackSheet: AuthSheet {
 }
 
 extension ExactSession {
-    /// Open a loopback sign-in for `ticket`: bind, then the default
+    /// Open a loopback sign-in for `ticket` (D9): bind, then the default
     /// browser; the callback brings the window forward.
     func authLoopback(_ ticket: UInt64, url: URL, state: String, ephemeral: Bool, loopback: [String: Any], done: @escaping (Result<URL, AuthFailure>) -> Void) -> Result<AuthSheet, AuthFailure> {
         let sheet = LoopbackSheet()
         if let failure = sheet.bind(loopback, state: state) { return .failure(failure) }
-        // Opening a URL carries no "no shared cookies" request.
+        // Opening a URL carries no "no shared cookies" request (LLP 1069.006 D3).
         if ephemeral { log("auth \(ticket): ephemeral is not asked of the default browser") }
         sheet.answered = { [weak self, weak sheet] text in
             sheet?.cancel()
@@ -84,7 +84,7 @@ extension ExactSession {
             sheet.cancel()
             return .failure(AuthFailure(status: 502, message: "the default browser did not open"))
         }
-        // Bounded at ten minutes, as the web's popup is.
+        // Bounded at ten minutes, as the web's popup is (LLP 1069.006 D4).
         DispatchQueue.main.asyncAfter(deadline: .now() + 600) { [weak sheet] in
             guard let sheet, sheet.answered != nil else { return }
             sheet.cancel()
@@ -93,7 +93,7 @@ extension ExactSession {
         return .success(sheet)
     }
 
-    /// The window that asked comes forward, best effort
+    /// The window that asked comes forward (LLP 1133.005 D10), best effort
     /// under macOS 14's cooperative activation.
     private func bringForward() {
         guard let window = presenter.shareAnchor(nil).0?.window else { return }

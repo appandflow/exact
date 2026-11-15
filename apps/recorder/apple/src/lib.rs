@@ -1,6 +1,6 @@
 //! The recorder on Apple: its TypeScript asks the session's app module, the
-//! Swift recorder in `modules/apple`, which also draws the waveform. The
-//! source links no native module of its own.
+//! Swift recorder in `modules/apple`, which also draws the waveform
+//! (LLP 1067.000). The source links no native module of its own.
 
 include!(concat!(env!("OUT_DIR"), "/module.rs"));
 include!(concat!(env!("OUT_DIR"), "/baked.rs"));

@@ -1,5 +1,5 @@
-// A lifted popover sized in its position-area option's region,
-// as Chrome sizes the box: PositionAreaRegionMacTests' table on iOS, in
+// A lifted popover sized in its position-area option's region (LLP 1021
+// D2), as Chrome sizes the box: PositionAreaRegionMacTests' table on iOS, in
 // a 400×600 window, from the same pages (tests/fixtures/position-area-region
 // {,-rtl}.contract, compiled by build.mjs --test).
 #if os(iOS)

@@ -20,7 +20,7 @@ private final class StubNotificationResponse: UNNotificationResponse {
     override var actionIdentifier: String { Self.actionValue }
 }
 
-/// A launch URL an app cannot hear is journaled, as a running one is.
+/// A launch URL an app cannot hear is journaled, as a running one is (#104).
 final class LaunchURLMacTests: XCTestCase {
     private let handlers = [["protocol": "exacttest", "url": "/open?u=%s"]]
 
@@ -41,7 +41,7 @@ final class LaunchURLMacTests: XCTestCase {
         guard Bundle.main.bundleURL.pathExtension != "app" else { return }
         let presenter = NotificationPresenter.shared
         defer { presenter.app = nil; presenter.activate = nil }
-        presenter.install(on: ExactApp.shared, activate: nil)
+        presenter.install(on: ExactApp.shared, activate: nil, boot: nil)
         XCTAssertTrue(presenter.app === ExactApp.shared)
     }
 
@@ -213,7 +213,7 @@ final class LaunchURLMacTests: XCTestCase {
         XCTAssertTrue(state.contains("/open?u=exacttest%3A%2F%2Fauth%2Fsecond%23two"), state)
     }
 
-    /// The agent's `type <root> <url>`: a URL with a
+    /// The agent's `type <root> <url>` (euxy FRICTION 13): a URL with a
     /// scheme arrives as the system's `openURL` would deliver it, a path as written.
     func testATypedURLArrivesAsTheSystemWouldDeliverIt() throws {
         let session = ExactApp.shared.makeSession()
@@ -237,7 +237,7 @@ final class LaunchURLMacTests: XCTestCase {
         XCTAssertEqual(session.launchLocation, "/open?u=exacttest%3A%2F%2Fauth%2Ffirst%23one")
     }
 
-    /// A Mac browser: an `https` link cold and an `http` one
+    /// A Mac browser (LLP 1030 D2): an `https` link cold and an `http` one
     /// warm reach the template whole, and so does an HTML file Finder
     /// brings, as its `file:` URL; any other file stays a document, and an
     /// HTML file is one too for an app that claims no web links.
@@ -443,7 +443,7 @@ final class LaunchURLMacTests: XCTestCase {
         XCTAssertNil(session.boot(plan: try plan(routed), size: CGSize(width: 390, height: 844)).error)
         let oldProcess = UUID().uuidString
         let oldOwner = UUID().uuidString
-        // Expect the fragment, which `location_of` keeps
+        // Expect the fragment, which `location_of` keeps (LLP 1153 D5)
         for (id, location, expected) in [("first", " \tthread/./42#reply ", "/thread/42#reply"),
                                          ("second", "app://thread/../thread/43?view=full#reply", "/thread/43?view=full#reply")] {
             let received = expectation(description: "notification delegate completion \(id)")

@@ -1,4 +1,4 @@
-//! `failed(x)` and `failure(x)`: whether
+//! `failed(x)` and `failure(x)` (LLP 1054.000.002, LLP 1109 D3): whether
 //! resource `x`'s latest request failed without an answer, and why. Like
 //! `pending`, each reads a resource's status, not its value, so its argument
 //! is a name.
@@ -10,7 +10,7 @@ use contract_syntax::Span;
 /// The record `failure(x)` answers, in the order the runner builds it: a
 /// code from the closed vocabulary the grammar lists, the message the
 /// agent's `state.failed` shows, then the reason the source's error named (a
-/// Snapback refusal's code, else empty).
+/// Snapback refusal's code, else empty; the author's ruling of 2026-10-12).
 pub(super) fn declare(shapes: &mut Shapes) {
     shapes.map.insert(
         "Failure".into(),
@@ -22,8 +22,10 @@ pub(super) fn declare(shapes: &mut Shapes) {
     );
 }
 
-/// The type of `failed(x)` (`bool`) or `failure(x)` (`option<Failure>`), or
-/// `None` when `name` is neither.
+/// The type of `failed(x)` (`bool`), `failure(x)` (`option<Failure>`),
+/// `pending(x)` or `current(x)` (`bool`), or `None` when `name` is none of
+/// them. Each names a resource or a mutation, `current` a resource only
+/// (LLP 1161.001): its argument is a name, not a value.
 pub(super) fn check(
     name: &str,
     args: &[Expr],
@@ -31,6 +33,8 @@ pub(super) fn check(
     scope: &Scope,
 ) -> Option<Result<Ty, TypeError>> {
     let (id, answer) = match name {
+        "pending" => ("type-pending-argument", Ty::Bool),
+        "current" => ("type-current-argument", Ty::Bool),
         "failed" => ("type-failed-argument", Ty::Bool),
         "failure" => (
             "type-failure-argument",
@@ -38,19 +42,17 @@ pub(super) fn check(
         ),
         _ => return None,
     };
+    let what = if name == "current" {
+        "resource"
+    } else {
+        "resource or mutation"
+    };
     let [Expr::Ident(target, tspan)] = args else {
-        return Some(err(
-            id,
-            format!("`{name}(x)` names one resource or mutation"),
-            span,
-        ));
+        return Some(err(id, format!("`{name}(x)` names one {what}"), span));
     };
     Some(match scope.lookup(target) {
-        Some((Ref::Resource(_) | Ref::Mutation(_), _)) => Ok(answer),
-        _ => err(
-            id,
-            format!("`{target}` is not a resource or mutation"),
-            *tspan,
-        ),
+        Some((Ref::Resource(_), _)) => Ok(answer),
+        Some((Ref::Mutation(_), _)) if name != "current" => Ok(answer),
+        _ => err(id, format!("`{target}` is not a {what}"), *tspan),
     })
 }

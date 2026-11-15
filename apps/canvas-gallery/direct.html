@@ -1,5 +1,5 @@
 <!doctype html>
-<!-- The direct-API page: the gallery's fixtures run on Chrome's
+<!-- The direct-API page (LLP 1056 §4): the gallery's fixtures run on Chrome's
      own CanvasRenderingContext2D, with no recorder and no glue — the API
      oracle the recorded path on the web is held to. `scripts/canvasparity.mjs`
      serves it beside `fixtures.js` (fixtures.ts, built by Bun) and reads the
@@ -15,7 +15,7 @@
 <script type="module">
 import { fixtures, sequences, TILE } from "./fixtures.js";
 // The declared face and the image handle, loaded before anything draws: on
-// the web host the recorder's page does the same.
+// the web host the recorder's page does the same (LLP 1056 D8, D9).
 await Promise.all(["16px 'Exposure Sans'", "bold 16px 'Exposure Sans'", "italic 16px 'Exposure Sans'"].map((f) => document.fonts.load(f)));
 const tile = new Image(); tile.src = TILE; await tile.decode();
 const images = { [TILE]: tile };
@@ -29,14 +29,14 @@ const size = (name, step) => [name === "resize" ? 90 + 20 * step : 150, 100];
 const out = {};
 const errors = [];
 // exact2's canvas coordinates are CSS px with the device scale outside the
-// author's matrix: setTransform, resetTransform and reset
+// author's matrix (LLP 1056 D6): setTransform, resetTransform and reset
 // replace only the author's part. On the web an author scales by hand, so
 // this page puts the scale back under whatever the fixture sets.
 const SHADOW = new Set(["shadowBlur", "shadowOffsetX", "shadowOffsetY"]);
 function scaled(ctx, s) {
   const base = new DOMMatrix([s, 0, 0, s, 0, 0]);
   const own = {
-    // An image handle is an element here.
+    // An image handle is an element here (LLP 1056 D9).
     drawImage: (img, ...a) => ctx.drawImage(images[img] ?? img, ...a),
     createPattern: (img, rep) => ctx.createPattern(images[img] ?? img, rep),
     setTransform: (...m) => ctx.setTransform(base.multiply(m.length === 1 ? DOMMatrix.fromMatrix(m[0]) : new DOMMatrix(m.length ? m : [1, 0, 0, 1, 0, 0]))),
@@ -46,7 +46,7 @@ function scaled(ctx, s) {
   };
   return new Proxy(ctx, {
     // Shadows ignore the author's matrix but are canvas pixels × the device
-    // scale: on the web they would be bitmap pixels.
+    // scale (LLP 1056 §1): on the web they would be bitmap pixels.
     get: (t, k) => own[k] ?? (typeof t[k] === "function" ? t[k].bind(t) : SHADOW.has(k) ? t[k] / s : t[k]),
     set: (t, k, v) => { t[k] = SHADOW.has(k) ? Number(v) * s : v; return true; },
   });
@@ -67,7 +67,7 @@ for (const name of Object.keys(fixtures)) {
     const [w, h] = size(name, step), bitmap = name === "bitmap";
     const pw = bitmap ? 40 : Math.round(w * scale), ph = bitmap ? 25 : Math.round(h * scale);
     // A new size is a new generation: assigning it clears the bitmap and
-    // resets the context, as the runner's generation does.
+    // resets the context, as the runner's generation does (LLP 1056 D4).
     if (!ctx || pw !== last?.[0] || ph !== last?.[1]) {
       canvas.width = pw; canvas.height = ph;
       const real = canvas.getContext("2d");

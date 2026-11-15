@@ -1,14 +1,14 @@
-//! `list appearance="auto"` is a grouped list. Contract checks its
+//! LLP 1084: `list appearance="auto"` is a grouped list. Contract checks its
 //! sections and writes its look as a sheet the author's rows replace; the
 //! kernel reads its sections and rows as a native list draws them. Bare row
-//! fixtures exercise the default row in the grouped-list context.
+//! fixtures exercise LLP 1104's default in the grouped-list context.
 
 use exact_kernel::{
     Accessory, Color, ColorValue, GroupedRow, Kernel, Offer, PropId, StyleMask, TextFont, TextLook,
 };
 use exact_runner::{DataError, DataSource, Runner, Value};
 
-struct NoData;
+pub(super) struct NoData;
 impl DataSource for NoData {
     fn query(&mut self, source: &str, _: &[Value]) -> Result<Value, DataError> {
         Err(DataError::UnknownSource(source.into()))
@@ -30,7 +30,7 @@ fn boot(body: &str) -> Runner<NoData> {
     boot_source(&app(body))
 }
 
-fn boot_source(source: &str) -> Runner<NoData> {
+pub(super) fn boot_source(source: &str) -> Runner<NoData> {
     let plan = contract::bake(
         contract::compile(source).unwrap_or_else(|e| panic!("{e}")),
         NoData,
@@ -51,7 +51,7 @@ fn boot_source(source: &str) -> Runner<NoData> {
     r
 }
 
-fn id(r: &Runner<NoData>, test_id: &str) -> u32 {
+pub(super) fn id(r: &Runner<NoData>, test_id: &str) -> u32 {
     let k = r.kernel();
     k.node_by_key(k.find_by_test_id(test_id)[0]).unwrap().id
 }
@@ -168,7 +168,7 @@ fn the_kernel_reads_sections_and_rows_as_a_native_list_draws_them() {
     );
 }
 
-/// A radio in a row is the row's accessory, before its
+/// LLP 1115.000 D13.2: a radio in a row is the row's accessory, before its
 /// label as a web form writes it or after, with its bound `checked`; the
 /// row is a standard cell of its texts, and it reads live.
 #[test]
@@ -473,8 +473,8 @@ fn round_three_shapes() {
 
 #[test]
 fn a_column_row_keeps_its_direction() {
-    // A `column` straight in a section stacks its children, as it does
-    // anywhere else, rather than laying them out as a strip:
+    // LLP 1116 D2: a `column` straight in a section stacks its children, as
+    // it does anywhere else (two bake-off apps saw one laid out as a strip):
     // two texts are the subtitle cell; a form of its own is the author's.
     let r = boot("list appearance=\"auto\" testId=\"list\" flex=1\n  section\n    column testId=\"pair\"\n      text \"Title\" testId=\"t1\"\n      text \"Detail\" testId=\"t2\"\n    column testId=\"form\"\n      text \"How did you feel?\" testId=\"q\"\n      row testId=\"choices\"\n        button press=go\n          text \"A\"\n      text \"Okay\" testId=\"answer\"\n    column testId=\"one\"\n      text \"Alone\"");
     let k = r.kernel();
@@ -523,10 +523,10 @@ fn a_column_row_keeps_its_direction() {
 
 #[test]
 fn a_row_holding_its_own_stack_keeps_the_cells_margins() {
-    // A `row` around a `column` of a title, a second line and a row of
-    // buttons (a kanban card, a household list's item) keeps space above
-    // and below, so its title does not touch the card nor its buttons the
-    // separator, on any host. A hand-built cell keeps
+    // Two bake-off apps (team-kanban's cards, household-list's items): a
+    // `row` around a `column` of a title, a second line and a row of
+    // buttons had no space above or below, so its title touched the card
+    // and its buttons the separator, on every host. A hand-built cell keeps
     // its content inside the content view's margins: 15 above and below, as
     // a `column` row has them.
     let r = boot("list appearance=\"auto\" testId=\"list\" flex=1\n  section\n    row testId=\"card\"\n      column flex=1 min-width=0 gap=8 testId=\"stack\"\n        text \"Ada task one\" testId=\"title\"\n        text \"Ada\" testId=\"by\"\n        row gap=8 testId=\"actions\"\n          button press=go\n            text \"To Doing\"\n          button press=go\n            text \"Delete\"\n    row testId=\"item\"\n      input type=\"checkbox\" checked=on input=flip\n      if on\n        column flex=1 min-width=0 testId=\"lines\"\n          text \"Milk\"\n          text \"Added by Alice\"\n          text \"Checked by Bob\"\n      button press=go\n        text \"Delete\"\n    row testId=\"one\"\n      text \"No cards yet.\"\n    row testId=\"field\"\n      input value=\"\" placeholder=\"Card title\" flex=1\n      button press=go\n        text \"Add\"\n    row testId=\"pair\"\n      column\n        text \"Title\"\n        text \"Detail\"\n    row testId=\"cover\"\n      column width=44 height=66\n      text \"Untitled\"\n    button press=go testId=\"profile\"\n      row width=56 height=56 margin-top=10 margin-bottom=10\n      column\n        text \"Maya Chen\"\n        text \"+1 415 555 0134\"");
@@ -579,12 +579,12 @@ fn a_row_holding_its_own_stack_keeps_the_cells_margins() {
 
 #[test]
 fn a_stack_of_lines_takes_the_subtitle_cells_text_styles() {
-    // A stack of lines in a row (a household list's item: a title, who
-    // added it, who checked it) is drawn
+    // LLP 1116.000 D3.2: household-list's items (a title, who added it, who
+    // checked it) drew three lines alike. A stack of lines in a row is drawn
     // as the subtitle cell draws its two: the first text the title, a later
     // one the subheadline in the secondary colour. What the author wrote wins,
     // row by row, on the text or on the stack its texts inherit from. The
-    // sizes are text styles, read here at the kernel's
+    // sizes are text styles (LLP 1115.000 D3.3), read here at the kernel's
     // own root, CSS's 16: the body is 16 and the subheadline 14, where iOS's
     // 17 reads 17 and 15 (`the_sheets_text_follows_the_root_font_size`).
     let r = boot("list appearance=\"auto\" testId=\"list\" flex=1\n  section\n    button press=go\n      column\n        text \"Privacy\" testId=\"cell-title\"\n        text \"Screen lock\" testId=\"cell-detail\"\n    row\n      input type=\"checkbox\" checked=on input=flip\n      column flex=1 min-width=0\n        text \"Milk\" testId=\"title\"\n        text \"Added by Alice\" testId=\"by\"\n        if on\n          text \"Checked by Bob\" testId=\"checked\"\n      button press=go\n        text \"Delete\" testId=\"delete\"\n    row\n      column flex=1 min-width=0 gap=8\n        text \"Ship it\" testId=\"card\"\n        text \"Ada\" font=\"-exact-footnote\" color=\"#123456\" testId=\"authored\"\n        text \"Late\" color=\"#ff0000\" testId=\"red\"\n        text \"Big\" font-size=20 testId=\"big\"\n        row gap=8\n          button press=go\n            text \"To Doing\" testId=\"move\"\n    row padding-top=8 padding-bottom=8\n      column color=\"#00ff00\" font-size=13\n        text \"A\" testId=\"own-a\"\n        text \"B\" testId=\"own-b\"\n        text \"C\" testId=\"own-c\"\n    row\n      column color=\"#00ff00\"\n        text \"Title\"\n        text \"Detail\" testId=\"cell-own\"");
@@ -631,7 +631,7 @@ fn a_stack_of_lines_takes_the_subtitle_cells_text_styles() {
     );
 }
 
-/// The sheet's text sizes are text styles, so a grouped
+/// LLP 1115.000 D3.3: the sheet's text sizes are text styles, so a grouped
 /// list's text is the platform's body size and not iOS's 17 on every host: a
 /// row and a header the body style, a second line the subheadline, a footer
 /// the footnote, each read from the ramp at the root font size the host set.
@@ -675,14 +675,14 @@ fn the_sheets_text_follows_the_root_font_size() {
     }
 }
 
-/// A label beside a field keeps its words' width; the
+/// LLP 1116.019 D1: a label beside a field keeps its words' width; the
 /// field is 8rem at the far edge, and where both do not fit (iOS's
 /// accessibility sizes) the row wraps the field under the label, as large
 /// as the line, rather than squeezing the label to nothing. An author's
 /// `flex=1` title keeps its line at the default sizes, and an author's
 /// `flex=1 min-width=0` field (the number-field recipe's) takes the rest of
-/// the line and still wraps. A date and a menu keep their
-/// own width, a menu written `flex=1` too (a grocery list's aisle picker).
+/// the line and still wraps. A date and a menu (LLP 1116.020 D4) keep their
+/// own width, a menu written `flex=1` too (grocery-list's Aisle, round 24).
 #[test]
 fn a_field_goes_under_its_label_when_both_do_not_fit() {
     let body = "list appearance=\"auto\" testId=\"list\" flex=1\n  section\n    row testId=\"qty-row\"\n      text \"Quantity\" testId=\"qty-label\"\n      input type=\"number\" value=\"25\" min=1 max=99 step=1 testId=\"qty\"\n    row\n      text \"Focus minutes\" flex=1 testId=\"focus-label\"\n      input value=\"25\" testId=\"focus\"\n    row\n      text \"Daily goal\" testId=\"goal-label\"\n      input type=\"number\" value=\"2000\" min=100 step=50 testId=\"goal\" flex=1 min-width=0\n    row\n      text \"Birthday\" testId=\"date-label\"\n      input type=\"date\" value=\"2026-10-16\" testId=\"date\"\n    row testId=\"menu-row\"\n      text \"Category\" testId=\"menu-label\"\n      select value=\"Groceries\" testId=\"menu\"\n        option \"Groceries and household\" value=\"Groceries\"\n    row\n      text \"Aisle\"\n      select value=\"Produce\" testId=\"aisle\" flex=1 min-width=0\n        option \"Produce\" value=\"Produce\"";
@@ -721,12 +721,12 @@ fn a_field_goes_under_its_label_when_both_do_not_fit() {
                 assert!(l.height < 1.5 * root * 1.3, "{root}: {label} on one line");
             }
         }
-        // A menu's value is a picker as the date is. Its width is the host's
-        // (a pop-up button), so the row's wrap is what says it goes under its label where both do not fit.
+        // LLP 1116.020 D4: a menu's value is a picker as the date is. Its width is the host's (a pop-up button), so the
+        // row's wrap is what says it goes under its label where both do not fit.
         let style = |t: &str| k.node(id(&r, t)).unwrap().computed_style(StyleMask::ALL);
         let wrap = style("menu-row").flex_wrap;
         assert_eq!(wrap, exact_kernel::FlexWrap::Wrap, "{root}: wraps");
-        let basis = style("aisle").flex_basis;
+        let basis = style("aisle").flex_basis.clone();
         assert_eq!(basis, exact_kernel::Dimension::Auto, "{root}: grown");
         for (label, field) in [("date-label", "date"), ("menu-label", "menu")] {
             let (l, f) = (frame(label), frame(field));
@@ -814,7 +814,7 @@ fn an_authored_margin_is_the_webs_space_and_the_sheets_is_uikits() {
         "the sheet's numbers keep UIKit's gaps; the author's 20 is the space above"
     );
     assert_eq!(list.space_below, Some(0.0), "and the 0 under the last");
-    // A margin is the author's because they wrote it, not
+    // LLP 1115.000 D2: a margin is the author's because they wrote it, not
     // because its number differs from the sheet's. 17.33 under a section and
     // 0 beside a header are the sheet's own numbers, written here.
     let r = boot("list appearance=\"auto\" testId=\"list\" flex=1\n  section\n    button press=go\n      text \"Account\"\n  section margin-top=17.33\n    button press=go\n      text \"Chats\"\n  section margin-top=0\n    header\n      text \"More\"\n    button press=go\n      text \"Help\"");
@@ -924,7 +924,7 @@ fn default_buttons_keep_grouped_titles_presses_and_detail_accessories() {
     );
 }
 
-// The sheet names the platform's metrics and holds
+// @ref LLP 1115.002 D6 — the sheet names the platform's metrics and holds
 // none of its numbers: a row reads its platform's column where it runs (the
 // web's here, which is the sheet as it was). The names are the compiler's:
 // an author's value that is one is refused, on a row that takes text too.
@@ -960,7 +960,7 @@ fn the_sheet_names_the_platforms_metrics_and_an_author_cannot() {
     assert_eq!(row.style.text_color, red);
     assert!(
         !row.style.written.has(exact_kernel::StyleId::TextColor),
-        "the sheet's rows are the platform's, not the author's"
+        "the sheet's rows are the platform's, not the author's (LLP 1115.000 D2)"
     );
     for authored in [
         "column min-height=\"-exact-grouped-row-min-height\"",
@@ -972,7 +972,7 @@ fn the_sheet_names_the_platforms_metrics_and_an_author_cannot() {
     }
 }
 
-// The chevron by another spelling is still the disclosure.
+// @ref LLP 1116.007 D3.1 — the chevron by another spelling is still the disclosure.
 #[test]
 fn a_chevron_by_another_spelling_is_the_disclosure_accessory() {
     let r = boot("list appearance=\"auto\" testId=\"list\" flex=1\n  section\n    button press=go testId=\"open\"\n      text \"Open\"\n      image \"symbol:chevron-right\"");
@@ -982,9 +982,9 @@ fn a_chevron_by_another_spelling_is_the_disclosure_accessory() {
 
 #[test]
 fn a_standard_cells_text_keeps_its_line_clamp() {
-    // A chat room's last message, a subtitle line written `line-clamp=1`,
-    // keeps to one line on iOS too, where UIKit draws the cell's text and
-    // would wrap every line. The kernel reads how
+    // LLP 1116.003 D7, round 5's chat-rooms: a room's last message, a
+    // subtitle line written `line-clamp=1`, grew to 13 lines on iOS, where
+    // UIKit draws the cell's text and wraps every line. The kernel reads how
     // many lines each text shows and whether a cut line ends in "…", as the
     // web lays it out; a text that says nothing keeps the platform's.
     let r = boot("list appearance=\"auto\" testId=\"list\" flex=1\n  section\n    button press=go testId=\"room\"\n      column flex=1 min-width=0\n        text \"General\"\n        text \"A long last message\" line-clamp=1\n      image \"symbol:forward-chevron\"\n    row\n      text \"Title\" line-clamp=2\n      text \"Value\" white-space=\"nowrap\" overflow=\"hidden\" text-overflow=\"ellipsis\"\n    row\n      text \"Kept\" white-space=\"nowrap\"\n      text \"Plain\"");
@@ -1029,12 +1029,13 @@ fn a_standard_cells_text_keeps_its_line_clamp() {
 
 #[test]
 fn an_authored_colour_and_font_reach_the_platforms_texts_and_unsaid_ones_stay_its() {
-    // A validation message in a section footer, written
-    // `color="-exact-system-red"`, is red on iOS as on the web, though UIKit
-    // draws footers and standard cells there. Author > platform: the kernel hands a host each
+    // LLP 1116.003 D7, round 5's unit-converter: a validation message in a
+    // section footer, written `color="-exact-system-red"`, was red on the web
+    // and the footer's grey on iOS, where UIKit draws footers and standard
+    // cells. Author > platform (LLP 1115): the kernel hands a host each
     // text's own colour and font, and nothing where the sheet's stand in for
-    // the platform's, which keeps its own. "Own" is what the author wrote,
-    // on the text or on a box it inherits from: the sheet's
+    // the platform's, which keeps its own. "Own" is what the author wrote
+    // (LLP 1115.000 D2), on the text or on a box it inherits from: the sheet's
     // own value, written, is the author's, and a value the compiler implied
     // (a heading's size) is not, whatever it is.
     let r = boot("list appearance=\"auto\" testId=\"list\" flex=1\n  section\n    header\n      text \"Measure\" font=\"-exact-footnote\"\n    row\n      text \"Title\" color=\"#ff0000\"\n      text \"Value\" font-size=20\n    button press=go destructive=true\n      text \"Delete\"\n    footer\n      text \"Enter a number.\" color=\"-exact-system-red\"\n  section\n    header\n      text \"Plain\"\n    button press=go\n      column\n        text \"Privacy\"\n        text \"Screen lock\" font-style=\"italic\"\n    row\n      text \"Name\"\n      text \"Ada\"\n    footer color=\"#00ff00\"\n      text \"Green, on the footer.\"\n  section\n    row\n      text \"Unsaid\"\n    row\n      text \"Quiet\" color=\"-exact-secondary-label\"\n      text \"Loud\" color=\"-exact-label\"\n    row\n      text \"Same\" color=\"-exact-label\" font-size=17\n      text \"Too\" color=\"-exact-secondary-label\"\n    button press=go color=\"#00ff00\"\n      text \"On the row\"\n      text \"Value\"\n    row\n      text \"Heading\" role=\"heading\" aria-level=1\n    footer\n      text \"The platform's grey.\"");
@@ -1104,7 +1105,7 @@ fn an_authored_colour_and_font_reach_the_platforms_texts_and_unsaid_ones_stay_it
         (s2.rows[0].title_look, s2.footer_look),
         (TextLook::default(), TextLook::default())
     );
-    // The sheet names a role for each text. A role its author
+    // The sheet names a role for each text (LLP 1115 §3). A role its author
     // wrote is theirs: in another text's slot,
     let role = |name: &str| ColorValue::Role(exact_kernel::style::roles::role(name).unwrap());
     assert_eq!(
@@ -1284,13 +1285,14 @@ fn a_destructive_rows_conditional_title_leaves_its_colour_unsaid() {
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
 
-/// An action that can't be taken is disabled, and a disabled row looks it everywhere the sheet draws, as
+/// Round 6's event-rsvp (LLP 1116.004 D9): an action that can't be taken is
+/// disabled, and a disabled row looks it everywhere the sheet draws, as
 /// UIKit draws one: the tertiary label's grey in place of its red or its
 /// label colour, bound or not.
 #[test]
 fn a_disabled_row_is_the_tertiary_labels_grey() {
-    // Both are roles, as the sheet names its colours; the red's table holds
-    // iOS 27's measured pair.
+    // Both are roles since the sheet named its colours (KRN-01; the red
+    // with LLP 1115.000 D3.2, whose table holds iOS 27's measured pair).
     let role = |name: &str| ColorValue::Role(exact_kernel::style::roles::role(name).unwrap());
     let (grey, red) = (role("-exact-tertiary-label"), role("-exact-system-red"));
     assert_eq!(
@@ -1317,7 +1319,7 @@ fn a_disabled_row_is_the_tertiary_labels_grey() {
         grey,
         "disabled once its condition holds"
     );
-    // The grey, like the red, is the sheet's and so unsaid:
+    // The grey, like the red, is the sheet's and so unsaid (LLP 1115.000 D2):
     // a host that draws the platform's list draws its own disabled row.
     let list = r.kernel().grouped_list(id(&r, "list")).unwrap();
     for row in &list.sections[0].rows {
@@ -1325,7 +1327,7 @@ fn a_disabled_row_is_the_tertiary_labels_grey() {
     }
 }
 
-/// A text's line feed is what
+/// LLP 1116.004 D2 (unit-converter, round 6): a text's line feed is what
 /// its `white-space` makes it on the web: a space under `normal`, which
 /// collapses it, and a line break under `pre-line`, which UIKit's footer and
 /// cell then draw as two lines.
@@ -1362,10 +1364,11 @@ fn a_line_feed_in_a_footer_or_title_follows_its_white_space() {
     );
 }
 
-/// The sheet tints a row's leading symbol
+/// LLP 1116.004 D2 (polls, round 6): the sheet tints a row's leading symbol
 /// and its checkmark with the accent, `AccentColor`, which follows the
 /// nearest `accent-color` as a list cell's image and checkmark follow UIKit's
-/// `tintColor`, so a teal app's checkmark is teal. The chevron keeps its tertiary grey.
+/// `tintColor`; it had written iOS 27's blue, so a teal app's checkmark was
+/// blue. The chevron keeps its tertiary grey.
 #[test]
 fn the_sheets_symbol_and_checkmark_take_the_accent() {
     let r = boot(&SETTINGS.replace("    button press=go testId=\"dark\"\n      text \"Dark\"\n      if dark\n        image \"symbol:checkmark\"",
@@ -1397,7 +1400,8 @@ fn the_sheets_symbol_and_checkmark_take_the_accent() {
     );
 }
 
-/// A `button` row that is an action cell is drawn in the accent, as a
+/// LLP 1116.019 D6 (round 17's book-club, contacts and workout-log): a
+/// `button` row that is an action cell is drawn in the accent, as a
 /// hand-built action cell and SwiftUI's `List { Button }` are, and the kernel
 /// tells a native list so; a forward chevron anywhere in a row is the
 /// disclosure's grey unless its author coloured it, and a link that ends in

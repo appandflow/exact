@@ -1,12 +1,12 @@
 // A partitioned iframe: a top-level browsing context with its own website
 // data store, the Navigation API's events seen from outside, and the four
-// commands that move it. WebArm.swift builds the web view and forwards
-// its navigation delegate calls here.
+// commands that move it (@ref LLP 1020.002 D1–D4). WebArm.swift builds the
+// web view and forwards its navigation delegate calls here.
 import CryptoKit
 import Foundation
 import WebKit
 
-/// Partition names and their data stores. A
+/// Partition names and their data stores (@ref LLP 1020.002 D1). A
 /// `persist:` store is the app's, made once per name and kept for the
 /// process; an in-memory one is its session's, let go when the session ends
 /// (`exact_web_end_session`), as an Electron in-memory partition lives until
@@ -56,7 +56,7 @@ enum Partitions {
                            bytes[8], bytes[9], bytes[10], bytes[11], bytes[12], bytes[13], bytes[14], bytes[15]))
     }
 
-    /// `clearSiteData(partition, types)`: the Clear
+    /// `clearSiteData(partition, types)` (@ref LLP 1020.002 D4): the Clear
     /// Site Data header's type names over a whole partition. `nil` is success;
     /// otherwise a DOMException name and message.
     /// Every live store of that name is cleared: a package call names no
@@ -95,7 +95,7 @@ enum GuestURL {
 }
 
 /// The navigation state of one partitioned web view, reported as
-/// `FrameNavigation` records. WebKit's delegate calls
+/// `FrameNavigation` records (@ref LLP 1020.002 D2). WebKit's delegate calls
 /// and KVO are the source; each navigation ends in `navigatesuccess` or
 /// `navigateerror`.
 final class FrameBrowser: NSObject, WKScriptMessageHandler {
@@ -108,7 +108,7 @@ final class FrameBrowser: NSObject, WKScriptMessageHandler {
     }
 
     /// The icon reader's world: it reads the page's `<link rel~=icon>` and
-    /// installs nothing the page can observe.
+    /// installs nothing the page can observe (@ref LLP 1020.002 D1).
     static let world = WKContentWorld.world(name: "exact.browser")
     static let iconScript = """
     (() => { const post = () => { try { window.webkit.messageHandlers.exactIcons.postMessage(Array.from(document.querySelectorAll('link[rel~="icon" i]'), l => l.href).filter(Boolean)); } catch {} };
@@ -124,7 +124,7 @@ final class FrameBrowser: NSObject, WKScriptMessageHandler {
     /// The source to load again after a crash when nothing committed.
     var source: () -> String?
     /// Another app's URL `navigate` was given: the platform's confirmation
-    /// decides.
+    /// decides (@ref LLP 1020.002 D3, D5).
     var external: ((URL) -> Void)?
     var nextId = 0
     var flight: Flight?
@@ -147,7 +147,7 @@ final class FrameBrowser: NSObject, WKScriptMessageHandler {
     /// has no document to reload, so `reload` loads the URL again.
     var dead = false
     var closed = false
-    /// Who drives the frame: `agent` after an automation call that acts, until a person's input.
+    /// Who drives the frame: `agent` after an automation call that acts, until a person's input (@ref LLP 1020.002 D9).
     var controller = "person"
 
     init(emit: @escaping (String, [String: Any]) -> Void, source: @escaping () -> String?) {
@@ -177,7 +177,7 @@ final class FrameBrowser: NSObject, WKScriptMessageHandler {
     func close(controller: WKUserContentController?) {
         guard !closed else { return }
         closed = true
-        recovery?.cancel()
+        cancelRecovery()
         observations = []
         controller?.removeScriptMessageHandler(forName: "exactIcons", contentWorld: Self.world)
     }
@@ -261,6 +261,7 @@ final class FrameBrowser: NSObject, WKScriptMessageHandler {
     }
 
     func started(_ navigation: WKNavigation?) {
+        cancelRecovery()
         // WebKit's own navigation type wins, but for a reload by URL (crash
         // recovery, the reload of a load that failed), which it calls `other`;
         // so a stale command type never colours a link.
@@ -393,7 +394,7 @@ final class FrameBrowser: NSObject, WKScriptMessageHandler {
         stateChanged()
     }
 
-    // MARK: Commands
+    // MARK: Commands (@ref LLP 1020.002 D3)
 
     func refuse(_ error: String, _ message: String) {
         FileHandle.standardError.write(Data("exact: iframe: \(message)\n".utf8))
@@ -413,6 +414,7 @@ final class FrameBrowser: NSObject, WKScriptMessageHandler {
                 let scheme = URL(string: text)?.scheme.map { "\($0):" } ?? "this URL"
                 return refuse("NotSupportedError", "navigate: \(scheme) is not a web page a partitioned frame shows (http, https or about:blank)")
             }
+            cancelRecovery()
             web.load(URLRequest(url: url))
         case "traverseHistory":
             let delta = (op["delta"] as? NSNumber)?.intValue ?? 0
@@ -420,11 +422,13 @@ final class FrameBrowser: NSObject, WKScriptMessageHandler {
             guard let item = web.backForwardList.item(at: delta) else {
                 return send("navigateerror", error: "InvalidStateError", message: "traverseHistory: no history entry at \(delta)")
             }
+            cancelRecovery()
             commandType = "traverse"
             web.go(to: item)
         case "reload":
             reload(ignoreCache: op["ignoreCache"] as? Bool ?? false)
         case "stopLoading":
+            cancelRecovery()
             guard let current = flight else { return }
             flight = nil
             web.stopLoading()
@@ -440,7 +444,7 @@ final class FrameBrowser: NSObject, WKScriptMessageHandler {
     func reload(ignoreCache: Bool) {
         guard let web else { return }
         deaths = []
-        recovery?.cancel()
+        cancelRecovery()
         commandType = "reload"
         if let target = flight?.destination ?? (committed.isEmpty ? source() : dead ? committed : nil), let url = GuestURL.web(target) {
             web.load(URLRequest(url: url, cachePolicy: ignoreCache ? .reloadIgnoringLocalAndRemoteCacheData : .useProtocolCachePolicy))
@@ -455,7 +459,7 @@ final class FrameBrowser: NSObject, WKScriptMessageHandler {
 
     /// The content process died: `navigateerror` "crashed", then a reload
     /// after 250, 500 and 1,000 ms; a fourth death within 30 s ends it until
-    /// `reload`.
+    /// `reload` (@ref LLP 1020.002 D2).
     func crashed() {
         guard let web, !closed else { return }
         let now = Date()
@@ -469,13 +473,22 @@ final class FrameBrowser: NSObject, WKScriptMessageHandler {
             return emitEnd(ending, "navigateerror", error: "crashed", message: "the web content process ended \(attempt) times in 30 s", recovering: false)
         }
         emitEnd(ending, "navigateerror", error: "crashed", message: "the web content process ended", recovering: true)
+        recovery?.cancel()
         let work = DispatchWorkItem { [weak self, weak web] in
-            guard let self, let web, !self.closed else { return }
+            // Only the latest crash's recovery loads, and only while nothing has taken the frame since.
+            guard let self, let web, !self.closed, self.recovery != nil, self.deaths.last == now else { return }
+            self.recovery = nil
             self.commandType = "reload"
             if let target, let url = GuestURL.web(target) { web.load(URLRequest(url: url)) } else { web.reload() }
         }
-        recovery?.cancel()
         recovery = work
         DispatchQueue.main.asyncAfter(deadline: .now() + Self.recoveryDelays[attempt - 1], execute: work)
+    }
+
+    /// A navigation, a new source or a stop owns the frame now: a crash's
+    /// queued recovery never loads over it.
+    func cancelRecovery() {
+        recovery?.cancel()
+        recovery = nil
     }
 }

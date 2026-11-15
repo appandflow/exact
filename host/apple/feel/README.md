@@ -31,7 +31,7 @@ plus about 5 s the first time the touch runner starts on a simulator. `--out` de
 list); `--dump DIR` saves the first sampled frames and any with a blank band as PNGs, each beside a JPEG of the
 window as the screen showed it, and the blank check's frames.
 
-`tap "label"` finds what it names as the app driver does (`host/apple/elements.mjs`: label, id or
+`tap "label"` finds what it names as the bake-off's driver does (`host/apple/elements.mjs`: label, id or
 placeholder, exactly, then ignoring case, then as part of a label), waiting up to 8 s for it. With several lines of
 steps, `DIR/feel.txt` has every list under its steps and `DIR/feel.json` is the first list's with `others` naming the
 rest. `bench/bakeoff/round.mjs` passes a spec's `feel-steps.txt` (lines starting with `#` are comments).
@@ -106,7 +106,7 @@ second); the status-bar tap from where they left the list; the pull past the top
 12,000 pt or more, one scrub, timed (on a shorter one, dragging the indicator moves the list less than twice as fast as the
 6,000 pt/s fling). It skips the 1,500 pt/s fling and the flings back up, so the edge bounce is measured only when a fling
 reaches the list's end, and blanks are sampled in one fling (about 45 samples, not 130). It skips the tap while
-decelerating and the carousel: across 103 verify runs the findings an app could fix came
+decelerating and the carousel: in bake-off rounds r24 to r26 (103 verify runs) the findings an app could fix came
 from the slow drag, the flings, the status-bar tap and the pull, and those two found only Exact's own. `verify ios`
 measures once per build: until the build, the plan it runs, the app's server or the probe changes, it reuses the
 last measurement (`--rescroll` takes another).
@@ -193,7 +193,7 @@ the next (6,500 → 0 → 12,300 pt/s in one run), a hitch at the moment of rele
 stops a decelerating list), against 1–2 ms for UIKit and 2–7 ms for SwiftUI. During steady motion Exact's p95 sits
 between UIKit's and SwiftUI's.
 
-Scrubbing and carousels, on a simulator (iOS 27, 60 Hz), a set of sample apps, load 10 to 70:
+Scrubbing and carousels, on `bake-s1` (iOS 27, 60 Hz), bake-off round s1's apps, load 10 to 70:
 
 | | UIKit photo grid (`UICollectionView`) | SwiftUI feed (`LazyVStack`) | Exact photo grid | Exact feed |
 |---|---|---|---|---|
@@ -220,7 +220,7 @@ costs more than a frame still makes that frame late.
 - Blank sampling renders the list's layers (`renderInContext`), which omits Metal content and costs 3–7 ms, so it
   runs only during the 4,000 pt/s fling and the flings back up, and those frames are left out of the timing
   metrics. A list that draws through Metal would read as blank (and blank at rest too, so not counted).
-- The blank check, validated on a set of sample apps: before it, uniform bands read as blank on SwiftUI's Settings
+- The blank check, validated on the round r21 apps: before it, uniform bands read as blank on SwiftUI's Settings
   (0.36), UIKit's inbox (0.22), SwiftUI's moodboard (0.10) and four Exact apps (expenses 1.0, settings 0.49,
   contacts 0.24); with it, 0 on all twelve native arms and on those Exact apps. A UIKit list whose cells fill
   their content 200 ms after they are dequeued reads 0.43 (full script; 20 of 20 judged bands blank), the same
@@ -242,7 +242,7 @@ costs more than a frame still makes that frame late.
 
 Not yet. A phone at 120 Hz is what would exercise 8.3 ms budgets, and the recorder itself would run there, but:
 
-- the touch runner is simulator-only: it needs the runner built for
+- the touch runner is simulator-only (LLP 1080.000 stage 4 is not built): it needs the runner built for
   `iphoneos`, signed with the team profile, installed with `devicectl` and started with `UseDestinationArtifacts`;
   its session's accessibility keys are set with `simctl spawn … defaults`, which a phone has no equivalent of;
 - the recorder writes its trace to a host path and reads its two switches (`.sample`, `.check`) from host paths,

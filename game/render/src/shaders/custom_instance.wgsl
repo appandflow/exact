@@ -1,3 +1,4 @@
+// @ref llp/1046.006.000-render-hooks.rfc.md#d4-custom-materials-inside-the-engines-batches-phase-2
 struct DrawInstance {
     transform: u32, material: u32, data: u32, palette: u32,
     local: mat4x4f, normal: mat4x4f,

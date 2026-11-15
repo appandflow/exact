@@ -1,14 +1,23 @@
-// The controls that carry a value, projected onto
+// @ref LLP 1069.001 D5 — the controls that carry a value, projected onto
 // UIKit as the checkbox is: `select` is iOS's pop-up button (a `UIButton`
 // whose menu chooses, `changesSelectionAsPrimaryAction`), its options read
 // from the kernel. Contract owns the value: the control moves at once,
 // reports HTML's `input` then `change`, and shows the bound value when it
-// changes, keeping the person's choice until then.
+// changes, keeping the person's choice until then (D4, amended 2026-10-04).
 #if os(iOS) || os(tvOS)
 import UIKit
 
 #if os(iOS)
 private final class SelectButtonIOS: UIButton {
+    /// Where the surface draws it, inside a placed canvas child (PlacedAccessibilityIOS.swift).
+    override var accessibilityFrame: CGRect {
+        get { placedAccessibilityFrame ?? super.accessibilityFrame }
+        set { super.accessibilityFrame = newValue }
+    }
+    override var accessibilityActivationPoint: CGPoint {
+        get { placedActivationPoint(from: super.accessibilityActivationPoint) ?? super.accessibilityActivationPoint }
+        set { super.accessibilityActivationPoint = newValue }
+    }
     var valueAlignment = UIControl.ContentHorizontalAlignment.left {
         didSet { if oldValue != valueAlignment { setNeedsLayout() } }
     }
@@ -154,12 +163,12 @@ extension ControlHost {
         })
     }
 
-    /// HTML sizes a select to its widest option, whichever is shown.
+    /// HTML sizes a select to its widest option, whichever is shown (D3).
     func naturalSize(_ control: UIControl, _ owner: NodeView) -> CGSize {
         HostPhases.shared.count(.nativeControlMeasurements)
         #if !os(tvOS)
         // A slider has no width of its own: it is as wide as its node, which
-        // the plan makes `width: 100%`. 129 is the
+        // the plan makes `width: 100%` (LLP 1115.000 D10.2). 129 is the
         // range's intrinsic width on every host (`ControlKind::default_size`):
         // what the node falls back to where that has nothing to resolve against.
         if control is UISlider { return CGSize(width: 129, height: ceil(control.intrinsicContentSize.height)) }
@@ -191,7 +200,8 @@ extension ControlHost {
 
     /// A choice from the menu: `input` then `change`. The bound value is
     /// shown when it changes, as the web build's select: an action that
-    /// wrote none leaves the person's choice showing.
+    /// wrote none leaves the person's choice showing (LLP 1069.001 D4,
+    /// amended 2026-10-04).
     func chose(_ id: UInt32, _ value: String) {
         guard presenter.views[id] != nil else { return }
         let before = presenter.selectOptions?(id)
@@ -211,7 +221,7 @@ extension ControlHost {
     /// The agent's `tap` on a select opens nothing here: UIKit presents a
     /// button's menu only under a finger (`performPrimaryAction` opens one the
     /// carrier can neither see nor close), so the reply says so and `type`
-    /// chooses (as a held contact is refused).
+    /// chooses (LLP 1069.001 D9, as a held contact is refused in LLP 1035.003).
     func openValue(_ control: UIControl) -> Bool { control.window != nil }
     func unopened(_ node: NodeView) -> [String: Any]? {
         #if !os(tvOS)
@@ -229,7 +239,7 @@ extension ControlHost {
                 "reason": "the iOS carrier opens no menu (UIKit presents one under a finger); `type <id> <value>` chooses"]
     }
 
-    /// The agent's `type <id> <value>`: the choice a menu would make.
+    /// The agent's `type <id> <value>` (D9): the choice a menu would make.
     func type(_ node: NodeView, _ value: String) -> [String: Any]? {
         #if !os(tvOS)
         if let slider = controls[node.id] as? RangeSlider {
@@ -241,7 +251,7 @@ extension ControlHost {
             return typeDate(picker, node, value)
         }
         #endif
-        if kinds[node.id] == "radio" { return typeRadio(node, value) }
+        if kinds[node.id] == "radio" { return typeRadio(node, value) } // x2apps survey #2
         // A checkbox (or `switch`) takes `true` or `false`, and is toggled when that differs, as on the web.
         if kinds[node.id] == "checkbox" || kinds[node.id] == "switch", let control = controls[node.id], !(control is NativeButtonIOS) {
             guard value == "true" || value == "false" else { return ["error": "checkbox \(node.id) takes true or false, not \"\(value)\""] }

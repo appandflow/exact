@@ -1,4 +1,4 @@
-// MIDI's commands are commands to the semantics: issued after
+// MIDI's commands (LLP 1125 D7) are commands to the semantics: issued after
 // the commit, in statement order, with their arguments in the runner's
 // positions (`none` where `at=` is left to its default). The queue itself
 // (access, the hold, retractions) is the runner's, tested there.

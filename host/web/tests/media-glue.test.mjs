@@ -1,6 +1,6 @@
 // The web hosts' media glue (media-glue.js) over a stand-in element: the
-// commands by HTML's method names and a failure that
-// landed before the glue had the element.
+// commands by HTML's method names (podcast F8, F18) and a failure that
+// landed before the glue had the element (F19).
 import { test, expect } from 'bun:test';
 
 globalThis.exact ??= {};

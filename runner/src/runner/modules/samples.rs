@@ -1,4 +1,4 @@
-//! Sampled sources: a polled source that declares
+//! Sampled sources (LLP 1133.013 D5, D6, §9): a polled source that declares
 //! `"samples"` answers each reader with the latest reading and, when the
 //! reader asks a bound (`history`), every sample since that reader's last
 //! delivered answer, with a count of what the bound left out (`dropped`)
@@ -12,14 +12,14 @@
 //! receives it as `after` and answers statelessly from it; a reader's first
 //! ask carries none and gets the latest reading with an empty batch.
 //!
-//! **The substitute** answers a sampled source on the reader's grid:
+//! **The substitute** (§9) answers a sampled source on the reader's grid:
 //! every 1 / `frequency` of the session clock from its group's first ask.
 //! Its value at an instant is the agent's preference set last before it: a
 //! reading, or a list of steps, each `at` milliseconds after the moment it
 //! was preferred and holding until the next. The runner computes nothing
 //! about the values; it copies the step's fields and stamps them.
 //!
-//! **A canvas input** is a send that declares `"feeds"`: under the
+//! **A canvas input** (D6) is a send that declares `"feeds"`: under the
 //! substitute the runner keeps it, and a host advancing the agent's clock
 //! takes each input's samples on its grid as the surface's input events
 //! ([`Runner::surface_sensor_events`]), a display frame at a time.
@@ -100,7 +100,7 @@ impl<D: DataSource> Runner<D> {
         decl.is_object().then_some(decl)
     }
 
-    /// Clamp each computed option to its declared bounds, with
+    /// Clamp each computed option to its declared bounds (D12 item 2), with
     /// a journal line; a literal outside them was refused at bake.
     pub(in crate::runner) fn clamp_bounds(&mut self, row: &ModulesRow, args: &mut Json) {
         let sub = self.substitute(row);
@@ -275,7 +275,7 @@ impl<D: DataSource> Runner<D> {
     }
 
     /// A reader's period, in ms: its frequency, else the declared rate; a
-    /// tool's or a wake's at most the app's own fastest.
+    /// tool's or a wake's at most the app's own fastest (D4).
     fn sampled_period(&self, decl: &Json, args: &Json, origin: CallOrigin) -> f64 {
         let rate = decl["rate"].as_f64().unwrap_or(60.0);
         let asked = (decl["frequency"].as_str())
@@ -292,7 +292,7 @@ impl<D: DataSource> Runner<D> {
         1000.0 / frequency.max(1e-3)
     }
 
-    /// The substitute's answer to a reader of sampled source `row`.
+    /// The substitute's answer to a reader of sampled source `row` (§9).
     pub(in crate::runner) fn sampled(&self, row: &ModulesRow, args: &Json) -> Json {
         let Some(decl) = self.samples_of(row) else {
             return json!({ "error": "NotSupportedError" });
@@ -347,7 +347,7 @@ impl<D: DataSource> Runner<D> {
             interrupted = self.paused_within(point(after), self.now_ms);
         }
         if let Some(map) = answer.as_object_mut() {
-            // When the group's zero was taken (`since`).
+            // When the group's zero was taken (`since`, LLP 1133.026 D13).
             if let Some(field) = decl["since"].as_str() {
                 map.insert(field.into(), json!(self.time.epoch_at_zero + start));
             }
@@ -373,8 +373,8 @@ impl<D: DataSource> Runner<D> {
             )
     }
 
-    /// The substitute's answer to a reader of a count (`counts`): the
-    /// track's reading now, which holds while the page is
+    /// The substitute's answer to a reader of a count (`counts`, LLP
+    /// 1133.026 §11): the track's reading now, which holds while the page is
     /// hidden too, counted from `since`: where the step names none, the
     /// later of the reader's `start` and the group's first ask less `reach`
     /// (Core Motion's seven days), on the epoch.
@@ -482,7 +482,12 @@ impl<D: DataSource> Runner<D> {
             let readers = self.extensions.readers.get(&self.key(row));
             for (i, args) in readers.into_iter().flatten() {
                 let app = !self.origin_asked(*i).is_some_and(|o| o != CallOrigin::App);
-                if !app || !self.resources.get(*i).is_some_and(Option::is_some) {
+                if !app
+                    || !self
+                        .resources
+                        .get(*i)
+                        .is_some_and(|row| row.state.is_some())
+                {
                     continue;
                 }
                 let args: Json = serde_json::from_str(args).unwrap_or_default();
@@ -530,7 +535,7 @@ impl<D: DataSource> Runner<D> {
         for key in keys {
             let resources = &self.resources;
             let readers = self.extensions.readers.entry(key.clone()).or_default();
-            readers.retain(|i, _| resources.get(*i).is_some_and(Option::is_some));
+            readers.retain(|i, _| resources.get(*i).is_some_and(|row| row.state.is_some()));
             held.extend(readers.keys().copied());
             let groups: Vec<String> = readers.values().cloned().collect();
             let samples = &mut self.extensions.samples;
@@ -556,7 +561,7 @@ impl<D: DataSource> Runner<D> {
     }
 
     /// A send that `feeds` a canvas's input, answered by the substitute: the
-    /// input starts, on a fresh grid, or ends.
+    /// input starts, on a fresh grid, or ends (D6).
     pub(in crate::runner) fn feed(&mut self, row: &ModulesRow, args: &Json, origin: CallOrigin) {
         let feeds = self.substitute(row)["feeds"].clone();
         let field = |k: &str| {
@@ -627,7 +632,7 @@ impl<D: DataSource> Runner<D> {
     /// What the substitute's canvas inputs owe their surfaces up to `to_ms`
     /// on the session clock, oldest first: each a surface's name and its
     /// input event as the hosts write it, `{"t":"sensor","sensor","values",
-    /// "dropped","at"}` or `{"t":"sensorEnded","sensor","at"}`. Values
+    /// "dropped","at"}` or `{"t":"sensorEnded","sensor","at"}` (D6). Values
     /// are the declared `values` fields of the sensor's source, a list one
     /// spread, padded with zeros to four.
     pub fn surface_sensor_events(&mut self, to_ms: f64) -> Vec<(String, String)> {
@@ -680,8 +685,8 @@ impl<D: DataSource> Runner<D> {
         out.into_iter().map(|(_, s, e)| (s, e)).collect()
     }
 
-    /// `state.extensions`' streams, readers' cursors and canvas inputs, for
-    /// `extension`.
+    /// `state.extensions`' streams, readers' cursors and canvas inputs (§9,
+    /// Disclosure), for `extension`.
     pub(in crate::runner) fn samples_json(&self, extension: &str) -> Option<Json> {
         let mine = |row: &ModulesRow| self.plan.str(row.extension) == extension;
         let sampled: Vec<&ModulesRow> = (self.plan.modules.iter())
@@ -705,7 +710,7 @@ impl<D: DataSource> Runner<D> {
                 let origin = self.origin_asked(*i).unwrap_or_default();
                 let cursor = self.extensions.samples.cursors.get(&Reader::Resource(*i));
                 readers.push(json!({ "name": self.plan.str(row.declared),
-                    "resource": self.plan.str(self.plan.resources[*i].name),
+                    "resource": self.plan.str(self.resource_row(*i).name),
                     "args": serde_json::from_str::<Json>(args).unwrap_or_default(),
                     "cursor": cursor, "origin": origin.word() }));
             }
@@ -728,7 +733,7 @@ impl<D: DataSource> Runner<D> {
     }
 
     /// A sampled source or a canvas input whose interface's status says the
-    /// device has none (`available: false`): it fails
+    /// device has none (`available: false`, D14): it fails
     /// `NotSupportedError`. Other interfaces answer such a device their own
     /// way (local authentication's `NOT_AVAILABLE`).
     pub(in crate::runner) fn unavailable(&self, row: &ModulesRow) -> bool {

@@ -1,16 +1,21 @@
-// The local network on the web: the address space Local
+// The local network on the web (LLP 1133.036 D6): the address space Local
 // Network Access gives a destination as its URL writes it and the page
 // (https://wicg.github.io/local-network-access/), each space's permission as
 // the browser answers it, and the rule a tool's, a wake's or a package
 // event's fetch or WebSocket open passes: the JS target's (host/web-js
 // admission.js) and the page module's (http-body.js `request`).
-import { isLocalNetwork } from './grant-admission.js';
+import { isCloudMetadata, isLocalNetwork } from './grant-admission.js';
 
 const RANK = { public: 0, local: 1, loopback: 2 };
-/** The space of `host` as written: `loopback`, `local` or `public`; a name the browser resolves is `public` here. */
-export const spaceOf = host => isLocalNetwork(host, true) ? (isLocalNetwork(host, false) ? 'local' : 'loopback') : 'public';
+/** The origin a request that carries none is checked as: not the app's, so D6's rule applies to it. */
+export const UNATTRIBUTED = 'unattributed';
+/**
+ * The space of `host` as written: `loopback`, `local` or `public`; a name the browser resolves is `public` here. The
+ * cloud metadata address, which no grant admits as local, is in the browser's local space all the same.
+ */
+export const spaceOf = host => isLocalNetwork(host, true) ? (isLocalNetwork(host, false) ? 'local' : 'loopback') : isCloudMetadata(host) ? 'local' : 'public';
 
-// Each space's permission as the browser answers it: `unknown` where it
+// Each space's permission as the browser answers it (D8): `unknown` where it
 // answers neither name. `local-network-access` is Chrome's name before 145.
 const states = { local: 'unknown', loopback: 'unknown' };
 const NAMES = { local: ['local-network', 'local-network-access'], loopback: ['loopback-network', 'local-network-access'] };
@@ -29,11 +34,11 @@ if (typeof navigator !== 'undefined' && navigator.permissions?.query) { watch('l
 /** The page's own space. */
 const pageSpace = () => spaceOf(globalThis.location?.hostname ?? '');
 
-/** Under the agent: the substitute's state for `space` (`local` or `loopback`), which stands for the browser's. */
+/** Under the agent: the substitute's state for `space` (`local` or `loopback`), which stands for the browser's (D19). */
 export function setSpaceState(space, state) { if (space in states) states[space] = state; }
 
 /**
- * Why a fetch of `url` or a WebSocket open asked by `origin` is refused
+ * D6: why a fetch of `url` or a WebSocket open asked by `origin` is refused
  * before it is sent, or null. Only a tool's, a wake's or the device's reach
  * to a space less public than the page's is checked, against that space's
  * permission, or `state` where the runner's substitute answers it.
@@ -49,7 +54,7 @@ export function reachRefusal(url, origin, state = null) {
 }
 
 /**
- * The redirect gate: a tool's, a wake's or the device's fetch that would
+ * D6's redirect gate: a tool's, a wake's or the device's fetch that would
  * follow redirects goes out with `redirect: "error"` while the browser
  * has not granted every less public space's permission, so
  * the browser never requests a hop that could prompt.

@@ -1,6 +1,7 @@
-// The wake seam's acceptance, through this module outside the tree: an app
-// `exact new` made outside the repo depends on a copy of it by `file:`, as on
-// any installed package, and its event `tide` is raised only by a wake.
+// LLP 1133.017 stage 0's acceptance, through this module outside the tree:
+// an app `exact new` made outside the repo depends on a copy of it by
+// `file:`, as on any installed package, and its event `tide` is raised only
+// by a wake.
 //
 // - On the web, bound to its implementation: a registration is a button the
 //   implementation places; a click raises `tide` through the context's

@@ -48,6 +48,25 @@ fn preserved(src: &str) -> String {
 }
 
 #[test]
+fn formatting_preserves_a_leading_byte_order_mark() {
+    for prefix in [
+        "",
+        "// comment\n",
+        "  // comment\n",
+        "    // comment\n",
+        "\n",
+        "  \n",
+        "  // comment\r\n",
+    ] {
+        let src = format!("\u{feff}{prefix}component App\n    view\n        text \"\u{feff}\"\n");
+        let expected = format!("\u{feff}{}", format(&src['\u{feff}'.len_utf8()..]).unwrap());
+        assert_eq!(format(&src).unwrap(), expected);
+        assert_eq!(format(&expected).unwrap(), expected);
+    }
+    assert_eq!(format("\u{feff}").unwrap(), "\u{feff}\n");
+}
+
+#[test]
 fn resource_context_preserves_the_call_boundary_nested_values_and_else() {
     use contract_syntax::{parse, Span, VisitSpans};
     let src = r#"component App
@@ -120,7 +139,7 @@ component A
 
 #[test]
 fn raw_literals_survive() {
-    let huge = "9".repeat(400); // lexer accepts an overflowing decimal
+    let huge = "9".repeat(300); // still finite: the largest double has 309 digits
     let src = format!(
         r#"
 font "Brand" = "fonts/brand.ttf"
@@ -129,7 +148,7 @@ routes screen
         story "/:id"
     notfound
 component A
-    state n = 0001.00
+    state n = 1.00
     derive enormous = {huge}
     derive sub = n - n
     derive property = 1 . field
@@ -139,7 +158,7 @@ component A
 "#
     );
     let after = preserved(&src);
-    assert!(after.contains("0001.00"));
+    assert!(after.contains("1.00"));
     assert!(after.contains(&huge));
     assert!(after.contains("1 .field"));
     assert!(after.contains(r#"text "a\t\n\`\$" font-size=12"#));
@@ -260,6 +279,113 @@ test "é test"
 }
 
 #[test]
+fn typed_states_keep_their_types_in_components_and_members() {
+    use contract_syntax::{parse, Span, VisitSpans};
+    for (header, view) in [
+        ("component App", "  view\n    text \"ready\"\n"),
+        ("members App", ""),
+    ] {
+        for (ty, value) in [
+            ("number", "0"),
+            ("option<string>", "none"),
+            ("option<option<string>>", "none"),
+            ("option<number[]>", "none"),
+            ("option<option<number[]>[]>", "none"),
+            ("option<string>[]", "[]"),
+            ("option<enum<\"a\", \"b\">[]>", "none"),
+        ] {
+            let src = format!("{header}\n  state picked:{ty} = {value}\n{view}");
+            let after = preserved(&src);
+            assert_eq!(
+                after,
+                format!("{header}\n  state picked: {ty} = {value}\n{view}")
+            );
+            let mut before = parse(&src).unwrap();
+            let mut formatted = parse(&after).unwrap();
+            before.visit_spans(&mut |span| *span = Span::default());
+            formatted.visit_spans(&mut |span| *span = Span::default());
+            assert_eq!(before, formatted);
+        }
+    }
+}
+
+#[test]
+fn nested_list_types_keep_their_brackets_tight() {
+    for ty in [
+        "number[]",
+        "option<number[]>",
+        "string[][]",
+        "option<string>[]",
+        "number[][][]",
+        "option<number[][]>",
+        "option<option<number[]>[]>[]",
+        "enum<\"a\", \"b\">[][]",
+    ] {
+        let src = format!(
+            r#"shape Record
+  values: {ty}
+
+fn identity(values: {ty}): {ty} = values
+
+component App
+  props
+    values: {ty}
+  inject
+    other: {ty}
+  resource rows = source() as shape {ty}
+  mutation result as shape {ty}
+  action set(next: {ty})
+    values = next
+  view
+    text "ready"
+"#
+        );
+        assert_eq!(preserved(&src), src, "type: {ty}");
+    }
+}
+
+#[test]
+fn loop_and_gate_keys_use_attribute_spacing() {
+    let src = r#"component App
+  state xs = [1, 2]
+  state on = true
+  state key = 0
+  action tick
+    key = key + 1
+  resource rows = source(x) for x in xs key=x as shape Row
+  resource selected = source(x) for x in select(key=key) key=x as shape Row
+  resource unkeyed = source(x) for x in xs as shape Row
+  task t when on key=key
+    after(1000, tick)
+  task keyed key=key
+    after(1000, tick)
+  task conditional when check(key=key) key=(key + 1)
+    after(1000, tick)
+  task mounted mount
+    after(1000, tick)
+  sequence s when on key=key
+    play(xs, bpm=120)
+  sequence keyed key=key
+    play(xs, bpm=120)
+  sequence conditional when check(key=key) key=(key + 1)
+    play(xs, bpm=120)
+  sequence unkeyed when on
+    play(xs, bpm=120)
+  view
+    column
+      for x in xs key=x
+        text `${x}${key}`
+      for x, i in select(key=key) key=(x + i)
+        for y in xs key=(
+          x + y
+        )
+          text y
+"#;
+    assert_eq!(preserved(src), src);
+    assert_eq!(preserved(&src.replace("key=", "key = ")), src);
+}
+
+#[test]
 fn argument_equals_on_the_next_line_keeps_attribute_spacing() {
     let src = "component A\n  view\n    Row(\n      first\n      = \"雪\",\n      second\n      = 2\n    )\n";
     let expected = "component A\n  view\n    Row(\n      first\n      =\"雪\",\n      second\n      =2\n    )\n";
@@ -285,7 +411,7 @@ fn positionals_after_named_attributes_stay_on_the_elements_head() {
 fn send_as_a_name_and_the_send_statement_both_round_trip() {
     // `send` spaces like any other name: `who` beside it gets the same
     // treatment. A named argument's `=` stays against its name, in a call as
-    // at a use (`Shape(field=value)`).
+    // at a use (LLP 1035.005.000 D3: `Shape(field=value)`).
     let src = "component A\n  props\n    send: action\n  mutation session as shape Session\n  action go\n    send()\n    send session = login(who=1, send=2)\n  view\n    Row(who=go, send=go)\n";
     assert_eq!(preserved(src), src);
     let spaced = src.replace("login(who=1, send=2)", "login(who = 1, send = 2)");
@@ -294,7 +420,7 @@ fn send_as_a_name_and_the_send_statement_both_round_trip() {
 
 #[test]
 fn a_provide_section_spaces_like_bindings() {
-    // A bare name stays bare; a binding spaces like a state's.
+    // LLP 1035.005.000 D9: a bare name stays bare; a binding spaces like a state's.
     let src = "component A\n  state a = 1\n  provide\n    // the value itself\n    a\n    b   =   a+1\n  view\n    text \"x\"\n";
     let expected = src.replace("b   =   a+1", "b = a + 1");
     assert_eq!(preserved(src), expected);
@@ -303,7 +429,7 @@ fn a_provide_section_spaces_like_bindings() {
 #[test]
 fn an_elements_tag_keeps_its_space_before_a_parenthesized_positional() {
     // `text (on ? "yes" : "no")` is a tag and its expression, not a call `text(…)`;
-    // a call inside a positional stays tight (authoring bench).
+    // a call inside a positional stays tight (authoring bench, LLP 1087).
     let src = "component A\n  state on = false\n  view\n    column\n      text (on ? \"yes\" : \"no\") testId=\"a\"\n      text max(1, 2).toString()\n";
     let after = preserved(src);
     assert!(
@@ -316,7 +442,7 @@ fn an_elements_tag_keeps_its_space_before_a_parenthesized_positional() {
     );
 }
 
-/// A negative literal and an exponent keep their spelling,
+/// LLP 1116.010 D3: a negative literal and an exponent keep their spelling,
 /// and the spaced negation (`- 1`) the printer closes up is the same literal.
 #[test]
 fn a_negative_literal_and_an_exponent_keep_their_spelling() {
@@ -324,4 +450,24 @@ fn a_negative_literal_and_an_exponent_keep_their_spelling() {
     let after = preserved(src);
     assert!(after.contains("min=-1e300 max=2.5E-3 step=4e+2"), "{after}");
     assert!(after.contains("margin-top=-8"), "{after}");
+}
+
+#[test]
+fn midi_hex_bytes_stay_whole() {
+    let src = r#"test "MIDI bytes"
+    tap midi "keys" 90 3c 00 08 4C 0e ff
+    expect midi sent "synth" 90 3c 64 at 500
+    expect midi missing "synth" 80 4c 00
+    tap midi "clock" clock 120 2000
+"#;
+    let out = preserved(src);
+    assert!(out.contains("90 3c 00 08 4C 0e ff"));
+    assert!(out.contains("90 3c 64 at 500"));
+    assert!(out.contains("80 4c 00"));
+}
+
+#[test]
+fn separated_negations_stay_separate() {
+    let src = "component A\n  derive x = - -3\n  view\n    text x\n";
+    assert!(preserved(src).contains("- -3"));
 }

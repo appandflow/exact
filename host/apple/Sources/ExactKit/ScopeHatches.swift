@@ -1,10 +1,10 @@
-// The app and window scopes: above the
+// The app and window scopes (@ref LLP 1075.003.000.001 §2.1): above the
 // containers and the nodes, the module hears of the app (its facts, when it
 // connects, when one changes, when the session ends or reloads) and of the
 // window the session presents into (built, a size or safe-area change, the
 // session leaving it).
 //
-// A session rarely knows whether the window is its own, so the
+// A session rarely knows whether the window is its own (§2.1.1), so the
 // embedder says: `hatchesOwnWindow` hands a hatch the window itself, and
 // `hatchesOwnProcess` the application object, for process-wide appearance.
 // Neither is inferred. Without the first a hatch gets the window's frame and
@@ -30,8 +30,8 @@ typealias HatchAppFn = @convention(c) (UnsafeMutableRawPointer?, UInt32, UnsafeM
 typealias HatchWindowFn = @convention(c) (UnsafeMutableRawPointer?, UInt32, UnsafeMutableRawPointer?, UnsafeMutableRawPointer?, UnsafePointer<UInt8>?, UInt32) -> Void
 
 public extension ExactSession {
-    /// The embedder's word that this session's window is its own: a window
-    /// hatch is then handed the window.
+    /// The embedder's word that this session's window is its own (LLP
+    /// 1075.003.000.001 §2.1.1): a window hatch is then handed the window.
     /// Set before the session's first frame. False unless said.
     var hatchesOwnWindow: Bool {
         get { natives.scopes.windowExclusive }
@@ -55,8 +55,8 @@ final class HatchScopes {
 }
 
 extension NativeViews {
-    /// The app's facts as a hatch reads them, by source: the page's
-    /// and the display preferences `prefer` sets.
+    /// The app's facts as a hatch reads them, by source (§2.1): the page's
+    /// (LLP 1069.000 D2) and the display preferences `prefer` sets.
     private var appFacts: [String: Any] {
         #if os(macOS)
         let dark = DisplayPreferences.systemDark
@@ -76,7 +76,7 @@ extension NativeViews {
     /// which starts the monitor, and its changes are told.
     static func appOnLine(moduleAsks: Bool) -> Bool { moduleAsks ? PageFacts.lastOnLine : PageFacts.onLine }
 
-    /// The first root node's `data-*` words: how Contract tells the
+    /// The first root node's `data-*` words (§2.5): how Contract tells the
     /// app hatch what it should know.
     private var rootData: [String: Any] {
         let node = session?.presenter.root.subviews.lazy.compactMap { $0 as? NodeView }.first
@@ -122,8 +122,8 @@ extension NativeViews {
                         "angle": Self.angle(window)])
     }
 
-    /// The window's angle as the web's `screen.orientation.angle`: its
-    /// scene's interface orientation; 0 on the Mac.
+    /// The window's angle as the web's `screen.orientation.angle` (LLP
+    /// 1133.013 D12 item 4): its scene's interface orientation; 0 on the Mac.
     static func angle(_ window: FocusWindow) -> Int {
         #if os(iOS)
         switch window.windowScene?.effectiveGeometry.interfaceOrientation {
@@ -152,7 +152,7 @@ extension NativeViews {
         #endif
         let raw = { (o: AnyObject?) in o.map { Unmanaged.passUnretained($0).toOpaque() } }
         // A development build notices a recognizer the call added to a window
-        // it was handed and did not declare: those the walk finds
+        // it was handed and did not declare (§3.4): those the walk finds
         // after the call that it did not find before.
         #if os(macOS)
         let walked: PlatformView? = window.contentView
@@ -215,7 +215,7 @@ extension NativeViews {
     /// reset, so a hatch takes back what it added to a window that survives.
     /// After a reload both are built again, on the next turn, with new handles.
     func scopesReset() {
-        // What the old incarnation registered on the clock goes with it.
+        // What the old incarnation registered on the clock goes with it (§2.1.2).
         hatchClock.reset()
         guard hatchesConnected, scopes.appTold != nil || scopes.windowTold != nil else { return }
         if scopes.windowTold != nil { windowHatch(2) }

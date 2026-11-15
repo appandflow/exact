@@ -30,7 +30,7 @@ private final class VisibleWindow: NSWindow {
 }
 
 final class CanvasClockAudioTests: XCTestCase {
-    override class func setUp() { super.setUp(); ExactSurfaces.install() }
+    override class func setUp() { super.setUp(); ExactSurfaces.install() } // LLP 1047.001 D4
     func testFailedRecoveryLeavesCanvasEligibleForRetry() {
         let s = session(module())
         defer { s.destroy() }

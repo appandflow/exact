@@ -5,7 +5,7 @@ import UIKit
 
 /// `aria-current` on a pressable (a bar's current item, BarItem's) is the
 /// selected trait on iOS, as `aria-selected` is: UIKit has no current
-/// trait; `false` or nothing is not selected.
+/// (theme2 2026-10-22 06:40); `false` or nothing is not selected.
 final class CurrentTraitIOSTests: XCTestCase {
     private var window: UIWindow?
     override func tearDown() { window?.isHidden = true; window = nil; super.tearDown() }

@@ -372,7 +372,7 @@ fn local_sheet_stops_preserve_manual_and_eager_read_controls() {
     settle(&mut r, 0., 1180.);
 }
 
-/// Full is the room the sheet's bay has, read by the action
+/// LLP 1051.000 §3: Full is the room the sheet's bay has, read by the action
 /// that chooses it, where the authored 640 would overrun a short window.
 #[test]
 fn full_is_the_room_a_short_sheet_bay_has() {
@@ -399,7 +399,7 @@ fn full_is_the_room_a_short_sheet_bay_has() {
     assert!(selected(&r, "sheet-full") && !selected(&r, "sheet-read"));
     assert_eq!(frame_height(&r, "reading-sheet"), room);
     // A fling lands on the same stop, and so does one before the change
-    // is laid out: `frame` answers the box last laid out.
+    // is laid out: `frame` answers the box last laid out (D1).
     let handle = r
         .kernel()
         .node_by_key(r.kernel().find_by_test_id("sheet-handle")[0])

@@ -1,17 +1,17 @@
-// @exact/translation on the web: the browser's
+// @exact/translation on the web (LLP 1133.027 D7–D10): the browser's
 // Translator and Language Detector APIs
 // (https://webmachinelearning.github.io/translation-api/), which Chrome and
 // Edge ship on desktop; elsewhere every availability is `unavailable`,
 // `not-supported`.
 //
-// - A translator and a language detector are handles: the browser's
+// - A translator and a language detector are handles (D9): the browser's
 //   object behind each, its calls one at a time in admission order.
 // - Every create is the app's foreground act, which the runner admits
-//   before dispatch; the browser's `create()` runs here inside the
-//   press's activation (`"gesture": true`), which a download needs.
-// - A pair whose languages are one after the table (`en`, `en-GB`) is
+//   before dispatch (D16); the browser's `create()` runs here inside the
+//   press's activation (`"gesture": true`), which a download needs (D8).
+// - A pair whose languages are one after D7's table (`en`, `en-GB`) is
 //   `unavailable`, `unsupported-options`, as on every target.
-// - Under the agent no browser API is used and no model runs: a fixed
+// - Under the agent no browser API is used and no model runs (§9): a fixed
 //   list of languages is `available`, a translation is the script
 //   `prefer extension translation.translations=[…]`'s next entry or the
 //   input behind the target's tag, and detection is the script's or a rule
@@ -28,14 +28,14 @@ const isError = v => v && typeof v === 'object' && typeof v.error === 'string';
 function canonical(tag) {
   try { return Intl.getCanonicalLocales(tag)[0] ?? null; } catch { return null; }
 }
-/** The table: the script a region implies made explicit (`zh-TW` is `zh-Hant`), then the region dropped. */
+/** D7's table: the script a region implies made explicit (`zh-TW` is `zh-Hant`), then the region dropped. */
 export function scripted(tag) {
   const loc = new Intl.Locale(tag);
   let script = loc.script;
   if (loc.language === 'zh' && !script) script = ['TW', 'HK', 'MO'].includes(loc.region) ? 'Hant' : 'Hans';
   return [loc.language, script].filter(Boolean).join('-');
 }
-/** `tag` truncated as RFC 4647 lookup truncates until `listed` has it, or null. */
+/** `tag` truncated as LLP 1060 truncates until `listed` has it, or null. */
 export function listedAs(tag, listed) {
   const parts = scripted(tag).split('-');
   while (parts.length) {
@@ -46,7 +46,7 @@ export function listedAs(tag, listed) {
   return null;
 }
 
-/** Detection under the agent: any kana is Japanese, then Hangul Korean, else the first letter's script. */
+/** Detection under the agent (§9): any kana is Japanese, then Hangul Korean, else the first letter's script. */
 export function ruled(input) {
   if (/[\p{Script=Hiragana}\p{Script=Katakana}]/u.test(input)) return 'ja';
   if (/\p{Script=Hangul}/u.test(input)) return 'ko';
@@ -64,14 +64,14 @@ export function implementation({ changed, agent, log, foreground }) {
   const Detector = !agent && typeof globalThis.LanguageDetector === 'function' ? globalThis.LanguageDetector : null;
   const translators = new Map(), detectors = new Map(), inFlight = new Map(), answered = [];
   let serial = 0;
-  // The agent's words: availabilities laid over its own, its scripts, and pairs a removed pack made downloadable.
+  // The agent's words (§9): availabilities laid over its own, its scripts, and pairs a removed pack made downloadable.
   let pairOverlay = {}, detectorOverlay = {}, translations = [], detections = [], seen = { t: '', d: '' };
   const removed = new Set();
-  // Downloads a create started, by pair key, and the creates waiting on each.
+  // Downloads a create started, by pair key, and the creates waiting on each (D8).
   const downloads = new Map();
   const note = (name, how) => { answered.push(`${name} (${how?.origin ?? 'app'})`); if (answered.length > 16) answered.shift(); };
 
-  // ---------------------------------------------------------------- languages
+  // ---------------------------------------------------------------- languages (D7)
   /** The pair as asked, canonicalised, or a refusal of either tag. */
   function pairOf(sourceLanguage, targetLanguage) {
     const source = canonical(sourceLanguage), target = canonical(targetLanguage);
@@ -109,10 +109,10 @@ export function implementation({ changed, agent, log, foreground }) {
     try { a = await Detector.availability(expectedInputLanguages ? { expectedInputLanguages } : {}); } catch { return { availability: 'unavailable', reason: 'unsupported-options' }; }
     return during(a === 'unavailable' ? { availability: a, reason: 'device-not-eligible' } : { availability: a }, 'detector');
   }
-  // A page shown again reads availability again: a pack may have arrived or gone while it was hidden.
+  // A page shown again reads availability again (LLP 1133.016 D5): a pack may have arrived or gone while it was hidden.
   if (!agent && (Translator || Detector) && typeof document === 'object') document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') { changed(TRANSLATOR); changed(DETECTOR); } });
 
-  // ---------------------------------------------------------------- downloads
+  // ---------------------------------------------------------------- downloads (D8)
   /** Under the agent: a create while `downloadable` downloads until the drive says `available`. */
   function agentDownload(key, topic) {
     if (!downloads.has(key)) {
@@ -139,7 +139,7 @@ export function implementation({ changed, agent, log, foreground }) {
     changed(topic);
   });
 
-  // ---------------------------------------------------------------- handles
+  // ---------------------------------------------------------------- handles (D9)
   /** `work` after every call on `handle` admitted before it: one at a time, in admission order. */
   function serially(handle, request, work) {
     const run = handle.tail.then(() => handle.dead ? failure('AbortError') : work());
@@ -170,7 +170,7 @@ export function implementation({ changed, agent, log, foreground }) {
       }
     } else {
       if (!Translator) return failure('NotSupportedError', 'not-supported');
-      // Inside the press's dispatch when it came from one, so its activation holds.
+      // Inside the press's dispatch when it came from one, so its activation holds (D8).
       try { platform = await Translator.create({ sourceLanguage: p.source, targetLanguage: p.target, monitor: monitor(p.key, TRANSLATOR) }); }
       catch (e) {
         const name = nameOf(e, 'NotSupportedError');
@@ -269,7 +269,7 @@ export function implementation({ changed, agent, log, foreground }) {
       drop(detectors, detector, 'destroyed by the app');
       return { id: detector };
     },
-    /** Under the agent: availabilities laid over the agent's, and the scripts. */
+    /** Under the agent: availabilities laid over the agent's, and the scripts (§9). */
     preferred(values = {}) {
       const plain = v => v && typeof v === 'object' && !isError(v) && !Array.isArray(v) ? v : {};
       pairOverlay = plain(values.translatorAvailability);
@@ -280,9 +280,9 @@ export function implementation({ changed, agent, log, foreground }) {
       if (pairOverlay.availability) settleDownloads(TRANSLATOR, pairOverlay.availability);
       if (detectorOverlay.availability) settleDownloads(DETECTOR, detectorOverlay.availability);
     },
-    /** A call let go: its result is read by no one. */
+    /** A call let go (LLP 1133.016 D15 item 2): its result is read by no one. */
     cancel(request) { if (inFlight.has(request)) say(`cancelled: request ${request} was let go`); },
-    /** Handles whose reply was dropped: never the app's. */
+    /** Handles whose reply was dropped: never the app's (LLP 1133.009 D10 item 10). */
     dispose(ids) {
       for (const id of ids) { drop(translators, id, 'its reply was dropped'); drop(detectors, id, 'its reply was dropped'); }
     },
@@ -291,7 +291,7 @@ export function implementation({ changed, agent, log, foreground }) {
       for (const id of [...translators.keys()]) drop(translators, id, 'the session ended');
       for (const id of [...detectors.keys()]) drop(detectors, id, 'the session ended');
     },
-    /** `state.extensions`: each handle, the scripts' remaining entries, each answer's origin. */
+    /** `state.extensions` (§9): each handle, the scripts' remaining entries, each answer's origin. */
     state() {
       return {
         translators: [...translators.values()].map(t => ({ id: t.id, sourceLanguage: t.source, targetLanguage: t.target, platform: agent ? 'agent' : 'live', calls: t.calls })),

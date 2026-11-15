@@ -1,4 +1,4 @@
-//! A prop or style binding that traps: its row is unset,
+//! A prop or style binding that traps (LLP 1017.003 D3): its row is unset,
 //! one journal line names its plan site and the trap, and the commit goes
 //! on, as the runner's `instance/trapped.rs` has it (budget.js `tg`). The
 //! guard keeps its state on the element, so the several writes one binding

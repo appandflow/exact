@@ -1,4 +1,4 @@
-// @exact/pedometer on the web: no browser counts steps,
+// @exact/pedometer on the web (LLP 1133.026 D21): no browser counts steps,
 // so the status reads `available` false and every other name fails
 // `NotSupportedError`.
 

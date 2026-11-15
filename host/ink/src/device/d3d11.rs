@@ -1,4 +1,5 @@
 //! Direct3D 11 over the core's instances and build-compiled DXBC.
+//! @ref LLP 1149 D5.2, D6.1, D11.
 use super::check_region;
 use super::texture_ids;
 use super::{Device, Error, Format, Info, Result, Submission, TextureDesc};
@@ -35,7 +36,7 @@ mod text_host;
 pub use composition::Window;
 
 /// Only free-threaded objects cross to the paint thread. A pending worker stays
-/// owned until readiness or cancellation; it never blocks first pixel.
+/// owned until readiness or cancellation; it never blocks first pixel. @ref LLP 1149 D6.3.
 pub struct Preparing {
     receive: std::sync::mpsc::Receiver<Result<Prepared>>,
     worker: Option<std::thread::JoinHandle<()>>,
@@ -252,7 +253,7 @@ impl D3d11 {
         self.software
     }
 
-    /// Force WARP for the software-device qualification.
+    /// Force WARP for the software-device qualification (LLP 1149 S0 C6).
     pub fn open(force_warp: bool) -> Result<Self> {
         crate::counters::initialize();
         Self::from_prepared(Prepared::open(force_warp)?)

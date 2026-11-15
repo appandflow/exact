@@ -3,7 +3,7 @@ import XCTest
 @testable import ExactKit
 import UIKit
 
-/// A text that changes or leaves is repainted on the commit
+/// LLP 1116.005 D4: a text that changes or leaves is repainted on the commit
 /// that changes it, inside a stack that scrolls (`scripts/fixtures/repaint.contract`).
 /// Stopwatch's status line became a collapsed space on Reset: its box laid
 /// out to nothing, which neither the text pump nor UIKit's `draw(_:)` visits,

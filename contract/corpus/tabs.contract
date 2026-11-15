@@ -1,6 +1,6 @@
 // Accept fixture: tabs with a stack each, the one layout
 // docs/contract-for-agents.md ("Tabs and stacks") blesses for web, macOS and
-// iOS.
+// iOS (shop F9, F21, F22, F26; recipes F6, F19, F20, F23; hn-reader F5).
 // The root `main` is a flex column: a box that takes the room the tablist
 // leaves, then the tablist, then root overlays (a toast). Each tab's stack is
 // a `role="tabpanel"` its tab names with `aria-controls`, and each route is a
@@ -10,7 +10,7 @@
 // `accent-color`); the tablist hides with `display="none"`, never `if`, and
 // the toast after it paints over the routes on every host. A pushed screen's
 // content is a keyed `for`, as shop's product screen was, and a location
-// typed into the root selects a tab.
+// typed into the root (LLP 1038 D11) selects a tab.
 routes nav
   tab home "/"
     item "/item/:id"

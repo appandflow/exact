@@ -1,4 +1,4 @@
-// A popover opened at the press. The button's `press` hears the
+// LLP 1021 D2: a popover opened at the press. The button's `press` hears the
 // click's `clientX`/`clientY` and writes them as the popover's `left`/`top`;
 // a key's press is at 0, 0 and leaves them `auto`, so the popover opens at
 // its invoker. A painted popover goes to the point, the other way from it

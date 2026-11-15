@@ -1,4 +1,4 @@
-// The live driver: SwiftUI over a live
+// @ref LLP 1126.002 D1, D3, D5, D6 — the live driver: SwiftUI over a live
 // headless session. Layout is the kernel's, drawn with the snapshot driver's
 // leaves; the session's turns (presses, timers, replies) replace the snapshot
 // the view reads.
@@ -27,7 +27,7 @@ public final class LiveModel {
     @ObservationIgnored private let log = Logger(subsystem: "dev.exact.watch", category: "live")
 
     /// While the scene is inactive (a lowered wrist, Always On), timers run at most
-    /// this often: `TimelineView`'s minutes cadence.
+    /// this often: `TimelineView`'s minutes cadence (LLP 1126.002 D6, as amended 2026-10-23).
     public static let inactiveInterval: TimeInterval = 60
 
     /// `session` is a live one (`HeadlessSession(…, live: true)`), on the clock `now()` reads;
@@ -222,11 +222,12 @@ struct LiveNodeView: View {
                 .overlay { paint.border(in: bounds) }
                 .modifier(PathClip(path: style.clipPath("clip_path")))
                 .opacity(style.number("opacity").map { Double(max(0, min(1, $0))) } ?? 1)
-                // Redacted in Always On when private, at leaves as a widget's are.
+                // Redacted in Always On when private (D6), at leaves as a widget's are.
                 .modifier(Privacy(word: leaf ? ownPrivacy : nil))
                 .modifier(Pressed(node: node.id, input: node.handlers.contains("press") ? input : nil))
                 .modifier(Followed(href: node.handlers.contains("press") ? nil : node.props["href"], input: input))
                 .modifier(Semantics(node: node))
+                .modifier(Accent(node: node))
         }
     }
 
@@ -235,6 +236,8 @@ struct LiveNodeView: View {
         switch node.kind {
         case "text", "time": SnapshotTextView(node: node, environment: environment)
         case "image": SnapshotImageView(node: node, environment: environment)
+        // A `progress` is the snapshot driver's leaf, not a native button.
+        case "control" where node.props["type"] == "progress": SnapshotProgressView(node: node, environment: environment)
         case "control", "input": LiveLeaf(node: node, input: input)
         default:
             if node.props["navigationKey"] != nil, node.children.contains(where: { tree.nodes[$0]?.props["navigationKey"] != nil }) {
@@ -257,7 +260,7 @@ struct LiveNodeView: View {
     }
 }
 
-/// A navigation root (`navigationKey` on it and on its routes) as the
+/// A navigation root (`navigationKey` on it and on its routes, LLP 1038) as the
 /// platform's stack: the first route the base, the routes up to the active one
 /// pushed, so a push slides in and the edge swipe or the bar's Back pops. A pop
 /// SwiftUI makes goes to the session's Back; the runner's next tree sets the path.

@@ -1,4 +1,4 @@
-// A modal route is a sheet. A route presented
+// @ref LLP 1115.002 D7.4 — a modal route is a sheet. A route presented
 // modally (`navigationPresentation="modal"`) over the route beneath it is,
 // in a hand-built Mac app, a sheet attached to the window: a window of its
 // own that AppKit centres on its parent, dims it under and keeps it from
@@ -6,7 +6,7 @@
 // kept by the same host, as an entry whose node is the route: the route's
 // own subtree moves into the sheet's window, so its fields, their text, the
 // focus and every test id are the authored ones, and the kernel lays it out
-// in a containing block whose used size is the sheet's.
+// in a containing block (D8.2) whose used size is the sheet's.
 //
 // **Its size.** The block fits automatic axes under the content area of
 // the page's window, less this sheet's own rows. Authored dimensions and
@@ -25,7 +25,7 @@
 // that confirms (the header's one prominent, non-destructive button), which
 // is the sheet's default button and answers Return. Each presses its
 // authored button. What they stand for is hidden in the page and its box is
-// the platform's (`HostCovers`): the whole header when it shows
+// the platform's (`HostCovers`, D8.1): the whole header when it shows
 // nothing else, else the heading and the two buttons, and anything else the
 // header holds (a search field, a menu's button, a third action) stays in
 // it, where the author put it, at the top of the sheet's content.
@@ -47,7 +47,8 @@ import AppKit
 
 /// What a sheet shows of a modal route's header.
 struct SheetHeader {
-    let header: NodeView, heading: NodeView
+    /// Its heading: none for a header of buttons alone, whose title row is empty.
+    let header: NodeView, heading: NodeView?
     /// The heading's words: the sheet's title row.
     let title: String
     /// The one that cancels, and the one that confirms.
@@ -56,7 +57,7 @@ struct SheetHeader {
     let whole: Bool
 
     /// The header's nodes the sheet's own rows stand for.
-    var stoodFor: [NodeView] { whole ? [header] : [heading] + [cancel, confirm].compactMap { $0 } }
+    var stoodFor: [NodeView] { whole ? [header] : [heading, cancel, confirm].compactMap { $0 } }
 
     enum Read {
         /// No header the sheet's rows could be made from: the route is its content.
@@ -96,7 +97,7 @@ struct SheetHeader {
                 return !groups || others(in: child)
             }
         }
-        return .shown(SheetHeader(header: rule.header, heading: rule.heading, title: rule.heading.accessibleText,
+        return .shown(SheetHeader(header: rule.header, heading: rule.heading, title: rule.heading?.accessibleText ?? "",
                                   cancel: cancel, confirm: confirm, whole: !others(in: rule.header)))
     }
 }
@@ -150,10 +151,12 @@ final class RouteChrome: NSView {
     /// sheet's edges and from its neighbour; and the title's label, its words' ink starting 49 points in on a
     /// baseline 30 points down.
     static let titleRow: CGFloat = 48, buttonRow: CGFloat = 64, edge: CGFloat = 20, gap: CGFloat = 8, titleStart: CGFloat = 46, titleBaseline: CGFloat = 30
+    /// The title's font where its heading's author wrote none.
+    static let titleFont = NSFont.boldSystemFont(ofSize: NSFont.systemFontSize)
 
     init() {
         super.init(frame: .zero)
-        title.font = .boldSystemFont(ofSize: NSFont.systemFontSize)
+        title.font = Self.titleFont
         title.lineBreakMode = .byTruncatingTail
         title.setAccessibilityRole(.staticText)
         for button in [cancel, confirm] {
@@ -195,12 +198,13 @@ final class RouteChrome: NSView {
     }
 
     /// What the rows show now; true when a row came or went, so the sheet's size is another.
-    func show(title words: String?, back offered: Bool, cancel: (String, UInt32, Bool)?, confirm: (String, UInt32, Bool)?, escapes: Bool) -> Bool {
+    func show(title words: String?, font: NSFont, back offered: Bool, cancel: (String, UInt32, Bool)?, confirm: (String, UInt32, Bool)?, escapes: Bool) -> Bool {
         let before = rows
         back.isHidden = !offered
         title.isHidden = (words ?? "").isEmpty
         above.isHidden = top == 0
         if let words, title.stringValue != words { title.stringValue = words }
+        if title.font != font { title.font = font }
         for (button, said) in [(self.cancel, cancel), (self.confirm, confirm)] {
             button.isHidden = said == nil
             guard let (words, id, enabled) = said else { continue }
@@ -391,7 +395,9 @@ extension DialogHost {
         chrome.onBack = { [weak presenter] in _ = presenter?.navigation.goBack() }
         let back = entry.dialog.props["navigationBar"] != "none" && entry.routeBase !== entry.dialog && presenter.navigation.backOffered
         chrome.back.isEnabled = presenter.navigation.back != nil
-        let changed = chrome.show(title: header?.title, back: back, cancel: back ? nil : row(header?.cancel), confirm: row(header?.confirm),
+        // The heading's authored typography on the title's words (LLP 1115 §2).
+        let font = header?.heading?.authoredTitleFont(over: RouteChrome.titleFont) ?? RouteChrome.titleFont
+        let changed = chrome.show(title: header?.title, font: font, back: back, cancel: back ? nil : row(header?.cancel), confirm: row(header?.confirm),
                                   escapes: dismissalOwner(of: entry.dialog).props["closedby"] != "none")
         chrome.cancel.setAccessibilityIdentifier(back ? nil : header?.cancel?.props["testId"])
         chrome.confirm.setAccessibilityIdentifier(header?.confirm?.props["testId"])
@@ -409,8 +415,8 @@ extension DialogHost {
         reportRouteCovers()
     }
 
-    /// The header's boxes the sheets' rows stand for are the platform's,
-    /// said in the step the rows show them and taken back when they stop.
+    /// The header's boxes the sheets' rows stand for are the platform's
+    /// (D8.1), said in the step the rows show them and taken back when they stop.
     private func reportRouteCovers() {
         var covers: [UInt32: HostCover] = [:]
         for entry in entries where entry.route { for node in entry.stoodFor { covers[node.id] = .whole } }

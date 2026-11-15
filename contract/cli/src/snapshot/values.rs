@@ -1,4 +1,4 @@
-//! Snapshot paint values and family limits.
+//! Snapshot paint values and family limits. @ref LLP 1126 D4 / 1126.000 WP2.
 use super::{admits, refusal, CompileError};
 use contract_syntax::{Attr, Expr, File, Node};
 use exact_kernel::{
@@ -62,7 +62,7 @@ fn color(s: &str) -> bool {
             .is_some_and(color_value)
 }
 /// A colour the bake reads as one. What it does not, a live entry's design token
-/// among them (`accent.fill`), lowering resolves or refuses.
+/// among them (`accent.fill`, LLP 1121), lowering resolves or refuses.
 fn parsed_color(s: &str) -> bool {
     s.eq_ignore_ascii_case("currentcolor")
         || ColorValue::parse_light_dark(s).is_some()
@@ -136,7 +136,7 @@ fn gradient(s: &str) -> bool {
 }
 
 /// The paint values the snapshot driver's leaves draw. `live` is the watch's
-/// live driver, which draws with the same leaves: it scrolls
+/// live driver (LLP 1126.002 D9), which draws with the same leaves: it scrolls
 /// (its own admission refuses a horizontal scroller), its rows are its own
 /// column's, and a computed value or a design token is the runtime's to meet,
 /// not the bake's.
@@ -208,6 +208,7 @@ pub(crate) fn attribute(a: &Attr, errors: &mut Vec<CompileError>, live: bool) {
             BorderStyleTop | BorderStyleRight | BorderStyleBottom | BorderStyleLeft => Some((words(&value, &["solid", "dashed", "dotted", "none", "hidden"]), "snapshot-border", BORDER)),
             BorderRadiusTopLeft | BorderRadiusTopRight | BorderRadiusBottomLeft | BorderRadiusBottomRight => Some((choices(&value, &radius), "snapshot-radius", RADIUS)),
             BackgroundColor | TextColor | BorderColorTop | BorderColorRight | BorderColorBottom | BorderColorLeft => Some((choices(&value, &|e| matches!(e, Expr::Str(s, _) if color(s) || live && !parsed_color(s))), "snapshot-color", COLOR)),
+            AccentColor => Some((choices(&value, &|e| matches!(e, Expr::Str(s, _) if s == "auto" || color(s) || live && !parsed_color(s))), "snapshot-color", COLOR)),
             BackgroundImage => Some((choices(&value, &|e| matches!(e, Expr::Str(s, _) if gradient(s) || live && unparsed_gradient(s))), "snapshot-gradient", GRADIENT)),
             _ => None,
         };
@@ -260,7 +261,7 @@ pub(super) fn tree(
     families: &[String],
     errors: &mut Vec<CompileError>,
 ) {
-    super::visit_nodes(nodes, &mut |n| {
+    Node::walk(nodes).for_each(|n| {
         let Node::Element {
             tag,
             attrs,

@@ -157,7 +157,7 @@ final class NativeTaskTimersTests: XCTestCase {
         XCTAssertTrue(session.taskTimers.hasReady || session.advanceInFlight, "kept by its queue")
         spin(until: { (try? self.ticks(session)) ?? 0 >= base + 3 }, "the retried firing ran by itself and the task kept firing")
     }
-    /// A firing the queue delivers while main serves a callback the owner waits on (a nested run loop
+    /// LLP 1072 T5: a firing the queue delivers while main serves a callback the owner waits on (a nested run loop
     /// inside it) is answered `busy`.
     func testABusyFiringIsRetriedByItsQueueAndTheTaskKeepsFiring() throws {
         let previous = ExactSession.asyncFills

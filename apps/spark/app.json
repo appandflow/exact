@@ -2,7 +2,7 @@
   "$schema": "../../scripts/app.schema.json",
   "name": "Spark",
   "short_name": "Spark",
-  "id": "com.exact.spark",
+  "id": "com.ccheever.spark",
   "start_url": "/",
   "display": "standalone",
   "theme_color": "#fd297b",
@@ -15,7 +15,7 @@
     }
   ],
   "app": {
-    "id": "com.exact.spark",
+    "id": "com.ccheever.spark",
     "name": "Spark"
   },
   "host": {
@@ -44,5 +44,6 @@
       "ios": "0",
       "linux": "0"
     }
-  }
+  },
+  "rust": { "data": { "crate": "spark-data", "type": "spark_data::Profiles", "source": "spark_data::Profiles" } }
 }

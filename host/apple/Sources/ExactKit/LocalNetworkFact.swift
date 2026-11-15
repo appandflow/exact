@@ -1,9 +1,9 @@
 import CExact
 import Foundation
 
-/// The host's half of the local-network fact:
+/// The host's half of the local-network fact (LLP 1133.036 D8):
 /// `@exact/local-network` posts `exact.localNetwork` `{state}` with its
-/// evidence, and the runner's rule for each fetch hop and WebSocket open
+/// evidence, and the runner's rule for each fetch hop and WebSocket open (D6)
 /// reads the fact this hands to Rust.
 enum LocalNetworkFact {
     private static var installed = false

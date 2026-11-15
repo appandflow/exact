@@ -1,4 +1,4 @@
-//! `color-scheme` on a subtree.
+//! LLP 1034 §8: `color-scheme` on a subtree.
 
 use exact_kernel::Kernel;
 use exact_plan::Value;
@@ -56,14 +56,14 @@ fn only_light_and_dark_are_written() {
     for value in ["normal", "light dark", "only dark", "dim"] {
         let src = format!("component App\n  view\n    column color-scheme=\"{value}\"\n");
         let error = contract::compile(&src).unwrap_err().to_string();
-        assert!(error.contains("`dark` on a subtree"), "{value}: {error}");
+        assert!(error.contains("LLP 1034 §8"), "{value}: {error}");
     }
     for value in ["light", "dark"] {
         let src = format!("component App\n  view\n    column color-scheme=\"{value}\"\n");
         contract::compile(&src).unwrap();
     }
-    // A Theme row's Auto as a branch: the refusal names the app's own
-    // scheme, `setScheme`.
+    // A Theme row's Auto as a branch (the euxy port, 2026-10-20): the
+    // refusal names the app's own scheme, `setScheme`.
     for auto in ["light dark", "normal", "unset", ""] {
         let src = format!("component App\n  state t = \"auto\"\n  view\n    column color-scheme=(t == \"auto\" ? \"{auto}\" : t)\n");
         let error = contract::compile(&src).unwrap_err().to_string();
@@ -99,4 +99,75 @@ fn a_run_and_an_svg_element_refuse_it() {
     assert!(contract::compile(shape).is_err());
     let root = "component App\n  view\n    svg color-scheme=\"dark\" width=10 height=10 viewBox=\"0 0 10 10\"\n      rect width=5 height=5 fill=\"light-dark(#fff, #000)\"\n";
     contract::compile(root).unwrap();
+}
+
+/// What the store keeps for the app's chosen scheme, by its writes.
+fn kept_scheme(writes: Vec<exact_runner::StoreWrite>) -> Vec<Option<String>> {
+    writes
+        .into_iter()
+        .filter(|w| w.name == "exact.state.#scheme")
+        .map(|w| w.value.map(|v| String::from_utf8(v).unwrap()))
+        .collect()
+}
+
+#[test]
+fn a_chosen_scheme_is_kept_and_asked_in_the_next_launchs_boot() {
+    let plan = contract::compile(
+        "component App\n  state zero = 0\n  action pick(s: string)\n    setScheme(s)\n  action wrong\n    setScheme(\"dark\")\n    zero = 1 / zero\n  view\n    text \"page\"\n",
+    )
+    .unwrap();
+    let launch = |snapshot: Vec<(String, Vec<u8>)>| {
+        Runner::boot_stored(
+            contract::bake(plan.clone(), NoData).unwrap(),
+            NoData,
+            Kernel::with_monospace(),
+            snapshot,
+            Default::default(),
+            "/",
+        )
+        .unwrap()
+    };
+    let schemes = |r: &mut Runner<NoData>| -> Vec<Value> {
+        (r.take_commands().into_iter())
+            .filter(|c| c.name == "setScheme")
+            .flat_map(|c| c.args)
+            .collect()
+    };
+    let mut r = launch(Vec::new());
+    assert!(schemes(&mut r).is_empty());
+    r.take_store_writes();
+    r.act("pick", vec![Value::str("dark")]).unwrap();
+    assert_eq!(schemes(&mut r), [Value::str("dark")]);
+    assert_eq!(
+        kept_scheme(r.take_store_writes()),
+        [Some("\"dark\"".into())]
+    );
+    // The next launch asks for it in its boot's commands, before the first frame.
+    let mut next = launch(r.store().snapshot());
+    assert_eq!(schemes(&mut next), [Value::str("dark")]);
+    assert_eq!(next.asked().scheme, Some(Value::str("dark")));
+    // A refused commit keeps nothing; `system` forgets the choice.
+    assert!(next.act("wrong", vec![]).is_err());
+    next.act("pick", vec![Value::str("light")]).unwrap();
+    next.act("pick", vec![Value::str("system")]).unwrap();
+    let writes = kept_scheme(next.take_store_writes());
+    assert_eq!(writes, [Some("\"light\"".into()), None], "{writes:?}");
+    let mut after = launch(next.store().snapshot());
+    assert!(schemes(&mut after).is_empty());
+    // A plan that runs no `setScheme` ignores one an earlier version kept,
+    // and only a plan that chooses keeps its rendered pages from waiting.
+    let plain = contract::compile("component App\n  view\n    text \"page\"\n").unwrap();
+    let kept = vec![("exact.state.#scheme".to_string(), b"\"dark\"".to_vec())];
+    let mut r = Runner::boot_stored(
+        contract::bake(plain.clone(), NoData).unwrap(),
+        NoData,
+        Kernel::with_monospace(),
+        kept,
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    assert!(schemes(&mut r).is_empty());
+    assert!(exact_runner::activation::runtime_kept(&plan));
+    assert!(!exact_runner::activation::runtime_kept(&plain));
 }

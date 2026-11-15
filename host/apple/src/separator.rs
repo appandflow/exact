@@ -1,4 +1,4 @@
-//! The separator under a grouped list's row, as the
+//! @ref LLP 1084 D7 — the separator under a grouped list's row, as the
 //! presenter's derived prop `groupedSeparator`: where the kernel places it
 //! (`Kernel::grouped_separator`) and its colour as a style row sends one.
 //! iOS draws its grouped list as UIKit's own, whose separator is UIKit's,

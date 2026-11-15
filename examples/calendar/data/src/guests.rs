@@ -1,5 +1,5 @@
-//! An item's guests, picked from the person's contacts.
-//! A pick is the app's copy: names and emails kept in a `guests` table
+//! An item's guests, picked from the person's contacts (LLP 1133.018 §11).
+//! A pick is the app's copy (D4): names and emails kept in a `guests` table
 //! of the app's own SQLite file, made when first used, so existing data keeps
 //! its schema. And an item as the system's calendar editor takes it.
 

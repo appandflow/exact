@@ -1,15 +1,15 @@
-//! The positional event payloads shared with the runner: `select`'s, a
-//! file input's `change`, the
-//! pointer's, `key`'s and `keyup`'s optional `KeyboardEvent`,
-//! `scroll`'s optional `ScrollEvent`, `reorderdrop`'s optional
-//! `ReorderEvent`, and the `InputEvent` of `input`, `change`
-//! and a text field's `select`, with the
+//! The positional event payloads shared with the runner: `select`'s
+//! (LLP 1045 D6), a file input's `change` (LLP 1069.002 D3), the
+//! pointer's (LLP 1056 §3 stage 3), `key`'s and `keyup`'s optional `KeyboardEvent`,
+//! `scroll`'s optional `ScrollEvent` (chat F4), `reorderdrop`'s optional
+//! `ReorderEvent` (LLP 1094 D2), and the `InputEvent` of `input`, `change`
+//! and a text field's `select` (x2apps codeedit #2), with the
 //! `setSelectionRange` command's arguments, and the media session's
-//! two.
+//! two (LLP 1098 D1, D2).
 use super::{err, infer, Scope, Shapes, Ty, TypeError};
 use contract_syntax::{Expr, Span};
 
-/// HTML's range replacement, with the field's id first.
+/// HTML's range replacement, with the field's id first (LLP 1069.001).
 pub(super) fn range_text_args(
     args: &[Expr],
     scope: &Scope,
@@ -36,7 +36,7 @@ pub(super) fn range_text_args(
 }
 
 /// `setSelectionRange("id", start, end[, direction])`: HTML's method, its
-/// field named first by `id`.
+/// field named first by `id` (x2apps codeedit #2).
 pub(super) fn selection_range_args(
     args: &[Expr],
     scope: &Scope,
@@ -62,56 +62,59 @@ pub(super) fn selection_range_args(
 /// The DOM event record a handler's event offers its action as an optional
 /// last parameter, after whatever the event always carries (`key`'s name):
 /// the action takes it by declaring one more parameter, or leaves it. One
-/// rule for every such event:
+/// rule for every such event (LLP 1056 §3 stage 3; chat F2, kanban F27):
 /// analysis counts it (`contract_analyze::handler_arity`), the view's
 /// handlers type it here, the runner appends it (`Event::record`), and the
 /// JS target passes it as a trailing argument a shorter action ignores.
 pub fn event_record(attr: &str) -> Option<&'static str> {
     match attr {
         // A `contextmenu` is DOM's `PointerEvent` too (UI Events): where the
-        // secondary click was.
+        // secondary click was (studio diary R22).
         "pointerdown" | "pointerup" | "pointermove" | "contextmenu" => Some("PointerEvent"),
         "wheel" => Some("WheelEvent"),
         "drop" | "dragenter" | "dragleave" => Some("DragEvent"),
         "atompress" => Some("AtomEvent"),
         "key" | "keycapture" | "keyup" => Some("KeyboardEvent"),
         "scroll" => Some("ScrollEvent"),
+        // A scroll drag's release, as UIKit's `scrollViewWillEndDragging` gives
+        // it (Charlie, 2026-11-10; the runner's `ScrollDrag::value`).
+        "scrolldragend" => Some("ScrollDragEvent"),
         "toggle" => Some("ToggleEvent"),
-        // the history swipe the host tracks.
+        // @ref LLP 1115.000 D5.5 — the history swipe the host tracks.
         "historyswipe" => Some("HistorySwipeEvent"),
         "press" => Some("MouseEvent"),
         "copy" | "cut" | "paste" => Some("ClipboardEvent"),
         "selectionchange" => Some("Selection"),
-        // The target as HTML's `input` and `change` leave it: its value,
-        // checked state and selection.
+        // The target as HTML's `input` and `change` leave it (x2apps
+        // codeedit #2, survey #2): its value, checked state and selection.
         "input" | "change" | "beforeinput" => Some("InputEvent"),
         "focusin" | "focusout" => Some("FocusEvent"),
         "resize" => Some("DOMRectReadOnly"),
         "intersect" => Some("IntersectionObserverEntry"),
         "reorderdrop" => Some("ReorderEvent"),
-        // Web MIDI's `MIDIMessageEvent`, with the input,
+        // @ref LLP 1125 D8 — Web MIDI's `MIDIMessageEvent`, with the input,
         // runner time and the transport's beat.
         "midimessage" => Some("MIDIMessageEvent"),
-        // The Media Session's actions, as
+        // @ref LLP 1098 D2 — the Media Session's actions, as
         // `setActionHandler` hands them.
         "seekbackward" | "seekforward" | "seekto" | "previoustrack" | "nexttrack" | "stop" => {
             Some("MediaSessionActionDetails")
         }
-        // What an iframe's guest shows, seen from
+        // @ref LLP 1020.002 D2 — what an iframe's guest shows, seen from
         // outside; `framenavigate` is an iframe's `navigate`
         // (`contract_syntax::typed_event`).
         "framenavigate" | "currententrychange" | "navigatesuccess" | "navigateerror" => {
             Some("FrameNavigation")
         }
-        // A guest's request for a window, by Chrome's
+        // @ref LLP 1020.002 D5 — a guest's request for a window, by Chrome's
         // `<webview>` event and Electron's disposition names; and a download
         // it started, by Electron's `DownloadItem` states.
         "newwindow" => Some("FrameNewWindow"),
         "download" => Some("FrameDownload"),
-        // The answer to `captureScreenshot`: the file
+        // @ref LLP 1020.002 D7 — the answer to `captureScreenshot`: the file
         // and its size, or why there is none.
         "capture" => Some("FrameCapture"),
-        // An agent-controlled frame's dialog, by WebDriver
+        // @ref LLP 1020.002 D9 — an agent-controlled frame's dialog, by WebDriver
         // BiDi's `browsingContext.userPromptOpened`.
         "userpromptopened" => Some("FrameUserPrompt"),
         _ => None,
@@ -119,7 +122,7 @@ pub fn event_record(attr: &str) -> Option<&'static str> {
 }
 
 pub(super) fn declare(shapes: &mut Shapes) {
-    // The Navigation API's names for what an iframe's
+    // @ref LLP 1020.002 D2 — the Navigation API's names for what an iframe's
     // guest shows; the runner's `FrameNavigation::value` is in this order.
     shapes.map.insert(
         "FrameNavigation".into(),
@@ -140,7 +143,7 @@ pub(super) fn declare(shapes: &mut Shapes) {
             ("recovering".into(), Ty::Bool),
         ],
     );
-    // The runner's `frame_navigation::other` builds it
+    // @ref LLP 1020.002 D7 — the runner's `frame_navigation::other` builds it
     // in this order: the `app:/` path the command named, the PNG's size in
     // pixels, and on failure a DOMException name and the platform's words.
     shapes.map.insert(
@@ -153,7 +156,7 @@ pub(super) fn declare(shapes: &mut Shapes) {
             ("message".into(), Ty::String),
         ],
     );
-    // The runner's `frame_navigation::other` builds it
+    // @ref LLP 1020.002 D9 — the runner's `frame_navigation::other` builds it
     // in this order: BiDi's `userPromptOpened` fields.
     shapes.map.insert(
         "FrameUserPrompt".into(),
@@ -163,7 +166,7 @@ pub(super) fn declare(shapes: &mut Shapes) {
             ("defaultValue".into(), Ty::String),
         ],
     );
-    // Geometry's `DOMRect`, by its constructor's fields:
+    // @ref LLP 1020.002 D7 — Geometry's `DOMRect`, by its constructor's fields:
     // what `getBoundingClientRect()` gives, and a capture's `clip=`.
     shapes.map.insert(
         "DOMRect".into(),
@@ -171,7 +174,7 @@ pub(super) fn declare(shapes: &mut Shapes) {
             .map(|f| (f.into(), Ty::Number))
             .to_vec(),
     );
-    // The runner's `frame_navigation::new_window` and
+    // @ref LLP 1020.002 D5 — the runner's `frame_navigation::new_window` and
     // `download` build these in this order.
     shapes.map.insert(
         "FrameNewWindow".into(),
@@ -189,7 +192,7 @@ pub(super) fn declare(shapes: &mut Shapes) {
             ("path".into(), Ty::String),
         ],
     );
-    // `exact_runner::midi`'s order: the input's `id`, the
+    // `exact_runner::midi`'s order (LLP 1125 D8): the input's `id`, the
     // message's bytes, when it arrived in runner time, and the transport's
     // beat then (−1 while stopped).
     shapes.map.insert(
@@ -222,7 +225,7 @@ pub(super) fn declare(shapes: &mut Shapes) {
             ("newState".into(), Ty::String),
         ],
     );
-    // the runner's `HistorySwipe::value` builds it
+    // @ref LLP 1115.000 D5.5 — the runner's `HistorySwipe::value` builds it
     // in this order: AppKit's phase of the swipe it tracks, the way it would
     // step, its `gestureAmount` along that way, and where the pointer was
     // as it began, in the viewport.
@@ -236,6 +239,20 @@ pub(super) fn declare(shapes: &mut Shapes) {
             ("clientY".into(), Ty::Number),
         ],
     );
+    // The runner's `ScrollDrag::value` builds it in this order (Charlie,
+    // 2026-11-10): UIKit's release velocity, in CSS pixels per millisecond
+    // and signed as `scrollLeft` and `scrollTop` grow, then its
+    // `targetContentOffset` where the host knows it.
+    let target = || Ty::Option(Box::new(Ty::Number));
+    shapes.map.insert(
+        "ScrollDragEvent".into(),
+        vec![
+            ("velocityX".into(), Ty::Number),
+            ("velocityY".into(), Ty::Number),
+            ("targetLeft".into(), target()),
+            ("targetTop".into(), target()),
+        ],
+    );
     shapes.map.insert(
         "MarkdownSelection".into(),
         vec![
@@ -244,17 +261,17 @@ pub(super) fn declare(shapes: &mut Shapes) {
             ("link".into(), Ty::String),
             ("unavailable".into(), Ty::String),
             // The selected atom's source when the selection is exactly one
-            // atom, else "".
+            // atom, else "" (LLP 1045.000 D3).
             ("atom".into(), Ty::String),
         ],
     );
     // What a `key` or `keyup` handler's action hears after the key when it
     // takes one more parameter, in the order `exact_runner::KeyboardEvent`
-    // writes it: the DOM's `KeyboardEvent` fields by their names, then the
-    // physical key (`code`: `KeyB`, `Digit1`,
+    // writes it: the DOM's `KeyboardEvent` fields by their names (chat F2,
+    // kanban F27), then the physical key (`code`: `KeyB`, `Digit1`,
     // `MetaLeft`, whatever the layout types there; "" where the host cannot
-    // tell) and whether a keydown is the platform's auto-repeat (`repeat`),
-    // then whether it came while an input method composed text
+    // tell) and whether a keydown is the platform's auto-repeat (`repeat`;
+    // #140), then whether it came while an input method composed text
     // (`isComposing`, false where the host hands handlers no composing key).
     shapes.map.insert(
         "KeyboardEvent".into(),
@@ -270,8 +287,8 @@ pub(super) fn declare(shapes: &mut Shapes) {
         ],
     );
     // What `input` and `change` hand an action that takes one more
-    // parameter, and a text field's `select` its payload: the target's own
-    // fields as the event fires, by the
+    // parameter, and a text field's `select` its payload (x2apps codeedit
+    // #2, survey #2): the target's own fields as the event fires, by the
     // DOM's names, as `ScrollEvent` carries the scroller's — its `value`
     // (a checkbox's or a radio's `value`, `on` when it has none), whether it
     // is `checked`, and a text field's selection in UTF-16 units with its
@@ -294,7 +311,7 @@ pub(super) fn declare(shapes: &mut Shapes) {
     );
     // DOM's `ClipboardEvent`, its data as plain text (`getData("text/plain")`)
     // and its `clipboardData.files` as the `doc:` handles the host minted for
-    // them, image data with no file among them as a PNG:
+    // them (LLP 1069.010 D1), image data with no file among them as a PNG:
     // what a paste carries; empty on copy and cut, as the DOM's is until a
     // listener sets it — the action writes the clipboard with `copyText`.
     shapes.map.insert(
@@ -304,8 +321,8 @@ pub(super) fn declare(shapes: &mut Shapes) {
             ("files".into(), Ty::List(Box::new(Ty::String))),
         ],
     );
-    // The part of the reader's selection inside one `text`, what
-    // `selectionchange` hands its action, in the order
+    // The part of the reader's selection inside one `text` (the reader
+    // diary), what `selectionchange` hands its action, in the order
     // `exact_runner::Event::SelectionChange` writes it: the selected text
     // (DOM `Range.toString()`) and its UTF-16 start and end in the node's
     // own text, as written, followed by viewport rectangle snapshots.
@@ -326,7 +343,7 @@ pub(super) fn declare(shapes: &mut Shapes) {
     // `exact_runner::PointerEvent` writes it: the point from the node's
     // content box, the button that changed and the buttons' bits (3 and 8
     // back, 4 and 16 forward), the pressure, the device, its id, the point
-    // from the viewport (`frame()`'s space), and the modifiers
+    // from the viewport (`frame()`'s space, LLP 1094 D11), and the modifiers
     // held (a `MouseEvent`'s).
     shapes.map.insert(
         "PointerEvent".into(),
@@ -347,7 +364,7 @@ pub(super) fn declare(shapes: &mut Shapes) {
         ],
     );
     // What a `reorderdrop` action hears after the row's key and the key it
-    // lands before, when it takes one more parameter: the
+    // lands before, when it takes one more parameter (LLP 1094 D2): the
     // source list's `id` and the target's, SortableJS's `from` and `to`.
     // Within one list they are equal.
     shapes.map.insert(
@@ -355,9 +372,9 @@ pub(super) fn declare(shapes: &mut Shapes) {
         vec![("from".into(), Ty::String), ("to".into(), Ty::String)],
     );
     // DOM's `MouseEvent`, what a `press` action may take: the modifiers held
-    // (shift-click range select, ⌘-click) and the point from the viewport,
-    // 0, 0 from a keyboard or assistive press (a menu opens at the press), in
-    // the order `exact_runner::MouseEvent` writes it.
+    // (gallery F20: shift-click range select, ⌘-click) and the point from the
+    // viewport, 0, 0 from a keyboard or assistive press (LLP 1021 D2: a menu
+    // at the press), in the order `exact_runner::MouseEvent` writes it.
     shapes.map.insert(
         "MouseEvent".into(),
         vec![
@@ -369,7 +386,7 @@ pub(super) fn declare(shapes: &mut Shapes) {
             ("clientY".into(), Ty::Number),
         ],
     );
-    // DOM's `WheelEvent`, in the order
+    // DOM's `WheelEvent` (studio diary R3), in the order
     // `exact_runner::WheelEvent` writes it: the point from the node's content
     // box, the deltas, `deltaMode` (0 pixels, 1 lines, 2 pages) and the
     // modifiers; a trackpad's pinch is a wheel with `ctrlKey`, as browsers
@@ -383,9 +400,9 @@ pub(super) fn declare(shapes: &mut Shapes) {
             .chain(modifiers.clone())
             .collect(),
     );
-    // DOM's `DragEvent` at a `drop` of files, its
+    // DOM's `DragEvent` at a `drop` of files (studio diary R19), its
     // `dataTransfer.files` as the `doc:` handles the host minted for them
-    // (as a picker's), in `exact_runner::DropEvent`'s order.
+    // (LLP 1069.010 D1, as a picker's), in `exact_runner::DropEvent`'s order.
     // A `dragenter` or `dragleave` has none: the DOM protects a drag's files
     // until it drops.
     shapes.map.insert(
@@ -402,7 +419,7 @@ pub(super) fn declare(shapes: &mut Shapes) {
     // What a `scroll` handler's action hears after the offsets when it takes
     // one more parameter, in the order `exact_runner::ScrollEvent` writes it:
     // the scroller's own `Element` fields as the event fires, so "at the
-    // end" is the web's `scrollHeight - scrollTop - clientHeight`.
+    // end" is the web's `scrollHeight - scrollTop - clientHeight` (chat F4).
     shapes.map.insert(
         "ScrollEvent".into(),
         [
@@ -434,7 +451,7 @@ pub(super) fn declare(shapes: &mut Shapes) {
         .map(|f| (f.into(), Ty::Number))
         .to_vec(),
     );
-    // The Media Session's `MediaMetadata`, by its
+    // @ref LLP 1098 D1 — the Media Session's `MediaMetadata`, by its
     // constructor's name and fields: the one compiler shape an app builds
     // (`records::COMPILER_RECORDS`), on `audio` or `video`'s `metadata=`.
     // `artwork` is one image's source, not a list of `MediaImage`s.
@@ -444,7 +461,7 @@ pub(super) fn declare(shapes: &mut Shapes) {
             .map(|f| (f.into(), Ty::String))
             .to_vec(),
     );
-    // `MediaSessionActionDetails`, what a media session
+    // @ref LLP 1098 D2 — `MediaSessionActionDetails`, what a media session
     // action hears, in the order `exact_runner`'s `media_session` writes it:
     // the action's name, the seek's offset (the platform's, else the
     // element's own), `seekto`'s time and whether it is a fast seek.

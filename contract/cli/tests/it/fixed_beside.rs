@@ -14,7 +14,7 @@ fn warnings(src: &str) -> Vec<(String, u32)> {
 
 const LIST: &str = "list flex=1 min-height=0\n  text \"row\"";
 
-/// An inbox's footer: a count under the list, and a filter row
+/// Inbox's footer (bake-off r24): a count under the list, and a filter row
 /// with a fill and a count over a list in a box.
 #[test]
 fn a_caption_or_a_filled_row_beside_the_list_is_named_with_the_repair() {
@@ -34,7 +34,7 @@ fn a_caption_or_a_filled_row_beside_the_list_is_named_with_the_repair() {
     assert_eq!(warnings(&filled), [(ID.into(), 16)]);
 }
 
-/// What the list runs under, and what may not be beside it.
+/// What the list runs under (LLP 1131 D1), and what may not be beside it.
 #[test]
 fn controls_a_conditional_box_a_side_or_no_bar_is_not_named() {
     for body in [
@@ -56,7 +56,7 @@ fn controls_a_conditional_box_a_side_or_no_bar_is_not_named() {
     assert_eq!(warnings(&bare), []);
 }
 
-/// A contacts list's own section index beside the list, shown or
+/// Contacts' own section index beside its list (bake-off r28), shown or
 /// shown sometimes: the row is named with the platform's index as the repair.
 #[test]
 fn a_list_in_a_row_beside_another_box_is_named() {

@@ -117,7 +117,7 @@ test('Recorder follows the scheme with readable recording and saved states', asy
           require(ratio(surface.ink, surface.fill) >= 4.5,
             { state, scheme, name, expected: 'contrast >= 4.5', surface });
         }
-        const launch = scheme === 'light' ? manifest.background_color : manifest.background_color_dark;
+        const launch = scheme === 'light' ? manifest.background_color : manifest.color_scheme_dark?.background_color;
         const surface = '#' + paint.page.fill.map(n => n.toString(16).padStart(2, '0')).join('');
         require(launch === surface, { state, scheme, expected: 'launch matches page', launch, surface });
         const checked = await checkOp(session, [scheme]);
@@ -140,3 +140,18 @@ test('Recorder follows the scheme with readable recording and saved states', asy
     await session.close();
   }
 }, 30000);
+
+// Only a missing file is an empty index. Any other failed read writes nothing,
+// so an index started from empty never replaces the stored one.
+test('a failed read of the index writes nothing over it', async () => {
+  const { answer } = await import('./app.ts');
+  const writes = [];
+  const storage = { fs: {
+    readFile: async () => { throw Object.assign(new Error('failed filesystem: Permission denied (os error 13)'), { code: 'failed' }); },
+    mkdir: async () => {},
+    writeFile: async (path) => { writes.push(path); },
+  } };
+  await expect(answer('keepTake', ['app:/data/takes/take-2.m4a', 1000, 1, 1], {}, storage)).rejects.toThrow('Permission denied');
+  await expect(answer('keepTranscript', [{ transcript: 'app:/data/takes/take-2.transcript' }], {}, storage)).rejects.toThrow('Permission denied');
+  expect(writes).toEqual([]);
+});

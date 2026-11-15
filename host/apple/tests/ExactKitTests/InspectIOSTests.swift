@@ -3,7 +3,7 @@ import XCTest
 @testable import ExactKit
 import UIKit
 
-/// Inspect mode's hit test (InspectIOS.swift): a tap
+/// Inspect mode's hit test (LLP 1122 D5, T2c; InspectIOS.swift): a tap
 /// selects the nearest view, walking up from the window's own hit view, that
 /// stands for a plan node, and the walk stops at a system bar. A plan node
 /// the bar hosts (the drawn title) is selected; UIKit's own parts (Back, the
@@ -199,7 +199,7 @@ final class InspectIOSTests: XCTestCase {
         XCTAssertNil(Inspect.select(session, id: node.id, clicked: true), "no selection outside inspect mode")
     }
 
-    /// `select {up}` (tamber/1.17) by the runner's own tree and the plan's copies, as the web pages' and the Mac's
+    /// `select {up}` (forma/1.17) by the runner's own tree and the plan's copies, as the web pages' and the Mac's
     /// (InspectMacTests, over apps/select-walk-fixture's shapes): each new copy owning an ancestor a step, at step `up`
     /// that copy's outermost node, past the last the root, with `moved`; an ask for a selection that moved, or with no
     /// copies for its plan, is nil, the selection as it is now. (The copies here stand in for the server's map: every

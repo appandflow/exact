@@ -1,4 +1,4 @@
-// Each line's base direction in a Markdown editor, as the web
+// Each line's base direction in a Markdown editor (LLP 1045 D11), as the web
 // editor gives it: the app's `paragraphDirs` words by line number when they
 // change, then each word kept with its line through edits. Undo and redo give
 // back the words of the source they return to (`MarkupEditor` keeps them for

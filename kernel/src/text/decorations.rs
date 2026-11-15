@@ -1,4 +1,4 @@
-//! App-computed paint over a field's plain string. Hosts
+//! App-computed paint over a field's plain string (LLP 1114.007). Hosts
 //! share these UTF-16 reconciliation rules; painting, and deferring it while
 //! text is composed, stay with the host's field.
 

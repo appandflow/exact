@@ -1,4 +1,4 @@
-// The geofencing drives 10 to 14 and 16 under the agent, on
+// LLP 1133.021 §13's geofencing drives 10 to 14 and 16 under the agent, on
 // the geofencing fixture (`apps/geofence-fixture`), where an arrival posts
 // a notification (`@exact/notifications`), its permission granted by the
 // drive: a wake's post never raises a ticket. Drive 15 (a wake past its budget

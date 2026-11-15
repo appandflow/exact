@@ -1,4 +1,4 @@
-//! A received share: one location, `action` with the
+//! A received share (LLP 1133.024 D2, D3): one location, `action` with the
 //! shared text as query parameters, and the files under an opaque token
 //! each `params.files` member gets. The host copies the files into
 //! `app:/tmp/shared/` under names of its own, then sets each token in the
@@ -18,9 +18,10 @@ type MemberFiles = (String, Vec<(std::path::PathBuf, Picked)>, u32);
 /// Where every shared file lands.
 pub const SHARED: &str = "app:/tmp/shared/";
 /// How long a host waits for a share's files before it counts the rest
-/// as dropped.
+/// as dropped (D3).
 pub const COPY_BOUND_MS: f64 = 5000.0;
-/// The largest file a share carries, as an outgoing share refuses one.
+/// The largest file a share carries, as an outgoing share refuses one (LLP
+/// 1125 D12).
 pub const FILE_CAP: u64 = 64 << 20;
 
 /// What `sharedFiles` answers for one token.
@@ -70,7 +71,7 @@ pub fn is_token(token: &str) -> bool {
 }
 
 /// A fresh `app:/tmp/shared/<seed>-<n>.<ext>`: named from the launch seed
-/// and a counter the host keeps, never from the sender.
+/// and a counter the host keeps, never from the sender (D3).
 pub fn shared_path(seed: f64, n: u32, name: &str) -> String {
     format!("{SHARED}{}-{n}.{}", seed as u64, extension(name))
 }
@@ -92,7 +93,7 @@ pub struct ShareTarget {
 }
 
 impl ShareTarget {
-    /// The manifest's `share_target` member, as `app.json` writes it;
+    /// The manifest's `share_target` member (D1), as `app.json` writes it;
     /// `None` when it has no `action`.
     pub fn from_json(member: &serde_json::Value) -> Option<ShareTarget> {
         let params = member.get("params");
@@ -133,8 +134,8 @@ impl ShareTarget {
 }
 
 impl Pending {
-    /// A share in its JSON form: the inbox's `share.json`
-    /// (`{"v":1, "title", "text", "url", "files": [{"file", "name", "type",
+    /// A share in its JSON form: the inbox's `share.json` (LLP 1133.024 D4:
+    /// `{"v":1, "title", "text", "url", "files": [{"file", "name", "type",
     /// "member"}], "dropped": {member: count}}`, each `file` one name in
     /// `dir`), or the driver's (`files` as `{"path", "name"}`). `None` for a
     /// record of another version, or a `file` that is not one plain name.
@@ -225,10 +226,12 @@ pub struct Incoming {
     pub members: Vec<String>,
 }
 
-/// The location a share is delivered as: `action`, then each member
-/// shared under its parameter name, a member not shared left out. A link
-/// with no `url` member mapped goes to `text`, as Android carries one. Each
-/// files member that carried anything gets `tokens(member)`.
+/// The location a share is delivered as (D2), as a browser composes a `GET`
+/// share's (Web Share Target, "Handling incoming shares"): `action` with its
+/// query set to each member shared under its parameter name, form-encoded, a
+/// member not shared left out, and its fragment kept. A link with no `url`
+/// member mapped goes to `text`, as Android carries one. Each files member
+/// that carried anything gets `tokens(member)`.
 pub fn location(
     target: &ShareTarget,
     share: &Incoming,
@@ -258,22 +261,42 @@ pub fn location(
     }
     let query: Vec<String> = pairs
         .iter()
-        .map(|(k, v)| {
-            format!(
-                "{}={}",
-                exact_route::encode_uri_component(k),
-                exact_route::encode_uri_component(v)
-            )
-        })
+        .map(|(k, v)| format!("{}={}", form_encode(k), form_encode(v)))
         .collect();
-    if query.is_empty() {
-        target.action.clone()
-    } else {
-        format!("{}?{}", target.action, query.join("&"))
+    let (base, fragment) = match target.action.split_once('#') {
+        Some((base, fragment)) => (base, Some(fragment)),
+        None => (target.action.as_str(), None),
+    };
+    let mut at = base.split('?').next().unwrap_or(base).to_owned();
+    if !query.is_empty() {
+        at.push('?');
+        at.push_str(&query.join("&"));
     }
+    if let Some(fragment) = fragment {
+        at.push('#');
+        at.push_str(fragment);
+    }
+    at
 }
 
-/// The journal's line for a share as it arrives: the members present
+/// The URL Standard's `application/x-www-form-urlencoded` byte serializer,
+/// as `URLSearchParams` writes a value: a space is `+`, and every byte but an
+/// ASCII alphanumeric and `*-._` is `%XX`.
+fn form_encode(value: &str) -> String {
+    let mut out = String::with_capacity(value.len());
+    for b in value.bytes() {
+        match b {
+            b' ' => out.push('+'),
+            b if b.is_ascii_alphanumeric() || matches!(b, b'*' | b'-' | b'.' | b'_') => {
+                out.push(b as char)
+            }
+            b => out.push_str(&format!("%{b:02X}")),
+        }
+    }
+    out
+}
+
+/// The journal's line for a share as it arrives (D9): the members present
 /// and each file's type and size, never the text.
 pub fn received_line(share: &Incoming, files: &[(String, u64)]) -> String {
     let mut members: Vec<&str> = Vec::new();
@@ -340,14 +363,14 @@ pub struct Pending {
 /// pending, and the copies left to make.
 #[derive(Debug)]
 pub struct Claimed {
-    /// The location to deliver: the launch location, or a `navigate`.
+    /// The location to deliver (D2): the launch location, or a `navigate`.
     pub location: String,
     /// Each files member's token and what it answers now: every file pending.
     pub tokens: Vec<(String, SharedFiles)>,
     /// The copies, by token: `(source, picked)`, the copy's name in
     /// `app:/tmp/shared/` being the end of `picked.path`.
     copies: Vec<(String, Vec<(std::path::PathBuf, Picked)>)>,
-    /// The journal's line.
+    /// The journal's line (D9).
     pub line: String,
 }
 
@@ -554,7 +577,7 @@ impl SharedFiles {
 }
 
 impl<D: DataSource> Runner<D> {
-    /// Claims a share that arrives while the app runs for `target`,
+    /// Claims a share that arrives while the app runs (D2, D3) for `target`,
     /// from this launch's claims, and journals what arrived. The host then
     /// sets each of [`Claimed::tokens`], delivers the location, makes the
     /// copies ([`Claimed::copy`]) and sets each token again with what
@@ -570,7 +593,7 @@ impl<D: DataSource> Runner<D> {
         Some(claimed)
     }
 
-    /// What the host copied of a share so far, under its token: the
+    /// What the host copied of a share so far, under its token (D3): the
     /// readers of `sharedFiles` are evaluated again in one commit. Called
     /// once before the files land (all `pending`) and again as they do; a
     /// cold share sets its tokens before the boot instead
@@ -672,7 +695,10 @@ mod tests {
             members: vec!["files".into()],
         };
         let at = location(&target, &share, |_| "TOKEN0000000".into());
-        assert_eq!(at, "/share?t=A%20%26%20B&body=hi%20there%0Ahttps%3A%2F%2Fx.test%2Fa%3Fb%3Dc&files=TOKEN0000000");
+        assert_eq!(
+            at,
+            "/share?t=A+%26+B&body=hi+there%0Ahttps%3A%2F%2Fx.test%2Fa%3Fb%3Dc&files=TOKEN0000000"
+        );
         // Nothing shared under a member leaves it out.
         let bare = location(&target, &Incoming::default(), |_| unreachable!());
         assert_eq!(bare, "/share");
@@ -680,6 +706,36 @@ mod tests {
             shared_path(3.0, 2, "../../etc/notes.TXT"),
             "app:/tmp/shared/3-2.txt"
         );
+    }
+
+    #[test]
+    fn a_shares_members_replace_the_actions_query_and_precede_its_fragment() {
+        // The Web Share Target spec ("Handling incoming shares") sets a GET
+        // share's query on the action URL, keeping its fragment.
+        let at = |action: &str, text: Option<&str>| {
+            let target = ShareTarget {
+                action: action.into(),
+                title: None,
+                text: Some("text".into()),
+                url: None,
+                files: vec![],
+            };
+            let share = Incoming {
+                text: text.map(Into::into),
+                ..Incoming::default()
+            };
+            location(&target, &share, |_| unreachable!())
+        };
+        assert_eq!(at("/share?from=sheet", Some("hello")), "/share?text=hello");
+        assert_eq!(
+            at("/share#preview", Some("hello")),
+            "/share?text=hello#preview"
+        );
+        assert_eq!(
+            at("/share?from=sheet#preview", Some("hello")),
+            "/share?text=hello#preview"
+        );
+        assert_eq!(at("/share?from=sheet#preview", None), "/share#preview");
     }
 
     #[test]

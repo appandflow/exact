@@ -1,7 +1,7 @@
 //! The abstract syntax tree.
 pub use crate::colours::{ColorProfileDecl, DesignSource, ThemeDecl};
 pub use crate::tap::TapForm;
-pub use crate::test_steps::{Step, TestDecl};
+pub use crate::test_steps::{StateComparison, Step, TestDecl};
 use crate::Span;
 use std::collections::BTreeMap;
 /// Identifier ranges that are distinct from their AST construct's diagnostic span.
@@ -19,74 +19,92 @@ impl NameSpans {
         self.names.get(&span).copied().unwrap_or(span)
     }
 }
+/// A name a refused declaration or member declared.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Hidden {
+    /// The name, as written.
+    pub name: String,
+    /// The word that declared it (`fn`, `state`, `action`), or `use` for a
+    /// name a refused `use` line imported.
+    pub kind: String,
+    /// The component whose member it named; `None` for a declaration.
+    pub component: Option<String>,
+    /// The first and last lines of that component, where alone its member's
+    /// name is read; `None` for a declaration, and for a member of a
+    /// component some of whose members are in another file.
+    pub lines: Option<(u32, u32)>,
+}
+
 /// One source file.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct File {
     /// Parser-owned identifier ranges for navigation.
     pub names: NameSpans,
-    /// The app's router declaration.
+    /// The app's router declaration. @ref LLP 1038 D2/D3.
     pub routes: Option<RoutesDecl>,
-    /// `use … from "…"` declarations, in order; resolved by
-    /// the driver, which scopes each file's names.
+    /// `use … from "…"` declarations, in order (LLP 1017 P8); resolved by
+    /// the driver, which scopes each file's names (LLP 1091).
     pub uses: Vec<UseDecl>,
-    /// `font "Name"` declarations, in order.
+    /// `font "Name"` declarations, in order (LLP 1019 D1).
     pub fonts: Vec<FontDecl>,
-    /// `sound "assets/…wav"` declarations, in order.
+    /// `sound "assets/…wav"` declarations, in order (LLP 1096 D1).
     pub sounds: Vec<SoundDecl>,
     /// `shape` declarations, in order.
     pub shapes: Vec<ShapeDecl>,
-    /// `style` declarations, in order.
+    /// `style` declarations, in order (LLP 1017 P6).
     pub styles: Vec<StyleDecl>,
-    /// Named textarea decoration rows.
+    /// Named textarea decoration rows (LLP 1114.007).
     pub decorations: Vec<StyleDecl>,
     /// Loaded files' visible decoration aliases, by source identity.
     pub decoration_scopes: BTreeMap<u32, Vec<(String, String)>>,
-    /// `atom` declarations: the inline atoms' source forms.
+    /// `atom` declarations: the inline atoms' source forms (LLP 1045.000 D3).
     pub atoms: Vec<StyleDecl>,
     /// Loaded files' visible atom aliases, by source identity.
     pub atom_scopes: BTreeMap<u32, Vec<(String, String)>>,
-    /// `keyframes` declarations, in order: CSS `@keyframes`,
-    /// scoped to their file as in CSS Modules.
+    /// `keyframes` declarations, in order (LLP 1055 D5): CSS `@keyframes`,
+    /// scoped to their file as in CSS Modules (LLP 1091 D5).
     pub keyframes: Vec<KeyframesDecl>,
-    /// `timeline` declarations, in order: clock timelines
+    /// `timeline` declarations, in order (LLP 1055.002 D1): clock timelines
     /// that `animation-timeline=Name` puts animations on.
     pub timelines: Vec<TimelineDecl>,
-    /// `color-profile` declarations, in order.
+    /// `color-profile` declarations, in order (LLP 1100 D3).
     pub color_profiles: Vec<ColorProfileDecl>,
-    /// The app's `theme`: the root file's only.
+    /// The app's `theme` (LLP 1095 D4): the root file's only.
     pub theme: Option<ThemeDecl>,
-    /// The app's design, `app.tamber`, set by the driver.
+    /// The app's design, `app.forma` (LLP 1121 D2), set by the driver.
     pub design: Option<DesignSource>,
-    /// The designs of the packages the app's sources link,
-    /// each `<name>.tamber` beside its package's entry, set by the driver.
+    /// The designs of the packages the app's sources link (LLP 1121 D11),
+    /// each `<name>.forma` beside its package's entry, set by the driver.
     pub package_designs: Vec<DesignSource>,
-    /// The identities of the exported library components:
+    /// The identities of the exported library components (LLP 1139 D0):
     /// each component a private package that ships a design declares in
     /// its entry, or re-exports there; set by the driver.
     pub library: Vec<String>,
-    /// The names of the app's library packages: each linked
+    /// The names of the app's library packages (LLP 1139 D0): each linked
     /// package that is `"private": true` and ships a design; set by the
     /// driver.
     pub library_packages: Vec<String>,
-    /// `fn` declarations, in order.
+    /// `fn` declarations, in order (LLP 1017 P5).
     pub fns: Vec<FnDecl>,
-    /// Native modules' sources and sends, read from packages.
+    /// `source` declarations (LLP 1162.001): the root file's only.
+    pub sources: Vec<SourceDecl>,
+    /// Native modules' sources and sends, read from packages (LLP 1133.001).
     pub modules: Vec<crate::ModuleDecl>,
-    /// `test` declarations, in order — normally in a file of
+    /// `test` declarations, in order (LLP 1017 P7) — normally in a file of
     /// their own beside the app, `app.test.contract`.
     pub tests: Vec<TestDecl>,
     /// Properties checked against test observations, never compiled.
     pub properties: Vec<PropertyDecl>,
     /// A test file's launch lines (`size`, `epoch`, `time-zone`, `locale`,
     /// `seed`, `before data`), which every test in the file opens with unless it names its
-    /// own.
+    /// own (habits F7, calendar F13).
     pub launch: Vec<Step>,
     /// `component` declarations, in order. The first is the root.
     pub components: Vec<Component>,
-    /// A members file's `members Name` block: members of
+    /// A members file's `members Name` block (LLP 1091.002 D2): members of
     /// the component `Name`, which lists this file.
     pub members: Option<Component>,
-    /// Refusals left to the loader.
+    /// Refusals left to the loader (LLP 1091.002).
     pub deferred: Vec<crate::members::Deferred>,
 }
 impl File {
@@ -107,7 +125,7 @@ impl File {
         format!("unknown component `{name}`; {choices}")
     }
 }
-/// `routes <slot>` with rows in declaration order.
+/// `routes <slot>` with rows in declaration order. @ref LLP 1038 D2.
 #[derive(Debug, Clone, PartialEq)]
 pub struct RoutesDecl {
     /// The root slot filled at launch.
@@ -131,7 +149,7 @@ pub struct RouteDecl {
     /// The bare fallback line.
     pub notfound: bool,
     /// Policy fields after the pattern, `render=build activate=idle`, as
-    /// written; lowering reads them.
+    /// written (LLP 1048.003 D5); lowering reads them.
     pub fields: Vec<Attr>,
     /// Where.
     pub span: Span,
@@ -147,7 +165,7 @@ pub struct FontDecl {
     /// Where.
     pub span: Span,
 }
-/// A declared sound: a WAV under the app's `assets/`, which
+/// A declared sound (LLP 1096 D1): a WAV under the app's `assets/`, which
 /// `playSound` and `playSounds` name by its path.
 #[derive(Debug, Clone, PartialEq)]
 pub struct SoundDecl {
@@ -170,7 +188,7 @@ pub struct FontFaceDecl {
     /// Where.
     pub span: Span,
 }
-/// A property in a test file.
+/// A property in a test file (LLP 1148 D1).
 #[derive(Debug, Clone, PartialEq)]
 pub struct PropertyDecl {
     /// Declaration location.
@@ -264,7 +282,7 @@ pub enum PropertyTest {
 }
 /// `fn name(param: type, …): type = expr` — a pure function written in
 /// Contract: one expression over its parameters and the roster, expanded
-/// inline wherever it is called. No recursion, no loops, no
+/// inline wherever it is called (LLP 1017 P5). No recursion, no loops, no
 /// state: the escape for a price string or a palette choice, not for a
 /// traversal, which is the data crate's.
 #[derive(Debug, Clone, PartialEq)]
@@ -280,9 +298,36 @@ pub struct FnDecl {
     /// Where.
     pub span: Span,
 }
+/// `source name(param: type, …) as shape T` and its request's lines (LLP
+/// 1162.001 D1): a source the runner answers with one HTTP request.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SourceDecl {
+    /// The source's name, which a `resource` or a `send` calls.
+    pub name: String,
+    /// Typed parameters.
+    pub params: Vec<Param>,
+    /// The answer's shape.
+    pub shape: TypeExpr,
+    /// The request's lines, in order, as written; lowering reads them.
+    pub lines: Vec<SourceLine>,
+    /// Where.
+    pub span: Span,
+}
+/// One line of a `source`: a key (`url`, `method`, `header`, `body`,
+/// `graphql`, `pointer`) and its words, each a string literal's text or a
+/// bare word.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SourceLine {
+    /// The key.
+    pub key: String,
+    /// Its words.
+    pub words: Vec<String>,
+    /// Where.
+    pub span: Span,
+}
 /// `use A, B as C from "./file.contract"` — declarations of another Contract
-/// file, named one by one, each optionally renamed in this file; never
-/// anything else (`contract-no-imports`).
+/// file, named one by one, each optionally renamed in this file (LLP 1017 P8,
+/// LLP 1091 D1/D2); never anything else (`contract-no-imports`).
 #[derive(Debug, Clone, PartialEq)]
 pub struct UseDecl {
     /// The names, in order; at least one.
@@ -309,7 +354,7 @@ impl UseName {
     }
 }
 /// `style Name` with lines of `attr=literal` — a named set of style rows a
-/// node applies with `class=Name`; its own attributes win.
+/// node applies with `class=Name`; its own attributes win (LLP 1017 P6).
 #[derive(Debug, Clone, PartialEq)]
 pub struct StyleDecl {
     /// The name.
@@ -319,7 +364,7 @@ pub struct StyleDecl {
     /// Where.
     pub span: Span,
 }
-/// `keyframes Name`: CSS `@keyframes`.
+/// `keyframes Name`: CSS `@keyframes` (LLP 1055 D5).
 #[derive(Debug, Clone, PartialEq)]
 pub struct KeyframesDecl {
     /// The name `animation-name` refers to.
@@ -329,7 +374,7 @@ pub struct KeyframesDecl {
     /// Where.
     pub span: Span,
 }
-/// `timeline Name`: a clock timeline. Every animation on
+/// `timeline Name`: a clock timeline (LLP 1055.002 D1). Every animation on
 /// it starts in step with the others.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TimelineDecl {
@@ -400,48 +445,49 @@ impl TypeExpr {
     }
 }
 /// A component.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct Component {
     /// The name.
     pub name: String,
     /// `props` (empty for the root).
     pub props: Vec<Param>,
     /// `inject` declarations: typed names a use site does not pass — the
-    /// nearest enclosing component's `provide` section fills them.
+    /// nearest enclosing component's `provide` section fills them (LLP 1017
+    /// P4a, LLP 1035.005.000 D9).
     pub injects: Vec<Param>,
-    /// The `provide` section: each binding fills the
+    /// The `provide` section (LLP 1035.005.000 D9): each binding fills the
     /// same-named `inject` of every component used in this component's view,
     /// unless a nearer component's section provides it too. A bare name is
     /// `name = name`; the span is the name's.
     pub provides: Vec<Binding>,
     /// Whether the component declares `slot`: the nodes indented under a use
-    /// of it fill its `children` node.
+    /// of it fill its `children` node (LLP 1017 P4b).
     pub slot: bool,
     /// `state` declarations.
     pub states: Vec<Binding>,
-    /// The states that say `persist`, in declaration order.
+    /// The states that say `persist` (LLP 1116 D5), in declaration order.
     pub persist: Vec<Persist>,
     /// `derive` declarations.
     pub derives: Vec<Binding>,
     /// `resource` declarations.
     pub resources: Vec<ResourceDecl>,
-    /// `mutation` declarations.
+    /// `mutation` declarations (LLP 1016).
     pub mutations: Vec<MutationDecl>,
     /// `action` declarations.
     pub actions: Vec<Action>,
     /// `task` declarations.
     pub tasks: Vec<Task>,
-    /// `sequence` declarations, the root's only.
+    /// `sequence` declarations (LLP 1125 D2), the root's only.
     pub sequences: Vec<crate::sequence::Sequence>,
-    /// `tool` lines, the root's only.
+    /// `tool` lines (LLP 1111 D2), the root's only.
     pub tools: Vec<crate::tool::Tool>,
     /// The view's top-level nodes.
     pub view: Vec<Node>,
-    /// The `params` section and the component's identity.
+    /// The `params` section and the component's identity (LLP 1121 D15).
     pub params: crate::params::Params,
-    /// Its parts and the nodes named as them.
+    /// Its parts and the nodes named as them (LLP 1139 D2).
     pub anatomy: crate::anatomy::Anatomy,
-    /// Its `members` lines.
+    /// Its `members` lines (LLP 1091.002).
     pub members: crate::members::Members,
     /// Where.
     pub span: Span,
@@ -460,7 +506,7 @@ impl Component {
         format!("`{}` needs {missing}", self.name)
     }
 }
-/// `state name = expr persist`: a root state the host keeps
+/// `state name = expr persist` (LLP 1116 D5): a root state the host keeps
 /// across launches; the state's name, and where `persist` is written.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Persist {
@@ -497,15 +543,23 @@ pub struct ResourceDecl {
     /// they read the element by [`ResourceEach::item`].
     pub args: Vec<Expr>,
     /// Number of call arguments when `with` is present; otherwise all
-    /// arguments identify the answer.
+    /// arguments identify the answer. @ref LLP 1027.005 D6.
     pub identity: Option<usize>,
     /// The declared shape.
     pub shape: TypeExpr,
-    /// `else source(args)`: what shows while the source
+    /// `else source(args)` (LLP 1048.003 D6): what shows while the source
     /// hasn't answered.
     pub placeholder: Option<Placeholder>,
-    /// `for x in list [key=k]`: one request for each element.
+    /// `for x in list [key=k]`: one request for each element (LLP 1017.000
+    /// P4c, amended 2026-11-04).
     pub each: Option<ResourceEach>,
+    /// `transient` (LLP 1156.005 D4): its answer is never kept across
+    /// launches.
+    pub transient: bool,
+    /// Keep this surface reader's last publication for launch.
+    pub keep: bool,
+    /// `when cond` (LLP 1161.002): asked only while `cond` holds.
+    pub gate: Option<Expr>,
     /// Where.
     pub span: Span,
 }
@@ -535,7 +589,7 @@ pub struct Placeholder {
     /// Where.
     pub span: Span,
 }
-/// `mutation name as shape T`: an `option<T>` slot, `none` at
+/// `mutation name as shape T` (LLP 1016): an `option<T>` slot, `none` at
 /// boot, that a `send` fills from an action.
 #[derive(Debug, Clone, PartialEq)]
 pub struct MutationDecl {
@@ -543,16 +597,29 @@ pub struct MutationDecl {
     pub name: String,
     /// The reply's shape, `T`.
     pub shape: TypeExpr,
-    /// `queue`: one send in flight, later sends wait their turn in order;
-    /// otherwise the newest send wins.
-    pub queue: bool,
+    /// How its sends overlap: the newest wins, they wait their turn
+    /// (`queue`), or they run together (`parallel`).
+    pub mode: MutationMode,
     /// `refreshes a, b`: resources the runner re-asks, forced, when a send
-    /// to this mutation runs and when its reply lands.
+    /// to this mutation runs and when its reply lands (LLP 1054.000.000 D1).
     pub refreshes: Vec<(String, Span)>,
-    /// `then action`: run after each answer lands, and where.
+    /// `then action`: run after each answer lands (LLP 1016.001), and where.
     pub then: Option<(String, Span)>,
     /// Where.
     pub span: Span,
+}
+/// How a mutation's sends overlap.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum MutationMode {
+    /// A send forgets the one in flight: the newest wins (LLP 1016 §4).
+    #[default]
+    Newest,
+    /// `queue`: one send in flight, later sends wait their turn in order
+    /// (LLP 1092 D1, D2).
+    Queue,
+    /// `parallel`: every send is asked when it is made, and its reply
+    /// lands whatever else is out (LLP 1161.000 D1, D2).
+    Parallel,
 }
 /// A typed parameter (`props` entry or action parameter).
 #[derive(Debug, Clone, PartialEq)]
@@ -586,16 +653,16 @@ pub struct Effect<'a> {
     /// `send`, not an assignment.
     pub send: bool,
     /// The outermost call it is made through (the callee, the call's
-    /// span), when a called action makes it.
+    /// span), when a called action makes it (LLP 1089 D5).
     pub call: Option<(&'a str, Span)>,
 }
 impl Action {
     /// Every slot the body assigns or sends, through every branch of its
     /// `if`s and `match`es, in statement order with repeats. An action's
-    /// effects are inferred, never declared.
+    /// effects are inferred, never declared (LLP 1035.005.000 D1).
     ///
-    /// A call's are its callee's, through every call it makes in turn:
-    /// the union is the plan's write allowlist, which the VM holds
+    /// A call's are its callee's, through every call it makes in turn (LLP
+    /// 1089 D5): the union is the plan's write allowlist, which the VM holds
     /// every store and send to.
     pub fn effects(&self) -> Vec<Effect<'_>> {
         fn walk<'a>(stmts: &'a [Stmt], call: Option<(&'a str, Span)>, out: &mut Vec<Effect<'a>>) {
@@ -638,7 +705,7 @@ impl Action {
 /// A statement in an action body.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Stmt {
-    /// `let name = expr`: an immutable local, read by
+    /// `let name = expr` (LLP 1035.005.000 D2): an immutable local, read by
     /// the statements after it in its block and the blocks nested there.
     Let {
         /// The local.
@@ -666,7 +733,7 @@ pub enum Stmt {
         /// Where.
         span: Span,
     },
-    /// `send target = source(args)` — the mutation's request.
+    /// `send target = source(args)` — the mutation's request (LLP 1016).
     Send {
         /// The mutation.
         target: String,
@@ -684,7 +751,7 @@ pub enum Stmt {
         /// Where.
         span: Span,
     },
-    /// `if cond` … `else` … — a branch of statements.
+    /// `if cond` … `else` … — a branch of statements (LLP 1017 P2).
     If {
         /// The condition, a bool.
         cond: Expr,
@@ -696,7 +763,7 @@ pub enum Stmt {
         span: Span,
     },
     /// `match subject` with `case some(x)` and `case none` blocks of
-    /// statements.
+    /// statements (LLP 1017 P2).
     Match {
         /// The option.
         subject: Expr,
@@ -707,7 +774,7 @@ pub enum Stmt {
         /// Where.
         span: Span,
     },
-    /// A call of an action, expanded in place: the
+    /// A call of an action, expanded in place (LLP 1089 D2, D8): the
     /// callee's statements, run where the call stands in the caller's one
     /// commit, reading the state the action started with. The parser never
     /// makes one; expansion turns a `name(args)` statement naming an action
@@ -755,18 +822,18 @@ impl Stmt {
 }
 
 /// `task name mount` (or `when cond [key=expr]`, or `key=expr`) with
-/// `every(ms, action)`, `every(frame, action)` or `after(ms, action)`.
+/// `every(ms, action)`, `every(frame, action)`, `after(ms, action)` or keyed `change(action)`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Task {
     /// Name.
     pub name: String,
-    /// Whether the timer repeats or fires once.
+    /// The timer or keyed change schedule.
     pub kind: TaskKind,
-    /// `when cond`: the timer exists while `cond` holds;
+    /// `when cond`: the timer exists while `cond` holds (LLP 1092 D7);
     /// `None` for `mount` and for `key=` alone (`when true`).
     pub gate: Option<Expr>,
-    /// `key=expr`: a new key restarts the timer, as a new `for` key makes
-    /// a new row.
+    /// `key=expr`: a new key restarts the timer or queues a change action, as a `for` key makes
+    /// a new row (LLP 1092 D7).
     pub key: Option<Expr>,
     /// `(ms, action)` and the entry's span.
     pub timer: (Expr, String, Span),
@@ -783,9 +850,11 @@ pub enum TaskKind {
     Every,
     /// `after(ms, action)`: fires once at boot+ms, then is spent.
     After,
-    /// `every(frame, action)`: fires once per presented frame;
+    /// `every(frame, action)`: fires once per presented frame (LLP 1073);
     /// the timer's expression is a placeholder `0`.
     Frame,
+    /// `change(action)`: once after activation or a changed key, without a delay.
+    Change,
 }
 
 /// A view node.
@@ -803,7 +872,7 @@ pub enum Node {
         children: Vec<Node>,
         /// Where.
         span: Span,
-        /// The inliner's: the index into
+        /// The inliner's (LLP 1035.005 D3): the index into
         /// [`Expanded::instances`](crate::Expanded::instances) of the
         /// component instantiation this element was expanded in — the
         /// root's own elements are 0, a used component's are its use's;
@@ -811,7 +880,7 @@ pub enum Node {
         instance: u32,
     },
     /// `Name(arg=expr, …)`, with the nodes indented under it filling the
-    /// component's `slot`.
+    /// component's `slot` (LLP 1017 P4b).
     Use {
         /// The component.
         name: String,
@@ -823,7 +892,7 @@ pub enum Node {
         span: Span,
     },
     /// `children` — where a `slot` component's use puts the nodes indented
-    /// under it.
+    /// under it (LLP 1017 P4b).
     Children {
         /// Where.
         span: Span,
@@ -843,10 +912,10 @@ pub enum Node {
         span: Span,
     },
     /// `for x in list key=expr`, or `for x, i in list key=expr` binding
-    /// the item's position too. `tag` is the inliner's: unique
+    /// the item's position too (LLP 1062 D8). `tag` is the inliner's: unique
     /// per region (`for`, `if`, `match`) in the expanded root, so a
-    /// lifted slot can name the region that owns it before regions exist;
-    /// 0 as parsed.
+    /// lifted slot can name the region that owns it before regions exist
+    /// (LLP 1017 P4c); 0 as parsed.
     Each {
         /// The inliner's tag.
         tag: u32,
@@ -894,31 +963,31 @@ impl Node {
 }
 
 /// Whether `positional` is the word `document` in `scroll document`: the
-/// view's scroll container is the page's. It is a word,
+/// view's scroll container is the page's (LLP 1048.003 D4). It is a word,
 /// never a name in scope, so checking and lowering read it by spelling.
 pub fn is_scroll_document(tag: &str, positional: &Expr) -> bool {
     tag == "scroll" && matches!(positional, Expr::Ident(word, _) if word == "document")
 }
 
 /// Whether `positional` is the word `switch` in `input type="checkbox"
-/// switch`: HTML's boolean attribute, a checkbox drawn as a switch.
-/// A word like `scroll document`, never a name in scope.
+/// switch`: HTML's boolean attribute, a checkbox drawn as a switch (LLP
+/// 1069.001 D1). A word like `scroll document`, never a name in scope.
 pub fn is_input_switch(tag: &str, positional: &Expr) -> bool {
     tag == "input" && matches!(positional, Expr::Ident(word, _) if word == "switch")
 }
 
 /// Whether `positional` is the word `multiple` in `input type="file"
-/// multiple`: HTML's boolean attribute, a word like
+/// multiple`: HTML's boolean attribute (LLP 1069.002 D1), a word like
 /// `switch`, never a name in scope. `multiple=true` says the same.
 pub fn is_input_multiple(tag: &str, positional: &Expr) -> bool {
     tag == "input" && matches!(positional, Expr::Ident(word, _) if word == "multiple")
 }
 
-/// The form control an `input` is, by its literal `type`:
+/// The form control an `input` is, by its literal `type` (LLP 1069.001 D1):
 /// `Some("checkbox")` for a checkbox (a switch is one too), whose `change`
 /// and `input` carry a bool; `Some("radio")` for a radio, whose carry its
-/// `value`; `Some("file")` for a file input, whose `change` carries a
-/// `Picked[]`; `Some("select")` for a
+/// `value`; `Some("file")` for a file input (LLP 1069.002
+/// D1), whose `change` carries a `Picked[]`; `Some("select")` for a
 /// `select`, whose `change` and `input` carry the chosen option's value;
 /// `None` for a text field or any other element.
 pub fn input_control(tag: &str, attrs: &[Attr]) -> Option<&'static str> {
@@ -938,15 +1007,15 @@ pub fn input_control(tag: &str, attrs: &[Attr]) -> Option<&'static str> {
 }
 
 /// [`input_control`], or `Some("field")` for a text field whose `select`
-/// is HTML's: an `input` that is no control, or a
+/// is HTML's (x2apps codeedit #2): an `input` that is no control, or a
 /// `textarea` that is not the Markdown editor (no `markup`, or literally
 /// `none`), whose `select` carries the field's `InputEvent`; or
 /// `Some("markdown")` for a textarea that may be the editor, whose `select`
 /// carries its `MarkdownSelection` and whose other field events are a text
-/// field's, over its source. What a handler's payload is typed by.
+/// field's, over its source (LLP 1045 D6). What a handler's payload is typed by.
 pub fn payload_control(tag: &str, attrs: &[Attr]) -> Option<&'static str> {
     match tag {
-        "iframe" => Some("iframe"), // its `navigate=` is the guest's
+        "iframe" => Some("iframe"), // its `navigate=` is the guest's (LLP 1020.002 D2)
         "input" if input_control(tag, attrs).is_none() => Some("field"),
         "textarea" => Some(match attrs.iter().find(|a| a.name == "markup") {
             Some(a) if !matches!(&a.value, Expr::Str(m, _) if m == "none") => "markdown",
@@ -997,6 +1066,7 @@ pub fn unsupported_input_type(value: &Expr) -> Option<&str> {
         Expr::Match { some, none, .. } => {
             unsupported_input_type(some).or_else(|| unsupported_input_type(none))
         }
+        Expr::Let { body, .. } => unsupported_input_type(body),
         _ => None,
     }
 }
@@ -1006,11 +1076,13 @@ pub fn unsupported_input_type(value: &Expr) -> Option<&str> {
 /// (`shown ? "text" : "password"`, a password's show and hide). The node is
 /// a text field either way, so the choice can be made as the app runs, as
 /// the attribute can be set on the web; any other expression could name a
-/// control the compiler has to know.
+/// control the compiler has to know (LLP 1069.001 D1). A `let` around the
+/// choice (a prop read twice, evaluated once) is the same choice.
 pub fn text_input_type(value: &Expr) -> bool {
     match value {
         Expr::Str(t, _) => control_type(t).is_none() && unsupported_input_type(value).is_none(),
         Expr::Ternary(_, a, b, _) => text_input_type(a) && text_input_type(b),
+        Expr::Let { body, .. } => text_input_type(body),
         _ => false,
     }
 }
@@ -1026,7 +1098,7 @@ pub struct Attr {
     pub value: Expr,
     /// Where.
     pub span: Span,
-    /// Whether the author wrote it: the parser's are; a
+    /// Whether the author wrote it (LLP 1115.000 D2): the parser's are; a
     /// row the compiler adds to an element (a sheet's, an implied one) is not.
     pub written: bool,
 }
@@ -1085,7 +1157,7 @@ pub enum Expr {
     /// `none`.
     None(Span),
     /// `[a, b, c]`: a list of its items, which unify as the arms of `?:`
-    /// do. `[]`'s element type comes from where it is
+    /// do (LLP 1088 §9.1). `[]`'s element type comes from where it is
     /// written (the other arm of a `match` or `?:`, a declared `T[]`,
     /// a write into the state it initializes).
     List(Vec<Expr>, Span),
@@ -1119,7 +1191,7 @@ pub enum Expr {
         span: Span,
     },
     /// `(item, index) => body`: a callback, only ever the second argument
-    /// of `map`, `filter` or `sortBy`. Its
+    /// of `map`, `filter` or `sortBy` (LLP 1017.003 D1, LLP 1116.016 §5). Its
     /// zero to two parameters are the item and its index.
     Arrow {
         /// Parameter names, in order.

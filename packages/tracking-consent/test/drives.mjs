@@ -1,4 +1,4 @@
-// The tracking drives under the agent, with the package's
+// LLP 1133.028 §8.4's tracking drives under the agent, with the package's
 // fixture app (test/fixture): drive 10 on iOS and tvOS, and drive 11 on the
 // targets without App Tracking Transparency (web, macOS, Linux), where the
 // status reads the declared defaults and the request refuses.
@@ -7,7 +7,7 @@
 //   Makes the fixture with `exact new`, builds it for the host (an iOS or
 //   Apple TV simulator named by EXACT_SIM, else the one build.mjs picks) and
 //   drives it; `--bind` binds the real framework instead of the agent's
-//   stand-in, which on tvOS shows the real alert. `--keep` keeps
+//   stand-in, which on tvOS shows the real alert (stage 1). `--keep` keeps
 //   the fixture's directory.
 import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
@@ -64,7 +64,7 @@ try {
     } finally { await s.close(); }
     s = await launch(fixture, host, options);
     try {
-      await s.prefer({ extension: 'tracking-consent.trackingAuthorizationStatus={"status":"restricted"}' });
+      await s.prefer({ extension: 'tracking-consent.trackingAuthorizationStatus#@exact/tracking-consent/apple={"status":"restricted"}' });
       await until(s, 'status', (v) => /restricted/.test(v ?? ''));
       const restricted = await ask(s, 'allow');
       check(host, 'drive 10: restricted answers restricted whatever the tap', restricted === 'Answered: restricted' && /restricted \(denied\)/.test((await texts(s)).status), `${restricted} ${JSON.stringify(await texts(s))}`);

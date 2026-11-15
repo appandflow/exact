@@ -6,7 +6,7 @@
 //! document is `NNNN-slug.type.md`, a dotted number is a sub-document of
 //! the number before the dot, the metadata header carries a Type and a
 //! Status, and `current/` and `foundation/` are symlink overlays that say
-//! which documents are the declared working set.
+//! which documents are the declared working set. @ref LLP 1033
 
 use std::collections::BTreeSet;
 use std::io::Read;
@@ -58,7 +58,7 @@ impl Eq for CorpusText {}
 /// One document in the corpus.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Entry {
-    /// `0030`, or `0030.000` for a sub-document.
+    /// `1030`, or `1030.000` for a sub-document.
     pub number: String,
     /// The heading, with its own `LLP NNNN:` prefix removed.
     pub title: String,
@@ -229,7 +229,7 @@ fn entry(
         .map(|(name, _)| name.clone())
         .unwrap_or_default();
     Some(Entry {
-        depth: if number.contains('.') { 1 } else { 0 },
+        depth: number.matches('.').count() as u32,
         title: title(body).unwrap_or_else(|| file.clone()),
         status: status(body),
         number,
@@ -244,7 +244,7 @@ fn entry(
     })
 }
 
-/// `0030.000-dev-server.rfc.md` → (`0030.000`, `rfc`).
+/// `1030.000-dev-server-as-deployer.rfc.md` → (`1030.000`, `rfc`).
 fn name_parts(file: &str) -> (String, String) {
     let stem = file.strip_suffix(".md").unwrap_or(file);
     let number: String = stem
@@ -262,7 +262,7 @@ fn name_parts(file: &str) -> (String, String) {
     (number, kind)
 }
 
-/// `0030.000` sorts after `0030` and before `0031`, and an unnumbered
+/// `1030.000` sorts after `1030` and before `1031`, and an unnumbered
 /// document sorts last.
 fn sort_key(number: &str) -> (u32, u32, u32) {
     if number.is_empty() {
@@ -293,7 +293,7 @@ fn american_colon(c: char) -> bool {
 }
 
 /// The status *word*. A header's `**Status:**` in this corpus can run to a
-/// paragraph — "Review (a second pass, opened 2026-08-28 and
+/// paragraph — "Review (super-refine loop 2026-08-28 at Charlie's request,
 /// closed the same day …)" — and a sidebar column is not where that is
 /// read. The parenthetical is the document's; the word is the index's.
 fn status(body: &str) -> String {

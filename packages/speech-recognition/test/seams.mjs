@@ -1,4 +1,4 @@
-// The seam is public: two tests that
+// The seam is public (LLP 1133.001 D8, LLP 1133.012 stage 3): two tests that
 // need nothing an outside author lacks, in WebKit, whose mock microphone
 // answers on every machine this has run on.
 //
@@ -8,7 +8,7 @@
 //   a track opens.
 // - Replaced: a fixture implementation of `@exact/speech-recognition` outside
 //   the tree, a direct dependency of the app, replaces the endorsed web
-//   implementation and hears a track that
+//   implementation (LLP 1133.001 D4's second rule) and hears a track that
 //   `@exact/media-capture`'s endorsed implementation opened, reaching it
 //   through the session's track table (`startSpeechRecognition(track=)`).
 //

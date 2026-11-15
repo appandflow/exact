@@ -335,6 +335,7 @@ fn asset_restore() {
 }
 // Row leases: one lease per get/get_mut call, and the chase every game writes,
 // reading the player's row inside the loop over the enemies' rows.
+// @ref llp/1046.003-game-engine-as-built.explainer.md#row-leases-2026-09-23
 fn leases() {
     #[derive(Default, Component)]
     struct Enemy;

@@ -1,4 +1,4 @@
-// `orientationlock` on the JS target, bundled only
+// @ref LLP 1133.029 D7 — `orientationlock` on the JS target, bundled only
 // for a plan that says it. After each commit's tree update the lock follows
 // the counted holders, by orientationlock-glue.js's rules over the same DOM
 // the wasm host projects; a computed word outside the table is journaled as

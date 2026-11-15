@@ -1,10 +1,10 @@
-// Languages for @exact/translation on Apple: the tag
+// Languages for @exact/translation on Apple (LLP 1133.027 D7, §9): the tag
 // table every native implementation shares, detection's results by the
 // specification's algorithm, and the agent's fixed list and detection rule.
 import Foundation
 
 enum Languages {
-    /// The agent's languages, every pair of two distinct ones `available`.
+    /// The agent's languages, every pair of two distinct ones `available` (§9).
     static let agent = ["ar", "de", "en", "es", "fr", "hi", "it", "ja", "ko", "pt", "ru", "zh", "zh-Hant"]
 
     /// `tag` canonicalised as BCP 47 is (`zh_tw` is `zh-TW`), or nil for no tag.
@@ -18,7 +18,7 @@ enum Languages {
         }.joined(separator: "-")
     }
 
-    /// The table: the script a region implies made explicit (`zh-TW` is `zh-Hant`; bare `zh`, `zh-Hans`), then the region dropped.
+    /// D7's table: the script a region implies made explicit (`zh-TW` is `zh-Hant`; bare `zh`, `zh-Hans`), then the region dropped.
     static func scripted(_ tag: String) -> String {
         let parts = tag.split(separator: "-").map(String.init)
         guard let language = parts.first else { return tag }
@@ -30,7 +30,7 @@ enum Languages {
         return [language, script].compactMap { $0 }.joined(separator: "-")
     }
 
-    /// `tag` truncated as RFC 4647 lookup truncates until `listed` has it, or nil.
+    /// `tag` truncated as LLP 1060 truncates until `listed` has it, or nil.
     static func listed(_ tag: String, in listed: [String]) -> String? {
         var parts = scripted(tag).split(separator: "-").map(String.init)
         while !parts.isEmpty {
@@ -41,7 +41,7 @@ enum Languages {
         return nil
     }
 
-    /// Detection's results by the specification's algorithm: the
+    /// Detection's results by the specification's algorithm (D7): the
     /// platform's probabilities sorted by confidence, those below the unknown
     /// share dropped, stopping once they sum to 0.99, and `und` last with the
     /// unknown share.
@@ -58,7 +58,7 @@ enum Languages {
         return out
     }
 
-    /// The agent's detection: any kana is Japanese, then any Hangul
+    /// The agent's detection (§9): any kana is Japanese, then any Hangul
     /// Korean, else the first letter's script; nil where there is no letter.
     static func ruled(_ input: String) -> String? {
         let scalars = input.unicodeScalars

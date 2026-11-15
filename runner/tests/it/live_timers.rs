@@ -1,8 +1,8 @@
 //! A live clock (the host's own, not a seek's): a repeating timer that
 //! missed beats fires once, ordered as scheduled and observing when it runs,
-//! and is rescheduled after its callback (the timers RFC); what a
+//! and is rescheduled after its callback (the timers RFC, D2 and D3); what a
 //! callback arms takes its place, and every commit observes the clock. A
-//! seek clock still fires every beat at its own time.
+//! seek clock still fires every beat at its own time (D4).
 use exact_kernel::{Kernel, ViewId};
 use exact_plan::Value;
 use exact_runner::{
@@ -703,7 +703,7 @@ fn a_then_behind_an_earlier_timer_waits_for_the_advance() {
     assert_eq!(number(&r, "followed"), 1.0);
 }
 
-/// An input whose target a due commit removed is
+/// LLP 1072.000 §7.1 (a): an input whose target a due commit removed is
 /// refused and logged, and that commit stands; one on a row the commit
 /// changed runs against the current state.
 #[test]

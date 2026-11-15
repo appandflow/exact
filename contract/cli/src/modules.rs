@@ -1,17 +1,18 @@
-//! Calls to a native module's sources and sends. A call
+//! Calls to a native module's sources and sends (LLP 1133.002 D13). A call
 //! takes keyword arguments only, the interface's options and each
 //! platform's words, `apple.desiredAccuracy="threeKilometers"`. After
 //! scoping, each call is rewritten into an ordinary data-source call of one
 //! record, so the checker, lowering and the seam need nothing new: an option
 //! the call writes is `some(value)`, one it omits is `none`, and a platform's
 //! words are a record of their own, `none` when the call writes none of them.
-//! An omitted word so stays distinct from a written one.
+//! An omitted word so stays distinct from a written one (D2).
 //!
 //! A send that answers nothing is called as a statement, as a host command
-//! is, its arguments rewritten the same way; an event is
+//! is (LLP 1133.004 D5), its arguments rewritten the same way; an event is
 //! bound by `name=action` on the root (`module_events.rs`).
 
 use crate::CompileError;
+use contract_syntax::scope::Scope;
 use contract_syntax::{Expr, Field, File, ModuleDecl, ModuleKind, ShapeDecl, Span, Stmt, TypeExpr};
 use std::collections::HashMap;
 
@@ -24,7 +25,7 @@ struct Known {
 
 /// Rewrite every call of a module name in `file`, and declare the records
 /// the calls build. Every refusal in one run.
-pub(crate) fn desugar(file: &mut File) -> Result<(), Vec<CompileError>> {
+pub(crate) fn desugar(file: &mut File, scopes: &[Scope]) -> Result<(), Vec<CompileError>> {
     if file.modules.is_empty() {
         return Ok(());
     }
@@ -37,6 +38,7 @@ pub(crate) fn desugar(file: &mut File) -> Result<(), Vec<CompileError>> {
         file.shapes.extend(records(m));
     }
     let mut errors = Vec::new();
+    declare(file, &modules, &mut errors);
     let surfaces = Known {
         surfaces: surfaces(file),
         shapes: file
@@ -45,6 +47,7 @@ pub(crate) fn desugar(file: &mut File) -> Result<(), Vec<CompileError>> {
             .map(|s| (s.name.clone(), s.clone()))
             .collect(),
     };
+    crate::shape_schema::tool_inputs(file, &surfaces.shapes);
     for c in &mut file.components {
         for r in &mut c.resources {
             if let Some(p) = &r.placeholder {
@@ -99,7 +102,7 @@ pub(crate) fn desugar(file: &mut File) -> Result<(), Vec<CompileError>> {
             stmts(&mut a.body, &modules, &shapes, &surfaces, &mut errors);
         }
     }
-    crate::module_events::bind(file, &mut errors);
+    crate::module_events::bind(file, scopes, &mut errors);
     agent_states(file, &mut errors);
     if errors.is_empty() {
         Ok(())
@@ -206,7 +209,7 @@ fn stmts(
 
 /// The records a call of `m` builds: its options, with a field per
 /// platform that has words for it, and each platform's words.
-fn records(m: &ModuleDecl) -> Vec<ShapeDecl> {
+pub(crate) fn records(m: &ModuleDecl) -> Vec<ShapeDecl> {
     if takes_nothing(m) || m.kind == ModuleKind::Event {
         return Vec::new();
     }
@@ -373,7 +376,7 @@ fn call(
             ));
         }
     }
-    // A shape named by its literal goes as its schema.
+    // A shape named by its literal goes as its schema (LLP 1133.016 D15 item 4).
     let sub: serde_json::Value = serde_json::from_str(&m.substitute).unwrap_or_default();
     let paths: Vec<String> = (sub["shapeNames"].as_array().into_iter().flatten())
         .filter_map(|p| p.as_str().map(str::to_owned))
@@ -438,10 +441,10 @@ fn call(
     Ok(vec![Expr::Call(options_record(m), fields, span)])
 }
 
-/// A literal outside what the declaration admits for `option`: a number past
-/// its `min` or `max` (a poll faster than its floor, a batch past its bound),
-/// or a surface no canvas of the file places. A computed one is the runtime's
-/// to clamp or refuse.
+/// A literal outside what the declaration admits for `option` (LLP 1133.013
+/// D12 items 2 and 3): a number past its `min` or `max` (a poll faster than
+/// its floor, a batch past its bound), or a surface no canvas of the file
+/// places. A computed one is the runtime's to clamp or refuse.
 fn bounded(
     m: &ModuleDecl,
     option: &str,
@@ -501,30 +504,185 @@ fn bounded(
     }
 }
 
-/// A computed value where the declaration requires a literal: the Android
-/// manifest and the Play Console name each permission a `read` list can ask, so
-/// the list is written out.
+/// A computed value where the declaration requires a literal (LLP 1133.026
+/// D19 item 4): the Android manifest and the Play Console name each
+/// permission a `read` list can ask, so the list is written out. An option
+/// that `declares` is a list of records written out (LLP 1133.004 stage 2):
+/// the platform registers them at launch, before any post.
 fn literal(m: &ModuleDecl, option: &str, value: &Expr) -> Option<CompileError> {
     let sub: serde_json::Value = serde_json::from_str(&m.substitute).unwrap_or_default();
     let required = (sub["literal"].as_array().into_iter().flatten()).any(|o| o == option);
-    let plain = |e: &Expr| matches!(e, Expr::Str(..) | Expr::Number(..) | Expr::Bool(..));
-    let written = match value {
-        Expr::List(items, _) => items.iter().all(plain),
-        other => plain(other),
-    };
-    (required && !written).then(|| {
-        error(
-            "contract-module-literal",
-            format!(
-                "`{}`'s `{option}` is written out, a list of literals: the permissions it asks are derived from it at bake",
-                m.declared
-            ),
-            value.span(),
+    let declares = sub["declares"][option].is_string();
+    if !required || written_out(value).is_some() {
+        return None;
+    }
+    let why = if declares {
+        format!(
+            "`{}`'s `{option}` is written out, a list of records of literals: the app's declarations are read from it at build",
+            m.declared
         )
+    } else {
+        format!(
+            "`{}`'s `{option}` is written out, a list of literals: the permissions it asks are derived from it at bake",
+            m.declared
+        )
+    };
+    Some(error("contract-module-literal", why, value.span()))
+}
+
+/// A value written out as JSON: a literal, `some` of one or `none`, a
+/// record of them (`Shape(field=…)`), or a list of these; `None` for one
+/// that computes anything.
+fn written_out(value: &Expr) -> Option<serde_json::Value> {
+    use serde_json::Value as J;
+    Some(match value {
+        Expr::Str(s, _) => J::String(s.clone()),
+        Expr::Number(n, _) => serde_json::json!(n),
+        Expr::Bool(b, _) => J::Bool(*b),
+        Expr::None(_) => J::Null,
+        Expr::Some(inner, _) => written_out(inner)?,
+        Expr::List(items, _) => J::Array(items.iter().map(written_out).collect::<Option<_>>()?),
+        Expr::Call(_, args, _) if !args.is_empty() => {
+            let mut fields = serde_json::Map::new();
+            for arg in args {
+                let Expr::NamedArg(name, v, _) = arg else {
+                    return None;
+                };
+                fields.insert(name.clone(), written_out(v)?);
+            }
+            J::Object(fields)
+        }
+        _ => return None,
     })
 }
 
-/// A handler named by anything but a string literal: the
+/// The app's declarations (LLP 1133.004 stage 2): every value written for
+/// an option that `declares`, kept on the name's row as `"declared":
+/// {option: [value, …]}`, each value once, in the order first written. A
+/// record is named by its `declares` field, and one name means one record
+/// across the app: two records of one name that differ are refused, since
+/// the platform keeps one definition of each.
+fn declare(file: &mut File, modules: &HashMap<String, ModuleDecl>, errors: &mut Vec<CompileError>) {
+    let mut found: HashMap<String, Vec<(String, serde_json::Value, Span)>> = HashMap::new();
+    fn walk(
+        body: &[Stmt],
+        modules: &HashMap<String, ModuleDecl>,
+        found: &mut HashMap<String, Vec<(String, serde_json::Value, Span)>>,
+    ) {
+        for stmt in body {
+            let (name, args) = match stmt {
+                Stmt::Command { name, args, .. } => (name, args),
+                Stmt::Send { source, args, .. } => (source, args),
+                Stmt::If {
+                    then, otherwise, ..
+                } => {
+                    walk(then, modules, found);
+                    walk(otherwise, modules, found);
+                    continue;
+                }
+                Stmt::Match { some, none, .. } => {
+                    walk(&some.1, modules, found);
+                    walk(none, modules, found);
+                    continue;
+                }
+                Stmt::Call { body, .. } => {
+                    walk(body, modules, found);
+                    continue;
+                }
+                _ => continue,
+            };
+            let Some(m) = modules.get(name.as_str()) else {
+                continue;
+            };
+            let sub: serde_json::Value = serde_json::from_str(&m.substitute).unwrap_or_default();
+            let Some(declares) = sub["declares"].as_object() else {
+                continue;
+            };
+            for arg in args {
+                let Expr::NamedArg(option, value, at) = arg else {
+                    continue;
+                };
+                if declares.contains_key(option) {
+                    if let Some(v) = written_out(value) {
+                        found
+                            .entry(m.name.clone())
+                            .or_default()
+                            .push((option.clone(), v, *at));
+                    }
+                }
+            }
+        }
+    }
+    for c in &file.components {
+        for a in &c.actions {
+            walk(&a.body, modules, &mut found);
+        }
+    }
+    for (name, values) in found {
+        let m = &modules[&name];
+        let sub: serde_json::Value = serde_json::from_str(&m.substitute).unwrap_or_default();
+        let mut declared = serde_json::Map::new();
+        let mut defined: HashMap<(String, String), serde_json::Value> = HashMap::new();
+        for (option, value, at) in values {
+            let key = sub["declares"][&option].as_str().unwrap_or_default();
+            if m.package == "@exact/notifications" && option == "actions" {
+                let actions = value.as_array().map(Vec::as_slice).unwrap_or_default();
+                // UNNotificationCategory supports four actions; banners show the first two.
+                // https://developer.apple.com/documentation/usernotifications/unnotificationcategory/actions
+                if actions.len() > 4 {
+                    errors.push(error(
+                        "contract-module-declared",
+                        "a notification declares at most four actions".into(),
+                        at,
+                    ));
+                }
+                let mut names = std::collections::HashSet::new();
+                for action in actions {
+                    if let Some(name) = action["action"].as_str() {
+                        if name.is_empty() || name.contains([',', '=']) || !names.insert(name) {
+                            errors.push(error("contract-module-declared", "notification action names must be nonempty, contain neither `,` nor `=`, and be unique within their list".into(), at));
+                        }
+                    }
+                }
+            }
+            for record in value.as_array().into_iter().flatten() {
+                let Some(id) = record[key].as_str() else {
+                    continue;
+                };
+                match defined.get(&(option.clone(), id.to_owned())) {
+                    Some(before) if before != record => errors.push(error(
+                        "contract-module-declared",
+                        format!(
+                            "`{}`'s `{option}` declares `{id}` twice, differently: an {key} means one thing in the app, so write it the same way each time: first {before}, here {record}",
+                            m.declared
+                        ),
+                        at,
+                    )),
+                    Some(_) => {}
+                    None => {
+                        defined.insert((option.clone(), id.to_owned()), record.clone());
+                    }
+                }
+            }
+            let list = declared
+                .entry(option)
+                .or_insert_with(|| serde_json::Value::Array(Vec::new()));
+            if let Some(list) = list.as_array_mut() {
+                if !value.is_null() && !list.contains(&value) {
+                    list.push(value);
+                }
+            }
+        }
+        for decl in file.modules.iter_mut().filter(|d| d.name == name) {
+            let mut sub: serde_json::Value =
+                serde_json::from_str(&decl.substitute).unwrap_or_default();
+            sub["declared"] = serde_json::Value::Object(declared.clone());
+            decl.substitute = sub.to_string();
+        }
+    }
+}
+
+/// A handler named by anything but a string literal (LLP 1133.034 D5): the
 /// runner admits the module's call back by the name the call wrote.
 fn handler(m: &ModuleDecl, option: &str, value: &Expr) -> Option<CompileError> {
     let sub: serde_json::Value = serde_json::from_str(&m.substitute).unwrap_or_default();
@@ -563,19 +721,11 @@ fn surfaces(file: &File) -> Vec<String> {
                     }
                     walk(children, out);
                 }
-                Node::Use { children, .. } => walk(children, out),
-                Node::Each { body, .. } => walk(body, out),
-                Node::When {
-                    then, otherwise, ..
-                } => {
-                    walk(then, out);
-                    walk(otherwise, out);
+                node => {
+                    for list in node.child_lists() {
+                        walk(list, out);
+                    }
                 }
-                Node::Match { some, none, .. } => {
-                    walk(&some.1, out);
-                    walk(none, out);
-                }
-                Node::Children { .. } => {}
             }
         }
     }
@@ -634,8 +784,8 @@ fn check_answers(
     }
 }
 
-/// What a call of `m` answers when its answer is typed by an argument: the
-/// shape its literal option names.
+/// What a call of `m` answers when its answer is typed by an argument (LLP
+/// 1133.016 D15 item 4): the shape its literal option names.
 fn typed_answer(m: &ModuleDecl, args: &[Expr]) -> Option<TypeExpr> {
     let sub: serde_json::Value = serde_json::from_str(&m.substitute).ok()?;
     let by = sub["answersBy"].as_str()?;
@@ -649,7 +799,7 @@ fn typed_answer(m: &ModuleDecl, args: &[Expr]) -> Option<TypeExpr> {
 }
 
 /// The agent's own top-level state keys, which a module's declared list or
-/// value cannot take.
+/// value cannot take (LLP 1133.004 §7).
 const RESERVED_STATES: &[&str] = &[
     "slots",
     "derives",

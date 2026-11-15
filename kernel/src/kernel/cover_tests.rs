@@ -1,5 +1,5 @@
-//! What a scroller's platform inset re-derives (the bottom edge's chain,
-//! `cover::scroller_insets_bottom`): the nearest box the bars
+//! What a scroller's platform inset re-derives (theme2's Q2 on the bottom
+//! edge's chain, `cover::scroller_insets_bottom`): the nearest box the bars
 //! cover, however deep the scroller, and nothing further up.
 use super::*;
 use crate::layout::LayoutTree;
@@ -117,7 +117,7 @@ fn an_inset_three_boxes_down_restyles_its_route_and_nothing_above() {
         "the route pads nothing; the sheet still does"
     );
     // The sheet derived again for a change of its own: the route's scroller
-    // is the route's, not the sheet's.
+    // is the route's, not the sheet's (Astra's and Grok's round 1).
     k.apply(
         1,
         2,
@@ -129,8 +129,8 @@ fn an_inset_three_boxes_down_restyles_its_route_and_nothing_above() {
     assert_eq!(f.y + f.height, 844.0 - 34.0, "the sheet keeps its padding");
 }
 
-/// The covers said in every order (a covered box that comes or goes
-/// decides where the chain stops), then the route's bar cleared: its
+/// The covers said in every order (round 2: a covered box that comes or
+/// goes decides where the chain stops), then the route's bar cleared: its
 /// scroller is then the sheet's.
 #[test]
 fn the_covers_in_any_order_leave_the_sheet_its_padding() {
@@ -197,8 +197,8 @@ fn the_covers_in_any_order_leave_the_sheet_its_padding() {
 
 /// HTML's UA sheet puts an open popover in the top layer (`position:
 /// fixed`): uncovered for a host to lift, it takes no room in its parent's
-/// flow, so a footer before it stays at the column's foot (a chat composer
-/// with a popover written after it must not jump by the popover's height).
+/// flow, so a footer before it stays at the column's foot (Harmony's room
+/// composer, a popover written after it, jumped up by the popover's height).
 #[test]
 fn an_open_popover_takes_no_room_in_its_parents_flow() {
     let mut k = Kernel::with_monospace();
@@ -289,7 +289,7 @@ fn an_open_popover_takes_no_room_in_its_parents_flow() {
 }
 
 /// A popover written after a route's bottom-edge scroller leaves the
-/// scroller the edge, open or closed: the route
+/// scroller the edge, open or closed (Astra's quick review): the route
 /// pads nothing of its bottom bar, and setting or clearing the prop on the
 /// box after it derives the route again.
 #[test]
@@ -394,7 +394,7 @@ fn a_popover_after_the_scroller_leaves_it_the_bottom_edge() {
     );
 }
 
-/// A popover is laid out in the viewport, a block of its own:
+/// A popover is laid out in the viewport, a block of its own (stage 14 B):
 /// its parent's cover neither offsets nor trims it, before or after the
 /// cover changes. A host places it.
 #[test]

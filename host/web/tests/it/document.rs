@@ -1,4 +1,4 @@
-//! The document projection over the Caltrain app and small
+//! The document projection (LLP 1048.000 D1) over the Caltrain app and small
 //! plans: the live host's DOM as HTML, before browser layout.
 
 use exact_runner::{DataError, DataSource, Value};
@@ -102,7 +102,7 @@ fn raw_symbols_prerender_as_nonfetching_decorative_images() {
         "{doc}"
     );
     assert!(doc.contains("data-symbol-source=\"symbol:sf/\""), "{doc}");
-    // An empty name, as an empty `sf/` one.
+    // An empty name, as an empty `sf/` one (stage 9 H).
     assert!(doc.contains("data-symbol-source=\"symbol:\""), "{doc}");
     assert_eq!(doc.matches("src=\"data:image/svg+xml,").count(), 3, "{doc}");
     assert!(!doc.contains("src=\"symbol:"), "{doc}");
@@ -118,6 +118,42 @@ fn a_role_prerenders_at_the_size_it_paints() {
     let doc =
         document("component App\n  view\n    row font-size=20\n      image \"symbol:circle\"\n");
     assert!(doc.contains("width='24' height='24'"), "{doc}");
+}
+
+#[test]
+fn images_decode_asynchronously_with_their_loading_and_hero_attributes() {
+    let host = host(
+        r#"component App
+  view
+    column
+      image "assets/hero.png" alt="Hero"
+      image "assets/ordinary.png" alt="Ordinary"
+      for name in ["a", "b"] key=name
+        image `assets/${name}.png` alt=name
+"#,
+        Says(""),
+        "/",
+    );
+    let doc = exact_web::document::project_for_js(host.runner()).unwrap();
+    let images: Vec<_> = doc
+        .root
+        .split("<img ")
+        .skip(1)
+        .map(|tail| tail.split_once('>').unwrap().0)
+        .collect();
+    assert_eq!(images.len(), 4, "{}", doc.root);
+    for (image, lazy, hero) in [
+        (images[0], false, true),
+        (images[1], false, false),
+        (images[2], true, false),
+        (images[3], true, false),
+    ] {
+        assert_eq!(image.matches("decoding=\"async\"").count(), 1, "{image}");
+        assert_eq!(image.contains("loading=\"lazy\""), lazy, "{image}");
+        assert_eq!(image.contains("fetchpriority=\"high\""), hero, "{image}");
+    }
+    assert_eq!(doc.root.matches("decoding=").count(), images.len());
+    assert_eq!(doc.hero_image.unwrap().src, "assets/hero.png");
 }
 
 fn caltrain() -> (Host<caltrain_data::Caltrain>, String) {
@@ -255,7 +291,7 @@ component App
 
 #[test]
 fn a_data_frame_shows_only_in_an_opaque_sandbox() {
-    // `frameURL`'s rule: a `data:` document's origin is
+    // `frameURL`'s rule (LLP 1020 §10): a `data:` document's origin is
     // opaque in a sandbox without `allow-same-origin`; nowhere else does
     // the page show one. The browser folds the sandbox's case and the
     // scheme's, and strips what surrounds the URL.
@@ -341,7 +377,7 @@ component App
     assert!(doc[area..].contains(">\n\nfirst</textarea>"));
     assert!(tag("focusable").contains(" tabindex=\"0\""));
     assert!(!tag("button").contains("tabindex"));
-    // An authored `tabindex` is the attribute itself, it wins
+    // LLP 1088 D7.3: an authored `tabindex` is the attribute itself, it wins
     // over the synthesized one, and absent is never `0`.
     assert!(
         tag("plain-stop").contains(" tabindex=\"0\""),
@@ -362,6 +398,62 @@ component App
 }
 
 #[test]
+fn select_options_use_their_value_or_label_in_the_document() {
+    let doc = document(
+        r#"
+component App
+  state pick = "b"
+  view
+    column
+      select value=pick
+        option "a" testId="plain-a"
+        option "b" testId="plain-b"
+      select value=pick
+        option "b" value="a" testId="valued-a"
+        option "B" value="b" testId="valued-b"
+      select value="b c"
+        option "a" testId="space-a"
+        option testId="space-b"
+          text "  b\t"
+          text " c\n "
+      select value=""
+        option "a" testId="empty-a"
+        option "B" value="" testId="empty-b"
+      select
+        option "a" testId="default-a"
+        option "b" testId="default-b"
+      select value="b"
+        option "First" value="b" testId="duplicate-a"
+        option "b" testId="duplicate-b"
+      select value="b c"
+        option "a" testId="nbsp-a"
+        option "b c" testId="nbsp-b"
+"#,
+    );
+    for (id, selected) in [
+        ("plain-a", false),
+        ("plain-b", true),
+        ("valued-a", false),
+        ("valued-b", true),
+        ("space-a", false),
+        ("space-b", true),
+        ("empty-a", false),
+        ("empty-b", true),
+        ("default-a", false),
+        ("default-b", false),
+        ("duplicate-a", true),
+        ("duplicate-b", false),
+        ("nbsp-a", false),
+        ("nbsp-b", true),
+    ] {
+        let at = doc.find(&format!("data-testid=\"{id}\"")).unwrap();
+        let start = doc[..at].rfind('<').unwrap();
+        let tag = &doc[start..at + doc[at..].find('>').unwrap()];
+        assert_eq!(tag.contains(" selected"), selected, "{tag}");
+    }
+}
+
+#[test]
 fn markdown_is_spans_and_navigable_links() {
     let src = r#"
 component App
@@ -369,7 +461,7 @@ component App
     column
       text "**b** [safe](https://e.dev/) [unsafe](javascript:alert(1))\nnext" markup="markdown" testId="md"
 "#;
-    // Markdown is linked by use: this binary links it, as an
+    // Markdown is linked by use (LLP 1047 D3): this binary links it, as an
     // app's generated entry does when its plan uses it.
     exact_web::link(exact_web_capabilities::ALL);
     let doc = document(src);
@@ -377,12 +469,18 @@ component App
         doc.contains("<span style=\"font-weight:700;\">b</span>"),
         "{doc}"
     );
-    assert!(doc.contains("<a href=\"https://e.dev/\">safe</a>"), "{doc}");
+    // It leaves the app, so it opens in a new browsing context, as natively.
+    assert!(
+        doc.contains(
+            "<a href=\"https://e.dev/\" target=\"_blank\" rel=\"external noopener\">safe</a>"
+        ),
+        "{doc}"
+    );
     assert!(doc.contains("<span>unsafe</span>"), "{doc}");
     assert!(!doc.contains("javascript"), "{doc}");
     assert!(doc.contains("<br>"), "{doc}");
     // A list item is a block padded by its indent, its marker hung in the
-    // gutter, as `renderMarkup` builds it.
+    // gutter, as `renderMarkup` builds it (LLP 1045 D4).
     let list = document(
         "component App\n  view\n    text \"Top\\n\\n- one\\n  - two\" markup=\"markdown\"\n",
     );
@@ -427,7 +525,7 @@ component App
 }
 
 /// A `button` is a real `<button>` and holds only phrasing
-/// content: its containers, paragraphs and headings are
+/// content (LLP 1007 §1): its containers, paragraphs and headings are
 /// `<span>`s with the same style — a block unless a row says otherwise — in
 /// the live host's batch and in the document alike.
 #[test]
@@ -461,7 +559,7 @@ component App
     assert!(card.starts_with("<button "), "{card}");
     // Its native role isn't restated (ARIA in HTML).
     assert!(!card.contains(" role="), "{card}");
-    // Chrome's button: the reset's block, with the UA sheet's
+    // Chrome's button (LLP 1001 §1): the reset's block, with the UA sheet's
     // centred text; the browser centres its content in its height.
     for want in [" type=\"button\"", "text-align:center;"] {
         assert!(card.contains(want), "{want}: {card}");
@@ -541,7 +639,7 @@ component App
     );
 }
 
-// A route's header iOS makes its bar of is marked as
+// LLP 1115.000 D4.15 — a route's header iOS makes its bar of is marked as
 // navigation.js marks it (`appBarBack`), by the kernel's rule
 // (`exact_kernel::bars::header_bar`): its first child, holding one heading
 // text, on a route that does not say `navigationBar="none"`, unless its
@@ -590,7 +688,7 @@ component App
     }
 }
 
-// A route's header that holds a `nav`, a popover's too, or
+// LLP 1153 D8 — a route's header that holds a `nav`, a popover's too, or
 // more than one link, is a site's: marked `data-exact-site`, which the shell
 // draws as written, and no bar, though iOS would make one of its one heading.
 // The header iOS makes its bar of (one heading, its buttons) stays the bar,
@@ -664,7 +762,41 @@ component App
     }
 }
 
-// With tabs, each tab's panel holds its own
+// A header of buttons alone is the bar when it places all of them: a button
+// that shows a dialog by its command, pressing nothing, is one of its items
+// (#387), and one whose command only closes the dialog is not.
+#[test]
+fn a_button_that_shows_a_dialog_by_its_command_is_a_bar_item() {
+    let src = |command: &str| {
+        format!(
+            r#"
+routes nav
+  tab home "/"
+component App
+  view
+    main navigationKey=`${{top(nav).id}}` navigationBack="back" width="100%" height="100%"
+      for e in stack(nav) key=e.id
+        column navigationKey=`${{e.id}}`
+          header testId="header"
+            button commandfor="clear" command="{command}" aria-label="Clear"
+              text "Clear"
+          dialog id="clear" role="alertdialog" aria-label="Clear History?"
+            text "Every conversation will be deleted."
+            button commandfor="clear" command="close"
+              text "Cancel"
+"#
+        )
+    };
+    for (command, bar) in [("show-modal", true), ("close", false)] {
+        let doc = host(&src(command), Says(""), "/").document().unwrap().root;
+        let at = doc.find("data-testid=\"header\"").unwrap();
+        let start = doc[..at].rfind('<').unwrap();
+        let tag = &doc[start..at + doc[at..].find('>').unwrap() + 1];
+        assert_eq!(tag.contains("data-exact-bar"), bar, "{command}: {tag}");
+    }
+}
+
+// @ref LLP 1075.003 §3.3, §3.7 — with tabs, each tab's panel holds its own
 // stack, built when the tab is first selected: the unselected panel is
 // hidden and inert; an app's data-* words are attributes of their own. Both are linked
 // by use, and a host without them refuses the plan by name.
@@ -818,7 +950,7 @@ fn the_page_scroller_is_marked_in_the_document() {
     ));
 }
 
-/// `glassGroup="auto"` is written as `auto`, not its
+/// LLP 1053.000.000.000 D3: `glassGroup="auto"` is written as `auto`, not its
 /// reserved `-1`; a number as the number. Nothing draws it.
 #[test]
 fn an_auto_glass_group_is_written_as_auto() {
@@ -976,4 +1108,46 @@ fn bare_text_styles_fill_unsaid_rows_in_the_js_document() {
     );
     assert!(js.contains("font-weight:700"), "{js}");
     assert!(js.contains("line-height:40px"), "{js}");
+}
+
+/// A `progress` with a `value` is HTML's `<progress value max>`: the page keeps
+/// the value, or a determinate bar is written indeterminate (LLP 1116 D8).
+#[test]
+fn a_progress_prerenders_with_its_value() {
+    let html = document(
+        "component App\n  view\n    column\n      progress value=0.4 testId=\"p1\"\n      progress value=3 max=8 testId=\"p2\"\n",
+    );
+    let tag = |id: &str| {
+        let at = html
+            .find(&format!("data-testid=\"{id}\""))
+            .unwrap_or_else(|| panic!("{id} in {html}"));
+        let start = html[..at].rfind('<').unwrap();
+        html[start..start + html[start..].find('>').unwrap()].to_string()
+    };
+    assert!(tag("p1").contains(r#"value="0.4""#), "{}", tag("p1"));
+    assert!(
+        tag("p2").contains(r#"value="3""#) && tag("p2").contains(r#"max="8""#),
+        "{}",
+        tag("p2")
+    );
+}
+
+/// A Markdown link that leaves the app opens as a link node to the same URL
+/// does: in a new browsing context, as natively (renderMarkup's rule).
+#[test]
+fn a_markdown_link_that_leaves_the_app_prerenders_with_its_target() {
+    let html = document(
+        "component App\n  view\n    column\n      text \"see [site](https://example.com/a) and [here](/b)\" markup=\"markdown\" testId=\"md\"\n",
+    );
+    assert!(
+        html.contains(r#"href="https://example.com/a""#)
+            && html.contains(r#"rel="external noopener""#)
+            && html.contains(r#"target="_blank""#),
+        "{html}"
+    );
+    let inside = &html[html.find(r#"href="/b""#).expect("the app's own link")..];
+    assert!(
+        !inside[..inside.find('>').unwrap()].contains("target"),
+        "{html}"
+    );
 }

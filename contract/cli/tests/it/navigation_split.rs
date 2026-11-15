@@ -1,10 +1,10 @@
-//! `navigationSplit="placeholder"` marks a box in a stack's
+//! LLP 1116.006 D2: `navigationSplit="placeholder"` marks a box in a stack's
 //! root route as the detail pane's while nothing is selected. Only a wide
 //! window's split shows it (the web shell, over its `display`); every other
 //! host lays it out as no box, so a phone's list never draws it. On a route
 //! it would hide the route, so it is refused there.
 //!
-//! Chevrons are paint. The host reads the shared
+//! LLP 1115.002 D4/stage 6d: chevrons are paint. The host reads the shared
 //! list/press rule; the compiler must not invent an author opt-out.
 
 use exact_kernel::{Display, Kernel, PropId};
@@ -133,7 +133,7 @@ fn split_of(src: &str) -> Option<String> {
 
 #[test]
 fn decorative_chevrons_do_not_write_a_navigation_split_opt_out() {
-    // An event-RSVP app: invitations that select into a panel, a chevron
+    // event-rsvp (round 9): invitations that select into a panel, a chevron
     // on each, and a Create button elsewhere that does push.
     let decorative = [
         "column press=pick(\"a\") testId=\"row\"\n  text \"A\"\n  image \"symbol:forward-chevron\"",

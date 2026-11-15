@@ -1,4 +1,5 @@
 //! Consume a pending boot tick before AppKit's display-cycle observers.
+//! @ref LLP 1149.001 §3 M10; LLP 1149 D7, D11.
 use super::{trace_mark, Error, Result};
 use objc2::MainThreadMarker;
 use objc2_core_foundation::{

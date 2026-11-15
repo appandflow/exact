@@ -1,5 +1,5 @@
-// The design tool's canvas on a real dev loop: the frame, builds and pins (split from design-tool.test.mjs, so it runs in parallel with
-// the others; inspect from the tool is design-tool-inspect.test.mjs).
+// The design tool's canvas on a real dev loop: the frame, builds and pins (T2) (split from design-tool.test.mjs, so a
+// lane runs it beside the others; inspect from the tool, T2b, is design-tool-inspect.test.mjs).
 import { expect, onTestFinished, test } from 'bun:test';
 import { cpSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -11,7 +11,7 @@ import { HEARTBEAT_RACE, ROOT, SLOW, TOOL_DIST, TOOL_ORIGIN, drive, lines, signa
 
 toolTurns();
 
-// The canvas test's server clocks (tamber-timing.mjs's test knobs; the real ones in the slow lane, EXACT_SLOW_TESTS=1): the long
+// T2's server clocks (forma-timing.mjs's test knobs; the real ones in the slow lane, EXACT_SLOW_TESTS=1): the long
 // poll's wait, a POST client's presence, a GET long poll's (the lease a closed tool's pin is held for), the sweep. As
 // the real ones are, chosen so the lease's window below (from a GET long poll's lease, less a wait and a sweep) lies
 // past a POST client's lease and a sweep: a pin handed back on the POST lease fails it.
@@ -50,9 +50,9 @@ async function polledBuild(base, id) {
   return { frames, stop: async () => { stopped = true; await loop; } };
 }
 
-test('the canvas frames the dev loop\'s page, sandboxed, at the size chosen; builds are listed with their effective facts, a pin on one moves only it, a reloaded build gets it back, and the tool gone hands it back', async () => {
+test('T2: the canvas frames the dev loop\'s page, sandboxed, at the size chosen; builds are listed with their effective facts, a pin on one moves only it, a reloaded build gets it back, and the tool gone hands it back', async () => {
   const app = mkdtempSync(join(tmpdir(), 'exact-design-tool-canvas-'));
-  for (const f of ['app.contract', 'app.tamber', 'app.json']) cpSync(resolve(ROOT, 'apps/theme-fixture', f), join(app, f));
+  for (const f of ['app.contract', 'app.forma', 'app.json']) cpSync(resolve(ROOT, 'apps/theme-fixture', f), join(app, f));
   const listener = (await import('node:http')).createServer();
   await new Promise(ok => listener.listen(0, '127.0.0.1', ok));
   const port = listener.address().port;
@@ -66,17 +66,17 @@ test('the canvas frames the dev loop\'s page, sandboxed, at the size chosen; bui
     await devSaid.until(l => l.includes(`127.0.0.1:${port}/`), 600_000);
     // Its page built (a build that failed frames an error page, which never registers as the frame's build).
     expect(devSaid.seen.filter(l => l.includes('does not build'))).toEqual([]);
-    tool = spawnOwned(process.execPath, [resolve(ROOT, 'scripts/exact.mjs'), 'tamber', 'tool', app, '--via', base, '--no-open'], { cwd: ROOT, env: timed(CLOCKS), stdio: ['ignore', 'pipe', 'pipe'] });
-    const url = await lines(tool).until(l => l.startsWith(`${TOOL_ORIGIN}/__tamber/tool/`), 600_000);
+    tool = spawnOwned(process.execPath, [resolve(ROOT, 'scripts/exact.mjs'), 'forma', 'tool', app, '--via', base, '--no-open'], { cwd: ROOT, env: timed(CLOCKS), stdio: ['ignore', 'pipe', 'pipe'] });
+    const url = await lines(tool).until(l => l.startsWith(`${TOOL_ORIGIN}/__forma/tool/`), 600_000);
     other = await polledBuild(base, 'linux-1');
     // A build's report reaches the tool on its long poll.
     const wait = ['clock +4000 real', 'clock data'], registered = signals('canvas');
     onTestFinished(registered.drop);
-    // The frame's build says the plan it runs (the JS target), read while the drive has it open; its
+    // The frame's build says the plan it runs (LLP 1122 T2b, the JS target), read while the drive has it open; its
     // registration is the drive's signal to go on.
     saidPlan = (async () => {
       while (driving) {
-        const listed = await fetch(`${TOOL_ORIGIN}/__tamber/token`).then(r => r.json()).then(({ token }) => fetch(`${TOOL_ORIGIN}/__tamber`, { method: 'POST', headers: { 'x-exact-tamber-token': token }, body: '{"method":"hello"}' })).then(r => r.json()).catch(() => null);
+        const listed = await fetch(`${TOOL_ORIGIN}/__forma/token`).then(r => r.json()).then(({ token }) => fetch(`${TOOL_ORIGIN}/__forma`, { method: 'POST', headers: { 'x-exact-forma-token': token }, body: '{"method":"hello"}' })).then(r => r.json()).catch(() => null);
         const page = listed?.ok?.builds?.find(b => b.host === 'web-js' && b.planDigest);
         if (page) { registered.fire(1); return page.planDigest; }
         await Bun.sleep(300);
@@ -140,7 +140,7 @@ test('the canvas frames the dev loop\'s page, sandboxed, at the size chosen; bui
     expect(states[2].resources.changes.builds.find(b => b.id === 'linux-1')).toMatchObject({ pin: 'dark, dark-style=black', caughtUp: true });
     expect(other.frames.filter(f => f.pin).map(f => [f.reloaded, f.pin])).toEqual([[false, { scheme: 'dark', mode: { 'dark-style': 'black' } }], [true, { scheme: 'dark', mode: { 'dark-style': 'black' } }]]);
     // The tool closed (its page gone, no unload request): the pin holds a
-    // while (its last long poll by cursor counts 90 s), then
+    // while (its last long poll by cursor counts 90 s, LLP 1122 D4), then
     // the server hands it back.
     const until = Date.now() + CLOCKS.LONG_PRESENT + 30_000;
     while (other.frames.at(-1)?.pin && Date.now() < until) await new Promise(ok => setTimeout(ok, 500));

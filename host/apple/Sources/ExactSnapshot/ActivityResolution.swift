@@ -1,4 +1,4 @@
-// What an activity renders from: the
+// @ref LLP 1126.001 WP10, LLP 1126 D9 — what an activity renders from: the
 // generation its attributes name, the plan of its kind there, and the state
 // that plan decodes (the envelope's, else the last decodable one kept for
 // the activity, else the preview as the placeholder). The extension's
@@ -36,7 +36,7 @@ public struct ActivityFacts: Hashable, Sendable {
     public var rootFontSize: Double
     public var locale: String
     public var timeZone: String
-    public init(displayScale: Double, preferences: Preferences, rootFontSize: Double, locale: String = Locale.preferredLanguages.first ?? Locale.current.identifier(.bcp47), timeZone: TimeZone = .current) {
+    public init(displayScale: Double, preferences: Preferences, rootFontSize: Double, locale: String = SessionFacts.viewerLocale(), timeZone: TimeZone = .current) {
         self.displayScale = displayScale; self.preferences = preferences.rawValue; self.rootFontSize = rootFontSize; self.locale = locale; self.timeZone = timeZone.identifier
     }
     public var dark: Bool { Preferences(rawValue: preferences).contains(.dark) }
@@ -66,7 +66,7 @@ public struct ActivitySources {
     }
     /// The directory holding generation `name`'s plans: the published one of
     /// that name in this cohort, or the embedded plans when their identity
-    /// is that generation. Never another generation (an activity renders
+    /// is that generation. Never another generation (D9: an activity renders
     /// from the generation it was started under).
     public func root(for name: String) throws -> URL {
         if let groupRoot, let pinned = try? WidgetContainer.pin(root: groupRoot, generation: name, compatibility: compatibility) { return pinned }
@@ -86,7 +86,7 @@ public final class ActivityRendering {
     public let render: ActivityRender
     /// The directory the plan and its images came from.
     public let root: URL
-    /// The kept last-good state is shown, not the envelope's.
+    /// The kept last-good state is shown, not the envelope's (D9).
     public let outdated: Bool
     /// The preview stands in: nothing decodable was ever kept.
     public let placeholder: Bool
@@ -166,7 +166,7 @@ public enum ActivityResolver {
 
 /// The renders alive in a process, keyed by the request and the facts: the
 /// eight placements of one push share one session (one session per
-/// activity), and a state the system asks for again (another region,
+/// activity, D9), and a state the system asks for again (another region,
 /// the Lock Screen's scheme beside the Island's, Bold Text) is not booted
 /// twice. When a render is kept, the activity's renders of another request
 /// (an older state, a generation) leave, its fact variants of this request

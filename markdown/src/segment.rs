@@ -1,6 +1,6 @@
 //! Segments, embeds, and plain text.
 //!
-//! A text segment is what one node paints; an image,
+//! @ref LLP 1045 D4, D7 — a text segment is what one node paints; an image,
 //! an embed and a table are the blocks text cannot be.
 
 use std::borrow::Cow;
@@ -348,48 +348,26 @@ pub fn plain(source: &str) -> String {
     plain_with(source, &crate::Atoms::default())
 }
 
-/// The plain text of `range` (UTF-16) of `source`, each atom the whole
-/// source recognizes inside it as its label (⌘⇧C of a selection): the
-/// atoms are found in the whole source, where a token's
-/// surroundings decide it, not in the fragment alone.
+/// The plain text of `range` (UTF-16) of `source`, each atom its label (⌘⇧C
+/// of a selection, LLP 1045.000 D5). The whole source decides what is
+/// syntax: a selection inside a code block keeps its `*` and `_`, and one
+/// that ends inside `**bold**` loses the closing `**`.
 pub fn plain_range(source: &str, range: crate::Range, atoms: &crate::Atoms) -> String {
-    let units: Vec<u16> = source.encode_utf16().collect();
-    let (a, b) = (
-        range.start.min(range.end) as usize,
-        range.end.min(units.len() as u32) as usize,
-    );
-    let a = a.min(b);
-    // Each atom inside the range stands in as one private-use character
-    // while the rest is made plain, then becomes its label.
-    let found: Vec<crate::Atom> = crate::style_with(source, None, atoms)
-        .atoms
-        .into_iter()
-        .filter(|x| a <= x.range.start as usize && x.range.end as usize <= b)
-        .take(0x1900)
-        .collect();
-    let mut fragment: Vec<u16> = Vec::with_capacity(b - a);
-    let mut at = a;
-    for (i, x) in found.iter().enumerate() {
-        fragment.extend_from_slice(&units[at..x.range.start as usize]);
-        fragment.push(0xE000 + i as u16);
-        at = x.range.end as usize;
-    }
-    fragment.extend_from_slice(&units[at..b]);
-    let mut out = String::new();
-    for c in plain(&String::from_utf16_lossy(&fragment)).chars() {
-        match (c as u32)
-            .checked_sub(0xE000)
-            .and_then(|i| found.get(i as usize))
-        {
-            Some(x) => out.push_str(&x.label),
-            None => out.push(c),
-        }
-    }
-    out
+    let offsets = crate::offsets::Offsets::new(source);
+    let a = offsets.to8(range.start.min(range.end));
+    let b = offsets.to8(range.start.max(range.end));
+    plain_in(source, a..b, atoms)
 }
 
-/// The plain text with each atom as its label (⌘⇧C).
+/// The plain text with each atom as its label (⌘⇧C, LLP 1045.000 D5).
 pub fn plain_with(source: &str, atoms: &crate::Atoms) -> String {
+    plain_in(source, 0..source.len(), atoms)
+}
+
+/// The plain text of the bytes `within` of `source`. A marker, atom or glyph
+/// the range takes only part of is still what the reader sees there: its
+/// replacement, or nothing.
+fn plain_in(source: &str, within: std::ops::Range<usize>, atoms: &crate::Atoms) -> String {
     let analysis = crate::style::analyze_with(source, None, atoms);
     let labels: Vec<String> = analysis
         .atoms
@@ -433,58 +411,22 @@ pub fn plain_with(source: &str, atoms: &crate::Atoms) -> String {
         skips.push((block.range.start..end, ""));
     }
     skips.sort_by_key(|s| (s.0.start, s.0.end));
-    let mut out = String::with_capacity(source.len());
+    // The walk is the whole source's, so a skip inside another is passed over
+    // as it is for the whole; only what it writes is kept to `within`.
+    let clamp = |x: usize| x.clamp(within.start, within.end);
+    let mut out = String::with_capacity(within.len());
     let mut at = 0;
     for (range, with) in skips {
         if range.start < at {
             at = at.max(range.end);
             continue;
         }
-        out.push_str(&source[at..range.start]);
-        out.push_str(with);
+        out.push_str(&source[clamp(at)..clamp(range.start)]);
+        if range.start < within.end && within.start < range.end {
+            out.push_str(with);
+        }
         at = range.end;
     }
-    out.push_str(&source[at..]);
-    out
-}
-
-/// At most `chars` characters of plain text on one line, cut at a word, for a
-/// feed card. Reads only as much source as it needs.
-pub fn excerpt(source: &str, chars: usize) -> String {
-    // Enough whole blocks to fill the excerpt, so no construct is cut open.
-    let budget = chars.saturating_mul(6) + 256;
-    let mut cut = source.len();
-    if source.len() > budget {
-        let mut at = 0;
-        for block in analyze(source, None).blocks {
-            at = block.range.end;
-            if at >= budget {
-                break;
-            }
-        }
-        cut = at.min(source.len());
-    }
-    let text = plain(&source[..cut]);
-    let mut out = String::new();
-    let mut count = 0;
-    for word in text.split_whitespace() {
-        let len = word.chars().count();
-        if count + len + usize::from(count > 0) > chars {
-            if count == 0 {
-                out.extend(word.chars().take(chars));
-            }
-            out.push('…');
-            return out;
-        }
-        if count > 0 {
-            out.push(' ');
-            count += 1;
-        }
-        out.push_str(word);
-        count += len;
-    }
-    if cut < source.len() {
-        out.push('…');
-    }
+    out.push_str(&source[clamp(at)..within.end]);
     out
 }

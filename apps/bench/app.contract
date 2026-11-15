@@ -1,5 +1,5 @@
-// Bench: a serial monitor for a development board, and a firmware updater for a board in
-// USB DFU mode. Native hosts list what is plugged in (the attached list); the web asks the browser's chooser.
+// Bench (LLP 1133.037 §12.2): a serial monitor for a development board, and a firmware updater for a board in
+// USB DFU mode. Native hosts list what is plugged in (the attached list, D3); the web asks the browser's chooser.
 use serialStatus, requestPort, open as openPort, serialConnection, setSignals, close as closePort, SerialStatus, SerialPortRecord, SerialOpened, SerialConnection from "@exact/serial"
 use usbStatus, requestDevice as requestBoard, USBStatus, USBDeviceRecord, USBDeviceFilter from "@exact/usb"
 
@@ -43,7 +43,7 @@ component App
   state connection = ""
   state resetting = false
   resource serial = serialStatus() as shape SerialStatus else empty()
-  // The ports plugged in where the platform lists them, else those the person chose in the browser.
+  // The ports plugged in where the platform lists them (D3), else those the person chose in the browser.
   resource ports = portList(serial.attachedList) as shape SerialPortRecord[] else empty()
   derive chosen = ports.filter(p => p.id == port)
   derive portHere = chosen.filter(p => p.connected).length > 0

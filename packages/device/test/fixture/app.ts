@@ -3,7 +3,7 @@ import { connection, getBattery, powerState } from '@exact/device';
 
 // The suite writes the id `exact new` gave the app.
 export const appId = '__APP_ID__';
-// The device module asks no grant.
+// The device module asks no grant (LLP 1133.031 D7).
 export const grants = '';
 
 /** One read's answer as text, or its error's name. */
@@ -15,7 +15,7 @@ async function line<T>(read: () => Promise<T>, text: (v: T) => string): Promise<
   }
 }
 
-/** An answer's platform words, by platform, as JSON: what the suites check is each platform's own. */
+/** An answer's platform words (D9), by platform, as JSON: what the suites check is each platform's own. */
 const platformWords: Record<string, Record<string, unknown>> = {};
 function keep(source: string, answer: object) {
   const all = answer as Record<string, unknown>;

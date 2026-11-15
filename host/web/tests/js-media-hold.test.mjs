@@ -6,9 +6,10 @@ import { test, expect } from 'bun:test';
 import { copyFileSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const dir = mkdtempSync(resolve(tmpdir(), 'exact-js-media-hold-'));
-copyFileSync(resolve(new URL('../../web-js/media.js', import.meta.url).pathname), resolve(dir, 'media.js'));
+copyFileSync(resolve(fileURLToPath(new URL('../../web-js/media.js', import.meta.url))), resolve(dir, 'media.js'));
 writeFileSync(resolve(dir, 'rt.js'), 'export const { onEnd, inflight, journal, data, clock } = globalThis.rtStandIn;\n');
 writeFileSync(resolve(dir, 'navigation.js'), 'export const liveById = id => document.getElementById(id);\n'); // host/web/navigation.js in a build
 // The glue's own hold (`mediaHold`), its install a stand-in.

@@ -1,4 +1,4 @@
-// A hold sent while the page's input glue loads: the dev page waits for the
+// A hold sent while the page's input glue loads (LLP 1122 D8, LLP 1121 stage 8 E): the dev page waits for the
 // glue's own `exact-hold` signal, not a fixed 2 s, so a page reloading after a rebuild on a loaded machine still
 // holds the replayed state; it gives up after its bound, or at once when a newer frame comes. (host/web/dev.js
 // keeps the same wait; host/web/tests/hold.test.mjs checks the glue says `exact-hold`.)

@@ -1,13 +1,14 @@
-//! Persisted state: `state … persist` kept across launches.
+//! Persisted state (LLP 1116 D5): `state … persist` kept across launches.
 //!
-//! The value lives in the store under `exact.state.<name>`, a
+//! The value lives in the store (LLP 1018) under `exact.state.<name>`, a
 //! runner-owned name beside the kept answers, as JSON text: a number as
 //! JSON's (non-finite ones as `"NaN"`, `"Infinity"`, `"-Infinity"`), a
 //! string, a bool, an option as `null` or its value, a list as an array.
 //! At boot a stored value that decodes to the slot's type replaces the
 //! initializer's; anything else keeps it and is journaled. After every
-//! commit that stands — the boot's too — the store holds each persisted
-//! slot's value, so a host persists exactly the writes the store makes.
+//! commit that stands — the boot's too — changed values within the limit
+//! are kept. An oversized value leaves the store intact and is journaled
+//! only when it changes.
 
 use super::*;
 use exact_plan::{TypeKind, TypesId};
@@ -51,8 +52,8 @@ impl<D: DataSource> Runner<D> {
         }
     }
 
-    /// Keep each persisted slot's value in the store, where it differs from
-    /// what the store holds: after a commit stands.
+    /// After a commit stands, keep changed persisted values and report
+    /// oversized ones once until they change.
     pub(super) fn persist_slots(&mut self) {
         for i in 0..self.plan.slots.len() {
             if !self.plan.slots[i].persist {
@@ -61,17 +62,22 @@ impl<D: DataSource> Runner<D> {
             let mut text = String::new();
             encode(&self.slots[i], &mut text);
             let name = self.plan.str(self.plan.slots[i].name);
-            let key = state_name(name);
-            if self.store.kept(&key) == Some(text.as_bytes()) {
-                continue;
-            }
             if text.len() > PERSIST_LIMIT {
+                if self.persist_oversized.get(&i) == Some(&text) {
+                    continue;
+                }
                 let line = format!(
                     "persisted state {name}: {} bytes is over the {PERSIST_LIMIT} a persisted \
                      value may hold: not kept (the store keeps its last value)",
                     text.len()
                 );
+                self.persist_oversized.insert(i, text);
                 self.log(line);
+                continue;
+            }
+            self.persist_oversized.remove(&i);
+            let key = state_name(name);
+            if self.store.kept(&key) == Some(text.as_bytes()) {
                 continue;
             }
             self.store.keep(&key, text.into_bytes());
@@ -132,13 +138,28 @@ pub fn decode(plan: &Plan, ty: TypesId, text: &[u8]) -> Option<Value> {
     (r.at == r.b.len()).then_some(v)
 }
 
+/// `text` as a JSON string, its escapes decoded: `None` when it is not one.
+pub(crate) fn decode_string(text: &[u8]) -> Option<String> {
+    let mut r = Reader { b: text, at: 0 };
+    let s = r.string()?;
+    r.space();
+    (r.at == r.b.len()).then_some(s)
+}
+
 /// A type as the journal names it.
 fn type_name(plan: &Plan, ty: TypesId) -> String {
     let t = plan.type_(ty);
     let elem = || t.elem.map(|e| type_name(plan, e)).unwrap_or_default();
     match t.kind {
         TypeKind::Number => "number".into(),
-        TypeKind::String => "string".into(),
+        TypeKind::String if t.fields.is_empty() => "string".into(),
+        // An enum's members are its string type's fields.
+        TypeKind::String => {
+            let members: Vec<String> = (t.fields.iter())
+                .map(|f| format!("{:?}", plan.str(plan.field(f).name)))
+                .collect();
+            format!("enum<{}>", members.join(", "))
+        }
         TypeKind::Bool => "bool".into(),
         TypeKind::Option => format!("option<{}>", elem()),
         TypeKind::List => format!("{}[]", elem()),

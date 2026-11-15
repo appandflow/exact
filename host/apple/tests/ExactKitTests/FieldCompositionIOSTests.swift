@@ -3,17 +3,18 @@ import UIKit
 import XCTest
 @testable import ExactKit
 
-/// A field and a text area composing through an input method
-/// (`FieldComposition.swift`), as on the Mac (`FieldCompositionMacTests`):
-/// the app hears each change of the marked text, with it in the value; the
-/// commit of what is marked as it stands is not heard again; and the app's
-/// value never ends a composition: the value the editor shows changes
-/// nothing, and a different one written while text is marked is held and
-/// applied when the composition ends. Driven through `UITextInput`
-/// (`setMarkedText`, `insertText`, `unmarkText`). A text view tells its
-/// delegate of each of those itself; a field sends its control event only
-/// for a keyboard's, so the tests send that by hand. Nobody typed with a
-/// real keyboard. UIKit, so a simulator runs it:
+/// A field and a text area composing through an input method (LLP 1115.000
+/// §5, ruling 6; LLP 1045 D5; `FieldComposition.swift`), as on the Mac
+/// (`FieldCompositionMacTests`): the app hears each change of the marked
+/// text, with it in the value; the commit of what is marked as it stands is
+/// not heard again; and the app's value never ends a composition: the value
+/// the editor shows changes nothing, and a different one written while text
+/// is marked is held and applied when the composition ends. Driven through
+/// `UITextInput` (`setMarkedText`, `insertText`, `unmarkText`). A text view
+/// tells its delegate of each of those itself; a field sends its control
+/// event only for a keyboard's, so the tests send that by hand. Nobody
+/// typed with a real keyboard.
+/// UIKit, so a simulator runs it:
 ///   EXACT_TESTS=1 EXACT_LIB_DIR=<target>/aarch64-apple-ios-sim/release EXACT_LIB=caltrain_apple \
 ///   xcodebuild test -scheme Exact -destination 'platform=iOS Simulator,name=<iPhone>' \
 ///     -only-testing:ExactKitTests/FieldCompositionIOSTests
@@ -127,7 +128,7 @@ final class FieldCompositionIOSTests: XCTestCase {
         }
     }
 
-    /// An action that rewrites what it hears never ends a
+    /// LLP 1045 D5: an action that rewrites what it hears never ends a
     /// composition. Here it upper-cases: each change of にほん is heard, each
     /// rewrite is held while the text stays marked, and the rewrite lands
     /// when the composition ends, by the candidate chosen or as it stands.
@@ -223,7 +224,7 @@ final class FieldCompositionIOSTests: XCTestCase {
         }
     }
 
-    /// A hardware keyboard during a composition (macOS's
+    /// #140, a hardware keyboard during a composition (macOS's
     /// `KeyUpMacTests` drive the same through AppKit): a modifier's own key
     /// passes it untouched, any other key is the input method's, and a ⌘
     /// chord's keydown commits it before its handlers run, without hearing

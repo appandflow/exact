@@ -1,7 +1,7 @@
-// The acceptance drives 1-6 and 8 under the agent, on the
+// LLP 1133.019 §11's acceptance drives 1-6 and 8 under the agent, on the
 // photo editor, on one host: the agent's library (packages/photos/fixture),
 // admission and tickets by the runner, pictures through the host's raster
-// loader. Drive 7 needs a tool door no host has;
+// loader. Drive 7 needs a tool door no host has (LLP 1111);
 // contract/cli/tests/it/photos.rs covers it in the runner. Drives 5 and 6
 // run on iOS alone (macOS has no limited picker); on the web every drive
 // but 8 is skipped, since the library is absent there. Each drive is one
@@ -40,7 +40,7 @@ const copied = logs => logs.map(l => /photos: copied (\S+) to (\S+) sha256 ([0-9
 const ids = tree => JSON.stringify(tree);
 const ticket = pending => Array.isArray(pending) ? pending.find(p => p.device) : undefined;
 const strip = tree => [...(ids(tree) ?? '').matchAll(/"recent-(\d+)"/g)].map(m => +m[1]);
-// The camera's photo, as the camera's drives 1 and 2 take it, then turned.
+// The camera's photo, as LLP 1133.008 §10 drives 1 and 2 take it, then turned.
 const shoot = ['clock settle', 'tap take-photo', 'clock settle', 'tap shutter', 'clock settle', 'tap rotate', 'clock +500'];
 
 if (host !== 'web') {

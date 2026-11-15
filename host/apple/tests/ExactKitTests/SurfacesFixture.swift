@@ -1,4 +1,4 @@
-// The Surfaces capability under test: its tests install it
+// The Surfaces capability under test (LLP 1047.001 D4): its tests install it
 // before they make a session, and reach its implementation through it.
 @testable import ExactKit
 @testable import ExactSurfaces

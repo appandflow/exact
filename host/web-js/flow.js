@@ -1,5 +1,5 @@
 import { viewChildren, viewParent } from './navigation.js';
-// Text around shapes on the JS target: the web host's own
+// Text around shapes on the JS target (LLP 1043.000 §3): the web host's own
 // exclusions executor, `textflow-glue.js` over `textflow.wasm`, unchanged,
 // fetched after first paint by a plan with a `wrap-flow` row. This file is
 // the runner's half the wasm host keeps in Rust: which nodes are exclusions
@@ -42,7 +42,7 @@ export async function flow({ views, viewId, wraps, clock, wall, say }) {
   const auto = (el, p) => { const v = value(el, p); return v == null || v.value === 'auto' || v.value === 'none'; };
   // A block <button> centres its content (kernel `orders`).
   const orders = el => { const s = cs(el); return (s.display === 'block' || viewParent(el)?.id === 'exact-root' && s.display === 'flow-root') && s.alignContent === 'normal' && el.tagName !== 'BUTTON'; };
-  // A static box's insets do nothing; the context contains its exclusions.
+  // A static box's insets do nothing; the context contains its exclusions (LLP 1074 T1).
   const inFlow = el => cs(el).position === 'static' || cs(el).position === 'relative' && ['top', 'bottom'].every(p => auto(el, p) || own(el, p));
   const contains = el => viewParent(el)?.id === 'exact-root' || cs(el).position !== 'static';
   const placed = el => own(el, 'top') && (own(el, 'height') || auto(el, 'height') && auto(el, 'bottom'))

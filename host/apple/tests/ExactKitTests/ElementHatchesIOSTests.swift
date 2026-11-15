@@ -4,13 +4,13 @@ import WebKit
 import XCTest
 @testable import ExactKit
 
-/// Over the native fixture: a node marked `hatch="badge"` — a leaf box that
-/// would otherwise be drawn flat into its parent's layer — is a view, the
-/// app module's `element` hatch receives it after the batch that mounts it
-/// and adds an interaction Exact leaves to the app, hears its `data-*`
-/// change, and hears `ended` when the plan reloads, its successor `built`. (A
-/// list row's hatched node, which this host has no rows for, is driven by
-/// `smoke.mjs ios --app native-fixture`.)
+/// LLP 1075.003.000 Stage 1 over the native fixture: a node marked
+/// `hatch="badge"` — a leaf box that would otherwise be drawn flat into its
+/// parent's layer — is a view, the app module's `element` hatch receives it
+/// after the batch that mounts it and adds an interaction Exact leaves to
+/// the app, hears its `data-*` change, and hears `ended` when the plan
+/// reloads, its successor `built`. (A list row's hatched node, which this
+/// host has no rows for, is driven by `smoke.mjs ios --app native-fixture`.)
 final class ElementHatchesIOSTests: XCTestCase {
     private var window: UIWindow?
     private var sessions: [ExactSession] = []
@@ -36,6 +36,37 @@ final class ElementHatchesIOSTests: XCTestCase {
         session.presenter.views.values.first { $0.props["testId"] == testId }
     }
 
+    func testAScrollHatchIsBlamedOnlyForTheRecognizersItsCallAdds() throws {
+        NativeViews.uninstallTable()
+        let session = ExactApp.shared.makeSession(label: "scroll-hatch-recognizers")
+        sessions.append(session)
+        session.natives.install(module: UnsafeMutableRawPointer(bitPattern: 1)!)
+        session.natives.hatchesConnected = true
+        session.natives.elementCall = { _, event, view, platform, _, _ in
+            guard event != 2, let view, let platform else { return 0 }
+            let node = Unmanaged<NodeView>.fromOpaque(view).takeUnretainedValue()
+            let scroll = Unmanaged<UIScrollView>.fromOpaque(platform).takeUnretainedValue()
+            XCTAssertTrue(scroll === node.scrollView)
+            if node.props["dataset"] == #"{"add":true}"# { scroll.addGestureRecognizer(UIPinchGestureRecognizer()) }
+            return 0
+        }
+        let p = session.presenter, regions = p.elements.regions
+        p.apply(wireBatch([
+            ["op": "create", "id": 1, "kind": "view", "props": ["hatch": "scroller"], "style": ["overflow_y": "auto"]],
+            ["op": "roots", "ids": [1]],
+            ["op": "frame", "id": 1, "x": 0, "y": 0, "w": 200, "h": 100],
+            ["op": "content", "id": 1, "w": 200, "h": 400],
+        ]))
+        let node = try XCTUnwrap(p.views[1]), scroll = try XCTUnwrap(node.scrollView)
+        XCTAssertTrue(scroll.gestureRecognizers?.contains { $0 === scroll.panGestureRecognizer } == true)
+        XCTAssertTrue(regions.reported.isEmpty, "built keeps UIKit's existing scroll recognizers: \(regions.reported)")
+        p.apply(wireBatch([["op": "props", "id": 1, "set": ["dataset": #"{"add":false}"#]]]))
+        XCTAssertTrue(regions.reported.isEmpty, "changed keeps the same recognizer baseline: \(regions.reported)")
+        p.apply(wireBatch([["op": "props", "id": 1, "set": ["dataset": #"{"add":true}"#]]]))
+        XCTAssertTrue(scroll.gestureRecognizers?.contains { $0 is UIPinchGestureRecognizer } == true)
+        XCTAssertEqual(regions.reported, ["element scroller\nUIPinchGestureRecognizer"])
+    }
+
     func testAHatchedLeafIsAViewItsHatchRunsAtEachMomentAndAReloadEndsIt() throws {
         let env = ProcessInfo.processInfo.environment
         let plan = try Data(contentsOf: URL(fileURLWithPath: try XCTUnwrap(env["EXACT_FIXTURE_PLAN"])))
@@ -59,7 +90,7 @@ final class ElementHatchesIOSTests: XCTestCase {
         let badge = try XCTUnwrap(node(session, "hatched-badge"), "a hatched leaf box is a view")
         XCTAssertFalse(session.presenter.flats.isFlat(badge.id), "never a flat leaf")
         XCTAssertTrue(badge.interactions.contains { $0 is UIContextMenuInteraction }, "the hatch's interaction, which Exact leaves to the app")
-        XCTAssertTrue(log().contains("hatch element badge: a view, not a flat leaf; its row is not reused"))
+        XCTAssertTrue(log().contains("hatch element badge: a view, not a flat leaf; its row is not reused (LLP 1075.003.000)"))
         // `data-tone` follows `composed`: its change reaches the hatch.
         let compose = try XCTUnwrap(node(session, "compose-home"))
         session.presenter.press(compose.id)
@@ -73,7 +104,7 @@ final class ElementHatchesIOSTests: XCTestCase {
         until("the new badge is built") { self.node(session, "hatched-badge").map { $0 !== badge && !$0.interactions.isEmpty } == true }
     }
 
-    /// A hatched frame mounted once the module has connected
+    /// LLP 1020.002 §9: a hatched frame mounted once the module has connected
     /// hands the `frame` hatch its `WKWebViewConfiguration` before the web
     /// view is made, the arm's data store and content controller on it; what
     /// the hatch adds there is the web view's, and its `element` call that
@@ -117,7 +148,7 @@ final class ElementHatchesIOSTests: XCTestCase {
 
     /// A hatched frame mounted before the module's hatches connect, as on a
     /// cold launch's first screen, waits: its web view is made once they
-    /// connect, after `configuring`.
+    /// connect, after `configuring` (LLP 1020.002 §11).
     func testAHatchedFrameOnTheFirstScreenWaitsForTheModule() throws {
         let env = ProcessInfo.processInfo.environment
         let arm = try XCTUnwrap(env["EXACT_TEST_WEB_MODULE"], "build.mjs --test --ios builds the web arm")

@@ -1,4 +1,4 @@
-//! The root font size: the host reads it from the
+//! The root font size (LLP 1069.000 D3): the host reads it from the
 //! platform — Dynamic Type on iOS, the browser's root size on the web, 16
 //! times the font scale on Android, 16 elsewhere — and the app may set its
 //! own over it, as `:root { font-size }` sets one over the browser's
@@ -7,14 +7,14 @@
 //! viewport's when the host's size crosses the accessibility sizes
 //! (`exactViewport().accessibilityTextSize`).
 //! The display's scale is the other layout input a host reads from the
-//! platform: a hairline is one device pixel of it.
+//! platform (LLP 1115.000 D10.3): a hairline is one device pixel of it.
 use super::{DataSource, Runner, RunnerError};
 use exact_kernel::{CommitReceipt, LayoutError};
 use exact_plan::Value;
 
 /// The app's `setRootFontSize` and the host's size beneath it, which the
 /// host keeps setting while the app's stands and which `"medium"` restores.
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Copy, Default, PartialEq)]
 pub(crate) struct RootFont {
     app: Option<AppSize>,
     host: f64,
@@ -25,7 +25,7 @@ pub(crate) struct RootFont {
 
 /// The app's size: px, which stands over the host's, or a percentage of
 /// the host's (`"125%"`, CSS's percentage of `medium`), which follows it.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq)]
 enum AppSize {
     Px(f64),
     Of(f64),
@@ -46,7 +46,7 @@ fn fits(px: f64) -> bool {
     size.is_finite() && size > 0.0
 }
 
-/// What Bold Text needs of a boot: the person's
+/// What Bold Text needs of a boot (LLP 1115.000 D12.3): the person's
 /// setting, and which of the plan's font stacks are the system's (its first
 /// member a generic family, not one the app names).
 pub(super) fn bold_text_facts(
@@ -104,8 +104,8 @@ pub(super) fn system_stacks(
 impl<D: DataSource> Runner<D> {
     /// What a document commit tells the kernel beside its ops: the page's
     /// language and direction. And first, a runtime font stack interned
-    /// since the last commit says whether it is the system's
-    /// ([`runtime_stacks`]).
+    /// since the last commit says whether it is the system's (LLP 1115.000
+    /// D12.3, [`runtime_stacks`]).
     pub(super) fn document_facts(&mut self) -> (String, exact_kernel::Direction) {
         runtime_stacks(&mut self.kernel, &self.plan, &self.fonts.borrow());
         let direction = if self.direction() == "rtl" {
@@ -150,53 +150,38 @@ impl<D: DataSource> Runner<D> {
         }
         // A step across the accessibility sizes re-answers the viewport's
         // readers in the same commit: the fact before this size is told.
-        let told = self.root_font.told;
         let was = self.accessibility_text_size();
-        let host = self.root_font.host;
-        if self.root_font.app.is_some() {
-            self.root_font.host = px;
+        let mut next = self.root_font;
+        if next.app.is_some() {
+            next.host = px;
         }
-        self.root_font.told = Some(px);
-        let which: Vec<usize> = if was == self.accessibility_text_size() {
-            Vec::new()
-        } else {
-            (0..self.plan.resources.len())
-                .filter(|i| {
-                    self.plan.str(self.plan.resources[*i].source) == crate::viewport::SOURCE
-                })
-                .collect()
-        };
-        if let Some(AppSize::Px(_)) = self.root_font.app {
-            let result = self.recommit(which, "root font size");
-            if result.is_err() {
-                self.root_font.told = told;
-            }
-            return result;
-        }
-        let px = root;
-        let previous = self.kernel.root_font_size();
-        if !self
-            .kernel
-            .set_root_font_size(px as f32)
-            .map_err(RunnerError::Kernel)?
-        {
-            // The layout's size already (one primed before boot): the fact
-            // may still have stepped.
-            let result = self.recommit(which, "root font size");
-            if result.is_err() {
-                self.root_font.told = told;
-            }
-            return result;
-        }
-        let result = self.commit_again(which, "root font size");
-        if result.is_err() {
-            // The kernel applies the size with the next commit; put back
-            // the one the tree was laid out at.
-            let _ = self.kernel.set_root_font_size(previous);
-            self.root_font.host = host;
-            self.root_font.told = told;
-        }
-        result.map(Some)
+        next.told = Some(px);
+        self.replace_fact(
+            |r| &mut r.root_font,
+            next,
+            crate::viewport::SOURCE,
+            |r, _, mut readers| {
+                if was == r.accessibility_text_size() {
+                    readers.clear();
+                }
+                if let Some(AppSize::Px(_)) = r.root_font.app {
+                    return r.recommit(readers, "root font size");
+                }
+                let previous = r.kernel.root_font_size();
+                if !r
+                    .kernel
+                    .set_root_font_size(root as f32)
+                    .map_err(RunnerError::Kernel)?
+                {
+                    return r.recommit(readers, "root font size");
+                }
+                let result = r.commit_again(readers, "root font size");
+                if result.is_err() {
+                    let _ = r.kernel.set_root_font_size(previous);
+                }
+                result.map(Some)
+            },
+        )
     }
 
     /// Whether the person's text size is one of the accessibility sizes, as
@@ -214,7 +199,7 @@ impl<D: DataSource> Runner<D> {
         column() == Column::Ios && host >= 28.0
     }
 
-    /// Say whether Bold Text is on: the person's
+    /// Say whether Bold Text is on (LLP 1115.000 D12.3): the person's
     /// setting, which weights the system font (an authored weight
     /// included) and leaves a family the app ships alone. A change commits
     /// every text again, at the weight it now means; the same setting
@@ -231,7 +216,7 @@ impl<D: DataSource> Runner<D> {
     }
 
     /// The display's scale, device pixels a px, as last set; 1 until a host
-    /// says.
+    /// says (LLP 1115.000 D10.3).
     pub fn display_scale(&self) -> f64 {
         self.kernel.display_scale() as f64
     }
@@ -239,8 +224,8 @@ impl<D: DataSource> Runner<D> {
     /// Set the display's scale, which a hairline (`-exact-hairline`) is one
     /// device pixel of: the host's fact, told as the root font size is and
     /// again when the window moves to another display. Hairlines and borders
-    /// snapped by the host relayout in one commit. Without those, or for the
-    /// same scale, it commits nothing; future lengths resolve against it.
+    /// snapped by the host and viewport readers update in one commit. Without
+    /// either, or for the same scale, it commits nothing.
     /// A scale that is not finite and positive is journaled and refused,
     /// changing nothing.
     pub fn set_display_scale(&mut self, scale: f64) -> Result<Option<CommitReceipt>, RunnerError> {
@@ -251,23 +236,35 @@ impl<D: DataSource> Runner<D> {
             ));
             return Err(RunnerError::Kernel(LayoutError::InvalidDisplayScale.into()));
         }
-        let previous = self.kernel.display_scale();
-        let changed = self
-            .kernel
-            .set_display_scale(scale as f32)
-            .map_err(RunnerError::Kernel)?;
-        if !changed || !self.kernel.has_display_lengths() {
-            return Ok(None);
-        }
-        let result = self.commit_again(Vec::new(), "display scale");
-        if result.is_err() {
-            let _ = self.kernel.set_display_scale(previous);
-        }
-        result.map(Some)
+        let viewport = crate::Viewport {
+            device_pixel_ratio: Some(scale),
+            ..self.viewport
+        };
+        self.replace_fact(
+            |r| &mut r.viewport,
+            viewport,
+            crate::viewport::SOURCE,
+            |r, _, readers| {
+                let previous = r.kernel.reported_display_scale();
+                let changed = r
+                    .kernel
+                    .set_display_scale(scale as f32)
+                    .map_err(RunnerError::Kernel)?;
+                let result = if changed && r.kernel.has_display_lengths() {
+                    r.commit_again(readers, "display scale").map(Some)
+                } else {
+                    r.recommit(readers, "display scale")
+                };
+                if result.is_err() {
+                    let _ = r.kernel.restore_display_scale_report(previous);
+                }
+                result
+            },
+        )
     }
 
     /// The app's own size set aside for the host's (a development host
-    /// holding the root size): the kernel takes the host's in
+    /// holding the root size, LLP 1122 T7): the kernel takes the host's in
     /// the next commit, and the app's latest is applied again when handed
     /// back.
     pub(super) fn drop_app_root(&mut self) -> bool {

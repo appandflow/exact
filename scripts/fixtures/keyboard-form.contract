@@ -1,12 +1,12 @@
-// Workout-log's inline set form at the foot of a tab's
+// LLP 1116.003 D2.1: workout-log's inline set form at the foot of a tab's
 // grouped list — number fields with their Add button below them, a second
 // exercise's form under the first. Focused, a field and its Add button stay
 // above the keyboard, the floating tab bar under it, and Return with
 // `enterkeyhint="next"` moves on to the next field and shows it likewise
 // (KeyboardFormIOSTests). The other tab's empty state gives way in place to
-// a grouped list, as workout-log's active workout did.
+// a grouped list, as workout-log's active workout did (LLP 1116.003 D2.2).
 // A third tab is a form in a scroll under an absolute bar pinned to the
-// bottom (book-club's Add button): the focused field, the
+// bottom (book-club's Add button, LLP 1116.008 D8): the focused field, the
 // last of the form, is shown above the bar, not under it.
 routes nav
   tab log "/"

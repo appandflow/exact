@@ -1,5 +1,5 @@
 //! Pure Windows drive-path grammar; no host filesystem access.
-//! One lexical authority.
+//! @ref LLP 1027.001#proposed-windows-native-filesystem-grant-integration — one lexical authority.
 use std::io;
 
 fn refuse(message: &str) -> io::Error {

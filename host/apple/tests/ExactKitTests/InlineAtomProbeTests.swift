@@ -1,14 +1,15 @@
-// Inline atoms on TextKit 2: whether an `NSTextAttachment` that only the
-// paragraph an `NSTextContentStorageDelegate` supplies carries lays out and
-// draws, while the storage keeps the source. The paragraph has the source's
-// length, as `MarkupHidden.swift`'s does: the atom's first code unit is U+FFFC
-// carrying the attachment, the rest word joiners (U+2060). Each check runs for
-// both ways an attachment draws: its view provider's view and the picture it
-// hands the layout fragment (`NSTextAttachmentLayout`). The views are plain
-// TextKit 2 text views configured as the Markdown text area is, not
-// ExactKit's: these tests record what TextKit does, which the Markdown editor
-// builds on, and stand in for no editor rule. No claim about a physical
-// keyboard or VoiceOver itself.
+// Stage 0 of LLP 1045.000 (inline atoms), the TextKit 2 gate: whether an
+// `NSTextAttachment` that only the paragraph an `NSTextContentStorageDelegate`
+// supplies carries lays out and draws, while the storage keeps the source.
+// The paragraph has the source's length, as `MarkupHidden.swift`'s does: the
+// atom's first code unit is U+FFFC carrying the attachment, the rest word
+// joiners (U+2060). Each check runs for both ways an attachment draws: its
+// view provider's view (§4's plan) and the picture it hands the layout
+// fragment (`NSTextAttachmentLayout`). The views are plain TextKit 2 text
+// views configured as the Markdown text area is, not ExactKit's: these tests
+// record what TextKit does, which the stage 2 editor builds on, and stand in
+// for no editor rule. No claim about a physical keyboard or VoiceOver itself.
+// @ref LLP 1045.000 §4 "Stage 0 is a gate", §5 stage 0, §5.1, D4, D5, D8
 import XCTest
 #if canImport(UIKit)
 import UIKit
@@ -95,7 +96,7 @@ private final class PillAttachment: NSTextAttachment {
         }
         #endif
     }
-    /// The label's width and padding, no wider than the line, and a
+    /// The label's width and padding, no wider than the line (D4), and a
     /// point inside the font's ascender and descender, so the line keeps its
     /// height (the full ascender and descender make a 16 pt system font line
     /// 0.84 pt taller on macOS). TextKit 2 asks the attachment
@@ -130,7 +131,7 @@ private final class Weak {
 /// TextKit asks for gets new attachments.
 private final class Probe: NSObject, NSTextContentStorageDelegate {
     enum Drawing { case view, image }
-    /// How the pill draws: its attachment's view provider, or a
+    /// How the pill draws: its attachment's view provider (§4's plan), or a
     /// picture the attachment hands the layout fragment.
     var drawing: Drawing
     var labels: [String: String] = [:]
@@ -236,7 +237,7 @@ private func long(_ count: Int) -> String {
 }
 
 #if os(macOS)
-/// The text view, with atom elements for accessibility: the
+/// The text view, with atom elements for accessibility as D8 has them: the
 /// value reads each atom's label, and each atom is a button child.
 private final class ProbeTextView: NSTextView {
     weak var probe: Probe?
@@ -555,7 +556,7 @@ final class InlineAtomProbeMacTests: XCTestCase {
         print("probe(mac) attachment in the storage after 120 re-layouts: \(probe.providers) providers, \(probe.allocated) views allocated (\(probe.live(in: view).count) in the text view)")
     }
 
-    /// The atom elements through the AX API, from a thread of its own as VoiceOver reads it
+    /// D8 through the AX API, from a thread of its own as VoiceOver reads it
     /// (AccessibilityClientMacTests): the atom is a button child; the text
     /// view's value reads its label; and the text view's own line and range
     /// answers are those of the same view without atom children.
@@ -716,7 +717,7 @@ private final class AXReader: @unchecked Sendable {
 #endif
 
 #if os(iOS)
-/// The text view, with atom values: each atom reads as its label.
+/// The text view, with D8's value: each atom reads as its label.
 private final class ProbeTextViewIOS: UITextView {
     weak var probe: Probe?
     override var accessibilityValue: String? {
@@ -978,7 +979,7 @@ final class InlineAtomProbeIOSTests: XCTestCase {
         }
     }
 
-    /// On UIKit, with its accessibility runtime (the hosted run). A text
+    /// D8 on UIKit, with its accessibility runtime (the hosted run). A text
     /// view is itself an element, and UIKit's documented rule is that an
     /// element's own `accessibilityElements` are not visited, so the atom
     /// element is placed beside the text view, in its container's elements.

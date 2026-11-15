@@ -1,4 +1,4 @@
-// The web's MIDI: midi-glue.js over a fake Web MIDI — no
+// The web's MIDI (LLP 1125 D6–D8): midi-glue.js over a fake Web MIDI — no
 // API is `unavailable`; a permission already granted is taken silently; a
 // request granted or refused; a message held until 50 ms before it is due
 // and handed with its timestamp; a retraction before the hold; inputs
@@ -183,7 +183,7 @@ test('only opened inputs listen; a frame is one delivery, Clock left out', async
   m.c.restore();
 });
 
-test('a followed input\'s clock waits up to 50 ms from its oldest tick; Start takes the ticks along at the next frame', async () => {
+test('a followed input\'s clock waits up to 50 ms from its oldest tick; Start takes the ticks along at the next frame (LLP 1125 D9)', async () => {
   const m = midi({ permission: 'granted' });
   await settle(); await settle();
   const keys = m.access.inputs.get('keys'), pads = m.access.inputs.get('pads');

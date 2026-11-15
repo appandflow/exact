@@ -1,4 +1,4 @@
-// Heavy list (../SPEC.md) on exact2, with a bounded answer:
+// Heavy list (../SPEC.md) on exact2, with a bounded answer (LLP 1027.004):
 // the list's resource is a window of at most 200 messages around a cursor,
 // and the virtualized list's `reachstart`/`reachend` move the cursor. A tap
 // or a live tick is a mutation that refreshes the window, so neither answers

@@ -1,18 +1,18 @@
-// @exact/text-detection on Apple: Vision's
-// `VNRecognizeTextRequest` on a still, each observation one line in
+// @exact/text-detection on Apple (LLP 1133.027): Vision's
+// `VNRecognizeTextRequest` on a still (D4), each observation one line in
 // reading order.
 //
 // - A still is a file the runner admitted against `fs.read`, decoded upright
 //   (the file's EXIF orientation given to the request handler), its boxes
 //   converted to the upright image's pixels from the top left.
-// - `languages` are matched by the package's language table to Vision's
+// - `languages` are matched by LLP 1133.027 D7's table to Vision's
 //   `supportedRecognitionLanguages()`; with none, the request's default
-//   `recognitionLanguages`. Vision downloads nothing, so the
+//   `recognitionLanguages` (D6). Vision downloads nothing, so the
 //   availability is `available` or `unavailable`.
-// - Tier 2: `apple.recognitionLevel`, `apple.usesLanguageCorrection`,
-//   `apple.customWords`, `apple.minimumTextHeight`. Tier 3:
+// - Tier 2 (D11): `apple.recognitionLevel`, `apple.usesLanguageCorrection`,
+//   `apple.customWords`, `apple.minimumTextHeight`. Tier 3 (D13):
 //   `requestHatch` before each request is performed.
-// - Vision runs for real under the agent; no hatch is called there.
+// - Vision runs for real under the agent (§9); no hatch is called there.
 import ExactPackage
 import Foundation
 import ImageIO
@@ -59,14 +59,14 @@ public final class TextDetectionModule: ExactPackage {
         name == "textDetectorAvailability" || name == "textDetectorAvailabilitySync" ? Self.availability(args["languages"]) : ["error": "NotSupportedError"]
     }
 
-    // MARK: languages
+    // MARK: languages (D6, D7)
 
     /// Vision's languages at the accurate level, the default.
     static let supported: [String] = (try? VNRecognizeTextRequest().supportedRecognitionLanguages()) ?? []
     /// The default request's languages.
     static let defaults: [String] = VNRecognizeTextRequest().recognitionLanguages
 
-    /// `tag`'s script made explicit where its region implies one (`zh-TW` is `zh-Hant`), as the table says.
+    /// `tag`'s script made explicit where its region implies one (`zh-TW` is `zh-Hant`), as D7's table says.
     static func scripted(_ tag: String) -> [String] {
         var parts = tag.replacingOccurrences(of: "_", with: "-").split(separator: "-").map(String.init)
         guard let language = parts.first?.lowercased() else { return [] }
@@ -78,7 +78,7 @@ public final class TextDetectionModule: ExactPackage {
         return parts
     }
 
-    /// The recognizer's language for `tag`: the tag truncated as RFC 4647 lookup truncates until Vision lists it, else a
+    /// The recognizer's language for `tag`: the tag truncated as LLP 1060 truncates until Vision lists it, else a
     /// listed language of the same language and script.
     static func match(_ tag: String) -> String? {
         var parts = scripted(tag)

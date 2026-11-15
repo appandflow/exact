@@ -1,9 +1,9 @@
-//! A package's views hear whether they are displayed, and who made them so.
-//! For each node of a tag the plan's `views` table
+//! A package's views hear whether they are displayed, and who made them so
+//! (LLP 1133.008 D8 item 2). For each node of a tag the plan's `views` table
 //! names, the runner keeps its displayed state, by `wakelock`'s rule
 //! (`crate::wakelock::displayed`), and the values of the props its
 //! declaration marks as binding a device, each with the origin of the commit
-//! that changed it (`admit.rs`). Each change goes to the extension whose
+//! that changed it (`admit.rs`, D12). Each change goes to the extension whose
 //! implementation makes the view, when the host composes it (bound as in
 //! production or under the agent), through the native slot:
 //!
@@ -165,7 +165,7 @@ impl<D: DataSource> Runner<D> {
 
     /// The origin the runner reported for view `id`'s displayed state, or for
     /// its binding `prop`: what an acquisition the view makes is admitted
-    /// with.
+    /// with (LLP 1133.008 D3).
     pub fn view_origin(&self, id: ViewId, prop: Option<&str>) -> Option<CallOrigin> {
         let v = self.extensions.views.seen.get(&id)?;
         match prop {

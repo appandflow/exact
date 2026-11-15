@@ -1,4 +1,5 @@
-//! A commit's clock joins wait for all of its rows: `MotionSync::apply` holds them, so the order a
+//! A commit's clock joins wait for all of its rows (LLP 1055.002 D6,
+//! "Within a commit"): `MotionSync::apply` holds them, so the order a
 //! commit's nodes are applied in does not pick a phase.
 
 use exact_kernel::MotionSync;
@@ -40,7 +41,7 @@ fn a_commit_that_swaps_the_only_member_starts_the_clock_over() {
     );
 }
 
-/// A renewed node is forgotten and heard again as new. One the
+/// A renewed node (LLP 1078) is forgotten and heard again as new. One the
 /// engine holds only settled values for, restated with nothing that moves,
 /// is left in place: its values end the same and only those that changed are
 /// presented. One restated with a transition is forgotten, so no transition

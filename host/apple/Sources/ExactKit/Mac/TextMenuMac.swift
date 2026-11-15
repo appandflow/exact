@@ -1,4 +1,4 @@
-// The menu for selected page text is AppKit's own.
+// @ref LLP 1115.000 D7.9: the menu for selected page text is AppKit's own.
 // AppKit builds that menu only for an `NSTextView` (Look Up and Translate
 // with the selection in their titles, Search With the person's search
 // engine, Copy, Share, Writing Tools, Speech), and it is not something a

@@ -1,9 +1,9 @@
 // The user's display preferences, as the platform's accessibility settings
-// hold them: what a browser reports as
+// hold them (LLP 1061 D5; LLP 1069.000 D1): what a browser reports as
 // `prefers-reduced-motion`, `prefers-reduced-transparency`,
 // `prefers-contrast` and `prefers-color-scheme`. The runner answers them
 // through `exactViewport()`; the app decides what they mean. Press feedback
-// stays visible under reduced motion.
+// stays visible under reduced motion (LLP 1061's 2026-09-27 ruling).
 // An agent's `prefer` stands in for the settings, for this process only.
 #if os(macOS)
 import AppKit
@@ -11,31 +11,45 @@ import AppKit
 import UIKit
 #endif
 
+#if os(macOS)
+extension ExactEnv {
+    /// The manifest's fixed `userInterfaceStyle` (`ExactUserInterfaceStyle`,
+    /// host/apple/plist.mjs `interfaceStyle`), or `nil` to follow the Mac.
+    /// AppKit has no layer beneath the application's appearance, so the app
+    /// sets it before its first window and `setScheme("system")` returns to it.
+    nonisolated(unsafe) public static let fixedAppearance: NSAppearance? = switch appMetadata["ExactUserInterfaceStyle"] as? String {
+    case "dark": NSAppearance(named: .darkAqua)
+    case "light": NSAppearance(named: .aqua)
+    default: nil
+    }
+}
+#endif
+
 enum DisplayPreferences {
     /// What an agent's `prefer` set, in place of the platform's settings.
     /// Under the agent it starts at `no-preference` for both, never the
-    /// machine's (facts are fixed at launch).
+    /// machine's (LLP 1069.007 D2: facts are fixed at launch).
     nonisolated(unsafe) static var agent: (reducedMotion: Bool, reducedTransparency: Bool)? = ExactEnv.agentMode ? (false, false) : nil {
         didSet { changed() }
     }
     /// What an agent's `prefer` set for `prefers-contrast`, in CSS's words;
-    /// `no-preference` from launch under the agent.
+    /// `no-preference` from launch under the agent (LLP 1069.007 D2).
     nonisolated(unsafe) static var agentContrast: String? = ExactEnv.agentMode ? "no-preference" : nil {
         didSet { changed() }
     }
     /// What an agent's `prefer` set for `color-gamut`; `srgb` from launch
-    /// under the agent.
+    /// under the agent (LLP 1069.007 D2).
     nonisolated(unsafe) static var agentGamut: String? = ExactEnv.agentMode ? "srgb" : nil {
         didSet { changed() }
     }
     /// What an agent's `prefer` (or a test) set for Bold Text; off from
-    /// launch under the agent.
+    /// launch under the agent (LLP 1069.007 D2).
     nonisolated(unsafe) static var agentBoldText: Bool? = ExactEnv.agentMode ? false : nil {
         didSet { changed() }
     }
-    /// What an agent's `prefer` set for `pointer` and `hover`;
+    /// What an agent's `prefer` set for `pointer` and `hover` (LLP 1132 D10);
     /// the device class's from launch under the agent, so a drive never reads
-    /// whether the machine running it has a mouse.
+    /// whether the machine running it has a mouse (LLP 1069.007 D2).
     nonisolated(unsafe) static var agentInput: Preferences? = ExactEnv.agentMode ? .platformInput : nil {
         didSet { changed() }
     }
@@ -78,7 +92,7 @@ enum DisplayPreferences {
         return UIAccessibility.isDarkerSystemColorsEnabled ? "more" : "no-preference"
         #endif
     }
-    /// Bold Text: the person's setting, which the
+    /// Bold Text (LLP 1115.000 D12.3): the person's setting, which the
     /// kernel weights the system font by. The Mac has none.
     static var boldText: Bool {
         if let agentBoldText { return agentBoldText }
@@ -88,7 +102,7 @@ enum DisplayPreferences {
         return UIAccessibility.isBoldTextEnabled
         #endif
     }
-    /// `pointer` and `hover`: the device class's, except that
+    /// `pointer` and `hover` (LLP 1132 D10): the device class's, except that
     /// an iPad with a trackpad or mouse attached points with it, as Safari on
     /// iPadOS answers.
     static var input: Preferences {
@@ -104,7 +118,7 @@ enum DisplayPreferences {
     static func touchScreenInput(mouse: AnyObject?) -> Preferences {
         .primaryInput(touchScreen: true, pointingDevice: mouse != nil)
     }
-    /// `color-gamut`. Neither platform reports a rec2020 panel.
+    /// `color-gamut` (LLP 1100 D9). Neither platform reports a rec2020 panel.
     static var gamut: String {
         if let agentGamut { return agentGamut }
         #if os(macOS)
@@ -113,7 +127,7 @@ enum DisplayPreferences {
         return UIScreen.main.traitCollection.displayGamut == .P3 ? "p3" : "srgb"
         #endif
     }
-    /// `dynamic-range: high`: the main display's potential headroom.
+    /// `dynamic-range: high` (LLP 1100 D9): the main display's potential headroom.
     static var highDynamicRange: Bool {
         if let pinned = DisplayRange.pinned { return pinned > 1 }
         #if os(macOS)
@@ -123,15 +137,18 @@ enum DisplayPreferences {
         #endif
     }
     /// `prefers-color-scheme: dark` — the *system's* appearance, beneath any
-    /// `setScheme` the app chose.
+    /// `setScheme` the app chose (LLP 1034 D3 as amended by LLP 1069.000 D1).
     /// AppKit says it publicly only as the application's effective
     /// appearance, which an appearance the app sets (`setScheme`'s
     /// `NSApp.appearance`) replaces. So it is read while the app sets none,
     /// and while it sets one it is the system's as last read: a change the
     /// person makes in System Settings then is seen once the app follows
     /// the system again.
+    /// An app whose manifest fixes `userInterfaceStyle` sees it as the
+    /// system's, as UIKit's `UIUserInterfaceStyle` makes it on iOS.
     #if os(macOS)
     static var systemDark: Bool {
+        if let fixed = ExactEnv.fixedAppearance { return fixed.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua }
         if let agent = Agent.systemAppearance { return agent.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua }
         guard let app = NSApp else { return false }
         let dark = app.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
@@ -225,8 +242,8 @@ enum DisplayPreferences {
 }
 
 extension TextEngine {
-    /// Whether Bold Text weights a run in stack `family`, as the kernel
-    /// weights its runs: the setting on, and the
+    /// Whether Bold Text weights a run in stack `family` (LLP 1115.000
+    /// D12.3), as the kernel weights its runs: the setting on, and the
     /// stack the system's, a generic one or a list whose first member is a
     /// generic family (the catalog's first face, as a compiled or runtime
     /// list registered it). A Markdown piece's own weight takes the step its

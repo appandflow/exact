@@ -46,7 +46,7 @@ impl Parser {
             if self.at_punct(".") || self.at_punct("[") {
                 return self.err(
                     "syntax-property-name",
-                    "a property names a state or a derive by its bare name; a field is not yet a property",
+                    "a property names a state or a derive by its bare name; fields are stage 2",
                 );
             }
             let test = if self.eat_punct("==") {

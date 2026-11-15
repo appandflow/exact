@@ -1,7 +1,7 @@
 //! Colour as an author writes it, stored as the renderer reads it. CSS text and
 //! sRGB floats are encoded for display; the renderer blends and lights in linear
 //! light, so both are decoded once, here, through the repository's CSS colour
-//! crate (`exact-color`), the parser Contract's `color` uses.
+//! crate (`exact-color`, LLP 1100), the parser Contract's `color` uses.
 use crate::{Data, DataError, Reader, Writer};
 
 /// A colour in linear light: `N` channels, red, green, blue and (when `N` is 4)
@@ -25,7 +25,7 @@ impl<const N: usize> Color<N> {
     }
     fn css(css: &str) -> Result<Self, String> {
         let (linear, alpha) = match exact_color::parse(css) {
-            Some(exact_color::Parsed::Legacy(c)) => (
+            Some(exact_color::Parsed::Legacy(c, _)) => (
                 [c.r, c.g, c.b].map(|v| decode(f64::from(v) / 255.0)),
                 c.a as f32,
             ),

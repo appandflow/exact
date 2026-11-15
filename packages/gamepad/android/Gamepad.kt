@@ -1,13 +1,13 @@
-// @exact/gamepad on Android and Android TV: the process's pads (the canvas library's
+// @exact/gamepad on Android and Android TV (LLP 1133.022 D1-D7, D12): the process's pads (the canvas library's
 // `Pads`, through the context's `pads`), which a world canvas reads too, so an index names one pad to both. The build
 // makes one per host when the app binds the extension, outside the agent; under the agent the runner's substitute
 // answers and none is made.
 //
 // - The list: each slot's `InputDevice`, `mapping` `standard` (the registry reads every pad as standard), `family` by
-//   USB vendor, `labels` the family's; `current` is the pad whose button last went down. A reader with
+//   USB vendor (D2's table), `labels` the family's; `current` is the pad whose button last went down. A reader with
 //   `interval` also reads buttons and axes as the registry last read them, announced at most once per interval when
 //   they changed.
-// - Effects and lights are claims the process keeps, whichever instance made them: a new effect on a pad
+// - Effects and lights are claims the process keeps, whichever instance made them (D4): a new effect on a pad
 //   preempts the one playing there; a disconnect ends every claim on the pad; `destroy`, or `setLight()`, gives back
 //   only this instance's. `dual-rumble` vibrates the device's `VibratorManager` (API 31): the strong magnitude on its
 //   first vibrator and the weak on its second, or the larger on its only one, in one `CombinedVibration`; below API
@@ -15,7 +15,7 @@
 //   with no prompt, which the interface's `playEffect` derives into the manifest wherever the app sends it.
 // - A light is the device's RGB light through a `LightsManager.LightsSession` (API 31): the newest surviving claim's
 //   colour; closing the session gives the light back to the system, as the app's background does until it returns.
-// - Tier 3: `GamepadModule.hatch` is given each pad's device id when it takes a slot.
+// - Tier 3 (D8): `GamepadModule.hatch` is given each pad's device id when it takes a slot.
 // - A drive's pad (`PadDevice.test`, the drive's `EXACT_AGENT_PADS`) has two motors and a light, which are a
 //   recorder: each request is a `context.log` line, as the Linux and Apple hosts journal theirs.
 package exact.gamepad
@@ -33,10 +33,10 @@ import org.json.JSONObject
 
 class GamepadModule(context: ExtensionContext) : ExactExtension(context) {
     companion object {
-        /** The app's access hatch: each pad's device id when it takes a slot. */
+        /** The app's access hatch (D8): each pad's device id when it takes a slot. */
         @JvmStatic var hatch: ((Int) -> Unit)? = null
 
-        /** The labels by family, by standard index: the interface's `tables.labels`. */
+        /** D2's labels by family, by standard index: the interface's `tables.labels`. */
         private val LABELS = mapOf(
             "xbox" to listOf("A", "B", "X", "Y", "LB", "RB", "LT", "RT", "View", "Menu", "LS", "RS", "Up", "Down", "Left", "Right", "Xbox"),
             "playstation" to listOf("Cross", "Circle", "Square", "Triangle", "L1", "R1", "L2", "R2", "Create", "Options", "L3", "R3", "Up", "Down", "Left", "Right", "PS"),
@@ -88,7 +88,8 @@ class GamepadModule(context: ExtensionContext) : ExactExtension(context) {
         main.post {
             instances.add(this)
             told = context.pads.list().map { (i, d) -> i to d.id }
-            context.pads.list().forEach { (_, d) -> hatch?.invoke(d.id) }
+            // A pad connected before the module came is named on its disconnect as one that came after is.
+            context.pads.list().forEach { (i, d) -> shape(i, d, false); hatch?.invoke(d.id) }
             context.pads.watch(this) { padsChanged() }
         }
     }
@@ -154,7 +155,7 @@ class GamepadModule(context: ExtensionContext) : ExactExtension(context) {
     override fun later(name: String, args: JSONObject, reply: (JSONObject) -> Unit) {
         main.post {
             fun refuse(code: String) = reply(JSONObject().put("error", code))
-            // A send without `index` is for the pad in use when it arrives.
+            // A send without `index` is for the pad in use when it arrives (D2).
             val index = if (args.isNull("index")) context.pads.current else args.optDouble("index").toInt()
             val device = context.pads.list().firstOrNull { it.first == index }?.second
             when (name) {
@@ -217,7 +218,8 @@ class GamepadModule(context: ExtensionContext) : ExactExtension(context) {
     /** As the other hosts' recorders write a magnitude: 1 and 0.5. */
     private fun number(x: Double) = if (x == Math.floor(x)) x.toLong().toString() else x.toString()
 
-    private fun amplitude(m: Double) = (m * 255).toInt().coerceIn(0, 255)
+    /** A positive magnitude's amplitude: `createOneShot` refuses 0, so one below 1/255 is the weakest, 1. */
+    private fun amplitude(m: Double) = (m * 255).toInt().coerceIn(1, 255)
 
     private fun vibrate(pad: PadDevice, strong: Double, weak: Double, ms: Long) {
         if (ms <= 0) return

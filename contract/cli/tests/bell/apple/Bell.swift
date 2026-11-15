@@ -1,5 +1,5 @@
 // @fixture/bell on Apple: a module outside exact2's tree, composed into the
-// app's module as any package's implementation is. A ring
+// app's module as any package's implementation is (LLP 1133.001 D5). A ring
 // is a notification whose `userInfo` is the host's activation entry, so the
 // host's delegate raises `ringclick` when a person opens it; a tag that
 // starts with `chime` posts nothing and emits `chime` a moment later, which

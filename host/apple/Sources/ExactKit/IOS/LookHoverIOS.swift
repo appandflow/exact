@@ -1,7 +1,7 @@
 #if os(iOS)
 import UIKit
 
-// A pointer's `:hover` look on iOS: a node with one
+// A pointer's `:hover` look on iOS (LLP 1121 D8, stage 9 G3): a node with one
 // shows it while UIKit's hover recognizer has the pointer (an iPad's, its
 // Pencil's) over it, at once, as the Mac's mouse tracking does. Each such
 // node has its own recognizer, recognizing beside every other, so an

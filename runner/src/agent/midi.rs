@@ -1,4 +1,4 @@
-//! `state.midi`: the ports `exactMIDI()` answers, the inputs
+//! `state.midi` (LLP 1125 D5): the ports `exactMIDI()` answers, the inputs
 //! the mounted listeners name, how many messages wait, the last 64 messages
 //! queued (or the whole record when the request asks `"midi":"all"`, what
 //! `expect midi` reads) with their states, the last 64 messages the inputs

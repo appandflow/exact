@@ -1,4 +1,4 @@
-// Synthetic conformance plan: the layout regions'
+// Synthetic conformance plan (LLP 1123 D10): the layout regions'
 // `env(-exact-<region>-inset-<edge>)` lengths, which a browser does not
 // have. The wasm page writes each as `env(safe-area-inset-<edge>)` through
 // css.rs; the JS target writes a bound one through rt.js the same way, a

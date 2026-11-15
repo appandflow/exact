@@ -1,6 +1,6 @@
 //! HTTP/1.1 over rustls off Apple. HTTP framing and TLS remain ureq's; the
 //! adapter supplies cancellable sockets and exclusive leases of pooled agents.
-//! The platform transport off Apple.
+//! @ref LLP 0068#5-open-questions — the platform transport off Apple
 
 use crate::boundary::HostError;
 use crate::stdlib::abort::{AbortRegistration, AbortSignal};
@@ -11,31 +11,26 @@ use std::io::{Read, Write};
 use std::net::{Shutdown, TcpStream};
 #[cfg(test)]
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use ureq::unversioned::transport::{
     Buffers, ConnectionDetails, Connector, Either, LazyBuffers, NextTimeout,
     Transport as WireTransport,
 };
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Roots {
-    System(usize),
-    CompiledIn,
-}
-impl std::fmt::Display for Roots {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::System(n) => write!(f, "the system's trust store ({n} roots)"),
-            Self::CompiledIn => write!(f, "no system trust store; the compiled-in roots"),
-        }
-    }
-}
+#[cfg(test)]
+static RESOLVER_CALLS: AtomicUsize = AtomicUsize::new(0);
+
+use super::tls::tls_config;
+pub use super::tls::Roots;
+#[cfg(test)]
+use super::tls::{tls_config_from, NATIVE_CERT_LOADS};
 
 #[derive(Default)]
 struct Current {
     generation: u64,
     signal: Option<AbortSignal>,
+    event_stream: bool,
     /// The lease's request went out on a pooled connection and none of its
     /// response has arrived: cleared when it starts to open a connection of
     /// its own (`CancellableConnector`, a proxy's hop's too) or some of the
@@ -106,6 +101,7 @@ impl RustlsHttpTransport {
             let mut current = slot.context.lock().unwrap();
             current.generation = current.generation.wrapping_add(1);
             current.signal = Some(signal.clone());
+            current.event_stream = false;
             current.resendable = true;
         }
         Lease {
@@ -115,7 +111,7 @@ impl RustlsHttpTransport {
         }
     }
 
-    // Proxy routing is transport policy; an unsupported route must fail before DNS or a socket.
+    // @ref LLP 0059.000#35-fetch--delegating-capability-bearing — proxy routing is transport policy; an unsupported route must fail before DNS or a socket
     fn proxy_for(&self, target: &ureq::http::Uri) -> Result<Option<&ureq::Proxy>, HostError> {
         let Some(proxy) = self.proxy.as_ref() else {
             return Ok(None);
@@ -147,8 +143,8 @@ fn needs_tls(target_https: bool, proxy: Option<&ureq::Proxy>) -> bool {
     target_https || proxy.is_some_and(|proxy| proxy.protocol() == ureq::ProxyProtocol::Https)
 }
 
-/// The longest a request without a timeout of its own takes, its resend's
-/// included.
+/// The longest an ordinary request without a timeout of its own takes,
+/// its resend included. Event streams keep this limit only until their headers.
 const GLOBAL_TIMEOUT: Duration = Duration::from_secs(30);
 
 fn agent_config(tls: bool, proxy: Option<ureq::Proxy>) -> ureq::config::Config {
@@ -168,46 +164,6 @@ fn agent_config(tls: bool, proxy: Option<ureq::Proxy>) -> ureq::config::Config {
     }
 }
 
-// Every transport in the process shares the one trust-store read. Keeping the
-// config out of `new` also keeps constructing an unused host endowment cheap.
-// Native roots are loaded lazily and once per process.
-fn tls_config() -> &'static (ureq::tls::TlsConfig, Roots) {
-    static TLS_CONFIG: OnceLock<(ureq::tls::TlsConfig, Roots)> = OnceLock::new();
-    TLS_CONFIG.get_or_init(|| {
-        #[cfg(test)]
-        NATIVE_CERT_LOADS.fetch_add(1, Ordering::SeqCst);
-        tls_config_from(rustls_native_certs::load_native_certs().unwrap_or_default())
-    })
-}
-
-#[cfg(test)]
-static NATIVE_CERT_LOADS: AtomicUsize = AtomicUsize::new(0);
-#[cfg(test)]
-static RESOLVER_CALLS: AtomicUsize = AtomicUsize::new(0);
-
-fn tls_config_from(
-    certs: Vec<rustls::pki_types::CertificateDer<'static>>,
-) -> (ureq::tls::TlsConfig, Roots) {
-    let mut store = rustls::RootCertStore::empty();
-    let mut certificates = Vec::new();
-    for cert in certs {
-        if store.add(cert.clone()).is_ok() {
-            certificates.push(ureq::tls::Certificate::from_der(cert.as_ref()).to_owned());
-        }
-    }
-    let (root_certs, roots) = if certificates.is_empty() {
-        (ureq::tls::RootCerts::WebPki, Roots::CompiledIn)
-    } else {
-        let count = certificates.len();
-        (certificates.into(), Roots::System(count))
-    };
-    (
-        ureq::tls::TlsConfig::builder()
-            .root_certs(root_certs)
-            .build(),
-        roots,
-    )
-}
 struct Lease {
     slot: Option<Slot>,
     pool: Arc<Pool>,
@@ -409,7 +365,12 @@ impl<T: WireTransport> WireTransport for Observed<T> {
     fn transmit_output(&mut self, amount: usize, timeout: NextTimeout) -> Result<(), ureq::Error> {
         self.inner.transmit_output(amount, timeout)
     }
-    fn await_input(&mut self, timeout: NextTimeout) -> Result<bool, ureq::Error> {
+    fn await_input(&mut self, mut timeout: NextTimeout) -> Result<bool, ureq::Error> {
+        // ureq retains the request's deadlines in its body reader. An event
+        // stream without an explicit timeout must also outlive its global limit.
+        if self.response && self.context.lock().unwrap().event_stream {
+            timeout.after = ureq::unversioned::transport::time::Duration::NotHappening;
+        }
         let progress = self.inner.await_input(timeout)?;
         if progress && self.response {
             self.context.lock().unwrap().resendable = false;
@@ -471,7 +432,8 @@ pub(crate) fn connect_socket(
 }
 
 /// Wait for a connecting socket to become writable. A `poll(2)` returns when
-/// the connection completes instead of imposing a sleep on every connection.
+/// the connection completes instead of imposing a sleep on every connection
+/// (LLP 0068.002 §2).
 #[cfg(not(windows))]
 fn wait_writable(socket: &socket2::Socket, timeout: Duration) {
     #[cfg(unix)]
@@ -568,8 +530,8 @@ fn failed(error: impl std::fmt::Display) -> HostError {
 /// `req` on the lease's agent, its body a slice or a counted reader (Exact
 /// patch 23), within `left` of the request's time. A request's own `timeout`
 /// replaces every agent default: no shorter internal phase limit may win before
-/// it. Without one, the agent's phase limits stand, within
-/// `left` of its global limit.
+/// it (LLP 0068.000 §4). Without one, the agent's phase and global limits
+/// stand until the response identifies an event stream.
 fn run<S: ureq::AsSendBody>(
     lease: &Lease,
     req: ureq::http::Request<S>,
@@ -706,6 +668,9 @@ impl Transport for RustlsHttpTransport {
         // This precedes leasing (and therefore TLS setup), DNS, and connection.
         let proxy = self.proxy_for(req.uri())?;
         let tls = needs_tls(req.uri().scheme_str() == Some("https"), proxy);
+        if tls {
+            super::tls::ensure_available()?;
+        }
         let started = Instant::now();
         // The request's whole time, its own timeout or the agent's global limit
         let limit = request.timeout.unwrap_or(GLOBAL_TIMEOUT);
@@ -742,8 +707,23 @@ impl Transport for RustlsHttpTransport {
         let status = response.status();
         let mut headers = Headers::new();
         for (name, value) in response.headers() {
-            headers.set_response(name.as_str(), value.to_str().map_err(failed)?);
+            let value = value.to_str().map_err(failed)?;
+            if matches!(name.as_str(), "cache-control" | "vary") {
+                headers.append(name.as_str(), value);
+            } else {
+                headers.set(name.as_str(), value);
+            }
         }
+        let content_type = headers.get("content-type");
+        let context = &lease.slot.as_ref().unwrap().context;
+        context.lock().unwrap().event_stream = request.timeout.is_none()
+            && status.is_success()
+            && content_type.is_some_and(|value| {
+                value
+                    .split(';')
+                    .next()
+                    .is_some_and(|mime| mime.trim().eq_ignore_ascii_case("text/event-stream"))
+            });
         let limit = request.body_limit();
         if request.method != "HEAD"
             && !matches!(status.as_u16(), 204 | 304)
@@ -752,6 +732,9 @@ impl Transport for RustlsHttpTransport {
                 .content_length()
                 .is_some_and(|n| n > limit as u64)
         {
+            if let Some(received) = &request.received {
+                (received.0)(&request.method, &request.url, status.as_u16(), &headers);
+            }
             return Err(over_limit(limit));
         }
         let reader = response.into_body().into_reader();
@@ -836,9 +819,13 @@ mod tests {
     fn trust_uses_platform_certificates_and_falls_back_only_when_none_are_usable() {
         let _guard = tls_test_lock();
         let roots = tls_config().1;
-        assert!(matches!(roots, Roots::System(n) if n > 0) || roots == Roots::CompiledIn);
+        if cfg!(target_os = "android") {
+            assert_eq!(roots, Roots::PlatformVerifier);
+        } else {
+            assert!(matches!(roots, Roots::System(n) if n > 0) || roots == Roots::CompiledIn);
+        }
         for certs in [vec![], vec![vec![0, 1, 2].into()]] {
-            let (tls, roots) = tls_config_from(certs);
+            let (tls, roots) = tls_config_from(false, || certs);
             assert_eq!(roots, Roots::CompiledIn);
             assert!(matches!(tls.root_certs(), ureq::tls::RootCerts::WebPki));
         }
@@ -1455,17 +1442,5 @@ mod tests {
 }
 
 #[cfg(test)]
-mod tls_selection_tests {
-    use super::needs_tls;
-
-    #[test]
-    fn a_plain_request_through_an_https_proxy_uses_the_tls_agent() {
-        let https_proxy = ureq::Proxy::new("https://proxy.corp:443").unwrap();
-        let http_proxy = ureq::Proxy::new("http://proxy.corp:3128").unwrap();
-        assert!(needs_tls(false, Some(&https_proxy)));
-        assert!(!needs_tls(false, Some(&http_proxy)));
-        assert!(!needs_tls(false, None));
-        assert!(needs_tls(true, None));
-        assert!(needs_tls(true, Some(&http_proxy)));
-    }
-}
+#[path = "rustls_timeout_tests.rs"]
+mod timeout_tests;

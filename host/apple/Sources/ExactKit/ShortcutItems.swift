@@ -1,4 +1,4 @@
-// The app icon's menu: the manifest's
+// The app icon's menu (LLP 1133.023 D3, D15 items 1 and 2): the manifest's
 // items, fixed per binary, then the list the app sets, which the host keeps
 // in its defaults so it survives a launch with no package loaded.
 //
@@ -94,8 +94,8 @@ public enum ExactShortcuts {
 }
 
 extension ExactApp {
-    /// The system's ways in that a package's code does not keep: the tool
-    /// door, the content index's mirror and
+    /// The system's ways in that a package's code does not keep (LLP
+    /// 1133.023 D15 item 1): the tool door, the content index's mirror and
     /// the icon's menu. Install at launch, before the app finishes launching.
     /// `boot` boots a session with no view for a call that launched the app
     /// with none.

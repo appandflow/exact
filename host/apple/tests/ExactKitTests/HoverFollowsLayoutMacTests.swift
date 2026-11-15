@@ -3,7 +3,7 @@ import AppKit
 import XCTest
 @testable import ExactKit
 
-/// A browser's hover follows layout and scrolling under a pointer that
+/// #139: a browser's hover follows layout and scrolling under a pointer that
 /// does not move; AppKit's tracking areas report only a pointer that moves,
 /// so the presenter hit-tests the resting pointer at the next display frame.
 final class HoverFollowsLayoutMacTests: XCTestCase {
@@ -272,7 +272,7 @@ final class HoverFollowsLayoutMacTests: XCTestCase {
         XCTAssertFalse(p.followPending)
         var last = Date()
         for y in [20.0, 30.0, 45.0, 60.0] {
-            last = Date() // (before the move that schedules the rest)
+            last = Date() // (before the move that schedules the rest: Astra's round 1)
             p.viewport.contentView.scroll(to: NSPoint(x: 0, y: y))
             XCTAssertFalse(p.followPending, "no hit-test while the scroll moves")
             XCTAssertNotNil(p.scrollRestFollow, "one waits for the scroll to rest")

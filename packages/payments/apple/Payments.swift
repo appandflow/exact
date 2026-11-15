@@ -1,4 +1,4 @@
-// @exact/payments on Apple: Apple Pay through
+// @exact/payments on Apple (LLP 1133.034 D5, D6, D10, D11): Apple Pay through
 // `PKPaymentAuthorizationController`, one sheet at a time, presented over the
 // session's window. The app's composed module calls it outside the agent and
 // under the agent when bound (`--bind payments`); otherwise the runner's
@@ -11,13 +11,13 @@
 //   shipping options as shipping methods, and the options as required
 //   contact fields. The `paymentRequest` hatch sees it last.
 // - The sheet's delegate calls the app's handlers through `invoke`, by the
-//   call's `request:<n>` handle, each with the budget. An update past it
+//   call's `request:<n>` handle, each with D5's budget. An update past it
 //   leaves the sheet as it was; an authorization past it fails.
-// - The final handler's answer is the table: `success` → `.success`;
+// - The final handler's answer is D6's table: `success` → `.success`;
 //   `fail` and `unknown` → `.failure`; `retry` → `.failure` with its errors,
 //   and the sheet stays for another authorization.
 // - A call let go is dismissed unless its final handler runs; its answer then
-//   completes the sheet.
+//   completes the sheet (D16 item 2).
 // - A Mac build signed without a profile has no merchant entitlement, so
 //   Apple Pay reads unavailable there.
 import Contacts
@@ -147,7 +147,7 @@ private func errors(_ by: [String: Any]?) -> [Error] {
 }
 
 public final class PaymentsModule: NSObject, ExactPackage, PKPaymentAuthorizationControllerDelegate {
-    /// The app's access hatch: each request, after the module's words are set.
+    /// The app's access hatch (D11): each request, after the module's words are set.
     public static var paymentRequest: ((PKPaymentRequest) -> Void)?
 
     private let context: ExactPackageContext
@@ -380,7 +380,7 @@ public final class PaymentsModule: NSObject, ExactPackage, PKPaymentAuthorizatio
     public func presentationWindow(for controller: PKPaymentAuthorizationController) -> UIWindow? { context.presentation?.window }
     #endif
 
-    /// The call was let go: the sheet is dismissed unless its final handler runs.
+    /// The call was let go: the sheet is dismissed unless its final handler runs (D6 phase 2).
     public func cancel(_ request: Int) {
         guard let s = sheet, s.request == request else { return }
         s.letGo = true

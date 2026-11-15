@@ -1,10 +1,10 @@
-//! `share(title=, text=, url=, files=)`: the system share
+//! `share(title=, text=, url=, files=)` (LLP 1069.003): the system share
 //! sheet, by the Web Share API's member names. The command is
 //! fire-and-forget; its outcome is a journal line (`share: shared`, `share:
-//! dismissed`, `share: refused: <reason>`). Every host's arm asks this
+//! dismissed`, `share: refused: <reason>`, D2). Every host's arm asks this
 //! module first, so one rule validates the data and one substitute answers
-//! under the agent: a held request, `tap @t shared|cancel`. `files=` lists
-//! `app:/` files, each
+//! under the agent: a held request, `tap @t shared|cancel` (D6; LLP 1069.007
+//! D3). `files=` (LLP 1125 D12; 1069.003 D7) lists `app:/` files, each
 //! behind the app's `fs.read` grant, and `"#id"` entries: a picture of that
 //! element as the host draws it now, which needs no grant, since nothing is
 //! written that the app can read.
@@ -16,7 +16,7 @@ use exact_kernel::ViewId;
 use exact_plan::Value;
 
 /// The share data: at least one of `text`, `url` and `files`; `url` an
-/// absolute `http:` or `https:` URL.
+/// absolute `http:` or `https:` URL (D1).
 #[derive(Clone, Debug, PartialEq)]
 pub struct Share {
     /// `title=`: the sheet's title where the platform shows one.
@@ -50,7 +50,7 @@ impl Reach {
         pictures: None,
     };
     /// The browser: `navigator.share({files})` for `app:/` files. A
-    /// serialised element would not be the element as drawn.
+    /// serialised element would not be the element as drawn (LLP 1125 D12).
     pub const WEB: Reach = Reach {
         sheet: true,
         files: None,
@@ -73,7 +73,7 @@ pub enum File {
 pub enum Arm {
     /// Refused into the journal (`share: refused: <reason>`).
     Refused(String),
-    /// Held for the agent under this ticket: nothing is shown or drawn.
+    /// Held for the agent under this ticket (D6): nothing is shown or drawn.
     Held(u64),
     /// Open the sheet with this data and these files, in order; the host
     /// journals the outcome.
@@ -155,7 +155,7 @@ impl Share {
     }
 
     /// `{"title":…,"text":…,"url":…,"files":[…],"anchor":…}`: the hold's
-    /// inspection summary, `null` for what is absent.
+    /// inspection summary (D6), `null` for what is absent.
     pub fn summary(&self, anchor: Option<ViewId>) -> String {
         let mut s = String::from("{");
         for (i, (key, value)) in [
@@ -236,12 +236,12 @@ fn file<D: DataSource>(runner: &Runner<D>, entry: &str, reach: Reach) -> Result<
     Ok(File::Path(entry.to_string()))
 }
 
-/// A host's `share`, one rule on every host: refuse bad data, a
+/// A host's `share` (D1–D6), one rule on every host: refuse bad data, a
 /// file the app may not read, an element the view lacks, what this host
 /// cannot share, or a host that has no sheet outside the agent, into the
 /// journal; hold it for the agent under agent mode, where no host shows a
 /// sheet or draws a picture; otherwise present it. `source` is the node
-/// whose input ran the action, the hold's anchor. The hold is not tied
+/// whose input ran the action (D3), the hold's anchor. The hold is not tied
 /// to that node: a menu row that closes with its press must not retire the
 /// sheet it opened.
 pub fn arm<D: DataSource>(
@@ -345,7 +345,7 @@ pub fn request<D: DataSource>(runner: &mut Runner<D>, json: &str) -> String {
     }
 }
 
-/// The journal line an answered share hold leaves: `tap @t
+/// The journal line an answered share hold leaves (D2, D6): `tap @t
 /// shared` is `share: shared`; `cancel` is `share: dismissed`.
 pub(crate) fn answered<D: DataSource>(runner: &mut Runner<D>, choice: &str) {
     runner.log(if choice == "shared" {

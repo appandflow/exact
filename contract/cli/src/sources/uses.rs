@@ -1,4 +1,4 @@
-//! The `use` lines a file lacks: named by `contract-use-missing`
+//! The `use` lines a file lacks (LLP 1091 D1): named by `contract-use-missing`
 //! and written by `contract fmt --uses`. Since a file sees only what it names,
 //! an app written before module scope (19 of the x2apps apps) must name every
 //! declaration it reaches in another file. Which line brings a name is
@@ -9,10 +9,10 @@
 //! said: a name two files declare (which one is meant), a generated name
 //! (`Card__ui` is `Card`, named), a file no specifier reaches.
 
-use super::{digest, Loader, Origin, Refused, Sources};
+use super::{compiler_call, digest, name_error, unknown, ByLocal, Import, Loader, Origin, Sources};
 use crate::CompileError;
 use crate::RelatedLocation;
-use contract_syntax::scope::{Elsewhere, Kind, Missing};
+use contract_syntax::scope::{Elsewhere, Kind, Missing, Scope};
 use std::collections::{HashMap, HashSet};
 use std::path::{Component, Path, PathBuf};
 
@@ -143,7 +143,7 @@ impl Loader<'_> {
         let (first, elsewhere) = &misses[0];
         let others = seen.len() - 1;
         let mut message = format!(
-            "`{}` is a {} declared in `{}`, which this file does not name",
+            "`{}` is a {} declared in `{}`, which this file does not name (LLP 1091 D1)",
             first.name,
             first.kind.what(),
             elsewhere.file
@@ -382,6 +382,9 @@ fn relative(dir: &Path, to: &Path) -> Option<String> {
 /// and the new ones after the last `use` line, else after the comments
 /// that open the file.
 pub(crate) fn apply(src: &str, lines: &[UseLine]) -> String {
+    let (bom, src) = src
+        .strip_prefix('\u{feff}')
+        .map_or(("", src), |rest| ("\u{feff}", rest));
     let mut out: Vec<String> = src.lines().map(str::to_owned).collect();
     for l in lines {
         let Some(n) = l.line.map(|n| n as usize) else {
@@ -416,7 +419,7 @@ pub(crate) fn apply(src: &str, lines: &[UseLine]) -> String {
             out.insert(at + k, text);
         }
     }
-    let mut text = out.join("\n");
+    let mut text = format!("{bom}{}", out.join("\n"));
     if src.ends_with('\n') {
         text.push('\n');
     }
@@ -425,31 +428,7 @@ pub(crate) fn apply(src: &str, lines: &[UseLine]) -> String {
 
 /// A loader holding the root at `root_key` alone, `src` its text.
 fn root_loader<'a>(app_root: &'a Path, root: &Path, root_key: &Path, src: &str) -> Loader<'a> {
-    Loader {
-        app_root,
-        root_given: root.to_path_buf(),
-        sources: Sources {
-            paths: vec![root_key.to_path_buf()],
-            origins: vec![Origin::App],
-            digests: vec![digest(src)],
-            homes: Vec::new(),
-            texts: vec![src.into()],
-            imports: Vec::new(),
-            packages: Vec::new(),
-            consulted: Vec::new(),
-            motion: Vec::new(),
-            var_fallbacks: Vec::new(),
-        },
-        active: vec![root_key.to_path_buf()],
-        units: Vec::new(),
-        cache: HashMap::new(),
-        fixes: Vec::new(),
-        proposed: Vec::new(),
-        declared: Vec::new(),
-        motion: Vec::new(),
-        vars: None,
-        refused: Refused::default(),
-    }
+    Loader::new(app_root, root, root_key.to_path_buf(), src, root_key)
 }
 
 /// The `use` lines each file of the program rooted at `path` lacks (LLP
@@ -606,6 +585,170 @@ pub(crate) fn unreached(root: &Path, reached: impl Fn(&Path) -> bool) -> Vec<Pat
     out
 }
 
+impl Loader<'_> {
+    /// A unit's scope: its own declarations and the names its uses bring.
+    /// A used file's scope is what can be named from it, its uses included,
+    /// so a file can gather a library's names for others (LLP 1091 D3).
+    pub(super) fn scope_of(
+        &mut self,
+        index: usize,
+        unique: &[HashMap<(Kind, String), String>],
+        scopes: &mut [Option<Scope>],
+        by_local: &mut [Option<ByLocal>],
+    ) -> Result<(), CompileError> {
+        if scopes[index].is_some() {
+            return Ok(());
+        }
+        let targets = self.units[index].targets.clone();
+        for (u, &target) in self.units[index].file.uses.clone().iter().zip(&targets) {
+            if !self.declaration_shapes(index, target, u) {
+                self.scope_of(target, unique, scopes, by_local)?;
+            }
+        }
+        let mut names = unique[index].clone();
+        let unit = &self.units[index];
+        for (u, &target) in unit.file.uses.iter().zip(&targets) {
+            // These imports read direct shape declarations, so reciprocal
+            // interface/implementation imports need no recursive scope walk.
+            let direct = self.declaration_shapes(index, target, u).then(|| Scope {
+                names: unique[target].clone(),
+                ..Scope::default()
+            });
+            let local = direct.as_ref().map(|s| local_names(&s.names));
+            let from = direct
+                .as_ref()
+                .or(scopes[target].as_ref())
+                .expect("a used file is scoped before its user");
+            let index_of_from = local
+                .as_ref()
+                .or(by_local[target].as_ref())
+                .expect("a used file is indexed with its scope");
+            for n in &u.names {
+                let found: Vec<_> = index_of_from
+                    .get(n.name.as_str())
+                    .cloned()
+                    .unwrap_or_default();
+                if found.is_empty() {
+                    return Err(unknown(u, n, from));
+                }
+                if let Some(m) = self.data_only(unique, &found) {
+                    // Bytes are data code's (LLP 1133.006 D8 item 1; LLP
+                    // 1133.022 D19 item 4).
+                    if m.substitute.contains(r#""bytes":true"#) {
+                        return Err(name_error(
+                            "contract-module-bytes",
+                            format!(
+                                "`{}` of `{}` carries bytes, which Contract has none of: call it in `app.ts` and send Contract what it needs (LLP 1133.006 D8)",
+                                m.declared, m.package
+                            ),
+                            n.span,
+                        ));
+                    }
+                    return Err(name_error(
+                        "module-name-data-only",
+                        format!(
+                            "`{}` of `{}` is called from data code alone (LLP 1133.011 D12): its answer would become a mutation's value in `state`; call it in `app.ts`, and send what the server answers",
+                            m.declared, m.package
+                        ),
+                        n.span,
+                    ));
+                }
+                for (kind, to) in found {
+                    let key = (kind, n.local().to_owned());
+                    match names.get(&key) {
+                        Some(prior) if *prior == to => {}
+                        Some(_) if unique[index].contains_key(&key) => {
+                            return Err(name_error(
+                                "contract-use-shadows",
+                                format!(
+                                    "`use {}` brings a {} `{}` that this file declares too; rename one with `as`",
+                                    n.name,
+                                    kind.what(),
+                                    n.local()
+                                ),
+                                n.span,
+                            ))
+                        }
+                        Some(prior) => {
+                            // Named by the files that declare them: two
+                            // files' declarations are two however alike
+                            // their text (LLP 1091 D7; splitter rough 1
+                            // read "different" as a different text).
+                            let file = |name: &str| {
+                                unique
+                                    .iter()
+                                    .position(|own| own.values().any(|v| v == name))
+                                    .map(|i| self.shown(i))
+                                    .unwrap_or_default()
+                            };
+                            return Err(name_error(
+                                "contract-use-duplicate",
+                                format!(
+                                    "`use {}` brings the {} `{}` declared in {}, and another `use` already brought the one declared in {}: a declaration is its file's, however alike the two read (LLP 1091 D7); declare it once and `use` it from that file, or rename one with `as`",
+                                    n.name,
+                                    kind.what(),
+                                    n.local(),
+                                    file(&to),
+                                    file(prior)
+                                ),
+                                n.span,
+                            ))
+                        }
+                        None => {
+                            names.insert(key, to.clone());
+                        }
+                    }
+                    self.sources.imports.push(Import {
+                        span: n.span,
+                        kind,
+                        name: to,
+                    });
+                }
+            }
+        }
+        by_local[index] = Some(local_names(&names));
+        // The program-wide tables (what is declared elsewhere, the shapes,
+        // the modules, the compiler's types) are set by `scope`, shared.
+        scopes[index] = Some(Scope {
+            names,
+            // The roster plus the intrinsics (`pending`, `failed`, `path`, `t`).
+            roster: Some(compiler_call),
+            ..Scope::default()
+        });
+        Ok(())
+    }
+}
+
+impl Loader<'_> {
+    pub(super) fn declaration_shapes(
+        &self,
+        from: usize,
+        to: usize,
+        u: &contract_syntax::UseDecl,
+    ) -> bool {
+        [from, to].iter().all(|&i| {
+            self.sources.paths[i]
+                .file_name()
+                .is_some_and(|f| f == "exact.json")
+        }) && u
+            .names
+            .iter()
+            .all(|n| self.units[to].file.shapes.iter().any(|s| s.name == n.name))
+    }
+}
+
+/// Preserve namespace order when one spelling has several meanings.
+fn local_names(names: &HashMap<(Kind, String), String>) -> ByLocal {
+    let mut local: ByLocal = HashMap::new();
+    for ((kind, name), to) in names {
+        local
+            .entry(name.clone())
+            .or_default()
+            .push((*kind, to.clone()));
+    }
+    local
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -658,6 +801,35 @@ mod tests {
         assert_eq!(
             out,
             "// A note.\n// More.\nuse D from \"./d.contract\"\ncomponent App\n"
+        );
+    }
+
+    #[test]
+    fn use_edits_preserve_a_leading_byte_order_mark() {
+        let added = UseLine {
+            line: None,
+            text: "use Card from \"./ui.contract\"".into(),
+        };
+        for prefix in ["", "// note\n", "use Icon from \"./icons.contract\"\n"] {
+            let src = format!("\u{feff}{prefix}component App\n  view\n    Card()\n");
+            assert_eq!(
+                apply(&src, std::slice::from_ref(&added)),
+                format!(
+                    "\u{feff}{prefix}{}\ncomponent App\n  view\n    Card()\n",
+                    added.text
+                )
+            );
+        }
+        let src = "\u{feff}use Card from \"./ui.contract\" // note\ncomponent App\n";
+        assert_eq!(
+            apply(
+                src,
+                &[UseLine {
+                    line: Some(1),
+                    text: "use Card, Icon from \"./ui.contract\"".into(),
+                }]
+            ),
+            "\u{feff}use Card, Icon from \"./ui.contract\" // note\ncomponent App\n"
         );
     }
 }

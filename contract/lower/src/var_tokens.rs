@@ -1,4 +1,4 @@
-//! `var(--name)` in a style row is the design's token
+//! @ref LLP 1153 D6 — `var(--name)` in a style row is the design's token
 //! `name`. Each one is written as the name before anything reads the row
 //! (scoping, the types, the design's retention): by the loader for a file,
 //! and by `contract::compile` for a source text. So it lowers exactly as the
@@ -8,11 +8,14 @@
 //! token the app declares.
 //!
 //! - A name the design declares is the token. A fallback is never used, and
-//!   the app is warned once (`tamber-var-fallback`).
+//!   the app is warned once (`forma-var-fallback`).
 //! - Any other `var()` in a style row is refused, fallback or not, so a typo
-//!   never ships the fallback (`tamber-unknown-token`, naming the design's
+//!   never ships the fallback (`forma-unknown-token`, naming the design's
 //!   tokens of the kinds the row takes). The refused row is dropped, so the
 //!   passes after the loader say nothing more of it.
+//! - The host's own custom properties, the safe area where a box is
+//!   (`var(--exact-safe-area-inset-top)`, LLP 1123 D9), are no token: they
+//!   are left for the kernel, which reads them.
 //! - A component's argument, a `fn`'s result and a `derive`'s value that is
 //!   one `var()` naming a token is that token, as a row reads it once the
 //!   component is expanded or the call made. Any other argument is
@@ -21,14 +24,14 @@
 
 use crate::{tags, LowerError};
 use contract_syntax::{Attr, DesignSource, Expr, File, Node, Span, TemplatePart, ThemeDecl};
-use exact_tamber as tamber;
+use exact_forma as forma;
 
 /// The tokens an app declares, as a `var()` may name them.
 #[derive(Debug, Clone, Default)]
 pub struct Tokens {
     /// Each token's name as written, with its kind when the design checks.
-    names: Vec<(String, Option<tamber::Kind>)>,
-    /// Whether the app has a design (`app.tamber`, a package's, an inline
+    names: Vec<(String, Option<forma::Kind>)>,
+    /// Whether the app has a design (`app.forma`, a package's, an inline
     /// `theme`).
     designed: bool,
     /// Whether the design parsed. One that does not is refused where the
@@ -38,7 +41,7 @@ pub struct Tokens {
 }
 
 impl Tokens {
-    /// The tokens of the app's design (`app.tamber`'s text), its packages'
+    /// The tokens of the app's design (`app.forma`'s text), its packages'
     /// designs and an inline `theme`.
     pub fn of(
         design: Option<&str>,
@@ -46,7 +49,7 @@ impl Tokens {
         theme: Option<&ThemeDecl>,
     ) -> Tokens {
         let (own, parsed) = match design {
-            Some(text) => match tamber::parse(text) {
+            Some(text) => match forma::parse(text) {
                 Ok(d) => (Some(d), true),
                 Err(_) => (None, false),
             },
@@ -63,7 +66,7 @@ impl Tokens {
         let names: Vec<String> = merged.tokens.iter().map(|t| t.name.value.clone()).collect();
         crate::theme::stand_in_profiles(&mut merged);
         // A folding's tokens are the design's, in its order.
-        let kinds = tamber::check_design(merged, &crate::theme::vocab())
+        let kinds = forma::check_design(merged, &crate::theme::vocab())
             .ok()
             .map(|f| f.tokens.into_iter().map(|t| t.kind).collect::<Vec<_>>())
             .filter(|kinds| kinds.len() == names.len());
@@ -129,7 +132,7 @@ pub fn rewrite(file: &mut File, tokens: &Tokens) -> Rewritten {
     out
 }
 
-/// An app's design as [`Tokens::of`] reads it: `app.tamber`'s text, its
+/// An app's design as [`Tokens::of`] reads it: `app.forma`'s text, its
 /// packages' designs and an inline `theme`.
 type Noted = (Option<String>, Vec<DesignSource>, Option<ThemeDecl>);
 
@@ -202,7 +205,7 @@ pub fn fallback_warning(fallbacks: &[(Span, String)]) -> Option<LowerError> {
         n => format!("; {n} other `var()`s in this app have fallbacks, ignored likewise"),
     };
     Some(LowerError {
-        id: "tamber-var-fallback",
+        id: "forma-var-fallback",
         message: format!("`{call}`: `{name}` is a token of the design, so the fallback is never used and is ignored (Exact never leaves a token undefined): write `var(--{name})`{others}"),
         span: *span,
     })
@@ -230,18 +233,11 @@ fn nodes(list: &mut [Node], tokens: &Tokens, out: &mut Rewritten) {
                 }
                 nodes(children, tokens, out);
             }
-            Node::When {
-                then, otherwise, ..
-            } => {
-                nodes(then, tokens, out);
-                nodes(otherwise, tokens, out);
+            node => {
+                for list in node.child_lists_mut() {
+                    nodes(list, tokens, out);
+                }
             }
-            Node::Each { body, .. } => nodes(body, tokens, out),
-            Node::Match { some, none, .. } => {
-                nodes(&mut some.1, tokens, out);
-                nodes(none, tokens, out);
-            }
-            Node::Children { .. } => {}
         }
     }
 }
@@ -460,6 +456,9 @@ fn text(
                 name,
                 fallback,
             } => {
+                if host_property(&name) {
+                    continue;
+                }
                 if !tokens.declares(&name) {
                     return Err(Why::Unknown(name, fallback.is_some()));
                 }
@@ -477,6 +476,14 @@ fn text(
     }
     out.push_str(&text[at..]);
     Ok(Some((out, fallbacks)))
+}
+
+/// Whether `name` (after its `--`) is a custom property the host sets.
+fn host_property(name: &str) -> bool {
+    let prefix = exact_kernel::style::env::LOCAL_PREFIX.trim_start_matches('-');
+    name.strip_prefix(prefix)
+        .and_then(exact_kernel::style::Edge::from_name)
+        .is_some()
 }
 
 /// Each `var(` in `text` outside a quoted string, in order.
@@ -606,7 +613,7 @@ fn refusal(a: &Attr, why: Why, literal: &str, span: Span, tokens: &Tokens) -> Lo
                 .map(|(n, _)| n.as_str())
                 .collect();
             let listed = match declared.len() {
-                0 if !tokens.designed => "this app has no design: a `var(--name)` names a token its `app.tamber` declares (`bun exact.mjs tamber import css <file>` writes a stylesheet's custom properties there)".to_string(),
+                0 if !tokens.designed => "this app has no design: a `var(--name)` names a token its `app.forma` declares (`bun exact.mjs forma import css <file>` writes a stylesheet's custom properties there)".to_string(),
                 0 => format!("the design declares no {said} token"),
                 n => {
                     let shown: Vec<String> = declared.iter().take(20).map(|n| format!("`{n}`")).collect();
@@ -629,7 +636,7 @@ fn refusal(a: &Attr, why: Why, literal: &str, span: Span, tokens: &Tokens) -> Lo
                 ""
             };
             (
-                "tamber-unknown-token",
+                "forma-unknown-token",
                 format!("{written}: `--{name}` is no token of this app's design; {listed}{dotted}{role}{fallback}"),
             )
         }
@@ -637,10 +644,10 @@ fn refusal(a: &Attr, why: Why, literal: &str, span: Span, tokens: &Tokens) -> Lo
     LowerError { id, message, span }
 }
 
-/// The token kinds a row takes, by its rows.
-fn kinds(a: &Attr) -> Vec<tamber::Kind> {
+/// The token kinds a row takes, by its rows (LLP 1121 D3).
+fn kinds(a: &Attr) -> Vec<forma::Kind> {
     use exact_kernel::style::theme::{admits, Kind as K};
-    use tamber::Kind as T;
+    use forma::Kind as T;
     let name = contract_syntax::state::state_of(&a.name).map_or(a.name.as_str(), |(_, row)| row);
     if crate::motion::is_row(name) {
         return vec![T::Duration, T::Easing];
@@ -668,11 +675,11 @@ fn kinds(a: &Attr) -> Vec<tamber::Kind> {
 }
 
 /// A kind in an author's words.
-fn kind_words(kind: tamber::Kind) -> &'static str {
+fn kind_words(kind: forma::Kind) -> &'static str {
     match kind {
-        tamber::Kind::Color => "colour",
-        tamber::Kind::BoxShadow => "box shadow",
-        tamber::Kind::TextShadow => "text shadow",
+        forma::Kind::Color => "colour",
+        forma::Kind::BoxShadow => "box shadow",
+        forma::Kind::TextShadow => "text shadow",
         other => other.name(),
     }
 }
@@ -731,6 +738,19 @@ mod tests {
         // A name a template's hole completes.
         let t = tokens(&["ink"]);
         assert_eq!(text("var(--", &t, true, &mut None), Err(Why::Computed));
+    }
+
+    #[test]
+    fn the_hosts_safe_area_is_left_for_the_kernel() {
+        let row = "calc(-1 * var(--exact-safe-area-inset-top)) var(--ink)";
+        assert_eq!(
+            written(row).unwrap().as_deref(),
+            Some("calc(-1 * var(--exact-safe-area-inset-top)) ink")
+        );
+        assert_eq!(
+            written("var(--exact-safe-area-inset-middle)"),
+            Err(Why::Unknown("exact-safe-area-inset-middle".into(), false))
+        );
     }
 
     #[test]

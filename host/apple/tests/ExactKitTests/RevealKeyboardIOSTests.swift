@@ -5,7 +5,7 @@ import XCTest
 @testable import ExactKit
 @testable import ExactMarkdown
 
-/// The agent's `reveal` counts what a person sees as in
+/// LLP 1086.000.000 D2: the agent's `reveal` counts what a person sees as in
 /// view, so a form's lower action under the software keyboard is scrolled
 /// above it before a tap, as a finger would scroll the form, instead of
 /// being left there for the tap to refuse.
@@ -143,7 +143,7 @@ final class RevealKeyboardIOSTests: XCTestCase {
         XCTAssertTrue((0..<400).contains(middle), "its middle is in view: \(middle), \(reply)")
     }
 
-    /// In view is clear of a bar over the scroller, whether
+    /// LLP 1116.003: in view is clear of a bar over the scroller, whether
     /// UIKit insets it or not: iOS 26's bars float over the content, and a
     /// scroller UIKit does not inset runs under them, its first rows hidden.
     func testThePortEndsAtABarOverTheScroller() throws {
@@ -466,7 +466,7 @@ final class RevealKeyboardIOSTests: XCTestCase {
 
     private func spin(_ seconds: Double) { RunLoop.main.run(until: Date().addingTimeInterval(seconds)) }
 
-    /// Keyboard avoidance is the default, as in a hand-built
+    /// LLP 1116 D2: keyboard avoidance is the default, as in a hand-built
     /// app. A root that names no `interactive-widget` ends the viewport at
     /// the keyboard's top, so the routes end above the keys, a scroller's
     /// last rows and the field in it reachable there; `resizes-visual` opts

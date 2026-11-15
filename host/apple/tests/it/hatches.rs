@@ -1,14 +1,14 @@
-//! Access hatches in the Apple host's Rust: what the
+//! Access hatches in the Apple host's Rust (LLP 1075.003.000.001): what the
 //! plan says of each word decides how a hatched node reaches Swift.
 
 use crate::host::NoData;
 use exact_apple::Host;
 use exact_kernel::MonospaceMeasurer;
 
-/// The plan carries each hatch word with the platforms that handle it. A
-/// word this platform is not given reaches Swift as `hatchOff`, an ordinary
-/// node no hatch is called for; one it is given, and every word of a plan
-/// that lists none, reaches it as `hatch`.
+/// LLP 1075.003.000.001 §4.3: the plan carries each hatch word with the
+/// platforms that handle it. A word this platform is not given reaches Swift
+/// as `hatchOff`, an ordinary node no hatch is called for; one it is given,
+/// and every word of a plan that lists none, reaches it as `hatch`.
 #[test]
 fn a_hatch_word_the_plan_does_not_give_this_platform_reaches_swift_unhatched() {
     let src = r#"component App

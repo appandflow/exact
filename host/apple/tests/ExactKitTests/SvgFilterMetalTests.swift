@@ -4,7 +4,7 @@ import Metal
 import XCTest
 @testable import ExactKit
 
-/// A live filter picture's Metal chain against the Core
+/// A live filter picture's Metal chain (LLP 1055.000 D14) against the Core
 /// Image chain, which the SVG smoke holds to Chrome: F3's CSS chain over a
 /// scene of a card, a disc and a square, the same pixels to a fraction of a
 /// level.

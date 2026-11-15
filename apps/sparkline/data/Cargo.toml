@@ -1,4 +1,4 @@
-# Sparkline's data source: deterministic coins whose price series
+# Sparkline's data source (LLP 1055): deterministic coins whose price series
 # arrive as the polyline a web developer would compute, scaled to the chart.
 [package]
 name = "sparkline-data"

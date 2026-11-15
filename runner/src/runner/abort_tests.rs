@@ -144,7 +144,7 @@ fn a_request_a_refused_commit_retires_again_is_recorded_once() {
     assert_eq!(r.retired_fetches, [(1, held.ticket)]);
 }
 
-/// [`Held`], keeping each let-go POST as module work and
+/// [`Held`], keeping each let-go POST as module work (LLP 1146 D2) and
 /// hearing what each kept one's reply was.
 #[derive(Default)]
 struct Kept {
@@ -262,4 +262,32 @@ fn a_kept_write_s_abort_names_it_past_the_retired_cap() {
     r.collect_aborts();
     let _ = r.take_request_refusal(false);
     assert!(r.take_explicit_aborts().contains(&first[0].ticket));
+}
+
+#[test]
+fn an_aborted_answer_put_back_is_answered_and_cancelled_later() {
+    let source = Held::default();
+    let aborted = source.aborted.clone();
+    let plan = contract::compile(SRC).expect("the fixture compiles");
+    let mut r = Runner::boot(
+        plan,
+        source,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let k = r.kernel();
+    let hold = k.node_by_key(k.find_by_test_id("hold")[0]).unwrap().id;
+    r.dispatch(hold, Event::Press).unwrap();
+    let ticket = r.take_requests()[0].ticket;
+    aborted.lock().unwrap().push(1);
+    r.collect_aborts();
+    assert_eq!(r.take_aborted_answer().map(|a| a.0), Some(ticket));
+    // A host that could not apply it puts it back: not cancelled yet.
+    r.requeue_aborted_answers(&[ticket]);
+    assert!(r.take_explicit_aborts().is_empty());
+    assert!(r.has_module_aborts());
+    assert_eq!(r.take_aborted_answer().map(|a| a.0), Some(ticket));
+    assert_eq!(r.take_explicit_aborts(), [ticket]);
 }

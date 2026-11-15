@@ -1,5 +1,5 @@
 // data: metronome
-// Synthetic conformance plan: MIDI on the wasm runner, the
+// Synthetic conformance plan: MIDI (LLP 1125 D6–D8) on the wasm runner, the
 // JS runtime and the Linux host, all under the driver, on the metronome's
 // data app (which grants `device.midi`): ports the drive prefers, a request
 // the agent answers, `sendMIDI` (its `at=`, a late one, a malformed one), a

@@ -1,5 +1,6 @@
-//! The runner wrapped for a DOM: receipts → batches. The DOM mirrors the
-//! kernel tree.
+//! The runner wrapped for a DOM: receipts → batches.
+//!
+//! @ref LLP 1007 §2 (the DOM mirrors the kernel tree)
 //!
 //! After every commit the host walks the receipt: destroyed keys become
 //! `destroy`, created keys become `create` (with the node's tag, props, CSS,
@@ -14,21 +15,24 @@ use exact_kernel::{CommitReceipt, Kernel, NodeKey, NodeType, PropId, ViewId};
 use exact_motion::{EngineError, HoldEnd, HoldStart, Property, Value as MotionValue};
 use exact_plan::{EventKind, Plan};
 use exact_runner::{
-    Carried, DataSource, Dispatch, Event, FailureKind, Outcome, RequestOut, Response, Runner,
-    RunnerError, SurfaceOutcome, Timed, Work,
+    Carried, DataSource, Event, FailureKind, Outcome, RequestOut, Runner, RunnerError, Timed,
 };
 use mode::mirror::Mirror;
 
 #[path = "auth.rs"]
 mod auth;
+mod boot;
 #[path = "canvas2d.rs"]
 mod canvas2d;
 mod complete;
 pub mod fonts;
 mod mode;
+mod outcome;
+pub use outcome::outcome_from;
 mod scale;
 pub(crate) use fonts::{decode_plan, plan_font_catalog};
 use fonts::{font_catalog, font_faces, font_names, font_names_for_runner};
+pub use scale::PageGeometry;
 #[path = "document.rs"]
 pub mod document;
 #[path = "element.rs"]
@@ -52,66 +56,6 @@ mod own;
 mod reorder_drag;
 #[path = "transform_drag.rs"]
 mod transform_drag;
-/// A reply as the ABI carries it, as the runner's `Outcome`. Kind 8 is one
-/// message of a stream: `event`, `id` and `coalesced` as header lines, the
-/// data as the body.
-pub fn outcome_from(kind: u32, status: u32, headers: &str, body: Vec<u8>) -> Outcome {
-    match kind {
-        8 => {
-            let field = |name: &str| {
-                headers
-                    .lines()
-                    .find_map(|l| l.strip_prefix(name)?.strip_prefix(": "))
-                    .unwrap_or("")
-                    .to_string()
-            };
-            Outcome::Message(exact_runner::Message {
-                event: field("event"),
-                id: field("id"),
-                coalesced: field("coalesced").parse().unwrap_or(0),
-                data: String::from_utf8_lossy(&body).into_owned(),
-                binary: None,
-            })
-        }
-        5 => Outcome::Storage(body),
-        6 if body.len() <= exact_runner::MAX_HOST_WORK_BYTES => {
-            Outcome::Surface(SurfaceOutcome::Captured(body))
-        }
-        6 => Outcome::Failed {
-            kind: FailureKind::Refused,
-            message: "surface capture exceeds 16 MiB".into(),
-        },
-        7 => Outcome::Surface(SurfaceOutcome::Restored),
-        0 => Outcome::Response(Response {
-            status: status as u16,
-            // A line that starts with a colon is a pseudo-header the page
-            // names (`:exact-body-to`, exactBodyTo's size): no browser header
-            // name has a colon, so it keeps its leading one.
-            headers: headers
-                .lines()
-                .filter_map(|l| {
-                    let (pseudo, l) = l.strip_prefix(':').map_or((false, l), |l| (true, l));
-                    l.split_once(':').map(|(k, v)| {
-                        let k = k.trim();
-                        let k = if pseudo { format!(":{k}") } else { k.into() };
-                        (k, v.trim().to_string())
-                    })
-                })
-                .collect(),
-            body,
-        }),
-        k => Outcome::Failed {
-            kind: match k {
-                2 => FailureKind::Refused,
-                3 => FailureKind::Unsupported,
-                4 => FailureKind::Aborted,
-                10 => FailureKind::Timeout,
-                _ => FailureKind::Network,
-            },
-            message: String::from_utf8_lossy(&body).into_owned(),
-        },
-    }
-}
 use exact_kernel::id::IdMap;
 use exact_kernel::{SortedMap, SortedSet};
 use std::fmt::Write as _;
@@ -123,7 +67,7 @@ pub enum HostError {
     Plan(exact_plan::PlanError),
     Runner(RunnerError),
     RuntimeIdExhausted,
-    /// The plan uses these capabilities, which this artifact doesn't link.
+    /// The plan uses these capabilities, which this artifact doesn't link (LLP 1047 D6).
     Unlinked(String),
 }
 
@@ -133,18 +77,18 @@ impl std::fmt::Display for HostError {
     }
 }
 
-/// What a host links that is generic over its data source:
+/// What a host links that is generic over its data source (LLP 1047 D3):
 /// drags' hooks into every commit. An entry passes [`HostLinks::of`] its
 /// `EXACT_LINKED`, so an app without drags carries none of them; tests and
 /// native tools take [`HostLinks::ALL`] through the plain boots.
 pub struct HostLinks<D: DataSource> {
     /// Height, transform and reorder handles, tracked and published.
     pub drag: Option<DragHooks<D>>,
-    /// The agent API's reads: `exact_runner::agent::handle`.
+    /// The agent API's reads (LLP 1012): `exact_runner::agent::handle`.
     pub inspect: Option<fn(&Runner<D>, &str) -> String>,
-    /// The runner's device capabilities (linked by use).
+    /// The runner's device capabilities (LLP 1069, linked by use).
     pub device: exact_runner::DeviceLinks<D>,
-    /// The page's word on an auth session: `auth.rs`.
+    /// The page's word on an auth session (LLP 1069.006 D4): `auth.rs`.
     pub auth: Option<fn(&mut Host<D>, &str) -> String>,
 }
 
@@ -277,7 +221,7 @@ impl exact_kernel::TextMeasurer for BrowserMeasures {
 
 /// The browser's kernel. The browser lays out: the kernel builds its layout
 /// engine's tree only if a layout is ever asked for, and links no text
-/// measurer of its own.
+/// measurer of its own (LLP 1047 §6).
 pub(crate) fn browser_kernel() -> Kernel {
     exact_kernel::style::roles::set_column(exact_kernel::style::roles::Column::Neutral);
     exact_kernel::style::wide::set_available(|wide| !wide.space.is_hdr());
@@ -309,141 +253,39 @@ pub struct Host<D: DataSource> {
     font_catalog: String,
     exclusions: SortedSet<ViewId>,
     textflow: String,
-    /// Requests whose continuation a source held at dispatch:
-    /// released after a later commit, by token.
+    /// Requests whose continuation a source held at dispatch (LLP 1027.002
+    /// D3): released after a later commit, by token.
     parked: SortedMap<u64, RequestOut>,
     /// `exact-auth:` requests handed to the page, until it asks (`auth.rs`).
     auth_out: Vec<RequestOut>,
     location: String,
     collections: String,
-    /// Head nodes: the page's `<head>`, never an element.
+    /// Head nodes (LLP 1048.003 D1): the page's `<head>`, never an element.
     heads: SortedSet<ViewId>,
+    /// The boundaries that do not set their own colour (LLP 1121 D7, D8).
+    boundaries: SortedSet<ViewId>,
     /// The head the page was last told, and whether a commit may move it.
     head: exact_runner::Head,
     language: Option<String>,
+    large_title_size: Option<f32>,
     head_dirty: bool,
     /// While the first batch is made: what a page's projection computed for
-    /// each view, taken instead of computing it again.
+    /// each view (LLP 1048.000 D6), taken instead of computing it again.
     computed: document::Computed,
-    /// `@keyframes` rules already in the page's stylesheet.
+    /// `@keyframes` rules already in the page's stylesheet (LLP 1055 D7).
     keyframes: SortedSet<String>,
-    /// The 2D canvases the page watches.
+    /// The 2D canvases the page watches (LLP 1056 D4).
     canvas2d: canvas2d::Watch,
-    /// Which views the page makes `relative`.
+    /// Which views the page makes `relative` (LLP 1001 §1).
     layers: layers::Layers,
 }
 
 impl<D: DataSource> Host<D> {
-    /// Boot from plan bytes: decode (a validation pass), boot the runner, and
-    /// produce the first batch, which creates the whole tree.
-    pub fn boot(
-        plan_bytes: &[u8],
-        data: D,
-        viewport: exact_runner::Viewport,
-        launch: &str,
-    ) -> Result<(Host<D>, String), HostError> {
-        Host::boot_delivered(plan_bytes, data, None, Vec::new(), None, viewport, launch)
-    }
-
     /// Whether `location` names a pattern the plan's route table declares —
     /// never only its notfound fallback. The page follows a same-origin link
-    /// to one in place instead of loading a document.
+    /// to one in place (LLP 1038 §7) instead of loading a document.
     pub fn route_matches(&self, location: &str) -> bool {
         self.runner.route_matches(location)
-    }
-
-    /// Boot with the page's snapshot of the app's kept secrets:
-    /// what `localStorage` holds under `exact.secret.<name>`, read by
-    /// the glue before boot; the runner keeps the granted names.
-    pub fn boot_stored(
-        plan_bytes: &[u8],
-        data: D,
-        snapshot: Vec<(String, Vec<u8>)>,
-        viewport: exact_runner::Viewport,
-        launch: &str,
-    ) -> Result<(Host<D>, String), HostError> {
-        Host::boot_delivered(plan_bytes, data, None, snapshot, None, viewport, launch)
-    }
-
-    /// Boot carrying an earlier host's state (the dev loop's reload): slots by name where their types still fit, settled
-    /// resources where their arguments still match, the clock. Carried state
-    /// is never why a boot fails — what no longer fits starts fresh.
-    pub fn boot_with(
-        plan_bytes: &[u8],
-        data: D,
-        carried: Option<&Carried>,
-        viewport: exact_runner::Viewport,
-        launch: &str,
-    ) -> Result<(Host<D>, String), HostError> {
-        Host::boot_delivered(
-            plan_bytes,
-            data,
-            carried,
-            Vec::new(),
-            None,
-            viewport,
-            launch,
-        )
-    }
-
-    /// Boot knowing what this wasm was built as: `compat` is
-    /// the archive's `compat.json`, which the `delivery` resource answers
-    /// from. The other three boots are this one with nothing to say.
-    pub fn boot_delivered(
-        plan_bytes: &[u8],
-        data: D,
-        carried: Option<&Carried>,
-        snapshot: Vec<(String, Vec<u8>)>,
-        compat: Option<&str>,
-        viewport: exact_runner::Viewport,
-        launch: &str,
-    ) -> Result<(Host<D>, String), HostError> {
-        Host::boot_linked(
-            HostLinks::ALL,
-            plan_bytes,
-            data,
-            carried,
-            snapshot,
-            compat,
-            viewport,
-            launch,
-        )
-    }
-
-    /// [`Host::boot_delivered`], with what the artifact links.
-    #[allow(clippy::too_many_arguments)]
-    pub fn boot_linked(
-        links: HostLinks<D>,
-        plan_bytes: &[u8],
-        data: D,
-        carried: Option<&Carried>,
-        snapshot: Vec<(String, Vec<u8>)>,
-        compat: Option<&str>,
-        viewport: exact_runner::Viewport,
-        launch: &str,
-    ) -> Result<(Host<D>, String), HostError> {
-        let plan = decode_plan(plan_bytes).map_err(HostError::Plan)?;
-        crate::link::admit(&plan)?;
-        let kernel = browser_kernel();
-        // Both host facts precede the first settlement.
-        let delivery = compat.map_or_else(Default::default, |json| {
-            exact_runner::Delivery::default().with_compat(json)
-        });
-        let mut runner = Runner::boot_with_delivery_linked(
-            crate::link::runner_links(),
-            plan,
-            data,
-            kernel,
-            carried,
-            snapshot,
-            delivery,
-            viewport,
-            launch,
-        )
-        .map_err(HostError::Runner)?;
-        runner.measure_unless_production(compat, false); // The browser lays out
-        runner.admit_live(compat);
-        Host::open(links, runner, launch, Batch::new(), Default::default())
     }
 
     /// The host over a booted runner, and its first batch — `batch`'s ops,
@@ -456,9 +298,9 @@ impl<D: DataSource> Host<D> {
         computed: document::Computed,
     ) -> Result<(Host<D>, String), HostError> {
         let mut runner = runner;
-        let _roles = runner.bind_roles(); // Its own while it opens.
+        let _roles = runner.bind_roles(); // Its own while it opens (LLP 1121 stage 5).
         runner.set_device_links(links.device);
-        // The theme's reach into the host's own sheet (a
+        // @ref LLP 1095 D4 — the theme's reach into the host's own sheet (a
         // new runner's page drops the last one's, glue.js).
         batch.theme(&exact_kernel::style::roles::theme_css());
         let font_names = font_names_for_runner(&runner);
@@ -488,8 +330,10 @@ impl<D: DataSource> Host<D> {
             exclusions: Default::default(),
             textflow: String::new(),
             heads: Default::default(),
+            boundaries: Default::default(),
             head: Default::default(),
             language: None,
+            large_title_size: None,
             head_dirty: false,
             computed,
             keyframes: Default::default(),
@@ -517,7 +361,7 @@ impl<D: DataSource> Host<D> {
             host.emit_children(*id, &mut batch);
         }
         host.springs.adopt(host.runner.kernel(), &order);
-        // A boot's consumers are sought as a commit's are.
+        // A boot's consumers are sought as a commit's are (LLP 1057.003 D4).
         if host.runner.kernel().has_timelines() {
             batch.timelines();
         }
@@ -533,7 +377,7 @@ impl<D: DataSource> Host<D> {
             batch.surface(&s);
         }
         host.canvas_turn(&mut batch);
-        // Drain once, after all commits in this batch.
+        // @ref LLP 1038 D7 — drain once, after all commits in this batch.
         if let Some(change) = host.runner.take_router_change() {
             host.location = change.url.clone();
             batch.router(&change);
@@ -545,14 +389,15 @@ impl<D: DataSource> Host<D> {
         for w in host.runner.take_store_writes() {
             batch.store(&w);
         }
-        batch.grants(host.runner.data().grants());
+        // The origins its declared sources carry too (LLP 1162.001 D3).
+        batch.grants(&host.runner.grants());
         host.emit_textflow(&mut batch);
         let batch = host.complete(batch, None);
         Ok((host, batch))
     }
 
     /// The latest top URL, also the module re-boot's launch fact.
-    /// A replacement keeps the host's current location.
+    /// @ref LLP 1038 D5/D7 — a replacement keeps the host's current location.
     pub fn location(&self) -> &str {
         &self.location
     }
@@ -562,9 +407,9 @@ impl<D: DataSource> Host<D> {
         &self.runner
     }
 
-    /// `tap @t` or `type @t`: the agent answers a held
+    /// `tap @t` or `type @t` (LLP 1069.007 D4): the agent answers a held
     /// device request, consumed here. The one capability admitted, `share`, has nothing to
-    /// deliver but the journal line the runner writes;
+    /// deliver but the journal line the runner writes (LLP 1069.003 D6);
     /// `None` for an ordinary `tap` or `type`.
     pub fn answer_hold(&mut self, request: &str) -> Option<String> {
         exact_runner::agent::answer(&mut self.runner, request).map(|(reply, _)| reply)
@@ -599,7 +444,7 @@ impl<D: DataSource> Host<D> {
             }
         }
         self.now_ms = now_ms.max(self.now_ms);
-        // At the event's time: an action's `performanceNow()` is the page's.
+        // At the event's time: an action's `performanceNow()` is the page's (LLP 1096 D3).
         let a = self.runner.dispatch_at(view, event, self.now_ms);
         self.batch_for(&a.receipts, a.error.map(|e| format!("{e:?}")).as_deref())
     }
@@ -645,12 +490,12 @@ impl<D: DataSource> Host<D> {
         Ok(self.finish(batch, None))
     }
 
-    /// The page's line for the runner's journal: a refused intent and its reason.
+    /// The page's line for the runner's journal (LLP 1012 §3): a refused intent and its reason.
     pub fn log(&mut self, line: &str) {
         self.runner.log(line);
     }
 
-    /// The agent API's read operations: `tree`, `state`, and
+    /// The agent API's read operations (LLP 1012): `tree`, `state`, and
     /// `logs` from the runner; `settle` — the clock at which the last spring
     /// in flight ends, milliseconds, `null` when none — from the engine here,
     /// and a resource's re-ask.
@@ -672,14 +517,14 @@ impl<D: DataSource> Host<D> {
         }
         match self.inspect {
             Some(inspect) => inspect(&self.runner, request),
-            None => exact_runner::agent::error("this build links no inspection"),
+            None => exact_runner::agent::error("this build links no inspection (LLP 1047 D6)"),
         }
     }
 
     /// Move the clock; every timer due fires at its own time; one batch for
     /// all of them, each commit's ops behind an `at` marker carrying the
     /// time it was made, so a page that owns time attributes the transitions
-    /// they start to that instant. A timer's refusal
+    /// they start to that instant (LLP 1012; LLP 1002 D3). A timer's refusal
     /// stops the clock there: the commits before it are in the batch, the
     /// refusal in `error`, and `clock` says where the runner stands.
     pub fn advance(&mut self, now_ms: f64) -> String {
@@ -694,10 +539,10 @@ impl<D: DataSource> Host<D> {
         self.advanced(a)
     }
 
-    /// A presented frame: the timers due by `now_ms`, then
+    /// A presented frame (LLP 1073 D2): the timers due by `now_ms`, then
     /// every frame task once at it, in one batch as [`Host::advance`]'s.
     pub fn frame(&mut self, now_ms: f64) -> String {
-        // The frame source started: frame tasks are its, not the timers'.
+        // The frame source started: frame tasks are its, not the timers' (LLP 1073 D4).
         self.runner.present_frames(true);
         let a = self.runner.frame(now_ms);
         self.advanced(a)
@@ -705,7 +550,7 @@ impl<D: DataSource> Host<D> {
 
     pub(crate) fn advanced(&mut self, a: exact_runner::Advanced) -> String {
         self.now_ms = a.now_ms.max(self.now_ms);
-        // A canvas that asked for a frame draws at the landed time.
+        // LLP 1056 D5: a canvas that asked for a frame draws at the landed time.
         self.runner.canvas_frame();
         let error = a.error.map(|e| format!("{e:?}"));
         self.batch_for(&a.receipts, error.as_deref())
@@ -729,15 +574,43 @@ impl<D: DataSource> Host<D> {
     }
 
     /// The size, the display preferences and the fold, in one batch.
+    /// @ref LLP 1039 D2; LLP 1061 D4; LLP 1078 D6
     pub fn resize(&mut self, viewport: exact_runner::Viewport, now_ms: f64) -> String {
+        self.resize_with(viewport, now_ms, None)
+    }
+
+    /// [`Host::resize`] with the page's geometry, answered in the size's
+    /// commit (LLP 1039 D9).
+    pub fn resize_with(
+        &mut self,
+        viewport: exact_runner::Viewport,
+        now_ms: f64,
+        geometry: Option<PageGeometry>,
+    ) -> String {
         let a = self.runner.advance_timed(now_ms);
         self.now_ms = a.now_ms.max(self.now_ms);
         let mut receipts = a.receipts;
         let mut error = a.error.map(|e| format!("{e:?}"));
+        let size = Some((viewport.width, viewport.height));
+        // The geometry is checked whole before anything of the report
+        // changes: a refused part refuses it all (LLP 1039 D9).
+        let checked = match geometry.map(|g| (self.checked_view(size, &g, viewport.fold), g.2)) {
+            Some((Err(refused), _)) => {
+                let error = error.map_or(refused.clone(), |e| format!("{e}; {refused}"));
+                return self.batch_for(&receipts, Some(&error));
+            }
+            Some((Ok(env), keyboard)) => Some((env, keyboard)),
+            None => None,
+        };
+        let viewport_error = |e| format!("viewport: {e:?}");
         let answers = [
-            self.runner.set_viewport(viewport.width, viewport.height),
-            self.runner.set_preferences(viewport.preferences),
-            self.runner.set_fold(viewport.fold), // the fold rides the same report
+            match checked {
+                Some((env, keyboard)) => self.put_view(env, size, keyboard),
+                None => self.runner.set_view(size, None).map_err(viewport_error),
+            },
+            (self.runner.set_preferences(viewport.preferences)).map_err(viewport_error),
+            // the fold rides the same report (LLP 1078 D6)
+            (self.runner.set_fold(viewport.fold)).map_err(viewport_error),
         ];
         for answer in answers {
             match answer {
@@ -746,8 +619,7 @@ impl<D: DataSource> Host<D> {
                     receipt,
                 }),
                 Ok(None) => {}
-                Err(e) => {
-                    let viewport_error = format!("viewport: {e:?}");
+                Err(viewport_error) => {
                     error = Some(match error {
                         Some(timer_error) => format!("{timer_error}; {viewport_error}"),
                         None => viewport_error,
@@ -758,27 +630,27 @@ impl<D: DataSource> Host<D> {
         self.batch_for(&receipts, error.as_deref())
     }
 
-    /// The date: re-answer `exactTime` in one batch.
+    /// The date (LLP 1027.000.000): re-answer `exactTime` in one batch.
     pub fn set_time(&mut self, epoch_at_zero: f64, utc_offset: f64) -> String {
         let answer = self.runner.set_time(epoch_at_zero, utc_offset);
         self.told(answer, "time")
     }
 
-    /// The page's visibility, connectivity or share sheet:
+    /// The page's visibility, connectivity or share sheet (LLP 1069.000 D2):
     /// the `exactPage()` readers, in one batch.
     pub fn set_page(&mut self, page: exact_runner::Page) -> String {
         let answer = self.runner.set_page(page);
         self.told(answer, "page")
     }
 
-    /// The root font size `rem` follows: a relayout in one
+    /// The root font size `rem` follows (LLP 1069.000 D3): a relayout in one
     /// batch, no resource asked again.
     pub fn set_root_font_size(&mut self, px: f64) -> String {
         let answer = self.runner.set_root_font_size(px);
         self.told(answer, "root font size")
     }
 
-    /// The page module says `topic` changed: the resources
+    /// The page module says `topic` changed (LLP 1016.002): the resources
     /// watching it are asked again, in one batch.
     pub fn changed(&mut self, topic: &str) -> String {
         let answer = self.runner.changed(topic);
@@ -839,7 +711,7 @@ impl<D: DataSource> Host<D> {
         }
     }
 
-    /// The agent's `tap <list> into <key>`.
+    /// The agent's `tap <list> into <key>` (LLP 1070.000 §5).
     pub fn scroll_into_view(
         &mut self,
         view: ViewId,
@@ -879,7 +751,7 @@ impl<D: DataSource> Host<D> {
     }
 
     fn batch_from(&mut self, mut batch: Batch, receipts: &[Timed], error: Option<&str>) -> String {
-        let _roles = self.runner.bind_roles(); // Its own, crossing.
+        let _roles = self.runner.bind_roles(); // Its own, crossing (LLP 1121 stage 5).
         self.sync_runtime_font_names();
         self.emit_receipts(receipts, &mut batch);
         self.complete(batch, error.map(str::to_string))
@@ -895,7 +767,7 @@ impl<D: DataSource> Host<D> {
         for t in receipts {
             let r = &t.receipt;
             batch.at(t.at_ms);
-            // Before the destroys that follow it: the page reads
+            // Before the destroys that follow it (LLP 1063): the page reads
             // the leaving view's geometry before any op of the batch moves it.
             for exit in &r.exits {
                 let link = crate::link::linked().animations;
@@ -914,9 +786,7 @@ impl<D: DataSource> Host<D> {
                         self.head_dirty = true;
                         continue;
                     }
-                    if self.mirror.remove(&id).is_some_and(|m| !m.looks.is_empty()) {
-                        batch.looks(id, "");
-                    }
+                    self.forget_looks(id, batch);
                     self.layers.forget(id);
                     self.exclusions.remove(&id);
                     if let Some(drag) = self.drag {
@@ -944,6 +814,7 @@ impl<D: DataSource> Host<D> {
                     self.update(id, batch);
                 }
             }
+            self.reveal_animations(r, batch);
             // This commit's springs, at its own time: the style (the target)
             // is in the page before the frames that approach it start playing.
             // Adopt this receipt's time/targets/transitions while the hold is
@@ -984,14 +855,14 @@ impl<D: DataSource> Host<D> {
         }
         if !receipts.is_empty() {
             self.emit_textflow(batch);
+            self.emit_boundaries(batch);
         }
-        // A canvas's inputs: the runner's side-output, only
-        // from commits that applied.
+        // Canvas inputs come only from applied commits (LLP 1009 D2).
         for s in self.runner.take_surface_updates() {
             batch.surface(&s);
         }
         self.canvas_turn(batch);
-        // Drain once, after all commits in this batch.
+        // @ref LLP 1038 D7 — drain once, after all commits in this batch.
         if let Some(change) = self.runner.take_router_change() {
             self.location = change.url.clone();
             batch.router(&change);
@@ -1000,67 +871,9 @@ impl<D: DataSource> Host<D> {
             batch.command(&c.name, &c.args, c.source);
         }
         batch.timed(&mut self.runner, false);
-        // What the commit kept or forgot, for the page to persist.
+        // What the commit kept or forgot (LLP 1018 D1), for the page to persist.
         for w in self.runner.take_store_writes() {
             batch.store(&w);
-        }
-    }
-
-    fn emit_request(
-        &mut self,
-        r: RequestOut,
-        batch: &mut Batch,
-        immediate: &mut Vec<(u64, Outcome)>,
-    ) {
-        if let Some(message) = crate::batch::request_refusal(&r.request) {
-            batch.refuse(r.ticket, message);
-            return;
-        }
-        if r.request.is_auth() {
-            return self.emit_auth(r, batch);
-        }
-        let Some(token) = r.request.continuation else {
-            batch.request(&r);
-            return;
-        };
-        let dispatch = self.runner.dispatch_work(token);
-        self.emit_dispatch(r, dispatch, batch, immediate);
-    }
-
-    fn emit_dispatch(
-        &mut self,
-        mut r: RequestOut,
-        dispatch: Dispatch,
-        batch: &mut Batch,
-        immediate: &mut Vec<(u64, Outcome)>,
-    ) {
-        match dispatch {
-            Dispatch::Host(registry) => {
-                r.request.continuation = Some(registry);
-                batch.request(&r);
-            }
-            Dispatch::Run(Work::Now(work)) => immediate.push((r.ticket, work())),
-            // A re-ask settles at once, as the no-op it replaces did.
-            Dispatch::Again => immediate.push((r.ticket, Dispatch::again_outcome())),
-            Dispatch::Run(Work::Later(_)) => immediate.push((
-                r.ticket,
-                Outcome::Failed {
-                    kind: FailureKind::Unsupported,
-                    message: "an owner thread is unavailable on this host".into(),
-                },
-            )),
-            Dispatch::Held => {
-                if let Some(token) = r.request.continuation {
-                    self.parked.insert(token, r);
-                }
-            }
-            Dispatch::Missing => immediate.push((
-                r.ticket,
-                Outcome::Failed {
-                    kind: FailureKind::Unsupported,
-                    message: "missing or consumed browser continuation".into(),
-                },
-            )),
         }
     }
 
@@ -1130,12 +943,12 @@ impl<D: DataSource> Host<D> {
         Ok(Some(self.hold_batch(now_ms)))
     }
 
-    /// Record what the display shows for a live hold.
+    /// Record what the display shows for a live hold (LLP 1057.001 §3).
     pub fn track_hold(&mut self, serial: u64, shown: exact_motion::Value, now_ms: f64) -> bool {
         self.springs.track_hold(serial, now_ms / 1000.0, shown)
     }
 
-    /// Release at the engine-measured velocity when the platform supplies none.
+    /// Release at the engine-measured velocity when the platform supplies none (LLP 1057.001 §3).
     pub fn end_hold_measured(
         &mut self,
         serial: u64,
@@ -1179,11 +992,18 @@ impl<D: DataSource> Host<D> {
     }
 
     /// Complete the authored swipe while its translate hold still owns the
-    /// live node. An action may destroy that node; its later end is then stale.
-    pub fn dispatch_held(&mut self, serial: u64, now_ms: f64) -> Option<String> {
+    /// live node: `swiperight` for a presented offset `shown` to the right,
+    /// `swipeleft` to the left. An action may destroy that node; its later
+    /// end is then stale.
+    pub fn dispatch_held(&mut self, serial: u64, shown: f64, now_ms: f64) -> Option<String> {
         if !self.has_hold(serial) || !now_ms.is_finite() || now_ms / 1000.0 < self.springs.now() {
             return None;
         }
+        let swipe = match shown {
+            x if x > 0.0 => Event::Swiperight,
+            x if x < 0.0 => Event::Swipeleft,
+            _ => return None,
+        };
         let token = self.springs.token(serial)?;
         if token.property() != Property::Translate {
             return None;
@@ -1196,10 +1016,10 @@ impl<D: DataSource> Host<D> {
                 generation: (token.node() >> 32) as u32,
             })?
             .id;
-        Some(self.dispatch_at(view, Event::Swiperight, now_ms))
+        Some(self.dispatch_at(view, swipe, now_ms))
     }
 
-    /// The page brought back request `ticket`'s outcome:
+    /// The page brought back request `ticket`'s outcome (LLP 1016 D2):
     /// `kind` 0 is a response with `status`, `headers` as `name: value`
     /// lines, and `body`; 1–4 are failures, 5 is storage, 6/7 are a
     /// captured/restored surface, and 8 is a stream's message. The batch is the commit
@@ -1285,7 +1105,7 @@ impl<D: DataSource> Host<D> {
             (drag.created)(self, id, key, kinds);
         }
         let node = self.runner.kernel().node(id).expect("live");
-        // An exit's rules too, while its node lives.
+        // An exit's rules too, while its node lives (LLP 1063 D7).
         crate::css::send_keyframes(&mut self.keyframes, node.style, batch);
         let in_button = in_button(self.runner.kernel(), &node);
         let tag = tag_for(&node, in_button);
@@ -1300,7 +1120,7 @@ impl<D: DataSource> Host<D> {
                 let kernel = self.runner.kernel();
                 let (css, _skipped) = css::css_text(&css_style(kernel, &node), &self.font_names);
                 let mut props = props_for(&node);
-                // A decoration's and an atom kind's paint rows as CSS text by name.
+                // A decoration's and an atom kind's paint rows as CSS text by name (LLP 1114.007, 1045.000 D3).
                 for name in ["data-decoration-styles", "data-atom-styles"] {
                     if let Some(raw) = props.get(name) {
                         let css = crate::css::decoration_styles(raw, &self.font_names);
@@ -1324,16 +1144,16 @@ impl<D: DataSource> Host<D> {
             .collect();
         let pairs: Vec<(&str, String)> =
             props.iter().map(|(k, v)| (k.as_str(), v.clone())).collect();
-        batch.create(id, tag, &pairs, &css, &handlers);
+        let svg = node.node_type == NodeType::Svg || node.node_type.is_svg_element();
+        batch.create(id, tag, svg, &pairs, &css, &handlers);
         self.mirror.insert(
             id,
             Mirror {
                 props,
                 css,
-                children: Vec::new(),
                 in_button,
                 handled: !kinds.is_empty(),
-                looks: String::new(),
+                ..Default::default()
             },
         );
         self.emit_looks(id, batch);
@@ -1360,16 +1180,16 @@ impl<D: DataSource> Host<D> {
             (drag.updated)(self, id, key);
         }
         let node = self.runner.kernel().node(id).expect("live");
-        // An exit's rules too, while its node lives.
+        // An exit's rules too, while its node lives (LLP 1063 D7).
         crate::css::send_keyframes(&mut self.keyframes, node.style, batch);
-        // A computed name absent from the table draws ultra-thin and logs once.
+        // @ref LLP 1053.000 D4 — a computed name absent from the table draws ultra-thin and logs once.
         let note = node
             .props
             .str(PropId::BackgroundMaterial)
             .zip(crate::link::linked().materials)
             .and_then(|(name, material)| (material.1)(name));
         let mut props = props_for(&node);
-        // A decoration's and an atom kind's paint rows as CSS text by name.
+        // A decoration's and an atom kind's paint rows as CSS text by name (LLP 1114.007, 1045.000 D3).
         for name in ["data-decoration-styles", "data-atom-styles"] {
             if let Some(raw) = props.get(name) {
                 let css = crate::css::decoration_styles(raw, &self.font_names);
@@ -1427,7 +1247,7 @@ impl<D: DataSource> Host<D> {
         roots
     }
 
-    /// Sends the runner's active `<head>` only when it changes.
+    /// Sends the runner's active `<head>` only when it changes (LLP 1048.003 D1).
     fn emit_head(&mut self, batch: &mut Batch) {
         if !std::mem::take(&mut self.head_dirty) {
             return;

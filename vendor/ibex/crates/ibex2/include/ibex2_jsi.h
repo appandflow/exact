@@ -1,6 +1,6 @@
 #pragma once
 // JSI-only bindings. Compile ibex2_jsi.cc with the embedding engine's JSI headers.
-// One standard library; the caller owns the engine and the loop.
+// @ref LLP 0068#1-the-shape — one standard library, caller-owned engine and loop
 #include <jsi/jsi.h>
 #include <cstddef>
 #include <cstdint>
@@ -214,13 +214,14 @@ struct CompiledScript {
 ///   })(globalThis.__embedder_fetch_primitives);
 ///
 /// then `Adapter::harden()` before any application code.
+// @ref LLP 0068#opt-in-fetch-primitives-protocol — the normative L1e handoff protocol
 struct InstallOptions {
   const char* fetch_primitives = nullptr;
-  // Abort algorithms are a trusted-bootstrap handoff, never an application global.
+  // @ref LLP 0068#opt-in-abort-hooks-protocol — abort algorithms are a trusted-bootstrap handoff, never an application global
   const char* abort_hooks = nullptr;
-  // A Headers guard is a trusted-bootstrap handoff, never an application global.
+  // @ref LLP 0068#opt-in-headers-hooks-protocol — a Headers guard is a trusted-bootstrap handoff, never an application global
   const char* headers_hooks = nullptr;
-  // Trusted preludes may establish the whole SQLite integrity baseline once.
+  // @ref LLP 0068#deferred-intrinsic-integrity-baseline — trusted preludes may establish the whole SQLite integrity baseline once
   bool defer_intrinsic_snapshot = false;
 };
 
@@ -267,6 +268,9 @@ void set_binding(jsi::Runtime&, jsi::Object&, const char*, uint32_t, const void*
 // replaced intrinsics, including methods changed before a later freeze.
 // Retained JavaScript bindings fail closed after detach; they never dereference
 // a destroyed adapter. Detach clears all JSI roots before the runtime is destroyed.
+// Native engine exceptions propagate unchanged. Hermes heap OOM requires
+// detaching/destroying this adapter and destroying its runtime immediately:
+// never report it to JS, drain jobs, collect or reuse the runtime.
 class Adapter {
 public:
   // `bytecode_version` is the owning engine's supported HBC version when it
@@ -293,7 +297,7 @@ public:
   // Throws if deferral was not requested, installation is incomplete, capture
   // already ran, or Array.prototype is already frozen (including after direct
   // evaluation of HARDEN_SOURCE).
-  // Capture the trusted prelude's complete property sets and identities.
+  // @ref LLP 0068#deferred-intrinsic-integrity-baseline — capture the trusted prelude's complete property sets and identities
   void capture_intrinsics();
   // Install exactly `groups`. `scripts` must be the compiled results of
   // bindings::scripts(groups), in that order, from the compiler belonging to
@@ -301,14 +305,14 @@ public:
   // Host::endow and must carry the same runtime state given to this adapter.
   // Missing dependencies, wrong order, and a second install are refused. The
   // call neither drives nor waits on the runtime.
-  // The bindings door installs into a caller-owned runtime and returns.
+  // @ref LLP 0057.000#50-three-doors-one-implementation — door 2 installs into a caller-owned runtime and returns
   void install(Groups groups, const Ibex2Bindings* bindings,
                const CompiledScript* scripts, size_t script_count);
   // The same one-shot, atomic installation with explicitly requested trusted-
   // bootstrap outputs. Existing install() is exactly the empty-options case.
   // A caller that requests a trusted-bootstrap output must harden through
   // Adapter::harden() so its reachability guard runs before the freeze.
-  // Fetch ownership stays with embedders without creating a second authority path.
+  // @ref LLP 0057.000#l1--the-bindings-door — L1e keeps fetch ownership with embedders without creating a second authority path
   void install_with(Groups groups, const Ibex2Bindings* bindings,
                     const CompiledScript* scripts, size_t script_count,
                     const InstallOptions& options);
@@ -327,19 +331,19 @@ public:
   // and abort hooks, when requested. Prefer this over the compatibility-named
   // entry point above when checking explicitly; both run the complete guard.
   void verify_trusted_bootstrap_unreachable();
-  // Every fail-closed check that must precede the freeze: a deferred intrinsic
-  // snapshot has been captured, and trusted-bootstrap outputs are unreachable.
+  // Every fail-closed check that must precede the freeze: an intrinsic snapshot
+  // exists and still matches, and trusted-bootstrap outputs are unreachable.
   void verify_harden_preconditions();
   // The post-install hardening step through the adapter: validates `script`
   // as this runtime's Hermes bytecode (the header checks install() applies),
-  // runs verify_harden_preconditions(), and only then evaluates it.
+  // runs verify_harden_preconditions(), evaluates it, and pins the resulting
+  // frozen descriptors, including the prototype shadowing accessors.
   // `script` is HARDEN_SOURCE compiled by this engine's hermesc -- in Rust,
-  // ibex2::bindings::HARDEN_BYTECODE (path: HARDEN_BYTECODE_PATH). A caller
-  // that requested a trusted-bootstrap output through install_with MUST harden with
-  // this method rather than evaluating HARDEN_SOURCE itself; evaluating it
-  // directly skips the guard. For a plain install() it is equivalent to
-  // evaluating the bytecode. Throws, and freezes nothing, on refusal.
-  // The bindings door gets the same harden guard as the owning runtime.
+  // ibex2::bindings::HARDEN_BYTECODE (path: HARDEN_BYTECODE_PATH). Every caller
+  // must use this method: evaluating HARDEN_SOURCE directly skips the guard
+  // and leaves SQLite's captured descriptors out of date. A precondition
+  // refusal throws without freezing anything.
+  // @ref LLP 0068#opt-in-fetch-primitives-protocol — the bindings door gets the same harden guard as the owning runtime
   void harden(const CompiledScript& script);
   jsi::Function async_binding(const char* name, uint32_t op, const void* grants);
   // Trusted native correlation for the ORIGINAL Promise returned by image op
@@ -350,7 +354,7 @@ public:
   // WorkHandle BEFORE pumping: taking a settlement retires the Rust mapping.
   // A Promise returned by .then() is a different Promise and has no image id.
   // The private brand holds only a weak adapter owner, never a JSI root.
-  // Native per-Promise work identity.
+  // @ref LLP 0068.001#6-rust-and-borrowed-jsi-integration — native per-Promise work identity
   uint64_t image_task_id(jsi::Runtime&, const jsi::Value& promise) const;
 
   // Endowed values built from the factories retained by install().
@@ -383,16 +387,16 @@ public:
   void report_error(const jsi::Value& error);
   void report_error(const char* message);
   // Takes at most one storage settlement, subscribed event or admitted timer
-  // It admits no timers and runs no microtask checkpoint.
+  // (LLP 0071 D1). It admits no timers and runs no microtask checkpoint.
   // Callback failures are reported through the EVENTS error path and do not
   // escape. It holds the runtime's drive flag while it runs and throws
   // std::logic_error, taking nothing, when the flag is already held: by a
-  // delivery in progress, a cycle, or an owning pump.
+  // delivery in progress, a cycle, or an owning pump (LLP 0071 D5).
   bool deliver_one();
   // What cycle() did.
   enum class Cycle { Delivered, Idle, Nested };
-  // One event-loop cycle for a borrowed runtime, under the drive flag:
-  // drain microtasks, admit due timers, deliver at most one
+  // One LLP 0058.000.000 §8 cycle for a borrowed runtime, under the drive flag
+  // (LLP 0071 D5): drain microtasks, admit due timers, deliver at most one
   // task, drain microtasks. Idle -- nothing was ready -- is "settled at this
   // clock". A cycle requested while the flag is held (a microtask or callback
   // of this cycle, or an owning pump) runs nothing and returns Nested, as the

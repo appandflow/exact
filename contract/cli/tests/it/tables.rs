@@ -1,4 +1,4 @@
-//! HTML's table and description list: each element is a
+//! HTML's table and description list (LLP 1153 D7): each element is a
 //! `View` its `semanticTag` names, a cell's `colspan`, `rowspan` and `scope`
 //! are props, and the compiler holds them to HTML's content model.
 
@@ -391,4 +391,22 @@ fn border_collapse_names_border_spacing() {
             .contains("`border-spacing=0` puts the cells edge to edge"),
         "{e}"
     );
+}
+
+/// CSS 2.1 §17.6.1: `border-spacing` is a length in any of CSS's spellings,
+/// and a terminal entry writes it in cells (LLP 1101 D3).
+#[test]
+fn border_spacing_takes_css_lengths_and_cells_in_a_terminal() {
+    let table = |v: &str| {
+        format!("component App\n  view\n    table border-spacing={v}\n      tr\n        td\n          text \"a\"\n")
+    };
+    for v in ["2", "\"2px\"", "\"0.5rem\"", "\"1em\"", "\"1ch\""] {
+        contract::compile(&table(v)).unwrap_or_else(|e| panic!("{v}: {e}"));
+    }
+    for v in ["\"1ch\"", "\"1lh\"", "0"] {
+        contract::compile_terminal(&table(v)).unwrap_or_else(|e| panic!("{v}: {e}"));
+    }
+    for v in ["-2", "\"-2px\"", "\"-1rem\"", "\"-1ch\""] {
+        assert!(contract::compile(&table(v)).is_err(), "{v}");
+    }
 }

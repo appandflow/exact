@@ -1,11 +1,11 @@
-//! A module's names from Rust data code:
+//! A module's names from Rust data code (LLP 1133 §5, LLP 1133.002 D13):
 //! what a generated binding builds a request with and reads a reply by. The
 //! binding itself is generated from the app's plan (`contract::module_rust`)
 //! into a data crate's `OUT_DIR`: a record per shape and per call's options,
 //! and per name a request builder and a reply parser. A source returns the
 //! request as `Answer::Later` from `answer` and reads the reply in `parse`;
 //! the runner admits the body as it admits a Contract call. Rust has no
-//! synchronous form.
+//! synchronous form (D14).
 
 use exact_runner::{DataError, Outcome, Request};
 pub use serde_json;
@@ -44,7 +44,7 @@ impl From<ModuleError> for DataError {
 }
 
 /// A value a binding carries, as the wire's JSON. Encoding leaves an omitted
-/// option out (`None`), so it stays the platform's, and fails on what
+/// option out (`None`), so it stays the platform's (D2), and fails on what
 /// JSON cannot carry (a non-finite number) or a value outside an enum.
 /// Decoding takes an absent or `null` option as `None` and ignores keys the
 /// shape does not name, as TypeScript's reading does.
@@ -111,11 +111,13 @@ impl<T: ModuleValue> ModuleValue for Vec<T> {
     }
 }
 
-/// A WebAuthn dictionary passed whole (`json<T>`): the
-/// module checks only that it is JSON, the platform the rest.
+/// A value passed whole as JSON (`json<T>`, a WebAuthn dictionary among
+/// them, LLP 1133.011 D10): the module checks only that it is JSON, the
+/// platform the rest. A JSON null is sent as one, `json<option<T>>`'s none;
+/// only an option of the binding's own (`Option<Value>`) omits its field.
 impl ModuleValue for Json {
     fn encode(&self) -> Result<Option<Json>, String> {
-        Ok((!self.is_null()).then(|| self.clone()))
+        Ok(Some(self.clone()))
     }
     fn decode(json: &Json) -> Result<Self, String> {
         Ok(json.clone())
@@ -159,7 +161,7 @@ pub fn member(value: &str, members: &[&str]) -> Result<(), String> {
 }
 
 /// The request for `extension`'s `name` (`verb` is `source` or `send`) with
-/// these keyword arguments.
+/// these keyword arguments: LLP 1124 D5's body.
 pub fn request(extension: &str, verb: &str, name: &str, args: Json) -> Request {
     let body = serde_json::json!({ "extension": extension, verb: name, "args": args });
     Request::native(body.to_string().into_bytes())
@@ -199,7 +201,7 @@ pub fn reply(name: &str, outcome: &Outcome) -> Result<Json, ModuleError> {
 }
 
 /// The keys of a module's error answer: its code, what it says, and each
-/// platform's own code (`apple.code`, `android.type`).
+/// platform's own code (LLP 1133.011 D1: `apple.code`, `android.type`).
 const ERROR_KEYS: [&str; 4] = ["error", "message", "apple", "android"];
 
 /// A reply that is not the declared shape.
@@ -208,4 +210,22 @@ pub fn malformed(name: &str, why: String) -> ModuleError {
         "NotSupportedError",
         format!("{name}: the reply is not its shape: {why}"),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_json_null_is_sent_and_an_absent_option_is_omitted() {
+        let mut body = Map::new();
+        put(&mut body, "value", &Json::Null).unwrap();
+        put(&mut body, "list", &vec![Json::Null, Json::from(1)]).unwrap();
+        put(&mut body, "unset", &None::<Json>).unwrap();
+        put(&mut body, "set", &Some(Json::Null)).unwrap();
+        assert_eq!(
+            Json::Object(body),
+            serde_json::json!({"value": null, "list": [null, 1], "set": null})
+        );
+    }
 }

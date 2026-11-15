@@ -1,6 +1,7 @@
-//! `map`, `filter` and `join` in Contract expressions, proven on the runner —
-//! what they compute, what they refuse, their bound, and that a row's derived
-//! string is formatted again only when what it reads changes.
+//! LLP 1017.003: `map`, `filter` and `join` in Contract expressions, proven
+//! on the runner — what they compute, what they refuse, their bound, and
+//! that a row's derived string is formatted again only when what it reads
+//! changes.
 
 use exact_kernel::{Kernel, PropValue};
 use exact_plan::{Items, Plan, Value};
@@ -266,7 +267,7 @@ fn an_arrow_is_only_a_callback_and_the_types_hold() {
     contract::compile("fn map(n: number): number = n\ncomponent A\n  view\n    text `${map(2)}`\n")
         .unwrap();
     // A method call is the built-in, so a `fn`, shape or action of its name is
-    // refused rather than called, in a template too.
+    // refused rather than called (LLP 1116.016 D2), in a template too.
     for src in [
         "fn trim(s: string): string = s\ncomponent A\n  state s = \" a \"\n  view\n    text s.trim()\n",
         "fn length(s: string): number = 0\ncomponent A\n  state s = \"a\"\n  view\n    text `${s.length}`\n",
@@ -298,7 +299,7 @@ fn callback_runs_are_bounded_per_evaluation_and_the_trap_is_named() {
     let error = contract::bake(plan.clone(), Xs(256)).unwrap_err();
     assert!(format!("{error:?}").contains("IterationLimit"), "{error:?}");
     // At run time the binding's row is unset, the journal says why, and the
-    // runner goes on.
+    // runner goes on (LLP 1017.003 D3).
     let r = Runner::boot(
         plan,
         Xs(256),
@@ -387,7 +388,7 @@ component A
     assert_eq!(e.id, "type-argument", "{e}");
 }
 
-/// `sortBy`: a stable sort by one number or string key,
+/// `sortBy` (LLP 1116.016 §5): a stable sort by one number or string key,
 /// equal keys in input order in both directions; NaN, -0 and +0 tie;
 /// strings by UTF-16 code unit. Its list steps are its `Map`'s, one an
 /// item, so 5,000 rows filtered then sorted take 10,000 of the 65,536.
@@ -636,8 +637,9 @@ component A
     }
 }
 
-/// A shape may declare a field named `length`: `x.length` reads it on such
-/// a record, built and copied with it as any field, and still counts a list or text; on a record without one
+/// A shape may declare a field named `length` (LLP 1116.015 D2, amended
+/// 2026-10-17): `x.length` reads it on such a record, built and copied with
+/// it as any field, and still counts a list or text; on a record without one
 /// it is refused, saying what `.length` counts.
 #[test]
 fn a_field_named_length_is_read_and_written_and_lists_still_count() {
@@ -777,7 +779,7 @@ component Child
     );
 }
 
-/// The web's list idioms, as an agent or a web
+/// LLP 1017.003 §Diagnostics: the web's list idioms, as an agent or a web
 /// developer writes them first, are each refused with the spelling that works
 /// or what to do instead.
 #[test]
@@ -792,7 +794,7 @@ fn the_webs_list_idioms_are_refused_with_their_fix() {
         assert_eq!(e.id, id, "{line}: {e}");
         assert!(e.message.contains(fix), "{line}: {e}");
     };
-    // 1. The web's methods are Contract's, and the free
+    // 1. The web's methods are Contract's (LLP 1116.015 D2), and the free
     // spellings name the method form.
     for line in [
         "text xs.map(x => x.name).join(\",\")",
@@ -865,7 +867,7 @@ fn the_webs_list_idioms_are_refused_with_their_fix() {
             "in the data source",
         );
     }
-    // A comparator sort names the key sort.
+    // A comparator sort names the key sort (LLP 1116.016 §5).
     for line in [
         "text xs.sort((a, b) => a.n - b.n).length.toString()",
         "text xs.toSorted((a, b) => a.n - b.n).length.toString()",
@@ -978,8 +980,8 @@ impl DataSource for Tick {
 }
 
 /// `[]` is the empty list, typed by the other arm of a `match` or `?:`, a
-/// declared `T[]`, or a write into the state it initializes, and it runs as the
-/// empty list it names.
+/// declared `T[]`, or a write into the state it initializes (LLP
+/// 1017.003 D4), and it runs as the empty list it names.
 #[test]
 fn an_empty_list_is_typed_from_its_context_and_runs() {
     let plan = contract::bake(
@@ -1030,7 +1032,7 @@ fn an_empty_list_is_typed_from_its_context_and_runs() {
 
 /// An `[]` nothing types is refused where it is written, not as a cycle;
 /// a state only `[]` initializes is refused as a state nothing writes; a
-/// list literal's items have one type.
+/// list literal's items have one type (LLP 1088 §9.1).
 #[test]
 fn an_empty_list_nothing_types_is_refused_where_it_is_written() {
     let e = contract::compile("component A\n  derive xs = []\n  view\n    text xs.join(\",\")\n")
@@ -1073,7 +1075,7 @@ fn an_empty_list_nothing_types_is_refused_where_it_is_written() {
         .unwrap_err();
     assert_eq!(e.id, "type-fn-return", "{e}");
     // A state a later action writes is a typed source argument, whatever
-    // the declaration order.
+    // the declaration order (the second review's two Contracts).
     for src in [
         "shape Coin\n  id: string\ncomponent A\n  state q = none\n  action set(s: string)\n    q = some(s)\n  resource xs = src(q) as shape Coin[]\n  view\n    text `${xs.length}`\n",
         "shape Coin\n  id: string\ncomponent A\n  mutation changed as shape Coin[]\n  state q = none\n  action tick\n    send changed = tick(q)\n  action set(s: string)\n    q = some(s)\n  view\n    text \"a\"\n",
@@ -1147,10 +1149,11 @@ fn shown<D: DataSource>(r: &Runner<D>, id: &str) -> String {
         .unwrap_or_default()
 }
 
-/// `[a, b]` is a list of its items, written across lines with a trailing comma,
-/// its items' types met as a ternary's arms are; a selection and a set of
-/// collapsed ids are kept with `concat`, `slice`, `includes` and `indexOf`, the
-/// web's array methods, and recipients are `split`, text's.
+/// LLP 1088 §9.1: `[a, b]` is a list of its items, written across lines
+/// with a trailing comma, its items' types met as a ternary's arms are; a
+/// selection and a set of collapsed ids are kept with `concat`, `slice`,
+/// `includes` and `indexOf`, the web's array methods, and recipients are
+/// `split`, text's.
 #[test]
 fn a_list_the_screen_keeps_is_built_in_contract() {
     let plan = contract::bake(
@@ -1306,11 +1309,12 @@ impl DataSource for Many {
     }
 }
 
-/// `concat`, `slice` and `split` take a list step for each item they keep,
-/// before they build, and `includes` and `indexOf` one for each item they scan
-/// up to the match, on the evaluation's one budget; a list they build is
-/// bounded as `List` is (conformance runs the same on the JS target,
-/// `host/web-js/conformance/budget.contract`).
+/// LLP 1088 §9.1 in LLP 1090 D3's terms: `concat`, `slice` and `split` take
+/// a list step for each item they keep, before they build, and `includes`
+/// and `indexOf` one for each item they scan up to the match, on the
+/// evaluation's one budget; a
+/// list they build is bounded as `List` is (conformance runs the same on the
+/// JS target, `host/web-js/conformance/budget.contract`).
 #[test]
 fn concat_slice_and_includes_take_list_steps_and_build_bounded_lists() {
     let src = "shape Row\n  id: string\n  title: string\ncomponent A\n  state n = 0\n  state c = 0\n  resource rs = rows(n) as shape Row[]\n  resource s = long(c) as shape string\n  derive both = rs.concat(rs).length\n  derive kept = rs.slice(1).length\n  derive found = rs.map(r => r.id).includes(\"none\")\n  derive big = c > 0 ? rs.map(r => s).concat(rs.map(r => s)).length : 0\n  action go(k: number, b: number)\n    n = k\n    c = b\n  view\n    text `${both} ${kept} ${found} ${big}` testId=\"t\"\n";

@@ -1,7 +1,7 @@
-# The local network by a person
+# The local network by a person (LLP 1133.036 §10 drive 9, §14 stages 1 and 2)
 
 What no tool here can do: show the platforms' Local Network alerts, find a
-real device, and lose it at the wall. Use dedicated test phones, and
+real device, and lose it at the wall. Use LLP 1133.020's test phones, and
 write down the commit, the device and its OS version beside each result.
 
 **What you need.** A WLED light: any ESP32 board flashed with WLED
@@ -40,7 +40,7 @@ Build: `bun host/apple/build.mjs lights-apple --ios --device --run`.
    alert). Lights' alert, list and loss timing should match it: note any
    difference as a tell.
 
-## iPhone: what TN3179 warns of (the probe is not built)
+## iPhone: what TN3179 warns of (D8; the probe is not built)
 
 8. **The first fetch while the alert is up.** Delete Lights, install it, and
    before answering the alert, tap Add with the light's address typed. Record
@@ -102,5 +102,5 @@ the APK it prints (`host/android/README.md`, "Building an app").
 ## Linux and Windows
 
 19. Lights says "This device can't look for lights" (no browser is built on
-    either) and a typed address works. On the Windows test machine record that Windows
+    either) and a typed address works. On the NucBox record that Windows
     Firewall asks nothing for an outgoing reach.

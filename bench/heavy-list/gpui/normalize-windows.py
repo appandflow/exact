@@ -1,4 +1,4 @@
-"""Python reducer for the GPUI measurements. Run from the repository root; inputs and outputs are retained under target/s0."""
+"""Stage 0 Python reducer. Run from the repository root; inputs and outputs are retained under target/s0."""
 import bisect,csv,json,pathlib,subprocess
 root=pathlib.Path('target/s0/windows');summary={}
 for p in sorted(root.iterdir()):

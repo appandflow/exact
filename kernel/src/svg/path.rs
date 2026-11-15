@@ -1,7 +1,7 @@
 //! SVG path data and point lists, to one absolute path of moves, lines,
 //! cubics and closes.
 //!
-//! SVG 2 §9.3 (the grammar), §9.5.4 (error handling:
+//! @ref LLP 1055 D1; SVG 2 §9.3 (the grammar), §9.5.4 (error handling:
 //! render up to the last good segment), Implementation Notes §B.2.4 (arcs
 //! to centre form)
 //!
@@ -116,7 +116,7 @@ pub fn parse_d(d: &str) -> Path {
     parse_d_commands(d).0
 }
 
-/// `d` as the motion engine moves it: each authored
+/// `d` as the motion engine moves it (LLP 1055.000 D15): each authored
 /// command made absolute, its kind kept, so two paths interpolate exactly
 /// when Chrome's do. `None` for data with an error, which does not move.
 pub fn parse_d_motion(d: &str) -> Option<exact_motion::PathValue> {
@@ -126,7 +126,7 @@ pub fn parse_d_motion(d: &str) -> Option<exact_motion::PathValue> {
 
 /// [`parse_d`], with where each authored command's segments end: a marker
 /// sits at the end of each command, so an arc drawn as several cubics is
-/// one vertex.
+/// one vertex (LLP 1055.000 D9).
 pub fn parse_d_commands(d: &str) -> (Path, Vec<usize>) {
     let (path, ends, _, _) = parse(d);
     (path, ends)

@@ -1,4 +1,4 @@
-// The agent's photo library on Android, as Apple's `AgentLibrary.swift` is: what @exact/photos
+// The agent's photo library on Android (LLP 1133.019 §10), as Apple's `AgentLibrary.swift` is: what @exact/photos
 // reads and adds to under the agent, where it asks MediaStore for nothing. Its photos are `fixture/agent-1.jpg` to
 // `agent-6.jpg`, which an APK carries as the app's assets under `photos-fixture/` (the fixture app's `assets/`; the
 // reader puts an app's assets at `app/assets/` in the APK), with fixed creation dates, agent-1 the newest; agent-3
@@ -6,7 +6,7 @@
 // session's `app:/tmp/photos-library/`.
 // What the app may see of it is the access the runner's status gives (`full`, `limited`, `none`) and, under
 // `limited`, the selection (the agent's `selection`, else `agent-1` to `agent-3`), with the app's own adds, which
-// Android lets an app read whatever its read permission.
+// Android lets an app read whatever its read permission (D6).
 package exact.photos
 
 import android.content.res.AssetManager
@@ -95,14 +95,16 @@ internal class AgentLibrary(assets: AssetManager) {
         return assets.filter { it.id in seen }.sortedByDescending { it.created }.take(limit)
     }
 
-    /** An add: [bytes], kept in [directory], join the library at the session's [now]. Null for bytes that are no image. */
-    fun add(bytes: ByteArray, directory: File, now: Double): Asset? {
+    /** An add: [bytes], kept at the file [destination] answers for its name, join the library at the session's [now].
+     * Null for bytes that are no image, or where [destination] answers no file or it is not written. */
+    fun add(bytes: ByteArray, now: Double, destination: (String) -> File?): Asset? {
         val (w, h, type) = size(bytes) ?: return null
         val id = "agent-${assets.size + 1}"
         val name = "$id.${extension(type)}"
+        val file = destination(name) ?: return null
         try {
-            directory.mkdirs()
-            File(directory, name).writeBytes(bytes)
+            file.parentFile?.mkdirs()
+            dev.exact.canvas.Files.write(file, bytes)
         } catch (e: java.io.IOException) { return null }
         // The session's clock counts from 0 under the agent, so an add is dated a day after the newest fixture, plus
         // that clock: newer than all of them, as a photo saved today is.

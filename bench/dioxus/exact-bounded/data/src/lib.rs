@@ -3,7 +3,7 @@
 //! (bundled into the binary, never regenerated), the reaction counts the app
 //! has changed, and live mode (`BENCH_LIVE=1` in the launch environment).
 //!
-//! - `feed(cursor)` answers a window: at most `K` messages
+//! - `feed(cursor)` answers a window (LLP 1027.004 D1): at most `K` messages
 //!   starting `K/2` before the message `cursor` names (the top when empty),
 //!   with the ids of its first and last rows as the neighbouring cursors. The
 //!   empty cursor's window is baked into the plan at build;
@@ -15,7 +15,7 @@
 //!   `(k*101) % 10000` (the first at or after it that has reactions), and
 //!   answers `{ ok }`.
 //!
-//! Record sharing: every answer is a fresh list, but its
+//! Record sharing (LLP 1053 §0, G8): every answer is a fresh list, but its
 //! items are the previous answer's `Rc` records for every message that did
 //! not change, so the runner's identity checks (`compare::same`) hold for
 //! them. A tick builds exactly two records: the inserted `live-k` (which
@@ -205,7 +205,7 @@ fn with(row: &Value, changes: &[(usize, Value)]) -> Value {
     Value::record(f)
 }
 
-/// The most rows a window holds.
+/// The most rows a window holds (LLP 1027.004 D1).
 const K: usize = 200;
 
 /// `shape Message` field indices.

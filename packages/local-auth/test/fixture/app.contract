@@ -1,4 +1,4 @@
-// The conformance fixture: both names of @exact/local-auth
+// The conformance fixture (LLP 1133.001 D7): both names of @exact/local-auth
 // and the store's presence operations, each answer shown by testId for the
 // suite. `token` is a lock the person chooses; `key` is always locked.
 use authenticate, localAuthStatus, LocalAuthentication, LocalAuthStatus from "@exact/local-auth"

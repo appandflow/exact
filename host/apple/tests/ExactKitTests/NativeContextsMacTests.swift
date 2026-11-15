@@ -3,9 +3,9 @@ import AppKit
 import XCTest
 @testable import ExactKit
 
-/// On AppKit, a native button is a window toolbar's item,
-/// its prominent style a prominent item, and a tab drawn as a segment
-/// from its face, its shortcut kept.
+/// LLP 1069.011.000 on AppKit: a native button is a window toolbar's item,
+/// its prominent style a prominent item (D2), and a tab drawn as a segment
+/// from its face (D4), its shortcut kept (D7).
 final class NativeContextsMacTests: XCTestCase {
     func testModuleRootsUseTheNamedStoresRuntimeRootsAcrossSessions() throws {
         let base = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
@@ -104,7 +104,7 @@ final class NativeContextsMacTests: XCTestCase {
         XCTAssertEqual(pressed, [3])
     }
 
-    /// A radio group of radios is AppKit's segmented
+    /// LLP 1116.004 D5.2: a radio group of radios is AppKit's segmented
     /// control, as a tablist is: the checked radio selected, a pick pressing it.
     func testARadioGroupIsASegmentedControlWhosePickPressesItsRadio() throws {
         _ = NSApplication.shared

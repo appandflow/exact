@@ -24,6 +24,8 @@ fn edge_handlers_require_a_virtualized_collection() {
             for explanation in [
                 event,
                 "virtualized list",
+                "write `list virtualized=true` with one direct `for`",
+                "LLP 1010",
                 "plain list",
                 "geometric window",
                 "docs/reference.md",
@@ -201,7 +203,7 @@ fn bootstrap_then_edges_rearm_only_after_leaving_the_geometric_window() {
     assert_eq!(
         hits(&r),
         (2., 2.),
-        "a row appended past the end re-arms it (2026-09-29)"
+        "a row appended past the end re-arms it (LLP 1010, 2026-09-29)"
     );
     r.act("change", vec![Value::Number(2.), Value::Number(200.)])
         .unwrap();
@@ -475,8 +477,8 @@ fn an_edge_before_activation_commits_and_activation_asks_its_arguments_once() {
     .unwrap();
     let initial = r.collections()[0].count;
     let queries = r.data_ref().queries;
-    // The compiled placeholder stands until activation: the edge's action
-    // commits and the source is not asked.
+    // The compiled placeholder stands until activation (LLP 1038 D5, LLP
+    // 1027 D4): the edge's action commits and the source is not asked.
     let result = r.collection_feedback(facts(&r, 0.)).unwrap();
     assert!(result.error.is_none(), "{:?}", result.error);
     assert_eq!(hits(&r), (1., 0.));
@@ -520,7 +522,7 @@ fn edge_handlers_take_their_bound_arguments() {
 
 #[test]
 fn an_edge_evaluates_its_arguments_when_it_dispatches() {
-    // The value the handler sees is the one at dispatch.
+    // LLP 1054.000.006: the value the handler sees is the one at dispatch.
     let source = SOURCE
         .replace("reachend=onEnd", "reachend=endAt(mark)")
         .replace(
@@ -626,18 +628,22 @@ fn bidirectional_tiny_rows_do_not_rearm_on_endpoint_key_changes() {
     assert_eq!(hits(&r), (1., 1.), "an all-fitting window must become idle");
 }
 
-#[test]
-fn replacement_estimates_do_not_rearm_bidirectional_measured_tiny_rows() {
+/// Tiny rows, both edges always within their band: a bidirectional window
+/// of 200 rows from `first`, whose `reachstart` shifts it `step` rows toward
+/// the start and whose `reachend` shifts it back while it is before `first`.
+/// 120 turns of layout-only feedback; the hits, the window's start and the
+/// queries asked.
+fn tiny_bidirectional(first: u32, step: u32) -> ((f64, f64), Option<Value>, usize) {
     let source = SOURCE
         .replace("height=32", "height=1")
-        .replace("state start = 0", "state start = 200")
+        .replace("state start = 0", &format!("state start = {first}"))
         .replace(
             "refused = fail",
-            "refused = fail\n    if start > 0\n      start = start - 100",
+            &format!("refused = fail\n    if start > 0\n      start = start - {step}"),
         )
         .replace(
             "ends = ends + 1",
-            "ends = ends + 1\n    if start < 200\n      start = start + 100",
+            &format!("ends = ends + 1\n    if start < {first}\n      start = start + {step}"),
         );
     let mut r = boot(&source);
     let mut top = 0.;
@@ -658,17 +664,35 @@ fn replacement_estimates_do_not_rearm_bidirectional_measured_tiny_rows() {
             );
         }
     }
-    // The end's shift back keeps the old last row and puts rows after it,
-    // which re-arms the end once (2026-09-29); its no-op then
-    // leaves both idle. Replacement heights still manufacture no exit.
+    assert_eq!(r.collections()[0].total_extent, 200.);
+    (hits(&r), r.slot("start").cloned(), r.data_ref().queries)
+}
+
+#[test]
+fn replacement_estimates_do_not_rearm_bidirectional_measured_tiny_rows() {
+    // Each shift replaces the whole window (200 rows, a step of 200), so its
+    // rows arrive with replacement heights and none is a page at the start
+    // (LLP 1168.000 D1.1): only those heights could re-arm an edge, and they
+    // manufacture no exit.
     assert_eq!(
-        hits(&r),
-        (1., 2.),
+        tiny_bidirectional(400, 200),
+        ((1., 1.), Some(Value::Number(400.)), 3),
         "provisional replacement heights must not manufacture an edge exit"
     );
-    assert_eq!(r.slot("start"), Some(&Value::Number(200.)));
-    assert_eq!(r.data_ref().queries, 3);
-    assert_eq!(r.collections()[0].total_extent, 200.);
+}
+
+#[test]
+fn a_bidirectional_window_pages_to_its_start_and_goes_idle() {
+    // Each shift toward the start puts 100 new rows before the first, a page
+    // at the start, which re-arms the start (LLP 1168.000 D1.1): the window
+    // pages back to row 0, where the start's last firing finds no earlier
+    // rows. The end's shift back keeps the old last row and puts rows after
+    // it, which re-arms the end once (LLP 1010, 2026-09-29). Both then go
+    // idle.
+    assert_eq!(
+        tiny_bidirectional(200, 100),
+        ((4., 2.), Some(Value::Number(0.)), 5)
+    );
 }
 
 #[test]
@@ -703,10 +727,10 @@ fn an_empty_replacement_rearms_new_data_without_dispatching_an_empty_edge() {
     assert_eq!(hits(&r), (2., 2.));
 }
 
-// `initial-item-count` is how many rows a list builds before its first layout
-// report (a served page's rows), whatever its estimate; the estimate still
-// sizes the window after it, so a realistic one reaches no edge on that first
-// report.
+// @ref LLP 1010 §6.5 — `initial-item-count` is how many rows a list builds
+// before its first layout report (a served page's rows), whatever its
+// estimate; the estimate still sizes the window after it, so a realistic one
+// reaches no edge on that first report.
 #[test]
 fn initial_item_count_sets_the_first_window_apart_from_the_estimate() {
     let tall = |extra: &str| {
@@ -739,9 +763,10 @@ fn initial_item_count_sets_the_first_window_apart_from_the_estimate() {
     assert!(e.to_string().contains("virtualized"), "{e}");
 }
 
-// A page that arrives before a trailing row that stays last (a feed's
-// "loading" tail) re-arms the end as a page appended past it does: the list
-// grew and kept its last row. Without it, a feed stalls after its first page.
+// @ref LLP 1010 (2026-09-29 ruling, provisional) — a page that arrives
+// before a trailing row that stays last (a feed's "loading" tail) re-arms
+// the end as a page appended past it does: the list grew and kept its last
+// row. The bench's feed stalled after its first page without it.
 #[test]
 fn rows_arriving_before_a_trailing_row_rearm_the_end() {
     let source = SOURCE
@@ -765,9 +790,9 @@ fn rows_arriving_before_a_trailing_row_rearm_the_end() {
     assert_eq!(hits(&r).1, 2.);
 }
 
-// A list on a route its stack keeps covered (a deep link's root under the
-// screen it opened) asks for nothing until the route shows; then the report
-// its host is asked for offers the edge.
+// @ref LLP 1010 — a list on a route its stack keeps covered (a deep link's
+// root under the screen it opened) asks for nothing until the route shows;
+// then the report its host is asked for offers the edge.
 #[test]
 fn a_list_on_a_covered_route_waits_for_it_to_show() {
     let source = SOURCE
@@ -819,8 +844,8 @@ fn an_edge_on_a_live_clock_reports_when_its_callback_ended() {
     assert_eq!(result.receipts.last().unwrap().at_ms, 4500.);
 }
 
-// `reach-margin` is a virtualized list's literal: one or two nonnegative px
-// or % lengths.
+// @ref LLP 1145 D4 — `reach-margin` is a virtualized list's literal: one or
+// two nonnegative px or % lengths.
 #[test]
 fn reach_margin_is_a_virtualized_lists_literal() {
     let list = |attrs: &str| SOURCE.replace("height=320", &format!("height=320{attrs}"));
@@ -848,8 +873,8 @@ fn reach_margin_is_a_virtualized_lists_literal() {
     }
 }
 
-// `keep-mounted` is a virtualized list's list of row keys, each a key or an
-// option of one.
+// @ref LLP 1010 §6.11 — `keep-mounted` is a virtualized list's list of row
+// keys, each a key or an option of one.
 #[test]
 fn keep_mounted_is_a_virtualized_lists_list_of_keys() {
     let list = |value: &str| {

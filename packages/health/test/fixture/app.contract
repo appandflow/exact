@@ -1,4 +1,4 @@
-// The conformance fixture: @exact/health's names read and
+// The conformance fixture (LLP 1133.001 D7): @exact/health's names read and
 // sent as an app would, each answer shown by testId for the suites. It uses
 // the pedometer and the altimeter too, so one Android build compiles all
 // three packages' implementations.

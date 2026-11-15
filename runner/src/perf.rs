@@ -1,5 +1,7 @@
 //! `perf <target>`: the work a subtree's plan sites did, totalled across
-//! their instances' lifetimes.
+//! their instances' lifetimes (LLP 1079 D1–D2).
+//!
+//! @ref LLP 1079 D1 (what is counted, in which unit), D2 (the read)
 //!
 //! The counters live beside the instance ids ([`crate::instance::Ids`]),
 //! because every instance is realized there, and grow only while a host
@@ -13,7 +15,7 @@ use std::collections::BTreeMap;
 use std::fmt::Write as _;
 
 /// The most instances one read walks, and the most sites it returns; past
-/// either the reply says `truncated`.
+/// either the reply says `truncated` (D2).
 pub const WALK_LIMIT: usize = 20_000;
 /// See [`WALK_LIMIT`].
 pub const SITE_LIMIT: usize = 500;
@@ -21,7 +23,7 @@ pub const SITE_LIMIT: usize = 500;
 /// One plan site's work since measuring began, across every instance of it.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct SiteWork {
-    /// Instances realized, retired ones included (`created`).
+    /// Instances realized, retired ones included (D1 `created`).
     pub created: u64,
     /// Retired instances the runner has forgotten ([`crate::instance::Ids::retain`]);
     /// a read adds the remembered ones no longer live.
@@ -66,33 +68,33 @@ pub struct Work {
     pub reported: std::cell::Cell<u64>,
     /// Measuring waits for the host's first ask ([`Runner::measure_later`]).
     pub later: bool,
-    /// Refused answers by resource index since measuring began.
+    /// Refused answers by resource index since measuring began (LLP 1142 D4).
     pub failures: Vec<Failures>,
     /// Asks of the app's data source by resource index since measuring
-    /// began: `perf`'s `resources`. Never rolled back.
+    /// began: `perf`'s `resources` (LLP 1146 D3). Never rolled back.
     pub asked: Vec<u64>,
-    /// Current request and last successful request, only while measuring.
-    pub resources: Vec<ResourceWork>,
+    /// Whether resource request provenance is being measured (LLP 1142 D9).
+    pub resource_inspection: bool,
     /// Next observation identifier; refusals never reuse one.
     pub resource_serial: u64,
     /// Runner clock when resource observation began.
     pub resources_since: f64,
     /// Failure lines a development host also writes to its platform's log,
-    /// oldest first, and how many were dropped past [`ALERTS`].
+    /// oldest first, and how many were dropped past [`ALERTS`] (D4).
     pub alerts: std::cell::RefCell<(std::collections::VecDeque<String>, u64)>,
     /// Every other journal line, kept the same way for a development host's
-    /// platform log at a lower level.
+    /// platform log at a lower level (LLP 1143 open question 1).
     pub journal: std::cell::RefCell<(std::collections::VecDeque<String>, u64)>,
     /// Dispatches and the ones that committed a change, by plan site and
-    /// event name.
+    /// event name (LLP 1142 D6).
     pub handlers: BTreeMap<(u32, &'static str), Handler>,
-    /// The `for` regions already said to build a long list whole:
-    /// each once a session.
+    /// The `for` regions already said to build a long list whole (LLP 1144
+    /// D4): each once a session.
     pub long_lists: std::collections::BTreeSet<u32>,
 }
 
 /// Rows a `for` repeats outside a virtualized list from which a development
-/// build says the list is built whole.
+/// build says the list is built whole (LLP 1144 D4).
 pub const LONG_LIST: usize = 200;
 
 /// The most alert lines kept for a host that has not taken them.
@@ -138,7 +140,7 @@ pub(crate) fn take(
     lines
 }
 
-/// One resource's refused answers: how many, and the runner's
+/// One resource's refused answers (LLP 1142 D4): how many, and the runner's
 /// clock at the first and the latest. Not reset by a success, nor rolled
 /// back with a refused commit: what happened happened.
 #[derive(Debug, Default, Clone, Copy, PartialEq)]
@@ -151,7 +153,7 @@ pub struct Failures {
     pub last: f64,
 }
 
-/// One handler's dispatches: each one the runner ran, and
+/// One handler's dispatches (LLP 1142 D6): each one the runner ran, and
 /// each whose commit changed the tree (a non-empty receipt).
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct Handler {
@@ -180,7 +182,7 @@ fn static_parent(plan: &exact_plan::Plan, site: NodesId) -> Option<NodesId> {
 
 /// `{"op":"perf"[,"target":V]}`: the sites under the target (every root's
 /// without one), each with its live instances under the target and its
-/// site-wide totals. `{"op":"perf","frames":true}` is the host's; one
+/// site-wide totals. `{"op":"perf","frames":true}` is the host's (D3); one
 /// that reaches here observes no presentation.
 pub fn reply<D: DataSource>(runner: &Runner<D>, request: &str) -> String {
     if field_bool(request, "frames") {
@@ -191,10 +193,10 @@ pub fn reply<D: DataSource>(runner: &Runner<D>, request: &str) -> String {
     }
     let ids = runner.ids();
     if ids.work.sites.is_empty() && ids.work.later {
-        return error("perf: this build's work is not measured until first asked, by the agent's first request or a trace");
+        return error("perf: this build's work is not measured until first asked, by the agent's first request or a trace (LLP 1079 D1)");
     }
     if ids.work.sites.is_empty() {
-        return error("perf: this build measures no work (production trust)");
+        return error("perf: this build measures no work (production trust, LLP 1079 D1)");
     }
     let kernel = runner.kernel();
     let plan = runner.plan();
@@ -296,7 +298,7 @@ pub fn reply<D: DataSource>(runner: &Runner<D>, request: &str) -> String {
         }
         s.push('}');
     }
-    // Each listed site's handlers: no rate, no threshold.
+    // Each listed site's handlers (LLP 1142 D6): no rate, no threshold.
     s.push_str("],\"handlers\":[");
     let mut first = true;
     for ((site, event), h) in &ids.work.handlers {
@@ -338,7 +340,7 @@ pub fn reply<D: DataSource>(runner: &Runner<D>, request: &str) -> String {
         }
     }
     s.push_str("},\"coverage\":\"virtual row operations by collection site; kernelLayouts only when the host reports actual entries\"}");
-    // Each resource the data source was asked for, and how often.
+    // Each resource the data source was asked for, and how often (LLP 1146 D3).
     s.push_str(",\"resources\":[");
     let asked = ids.work.asked.iter().enumerate().filter(|(_, n)| **n > 0);
     for (i, (r, n)) in asked.enumerate() {
@@ -354,12 +356,12 @@ pub fn reply<D: DataSource>(runner: &Runner<D>, request: &str) -> String {
 }
 
 /// `{"op":"perf","streams":true[,"start":true]}`: the stream timing of
-/// the video gate ([`crate::stream_timing`]), started (or started
+/// LLP 1133.003's gate ([`crate::stream_timing`]), started (or started
 /// again) by `start`; production trust measures none, as for `perf`.
 fn streams<D: DataSource>(runner: &Runner<D>, request: &str) -> String {
     let work = &runner.ids().work;
     if work.sites.is_empty() && !work.later {
-        return error("perf streams: this build measures no work (production trust)");
+        return error("perf streams: this build measures no work (production trust, LLP 1079 D1)");
     }
     if field_bool(request, "start") && !crate::stream_timing::start() {
         return error("perf streams: this host keeps no stream timing in the runner");
@@ -378,7 +380,7 @@ fn streams<D: DataSource>(runner: &Runner<D>, request: &str) -> String {
     out
 }
 
-/// `state.failures`: how often each resource has been refused,
+/// `state.failures` (LLP 1142 D4): how often each resource has been refused,
 /// beside `failed`'s strings, which the test runner prints. Only while measuring.
 pub(crate) fn failures<D: DataSource>(runner: &Runner<D>, s: &mut String) {
     let counts = runner.failure_counts();

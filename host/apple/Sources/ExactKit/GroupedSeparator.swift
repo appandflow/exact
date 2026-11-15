@@ -1,4 +1,4 @@
-// The platform's separator under a grouped list's row
+// @ref LLP 1084 D7 — the platform's separator under a grouped list's row
 // where Exact draws the sheet (the Mac's form, tvOS): decoration, not a
 // border. The kernel says where and in what colour (`groupedSeparator`, a
 // prop the Rust host derives from `Kernel::grouped_separator`); here it is a

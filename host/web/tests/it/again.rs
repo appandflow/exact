@@ -1,6 +1,6 @@
 //! A re-ask (`Dispatch::Again`) on the web host settles at once, on the
-//! immediate-outcome path the no-op it replaces took: the browser's
-//! admission is the browser's.
+//! immediate-outcome path the no-op it replaces took (LLP 1041 §8.4,
+//! amended 2026-10-09): the browser's admission is the browser's.
 use exact_runner::{Answer, DataError, DataSource, Dispatch, Outcome, Request, Value};
 use exact_web::Host;
 

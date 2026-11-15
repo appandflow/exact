@@ -1,4 +1,4 @@
-# Variable Type on the web.
+# Variable Type on the web (LLP 1019 §13).
 [package]
 name = "variable-type-web"
 version.workspace = true

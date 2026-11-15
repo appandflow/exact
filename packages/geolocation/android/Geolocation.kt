@@ -1,16 +1,16 @@
-// @exact/geolocation on Android: the platform's LocationManager, not Play
+// @exact/geolocation on Android (LLP 1133.002 D3, D8, D9, D10, D15): the platform's LocationManager, not Play
 // services, answered in the interface's shapes. The build makes one per host when the app binds the extension, outside
 // the agent; under the agent the runner's substitute answers and none is made.
 //
 // - The permission is the manifest's, derived from the app's grant line: fine and coarse for `device.geolocation`,
-//   coarse alone for `device.geolocation-approximate`, which is then a ceiling. Both are asked in one request.
-// - The state is a fact, with a history in the module's own preferences, since the platform says neither
+//   coarse alone for `device.geolocation-approximate`, which is then a ceiling (D7). Both are asked in one request.
+// - The state is a fact (D8), with a history in the module's own preferences, since the platform says neither
 //   "never asked" nor "permanently denied": a rejection with no rationale owed afterwards is a permanent denial, and
 //   a read that finds a grant gone that the last read found is a revocation, which clears the history.
 // - Android has no event for a change in Settings: the host's resume reads the state again, and that also settles a
-//   request whose result a recreated activity lost.
+//   request whose result a recreated activity lost (D9).
 // - One registration serves every reader of `watchPosition`; it is removed at `release`, when the last reader goes.
-// - Tier 3: `GeolocationModule.hatch` is given each API 31 request's builder after the module's words are set.
+// - Tier 3 (D4): `GeolocationModule.hatch` is given each API 31 request's builder after the module's words are set.
 package exact.geolocation
 
 import android.Manifest
@@ -32,11 +32,11 @@ import org.json.JSONObject
 
 class GeolocationModule(context: ExtensionContext) : ExactExtension(context) {
     companion object {
-        /** The app's access hatch: each API 31 request's builder, after the module's words are set. */
+        /** The app's access hatch (D4): each API 31 request's builder, after the module's words are set. */
         @TargetApi(31) @JvmStatic var hatch: ((LocationRequest.Builder) -> Unit)? = null
         private const val FINE = Manifest.permission.ACCESS_FINE_LOCATION
         private const val COARSE = Manifest.permission.ACCESS_COARSE_LOCATION
-        /** The module's unsaid intervals by quality, which the API 31 builder requires. */
+        /** The module's unsaid intervals by quality (D3), which the API 31 builder requires. */
         private val INTERVALS = mapOf("highAccuracy" to 5_000L, "balancedPowerAccuracy" to 30_000L, "lowPower" to 60_000L)
         private val QUALITIES = mapOf(
             "highAccuracy" to LocationRequest.QUALITY_HIGH_ACCURACY,
@@ -112,7 +112,7 @@ class GeolocationModule(context: ExtensionContext) : ExactExtension(context) {
         return out
     }
 
-    /** [then], once the platform allows it: asked in one request while `prompt`; refused while `denied`. */
+    /** [then], once the platform allows it: asked in one request while `prompt` (D9); refused while `denied`. */
     private fun allowed(reply: (JSONObject) -> Unit, then: () -> Unit) {
         val state = status().getString("state")
         when {
@@ -125,10 +125,10 @@ class GeolocationModule(context: ExtensionContext) : ExactExtension(context) {
 
     /** The platform's dialog for [asked], then [done]. A rejection with no rationale owed afterwards is permanent. */
     private fun ask(done: () -> Unit) {
-        context.requestPermissions(asked) {
+        context.requestPermissions(asked) { answered ->
             val activity = context.activity
             val rejected = !has(FINE) && !has(COARSE)
-            if (rejected && activity != null && asked.none { activity.shouldShowRequestPermissionRationale(it) }) {
+            if (asked.all { it in answered } && rejected && activity != null && asked.none { activity.shouldShowRequestPermissionRationale(it) }) {
                 history.edit().putBoolean("permanent", true).apply()
             }
             context.changed("geolocation.geolocationStatus")
@@ -136,7 +136,7 @@ class GeolocationModule(context: ExtensionContext) : ExactExtension(context) {
         }
     }
 
-    // The fine and coarse pair again, under the precise line only; the answer is the status.
+    // D10: the fine and coarse pair again, under the precise line only; the answer is the status.
     private fun precise(reply: (JSONObject) -> Unit) {
         if (FINE !in asked || has(FINE) || !has(COARSE)) return reply(status())
         context.requestPermissions(asked) {
@@ -153,7 +153,7 @@ class GeolocationModule(context: ExtensionContext) : ExactExtension(context) {
             ?: if (args.has("enableHighAccuracy") && args.getBoolean("enableHighAccuracy")) "highAccuracy" else "balancedPowerAccuracy"
     }
 
-    /** The written provider; else fused where the device has it; else gps for high accuracy and network otherwise. */
+    /** The written provider; else fused where the device has it; else gps for high accuracy and network otherwise (D3). */
     private fun provider(args: JSONObject): String? {
         val written = args.optJSONObject("android")?.optString("provider")?.takeIf { it.isNotEmpty() }
         if (written == "passive" && !has(FINE)) return null
@@ -178,7 +178,7 @@ class GeolocationModule(context: ExtensionContext) : ExactExtension(context) {
         return builder.build()
     }
 
-    /** A fix younger than a positive `maximumAge` answers at once. */
+    /** A fix younger than a positive `maximumAge` answers at once (D2). */
     private fun eligible(provider: String, args: JSONObject): Location? {
         val age = args.optDouble("maximumAge", 0.0)
         if (age <= 0) return null
@@ -216,7 +216,13 @@ class GeolocationModule(context: ExtensionContext) : ExactExtension(context) {
         val provider = provider(args) ?: return deliver(error("POSITION_UNAVAILABLE"))
         val listener = object : Listener() {
             override fun onLocationChanged(fix: Location) = deliver(position(fix))
-            override fun onProviderDisabled(provider: String) = deliver(error("POSITION_UNAVAILABLE"))
+            // Held as the answer until the next fix: after the first, no reader waits, and a re-read gets `last`. The
+            // registration outlives the provider, so its next fix once enabled again answers the watch.
+            override fun onProviderDisabled(provider: String) {
+                val unavailable = error("POSITION_UNAVAILABLE")
+                last = unavailable
+                deliver(unavailable)
+            }
         }
         watch = listener
         val interval = INTERVALS.getValue(quality(args))
@@ -236,7 +242,7 @@ class GeolocationModule(context: ExtensionContext) : ExactExtension(context) {
         context.changed("geolocation.watchPosition")
     }
 
-    /** A fix in the interface's `GeolocationPosition`: the altitude above the WGS 84 ellipsoid, as the web's. */
+    /** A fix in the interface's `GeolocationPosition` (D1): the altitude above the WGS 84 ellipsoid, as the web's. */
     private fun position(fix: Location): JSONObject {
         val android = JSONObject().put("provider", fix.provider ?: "")
             .put("isMock", if (Build.VERSION.SDK_INT >= 31) fix.isMock else JSONObject.NULL)

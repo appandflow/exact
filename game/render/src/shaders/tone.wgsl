@@ -7,7 +7,7 @@ fn tonemap(hdr_color: vec3<f32>) -> vec4<f32> {
     let x = finite_hdr(finite_hdr(hdr_color) * frame.ground_exposure.w);
     var color = x;
     if frame.logical_size.w <= 0.5 {
-        // The curve's white is the target's headroom: `h·f(x/h)`
+        // The curve's white is the target's headroom (LLP 1100 D12b): `h·f(x/h)`
         // keeps the toe's slope and reaches h, and is the SDR curve at h = 1.
         let h = max(frame.logical_size.z, 1.0);
         let y = x / h;

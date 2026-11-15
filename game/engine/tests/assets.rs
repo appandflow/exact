@@ -750,9 +750,9 @@ fn paranoid_discovery_keeps_tick_edits_retirement_and_public_restore_visible() {
     }
 }
 
-// A mid-game asset request (a first rocket's `rocket.model`) must not abort the
-// paranoid Save proof with "assets are not ready": a sample taken while the
-// request is in flight waits for the next one.
+// Rivals' first rocket requested `rocket.model` at tick 179 and the paranoid
+// Save proof aborted ("assets are not ready"). A sample taken while a mid-game
+// request is in flight now waits for the next one.
 #[test]
 fn a_model_first_requested_mid_game_does_not_break_a_paranoid_save() {
     struct Rocket;
@@ -795,7 +795,7 @@ fn a_model_first_requested_mid_game_does_not_break_a_paranoid_save() {
     assert!(hashes.windows(2).all(|h| h[0] == h[1]));
 }
 
-// A game that declares 202 models must not make Play wait for every one
+// Grow a Garden declared all 202 models and Play waited for every one
 // (0.4 s -> 1.8 s). Streamed assets are fetched from the start, after what
 // setup needs, but never awaited, and simulation cannot read them.
 #[test]
@@ -911,7 +911,7 @@ fn a_model_and_its_textures_finish_in_either_order() {
     }
 }
 
-/// Delivery cost by model count (the garden game's art declares 202 models, each
+/// Delivery cost by model count (garden's art pass declares 202 models, each
 /// with textures): every delivery used to re-derive every model, so loading n
 /// models cost O(n^2). `cargo test --release -p exact-game --test assets
 /// delivery_cost -- --ignored --nocapture`.

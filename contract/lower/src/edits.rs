@@ -1,4 +1,4 @@
-//! A refused attribute value leads with the edit that fixes
+//! LLP 1116.014 D1: a refused attribute value leads with the edit that fixes
 //! it, then the rule in a clause. Nothing refused becomes accepted here and
 //! no second spelling enters a table; this only names the first spelling the
 //! author meant.
@@ -12,8 +12,8 @@ use std::ops::Range;
 const LISTED: &str = "the roles: `contract vocab color`";
 
 /// A word of a colour value that is not a colour, and the edit that makes it
-/// one (Exact's roles are `-exact-<role>`, CSS's system colours their own
-/// names).
+/// one (LLP 1081 D2: Exact's roles are `-exact-<role>`, CSS's system colours
+/// their own names).
 pub(crate) struct RoleEdit {
     word: String,
     at: Range<usize>,
@@ -122,7 +122,7 @@ impl RoleEdit {
         let word = &self.word;
         match &self.fix {
             Fix::Bare(role) => format!(
-                "{}: a role is spelled `-exact-<role>` ({LISTED})",
+                "{}: a role is spelled `-exact-<role>` (LLP 1081; {LISTED})",
                 write(role)
             ),
             Fix::Spelling(role) => {
@@ -145,7 +145,7 @@ impl RoleEdit {
     pub(crate) fn clause(&self) -> String {
         let word = &self.word;
         match &self.fix {
-            Fix::Bare(role) => format!("write `{role}` for `{word}`"),
+            Fix::Bare(role) => format!("write `{role}` for `{word}` (LLP 1081)"),
             Fix::Spelling(role) => {
                 format!("write `{role}` for `{word}`, which is not a role ({LISTED})")
             }
@@ -250,7 +250,7 @@ fn display_edit(text: &str) -> Option<String> {
 }
 
 /// The edit for a refused value holding `color-mix()`, which no host parses: a mix of the
-/// design's tokens is folded by the build (a synthetic token), so one of
+/// design's tokens is folded by the build (a synthetic token, LLP 1121 D3), so one of
 /// colours alone is declared as a token, in a choice's arm or a shadow as anywhere. Only a
 /// mix that folds as that token is named: a mix over a token the fold refused has said why.
 fn mix_edit(name: &str, text: &str) -> Option<String> {
@@ -266,9 +266,9 @@ fn mix_edit(name: &str, text: &str) -> Option<String> {
             }
             (depth == 0).then_some(start + k + 1)
         })?;
-        let design = format!("tamber t\n\ntheme\n  mixed = {}\n", &text[start..end]);
-        let folds = exact_tamber::parse(&design)
-            .is_ok_and(|d| exact_tamber::check_design(d, &crate::theme::vocab()).is_ok());
+        let design = format!("forma t\n\ntheme\n  mixed = {}\n", &text[start..end]);
+        let folds = exact_forma::parse(&design)
+            .is_ok_and(|d| exact_forma::check_design(d, &crate::theme::vocab()).is_ok());
         if folds {
             break (start, end);
         }
@@ -279,7 +279,7 @@ fn mix_edit(name: &str, text: &str) -> Option<String> {
         format!("{}mixed{}", &text[..start], &text[end..]),
     );
     Some(format!(
-        "declare the mix as a token in app.tamber's `theme` (a new app.tamber's first line is `tamber <name>`), `mixed = {mix}`, and write `\"{written}\"` for `\"{text}\"` in `{name}`: the build folds `color-mix()` only over the design's tokens, as `color-mix(in srgb, <token> 35%, transparent)`, and a mix of colours alone is no colour a host reads"
+        "declare the mix as a token in app.forma's `theme` (a new app.forma's first line is `forma <name>`), `mixed = {mix}`, and write `\"{written}\"` for `\"{text}\"` in `{name}`: the build folds `color-mix()` only over the design's tokens, as `color-mix(in srgb, <token> 35%, transparent)`, and a mix of colours alone is no colour a host reads"
     ))
 }
 

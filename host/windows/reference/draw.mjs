@@ -1,11 +1,11 @@
-// The WinUI reference's drawing: builds Reference.csproj at
+// The WinUI reference's drawing (LLP 1115.004 D13): builds Reference.csproj at
 // the pinned Windows App SDK and runs it once per scheme of specimens.json,
 // writing `<out>/<scheme>/<id>.png` and `geometry.json`.
 //
 //   bun host/windows/reference/draw.mjs [--out <dir>]
 //
 // Windows only, on the oracle's machine (docs/testing.md, "Windows: the
-// test machine"), with the .NET 9 SDK. WinUI draws nothing from an SSH session, so
+// NucBox"), with the .NET 9 SDK. WinUI draws nothing from an SSH session, so
 // each run is a one-off scheduled task in the signed-in desktop session; the
 // user must be signed in there. The default out directory is
 // host/windows/reference/build/oracle.
@@ -21,7 +21,7 @@ const specimens = join(here, 'specimens.json');
 /** How long one scheme's run may take. */
 const LIMIT_MS = 120_000;
 
-if (process.platform !== 'win32') throw new Error('the WinUI reference draws on Windows (docs/testing.md, "Windows: the test machine")');
+if (process.platform !== 'win32') throw new Error('the WinUI reference draws on Windows (docs/testing.md, "Windows: the NucBox")');
 
 function run(command, argv) {
   const r = spawnSync(command, argv, { cwd: here, encoding: 'utf8' });

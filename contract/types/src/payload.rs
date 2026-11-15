@@ -1,6 +1,6 @@
 //! The refusal of a handler whose action takes the wrong number of
-//! parameters spells the declaration that fits: what the call site passes,
-//! then what the event appends,
+//! parameters spells the declaration that fits (@ref LLP 1088 D7.1,
+//! pomodoro F1): what the call site passes, then what the event appends,
 //! each payload named after the DOM property it carries and typed by the
 //! element. Analysis and lowering print it through this one function, and
 //! the type stage for an action the miscount leaves untyped, which
@@ -56,7 +56,7 @@ fn payload(event: &str, control: Option<&str>) -> Vec<(&'static str, &'static st
 /// What `event` appends on an element whose payload control is `control`
 /// ([`contract_syntax::payload_control`]), as `(name, type)`, before the
 /// event's record: the parameters an action given to it declares (the
-/// variant gallery's inert one).
+/// variant gallery's inert one, LLP 1139 §9 Q2).
 pub fn handler_parameters(event: &str, control: Option<&str>) -> Vec<(&'static str, &'static str)> {
     payload(event, control)
         .into_iter()

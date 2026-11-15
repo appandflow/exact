@@ -11,7 +11,7 @@ test "signs in, reads the person, and stays signed in after a relaunch"
   expect text "status" == "Signed in"
   expect text "name" == "Ada Lovelace"
 
-// The app's own sign-in screens, natively, where a fetch's
+// LLP 1146 D8: the app's own sign-in screens, natively, where a fetch's
 // `redirect: "manual"` answers the redirect and the app's `Cookie` is sent
 test "with its own sign-in screens, it signs in to ForgeRock with no browser and stays signed in" on linux, macos, ios
   request POST "/control" {"action": "reset"}

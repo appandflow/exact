@@ -8,7 +8,8 @@ component-level semantics (`Contract.CompSem`).
 
   * `Subst`: capture-avoiding substitution (subst.rs): a binder whose name
     a replacement mentions is renamed `x@k`.
-  * `renameNodes`: a child's view binders renamed `x#n` (inline.rs).
+  * `renameNodes`: view binders renamed `x#viewN`, with 0 for the root
+    (inline.rs).
   * `resolvedDerives`: a child's derives resolved through one another,
     a dependency read twice on every path bound once by a `let` (derives.rs).
   * `inlineNodes`: uses inlined, props substituted, injects filled from
@@ -16,7 +17,7 @@ component-level semantics (`Contract.CompSem`).
     actions lifted into the root as `name#n` with their owners, props
     captured as hidden action parameters `@capture:n:i` (inline.rs).
   * `ownCalls`, `callMarked`, `resolveCalls`, `hygiene`: action calls
-    (calls.rs). A call stays a `call`, as `contract lean` emits
+    (calls.rs, LLP 1089). A call stays a `call`, as `contract lean` emits
     it; its caller's parameters and binders are renamed as Rust's hygiene
     renames them.
 -/
@@ -126,7 +127,7 @@ structure Subst where
   binders : List (String × Option String) := []
   /-- Whether a call's head is replaced too. -/
   calls : Bool := true
-  /-- States, derives and device resources replace value reads only. -/
+  /-- Value props, injects, states, derives and device resources replace value reads only. -/
   valueOnly : List String := []
   /-- Record constructors: a call naming one keeps its head. -/
   records : List String := []
@@ -471,6 +472,7 @@ structure DCx where
   bodies : List Expr
   sums : List Summary
   rank : List Nat
+  resolve : Bool := true
 
 /-- `e` with every derive it reads resolved (derives.rs `Cx::place`);
 `bound` are the derives an enclosing `let` binds; `whole` where a derive
@@ -486,12 +488,15 @@ def place (cx : DCx) : Nat → List Nat → Bool → Expr → Expr
           s.reads.getD d 0 ≥ 2 && s.always.getD d false && !bound.contains d).mergeSort
             fun a b => cx.rank.getD a 0 ≤ cx.rank.getD b 0
         shared.foldl (fun (lets, bnd) d =>
-          (lets ++ [(d, place cx fuel bnd true (cx.bodies.getD d .none))], bnd ++ [d])) ([], bound)
+          let value := if cx.resolve then place cx fuel bnd true (cx.bodies.getD d .none)
+            else cx.bodies.getD d .none
+          (lets ++ [(d, value)], bnd ++ [d])) ([], bound)
       else ([], bound)
     let body := match e with
       | .var name =>
         match cx.idx name with
-        | .some d => if bound'.contains d then e else place cx fuel bound' true (cx.bodies.getD d .none)
+        | .some d => if !cx.resolve || bound'.contains d then e
+          else place cx fuel bound' true (cx.bodies.getD d .none)
         | .none => e
       | .binary .and a b => .binary .and (place cx fuel bound' false a) (place cx fuel bound' true b)
       | .binary .or a b => .binary .or (place cx fuel bound' false a) (place cx fuel bound' true b)
@@ -613,7 +618,7 @@ def resolvedDerives (c : CComponent) : Except String (List (String × Expr)) := 
 /-! ## Calls (calls.rs, and inline.rs `with_captures`, `call_marked`)
 
 `contract lean` emits a call by its callee and whole argument list, never
-the body Rust expanded, so only what decides those is
+the body Rust expanded (LLP 1089 D9), so only what decides those is
 transcribed here: which statements are calls, the callee's lifted name,
 the arguments, and the names hygiene draws. -/
 
@@ -710,7 +715,7 @@ def binders : List Stmt → Nat
   | .matchS _ _ a b :: rest => 1 + binders a + binders b + binders rest
   | _ :: rest => binders rest
 
-/-- The names the resolver drew for the calls in a block
+/-- The names LLP 1017 §11's resolver drew for the calls in a block
 (calls.rs `drawn`): one for each call's parameters, one for each binder of
 the callee's statements, and its own calls' in turn. A call that does not
 expand (its arity refused) drew one. -/
@@ -745,14 +750,28 @@ def hygiene (records : List String) (actions : List ActionDecl) : TailM (List Ac
 
 /-! ## Inlining (inline.rs) -/
 
-/-- Rename every name a child's view binds with the use's number
-(inline.rs `rename_nodes`): `each` and `match` binders become `x#n`. -/
+/-- Style and surface names are syntax; only their conditions and arguments are values. -/
+def mapAttrValue (f : Expr → Expr) (name : String) (e : Expr) : Expr :=
+  match name, e with
+  | "class", .ternary c a b => .ternary (f c) a b
+  | "surface", .call a args => .call a (args.map f)
+  | "class", _ | "surface", _ => e
+  | _, _ => f e
+
+def mapPositional (f : Expr → Expr) (tag : String) (e : Expr) : Expr :=
+  match tag, e with
+  | "input", .var "switch" | "input", .var "multiple" | "scroll", .var "document" => e
+  | _, _ => f e
+
+/-- View binders differ from lifted declarations so substituted derives
+and provided expressions retain their component's scope (inline.rs `rename_nodes`). -/
 def renameNodes (n : Nat) : SMap → List CNode → List CNode
   | _, [] => []
   | map, nd :: rest =>
     let here := match nd with
       | .element tag pos props hs kids =>
-        .element tag (pos.map (renamedLocals map)) (props.map fun (a, e) => (a, renamedLocals map e))
+        .element tag (pos.map (mapPositional (renamedLocals map) tag))
+          (props.map fun (a, e) => (a, mapAttrValue (renamedLocals map) a e))
           (hs.map fun (ev, a, args) =>
             -- A handler without arguments is a name (an `Ident`), renamed as one.
             let a := if args.isEmpty then
@@ -767,15 +786,15 @@ def renameNodes (n : Nat) : SMap → List CNode → List CNode
       | .children id => .children id
       | .when id c a b => .when id (renamedLocals map c) (renameNodes n map a) (renameNodes n map b)
       | .each id x ix l k body =>
-        let inner := map.insert x (.var s!"{x}#{n}")
+        let inner := map.insert x (.var s!"{x}#view{n}")
         let inner := match ix with
-          | .some i => inner.insert i (.var s!"{i}#{n}")
+          | .some i => inner.insert i (.var s!"{i}#view{n}")
           | .none => inner
-        .each id s!"{x}#{n}" (ix.map fun i => s!"{i}#{n}") (renamedLocals map l)
+        .each id s!"{x}#view{n}" (ix.map fun i => s!"{i}#view{n}") (renamedLocals map l)
           (renamedLocals inner k) (renameNodes n inner body)
       | .matchN id subj x a b =>
-        let inner := map.insert x (.var s!"{x}#{n}")
-        .matchN id (renamedLocals map subj) s!"{x}#{n}" (renameNodes n inner a) (renameNodes n map b)
+        let inner := map.insert x (.var s!"{x}#view{n}")
+        .matchN id (renamedLocals map subj) s!"{x}#view{n}" (renameNodes n inner a) (renameNodes n map b)
     here :: renameNodes n map rest
 
 mutual
@@ -855,16 +874,91 @@ def baseMap (s : Subst) (c : CComponent) (args provides : List (String × Expr))
   let m := insertAll (insertAll (insertAll [] pa) ia) (c.states.map fun st => (st.name, .var (lifted st.name n)))
   pure (insertAll m (c.deviceResources.map fun r => (r.name, .var (hoisted c.name r.name))))
 
-/-- State and device-resource reads leave same-named function calls intact. -/
+/-- Value bindings leave same-named function calls intact. -/
 def valueNames (c : CComponent) : List String :=
-  c.states.map (·.name) ++ c.deviceResources.map (·.name)
+  c.states.map (·.name) ++ c.deviceResources.map (·.name) ++
+    ((c.props ++ c.injects).filter (!·.action)).map (·.name)
 
 /-- The derives, each resolved expression substituted against `m`, inserted
-as value-only bindings, alongside states and device resources. -/
+as value-only bindings, alongside the component's other values. -/
 def withDerives (records values : List String) (m : SMap) (derives : List (String × Expr)) : Subst :=
   let valueOnly := values ++ derives.map (·.1)
   { map := insertAll m (derives.map fun (d, e) => (d, substExpr { map := m, records, valueOnly } e)),
     valueOnly, records }
+
+/-- Repeated prop reads share one evaluation within each binding, using the
+same guaranteed-evaluation rule as derives. -/
+def shareProps (names : List String) (e : Expr) : Expr := Id.run do
+  let names := names.mergeSort (· ≤ ·)
+  let n := names.length
+  let (e, _) := (freshen e).run 0
+  let cx : DCx := {
+    n, names, idx := names.idxOf?, bodies := names.map Expr.var,
+    sums := List.replicate n (Summary.new n), rank := List.range n, resolve := false }
+  return place cx (1 <<< 20) [] true e
+
+def computedProp : Expr → Bool
+  | .typed e _ => computedProp e
+  | .var _ | .num _ | .str _ | .bool _ | .none => false
+  | _ => true
+
+/-- Follow calls and root derives too: a clock read keeps its evaluation time. -/
+def readsClock (p : CProgram) : Nat → List String → Expr → Bool
+  | 0, _, _ => true
+  | fuel + 1, seen, e =>
+    let (seen, here) : List String × Bool := match e with
+      | .call "performanceNow" _ => (seen, true)
+      | .call name _ =>
+        let key := "fn:" ++ name
+        if seen.contains key then (seen, false) else
+          let seen := key :: seen
+          (seen, (p.fns.find? (fun f => f.name == name)).any fun f => readsClock p fuel seen f.body)
+      | .var name =>
+        let key := "derive:" ++ name
+        if seen.contains key then (seen, false) else
+          let seen := key :: seen
+          (seen, (p.root.derives.find? (fun d => d.name == name)).any fun d => readsClock p fuel seen d.body)
+      | _ => (seen, false)
+    let children : List Expr := match e with
+      | .some x | .unary _ x | .member x _ | .named _ x | .typed x _ | .arrow _ x => [x]
+      | .binary _ a b | .letE _ a b => [a, b]
+      | .ternary a b c | .matchOpt a _ b c => [a, b, c]
+      | .call _ args | .list args | .template args => args
+      | .record _ base fields => base.toList ++ fields.map (·.2)
+      | _ => []
+    here || children.any (readsClock p fuel seen)
+
+/-- Each binding shares within itself (use_node.rs `share_view_props`):
+handlers keep their event-time reads, and a forwarded argument to a value
+prop is one expression wherever its callee reads it. An argument naming one
+of `actions` keeps the shape its callee calls. -/
+def shareViewProps (p : CProgram) (ds : Subst) (shared actions : List String) :
+    List CNode → List CNode
+  | [] => []
+  | nd :: rest =>
+    let share := fun e => shareProps shared (substExpr ds e)
+    let namesAction : Expr → Bool
+      | .var n | .call n _ => actions.contains n
+      | _ => false
+    let here := match nd with
+      | .element tag pos props hs children =>
+        .element tag (pos.map (mapPositional share tag))
+          (props.map fun (a, e) => (a, mapAttrValue share a e)) hs
+          (shareViewProps p ds shared actions children)
+      | .when id c a b =>
+        .when id (share c) (shareViewProps p ds shared actions a) (shareViewProps p ds shared actions b)
+      | .each id x ix l k body =>
+        .each id x ix (share l) (share k) (shareViewProps p ds shared actions body)
+      | .matchN id s x a b =>
+        .matchN id (share s) x (shareViewProps p ds shared actions a)
+          (shareViewProps p ds shared actions b)
+      | .use id name args children =>
+        let callee := if p.root.name == name then Option.some p.root else p.component? name
+        let value := fun a => callee.any fun c => c.props.any fun pd => pd.name == a && !pd.action
+        .use id name (args.map fun (a, e) => (a, if value a && !namesAction e then share e else e))
+          (shareViewProps p ds shared actions children)
+      | .children id => .children id
+    here :: shareViewProps p ds shared actions rest
 
 /-- Enter arm `arm` of the region tagged `tag`. -/
 def inArm {α} (tag arm : Nat) (m : ExM α) : ExM α := do
@@ -897,7 +991,7 @@ def inlineNode (p : CProgram) : Nat → Subst → CNode → ExM (List Node)
       let hs ← hs.mapM fun (ev, a, args) => do
         let (a, args) ← substHandler s a args
         pure (ev, a, args)
-      let props := substFields s props
+      let props := props.map fun (a, e) => (a, mapAttrValue (substExpr s) a e)
       let tabs := (← get).tabs
       let panel := tabs && !kids.isEmpty &&
         ((lookupField "role" props).map tabLiteral matches .some (.str "tabpanel")) &&
@@ -910,7 +1004,7 @@ def inlineNode (p : CProgram) : Nat → Subst → CNode → ExM (List Node)
           pure [Node.when arm (.bool true) body []]
         else inlineNodes p fuel s kids
       modify fun ctx => { ctx with tabs }
-      pure [Node.element tag (substList s pos) props hs kids]
+      pure [Node.element tag (pos.map (mapPositional (substExpr s) tag)) props hs kids]
     | .when _ c a b => do
       let tag ← freshTag
       let a ← inArm tag 0 (inlineNodes p fuel s a)
@@ -1004,6 +1098,12 @@ def inlineNode (p : CProgram) : Nat → Subst → CNode → ExM (List Node)
       if !fill.isEmpty && !c.slot then
         refuse s!"`{name}` declares no `slot`, so nothing can be indented under it"
       let renamed := renameNodes n [] c.view
+      let shared := ((c.props ++ c.injects).filter fun pd => !pd.action &&
+        (child.get? pd.name).any fun e => computedProp e && !readsClock p (1 <<< 20) [] e).map (·.name)
+      let renamed := if shared.isEmpty then renamed else
+        let ds : Subst := { map := derives, records := p.records, valueOnly := cs.valueOnly }
+        let actions := c.actions.map (·.name) ++ ((c.props ++ c.injects).filter (·.action)).map (·.name)
+        shareViewProps p ds shared actions renamed
       let outer ← get
       let fill' := if c.slot then Option.some (Fill.mk fill s outer.provides outer.fill) else Option.none
       let provided : List (String × Expr) := c.provides.map fun (x, e) => (x, substExpr cs e)
@@ -1016,7 +1116,7 @@ end
 /-- The flat program `p` expands to (inline.rs `expand`): the root's own
 declarations (the router's slot first), the inlined view, every lifted
 state and action, every call resolved and its caller's names drawn apart
-. -/
+(LLP 1089). -/
 def expand (p : CProgram) : Except String Program := do
   let p := ownCallsProgram p
   let root := p.root
@@ -1025,7 +1125,8 @@ def expand (p : CProgram) : Except String Program := do
     | .none => []
   let s0 : Subst := { map := [], records := p.records }
   let provides := root.provides.map fun (x, e) => (x, substExpr s0 e)
-  let (view, ctx) ← (inlineNodes p (1 <<< 20) s0 root.view).run { provides }
+  let renamed := renameNodes 0 [] root.view
+  let (view, ctx) ← (inlineNodes p (1 <<< 20) s0 renamed).run { provides }
   let actions := root.actions ++ ctx.extraActions
   let actions ← actions.mapM fun a => do pure { a with body := ← resolveCalls actions a.body }
   let (actions, _) ← (hygiene p.records actions).run 0

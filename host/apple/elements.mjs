@@ -1,6 +1,6 @@
 // An app's on-screen elements as the touch runner (touches.mjs) reads them:
 // fetched, outlined, and found by what a person reads on screen. Shared by the
-// benchmark driver (bench/bakeoff/drive.mjs) and the scroll-feel probe's
+// bake-off's driver (bench/bakeoff/drive.mjs) and the scroll-feel probe's
 // steps (host/apple/feel/probe.mjs).
 
 /** A refusal to act, said to the caller as is (no stack). */

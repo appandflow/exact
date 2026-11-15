@@ -1,6 +1,6 @@
-// @exact/search-index on Android: the mirror only. Android documents no system search that a
+// @exact/search-index on Android (LLP 1133.023 D4, §9): the mirror only. Android documents no system search that a
 // third-party app's content reaches (AppSearch's platform storage names no surface), so the entries are kept in the
-// app's files, where they answer `contentIndexEntries` and will resolve AppFunctions' entity parameters. The file
+// app's files, where they answer `contentIndexEntries` and will resolve AppFunctions' entity parameters (D9). The file
 // and its limits are the Apple host's (`ContentIndex.swift`): an entry's identity is its kind and id, at most 5,000
 // entries, and at most 1,024 bytes of title, description and URL each; a change past them refuses whole.
 package exact.searchindex

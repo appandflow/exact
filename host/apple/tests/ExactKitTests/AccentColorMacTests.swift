@@ -1,9 +1,9 @@
-// On the Mac an authored `accent-color` is its subtree's tint, as it is
-// UIKit's inherited `tintColor` on iOS (`SystemColorIOSTests`): it reaches
-// every row beneath that names the tint, a text's ink, a box's fill, a
-// symbol, and not only a control. AppKit gives a view no tint to inherit, so
-// the presenter reads the nearest one up the view chain and applies what
-// names the tint again when it changes.
+// @ref LLP 1115.000 D3.4 — on the Mac an authored `accent-color` is its
+// subtree's tint, as it is UIKit's inherited `tintColor` on iOS (LLP 1116.001
+// D2, `SystemColorIOSTests`): it reaches every row beneath that names the
+// tint, a text's ink, a box's fill, a symbol, and not only a control. AppKit
+// gives a view no tint to inherit, so the presenter reads the nearest one up
+// the view chain and applies what names the tint again when it changes.
 #if os(macOS)
 import AppKit
 import XCTest
@@ -103,8 +103,8 @@ final class AccentColorMacTests: XCTestCase {
         assertChannels(try channels(try XCTUnwrap(moved.symbolView?.contentTintColor), dark: false), system, "and back out")
     }
 
-    /// The theme's `AccentColor` is the tint where no authored
-    /// accent is above, and a live edit of it repaints
+    /// The theme's `AccentColor` (LLP 1095 D4) is the tint where no authored
+    /// accent is above, and a live edit of it (LLP 1121 stage 5) repaints
     /// what names the tint, though each row's style is the same `@tint`.
     func testALiveEditOfTheThemesAccentRepaintsWhatNamesTheTint() throws {
         let p = presenter()

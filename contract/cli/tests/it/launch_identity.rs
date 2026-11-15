@@ -1,4 +1,4 @@
-//! A resource whose identifying arguments change every launch:
+//! A resource whose identifying arguments change every launch (LLP 1027.005):
 //! its kept answer can never be shown, and the warning names the `with` repair.
 
 use super::warnings::warned;

@@ -1,33 +1,33 @@
-// @exact/sign-in on the web: each provider's
+// @exact/sign-in on the web (LLP 1133.014 D3, D5, D6): each provider's
 // authorization page in a popup through the host's auth session, answered to
 // the app server's return route, which hands the page a single-use handle.
-// No provider's script runs in the page.
+// No provider's script runs in the page (§13 question 3).
 //
-// - `identity` is the member of `@exact/passkeys`' `get`. The
+// - `identity` is the member of `@exact/passkeys`' `get` (D10 item 1). The
 //   page runtime hands it here whole: the web never shares a sheet with a
-//   passkey. It makes `state` from the system's random source and the
-//   provider's authorization URL, opens it through the host's
-//   auth session with the page's own callback, and answers
+//   passkey (D1). It makes `state` from the system's random source and the
+//   provider's authorization URL (D3 step 2), opens it through the host's
+//   auth session with the page's own callback (D10 item 3), and answers
 //   `{relay}` from the callback, or the provider's `error`.
 // - `exact-sign-in-button` draws the provider's button. At a press, in the
 //   button's own click handler, before the click reaches the element where the
 //   page delivers `press`, it opens the popup's window on `about:blank`, inside
 //   the press's activation, and leaves it waiting for the request the
-//   press's action makes; one no request claims soon after is closed.
+//   press's action makes (D5); one no request claims soon after is closed.
 //   Under the agent it opens nothing: the substitute answers.
 // - `getIdentityCapabilities` is the cells and the grants: each provider
-//   active where the app has its line, never passive.
+//   active where the app has its line, never passive (D3).
 
 const APPLE = 'https://appleid.apple.com';
 const GOOGLE = 'https://accounts.google.com/gsi/fedcm.json';
 const CALLBACK = '/.exact/auth/callback';
-// How long a window the button opened waits for its request.
+// How long a window the button opened waits for its request (D5 item 3).
 const UNCLAIMED_MS = 2000;
 
 const b64 = bytes => btoa(String.fromCharCode(...bytes)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 const random = n => b64(crypto.getRandomValues(new Uint8Array(n)));
 
-/** The provider's authorization URL for one provider of a request. */
+/** The provider's authorization URL for one provider of a request (D3 step 2). */
 export function authorizationURL(provider, state) {
   const fields = provider.fields ?? ['name', 'email', 'picture'];
   const back = provider.web?.redirectURI;
@@ -53,7 +53,7 @@ export function authorizationURL(provider, state) {
     if (nonce) q.set('nonce', nonce);
     if (provider.loginHint) q.set('login_hint', provider.loginHint);
     if (provider.domainHint) q.set('hd', provider.domainHint);
-    // A server that wants PKCE minted its verifier with the nonce.
+    // A server that wants PKCE minted its verifier with the nonce (D3).
     if (provider.params?.code_challenge) {
       q.set('code_challenge', provider.params.code_challenge);
       q.set('code_challenge_method', 'S256');
@@ -63,7 +63,7 @@ export function authorizationURL(provider, state) {
   return null;
 }
 
-/** The answer a callback URL carries: the credential, or the provider's error. */
+/** The answer a callback URL carries: the credential, or the provider's error (D3 step 4). */
 export function answered(provider, url) {
   const q = new URL(url).searchParams;
   const error = q.get('error');
@@ -76,7 +76,7 @@ export function answered(provider, url) {
   return { type: 'identity', id: '', configURL: provider.configURL, isAutoSelected: false, token: { relay }, handle: random(16) };
 }
 
-/** The host auth session's status as the module's error. */
+/** The host auth session's status as the error D1 names. */
 const failure = e => {
   const status = e?.status;
   if (status === 499) return { error: 'NetworkError' };
@@ -116,12 +116,12 @@ export function implementation(context = {}) {
       }
     },
     cancel(request) { open.get(request)?.(); },
-    /** A credential the runtime dropped: its handle is never redeemed and expires at the server. */
+    /** A credential the runtime dropped: its handle is never redeemed and expires at the server (D12). */
     dispose(ids) { for (const id of ids) log(`dispose sign-in ${id}: its handle expires unredeemed`); },
   };
 }
 
-// ---------------------------------------------------------------- the button
+// ---------------------------------------------------------------- the button (D5)
 const WORDS = {
   apple: { signin: 'Sign in with Apple', signup: 'Sign up with Apple', continue: 'Continue with Apple', use: 'Sign in with Apple' },
   google: { signin: 'Sign in with Google', signup: 'Sign up with Google', continue: 'Continue with Google', use: 'Sign in with Google' },
@@ -166,7 +166,7 @@ class SignInButton {
     b.innerHTML = `${provider === 'apple' ? APPLE_MARK : GOOGLE_MARK}<span>${words}</span>`;
   }
 
-  // At the press: the popup's window, inside the press's activation. The click then reaches the element, where
+  // At the press: the popup's window, inside the press's activation (D5). The click then reaches the element, where
   // the page delivers `press` to the app's action, after this handler.
   press() {
     if (!this.agent && typeof window === 'object') {

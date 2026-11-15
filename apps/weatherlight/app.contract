@@ -1,18 +1,18 @@
 // Weatherlight: one Contract UI, network data below the seam, an optional GPU sky.
 
-// The one page renders at build into dist/: revision 0
+// @ref LLP 1048.003 D5 — the one page renders at build into dist/: revision 0
 // answers the empty forecast, so the document is the page before its data
 // arrives, rendered with no network. The view doesn't branch on the route.
-// "Use my location": the device's position, approximate,
+// @ref LLP 1133.002 §7 — "Use my location": the device's position, approximate,
 // through @exact/geolocation; from then on the forecast follows the person.
 use getCurrentPosition, geolocationStatus, GeolocationPosition, GeolocationStatus from "@exact/geolocation"
-// The platform's geocoder names the followed position's city; where there is
-// none (the web, Linux) it stays "Current location".
+// The platform's geocoder names the followed position's city (LLP 1133.021
+// §13); where there is none (the web, Linux) it stays "Current location".
 use reverseGeocode, geocodingStatus, Place as GeoPlace, GeocodingStatus from "@exact/geocoding"
-// The sky rests in Low Power Mode or a serious
+// @ref LLP 1133.031 §10 — the sky rests in Low Power Mode or a serious
 // thermal state, and the refresh waits while the person saves power or data.
 use powerState, connection, PowerState, NetworkInformation from "@exact/device"
-// Weatherlight+: a subscription shows sixteen days, a tip
+// Weatherlight+ (LLP 1133.015 §10): a subscription shows sixteen days, a tip
 // is a consumable. Contract gates and prices the screen; the data code's
 // delivery loop is the one place a purchase is delivered and finished.
 use getDetails, listPurchases, unfinishedPurchases, purchase, restorePurchases, purchasesStatus, ItemDetails, PurchaseDetails, PurchasesStatus from "@exact/purchases"
@@ -39,10 +39,10 @@ shape Day
   low: number
   high: number
   code: number
-  chance: number
+  chance: option<number>
   sunrise: string
   sunset: string
-  uv: number
+  uv: option<number>
 shape Forecast
   lat: number
   lon: number
@@ -100,7 +100,7 @@ shape Outlook
   hours: HourCard[]
   days: DayCard[]
 
-// The media queries: a wide landscape viewport puts the
+// @ref LLP 1039 — the media queries: a wide landscape viewport puts the
 // look-ahead and the elements in a column beside the sky; no pointer (a TV's
 // remote) leaves room around the hour cards for the focus ring.
 shape Viewport
@@ -152,8 +152,8 @@ component Weatherlight
   mutation bought as shape PurchaseDetails then thanked
   mutation restored as shape PurchaseDetails[]
   mutation delivered as shape Delivery refreshes tipped
-  mutation reviewed as shape Visit
-  // A screen gates on what the person holds, never on the queue.
+  mutation reviewed as shape Visit refreshes visit
+  // A screen gates on what the person holds, never on the queue (D3).
   derive plus = owned.filter(p => p.itemId.startsWith("plus.")).length > 0
   // What the store has delivered and the app has not finished, by token.
   derive due = queue.filter(p => p.purchaseState == "purchased").map(p => p.purchaseToken).join(",")
@@ -281,7 +281,7 @@ component Weatherlight
   task delivering when due != "" key=due
     after(1, deliver)
   // The rating prompt: on the fifth day opened, with a forecast showing,
-  // once per version, never from a button.
+  // once per version, never from a button (D12).
   action askReview
     requestReview()
     send reviewed = reviewAsked()
@@ -374,10 +374,10 @@ component Weatherlight
                 button press=toggleMotion testId="pause-sky" aria-label=(animated ? "Pause sky animation" : "Play sky animation") width=(40 * k) height=(40 * k) border-radius=(20 * k) display="flex" flex-direction="row" align-items="center" justify-content="center" background-color="-exact-fill"
                   text (animated ? "Ⅱ" : "▷") color="-exact-label" font-size=(14 * k)
               column gap=3
-                text (pending(forecast) ? "UPDATING FORECAST" : outlook.selectedLabel) testId="selected-label" font-size=(10 * k) font-weight=600 letter-spacing=2 color="-exact-secondary-label"
+                text (pending(forecast) ? "UPDATING FORECAST" : outlook.selectedLabel) testId="selected-label" font-size=(10 * k) font-weight=600 letter-spacing=2 color="-exact-label"
                 text (outlook.ready ? outlook.temp : "—°") testId="temperature" font-size=(92 * k) font-weight=300 letter-spacing=-6 line-height=`${100 * k}px` color="-exact-label"
                 text (outlook.ready ? outlook.condition : "Finding your patch of sky…") testId="condition" font-size=(22 * k) font-family="serif" color="-exact-label"
-                text outlook.range font-size=(13 * k) color="-exact-secondary-label" margin-top=8
+                text outlook.range font-size=(13 * k) color="-exact-label" margin-top=8
               row justify-content="space-between" align-items="center" flex-wrap="wrap" gap=12
                 text (outlook.ready ? outlook.summary : "The forecast will appear here when it arrives.") font-size=(13 * k) color="-exact-label" max-width=650
                 if selected != "now"

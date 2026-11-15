@@ -158,7 +158,7 @@ impl Gen<'_> {
     }
 
     /// A random type an unpinned expression here can have: any, since a
-    /// list literal makes a list of any type.
+    /// list literal makes a list of any type (LLP 1088 §9.1).
     pub(crate) fn pick_ty(&mut self, _env: &Env) -> Ty {
         self.any_ty()
     }
@@ -306,7 +306,7 @@ impl Gen<'_> {
         }
     }
 
-    /// `[a, b]` of `elem`, each item made by `item`: one
+    /// `[a, b]` of `elem`, each item made by `item` (LLP 1088 §9.1): one
     /// to three of them, or none where the context pins the type; the first
     /// item pins the rest, as a list's items unify.
     fn literal(
@@ -407,7 +407,7 @@ impl Gen<'_> {
                 3 => self.literal(env, elem, pinned, |g, env, t, pinned| {
                     g.expr(env, t, d, pinned)
                 }),
-                // The first list says the type; the second
+                // LLP 1088 §9.1: the first list says the type; the second
                 // may be `[]`.
                 4 => {
                     let a = self.expr(env, t, d, pinned);
@@ -424,13 +424,13 @@ impl Gen<'_> {
                     }
                 }
                 // `split` over code units: an empty separator cuts an astral
-                // character into two U+FFFD.
+                // character into two U+FFFD (LLP 1088 §9.1).
                 6 => {
                     let s = self.expr(env, &Ty::Str, d, false);
                     let sep = self.expr(env, &Ty::Str, d, false);
                     format!("({s}).split({sep})")
                 }
-                // A stable sort by a number or string key,
+                // LLP 1116.016 §5: a stable sort by a number or string key,
                 // in either direction.
                 7 => {
                     let src = self.expr(env, t, d, false);
@@ -459,7 +459,7 @@ impl Gen<'_> {
                         self.expr(env, &Ty::Num, d, false)
                     ),
                 },
-                // `flat()`: a list of lists' items, one level.
+                // `flat()`: a list of lists' items, one level (LLP 1017.003).
                 _ => {
                     let xss = self.expr(env, &Ty::list(t.clone()), d, pinned);
                     format!("({xss}).flat()")
@@ -499,7 +499,7 @@ impl Gen<'_> {
             }
             1 => format!("(-{})", self.expr(env, &Ty::Num, d, false)),
             2 => format!("({}).length", self.sized(env, d)),
-            // `round` is JavaScript's `Math.round`.
+            // `round` is JavaScript's `Math.round` (LLP 1102 §3.2).
             3 => {
                 let f = *self.rng.pick(&["floor", "ceil", "round", "sin", "cos"]);
                 format!("{f}({})", self.expr(env, &Ty::Num, d, false))
@@ -509,7 +509,7 @@ impl Gen<'_> {
                 format!("sum({xs})")
             }
             // `indexOf` over a list of strings, numbers or bools by strict
-            // equality, or over text in code units.
+            // equality, or over text in code units (LLP 1088 §9.1).
             5 if self.rng.chance(1, 2) => {
                 let t = self.scalar_ty();
                 let l = self.expr(env, &Ty::list(t.clone()), d, false);
@@ -576,7 +576,7 @@ impl Gen<'_> {
                 }
             }
             5 => self.format_expr(env, d),
-            // Over UTF-16 code units, an astral string cut or
+            // LLP 1088 D2: over UTF-16 code units, an astral string cut or
             // split by an empty pattern; `toLowerCase` and `toUpperCase` are
             // left out, as the semantics leaves them out.
             6 => {
@@ -607,7 +607,7 @@ impl Gen<'_> {
     }
 
     /// `parseNumber` of a numeral, a near one or any text, or `calendarDiff`
-    /// of two dates.
+    /// of two dates (LLP 1102 §3.1, §3.4).
     fn read_number(&mut self, env: &Env, d: usize) -> String {
         if self.rng.chance(1, 2) {
             let s = if self.rng.chance(2, 3) {
@@ -644,16 +644,21 @@ impl Gen<'_> {
         match self.rng.weighted(&[2, 2, 3, 2, 2, 3]) {
             0 => {
                 let (at, off) = (num(self), number(*self.rng.pick(OFFSETS)));
-                format!("formatTime({at}, {off}, \"short\")")
+                let style = *self.rng.pick(&["\"short\"", "\"2-digit\""]);
+                format!("formatTime({at}, {off}, {style})")
             }
             1 => {
                 let (at, off) = (num(self), number(*self.rng.pick(OFFSETS)));
-                let style = *self.rng.pick(&["\"medium\"", "\"month-year\"", "\"iso\""]);
+                let style =
+                    *self
+                        .rng
+                        .pick(&["\"medium\"", "\"month-year\"", "\"month-day\"", "\"iso\""]);
                 format!("formatDate({at}, {off}, {style})")
             }
-            // `decimal`, `percent` and `currency` beside
-            // `compact`, over counts and the halves and signed zero of
-            // `DECIMALS`, each style rounding at its own cut.
+            // LLP 1116 D8: `decimal`, `percent` and `currency` beside
+            // `compact`, and `decimal` at a fixed number of fraction digits,
+            // over counts and the halves and signed zero of `DECIMALS`, each
+            // style rounding at its own cut.
             2 => {
                 let style = *self.rng.pick(&[
                     "\"compact\"",
@@ -663,6 +668,9 @@ impl Gen<'_> {
                     "\"currency\", \"USD\"",
                     "\"currency\", \"JPY\"",
                     "\"currency\", \"CHF\"",
+                    "\"decimal\", 0",
+                    "\"decimal\", 2",
+                    "\"decimal\", 4",
                 ]);
                 let n = match self.rng.below(3) {
                     0 => number(*self.rng.pick(COUNTS)),
@@ -671,7 +679,7 @@ impl Gen<'_> {
                 };
                 format!("formatNumber({n}, {style})")
             }
-            // `toFixed` of any number at a literal 0–100,
+            // LLP 1102 §3.2: `toFixed` of any number at a literal 0–100,
             // `formatDecimal` of a count (often rounded, as money is) at 0–20.
             3 => {
                 let n = if self.rng.chance(1, 2) {
@@ -691,7 +699,7 @@ impl Gen<'_> {
                 let digits = *self.rng.pick(&[0, 1, 2, 2, 3, 20]);
                 format!("formatDecimal({n}, {digits})")
             }
-            // `formatDay` of an instant whole days and some
+            // LLP 1116.020 D8: `formatDay` of an instant whole days and some
             // hours from `now`, mostly, so each word, the week's edge and a
             // midnight at the offset come up.
             _ => {
@@ -699,9 +707,9 @@ impl Gen<'_> {
                 let then = if self.rng.chance(1, 3) {
                     num(self)
                 } else {
-                    let days = *self
-                        .rng
-                        .pick(&[-8.0, -7.0, -6.0, -2.0, -1.0, 0.0, 1.0, 2.0]);
+                    let days = *self.rng.pick(&[
+                        -400.0, -8.0, -7.0, -6.0, -2.0, -1.0, 0.0, 1.0, 2.0, 6.0, 7.0,
+                    ]);
                     let hours = *self.rng.pick(&[-23.0, -5.0, 0.0, 7.0, 23.5]);
                     format!(
                         "({now}) + {}",
@@ -709,7 +717,9 @@ impl Gen<'_> {
                     )
                 };
                 let off = number(*self.rng.pick(OFFSETS));
-                let mode = *self.rng.pick(&["\"day\"", "\"day-time\"", "\"list\""]);
+                let mode = *self
+                    .rng
+                    .pick(&["\"day\"", "\"day-time\"", "\"list\"", "\"section\""]);
                 format!("formatDay({then}, {now}, {off}, {mode})")
             }
         }
@@ -717,7 +727,7 @@ impl Gen<'_> {
 
     fn bool_expr(&mut self, env: &Env, d: usize) -> String {
         match self.rng.weighted(&[4, 5, 3, 1, 1, 2]) {
-            // Numbers, or two strings in code-unit order.
+            // Numbers, or two strings in code-unit order (LLP 1088 D1).
             0 => {
                 let op = *self.rng.pick(&["<", "<=", ">", ">="]);
                 let t = if self.rng.chance(1, 3) {
@@ -748,7 +758,7 @@ impl Gen<'_> {
             }
             4 => format!("({}).isEmpty()", self.sized(env, d)),
             // `includes` over a list of strings, numbers or bools, by
-            // SameValueZero, or over text.
+            // SameValueZero (LLP 1088 §9.1), or over text.
             _ if self.rng.chance(1, 3) => {
                 let t = self.scalar_ty();
                 let l = self.expr(env, &Ty::list(t.clone()), d, false);

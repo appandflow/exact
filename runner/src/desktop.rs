@@ -1,10 +1,10 @@
-//! A button's presentations past the window: a
-//! `-exact-menu="status"` button is the app's status item on macOS and
-//! Windows, and one with `dock` among its ids an item of the Dock menu.
+//! A button's presentations past the window (LLP 1133.025 D4, D5): a
+//! `-exact-menu="status"` button is the app's status item on macOS, and one
+//! with `dock` among its ids an item of the Dock menu. Windows'
+//! notification-area icon is accepted and not built (LLP 1133.025 §14).
 //! The agent reads both from the session's tree on every host, as
-//! `state.statusItems` and `state.dockMenu`, so a drive sees what a Mac or
-//! Windows host would place, and the buttons stay ordinary where no host
-//! places them.
+//! `state.statusItems` and `state.dockMenu`, so a drive sees what a Mac
+//! would place, and the buttons stay ordinary where no host places them.
 
 use crate::{DataSource, Runner};
 use exact_kernel::{Display, Kernel, NodeType, PropId, PropList, ViewId};
@@ -73,8 +73,8 @@ fn image(kernel: &Kernel, id: ViewId) -> Json {
     }
 }
 
-/// The rows of the menu-shaped popover `button`'s `popovertarget` names:
-/// each button's label, `disabled`, `aria-checked` and
+/// The rows of the menu-shaped popover `button`'s `popovertarget` names
+/// (LLP 1021 D1): each button's label, `disabled`, `aria-checked` and
 /// `testId`, and `"—"` for an `hr`; `None` when it names none.
 fn menu(kernel: &Kernel, button: ViewId) -> Option<Vec<Json>> {
     let target = kernel
@@ -126,7 +126,7 @@ fn item(kernel: &Kernel, id: ViewId) -> Json {
 }
 
 /// `state.statusItems`: each status item the host would place, with its
-/// menu, the host's quit item ending an accessory app's left to it.
+/// menu, the host's quit item ending an accessory app's (D7) left to it.
 pub fn status_items<D: DataSource>(runner: &Runner<D>) -> Vec<Json> {
     let kernel = runner.kernel();
     buttons(runner, "status")

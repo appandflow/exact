@@ -6,6 +6,8 @@ use std::sync::{Arc, Mutex};
 
 #[path = "abi_entry_tests.rs"]
 mod entries;
+#[path = "abi_held_tests.rs"]
+mod held;
 #[path = "abi_longpoll_tests.rs"]
 mod long_poll;
 #[cfg(unix)]
@@ -693,7 +695,7 @@ fn module_replacement_keeps_pending_requests_unless_the_dev_loop_lets_them_go() 
     assert_eq!(bridge.host.as_ref().unwrap().runner().pending(), pending);
     assert!(String::from_utf8_lossy(bridge.output_bytes(count as usize))
         .starts_with("{\"requests\":true,"));
-    // The dev loop's generation past its settle window lets the POST go.
+    // The dev loop's generation past its settle window lets the POST go (LLP 1007 §6).
     bridge.input_write(&plan);
     let count = bridge.prepare_module_with_delivery(
         [plan.len(), 0, 0],
@@ -1124,7 +1126,7 @@ fn dispatch_names_every_kind_and_refuses_unknown_ones() {
     let n = bridge.dispatch(view, 18, len, 0.);
     let out = std::str::from_utf8(bridge.output_bytes(n as usize)).unwrap();
     assert!(out.contains("invalid reorder event"), "{out}");
-    // focusin and focusout carry a length-prefixed target and an
+    // focusin and focusout (#283) carry a length-prefixed target and an
     // optional related id; a payload that does not parse is refused.
     for kind in [46, 47] {
         let len = bridge.input_write(b"5:field0");
@@ -1301,7 +1303,7 @@ fn surface_record_abi_distinguishes_an_invalid_empty_record_from_disposal() {
 }
 
 /// A source whose module loads after first pixel and whose answer reads the
-/// store: the runner keeps that answer for the next launch.
+/// store: the runner keeps that answer for the next launch (LLP 1027 D4).
 #[derive(Clone, Default)]
 struct Keeping(Arc<std::sync::atomic::AtomicBool>);
 
@@ -1421,76 +1423,10 @@ fn candidate_profiles_are_isolated_until_commit_and_after_discard() {
     check(&mut bridge, "icc:assets/candidate.icc");
 }
 
-#[test]
-fn block_axis_records_distinguish_size_maximum_and_route_fitting() {
-    use exact_kernel::{BlockAxis, HostBlock};
-    let plan = contract::compile(
-        "component Page\n  view\n    column\n      box testId=\"route\" width=480 height=300\n",
-    )
-    .unwrap()
-    .encode();
-    let mut bridge = Bridge::new();
-    bridge.boot(&plan, StorageModule::default(), Hooks::none(), 800.0, 600.0);
-    let k = bridge.host.as_ref().unwrap().runner().kernel();
-    let id = k.node_by_key(k.find_by_test_id("route")[0]).unwrap().id;
-    for (width, height, expected, size) in [
-        (
-            2.0_f32,
-            2.0_f32,
-            HostBlock {
-                width: BlockAxis::Fit(400.0),
-                height: BlockAxis::Fit(200.0),
-            },
-            (480.0, 300.0),
-        ),
-        (
-            1.0,
-            1.0,
-            HostBlock {
-                width: BlockAxis::AtMost(400.0),
-                height: BlockAxis::AtMost(200.0),
-            },
-            (400.0, 200.0),
-        ),
-        (
-            2.0,
-            1.0,
-            HostBlock {
-                width: BlockAxis::Fit(400.0),
-                height: BlockAxis::AtMost(200.0),
-            },
-            (480.0, 200.0),
-        ),
-        (
-            0.0,
-            0.0,
-            HostBlock {
-                width: BlockAxis::Is(400.0),
-                height: BlockAxis::Is(200.0),
-            },
-            (400.0, 200.0),
-        ),
-    ] {
-        let bytes: Vec<_> = [
-            id,
-            4,
-            400.0_f32.to_bits(),
-            200.0_f32.to_bits(),
-            width.to_bits(),
-            height.to_bits(),
-        ]
-        .into_iter()
-        .flat_map(u32::to_le_bytes)
-        .collect();
-        bridge.input_write(&bytes);
-        let len = bridge.covers(bytes.len());
-        let batch = std::str::from_utf8(bridge.output_bytes(len as usize)).unwrap();
-        assert!(batch.contains("\"error\":null"), "{batch}");
-        let k = bridge.host.as_ref().unwrap().runner().kernel();
-        assert_eq!(k.host_block(id), Some(expected));
-        assert_eq!(k.host_block_size(id), Some(size));
-    }
-}
+#[path = "abi_block_tests.rs"]
+mod blocks;
 
+#[path = "abi_role_keys_tests.rs"]
+mod role_keys;
 #[path = "abi_roles_tests.rs"]
 mod roles;

@@ -4,13 +4,13 @@ import XCTest
 @testable import ExactGroupedLists
 import UIKit
 
-/// Over `scripts/fixtures/bar-band.contract`: a team kanban app's shape, a
-/// large-title header, a persona switcher (a segmented control) and a line of
-/// text, then a grouped list. The switcher must not lie under the large title,
-/// drawn over by it and taking no tap. As on a hand-built screen (a control
-/// pinned to the safe area over a table), it lies below the bar, its large
-/// title included, and takes a tap; with content above the list the title keeps
-/// still.
+/// LLP 1116.006 D1 over `scripts/fixtures/bar-band.contract`: team-kanban's
+/// shape, a large-title header, a persona switcher (a segmented control) and
+/// a line of text, then a grouped list. Round 8's switcher lay under the
+/// large title, drawn over by it, and took no tap. As on a hand-built screen
+/// (a control pinned to the safe area over a table), it lies below the bar,
+/// its large title included, and takes a tap; with content above the list
+/// the title keeps still (LLP 1115.000 D11.1).
 final class BarBandIOSTests: XCTestCase {
     private var window: UIWindow?
     private var session: ExactSession?
@@ -108,9 +108,9 @@ final class BarBandIOSTests: XCTestCase {
         let control = try XCTUnwrap(p.segments.control(of: try node("persona").id), "the tablist is a segmented control")
         let list = try XCTUnwrap(p.navigation.shownScroll(try node("board")))
 
-        // With content above the list the title keeps still:
-        // the large title shows, and the switcher is below it, not
-        // under it (the covers reach the kernel in order).
+        // With content above the list the title keeps still (LLP 1115.000
+        // D11.1): the large title shows, and the switcher is below it, not
+        // under it (the covers reach the kernel in order, LLP 1116.006 D1).
         let expanded = box(nav.navigationBar).maxY
         XCTAssertGreaterThan(expanded, route.view.window!.safeAreaInsets.top + 80, "the large title is shown: the bar ends at \(expanded)")
         try assertBelow(nav, control)
@@ -129,12 +129,12 @@ final class BarBandIOSTests: XCTestCase {
         try assertBelow(nav, control)
     }
 
-    /// The route's scroll is an inset-grouped list, so the route is on the
-    /// grouped background, bar to bottom edge, as a hand-built
-    /// `UITableViewController`'s screen is: the band the switcher sits in is
-    /// the list's grey, not the page's white (no white header block over the
-    /// grouped-grey list). The compiler supplies the role, so each scheme
-    /// resolves its own.
+    /// LLP 1116.007 D5: the route's scroll is an inset-grouped list, so the
+    /// route is on the grouped background, bar to bottom edge, as a
+    /// hand-built `UITableViewController`'s screen is: the band the switcher
+    /// sits in is the list's grey, not the page's white (round 9's polls:
+    /// "a white header block over the grouped-grey list"). The compiler
+    /// supplies the role, so each scheme resolves its own.
     func testARouteThatScrollsAGroupedListIsOnTheGroupedBackgroundUnderTheSwitcher() throws {
         let session = try fixture()
         let nav = try XCTUnwrap(session.presenter.navigation.primaryNavigation)

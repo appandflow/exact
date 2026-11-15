@@ -1,4 +1,4 @@
-// What `layout` says about how far a scroller's offset travels (`rx`/`ry`), on a real AppKit scroller: its
+// What `layout` says about how far a scroller's offset travels (LLP 1012 `rx`/`ry`), on a real AppKit scroller: its
 // document past its clip view, the clip view's content insets included, never negative.
 #if os(macOS)
 import AppKit

@@ -55,7 +55,7 @@ where
 
     // Resolve node's preferred/min/max sizes (width/heights) against the available space (percentages resolve to pixel values)
     // ContentSize normally ignores size styles; ratio width probes keep height bounds below.
-    // EXACT PATCH 12: the size styles through the ratio
+    // EXACT PATCH 12 (LLP 1053 G1): the size styles through the ratio
     // (`compute::ratio`); the authored minimum is kept for the table below.
     let ratio = Ratio::of(style, pb_sum);
     let ratio_content_width = sizing_mode == SizingMode::ContentSize
@@ -144,7 +144,8 @@ where
         };
     }
 
-    // Compute available space
+    // Compute available space. EXACT PATCH 25: the parent has already subtracted
+    // this node's margins, so only its padding and border come off here.
     let available_space = Size {
         width: known_dimensions
             .width
@@ -179,7 +180,7 @@ where
         .or(node_size)
         .unwrap_or(measured_size + content_box_inset.sum_axes())
         .maybe_clamp(node_min_size, node_max_size);
-    // EXACT PATCH 5 + 12: with a ratio and
+    // EXACT PATCH 5 + 12 (LLP 1011 §1, LLP 1053 G1): with a ratio and
     // neither dimension given, a replaced element resolves its natural size
     // against min/max by CSS 2.1 §10.4's table, keeping the ratio; any other
     // box takes its content width and derives its height from it. A given
@@ -239,7 +240,7 @@ where
     }
 }
 
-// EXACT PATCH: CSS 2.1 §10.4, the min/max constraint table for
+// EXACT PATCH (LLP 1011 §1): CSS 2.1 §10.4, the min/max constraint table for
 // replaced elements with an intrinsic ratio. Inputs are border-box sizes;
 // `w`/`h` are the tentative dimensions of the box the ratio relates.
 fn replaced_constraints(size: Size<f32>, min: Size<Option<f32>>, max: Size<Option<f32>>, ratio: Ratio) -> Size<f32> {

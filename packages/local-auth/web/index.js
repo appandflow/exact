@@ -1,4 +1,4 @@
-// @exact/local-auth on the web: the cell is `later`, to be
+// @exact/local-auth on the web (LLP 1133.010 D15): the cell is `later`, to be
 // filled over the passkeys module (WebAuthn's user verification, and its
 // `prf` extension for a locked secret). Until then the page says so: the
 // status answers that nothing can be checked or kept locked here, and

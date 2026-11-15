@@ -1,4 +1,4 @@
-//! The canvas row (SPEC 4) as a Canvas 2D drawing: `canvas surface=card(c)` in
+//! The canvas row (SPEC 4) as a Canvas 2D drawing (LLP 1056): `canvas surface=card(c)` in
 //! app.contract, drawn here in the SPEC's order with the web's `CanvasRenderingContext2D` calls.
 //! The node's CSS `border-radius=12` clips the bitmap.
 

@@ -1,9 +1,9 @@
-//! A native module's sources and sends.
-//! The plan's `modules` table names the sources a module answers,
-//! not the app's data. Until a host binds an implementation,
-//! the runner answers them itself, as each name's declared substitute
+//! A native module's sources and sends (LLP 1133.002 D13, §6; LLP 1124 D5,
+//! D7, D9). The plan's `modules` table names the sources a module answers,
+//! not the app's data. Until a host binds an implementation (LLP 1133.001
+//! D4), the runner answers them itself, as each name's declared substitute
 //! says (`exact.json`), so the standard library's modules and anyone's are
-//! substituted alike:
+//! substituted alike (LLP 1133.001 D8):
 //!
 //! - **Permission.** An interface that declares `permission` has one state,
 //!   `prompt` until `prefer permission.<name>` or a ticket sets it. Its
@@ -98,11 +98,11 @@ thread_local! {
     pub(crate) static SUBSTITUTE_PARSES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
 
-/// The runner's module state for this session (until cleared or the
-/// session ends).
+/// The runner's module state for this session (LLP 1124 D7: until cleared
+/// or the session ends).
 #[derive(Default)]
 pub(super) struct Extensions {
-    /// `@exact/child-process`'s children and clock.
+    /// `@exact/child-process`'s children and clock (LLP 1133.007).
     processes: processes::Processes,
     /// Each module's substitute as it reads on the host target, by the plan's
     /// string: parsed once, since the plan's strings never change under a
@@ -129,22 +129,22 @@ pub(super) struct Extensions {
     agent: BTreeSet<String>,
     /// The bound live sources that have had a reader, until released.
     live: BTreeSet<String>,
-    /// What the declared substitute keeps: keyed lists,
+    /// What the declared substitute keeps (LLP 1133.004 §7): keyed lists,
     /// values, and the effects held on a permission ticket.
     declared: declared::Declared,
-    /// Module events not yet heard.
+    /// Module events not yet heard (D6).
     pub(super) events: events::Events,
-    /// Wakes, running and to come.
+    /// Wakes, running and to come (LLP 1133.017 D5).
     wakes: wakes::Wakes,
-    /// Foreground-service claims under the agent.
+    /// Foreground-service claims under the agent (LLP 1133.033 D21).
     services: services::Services,
     /// What bound implementations disclose of their own objects (`disclosed.rs`).
     disclosed: disclosed::Disclosed,
-    /// Tool calls, running and to come.
+    /// Tool calls, running and to come (LLP 1133.023 D7).
     calls: calls::Calls,
     /// Each bound live source's Contract readers, by resource, with the
     /// arguments each last asked with (`bound.rs`).
-    readers: BTreeMap<String, BTreeMap<usize, String>>,
+    pub(super) readers: BTreeMap<String, BTreeMap<usize, String>>,
     /// The argument groups each bound live source's implementation was
     /// asked for and not yet told are gone.
     groups: BTreeMap<String, BTreeSet<String>>,
@@ -156,8 +156,8 @@ pub(super) struct Extensions {
     arrived: handles::Arrived,
     /// Each polled source's last ask, on the session's clock (`poll.rs`).
     polls: BTreeMap<String, f64>,
-    /// When each live source's last answer goes stale, on the session's
-    /// clock; infinite once asked (`stale.rs`).
+    /// When each live source's last answer goes stale, as Unix milliseconds;
+    /// infinite once asked (`stale.rs`).
     stale: BTreeMap<String, f64>,
     /// What each package view's implementation was told (`views.rs`).
     views: views::Views,
@@ -232,7 +232,7 @@ struct Held {
     /// The request's own timeout (its declared `timeout` option), ms.
     timeout: Option<f64>,
     /// When a value ticket fails `TIMEOUT` on the agent's clock: set when the
-    /// value is first sought, after any permission ticket.
+    /// value is first sought, after any permission ticket (D2).
     deadline: Option<f64>,
     /// The call's body for the implementation, once the ticket allows it.
     forward: Option<Vec<u8>>,
@@ -282,16 +282,16 @@ enum Waits {
     Permission,
     Value,
     /// A send that raises what its `answers` source says (`raise`: precise
-    /// location for a task).
+    /// location for a task, D10).
     Raise,
-    /// A send that is a person's check (`check`), answered
+    /// A send that is a person's check (`check`: LLP 1133.010 §7), answered
     /// by a tap: `allow` passes it, each other choice fails it.
     Check,
-    /// A sheet the person answers (`ceremony`), with a
+    /// A sheet the person answers (`ceremony`: LLP 1133.011 §9), with a
     /// typed response or a tap that fails it.
     Ceremony,
     /// A send that shows the person a choice the implementation then
-    /// answers from (`choose`: the limited selection): the
+    /// answers from (`choose`: the limited selection, LLP 1133.019 §10): the
     /// agent's `type @t` sets the agent word it names; `cancel` leaves it.
     Choose,
     /// A send the substitute answers after its span (`spans.rs`).
@@ -341,28 +341,31 @@ impl<D: DataSource> Runner<D> {
         source: &str,
         args: &[Value],
     ) -> Result<Answer, RunnerError> {
-        let resource = self.plan.str(self.plan.resources[i].name).to_string();
+        let resource = self.plan.str(self.resource_row(i).name).to_string();
         let key = self.key(&self.module_row(source));
         // The readers of a module's source are asked again when what it
         // answers changes (`announce`, or the bound module's own topic).
         self.store.observe_topic(&key);
-        let ty = self.plan.resources[i].ty;
+        let ty = self.resource_row(i).ty;
         self.module_target(Target::Resource(i), source, args, ty)
             .map_err(|error| RunnerError::Data { resource, error })
     }
 
-    /// What answers a send of mutation `m` to `source`, a module's name.
+    /// What answers a send (`target`) to `source`, a module's name.
     pub(super) fn module_send(
         &mut self,
-        m: usize,
+        target: Target,
         source: &str,
         args: &[Value],
     ) -> Result<Answer, DataError> {
+        let m = target
+            .mutation()
+            .expect("a send's target names its mutation");
         let ty = self.plan.mutations[m].ty;
-        self.module_target(Target::Mutation(m), source, args, ty)
+        self.module_target(target, source, args, ty)
     }
 
-    /// A Contract read or send of a module's name: admitted, then
+    /// A Contract read or send of a module's name: admitted (D14), then
     /// answered by its route: the implementation, the agent's ticket, or
     /// the substitute.
     fn module_target(
@@ -376,12 +379,12 @@ impl<D: DataSource> Runner<D> {
         let mut args = self.args_json(&row, args);
         self.clamp_bounds(&row, &mut args);
         self.resolve_of(&row, &mut args);
-        let send = matches!(target, Target::Mutation(_));
+        let send = target.mutation().is_some();
         let timeout = send.then(|| self.timeout(&row, &args)).flatten();
         let origin = self.origin_for(Some(target));
         let reader = match target {
             Target::Resource(i) => Some(samples::Reader::Resource(i)),
-            Target::Mutation(_) => None,
+            Target::Mutation(_) | Target::Sent(..) => None,
         };
         // A sampled source's reader is known to its answer (`samples.rs`).
         self.extensions.samples.asking = reader.map(|r| (r, origin));
@@ -417,12 +420,14 @@ impl<D: DataSource> Runner<D> {
         } = called;
         let (row, key, route) = (row.clone(), self.key(row), self.route(row));
         let what = match target {
-            Target::Resource(i) => format!("query {}", self.plan.str(self.plan.resources[i].name)),
-            Target::Mutation(m) => format!("send {}", self.plan.str(self.plan.mutations[m].name)),
+            Target::Resource(i) => format!("query {}", self.plan.str(self.resource_row(i).name)),
+            Target::Mutation(m) | Target::Sent(m, _) => {
+                format!("send {}", self.plan.str(self.plan.mutations[m].name))
+            }
         };
         let reader = match target {
             Target::Resource(i) => Some(i),
-            Target::Mutation(_) => None,
+            Target::Mutation(_) | Target::Sent(..) => None,
         };
         let feeds = !self.substitute(&row)["feeds"].is_null();
         match decision {
@@ -485,7 +490,7 @@ impl<D: DataSource> Runner<D> {
     }
 
     /// [`Self::decide`], where a value ticket that would wait `timeout=0`
-    /// fails `TIMEOUT` at once (an eligible cached fix, or none).
+    /// fails `TIMEOUT` at once (D2: an eligible cached fix, or none).
     fn decide_timed(
         &self,
         row: &ModulesRow,
@@ -501,7 +506,7 @@ impl<D: DataSource> Runner<D> {
         }
     }
 
-    /// Value tickets whose timeout has passed on the agent's clock:
+    /// Value tickets whose timeout has passed on the agent's clock (§6):
     /// each fails `TIMEOUT`, its ticket retired.
     pub(super) fn module_deadlines(&mut self, now_ms: f64) {
         if !self.native_slot().synced() {
@@ -554,10 +559,14 @@ impl<D: DataSource> Runner<D> {
             .clone()
     }
 
-    /// `extension.source`, as `prefer` and the journal name it.
+    /// The declaration's qualified name, as `prefer` and the journal name it.
     pub(super) fn key(&self, row: &ModulesRow) -> String {
+        let owner = self.substitute(row)["owner"]
+            .as_str()
+            .map(|s| format!("#{s}"))
+            .unwrap_or_default();
         format!(
-            "{}.{}",
+            "{}.{}{owner}",
             self.plan.str(row.extension),
             self.plan.str(row.declared)
         )
@@ -581,13 +590,17 @@ impl<D: DataSource> Runner<D> {
     fn sibling(&self, row: &ModulesRow, declared: &str) -> Option<ModulesRow> {
         let extension = self.plan.str(row.extension);
         (self.plan.modules.iter())
-            .find(|m| {
-                self.plan.str(m.extension) == extension && self.plan.str(m.declared) == declared
+            .filter(|m| {
+                self.plan.str(m.extension) == extension
+                    && self.plan.str(m.declared) == declared
+                    && (self.substitute(m)["owner"] == self.substitute(row)["owner"]
+                        || self.substitute(m)["owner"].is_null())
             })
+            .min_by_key(|m| self.substitute(m)["owner"] != self.substitute(row)["owner"])
             .cloned()
     }
 
-    /// The transitions for a read (or a send) of `row` now.
+    /// §6's transitions for a read (or a send) of `row` now.
     fn decide(&self, row: &ModulesRow, send: bool, args: &Json) -> Decision {
         if self.unavailable(row) || self.unsupported_here(row) {
             return Decision::Now(json!({ "error": "NotSupportedError" }));
@@ -599,7 +612,7 @@ impl<D: DataSource> Runner<D> {
         if send && sub["ceremony"].is_object() {
             return self.decide_ceremony(row, &sub, args);
         }
-        // A signal the substitute records answers nothing.
+        // A signal the substitute records (LLP 1133.011 §9) answers nothing.
         if send && sub["records"] == true {
             return Decision::Now(Json::Null);
         }
@@ -624,7 +637,7 @@ impl<D: DataSource> Runner<D> {
             // Each permission this source answers the state of, in its field:
             // a path into a record the status has (`android.notifications`).
             // A target whose restriction makes the module absent keeps its
-            // own answer (`unknown`).
+            // own answer (`unknown`, LLP 1133.030 D7).
             let absent =
                 self.substitute(row)["targets"][self.host_target()]["available"] == json!(false);
             for p in self.statuses_of(row).into_iter().filter(|_| !absent) {
@@ -635,7 +648,8 @@ impl<D: DataSource> Runner<D> {
             return Some(Decision::Now(status));
         }
         // A name admitted with no permission is never held or refused, and
-        // a request answers the status in every state but `prompt`.
+        // a request answers the status in every state but `prompt` (LLP
+        // 1133.004 §7).
         match sub["admission"].as_str() {
             Some("none") => return None,
             Some("request") if state != "prompt" => return None,
@@ -643,10 +657,15 @@ impl<D: DataSource> Runner<D> {
         }
         // A denial that only gates part of what a call can ask fails a call
         // that asks for that part alone (`continues`: Face ID refused, the
-        // passcode still works).
+        // passcode still works, LLP 1133.010 D12).
         // A request that answers the status answers it denied too (WebKit's
-        // `requestPermission` resolves `denied`).
+        // `requestPermission` resolves `denied`, LLP 1133.013 D11).
         let answers_denied = send && sub["deniedAnswers"] == true;
+        // A source that reads a value of its own until the permission is
+        // granted (`ungranted`: a push subscription's none, LLP 1133.004 §9 P3).
+        if let (false, true, Some(value)) = (send, state != "granted", sub.get("ungranted")) {
+            return Some(Decision::Now(value.clone()));
+        }
         if state == "denied" && self.denial_fails(&sub, args) && !answers_denied {
             return Some(Decision::Now(json!({ "error": permission["denied"] })));
         }
@@ -655,7 +674,7 @@ impl<D: DataSource> Runner<D> {
             return Some(Decision::Hold(Waits::Permission));
         }
         // A name that is no request fails until the state is granted, where
-        // the permission says so, naming the request that asks.
+        // the permission says so, naming the request that asks (D11).
         (state == "prompt" && !asks && permission["whilePrompt"].is_object())
             .then(|| Decision::Now(permission["whilePrompt"].clone()))
     }
@@ -738,19 +757,15 @@ impl<D: DataSource> Runner<D> {
                     .unwrap_or_else(|| json!({ "error": "NotSupportedError" })),
             );
         }
-        // A send that answers another source's value, raising it when it
-        // matches `raise.when`: held under the raise's ticket.
+        if let Some(decision) = self.decide_raise(row, send) {
+            return decision;
+        }
+        // A send that answers another source's value without raising it.
         if let Some(answers) = sub["answers"].as_str().and_then(|a| self.sibling(row, a)) {
             let Decision::Now(value) = self.decide(&answers, false, &json!({})) else {
                 return Decision::Now(json!({ "error": "NotSupportedError" }));
             };
-            let when = sub["raise"]["when"].as_object();
-            let matches = when.is_some_and(|w| w.iter().all(|(k, v)| value.get(k) == Some(v)));
-            return if matches {
-                Decision::Hold(Waits::Raise)
-            } else {
-                Decision::Now(value)
-            };
+            return Decision::Now(value);
         }
         let from = sub["from"].as_str().and_then(|f| self.sibling(row, f));
         if let Some(value) = from.as_ref().and_then(|f| self.preferred(f)) {
@@ -764,8 +779,8 @@ impl<D: DataSource> Runner<D> {
         if sub["list"].is_object() {
             return Decision::Now(json!({ LISTS: true }));
         }
-        // A send with nothing preferred answers its declared default (a
-        // geocode answers `[]`).
+        // A send with nothing preferred answers its declared default (LLP
+        // 1133.021 §12: a geocode answers `[]`).
         if !sub["default"].is_null() {
             return Decision::Now(sub["default"].clone());
         }
@@ -774,7 +789,7 @@ impl<D: DataSource> Runner<D> {
 
     /// A source's preferred value, completed by its `fill`; else its
     /// default. An interface that is its own substitute takes a partial
-    /// preferred value, laid over the default
+    /// preferred value (LLP 1133.009 D10 item 11), laid over the default
     /// where the runner answers itself (a status), as does a `partial`
     /// source's. A default has this target's restrictions laid over it
     /// (`targets`). Its `facts` are the runner's own, over either.
@@ -783,9 +798,12 @@ impl<D: DataSource> Runner<D> {
         if let Some(listed) = self.listed_value(row, &sub) {
             return Some(listed);
         }
-        let default = (!sub["default"].is_null()).then(|| {
-            let mut default = sub["default"].clone();
-            if let Some(restricted) = sub["targets"].get(self.host_target()) {
+        // A `default` written `null` is a value: an option source's none.
+        let default = sub.get("default").map(|default| {
+            let mut default = default.clone();
+            if let (Some(restricted), true) =
+                (sub["targets"].get(self.host_target()), default.is_object())
+            {
                 admit::overlay(&mut default, restricted);
             }
             default
@@ -803,7 +821,7 @@ impl<D: DataSource> Runner<D> {
         };
         for (field, fact) in sub["facts"].as_object().into_iter().flatten() {
             let known = match fact.as_str() {
-                // The host keeps locked secrets.
+                // The host keeps locked secrets (LLP 1133.010 D7).
                 Some("presence-secrets") => json!(self.presence_secrets()),
                 _ => continue,
             };
@@ -811,7 +829,7 @@ impl<D: DataSource> Runner<D> {
                 object.insert(field.clone(), known);
             }
         }
-        // A login item's status with the app's registration.
+        // A login item's status with the app's registration (LLP 1133.025 §11).
         if sub["login"] == "status" {
             value = self.login_status(value);
         }
@@ -913,7 +931,7 @@ impl<D: DataSource> Runner<D> {
                 .flat_map(|c| c.keys().cloned()),
         );
         let asked: Vec<&str> = asked.iter().map(String::as_str).collect();
-        // A sheet's taps besides `cancel`.
+        // A sheet's taps besides `cancel` (LLP 1133.018 D13 item 4).
         let sheet = self.sheet_choices(row);
         let sheet: Vec<&str> = sheet.iter().map(String::as_str).collect();
         let (more, typed) = Self::ticket_taps(&sub);
@@ -922,7 +940,7 @@ impl<D: DataSource> Runner<D> {
             // A span holds no device ticket (`spans.rs`).
             Waits::Span => return u64::MAX,
             Waits::Permission => {
-                // What `allow` grants this request (`asks`).
+                // What `allow` grants this request (`asks`, D13 item 3).
                 let line = self.asked_line(row);
                 let grants = self.permission_named(row, permission);
                 let asks = self.answer_fields(&grants, "allow", line.as_deref());
@@ -1080,7 +1098,7 @@ impl<D: DataSource> Runner<D> {
         }
     }
 
-    /// A call from data code: a native request whose body
+    /// A call from data code (LLP 1133.002 D14): a native request whose body
     /// names a module's source or send, `{"extension": …, "source": …,
     /// "args": {…}}`, admitted here as a Contract read or send is, before any
     /// module. `None` for any other body.
@@ -1092,7 +1110,11 @@ impl<D: DataSource> Runner<D> {
             (None, Some(name)) => (name, true),
             _ => return None,
         };
-        let key = format!("{extension}.{declared}");
+        let owner = v["owner"]
+            .as_str()
+            .map(|s| format!("#{s}"))
+            .unwrap_or_default();
+        let key = format!("{extension}.{declared}{owner}");
         let now = |answer: Json| Dispatch::Run(Work::Now(Box::new(move || response(&answer))));
         let Some(row) = self
             .plan
@@ -1112,7 +1134,7 @@ impl<D: DataSource> Runner<D> {
         self.resolve_of(&row, &mut args);
         let origin = self.data_origin();
         let causes = self.data_causes();
-        // A send that answers nothing settles once done,
+        // A send that answers nothing (LLP 1133.004 D5) settles once done,
         // as does one that lists what it answers (`region_list.rs`).
         if self.is_effect(&row) || self.lists_answer(&row) {
             return Some(self.calling(causes, |r| r.effect_call(&row, args, origin)));
@@ -1137,6 +1159,14 @@ impl<D: DataSource> Runner<D> {
                 let mut body = self.as_origin(origin, |r| r.forward_body(&row, args, None));
                 if let Some(n) = v["request"].as_u64() {
                     body = numbered(&body, n);
+                    let ticket = self
+                        .extensions
+                        .sent
+                        .iter()
+                        .find_map(|(t, (_, sent))| (*sent == n).then_some(*t));
+                    if let Some(ticket) = ticket {
+                        self.note_send(ticket, &body);
+                    }
                 }
                 let anchored = self.anchor_body(&row, &body, origin);
                 // A reply carrying handles grants them the handlers its call
@@ -1262,8 +1292,12 @@ impl<D: DataSource> Runner<D> {
     /// The topic a data-code read of a module's source watches, its key.
     pub(super) fn module_topic(&self, body: &[u8]) -> Option<String> {
         let v: Json = serde_json::from_slice(body).ok()?;
+        let owner = v["owner"]
+            .as_str()
+            .map(|s| format!("#{s}"))
+            .unwrap_or_default();
         let key = format!(
-            "{}.{}",
+            "{}.{}{owner}",
             v.get("extension")?.as_str()?,
             v.get("source")?.as_str()?
         );
@@ -1370,7 +1404,7 @@ impl<D: DataSource> Runner<D> {
     }
 
     /// Held module requests whose request is gone (superseded, its reader
-    /// released, a refused commit): retired with their tickets.
+    /// released, a refused commit): retired with their tickets (§6).
     pub(super) fn retire_modules(&mut self) {
         self.release_idle();
         self.release_sampled();
@@ -1436,7 +1470,8 @@ impl<D: DataSource> Runner<D> {
 
 /// The code of an error answer, `{"error": "POSITION_UNAVAILABLE"}`, which
 /// may say more in a `message`.
-/// Each platform's own code may travel beside it (`apple`, `android`).
+/// Each platform's own code may travel beside it (`apple`, `android`; LLP
+/// 1133.011 D1).
 fn error_code(json: &Json) -> Option<&str> {
     let object = json.as_object()?;
     let only =

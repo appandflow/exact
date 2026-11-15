@@ -66,19 +66,11 @@ impl Paints<'_> {
                     self.owner(attrs, *span, in_text || native)?;
                     self.nodes(children, matches!(tag.as_str(), "text" | "time" | "option"))?;
                 }
-                Node::Use { children, .. } => self.nodes(children, in_text)?,
-                Node::When {
-                    then, otherwise, ..
-                } => {
-                    self.nodes(then, in_text)?;
-                    self.nodes(otherwise, in_text)?;
+                node => {
+                    for list in node.child_lists() {
+                        self.nodes(list, in_text)?;
+                    }
                 }
-                Node::Each { body, .. } => self.nodes(body, in_text)?,
-                Node::Match { some, none, .. } => {
-                    self.nodes(&some.1, in_text)?;
-                    self.nodes(none, in_text)?;
-                }
-                Node::Children { .. } => {}
             }
         }
         Ok(())
@@ -168,9 +160,20 @@ impl Paints<'_> {
                     .iter()
                     .position(|t| t.kind == TokenKind::Newline)
                     .expect("parsed line");
+            // A logical newline ends the whole value, including multiline
+            // expressions and positionals on the owner's opening line.
+            let last_attr = attrs
+                .iter()
+                .map(|a| a.span.line)
+                .max()
+                .unwrap_or(owner.line);
+            let end = self.tokens[line..]
+                .iter()
+                .find(|t| t.kind == TokenKind::Newline && t.span.line >= last_attr)
+                .expect("parsed attribute line");
             let at = self
                 .starts
-                .get(self.tokens[line].span.line as usize)
+                .get(end.span.line as usize)
                 .copied()
                 .unwrap_or(self.src.len());
             let prefix = if at > 0 && !self.src[..at].ends_with('\n') {

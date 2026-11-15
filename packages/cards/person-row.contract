@@ -2,8 +2,8 @@ use Name, Avatar, VerifiedBadge from "./common.contract"
 
 // A person in a list (Bluesky's ProfileCard: Outer, Header with the avatar,
 // NameAndHandle with ProfileBadges and the trailing control, Labels' "Follows
-// you" pill, Description; in ProfileCardWithFollowBtn's py_md px_xl row).
-// It links to the person, as ProfileCard.Link
+// you" pill, Description; in ProfileCardWithFollowBtn's py_md px_xl row),
+// LLP 1121 stage 15 B batch 2. It links to the person, as ProfileCard.Link
 // does: the link (testId `<id>-link`) is everything but the slot, its
 // `press` and spoken `label` the app's ("View Ada's profile"). `disabled`
 // says the link is unavailable and dims it, not the app's trailing control
@@ -12,7 +12,7 @@ use Name, Avatar, VerifiedBadge from "./common.contract"
 // person can't be reached), `pill` the pill's text ("" for none). Its one
 // slot is the header's trailing control (a FollowButton, the app's own, or
 // nothing). Its spacing is Bluesky's; a copy's other padding is a named pixel
-// change in its gate, not a variant (there is no density enum).
+// change in its gate, not a variant (theme2's 14:15 ruling: no density enum).
 component PersonRow
   params
     divider: color = "cards.divider" control = "token" group = "Color" priority = 2 label = "Divider"

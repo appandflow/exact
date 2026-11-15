@@ -1,9 +1,9 @@
 //! What `app.json` adds to a compiled plan: the app's identity, its hatch
-//! words, and the system's ways into the app: the manifest's
+//! words, and the system's ways into the app (LLP 1133.023): the manifest's
 //! `shortcuts` and the packages that publish shortcuts and content open a
 //! URL at the navigation root, so an app with any of them and no
 //! `navigate=` root is refused (`quick-actions-root`, `search-index-root`).
-//! The manifest's `intents` faces are checked against the tools they
+//! The manifest's `intents` faces (D8) are checked against the tools they
 //! name and stored on the tools' rows.
 
 use crate::{native, CompileError, Manifest};
@@ -42,9 +42,9 @@ pub(crate) fn from_manifest(
             ),
         ));
     }
-    // Each hatch word with the platforms that handle it, under the plan's
-    // signature: a host calls a word only where the plan says its platform
-    // handles it.
+    // @ref LLP 1075.003.000.001 §4.3 — each hatch word with the platforms
+    // that handle it, under the plan's signature: a host calls a word only
+    // where the plan says its platform handles it.
     let rows = native::hatch_rows(&manifest).map_err(|m| refused("app-manifest", m))?;
     for (word, platforms) in rows {
         plan.add_hatch(&word, platforms);
@@ -57,17 +57,17 @@ pub(crate) fn from_manifest(
     if !root && (shortcuts.is_some() || uses("quick-actions")) {
         return Err(refused(
             "quick-actions-root",
-            "a quick action opens its url at the navigation root, and the root component's outermost node has no `navigate=` (docs/recipes/navigation-stack.md)".into(),
+            "a quick action opens its url at the navigation root, and the root component's outermost node has no `navigate=` (LLP 1133.023 D1; docs/recipes/navigation-stack.md)".into(),
         ));
     }
     if !root && uses("search-index") {
         return Err(refused(
             "search-index-root",
-            "a search result opens its entry's url at the navigation root, and the root component's outermost node has no `navigate=` (docs/recipes/navigation-stack.md)".into(),
+            "a search result opens its entry's url at the navigation root, and the root component's outermost node has no `navigate=` (LLP 1133.023 D1; docs/recipes/navigation-stack.md)".into(),
         ));
     }
-    // The agent's substitute shows the manifest's items before the app's,
-    // as the platform does.
+    // The agent's substitute shows the manifest's items before the app's
+    // (LLP 1133.023 §10), as the platform does.
     if let Some(shortcuts) = shortcuts {
         for i in 0..plan.modules.len() {
             let row = &plan.modules[i];
@@ -83,7 +83,7 @@ pub(crate) fn from_manifest(
             plan.set_module_substitute(i, &sub.to_string());
         }
     }
-    // The synthetic store's catalogue: the products the
+    // The synthetic store's catalogue (LLP 1133.015 §9): the products the
     // agent's purchases sell, which each name's substitute carries and the
     // runner hands the implementation bound under the agent.
     if let Some(at) = manifest.json.pointer("/purchases/catalog") {
@@ -130,7 +130,7 @@ fn catalog(app_root: &Path, at: &Value) -> Result<Value, String> {
     Ok(items)
 }
 
-/// The doors a face reaches when it names none.
+/// The doors a face reaches when it names none (§9's cells).
 const DOORS: [&str; 3] = ["apple", "android", "web"];
 
 /// Check each of `intents.tools`' faces against its tool and store it on
@@ -142,10 +142,7 @@ fn faces(intents: &Value, plan: &mut Plan) -> Result<(), (&'static str, String)>
     };
     for (name, face) in tools {
         let Some(i) = (plan.tools.iter()).position(|t| plan.str(t.name) == name) else {
-            return Err((
-                "intents-tool",
-                format!("intents.tools names `{name}`, and the app has no `tool {name}` line"),
-            ));
+            return Err(("intents-tool", format!("intents.tools names `{name}`, and the app has no `tool {name}` line (LLP 1133.023 D8)")));
         };
         let signature = crate::faces::tool_signature(plan, i);
         let destroys = signature["consequence"] == "destroys";
@@ -162,7 +159,20 @@ fn faces(intents: &Value, plan: &mut Plan) -> Result<(), (&'static str, String)>
             return Err(("intents-door", format!("tool `{name}`'s face names door `{door}`; the doors are apple, android and web")));
         }
         if let Some(door) = doors.iter().find(|d| destroys && *d != "apple") {
-            return Err(("intents-destroys-door", format!("tool `{name}` destroys, and the {door} door has no confirmation the person answers, so its face may not name it")));
+            return Err(("intents-destroys-door", format!("tool `{name}` destroys, and the {door} door has no confirmation the person answers, so its face may not name it (LLP 1133.023 D10)")));
+        }
+        // WebMCP's limits (https://webmachinelearning.github.io/webmcp/);
+        // App Intents takes an empty `IntentDescription` and any name. A
+        // `tool` line's name is already within WebMCP's characters.
+        if doors.iter().any(|d| d == "web") {
+            let description = signature["description"].as_str().unwrap_or_default();
+            if description.trim().is_empty() {
+                return Err(("intents-web-description", format!("tool `{name}`'s face reaches the web door, and its description is blank: write what the tool does between its `tool` line's quotes, which an agent reads to choose it (WebMCP §4.2 requires a description), or leave web out of the face's `doors`")));
+            }
+            let length = name.chars().count();
+            if length > 128 {
+                return Err(("intents-web-name", format!("tool `{name}`'s face reaches the web door, and its name is {length} characters: a WebMCP tool name is at most 128 (WebMCP §3, tool definition), so shorten the `tool` line's name, or leave web out of the face's `doors`")));
+            }
         }
         let declared = face.get("parameters").and_then(Value::as_object);
         let params = signature["parameters"]
@@ -191,7 +201,7 @@ fn faces(intents: &Value, plan: &mut Plan) -> Result<(), (&'static str, String)>
             if let Some(why) = wrong {
                 return Err((
                     "intents-face-type",
-                    format!("tool `{name}`'s parameter `{pname}` ({ty}): {why}"),
+                    format!("tool `{name}`'s parameter `{pname}` ({ty}): {why} (LLP 1133.023 D5)"),
                 ));
             }
         }
@@ -204,12 +214,7 @@ fn faces(intents: &Value, plan: &mut Plan) -> Result<(), (&'static str, String)>
             .as_str()
             .filter(|t| !["string", "number", "bool"].contains(t))
         {
-            return Err((
-                "intents-face-type",
-                format!(
-                    "tool `{name}` returns {ty}; a face's tool returns a string, number or bool"
-                ),
-            ));
+            return Err(("intents-face-type", format!("tool `{name}` returns {ty}; a face's tool returns a string, number or bool (LLP 1133.023 D5)")));
         }
         let mut face = face.clone();
         face["doors"] = json!(doors);

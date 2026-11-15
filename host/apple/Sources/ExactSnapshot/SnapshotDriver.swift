@@ -1,4 +1,4 @@
-// The snapshot driver: SwiftUI over a headless
+// @ref LLP 1126 D4, D5 — the snapshot driver: SwiftUI over a headless
 // session's node model, for WidgetKit's archive. Layout is the kernel's
 // (fixed frames, its line breaks); what the author left unsaid is the
 // platform's (the container background, the content margins, the rendering
@@ -21,7 +21,7 @@ public struct SnapshotEnvironment {
     public enum Family: String, Sendable {
         case systemSmall, systemMedium, systemLarge, systemExtraLarge
         case accessoryRectangular, accessoryCircular, accessoryInline, accessoryCorner
-        /// A Live Activity's placement, named by `placement`.
+        /// A Live Activity's placement (LLP 1126.001 WP10), named by `placement`.
         case liveActivity
         /// The Home Screen families, whose container background the system
         /// draws; the accessory families have none.
@@ -60,7 +60,7 @@ public struct SnapshotEnvironment {
         self.rasters = rasters; self.contentMargins = contentMargins; self.rootFontSize = rootFontSize; self.entryDate = entryDate; self.frozenDate = frozenDate
     }
 
-    /// Whether a nested link draws as a `Link`: the medium and larger
+    /// Whether a nested link draws as a `Link` (D7): the medium and larger
     /// Home Screen families, the Lock Screen and the expanded Island.
     package var takesLinks: Bool {
         switch family {
@@ -210,32 +210,38 @@ public struct SnapshotView: View {
     }
 }
 
-/// The root's background is the widget's, which the system draws and
+/// D5: the root's background is the widget's, which the system draws and
 /// removes where widgets have none (StandBy, the Lock Screen, the accented
 /// mode): its colour and gradients painted full bleed on the container's
 /// real bounds, which the system shapes (a hand-built `containerBackground`
 /// has no radius of its own; the root's stays on its border and content
-/// inside the margins). Unsaid, it is the system's background.
+/// inside the margins). Unsaid, it is the system's background. The root's
+/// `accent-color` is its tint, as it is the root's content's.
 @available(iOS 17.0, macOS 14.0, watchOS 10.0, visionOS 26.0, *)
-struct ContainerBackground: View {
+package struct ContainerBackground: View {
     let root: HeadlessSession.Node?
     @Environment(\.colorScheme) private var scheme
 
-    var body: some View {
+    package init(root: HeadlessSession.Node?) { self.root = root }
+
+    package var body: some View {
         let paint = root.map { SnapshotPaint(style: SnapshotStyle($0), dark: scheme == .dark) }
-        if let paint, paint.hasBackground {
-            GeometryReader { proxy in
-                let bounds = CGRect(origin: .zero, size: proxy.size)
-                paint.fill(in: bounds, positioned: bounds, rounded: false)
+        Group {
+            if let paint, paint.hasBackground {
+                GeometryReader { proxy in
+                    let bounds = CGRect(origin: .zero, size: proxy.size)
+                    paint.fill(in: bounds, positioned: bounds, rounded: false)
+                }
+            } else {
+                Rectangle().fill(.background)
             }
-        } else {
-            Rectangle().fill(.background)
         }
+        .modifier(Accent(node: root))
     }
 }
 
 /// Places each subview at the kernel's frame for it, in the parent's
-/// coordinate space (a custom `Layout` survives the archive).
+/// coordinate space (stage 0: a custom `Layout` survives the archive).
 @available(iOS 17.0, macOS 14.0, watchOS 10.0, visionOS 26.0, *)
 struct FrameLayout: Layout {
     let frames: [CGRect]

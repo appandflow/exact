@@ -1,4 +1,4 @@
-//! Optional Apple delivery composition.
+//! Optional Apple delivery composition (LLP 1030 D4).
 //! Apps selecting L=A instantiate this adapter; L=0 instantiates `exact_apple::host!`.
 #![deny(missing_docs)]
 pub mod store;

@@ -1,12 +1,13 @@
 // The control-role table (kernel/tables/schema.json `controls`) and its
 // measurements (docs/control-roles-measured.md) say the same, cell for
-// cell; and the measure's judge as its doc says.
+// cell (LLP 1121 D9, stage 8 C); and the measure's judge as its doc says.
 import { expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { deltaE00, judge, lab, ROWS } from './measure-controls.mjs';
+import { fileURLToPath } from 'node:url';
 
-const ROOT = resolve(new URL('..', import.meta.url).pathname);
+const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const HOSTS = ['ios', 'macos', 'web', 'linux', 'windows', 'terminal', 'android'];
 const PROVENANCE = ['measured', 'inferred: same painter, not measured', 'none by construction', 'measured, key window via EXACT_AGENT_ACTIVATE'];
 
@@ -49,7 +50,7 @@ test('the judge: exact within ΔE00 3, best-effort nearer the authored colour an
   // Another asked-for colour's antialiasing over the ground is not this one's.
   const white = all([255, 255, 255]);
   expect(judge(all([134, 196, 156]), white, '#fff1a8', ['#0b8a3a']).fidelity).toBe('none');
-  // An authored grey has no hue: nearer it is enough.
+  // An authored grey has no hue: nearer it is enough (theme2's 08:42 ruling).
   expect(judge(all([90, 90, 90]), all([200, 200, 200]), '#404040').fidelity).toBe('best-effort');
   // Too few pixels to say: unmeasured, never none.
   expect(judge(Array(4).fill(px([224, 33, 138])), Array(4).fill(px([128, 128, 128])), '#e0218a').fidelity).toBe('unmeasured');

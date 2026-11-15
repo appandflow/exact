@@ -139,7 +139,7 @@ fn markup_is_markdown_or_none_on_a_text_or_a_textarea() {
 }
 
 /// The editor's `input`, `selectionchange` and `beforeinput` are a text
-/// field's, over its source: each carries the `InputEvent`
+/// field's, over its source (LLP 1045 D6): each carries the `InputEvent`
 /// with the source selection, its `select` still its formats; and
 /// `setSelectionRange` and `setRangeText` name it as they name a field.
 #[test]
@@ -215,7 +215,7 @@ fn the_editors_text_events_carry_the_source_selection() {
     assert!(error.id.contains("handler"), "{error}");
 }
 
-/// `paragraphDirs` is the editor's: HTML's `dir` words, one
+/// `paragraphDirs` is the editor's (LLP 1045 D11): HTML's `dir` words, one
 /// per source line, reach its node and follow a bound value. Another word, a
 /// `string[]`, a literal of more than one word and any other node are refused.
 #[test]

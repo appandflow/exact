@@ -437,7 +437,7 @@ fn a_projected_tablist_reserves_its_native_height_and_releases_it() {
     assert_eq!(frame(&mut kernel, 1).1, 20.0);
 }
 
-/// A radio group drawn as the platform's segmented
+/// LLP 1116.004 D5.2: a radio group drawn as the platform's segmented
 /// control reserves its height as a tablist does; another role is refused.
 #[test]
 fn a_projected_radio_group_reserves_its_native_height() {
@@ -459,7 +459,7 @@ fn a_projected_radio_group_reserves_its_native_height() {
         assert_eq!(measured.is_ok(), role == "radiogroup", "{role}");
     }
     assert_eq!(frame(&mut kernel, 1).1, 32.0);
-    // The control's height is its box's, so the radios it
+    // LLP 1116.019 D1: the control's height is its box's, so the radios it
     // hides, grown with the text, do not make it taller; a tablist, which
     // may be a tab bar, keeps the height as a minimum.
     kernel
@@ -549,7 +549,7 @@ fn a_tab_bar_minimum_moves_siblings_without_overriding_explicit_css_min_height()
     }
 }
 
-/// A projected tablist's width
+/// LLP 1116.004 D2 (unit-converter, round 6): a projected tablist's width
 /// report is its control's narrowest, the automatic minimum width in place
 /// of its hidden tabs' own, so a segmented control in a grouped row shrinks
 /// to the row instead of overflowing it by the tabs' widths. An explicit

@@ -1,4 +1,4 @@
-// The conformance fixture: every name of @exact/geolocation,
+// The conformance fixture (LLP 1133.001 D7): every name of @exact/geolocation,
 // read and sent as an app would, each answer shown by testId for the suite.
 use getCurrentPosition, watchPosition, geolocationStatus, requestPreciseLocation, GeolocationPosition, GeolocationStatus from "@exact/geolocation"
 

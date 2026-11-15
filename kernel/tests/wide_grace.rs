@@ -1,4 +1,4 @@
-//! The recency bound outside a batch: under pressure, a
+//! The recency bound outside a batch (LLP 1121 stage 4): under pressure, a
 //! sweep keeps the last `GRACE` interns nothing holds, and frees one older
 //! than that. Its own process: the table is the process's. This thread made
 //! no kernel, so it has no batch.

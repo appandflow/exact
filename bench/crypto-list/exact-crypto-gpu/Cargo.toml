@@ -1,4 +1,4 @@
-# The crypto list benchmark (../SPEC.md) on exact2, GPU-canvas variant, consumed by path from
+# The crypto list benchmark (../SPEC.md) on exact2, GPU-canvas variant (LLP 1009), consumed by path from
 # the checkout this directory is in (the shape of bench/heavy-list's exact app). `data/`
 # answers the market, the launch config and the live ticks; `gpu/` is the sparkline surface
 # (loaded after the first pixel); `apple/` is the static library
@@ -17,6 +17,7 @@ license = "MIT"
 # exact2's vendored patches, the root Cargo.toml's [patch.crates-io] (scripts/app.mjs refuses a
 # workspace whose patches differ from the checkout's).
 [patch.crates-io]
+accesskit_windows = { path = "../../../vendor/accesskit-windows" }
 taffy = { path = "../../../vendor/taffy" }
 parley = { path = "../../../vendor/parley" }
 fontique = { path = "../../../vendor/fontique" }

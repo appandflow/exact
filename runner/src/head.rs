@@ -1,5 +1,7 @@
 //! The document's head: the active `head` elements' fields.
 //!
+//! @ref LLP 1048.003 D1
+//!
 //! A `head` goes anywhere in a view, and the innermost active one wins, field
 //! by field: a deeper head wins over a shallower one, and at one depth the
 //! later in document order wins. A head inside a route its navigation root
@@ -26,11 +28,11 @@ pub struct Head {
     pub canonical: Option<String>,
     /// Directions to crawlers (`noindex`, `nofollow`, …).
     pub robots: Option<String>,
-    /// The HTTP status the view declares: 404 or 410 for
+    /// The HTTP status the view declares (LLP 1048.000 D11): 404 or 410 for
     /// a not-found view, 503 for a view of failed data. Native hosts ignore
     /// it.
     pub status: Option<u16>,
-    /// The document has unsaved changes (`head edited`):
+    /// The document has unsaved changes (`head edited`, LLP 1069.010 D6):
     /// a Mac window's edited mark. A declared deviation; the web has none.
     pub edited: bool,
 }
@@ -137,7 +139,7 @@ impl<D: DataSource> Runner<D> {
 
     /// Whether `id` lies under a route its navigation root has not selected:
     /// a screen a stack keeps mounted under its top, or any screen of a tab
-    /// that is not the selected one, which
+    /// that is not the selected one (LLP 1075.003 §3.7; shop F16), which
     /// every host hides and makes inert, so nothing there is pressed or read.
     pub fn inactive(&self, id: ViewId) -> bool {
         inactive(self.kernel(), id)
@@ -150,7 +152,8 @@ pub(crate) fn inactive(kernel: &Kernel, id: ViewId) -> bool {
 
 /// Whether `id` lies under a route every host hides: [`inactive`], less the
 /// routes a modal sheet covers, which stay shown beneath the sheet
-/// (navigation.js `covered`). What a wake lock and an orientation lock read.
+/// (navigation.js `covered`). What a wake lock and an orientation lock read
+/// (LLP 1125 D11, LLP 1133.029 D3).
 pub(crate) fn hidden_route(kernel: &Kernel, id: ViewId) -> bool {
     inactive_with(kernel, id, true)
 }
@@ -178,12 +181,12 @@ fn inactive_with(kernel: &Kernel, id: ViewId, covered_shows: bool) -> bool {
 /// Whether `route`, one the navigation root `root` has not selected, is
 /// shown all the same: it is the first of its stack, laid out in the page,
 /// and the route the root selected is in that stack and laid out in a pane
-/// a host reported (a containing block that is the size on both axes).
-/// A host that shows a stack's top in a pane of its own
-/// shows the stack's list beside it, live; under a sheet,
+/// a host reported (a containing block that is the size on both axes, LLP
+/// 1115.002 D8.2). A host that shows a stack's top in a pane of its own
+/// shows the stack's list beside it, live (LLP 1115.002 D4); under a sheet,
 /// whose block is a maximum, the list is covered as before. A host that
 /// gives the list a block of its own too lays each route out in its own
-/// container: the route over it covers it.
+/// container (LLP 1123 D2): the route over it covers it.
 fn beside_a_pane(kernel: &Kernel, root: &HeadNode<'_>, route: ViewId) -> bool {
     use exact_kernel::BlockAxis;
     let Some(key) = root.1.str(PropId::NavigationKey) else {
@@ -214,7 +217,7 @@ fn beside_a_pane(kernel: &Kernel, root: &HeadNode<'_>, route: ViewId) -> bool {
 
 /// The active head of the tree under `roots`, as `node` reads it: the walk
 /// [`Runner::head`] makes over the kernel, and a render host over the
-/// document it writes without one.
+/// document it writes without one (LLP 1048.004).
 pub(crate) fn head_of<'a>(
     roots: Vec<ViewId>,
     node: impl Fn(ViewId) -> Option<HeadNode<'a>>,
@@ -271,7 +274,7 @@ pub(crate) fn head_of<'a>(
 }
 
 /// What a navigation root leaves unselected, as every host's projection
-/// hides it (host/web/navigation.js `project`): with
+/// hides it (LLP 1075.003 §3.7, host/web/navigation.js `project`): with
 /// tabs — the tabpanels its own tablist's tabs name with `aria-controls` —
 /// every panel but the one whose routes hold the selected key, and that
 /// panel's other routes; without, its other direct routes. Empty for any
@@ -375,7 +378,8 @@ fn under_a_sheet<'a>(
 
 /// A navigation root's tabpanels, in tab order: those its own tablist's
 /// tabs name with `aria-controls` (the browser's `panelsOf`; the Linux
-/// host's `tab_panels`). A tablist inside a route is that route's.
+/// host's `root_tabs`). Panels inside a tablist still belong to the root;
+/// a tablist inside a route is that route's.
 pub(crate) fn tab_panels<'a>(
     node: &impl Fn(ViewId) -> Option<HeadNode<'a>>,
     children: &Children<'_>,
@@ -393,7 +397,7 @@ pub(crate) fn tab_panels<'a>(
             Some("tablist") => lists.push(kids),
             _ => {}
         }
-        if props.str(PropId::NavigationKey).is_none() && role != Some("tablist") {
+        if props.str(PropId::NavigationKey).is_none() {
             stack.extend(kids.iter().rev());
         }
     }

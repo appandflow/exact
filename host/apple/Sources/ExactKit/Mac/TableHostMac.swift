@@ -1,12 +1,12 @@
-// A vertical `list` is a table
+// @ref LLP 1115.002 D5, LLP 1115.000 D16 — a vertical `list` is a table
 // on the Mac: AppKit's `NSTableView`, with its selection, its separators
 // and its keys, holding the runner's rows (`TableFeed`, TableFeedMac.swift).
 // Contract marks the lists whose rows are cells; this host reads that mark.
 //
 // A marked list is a table whether the runner windows its rows or keeps
 // them all mounted. Contract excludes carousels, authored arrangements,
-// grouped forms and sections. Kept painted too, each said once in the log
-// and queued: a list whose rows are in
+// grouped forms and sections (D16). Kept painted too, each said once in the log
+// and queued (LLP 1115.002 §3, stage 3b): a list whose rows are in
 // `section`s, a list inside another list's row, and a list whose rows are
 // dragged to reorder.
 //
@@ -20,6 +20,12 @@ final class TableHost {
     private(set) var feeds: [UInt32: TableFeed] = [:]
     private var pressContact: PressNode?
     private weak var pressCell: TableRowCell?
+
+    /// A row's view renewed for another item (RenewMac.swift): a press of
+    /// it, or of a node in it, was the old item's.
+    func renewed(_ node: NodeView) {
+        if let pressed = pressContact?.node, pressed === node || pressed.isDescendant(of: node) { cancelPress() }
+    }
 
     func cancelPress() {
         pressContact?.node?.pressed = false
@@ -65,9 +71,9 @@ final class TableHost {
     /// Why `list` is not a table; nil when it is one.
     private func refusal(_ list: NodeView) -> String? {
         guard presenter != nil, list.kind == "list" else { return "it is no list" }
-        if list.props["listStyle"] != nil { return "appearance=\"auto\": the grouped form, painted" }
+        if list.props["listStyle"] != nil { return "appearance=\"auto\": the grouped form, painted (LLP 1115.002 D6)" }
         if list.style["appearance"]?.string == "none" { return "appearance=\"none\": the author's rows" }
-        guard list.props["listRows"] == "true" else { return "Contract leaves its authored rows" }
+        guard list.props["listRows"] == "true" else { return "Contract leaves its authored rows (LLP 1115.000 D16)" }
         if list.handlers.contains("reorderdrop") { return "its rows are dragged to reorder, which the table does not do yet" }
         var above = list.superview
         while let view = above {
@@ -136,7 +142,7 @@ final class TableHost {
         return nil
     }
 
-    /// The Swift projection of `Kernel.row_separator`.
+    /// The Swift projection of `Kernel.row_separator` (LLP 1115.000 D16).
     /// The wrapper is the row; only its authored child's edge intent is read.
     /// Logical siblings include the children AppKit does not make table rows.
     func separates(_ row: NodeView, in list: UInt32) -> Bool {
@@ -278,7 +284,9 @@ final class TableHost {
     /// After a batch's ops (`Presenter.apply`).
     func sync(_ batch: Batch) {
         if !painted || !feeds.isEmpty, batch.ops.contains(where: { Self.deciding.contains($0.op) }) { decide() }
-        for feed in feeds.values { feed.sync() }
+        // A separator follows its row's authored border, shadow and `aria-hidden`, and its neighbour.
+        let provenance = batch.ops.contains { Self.deciding.contains($0.op) && $0.op != .collections }
+        for feed in feeds.values { feed.sync(separators: provenance) }
         syncPainted()
         if let pressContact, !pressContact.isLive { cancelPress() }
         for op in batch.ops where op.op == .style {

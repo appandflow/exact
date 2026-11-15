@@ -1,7 +1,7 @@
 //! Springs on the web: the evaluator runs once per release, as a compiler.
 //!
-//! On the web a spring is lowered, not evaluated per frame. The seam is
-//! `Kernel::motion_sync`.
+//! @ref LLP 1002 D2 (on the web a spring is lowered, not evaluated per frame)
+//! @ref LLP 1003 §4 (the seam: `Kernel::motion_sync`)
 //!
 //! CSS plays every easing transition itself. A `-exact-spring()` it cannot, so the
 //! host keeps the same [`Engine`] every native host runs, feeds it each
@@ -12,11 +12,11 @@
 //! natively). Nothing here runs per frame: the engine is sampled once per
 //! commit and the browser interpolates the frames.
 //!
-//! Motion is a linked capability: the host holds a
+//! Motion is a linked capability (LLP 1047 D3): the host holds a
 //! [`Motion`], which is [`Still`] unless the app's entry registered
 //! [`springs`], so an app that uses no spring or hold carries no engine.
 
-use exact_kernel::motion::{motion_node, targets, MotionSync};
+use exact_kernel::motion::{motion_node, targets, transitions, MotionSync};
 use exact_kernel::{CommitReceipt, Kernel, NodeKey, ViewId};
 use exact_motion::{
     Change, Engine, EngineError, HoldEnd, HoldStart, HoldToken, Property, SpringDescriptor,
@@ -61,12 +61,12 @@ pub enum Lowered {
         property: Property,
     },
     /// A commit while drag timelines are bound, or one that unbound the
-    /// last: the page's glue, which seeks consumers
+    /// last (LLP 1057.003 D4): the page's glue, which seeks consumers
     /// itself, follows them again.
     Timelines,
 }
 
-/// Springs and holds: the motion capability's seam. The host
+/// Springs and holds: the motion capability's seam (LLP 1047 D3). The host
 /// calls it at every commit and for every hold; [`Still`] answers when the
 /// artifact doesn't link motion, and [`springs`] is the engine an entry
 /// registers when its plan uses it.
@@ -92,7 +92,7 @@ pub trait Motion {
     ) -> Result<Vec<Lowered>, &'static str>;
     /// A live hold's token.
     fn token(&self, serial: u64) -> Option<HoldToken>;
-    /// A live hold's measured velocity at `now`.
+    /// A live hold's measured velocity at `now` (LLP 1057.001 §3).
     fn hold_velocity(&self, serial: u64, now: f64) -> Option<Value>;
     /// Record the value a constrained display actually shows for a hold.
     fn track_hold(&mut self, serial: u64, now: f64, shown: Value) -> bool;
@@ -150,7 +150,7 @@ impl dyn Motion + '_ {
 }
 
 /// Motion in an artifact that doesn't link it: no springs and no holds.
-/// Admission keeps a plan that needs them off such an artifact;
+/// Admission (LLP 1047 D6) keeps a plan that needs them off such an artifact;
 /// the clock still follows the commits.
 #[derive(Debug, Default)]
 pub struct Still {
@@ -277,7 +277,7 @@ pub struct Springs {
     #[cfg(test)]
     frame_compilations: usize,
     /// Compare fixed-size curve identity before compiling browser keyframes.
-    playing: BTreeMap<(u64, Property), SpringDescriptor>,
+    playing: BTreeMap<(u64, Property), (SpringDescriptor, f64)>,
     /// One explicit trial owner, bound to its arena generation. Unsupported
     /// styles retire its slot; a later eligible style can adopt it again.
     height_owner: Option<(NodeKey, ViewId)>,
@@ -285,7 +285,7 @@ pub struct Springs {
 
 impl Springs {
     /// Empty, at clock zero. The browser runs every CSS animation from the
-    /// page's `@keyframes`, so the engine only tracks them.
+    /// page's `@keyframes` (LLP 1055 D7), so the engine only tracks them.
     pub fn new() -> Springs {
         let mut springs = Springs::default();
         springs.engine.set_lowered(true);
@@ -477,7 +477,7 @@ impl Motion for Springs {
         if let Some(node) = kernel.node_by_key(target) {
             let key = motion_node(target);
             let sync = MotionSync {
-                transitions: vec![(key, node.style.transition.clone())],
+                transitions: vec![(key, transitions(node.style))],
                 changes: targets(node.style)
                     .into_iter()
                     .filter(|(property, _)| {
@@ -539,7 +539,7 @@ impl Motion for Springs {
         let now = now.max(self.engine.now());
         let seek = self.engine.advance(now);
         debug_assert!(seek.is_ok(), "the clock never runs backwards here");
-        // The browser gives a consumer a fresh CSS
+        // @ref LLP 1057.003 D4 — the browser gives a consumer a fresh CSS
         // animation for changes the kernel records on other nodes (an
         // ancestor's `display`, a move) as well as for its own rows and its
         // name's resolution, so while any node bears a timeline every commit
@@ -598,7 +598,7 @@ impl Motion for Springs {
             }
             match self.engine.spring_descriptor(p.node, p.property) {
                 Some(descriptor) => {
-                    if self.playing.get(&key) == Some(&descriptor) {
+                    if self.playing.get(&key).map(|(d, _)| d) == Some(&descriptor) {
                         continue;
                     }
                     #[cfg(test)]
@@ -609,7 +609,8 @@ impl Motion for Springs {
                         .engine
                         .spring_frames(p.node, p.property)
                         .expect("a running spring descriptor has frames");
-                    self.playing.insert(key, descriptor);
+                    self.playing
+                        .insert(key, (descriptor, frames.start + frames.duration));
                     out.push(Lowered::Start {
                         view,
                         property: p.property,
@@ -620,11 +621,10 @@ impl Motion for Springs {
                     });
                 }
                 None => {
-                    // A spring that reached its target finished on the page
-                    // too; one whose property moved on without a spring must
-                    // stop, or its frames would keep overriding the style.
-                    if let Some(previous) = self.playing.remove(&key) {
-                        if p.value != previous.target {
+                    // A cancelled spring can have the same target. Until its
+                    // end, its browser frames would keep overriding the style.
+                    if let Some((previous, end)) = self.playing.remove(&key) {
+                        if now < end || p.value != previous.target {
                             out.push(Lowered::Cancel {
                                 view,
                                 property: p.property,
@@ -641,7 +641,10 @@ impl Motion for Springs {
 // Native projection uses f32 CSS lengths. Reject malformed external positions
 // before advancing the clock; signed velocities/internal curve samples remain
 // unrestricted, and the DOM alone clamps a negative displayed height to zero.
-fn validate_height_position(property: Property, value: Value) -> Result<(), EngineError> {
+pub(super) fn validate_height_position(
+    property: Property,
+    value: Value,
+) -> Result<(), EngineError> {
     if property != Property::Height {
         return Ok(());
     }

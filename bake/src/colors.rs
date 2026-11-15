@@ -1,5 +1,5 @@
-//! A colour a platform can't show is refused when the app is built for it:
-//! the platform manages colour, and Exact makes up for none.
+//! A colour a platform can't show is refused when the app is built for it
+//! (LLP 1100 D1): the platform manages colour, and Exact makes up for none.
 //! Linux draws sRGB only; no browser ships CSS Color HDR's `rec2100-*`;
 //! Apple shows every space CSS names.
 
@@ -143,7 +143,7 @@ pub fn check(app_dir: &Path, platform: &str) -> Result<(), String> {
 
 /// The app's `app.contract` compiled, as [`check`] reads it; none without
 /// one. The compatibility id compiles it once and reads it twice: the
-/// colours here, and its icons' fill rules (`icon_rules`).
+/// colours here, and its icons' fill rules (`icon_rules`, stage 14 C2).
 pub(crate) fn compiled(app_dir: &Path) -> Result<Option<exact_plan::Plan>, String> {
     let source = app_dir.join("app.contract");
     if !source.exists() {
@@ -182,7 +182,7 @@ pub(crate) fn check_plan(
             if platform == "linux" || platform == "web" {
                 return Err(format!(
                     "app.contract: `{written}` is in a color profile's space, which only the platform converts and {platform} does not \
-                    : write a CSS color, or choose this one where the platform has it"
+                     (LLP 1100 D3): write a CSS color, or choose this one where the platform has it"
                 ));
             }
             let want = exact_color::PROFILES
@@ -201,13 +201,13 @@ pub(crate) fn check_plan(
         for (written, wide) in modern_colors(text) {
             if let Some(why) = unavailable(&wide, platform) {
                 return Err(format!(
-                    "app.contract: `{written}` {why}: write a color {platform} shows, or \
+                    "app.contract: `{written}` {why} (LLP 1100 D1): write a color {platform} shows, or \
                      choose this one where `exactViewport().colorGamut` (or `dynamicRange`) says the display has it"
                 ));
             }
         }
     }
-    // Linux's canvases are 8-bit sRGB; a setting
+    // @ref LLP 1100 D12a, D10 — Linux's canvases are 8-bit sRGB; a setting
     // computed at run time is sRGB there (`Runner::canvas_settings`).
     if platform == "linux" {
         for b in plan
@@ -224,7 +224,7 @@ pub(crate) fn check_plan(
             };
             if literal(plan, &b) == Some(refused) {
                 return Err(format!(
-                    "app.contract: a canvas's `{attr}=\"{refused}\"`: Linux's canvases are 8-bit sRGB"
+                    "app.contract: a canvas's `{attr}=\"{refused}\"`: Linux's canvases are 8-bit sRGB (LLP 1100 D12a)"
                 ));
             }
         }
@@ -285,7 +285,7 @@ mod tests {
         assert_eq!(check(&chosen, "linux"), Ok(()));
     }
 
-    /// A profile's colour — a standard space or an app's
+    /// LLP 1100 D3: a profile's colour — a standard space or an app's
     /// `color-profile` — is Apple's to draw, checked against its profile.
     #[test]
     fn a_profiles_colour_is_checked_and_only_apple_draws_it() {
@@ -323,6 +323,40 @@ mod tests {
         assert!(check(&declared, "ios")
             .unwrap_err()
             .contains("takes 3 components, not 4"));
+    }
+
+    /// A profile's name is a dashed ident, so its case is its own: `--Brand`
+    /// and `--brand` are two profiles, and each colour binds the one it names.
+    #[test]
+    fn a_profiles_name_keeps_its_case() {
+        let with = |row: &str| {
+            let dir = app(row);
+            let src = std::fs::read_to_string(dir.join("app.contract")).unwrap();
+            std::fs::write(
+                dir.join("app.contract"),
+                format!("color-profile --Brand src=\"assets/cmyk.icc\"\ncolor-profile --brand src=\"assets/rgb.icc\"\n{src}"),
+            )
+            .unwrap();
+            std::fs::create_dir_all(dir.join("assets")).unwrap();
+            for (file, space) in [("cmyk.icc", b"CMYK"), ("rgb.icc", b"RGB ")] {
+                let mut icc = vec![0u8; 132];
+                icc[16..20].copy_from_slice(space);
+                icc[36..40].copy_from_slice(b"acsp");
+                std::fs::write(dir.join("assets").join(file), &icc).unwrap();
+            }
+            check(&dir, "ios")
+        };
+        let box_ = |color: &str| format!("box width=4 height=4 background-color=\"{color}\"");
+        assert_eq!(with(&box_("color(--Brand 0.1 0.8 0.2 0.05)")), Ok(()));
+        assert_eq!(with(&box_("color(--brand 1 0 0)")), Ok(()));
+        let e = with(&box_("color(--Brand 1 0 0)")).unwrap_err();
+        assert!(e.contains("`--Brand` takes 4 components, not 3"), "{e}");
+        // Neither profile is `--BRAND`: the compiler refuses the colour.
+        let e = with(&box_("color(--BRAND 1 0 0)")).unwrap_err();
+        assert!(
+            e.contains("`background-color=\"color(--BRAND 1 0 0)\"` is not a valid"),
+            "{e}"
+        );
     }
 
     #[test]

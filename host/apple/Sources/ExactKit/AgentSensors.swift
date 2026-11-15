@@ -1,5 +1,5 @@
-// A clock advance across which a canvas has a sensor input: the worlds
-// advance a display frame at a time, each frame's samples
+// A clock advance across which a canvas has a sensor input (LLP 1133.013
+// D6): the worlds advance a display frame at a time, each frame's samples
 // handed to their surfaces before the frame, as a live frame does. One jump
 // would queue a whole span at once, past a world's 1,024-event bound. The
 // samples are the runner's substitute's (`sensorEvents`), so this runs only

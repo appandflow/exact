@@ -1,5 +1,5 @@
 //! Three spheres crossing a paragraph, positioned by arithmetic on the clock.
-//! Shapes move by commits, never transforms.
+//! @ref LLP 1043.000 §3 D8 — shapes move by commits, never transforms.
 use crate::prose::BALLS;
 use exact_plan::Value;
 

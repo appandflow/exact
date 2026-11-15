@@ -1,4 +1,4 @@
-// Accept fixture: `[]` is the empty list. Its
+// Accept fixture: `[]` is the empty list (LLP 1017.003 D4, 2026-09-28). Its
 // element type comes from where it is written: the other arm of a `match`
 // or `?:`, a declared `list<T>` (a `fn` return, a prop), or a write into
 // the state it initializes. Before it, an empty arm was spelled

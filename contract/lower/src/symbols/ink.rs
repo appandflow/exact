@@ -1,17 +1,17 @@
-//! A symbol's ink as the hosts draw it: its `color`.
+//! A symbol's ink as the hosts draw it: its `color` (LLP 1081 stage 2).
 
 use super::tint::{symbol, tinted};
 use contract_syntax::{Attr, Expr, TemplatePart};
 
-/// A `color` the author wrote on a symbol `image`
+/// @ref LLP 1116.019 D6 — a `color` the author wrote on a symbol `image`
 /// (or its class) is the symbol's colour, as an inline SVG icon drawn in
 /// `currentcolor` follows `color` on the web: the row this returns,
 /// `-exact-tint-color: currentcolor`, said as the `color` was. A symbol is
-/// drawn in its `color` on every host, so an authored
+/// drawn in its `color` on every host (LLP 1081 stage 2), so an authored
 /// `-exact-tint-color` on one that is no native button's `face` (which keeps
-/// its tint) is answered the same, after it, each state's row
-/// too: Apple ignores it, and so does the web (`lower-symbol-tint`
-/// warns). A source that may be either at run time is
+/// its tint, LLP 1115 D4) is answered the same, after it, each state's row
+/// too: Apple already ignores it, and the web now does (theme2 2026-10-23;
+/// `lower-symbol-tint` warns). A source that may be either at run time is
 /// answered by what it is then (`startsWith(source, "symbol:")`). None for a
 /// raster (a tint paints it as a silhouette), or a symbol that writes
 /// neither. `rows` are the author's, its classes' included, without the

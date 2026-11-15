@@ -1,4 +1,4 @@
-// @fixture/tally on the Linux host, headless: the
+// @fixture/tally on the Linux host, headless (LLP 1133.022 D10 item 5): the
 // fixture app made outside the repo, its Linux crate built with the
 // package's Rust implementation composed by the build, and driven.
 //

@@ -8,16 +8,16 @@ shape ProfileAlert
   icon: enum<"warning", "eyeslash", "ban", "info">
 
 // Its icon token: a computed `symbol:` source over the enum, which keeps
-// every alert's icon in the plan.
+// every alert's icon in the plan (D7).
 fn alertIcon(icon: string): string = (icon == "warning" ? "symbol:cards.warning" : (icon == "eyeslash" ? "symbol:cards.eye-slash" : (icon == "ban" ? "symbol:cards.ban" : "symbol:cards.circle-info")))
 
-// A profile's header (the clone's ProfileHeader, narrowed): its banner, the
-// avatar overlapping it, the name with its badge, the handle with "Follows
-// you", and the counts; the app's buttons (follow, message, the menu) are
-// its one slot, above the names. The app keeps its data and its actions,
-// places its back button and pull spinner over the banner, and its bio and
-// "Followed by" below. `pull` grows the banner from its bottom edge as a
-// list is pulled past its top (0 to 150, scale 1 to 2).
+// A profile's header (the clone's ProfileHeader, narrowed by theme2's 23:51
+// ruling): its banner, the avatar overlapping it, the name with its badge,
+// the handle with "Follows you", and the counts; the app's buttons (follow,
+// message, the menu) are its one slot, above the names. The app keeps its
+// data and its actions, places its back button and pull spinner over the
+// banner, and its bio and "Followed by" below. `pull` grows the banner from
+// its bottom edge as a list is pulled past its top (0 to 150, scale 1 to 2).
 component ProfileHeader
   params
     banner: color = "cards.banner" control = "token" group = "Color" priority = 1 label = "Banner"

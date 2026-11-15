@@ -45,7 +45,7 @@ pub struct Line {
     /// `(start, end, style)`: covering `start..end` in order, no gaps. An
     /// atom's source is one [`HIDDEN`] segment, drawn as its box.
     pub segments: Vec<(u32, u32, u8)>,
-    /// The line's atoms: `(start, end, kind, style)`, the
+    /// The line's atoms (LLP 1045.000): `(start, end, kind, style)`, the
     /// style the span flags its whole label takes.
     pub atoms: Vec<(u32, u32, usize, u8)>,
 }

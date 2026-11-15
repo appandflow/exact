@@ -215,6 +215,7 @@ pub(crate) struct Refused;
 impl<C: Data + Copy> Storage<C> {
     /// Copy one present row out without registering a lease: no author code runs
     /// while it is read, so it only has to find no exclusive lease on the row.
+    /// @ref llp/1046.003-game-engine-as-built.explainer.md#row-leases-2026-09-23
     #[inline]
     pub(crate) fn copied(&self, index: usize, leases: &Leases) -> Result<Option<C>, Refused> {
         if !self.has(index) {

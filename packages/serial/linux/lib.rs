@@ -1,25 +1,28 @@
-//! @exact/serial on the Linux host: `/dev/tty*` with termios, the ports enumerated from
+//! @exact/serial on the Linux host (LLP 1133.037 D7–D9, D21): `/dev/tty*` with termios, the ports enumerated from
 //! sysfs (`/sys/class/tty/*/device`, with the USB device's `idVendor`, `idProduct` and `product` above it), each
 //! connection read by a thread of its own into the bytes not yet delivered.
 //!
-//! - Opened `O_NOCTTY | O_NONBLOCK`, then `TIOCEXCL`, so another process's open fails `EBUSY`; termios raw at
+//! - Opened `O_NOCTTY | O_NONBLOCK`, then `TIOCEXCL`, so another process's open fails `EBUSY` (D5); termios raw at
 //!   the call's line settings.
-//! - Reading loses nothing: the thread stops reading while the undelivered bytes reach the retained bound, so
+//! - Reading loses nothing (D8): the thread stops reading while the undelivered bytes reach the retained bound, so
 //!   the rest waits in the kernel's and the device's buffers; each `serialInput` answer takes every byte since the
 //!   last. End of file or `EIO` is the port gone (`NetworkError`, `done`).
-//! - A node the process cannot open (`EACCES`) reads `granted` false.
-//! - Under the agent's driver it also offers the ports `EXACT_DEVICE_FIXTURE` names (a pseudo-terminal a drive made); the Linux host runs headless on a Mac too, where the same POSIX calls drive the pty.
+//! - Writing takes the loop no time: each connection's writer thread writes the calls' bytes in call order and
+//!   answers each once the device has taken its last byte, as Web Serial's writable stream does; `close` fails the
+//!   writes not yet taken with `AbortError`.
+//! - A node the process cannot open (`EACCES`) reads `granted` false (D17).
+//! - Under the agent's driver it also offers the ports `EXACT_DEVICE_FIXTURE` names (a pseudo-terminal a drive made,
+//!   D19 item 3); the Linux host runs headless on a Mac too, where the same POSIX calls drive the pty.
 //!
-//! The package names only `exact_linux` and `std`, so the C library's termios and ioctl calls are declared here,
+//! The package names only `exact_painted` and `std`, so the C library's termios and ioctl calls are declared here,
 //! with their structures and constants for each OS the host runs on.
 
-use exact_linux::package::{json, Context, Json, Notifier, Package, Reply};
-use std::collections::BTreeMap;
+use exact_painted::package::{json, Context, Json, Notifier, Package, Reply};
+use std::collections::{BTreeMap, VecDeque};
 use std::fs::{File, OpenOptions};
 use std::io::{ErrorKind, Read, Write};
 use std::os::fd::AsRawFd;
 use std::os::unix::fs::OpenOptionsExt;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 
 #[cfg(target_os = "linux")]
@@ -50,6 +53,7 @@ mod sys {
     pub const O_NOCTTY: i32 = 0o400;
     pub const O_NONBLOCK: i32 = 0o4000;
     pub const TIOCEXCL: u64 = 0x540C;
+    pub const TIOCNXCL: u64 = 0x540D;
     pub const TIOCMGET: u64 = 0x5415;
     pub const TIOCMBIS: u64 = 0x5416;
     pub const TIOCMBIC: u64 = 0x5417;
@@ -84,6 +88,7 @@ mod sys {
     pub const O_NOCTTY: i32 = 0x20000;
     pub const O_NONBLOCK: i32 = 0x4;
     pub const TIOCEXCL: u64 = 0x2000_740d;
+    pub const TIOCNXCL: u64 = 0x2000_740e;
     pub const TIOCMGET: u64 = 0x4004_746a;
     pub const TIOCMBIS: u64 = 0x8004_746c;
     pub const TIOCMBIC: u64 = 0x8004_746b;
@@ -136,15 +141,32 @@ struct Stream {
     position: usize,
     done: bool,
     ended: bool,
+    /// Set by `close`, under this lock: the reader reads nothing after it.
+    closed: bool,
+}
+
+/// One `write` call: its bytes, how many the device has taken, and the call's answer.
+struct Outgoing {
+    bytes: Vec<u8>,
+    sent: usize,
+    reply: Reply,
+}
+
+/// What a connection's writer thread and the calls share: the writes not yet taken, in call order.
+#[derive(Default)]
+struct Outbox {
+    writes: VecDeque<Outgoing>,
+    closed: bool,
 }
 
 struct Connection {
     port: Port,
-    file: Arc<File>,
+    /// None once closed: the reader thread's clone goes with it.
+    file: Option<Arc<File>>,
     options: Json,
     open: bool,
     stream: Arc<(Mutex<Stream>, Condvar)>,
-    stop: Arc<AtomicBool>,
+    outbox: Arc<(Mutex<Outbox>, Condvar)>,
 }
 
 pub struct Serial {
@@ -155,7 +177,9 @@ pub struct Serial {
 }
 
 fn read_text(path: &str) -> Option<String> {
-    std::fs::read_to_string(path).ok().map(|s| s.trim().to_owned())
+    std::fs::read_to_string(path)
+        .ok()
+        .map(|s| s.trim().to_owned())
 }
 
 /// The serial ports sysfs lists: each tty with a device behind it, named by its USB product where it has one.
@@ -172,14 +196,26 @@ fn sysfs_ports() -> Vec<Port> {
         };
         // The USB device is the nearest ancestor with an `idVendor`.
         let usb = real.ancestors().find(|a| a.join("idVendor").exists());
-        let hex = |name: &str| usb.and_then(|u| read_text(&u.join(name).to_string_lossy())).and_then(|v| u64::from_str_radix(&v, 16).ok());
+        let hex = |name: &str| {
+            usb.and_then(|u| read_text(&u.join(name).to_string_lossy()))
+                .and_then(|v| u64::from_str_radix(&v, 16).ok())
+        };
         let product = usb.and_then(|u| read_text(&u.join("product").to_string_lossy()));
         // A legacy 8250 port with no device answering is listed by the kernel too; it has no driver behind it.
-        if usb.is_none() && tty.starts_with("ttyS") && !real.to_string_lossy().contains("serial8250") {
+        if usb.is_none()
+            && tty.starts_with("ttyS")
+            && !real.to_string_lossy().contains("serial8250")
+        {
             continue;
         }
         let path = format!("/dev/{tty}");
-        out.push(Port { id: path.clone(), name: product.unwrap_or_else(|| tty.clone()), path, vendor: hex("idVendor"), product: hex("idProduct") });
+        out.push(Port {
+            id: path.clone(),
+            name: product.unwrap_or_else(|| tty.clone()),
+            path,
+            vendor: hex("idVendor"),
+            product: hex("idProduct"),
+        });
     }
     out.sort_by(|a, b| a.id.cmp(&b.id));
     out
@@ -221,7 +257,9 @@ fn ports() -> Vec<Port> {
 
 /// Permission probes must not open a tty: opening it can toggle DTR and reset a board.
 fn granted(path: &str) -> bool {
-    let Ok(path) = std::ffi::CString::new(path) else { return false };
+    let Ok(path) = std::ffi::CString::new(path) else {
+        return false;
+    };
     // SAFETY: path is NUL-terminated and access only reads it. R_OK | W_OK.
     unsafe { access(path.as_ptr(), 4 | 2) == 0 }
 }
@@ -236,7 +274,12 @@ fn matches(p: &Port, filters: &Json) -> bool {
         return true;
     };
     filters.iter().any(|f| {
-        f["usbVendorId"].as_u64().is_none_or(|v| Some(v) == p.vendor) && f["usbProductId"].as_u64().is_none_or(|v| Some(v) == p.product)
+        f["usbVendorId"]
+            .as_u64()
+            .is_none_or(|v| Some(v) == p.vendor)
+            && f["usbProductId"]
+                .as_u64()
+                .is_none_or(|v| Some(v) == p.product)
     })
 }
 
@@ -275,46 +318,131 @@ fn configure(fd: i32, options: &Json) -> Result<(), String> {
 }
 
 /// The connection's reader: reads while the undelivered bytes are under `bound`, waiting on the descriptor.
-fn read_loop(file: Arc<File>, stream: Arc<(Mutex<Stream>, Condvar)>, stop: Arc<AtomicBool>, bound: usize, notifier: Notifier) {
+fn read_loop(file: Arc<File>, stream: Arc<(Mutex<Stream>, Condvar)>, bound: usize, notifier: Notifier) {
     let mut buf = vec![0u8; 4096];
     let (lock, room) = &*stream;
-    while !stop.load(Ordering::Relaxed) {
+    loop {
         {
             let mut s = lock.lock().unwrap_or_else(|e| e.into_inner());
-            // Backpressure: nothing more is read until a delivery makes room.
-            while s.pending.len() >= bound && !stop.load(Ordering::Relaxed) {
-                s = room.wait_timeout(s, std::time::Duration::from_millis(100)).unwrap_or_else(|e| e.into_inner()).0;
+            // Backpressure (D8): nothing more is read until a delivery makes room.
+            while s.pending.len() >= bound && !s.closed {
+                s = room
+                    .wait_timeout(s, std::time::Duration::from_millis(100))
+                    .unwrap_or_else(|e| e.into_inner())
+                    .0;
+            }
+            if s.closed {
+                break;
             }
         }
-        let mut p = PollFd { fd: file.as_raw_fd(), events: 1, revents: 0 };
+        let mut p = PollFd {
+            fd: file.as_raw_fd(),
+            events: 1,
+            revents: 0,
+        };
         // SAFETY: one valid pollfd for the call's duration.
         if unsafe { poll(&mut p, 1, 100) } <= 0 {
             continue;
         }
-        let room_left = {
-            let s = lock.lock().unwrap_or_else(|e| e.into_inner());
-            bound.saturating_sub(s.pending.len()).clamp(1, buf.len())
-        };
-        match (&*file).read(&mut buf[..room_left]) {
-            Ok(0) => {
-                finish(&stream, "NetworkError");
-                break;
-            }
-            Ok(n) => lock.lock().unwrap_or_else(|e| e.into_inner()).pending.extend_from_slice(&buf[..n]),
-            Err(e) if e.kind() == ErrorKind::WouldBlock || e.kind() == ErrorKind::Interrupted => continue,
-            // EIO or ENXIO: the port went away.
-            Err(_) => {
-                finish(&stream, "NetworkError");
-                break;
-            }
+        match read_ready(&file, &stream, &mut buf, bound) {
+            Step::Took => notifier.changed("serial.serialInput"),
+            Step::Again => {}
+            Step::Closed | Step::Gone => break,
         }
-        notifier.changed("serial.serialInput");
     }
     notifier.changed("serial.serialInput");
 }
 
-fn finish(stream: &Arc<(Mutex<Stream>, Condvar)>, code: &str) {
+/// What one read of the connection's descriptor did.
+#[derive(Debug, PartialEq)]
+enum Step {
+    /// Bytes are in the stream.
+    Took,
+    /// Nothing was there after all.
+    Again,
+    /// The connection is closed: nothing was read.
+    Closed,
+    /// The port went away; the stream says so.
+    Gone,
+}
+
+/// Reads what the descriptor has, with the stream's lock held: `close` sets `closed` under the lock, so the bytes
+/// that arrive after it are left to the port's next reader, never appended to this stream. The descriptor does not
+/// block.
+fn read_ready(file: &File, stream: &(Mutex<Stream>, Condvar), buf: &mut [u8], bound: usize) -> Step {
     let mut s = stream.0.lock().unwrap_or_else(|e| e.into_inner());
+    if s.closed {
+        return Step::Closed;
+    }
+    let room_left = bound.saturating_sub(s.pending.len()).clamp(1, buf.len());
+    match (&*file).read(&mut buf[..room_left]) {
+        Ok(0) => {
+            finish(&mut s, "NetworkError");
+            Step::Gone
+        }
+        Ok(n) => {
+            s.pending.extend_from_slice(&buf[..n]);
+            Step::Took
+        }
+        Err(e) if e.kind() == ErrorKind::WouldBlock || e.kind() == ErrorKind::Interrupted => Step::Again,
+        // EIO or ENXIO: the port went away (D9).
+        Err(_) => {
+            finish(&mut s, "NetworkError");
+            Step::Gone
+        }
+    }
+}
+
+/// The connection's writer: writes the oldest write's bytes as the device takes them, waiting on the descriptor
+/// while it takes none, and answers each write when its last byte is out.
+fn write_loop(file: Arc<File>, outbox: Arc<(Mutex<Outbox>, Condvar)>) {
+    let (lock, ready) = &*outbox;
+    loop {
+        let mut o = lock.lock().unwrap_or_else(|e| e.into_inner());
+        while o.writes.is_empty() && !o.closed {
+            o = ready.wait(o).unwrap_or_else(|e| e.into_inner());
+        }
+        if o.closed {
+            return;
+        }
+        let w = o.writes.front_mut().expect("a write waits");
+        // Written with the lock held, so nothing is written after `close` takes it; the descriptor does not block.
+        let result = (&*file).write(&w.bytes[w.sent..]);
+        match result {
+            Ok(n) => {
+                w.sent += n;
+                if w.sent == w.bytes.len() {
+                    let done = o.writes.pop_front().expect("the write just written");
+                    drop(o);
+                    done.reply.send(json!({}));
+                }
+            }
+            Err(e) if e.kind() == ErrorKind::Interrupted => {}
+            Err(e) if e.kind() == ErrorKind::WouldBlock => {
+                drop(o);
+                let mut p = PollFd {
+                    fd: file.as_raw_fd(),
+                    events: 4, // POLLOUT
+                    revents: 0,
+                };
+                // SAFETY: one valid pollfd for the call's duration. The timeout bounds how long a close goes unseen.
+                unsafe { poll(&mut p, 1, 100) };
+            }
+            // EIO or ENXIO: the port went away (D9). The writes queued behind this one fail with it.
+            Err(e) => {
+                let failed = std::mem::take(&mut o.writes);
+                drop(o);
+                let message = e.to_string();
+                for w in failed {
+                    w.reply
+                        .send(json!({ "error": "NetworkError", "message": message }));
+                }
+            }
+        }
+    }
+}
+
+fn finish(s: &mut Stream, code: &str) {
     let at = s.position + s.pending.len();
     s.errors.push(json!({ "at": at, "code": code }));
     s.done = true;
@@ -324,9 +452,15 @@ fn base64(bytes: &[u8]) -> String {
     const T: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
     for c in bytes.chunks(3) {
-        let n = (c[0] as u32) << 16 | (*c.get(1).unwrap_or(&0) as u32) << 8 | *c.get(2).unwrap_or(&0) as u32;
+        let n = (c[0] as u32) << 16
+            | (*c.get(1).unwrap_or(&0) as u32) << 8
+            | *c.get(2).unwrap_or(&0) as u32;
         for (i, shift) in [18, 12, 6, 0].into_iter().enumerate() {
-            out.push(if i <= c.len() { T[(n >> shift) as usize & 63] as char } else { '=' });
+            out.push(if i <= c.len() {
+                T[(n >> shift) as usize & 63] as char
+            } else {
+                '='
+            });
         }
     }
     out
@@ -361,7 +495,11 @@ impl Serial {
         let Some(port) = ports().into_iter().find(|p| p.id == id) else {
             return json!({ "error": "NotFoundError" });
         };
-        if self.connections.values().any(|c| c.open && c.port.path == port.path) {
+        if self
+            .connections
+            .values()
+            .any(|c| c.open && c.port.path == port.path)
+        {
             return json!({ "error": "InvalidStateError", "message": "already open" });
         }
         if !(args["baudRate"].as_f64().unwrap_or(0.0) > 0.0) {
@@ -373,10 +511,19 @@ impl Serial {
                 options[k] = v.clone();
             }
         }
-        let file = match OpenOptions::new().read(true).write(true).custom_flags(O_NOCTTY | O_NONBLOCK).open(&port.path) {
+        let file = match OpenOptions::new()
+            .read(true)
+            .write(true)
+            .custom_flags(O_NOCTTY | O_NONBLOCK)
+            .open(&port.path)
+        {
             Ok(f) => f,
-            Err(e) if e.kind() == ErrorKind::PermissionDenied => return json!({ "error": "NotAllowedError", "message": e.to_string() }),
-            Err(e) if e.raw_os_error() == Some(16) => return json!({ "error": "InvalidStateError", "message": e.to_string() }),
+            Err(e) if e.kind() == ErrorKind::PermissionDenied => {
+                return json!({ "error": "NotAllowedError", "message": e.to_string() })
+            }
+            Err(e) if e.raw_os_error() == Some(16) => {
+                return json!({ "error": "InvalidStateError", "message": e.to_string() })
+            }
             Err(e) => return json!({ "error": "NetworkError", "message": e.to_string() }),
         };
         let fd = file.as_raw_fd();
@@ -386,23 +533,45 @@ impl Serial {
             return json!({ "error": "NetworkError", "message": e });
         }
         let baud = options["baudRate"].as_f64().unwrap_or(9600.0) as usize;
-        let bound = (baud / 10 * 2).max(options["bufferSize"].as_u64().unwrap_or(255) as usize).min(MOST);
+        let bound = (baud / 10 * 2)
+            .max(options["bufferSize"].as_u64().unwrap_or(255) as usize)
+            .min(MOST);
         self.next += 1;
         let handle = format!("serial-{}", self.next);
-        let (file, stream, stop) = (Arc::new(file), Arc::new((Mutex::new(Stream::default()), Condvar::new())), Arc::new(AtomicBool::new(false)));
-        let (f, s, st, notifier) = (file.clone(), stream.clone(), stop.clone(), self.context.notifier());
-        std::thread::spawn(move || read_loop(f, s, st, bound, notifier));
+        let (file, stream) = (
+            Arc::new(file),
+            Arc::new((Mutex::new(Stream::default()), Condvar::new())),
+        );
+        let (f, s, notifier) = (file.clone(), stream.clone(), self.context.notifier());
+        std::thread::spawn(move || read_loop(f, s, bound, notifier));
+        let outbox = Arc::new((Mutex::new(Outbox::default()), Condvar::new()));
+        let (f, o) = (file.clone(), outbox.clone());
+        std::thread::spawn(move || write_loop(f, o));
         if !self.remembered.contains(&port.id) {
             self.remembered.push(port.id.clone());
         }
-        let answer = json!({ "connection": handle, "port": record(&port, true), "options": options });
-        self.connections.insert(handle, Connection { port, file, options, open: true, stream, stop });
+        let answer =
+            json!({ "connection": handle, "port": record(&port, true), "options": options });
+        self.connections.insert(
+            handle,
+            Connection {
+                port,
+                file: Some(file),
+                options,
+                open: true,
+                stream,
+                outbox,
+            },
+        );
         self.context.changed("serial.getPorts");
         answer
     }
 
     fn input(&mut self, args: &Json) -> Json {
-        let Some(c) = self.connections.get(args["connection"].as_str().unwrap_or_default()) else {
+        let Some(c) = self
+            .connections
+            .get(args["connection"].as_str().unwrap_or_default())
+        else {
             return json!({ "error": "InvalidStateError", "message": "no such connection" });
         };
         let (lock, room) = &*c.stream;
@@ -420,10 +589,34 @@ impl Serial {
     }
 
     fn connection(&self, args: &Json) -> Result<&Connection, Json> {
-        match self.connections.get(args["connection"].as_str().unwrap_or_default()) {
+        match self
+            .connections
+            .get(args["connection"].as_str().unwrap_or_default())
+        {
             Some(c) if c.open => Ok(c),
             _ => Err(json!({ "error": "InvalidStateError" })),
         }
+    }
+
+    /// Queues the bytes for the connection's writer, which answers when the device has taken them.
+    fn write(&self, args: &Json, reply: Reply) {
+        let c = match self.connection(args) {
+            Ok(c) => c,
+            Err(e) => return reply.send(e),
+        };
+        let Some(bytes) = unbase64(args["data"].as_str().unwrap_or_default()) else {
+            return reply.send(json!({ "error": "TypeError" }));
+        };
+        let (lock, ready) = &*c.outbox;
+        lock.lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .writes
+            .push_back(Outgoing {
+                bytes,
+                sent: 0,
+                reply,
+            });
+        ready.notify_one();
     }
 
     fn close(&mut self, handle: &str) -> Json {
@@ -431,8 +624,25 @@ impl Serial {
             return json!({ "error": "InvalidStateError" });
         };
         c.open = false;
-        c.stop.store(true, Ordering::Relaxed);
+        c.stream.0.lock().unwrap_or_else(|e| e.into_inner()).closed = true;
         c.stream.1.notify_all();
+        let aborted = {
+            let mut o = c.outbox.0.lock().unwrap_or_else(|e| e.into_inner());
+            o.closed = true;
+            std::mem::take(&mut o.writes)
+        };
+        c.outbox.1.notify_all();
+        for w in aborted {
+            w.reply.send(json!({ "error": "AbortError" }));
+        }
+        // Closing the port releases it: exclusive mode ends now, since the
+        // reader thread holds the descriptor until its next poll (100 ms),
+        // though it reads nothing more, and dropping this handle lets that
+        // be the last.
+        if let Some(file) = c.file.take() {
+            // SAFETY: no argument.
+            unsafe { ioctl(file.as_raw_fd(), TIOCNXCL) };
+        }
         self.context.changed("serial.serialConnection");
         self.context.changed("serial.serialInput");
         Json::Null
@@ -445,13 +655,27 @@ fn os_error() -> Json {
 
 impl Package for Serial {
     fn new(context: Context) -> Self {
-        Serial { context, connections: BTreeMap::new(), next: 0, remembered: Vec::new() }
+        Serial {
+            context,
+            connections: BTreeMap::new(),
+            next: 0,
+            remembered: Vec::new(),
+        }
     }
 
     fn later(&mut self, name: &str, args: &Json, _preferred: Option<&Json>, reply: Reply) {
+        if name == "write" {
+            return self.write(args, reply);
+        }
         let answer = match name {
-            "serialStatus" => json!({ "available": true, "attachedList": true, "state": "granted" }),
-            "attachedPorts" => json!(ports().iter().filter(|p| matches(p, &args["filters"])).map(|p| record(p, true)).collect::<Vec<_>>()),
+            "serialStatus" => {
+                json!({ "available": true, "attachedList": true, "state": "granted" })
+            }
+            "attachedPorts" => json!(ports()
+                .iter()
+                .filter(|p| matches(p, &args["filters"]))
+                .map(|p| record(p, true))
+                .collect::<Vec<_>>()),
             "getPorts" => {
                 let here = ports();
                 json!(self.remembered.iter().map(|id| match here.iter().find(|p| &p.id == id) {
@@ -459,10 +683,13 @@ impl Package for Serial {
                     None => json!({ "id": id, "name": id, "connected": false, "granted": true, "usbVendorId": null, "usbProductId": null }),
                 }).collect::<Vec<_>>())
             }
-            // The painted presenter draws no chooser yet: the app lists `attachedPorts` itself.
+            // The painted presenter draws no chooser yet (D2): the app lists `attachedPorts` itself.
             "requestPort" => json!({ "error": "NotSupportedError" }),
             "open" => self.open(args),
-            "serialConnection" => match self.connections.get(args["connection"].as_str().unwrap_or_default()) {
+            "serialConnection" => match self
+                .connections
+                .get(args["connection"].as_str().unwrap_or_default())
+            {
                 Some(c) => {
                     let gone = c.stream.0.lock().map(|s| s.done).unwrap_or(true);
                     json!({ "open": c.open && !gone, "connected": !gone, "options": c.options })
@@ -470,38 +697,28 @@ impl Package for Serial {
                 None => json!({ "open": false, "connected": false }),
             },
             "serialInput" => self.input(args),
-            "write" => match (self.connection(args), unbase64(args["data"].as_str().unwrap_or_default())) {
-                (Err(e), _) => e,
-                (_, None) => json!({ "error": "TypeError" }),
-                (Ok(c), Some(bytes)) => {
-                    let mut sent = 0;
-                    let mut failed = None;
-                    while sent < bytes.len() {
-                        match (&*c.file).write(&bytes[sent..]) {
-                            Ok(n) => sent += n,
-                            Err(e) if e.kind() == ErrorKind::WouldBlock || e.kind() == ErrorKind::Interrupted => std::thread::sleep(std::time::Duration::from_millis(1)),
-                            Err(e) => {
-                                failed = Some(e.to_string());
-                                break;
-                            }
-                        }
-                    }
-                    match failed {
-                        Some(m) => json!({ "error": "NetworkError", "message": m }),
-                        None => Json::Null,
-                    }
-                }
-            },
             "setSignals" => match self.connection(args) {
                 Err(e) => e,
-                Ok(c) => {
-                    let fd = c.file.as_raw_fd();
+                Ok(Connection { file: None, .. }) => json!({ "error": "InvalidStateError" }),
+                Ok(Connection {
+                    file: Some(file), ..
+                }) => {
+                    let fd = file.as_raw_fd();
                     let mut ok = true;
-                    for (key, bit) in [("dataTerminalReady", TIOCM_DTR), ("requestToSend", TIOCM_RTS)] {
+                    for (key, bit) in [
+                        ("dataTerminalReady", TIOCM_DTR),
+                        ("requestToSend", TIOCM_RTS),
+                    ] {
                         if let Some(on) = args[key].as_bool() {
                             let bits: i32 = bit;
                             // SAFETY: TIOCMBIS and TIOCMBIC read one int through the pointer.
-                            ok &= unsafe { ioctl(fd, if on { TIOCMBIS } else { TIOCMBIC }, &bits as *const i32) } == 0;
+                            ok &= unsafe {
+                                ioctl(
+                                    fd,
+                                    if on { TIOCMBIS } else { TIOCMBIC },
+                                    &bits as *const i32,
+                                )
+                            } == 0;
                         }
                     }
                     if let Some(on) = args["break"].as_bool() {
@@ -509,15 +726,22 @@ impl Package for Serial {
                         ok &= unsafe { ioctl(fd, if on { TIOCSBRK } else { TIOCCBRK }) } == 0;
                     }
                     // A pseudo-terminal carries no modem lines (ENOTTY).
-                    if ok { Json::Null } else { os_error() }
+                    if ok {
+                        Json::Null
+                    } else {
+                        os_error()
+                    }
                 }
             },
             "getSignals" => match self.connection(args) {
                 Err(e) => e,
-                Ok(c) => {
+                Ok(Connection { file: None, .. }) => json!({ "error": "InvalidStateError" }),
+                Ok(Connection {
+                    file: Some(file), ..
+                }) => {
                     let mut bits: i32 = 0;
                     // SAFETY: TIOCMGET writes one int through the pointer.
-                    if unsafe { ioctl(c.file.as_raw_fd(), TIOCMGET, &mut bits as *mut i32) } != 0 {
+                    if unsafe { ioctl(file.as_raw_fd(), TIOCMGET, &mut bits as *mut i32) } != 0 {
                         os_error()
                     } else {
                         json!({ "dataCarrierDetect": bits & TIOCM_CD != 0, "clearToSend": bits & TIOCM_CTS != 0, "ringIndicator": bits & TIOCM_RI != 0, "dataSetReady": bits & TIOCM_DSR != 0 })
@@ -528,7 +752,12 @@ impl Package for Serial {
             "forget" => {
                 let id = args["port"].as_str().unwrap_or_default().to_owned();
                 self.remembered.retain(|r| *r != id);
-                let handles: Vec<String> = self.connections.iter().filter(|(_, c)| c.port.id == id).map(|(h, _)| h.clone()).collect();
+                let handles: Vec<String> = self
+                    .connections
+                    .iter()
+                    .filter(|(_, c)| c.port.id == id)
+                    .map(|(h, _)| h.clone())
+                    .collect();
                 for h in handles {
                     self.close(&h);
                 }
@@ -545,5 +774,28 @@ impl Package for Serial {
         for h in handles {
             self.close(&h);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Bytes that arrive after `close` stay in the port for its next reader: the closed stream gains none.
+    #[test]
+    fn a_closed_connection_reads_nothing_more() {
+        let (reader, mut writer) = std::io::pipe().unwrap();
+        let file = File::from(std::os::fd::OwnedFd::from(reader));
+        let stream = (Mutex::new(Stream::default()), Condvar::new());
+        let mut buf = [0u8; 16];
+        writer.write_all(b"before").unwrap();
+        assert_eq!(read_ready(&file, &stream, &mut buf, 64), Step::Took);
+        writer.write_all(b"after").unwrap();
+        stream.0.lock().unwrap().closed = true;
+        assert_eq!(read_ready(&file, &stream, &mut buf, 64), Step::Closed);
+        assert_eq!(stream.0.lock().unwrap().pending, b"before");
+        let mut left = [0u8; 16];
+        let n = (&file).read(&mut left).unwrap();
+        assert_eq!(&left[..n], b"after");
     }
 }

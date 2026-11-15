@@ -1,4 +1,4 @@
-// Bind ICC paths to immutable bytes at the owning runtime's
+// @ref LLP 1100 D3 — bind ICC paths to immutable bytes at the owning runtime's
 // batch boundary. Views and text workers never consult another session's assets.
 import CoreGraphics
 import Foundation

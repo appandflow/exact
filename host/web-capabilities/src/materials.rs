@@ -1,4 +1,4 @@
-//! `backgroundMaterial` on the web: the schema's stated
+//! `backgroundMaterial` on the web (LLP 1053.000 D4): the schema's stated
 //! approximation of the named material, as the CSS variables the page's one
 //! `[backgroundMaterial]` rule reads. Linked when a plan names a material,
 //! so an app that names none carries neither the table nor this.

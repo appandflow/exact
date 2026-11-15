@@ -1,4 +1,4 @@
-# The Unsaid fixture on Android's Canvas host, as
+# The Unsaid fixture on Android's Canvas host (LLP 1076 §3.3), as
 # apps/caltrain/android is Caltrain: one library with the runner, the kernel,
 # the baked plan (written by build.rs, never committed) and the host's JNI,
 # which the reader (host/android) loads as libexactcanvas.so. It asks nothing
@@ -20,7 +20,7 @@ bench = false
 
 [target.'cfg(target_os = "android")'.dependencies]
 hello-data = { path = "../../hello/data" }
-exact-linux = { path = "../../../host/linux" }
+exact-painted = { path = "../../../host/painted" }
 
 [build-dependencies]
 hello-data = { path = "../../hello/data" }

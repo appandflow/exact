@@ -1,5 +1,5 @@
-//! `exact-gpu-reflect digest <file.wgsl>…` — each shader's interface digest,
-//! one `<name> <hex>` line per file, so the dev server can
+//! `exact-gpu-reflect digest <file.wgsl>…` — each shader's interface digest
+//! (LLP 1030 D8), one `<name> <hex>` line per file, so the dev server can
 //! classify a `.wgsl` edit as an asset (the interface unchanged) or a
 //! rebuild (it moved) without linking naga into Node. A shader that fails to
 //! parse or validate is `<name> error <message>` and exit code 1 after every

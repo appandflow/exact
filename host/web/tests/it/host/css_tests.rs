@@ -155,7 +155,7 @@ fn style_rows_lower_to_css_by_their_names() {
         &StyleValue::Text("antialiased".into()),
     )
     .unwrap();
-    // multi-column layout reaches CSS by its own names.
+    // LLP 1093: multi-column layout reaches CSS by its own names.
     for (row, value) in [
         (StyleId::ColumnCount, StyleValue::Number(3.0)),
         (StyleId::ColumnWidth, StyleValue::Number(120.0)),
@@ -302,7 +302,7 @@ fn the_transition_row_lowers_to_css_transition_and_springs_are_named() {
     let (css, spring) = transition_css(&rows);
     assert_eq!(
         css,
-        "opacity 0.25s ease-in-out 0s,all 0.5s cubic-bezier(0.4,0,0.2,1) 0s"
+        "opacity 0.25s ease-in-out 0s,all 0.5s cubic-bezier(0.4,0,0.2,1) 0s,translate 0s ease 0s"
     );
     assert!(spring, "the spring is reported, not silently dropped");
     assert_eq!(
@@ -390,17 +390,17 @@ fn dynamic_unavailable_colors_take_the_initial_value() {
     }
 }
 
-/// The live page writes the pixels the kernel
-/// resolves a `rem`/`em` row to, and re-resolves them; a page that keeps no
-/// kernel (the JS target's stylesheet) writes the units, for the browser.
+/// Both targets leave `em` to the browser's font. The live host resolves
+/// `rem` through the kernel; templates retain it (LLP 1069.000 D3).
 #[test]
-fn relative_lengths_are_pixels_live_and_units_ahead_of_time() {
+fn relative_lengths_keep_em_live_and_rem_ahead_of_time() {
     use exact_kernel::{StyleId, StyleProps, StyleValue};
     let mut s = StyleProps::default();
     for (id, value) in [
         (StyleId::Width, "10rem"),
         (StyleId::Height, "48px"),
         (StyleId::MarginLeft, "-0.5em"),
+        (StyleId::PaddingLeft, "0.5em"),
         (StyleId::FontSize, "1.5em"),
         (StyleId::LineHeight, "1.25em"),
         (StyleId::LetterSpacing, "0.1em"),
@@ -419,11 +419,12 @@ fn relative_lengths_are_pixels_live_and_units_ahead_of_time() {
     for (live_decl, ahead_decl) in [
         ("width:160px;".to_string(), "width:10rem;".to_string()),
         ("height:48px;".into(), "height:48px;".into()),
-        ("margin-left:-8px;".into(), "margin-left:-0.5em;".into()),
-        ("font-size:24px;".into(), "font-size:1.5em;".into()),
-        ("line-height:20px;".into(), "line-height:1.25em;".into()),
+        ("margin-left:-0.5em;".into(), "margin-left:-0.5em;".into()),
+        ("padding-left:0.5em;".into(), "padding-left:0.5em;".into()),
+        ("font-size:1.5em;".into(), "font-size:1.5em;".into()),
+        ("line-height:1.25em;".into(), "line-height:1.25em;".into()),
         (
-            "letter-spacing:1.6px;".into(),
+            "letter-spacing:0.1em;".into(),
             "letter-spacing:0.1em;".into(),
         ),
         (
@@ -440,7 +441,38 @@ fn relative_lengths_are_pixels_live_and_units_ahead_of_time() {
     }
 }
 
-/// A text style is the ramp's pixels live, and the ramp's size
+#[test]
+fn scalar_viewport_units_stay_authored_on_both_web_targets() {
+    use exact_kernel::{StyleId, StyleProps, StyleValue, ViewportUnit};
+    for unit in ViewportUnit::ALL {
+        for (id, name) in [
+            (StyleId::FontSize, "font-size"),
+            (StyleId::LineHeight, "line-height"),
+            (StyleId::LetterSpacing, "letter-spacing"),
+            (StyleId::TextIndent, "text-indent"),
+            (StyleId::RowGap, "row-gap"),
+            (StyleId::ColumnGap, "column-gap"),
+            (StyleId::BorderWidthTop, "border-top-width"),
+            (StyleId::BorderSpacing, "border-spacing"),
+            (StyleId::ShapeMargin, "shape-margin"),
+        ] {
+            let value = format!("2{}", unit.name());
+            let mut style = StyleProps::default();
+            style
+                .set_dynamic(id, &StyleValue::Text(value.clone().into()))
+                .unwrap();
+            for (css, skipped) in [
+                css_text(&style, &[]),
+                exact_web::css::css_text_relative(&style, &[]),
+            ] {
+                assert!(skipped.is_empty(), "{skipped:?}");
+                assert!(css.contains(&format!("{name}:{value};")), "{css}");
+            }
+        }
+    }
+}
+
+/// LLP 1115 D3: a text style is the ramp's pixels live, and the ramp's size
 /// at CSS's `medium` in `rem` ahead of time, so the browser's root scales it.
 #[test]
 fn a_text_style_is_pixels_live_and_rem_ahead_of_time() {
@@ -453,7 +485,7 @@ fn a_text_style_is_pixels_live_and_rem_ahead_of_time() {
     assert!(ahead.contains("font-size:1.6875rem;"), "{ahead}");
 }
 
-/// A `min()`, `max()` or `clamp()` length lowers to
+/// LLP 1001 §2 (2026-10-07): a `min()`, `max()` or `clamp()` length lowers to
 /// CSS's own function, which the browser resolves with the insets.
 #[test]
 fn comparison_lengths_lower_to_css_comparisons() {
@@ -653,8 +685,8 @@ fn text(s: &str) -> exact_kernel::StyleValue<'_> {
 }
 
 /// `-exact-press-haptic` is the custom property input-glue.js plays at the
-/// press; `rotate`'s axis part is written
-/// with the angle and skips nothing.
+/// press (LLP 1077 D14, workout F4); `rotate`'s axis part is written
+/// with the angle and skips nothing (kanban F30).
 #[test]
 fn press_haptic_is_the_glues_property_and_a_rotation_skips_nothing() {
     use exact_kernel::{StyleId, StyleProps};
@@ -672,7 +704,7 @@ fn press_haptic_is_the_glues_property_and_a_rotation_skips_nothing() {
 }
 
 /// The pressed paint is three custom properties input-glue.js reads from
-/// the pressed element's own style; a written 1 is still
+/// the pressed element's own style (LLP 1061 D7); a written 1 is still
 /// the author's, and a clear writes nothing.
 #[test]
 fn the_pressed_paint_is_the_glues_properties() {
@@ -694,8 +726,8 @@ fn the_pressed_paint_is_the_glues_properties() {
     assert_eq!(css_text(&cleared, &[]).0, "");
 }
 
-/// `-exact-fit` is the custom property navigation.js `fitText` reads;
-/// its initial value writes nothing.
+/// `-exact-fit` is the custom property navigation.js `fitText` reads
+/// (LLP 1116.001 D1.4); its initial value writes nothing.
 #[test]
 fn fit_is_navigations_property() {
     use exact_kernel::StyleId;
@@ -706,7 +738,7 @@ fn fit_is_navigations_property() {
     assert_eq!(declared(&[(StyleId::Fit, text("none"))]), "");
 }
 
-/// A mini or small control is titled in the
+/// LLP 1069.011.001 D8: a mini or small control is titled in the
 /// subheadline's `rem` and keeps no touch floor; medium in the body's, large
 /// in the body's × 18/16.
 #[test]

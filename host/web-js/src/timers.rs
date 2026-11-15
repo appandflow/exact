@@ -1,8 +1,8 @@
 //! A plan's timers on the JS target: each root task, in plan order, as
-//! `every` or `frames` from mount — or, for a task with a gate or a key,
-//! as `gated`, its gate and key compiled to functions
+//! `every` or `frames` from mount — or, for a task with a gate or a key
+//! (LLP 1092 D7–D10), as `gated`, its gate and key compiled to functions
 //! the commit's gate step calls (schedule.js). Each carries the task's name
-//! for the agent's `state.tasks`. Then each `sequence`, its
+//! for the agent's `state.tasks`. Then each `sequence` (LLP 1125 D2), its
 //! gate, key and `play` arguments compiled to functions transport.js's
 //! gate step calls. The `exactMIDI` and `exactTransport` readers are
 //! installed before the plan's resources, which ask them at boot.
@@ -21,29 +21,40 @@ pub(super) fn timers(em: &mut Em<'_>, body: &mut String) -> Result<(), String> {
     for t in plan.timers.iter() {
         let name = serde_json::to_string(plan.str(t.name)).unwrap();
         if t.gated || t.keyed {
-            let mut f = |c| code::expression(plan, plan.code(c), &top, &mut em.uses);
-            let gate = f(t.gate).map_err(|e| format!("task {name}: {e}"))?;
+            let mut f = |c, role: &str| {
+                code::expression(
+                    plan,
+                    plan.code(c),
+                    &code::evaluation(&top, format!("task {name} {role}"), false),
+                    &mut em.uses,
+                )
+            };
+            let gate = f(t.gate, "gate").map_err(|e| format!("task {name}: {e}"))?;
             let key = if t.keyed {
-                format!("()=>{}", f(t.key).map_err(|e| format!("task {name}: {e}"))?)
+                format!(
+                    "()=>{}",
+                    f(t.key, "key").map_err(|e| format!("task {name}: {e}"))?
+                )
             } else {
                 "0".into()
             };
             let gated = em.uses.rt("gated");
             let _ = write!(
                 body,
-                "{gated}({},a_{},{},{},()=>{gate},{key},{name},{},{},{});",
+                "{gated}({},a_{},{},{},()=>{gate},{key},{name},{},{},{},{});",
                 t.interval_ms,
                 t.action.0,
                 t.once as u8,
                 t.frame as u8,
                 t.wait,
                 t.max_ms,
-                t.tolerance_ms
+                t.tolerance_ms,
+                t.change as u8
             );
             continue;
         }
         if t.frame {
-            // Once per presented frame, virtual frames on a seek.
+            // LLP 1073: once per presented frame, virtual frames on a seek.
             let frames = em.uses.rt("frames");
             let _ = write!(body, "{frames}(a_{},{name});", t.action.0);
             continue;
@@ -59,7 +70,7 @@ pub(super) fn timers(em: &mut Em<'_>, body: &mut String) -> Result<(), String> {
 }
 
 /// The `exactMIDI` readers, each its fields and a port list's port fields,
-/// and whether the plan uses MIDI, for midi.js; whether the
+/// and whether the plan uses MIDI, for midi.js (LLP 1125 D6); whether the
 /// module imports it.
 pub(super) fn midi(em: &mut Em<'_>, body: &mut String) -> Result<bool, String> {
     use exact_runner::midi::{FIELDS, PORT_FIELDS, SENT_FIELDS, SOURCE};
@@ -159,19 +170,25 @@ pub(super) fn sequences(em: &mut Em<'_>, body: &mut String) -> Result<(), String
     let mut entries = Vec::new();
     for q in plan.sequences.iter() {
         let name = serde_json::to_string(plan.str(q.name)).unwrap();
-        let mut f = |c| {
-            code::expression(plan, plan.code(c), &top, &mut em.uses)
-                .map_err(|e| format!("sequence {name}: {e}"))
+        let mut f = |c, role: &str| {
+            code::expression(
+                plan,
+                plan.code(c),
+                &code::evaluation(&top, format!("sequence {name} {role}"), false),
+                &mut em.uses,
+            )
+            .map_err(|e| format!("sequence {name}: {e}"))
         };
-        let gate = f(q.gate)?;
+        let gate = f(q.gate, "gate")?;
         let key = if q.keyed {
-            format!("()=>{}", f(q.key)?)
+            format!("()=>{}", f(q.key, "key")?)
         } else {
             "0".into()
         };
         let args = [q.tracks, q.bpm, q.from, q.count_in, q.clock, q.clock_out]
             .into_iter()
-            .map(&mut f)
+            .enumerate()
+            .map(|(k, c)| f(c, &format!("argument {}", k + 1)))
             .collect::<Result<Vec<_>, _>>()?;
         let ended = q.ended.map_or("null".into(), |a| format!("a_{}", a.0));
         entries.push(format!(

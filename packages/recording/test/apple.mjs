@@ -1,5 +1,5 @@
-// @exact/recording's and @exact/media-capture's conformance suite on Apple:
-// the fixture app made as the
+// @exact/recording's and @exact/media-capture's conformance suite on Apple
+// (LLP 1133.001 D7, LLP 1133.009 §11, stage 2): the fixture app made as the
 // web suite makes it, built for an iOS simulator or macOS, and driven by the
 // agent with both implementations bound (`--bind media-capture,recording`),
 // so AVAudioEngine records and not the substitute. An iOS simulator records
@@ -16,7 +16,7 @@ import { checker, makeFixture, root, run } from './fixture.mjs';
 const argv = process.argv.slice(2), sim = argv.includes('--sim') ? argv[argv.indexOf('--sim') + 1] : process.env.EXACT_SIM;
 const hosts = argv.filter((a, i) => ['macos', 'ios'].includes(a) && argv[i - 1] !== '--sim');
 const { app, id } = makeFixture(), name = basename(app);
-Object.assign(process.env, { EXACT_APP_DIR: app, EXACT2: root, HERMES_LEAN_SYS_OFFLINE: '1' });
+Object.assign(process.env, { EXACT_APP_DIR: app, EXACT: root, HERMES_LEAN_SYS_OFFLINE: '1' });
 const { open } = await import(resolve(root, 'scripts/agent.mjs'));
 const { check, failed } = checker();
 
@@ -56,7 +56,7 @@ for (const host of hosts.length ? hosts : ['macos', 'ios']) {
   }
   const plistAt = readdirSync(resolve(app, 'target'), { recursive: true }).find((f) => host === 'ios' ? /iphonesimulator|ios-sim/.test(f) && f.endsWith('.app/Info.plist') : /macos/.test(f) && f.endsWith('-Info.plist'));
   const plist = plistAt ? JSON.parse(run('plutil', ['-convert', 'json', '-o', '-', resolve(app, 'target', plistAt)])) : {};
-  check(where, 'Info.plist carries the microphone\'s purpose', plist.NSMicrophoneUsageDescription === 'The conformance suite records a take.', plistAt ?? 'no Info.plist under target/');
+  check(where, 'Info.plist carries the microphone\'s purpose (D9)', plist.NSMicrophoneUsageDescription === 'The conformance suite records a take.', plistAt ?? 'no Info.plist under target/');
   const s = await open({ host, app: name, bind: 'media-capture,recording', storage: `recording-${Date.now()}` });
   try {
     const state = await s.state();
@@ -79,7 +79,7 @@ for (const host of hosts.length ? hosts : ['macos', 'ios']) {
     const opened = await until(s, 'opened', (t) => /^stream-\S+ 1$/.test(t ?? ''));
     check(where, 'getUserMedia answers a stream with one track', /^stream-\S+ 1$/.test(opened ?? ''), opened);
     const idle = await until(s, 'track', (t) => t === 'live true idle true');
-    check(where, 'a track no consumer joined is idle', idle === 'live true idle true', idle);
+    check(where, 'a track no consumer joined is idle (D6)', idle === 'live true idle true', idle);
     await s.tap('record');
     const started = await until(s, 'started', (t) => t?.startsWith('recording'));
     check(where, 'startMediaRecorder records AAC to the admitted path, with its extension', started === 'recording audio/mp4 app:/data/takes/take-1.m4a', started);

@@ -1,4 +1,4 @@
-// Shared timer wake and scroll observations.
+// Shared timer wake and scroll observations (LLP 1147).
 export function frameAtOrAfter(deadline) {
   if (!Number.isFinite(deadline)) { return deadline; }
   let k = Math.ceil(deadline * 60 / 1000);

@@ -1,4 +1,4 @@
-// @fixture/vault in the macOS app and the iOS app on a simulator: the package built with its
+// @fixture/vault in the macOS app and the iOS app on a simulator (LLP 1154 §6 M5): the package built with its
 // library (library.mjs) and the fixture app depending on it (fixture.mjs). A Mac only; never a device.
 //
 // - A copy of the package that declares a wrong hash is refused by the macOS and the iOS build, both hashes named.

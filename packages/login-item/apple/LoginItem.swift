@@ -1,11 +1,11 @@
-// @exact/login-item on macOS: the app's own login item,
+// @exact/login-item on macOS (LLP 1133.025 D2): the app's own login item,
 // `SMAppService.mainApp` (macOS 13 and later). The app's composed module
 // calls it outside the agent; under the agent the runner's substitute
 // answers, unless the drive binds it (`--bind login-item`).
 //
 // - `hidden` is this module's own record, in the app's defaults: macOS 13's
 //   service has no hidden flag, so the host reads the record at a login
-//   launch and opens no window.
+//   launch and opens no window (D6).
 // - `launchedAtLogin` is the host's reading of the open-application event's
 //   `keyAELaunchedAsLogInItem`, which it registers, unpersisted, as the
 //   default `exact.launch.login` (`LaunchKind`, NoWindowLaunchMac.swift).

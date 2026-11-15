@@ -1,4 +1,4 @@
-// @exact/store-review on Apple: `AppStore.requestReview(in:)`
+// @exact/store-review on Apple (LLP 1133.015 D12): `AppStore.requestReview(in:)`
 // over the session's window. StoreKit says nothing of whether it showed the
 // prompt, so the request answers nothing and journals that it was made.
 //

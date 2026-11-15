@@ -1,8 +1,8 @@
-// @exact/motion's conformance suite on the web: the fixture app
-// (`test/fixture`) made with `exact new` outside the repo, depending on
-// this package by `file:`, built for the web, and driven in each engine
-// with the web implementation bound. No agent: a substitute would prove
-// nothing about the implementation.
+// @exact/motion's conformance suite on the web (LLP 1133.013 §10, §13 stage
+// 1): the fixture app (`test/fixture`) made with `exact new` outside the
+// repo, depending on this package by `file:`, built for the web, and driven
+// in each engine with the web implementation bound. No agent: a substitute
+// would prove nothing about the implementation.
 //
 // Chromium reads the Generic Sensor classes, fed by the DevTools protocol's
 // sensor overrides (`Emulation.setSensorOverrideReadings`); Firefox and
@@ -68,7 +68,7 @@ for (const engine of engines) {
     if (engine === 'chromium') await context.grantPermissions(['accelerometer', 'gyroscope'], { origin });
     else await context.addInitScript(synthesized);
     // Where `requestPermission` is called: inside the press's dispatch (`window.event` is set only there), with
-    // the gesture's activation, as WebKit requires.
+    // the gesture's activation, as WebKit requires (D11).
     await context.addInitScript(() => {
       const ask = globalThis.DeviceMotionEvent?.requestPermission;
       if (typeof ask !== 'function') return;

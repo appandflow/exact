@@ -1,4 +1,4 @@
-//! Native control measurements and platform fonts.
+//! Native control measurements and platform fonts. @ref LLP 1104 D4–D5.
 //! Field chrome and native button faces share TextMeasurer's defaulted hooks.
 
 use crate::{FontStyle, PropId, PropList};
@@ -122,13 +122,13 @@ pub struct FieldChromeRequest {
     /// existing catalog; `family` is empty when the kernel has no name for it.
     pub font: ControlFont,
     /// The field is a grouped list row's content (`NodeRef::is_cell_field`,
-    /// The field the platform draws in a list's cell. On
+    /// LLP 1116.005 D2): the field the platform draws in a list's cell. On
     /// iOS the cell is the field, so it has no border of its own; a host
     /// whose field is the same anywhere answers as for any other.
     pub cell: bool,
     /// The field has a `placeholder`. Where a platform floats it above the
-    /// text as the field's label (Android's filled field), the text sits
-    /// lower; a host that does not answers as for any other.
+    /// text as the field's label (Android's filled field, LLP 1115.001.000
+    /// D6), the text sits lower; a host that does not answers as for any other.
     pub labelled: bool,
 }
 
@@ -164,7 +164,7 @@ impl FieldChrome {
     }
 }
 
-/// Image side resolved from the face axis and child order.
+/// Image side resolved from the face axis and child order (D3).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum ButtonImagePlacement {
     /// Before the title in a row.
@@ -179,26 +179,36 @@ pub enum ButtonImagePlacement {
 }
 
 /// Resolved values, with each StyleProps mask marking only rows authored on
-/// the button or that semantic child. Values are computed, including
+/// the button or that semantic child (D1–D2). Values are computed, including
 /// em resolution and the web's inheritance; an unmarked row is the platform's
 /// own answer on Apple, not an instruction to write the computed initial.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ButtonFaceStyle {
+    /// Root font size for the neutral control size's rem typography. Host-only
+    /// context shared by measurement and paint, not an authored style row.
+    pub root_font_size: f32,
+    /// The neutral bar's body and symbol sizes: the image overhangs its body-sized place.
+    pub neutral_bar_symbol: Option<(f32, f32)>,
     /// Root font size for an admitted Neutral narrow tab. Host-only geometry
     /// context shared by measurement and paint, not an authored style row.
     pub neutral_tab_root: Option<f32>,
+    /// A menu or chooser row, which keeps its own symbol size and spacing.
+    pub neutral_menu_row: bool,
     /// Keep tab, segment and menu-row minimums when padding is authored.
     pub neutral_role_floor: bool,
     /// Title typography; its own rows win over the button's.
     pub title: crate::StyleProps,
     /// Subtitle typography, resolved independently in the same way.
     pub subtitle: Option<crate::StyleProps>,
-    /// Symbol tint/font; only rows on the image are marked authored.
+    /// Symbol tint/font; only rows on the image are marked authored (D14).
     pub symbol: crate::StyleProps,
     /// Button padding, radii and platform size/corners, per-side masks included.
     pub button: crate::StyleProps,
     /// Image-to-text gap on the face axis. None asks the host's system spacing.
     pub image_gap: Option<f32>,
+    /// Where a radio drawn as a segment sits in its group
+    /// ([`crate::segmented`]); None for any other button.
+    pub segment: Option<crate::SegmentPlace>,
 }
 
 impl ButtonFaceStyle {
@@ -212,14 +222,14 @@ impl ButtonFaceStyle {
         let length = |d: crate::Dimension, basis: Option<f32>| {
             crate::Dimension::Points(d.at_basis(env, basis.unwrap_or(0.0)).max(0.0))
         };
-        let s = &mut self.button;
+        let s = &mut *self.button.ordinary;
         for side in [
             &mut s.padding_top,
             &mut s.padding_right,
             &mut s.padding_bottom,
             &mut s.padding_left,
         ] {
-            *side = length(*side, containing_width);
+            *side = length(side.clone(), containing_width);
         }
         // Native configurations and the painted button use circular corners;
         // retain their scalar-radius approximation for percentage corners.
@@ -230,12 +240,12 @@ impl ButtonFaceStyle {
             &mut s.border_radius_bottom_right,
             &mut s.border_radius_bottom_left,
         ] {
-            *corner = length(*corner, basis);
+            *corner = length(corner.clone(), basis);
         }
     }
 }
 
-/// A native button's semantic face and resolved configuration.
+/// A native button's semantic face and resolved configuration (D11).
 #[derive(Debug, Clone, PartialEq)]
 pub struct ButtonMeasureRequest {
     /// Title, subtitle, symbol and placement.
@@ -244,13 +254,13 @@ pub struct ButtonMeasureRequest {
     pub style: ButtonFaceStyle,
     /// The `buttonStyle` its author wrote, a name from `buttonStyles`;
     /// `None` when they wrote none, which each host draws as its platform's
-    /// own default.
+    /// own default (LLP 1115.000 D15).
     pub button_style: Option<String>,
     /// Offered border-box width; hosts answer height-for-width.
     pub width: crate::AxisOffer,
 }
 
-/// The host's border-box measurement in logical pixels.
+/// The host's border-box measurement in logical pixels (D11).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ButtonMeasure {
     /// Fitting width.

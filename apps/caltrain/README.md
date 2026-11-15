@@ -5,11 +5,15 @@ with a station picker, search, nearby stations and a line map. It runs from one
 `app.contract` on the web, macOS, iOS, tvOS and Linux, and every other host is
 measured against it.
 
+The departures are at `/`, the station picker at `/stations`, and the driven
+iframe fixture at `/web-deck`. Each URL opens directly and survives a browser
+reload; Back returns to the preceding route.
+
 There is no TypeScript here. The data is a Rust crate, so this is the app to read
 for a Rust data source, authored tests, routes and an optional GPU module.
 
 The header’s Follow train, Delay train and End activity buttons are the activity
-fixture. They appear only when `exactActivities().linked` is
+fixture (LLP 1126.001 WP9). They appear only when `exactActivities().linked` is
 true: the host has packaged its ActivityKit arm. Ending clears the fixture’s delay.
 
 ## Run it
@@ -32,8 +36,8 @@ bun scripts/agent.mjs web --test apps/caltrain/app.test.contract
 | `app.test.contract` | Three tests in the agent's own operations (`tap`, `type`, `expect`), run on any host. |
 | `data/src/lib.rs` | The data source: the corridor model, and the answer to each source the Contract names (`stations`, `nearest`, `station`, `board`, `search`). Values cross as the Contract's `shape`s. |
 | `data/src/map.rs` | The line map, drawn with Canvas 2D. |
-| `logic/` | The same data crate as a separately linked module, so it can be replaced live in development. |
-| `gpu/` | The optional GPU module: the aurora, the glass and the deck, as WGSL shaders loaded after first pixel. |
+| `logic/` | The same data crate as a separately linked module, so it can be replaced live in development (LLP 1029.000). |
+| `gpu/` | The optional GPU module: the aurora, the glass and the deck, as WGSL shaders loaded after first pixel (LLP 1009). |
 | `app.json` | The manifest: identity, icons, host settings, delivery. |
 | `web/`, `apple/`, `linux/` | Each host's crate: a few lines linking the plan and the data crate. |
 

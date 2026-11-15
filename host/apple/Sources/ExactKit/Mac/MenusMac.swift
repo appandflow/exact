@@ -1,11 +1,11 @@
-// Button menus project to NSMenu, and so does an
+// LLP 1021 D2–D4: button menus project to NSMenu, and so does an
 // alertdialog popover of the chooser's shape ("The chooser": actions, at most
 // one hide-only cancel, text rows as its message), popped up against its
 // invoker by its `position-area` (ChooserMac.swift); a picked item presses
 // once, as the menu closes. One in the alert shape (text, a cancel, at most
-// three buttons) is `NSAlert` instead, under the agent too
-// (AlertsMac.swift). Any other popover is an `NSPopover` holding its actual
-// subtree, native editors included (PopoversMac.swift).
+// three buttons) is `NSAlert` instead, under the agent too (LLP 1115.000 D7.6,
+// AlertsMac.swift). Any other popover is an `NSPopover` holding its actual
+// subtree, native editors included (LLP 1115.002 D7.3, PopoversMac.swift).
 // The driver's own chrome paints it in the session's top layer instead, as
 // it was, and paints a menu's shape there under either chrome.
 #if os(macOS)
@@ -27,7 +27,7 @@ final class MenuHost: NSObject {
         weak var source: NodeView?
         let sourced: Bool
         let bubbled: Bool
-        /// The run of `source` that opened it as its context menu: its anchor.
+        /// The run of `source` that opened it as its context menu (X77): its anchor.
         let run: UInt32?
         weak var parent: NSView?
         weak var previous: NSView?
@@ -124,7 +124,7 @@ final class MenuHost: NSObject {
     private var presentations: [UInt32: Int] = [:]
     func presentation(of pop: NodeView) -> Int { presentations[pop.id] ?? 0 }
     private var popovers: [UInt32: NodeView] = [:]
-    /// An open popover's layer, and the popovers this host
+    /// LLP 1080.001 D3: an open popover's layer, and the popovers this host
     /// hides while closed or lifts while open.
     func inspectionOwns(_ view: NSView) -> Bool { entries.contains { $0.layer === view } }
     func hides(_ node: NodeView) -> Bool { node.props["popover"] != nil || node.props["semanticTag"] == "dialog" }
@@ -236,10 +236,10 @@ final class MenuHost: NSObject {
         return invocation
     }
     /// A native invoker anchors to its actual button frame, including AppKit's
-    /// alignment insets, rather than the node's layout box; a run of
+    /// alignment insets, rather than the node's layout box (D13); a run of
     /// a paragraph, to its lines' bounds, as an inline element's box is.
     func anchor(_ source: NodeView, in view: NSView, run: UInt32? = nil) -> NSRect {
-        // A button the window's bar shows has no box in the page.
+        // A button the window's bar shows has no box in the page (LLP 1115.002 D2).
         if let bar = presenter?.toolbar.anchor(of: source, in: view) { return bar }
         if let run, let text = presenter?.inlineText(run) {
             let lines = source.inlineRects(text).reduce(CGRect.null) { $0.union($1) }
@@ -304,8 +304,8 @@ final class MenuHost: NSObject {
         else if !open { show(pop, from: source) }
     }
     func show(_ pop: NodeView, from row: NodeView?, run: UInt32? = nil, contextMenu: Bool = false, bubbled: Bool = false) {
-        // A row of a menu opens a popover that is no menu as the menu's own invoker would:
-        // an open menu's, or the native menu's it was chosen from, which has closed by now.
+        // A row of a menu opens a popover that is no menu as the menu's own invoker would (LLP 1021's
+        // menu rule): an open menu's, or the native menu's it was chosen from, which has closed by now.
         let menuRow = { (menu: NodeView?) in menu?.props["accessibilityRole"] == "menu" && row.map { self.contains(menu!, $0) } == true }
         let picked = pop.props["accessibilityRole"] != "menu" && menuOpener.pops.contains(where: { menuRow($0.pop) }) ? menuOpener.opener : nil
         var source = row, seen = Set<ObjectIdentifier>() // past any open submenu, to what opened the outermost menu
@@ -331,7 +331,7 @@ final class MenuHost: NSObject {
         }
         guard live(pop), source.map(live) ?? true, connected(pop), source.map(connected) ?? true else { return }
         // A confirmation in the alert shape is the platform's alert, a sheet
-        // on the window (AlertsMac.swift); a chooser is
+        // on the window (LLP 1115.000 D7.6, AlertsMac.swift); a chooser is
         // the menu below.
         if isConfirmation(pop), presenter.alerts.isOpen(pop) || presenter.alerts.present(pop, from: source, popover: true) { return }
         let entry = Entry(pop, source: source, previous: focusOwner(window), run: run, bubbled: bubbled)
@@ -385,13 +385,13 @@ final class MenuHost: NSObject {
             refresh()
         }
     }
-    /// A context menu, its popover's menu rows as an NSMenu
+    /// LLP 1021 §5.1: a context menu, its popover's menu rows as an NSMenu
     /// popped up at the click, after the node's own `contextmenu` has run
     /// (both fire), on the next turn as a button menu's. Its preview row is
     /// not an item: a Mac's context menu has no preview. A popover that is
-    /// not menu-shaped, and every popover under the agent, opens
+    /// not menu-shaped (D3), and every popover under the agent (D4), opens
     /// as a button's popover does, anchored to the node. `run` names a run
-    /// of `source` whose own `contextPopover` it is. `click` is the
+    /// of `source` whose own `contextPopover` it is (X77). `click` is the
     /// pointer's press that asked for it (`track`); a request from the
     /// keyboard has none, and its menu's top left is at `point`.
     func context(_ source: NodeView, at point: NSPoint, run: UInt32? = nil, click: NSEvent? = nil) {
@@ -416,7 +416,7 @@ final class MenuHost: NSObject {
             // next batch's `sync` before it tracked, and nothing would open.
             if ExactEnv.agentMode || !self.isMenuShaped(pop) { self.show(pop, from: source, run: run, contextMenu: true); return }
             // A new presentation only if it has an item: it retires picks of the last.
-            guard pop.container.subviews.contains(where: { ($0 as? NodeView).map { $0.isButton && $0.props["contextPreview"] != "true" } ?? false }) else { return }
+            guard pop.menuRowsThroughSections.contains(where: \.isButton) else { return }
             self.presentations[pop.id, default: 0] += 1
             self.revalidate()
             let menu = self.contextMenu(of: pop, on: source)
@@ -440,10 +440,10 @@ final class MenuHost: NSObject {
     }
     /// Where a menu presenting `pop` pops up in `source`: its top-left, by
     /// the popover's `position-area` and margins as its painted box would
-    /// sit, the menu's own size the box, clamped to the viewport, or to
+    /// sit, the menu's own size the box, clamped to the viewport (§5), or to
     /// the split's pane when `source` is in it. One whose author wrote `left`
     /// or `top` pops up at that viewport point, where AppKit keeps it on
-    /// screen as it keeps a context menu.
+    /// screen as it keeps a context menu (LLP 1021 D2).
     func popUpPoint(_ menu: NSMenu, _ pop: NodeView, in source: NodeView) -> NSPoint {
         if let presenter, let at = PositionArea.inset(of: pop, viewport: presenter.clientSize) {
             return presenter.point(fromClient: at, in: source)
@@ -487,11 +487,17 @@ final class MenuHost: NSObject {
         // the hidden popover leaves; VoiceOver is sent to it after
         // (`tellLanding`, Accessibility.swift).
         if hadFocus, let window {
-            if restoreFocus, let previous = entry.previous, previous.window === window,
+            let invoker = pop.isMenu ? entry.source.flatMap { source -> NSView? in
+                guard live(source), !source.disabled, !source.inert,
+                      let target = presenter?.keyView(of: source), target.acceptsFirstResponder,
+                      !target.isHiddenOrHasHiddenAncestor, presenter?.dialogs.blocks(target) != true else { return nil }
+                return target
+            } : nil
+            if restoreFocus, let previous = invoker ?? entry.previous, previous.window === window,
                !previous.isHiddenOrHasHiddenAncestor, presenter?.dialogs.blocks(previous) != true,
                !((previous as? NodeView)?.inert ?? false) {
                 window.makeFirstResponder(previous)
-                if let range = entry.selection, let editor = window.firstResponder as? NSTextView { editor.setSelectedRange(range) }
+                if previous === entry.previous, let range = entry.selection, let editor = window.firstResponder as? NSTextView { editor.setSelectedRange(range) }
             } else { window.makeFirstResponder(presenter?.viewport) }
         }
         if let native = entry.native {
@@ -526,7 +532,7 @@ final class MenuHost: NSObject {
         return true
     }
     func rejectActiveMenuProperties(in pop: NodeView) {
-        for case let row as NodeView in pop.container.subviews where row.isButton && row.props["popover"] == nil && row.props["contextPreview"] != "true" {
+        for row in pop.menuRowsThroughSections where row.isButton {
             row.rejectNativeActiveProperties(on: "NSMenuItem")
         }
     }
@@ -730,15 +736,15 @@ final class MenuHost: NSObject {
         }
     }
 
-    /// Whether `pop` is menu-shaped (`NodeView.menuShaped`).
+    /// Whether `pop` is menu-shaped (`NodeView.menuShaped`, LLP 1021 D3).
     func isMenuShaped(_ pop: NodeView) -> Bool { pop.menuShaped }
-    /// Submenus: the popover `row` opens as a submenu, a
-    /// menu-shaped one it shows or toggles (`Invocation`),
+    /// LLP 1021 §5, "Submenus": the popover `row` opens as a submenu, a
+    /// menu-shaped one (D3) it shows or toggles (`Invocation`),
     /// not a confirmation, and not already on `path` (the popovers from the
     /// presented one down to `row`'s): a row that names one of those is an
     /// item, as one opening any other popover is. It is a menu
     /// (`role="menu"`): any other popover a row opens opens beside the
-    /// menu's invoker (the menu rule, `show`).
+    /// menu's invoker (LLP 1021's menu rule, `show`).
     func submenu(of row: NodeView, path: [NodeView]) -> NodeView? {
         guard let invocation = popoverInvocation(row), invocation.opens else { return nil }
         let sub = invocation.target
@@ -758,14 +764,18 @@ final class MenuHost: NSObject {
         if let source { menuOpener = MenuOpener(pop, opener: source) }
         let menu = items(of: pop, path: [], from: source, presentation: presentation(of: pop), once: Picked(), bubbled: bubbled)
         // The popover's `aria-label` titles the menu ("Open location in"). A
-        // submenu has none: the item that opens it names it.
-        if let heading = pop.props["accessibilityLabel"], !heading.isEmpty { menu.insertItem(.sectionHeader(title: heading), at: 0) }
+        // submenu has none: the item that opens it names it. A section that
+        // opens the menu is headed by its own title, as on iOS, where UIKit
+        // draws no header over another.
+        if let heading = pop.props["accessibilityLabel"], !heading.isEmpty, menu.items.first?.isSectionHeader != true {
+            menu.insertItem(.sectionHeader(title: heading), at: 0)
+        }
         return menu
     }
-    // MARK: A window toolbar's menu item
+    // MARK: A window toolbar's menu item (LLP 1115.002 D2)
 
     /// The popover a toolbar's menu item shows for `source`: the one it
-    /// shows or toggles (`Invocation`), when it is a button menu's shape
+    /// shows or toggles (`Invocation`), when it is a button menu's shape (D3)
     /// and no confirmation.
     func toolbarPopover(of source: NodeView) -> NodeView? {
         guard let invocation = popoverInvocation(source), invocation.opens,
@@ -830,18 +840,19 @@ final class MenuHost: NSObject {
     }
     /// The menu of `pop`, reached through `path`'s openers (each row that
     /// opened the next popover): an item per button row, a separator per
-    /// `hr`, and a submenu per row that opens a menu-shaped popover.
+    /// `hr`, a submenu per row that opens a menu-shaped popover, and a
+    /// `role="group"` row's items set apart by separators, under a section
+    /// header of its `aria-label` (the HIG's label for a run of items).
     private func items(of pop: NodeView, path: [Step], from source: NodeView?, presentation: Int, once: Picked, bubbled: Bool) -> NSMenu {
         let menu = NSMenu()
         menu.autoenablesItems = false
         let popovers = path.compactMap(\.parent) + [pop]
-        for case let row as NodeView in pop.container.subviews {
-            if row.props["contextPreview"] == "true" { continue } // a context menu's preview
-            if row.props["popover"] != nil { continue } // a submenu authored inside its parent
-            if row.props["semanticTag"] == "hr" { menu.addItem(.separator()); continue }
-            guard row.isButton else { continue }
+        func separate() { if let last = menu.items.last, !last.isSeparatorItem { menu.addItem(.separator()) } }
+        func add(_ row: NodeView) {
+            if row.props["semanticTag"] == "hr" { menu.addItem(.separator()); return }
+            guard row.isButton else { return }
             // Escape and outside clicks cancel NSMenu; a hide-only row adds no action.
-            if !row.handlers.contains("press"), presenter?.buttonPressListener(above: row) == nil, closes(row, pop) { continue }
+            if !row.handlers.contains("press"), presenter?.buttonPressListener(above: row) == nil, closes(row, pop) { return }
             if let sub = submenu(of: row, path: popovers) {
                 let item = menuItem(of: row, action: nil)
                 menuOpener.pops.append(Weak(pop: sub)) // a row chosen in it opens from the same opener
@@ -849,7 +860,7 @@ final class MenuHost: NSObject {
                 item.isEnabled = !row.disabled && !row.inert && shown(row, in: popovers + [sub])
                 item.image = image(of: row)
                 menu.addItem(item)
-                continue
+                return
             }
             let item = menuItem(of: row, action: #selector(pick(_:)))
             item.target = self
@@ -861,13 +872,31 @@ final class MenuHost: NSObject {
             item.image = image(of: row)
             menu.addItem(item)
         }
+        // A context menu's preview (§5.1) and a submenu authored inside its
+        // parent are no rows (`menuRows`).
+        var sectionEnded = false
+        for row in pop.menuRows {
+            if row.isMenuSection {
+                let start = menu.numberOfItems
+                separate()
+                if let title = row.menuSectionTitle { menu.addItem(.sectionHeader(title: title)) }
+                let header = menu.numberOfItems
+                for inner in row.menuRows { add(inner) }
+                // A section with no item shows nothing, not even its header.
+                if menu.numberOfItems == header { while menu.numberOfItems > start { menu.removeItem(at: start) } } else { sectionEnded = true }
+                continue
+            }
+            if sectionEnded, row.props["semanticTag"] != "hr" { separate() }
+            sectionEnded = false
+            add(row)
+        }
         return menu
     }
     /// One menu's items share this, its submenus' too: the first item taken
     /// is its only one.
     /// The native menu presented last and the invoker or node it came from:
     /// a row chosen in it presses after it has closed, and the popover that
-    /// row opens opens from here (`show`, the menu rule).
+    /// row opens opens from here (`show`, LLP 1021's menu rule).
     private struct Weak { weak var pop: NodeView? }
     private struct MenuOpener {
         var pops: [Weak] = []
@@ -955,7 +984,7 @@ final class MenuHost: NSObject {
         // A native button's children are its face, not views: its title, else its label.
         if v.isNativeButton { return [v.face?.shown, v.face?.subtitle].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " — ") }
         // A custom button whose face fits shows it too: a symbol-only row its
-        // label; other content keeps its text.
+        // label (LLP 1069.011.000 D5); other content keeps its text.
         if v.isButton, let face = v.face, face.fits, let shown = face.shown { return shown }
         // Its accessible name: an `aria-hidden` child (a submenu row's `›`,
         // which the platform menu draws itself) is not part of it.
@@ -969,7 +998,7 @@ final class MenuHost: NSObject {
 }
 
 /// The menu of a window toolbar's menu item: the authored button whose
-/// popover it shows.
+/// popover it shows (LLP 1115.002 D2).
 final class InvokerMenu: NSMenu {
     weak var source: NodeView?
 }

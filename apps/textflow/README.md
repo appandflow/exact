@@ -11,7 +11,7 @@ system serif, light and dark paper. One Contract runs on Linux, macOS, iOS and w
 | Ball — `scene-ball` | The original single moving exclusion. |
 | Editorial — `scene-editorial` | Drop cap, inset pull quote and circles; two columns become one stacked column on a phone. |
 | Polygon — `scene-polygon` | A moving triangle with matching visible and exclusion edges. |
-| Article — `scene-article` | A drop cap and a pull quote in a block column. No paragraph has a height: each is measured around the shapes it meets, and what follows moves. |
+| Article — `scene-article` | A drop cap and a pull quote in a block column. No paragraph has a height: each is measured around the shapes it meets, and what follows moves (LLP 1043.000 §8). |
 
 Pause freezes app time. Dark paper changes the palette. Type 115% exercises wider
 font metrics: the first six scenes keep definite heights, with at least 20% spare

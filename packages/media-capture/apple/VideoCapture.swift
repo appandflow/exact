@@ -1,26 +1,26 @@
-// @exact/media-capture's video half on Apple:
+// @exact/media-capture's video half on Apple (LLP 1133.008 D1-D3, D6):
 // cameras as Media Capture's video tracks, each in the session's track table
 // with its state and, while leased, its capture (`ExactVideoSource`), which a
 // consumer such as @exact/camera's viewfinder attaches outputs to.
 // MediaCapture.swift routes its names here for a video track and `video=`.
 //
-// - Captures are the process's: one `AVCaptureSession` on iOS, which
+// - Captures are the process's (D3): one `AVCaptureSession` on iOS, which
 //   runs one camera at a time, and one per open camera on macOS. Each has a
 //   serial queue it is configured, started and stopped on; the main thread
 //   never waits on it. It is made at its first lease, with the `.photo`
-//   preset, and let go at its last.
-// - A track holds a lease while it has a consumer: a consumer that shows
+//   preset (D2), and let go at its last.
+// - A track holds a lease while it has a consumer (D3): a consumer that shows
 //   the capture takes one whenever its origin is the person's or the app's own
-//   code and the app is in the foreground ("a visible consumer"); a
+//   code and the app is in the foreground (§14, "a visible consumer"); a
 //   tool's or a wake's takes none. The last consumer gone, the track reads
 //   `muted`, `idle`. On iOS a lease on another camera while one is live waits,
 //   `in-use`, and is taken when that one is let go.
-// - Interruptions become `muteReason`; after one other than the
+// - Interruptions become `muteReason` (D3); after one other than the
 //   background, the session is started again while a lease is live.
 // - Under the agent no session is made and nothing is asked: two cameras,
 //   "Agent back camera" and "Agent front camera", whose consumers are told
-//   `live(video: nil)`.
-// - Tier 3: `MediaCaptureModule.sessionHatch` is called inside each
+//   `live(video: nil)` (§9).
+// - Tier 3 (D5): `MediaCaptureModule.sessionHatch` is called inside each
 //   configuration on the session's queue, after the module's input;
 //   `deviceHatch` after the track's constraints, under the device's lock.
 import AVFoundation
@@ -36,7 +36,7 @@ final class VideoTrack {
     var facing = "environment"
     var settings: [String: Any] = [:], capabilities: [String: Any] = [:]
     var consumers: [ObjectIdentifier: (consumer: ExactTrackConsumer, origin: String)] = [:]
-    /// Outputs that are not consumers: told what consumers are told, holding no lease.
+    /// Outputs that are not consumers (LLP 1133.027 D17 item 1): told what consumers are told, holding no lease.
     var observers: [ObjectIdentifier: ExactTrackConsumer] = [:]
     /// The capture whose lease it holds, if it holds one.
     var capture: VideoCapture?
@@ -66,7 +66,7 @@ final class VideoTracks: ExactTrackOwner {
     func owns(_ id: String?) -> Bool { id.map { tracks[$0] != nil } ?? false }
     private func say(_ line: String) { context.log("media-capture: \(line)") }
     private func announce() { context.changed("media-capture.mediaStreamTrack"); disclose() }
-    /// Under the agent, each track for `state.extensions`: its device, settings, consumers' origins,
+    /// Under the agent, each track for `state.extensions` (§9, Disclosure): its device, settings, consumers' origins,
     /// lease and mute.
     private func disclose() {
         context.state(["videoTracks": tracks.values.sorted { $0.id < $1.id }.map { t -> [String: Any] in
@@ -127,7 +127,7 @@ final class VideoTracks: ExactTrackOwner {
             || (facing != nil && facing != t.settings["facingMode"] as? String)
             || (apple["deviceType"] as? String).map { word in t.device.map { Cameras.word($0.deviceType) != word } ?? true } ?? false
         if moves {
-            // Another camera under the same id: a capture start.
+            // Another camera under the same id (D1): a capture start (D6).
             guard origin == "app", context.foreground else {
                 say("\(t.id): not moved, a capture start needs the app's own origin in the foreground (\(origin))")
                 return reply(["error": "NotAllowedError"])
@@ -140,7 +140,7 @@ final class VideoTracks: ExactTrackOwner {
                 if let deviceId { c["deviceId"] = deviceId }
                 if let facing { c["facingMode"] = facing }
                 guard let next = Cameras.choose(c, apple: apple) else { return reply(["error": "NotFoundError"]) }
-                // On iOS the capture is the process's: another live lease keeps its camera.
+                // On iOS the capture is the process's: another live lease keeps its camera (D3).
                 if let capture = t.capture, capture.holders.count > 1, VideoCapture.oneForProcess {
                     say("\(t.id): not moved, another session's lease holds the camera")
                     return reply(["error": "NotReadableError"])
@@ -181,7 +181,7 @@ final class VideoTracks: ExactTrackOwner {
         guard let t = tracks[id] else { return ["error": "NotFoundError"] }
         t.enabled = enabled
         if !enabled, t.leased { release(t); mute(t, "idle") }
-        // Turning a track back on is a start: it reopens an idle one that has consumers.
+        // Turning a track back on is a start: it reopens an idle one that has consumers (D6).
         if enabled, !t.leased, !t.consumers.isEmpty, t.readyState == "live" { lease(t, origin: origin) }
         announce()
         return shape(t)
@@ -208,7 +208,7 @@ final class VideoTracks: ExactTrackOwner {
         ["available": !Cameras.all.isEmpty, "state": CameraPermission.state, "apple": ["authorizationStatus": CameraPermission.word]]
     }
 
-    /// Under the agent: a preferred `mediaStreamTrack` is the platform's change to every live track.
+    /// Under the agent: a preferred `mediaStreamTrack` is the platform's change to every live track (LLP 1133.009 D10 item 11).
     func preferred(_ value: [String: Any]?) {
         overlay = value?["muted"] as? Bool == true ? value?["muteReason"] as? String ?? "interrupted" : nil
         for t in tracks.values where t.readyState == "live" {
@@ -218,7 +218,7 @@ final class VideoTracks: ExactTrackOwner {
         }
     }
 
-    /// The app went to the background or came back: on iOS the system
+    /// The app went to the background or came back (D6): on iOS the system
     /// interrupts the session and resumes it itself; on macOS nothing changes.
     func foreground(_ shown: Bool) {
         guard context.agent else {
@@ -237,7 +237,7 @@ final class VideoTracks: ExactTrackOwner {
     func dispose(_ id: String) { if let t = tracks[id] { end(t, "disposed") } }
     func endAll(_ why: String) { for t in tracks.values { end(t, why) } }
 
-    // MARK: leases
+    // MARK: leases (D3)
 
     func subscribe(_ id: String, _ consumer: ExactTrackConsumer, start: Bool, origin: String) throws -> ExactSubscription {
         guard let t = tracks[id] else { throw ExactTrackError("NotFoundError") }
@@ -265,7 +265,7 @@ final class VideoTracks: ExactTrackOwner {
         }
     }
 
-    /// `observer` watches `id`: it hears the capture while a consumer's lease runs it, and never
+    /// `observer` watches `id` (LLP 1133.027 D17 item 1): it hears the capture while a consumer's lease runs it, and never
     /// starts, holds or reopens one.
     func observe(_ id: String, _ observer: ExactTrackConsumer) throws -> ExactSubscription {
         guard let t = tracks[id] else { throw ExactTrackError("NotFoundError") }
@@ -308,7 +308,7 @@ final class VideoTracks: ExactTrackOwner {
         if let reason = t.platformMute { mute(t, reason) } else { unmute(t) }
     }
 
-    /// Take the lease, admitted with `origin`: the capture runs, or the track waits `in-use`.
+    /// Take the lease, admitted with `origin` (D3, D6): the capture runs, or the track waits `in-use`.
     func lease(_ t: VideoTrack, origin: String) {
         guard !t.leased, t.readyState == "live" else { return }
         if context.agent {
@@ -401,7 +401,7 @@ final class VideoTracks: ExactTrackOwner {
     }
 }
 
-/// The process's captures.
+/// The process's captures (D3).
 final class VideoCapture: NSObject, ExactVideoSource {
     /// iOS runs one camera at a time in an app; macOS one capture per camera.
     #if os(iOS)
@@ -424,7 +424,7 @@ final class VideoCapture: NSObject, ExactVideoSource {
         self.device = device
         super.init()
         #if os(iOS)
-        // The audio session is the host's: a capture session never configures it.
+        // The audio session is the host's (LLP 1133.009 D7): a capture session never configures it.
         session.automaticallyConfiguresApplicationAudioSession = false
         #endif
     }
@@ -467,7 +467,7 @@ final class VideoCapture: NSObject, ExactVideoSource {
         listen()
         queue.async { [weak self] in
             session.beginConfiguration()
-            // The preset a photo app sets, not the API's `.high`.
+            // The preset a photo app sets (D2), not the API's `.high`.
             if session.canSetSessionPreset(.photo) { session.sessionPreset = .photo }
             if let input = try? AVCaptureDeviceInput(device: device), session.canAddInput(input) {
                 session.addInput(input)
@@ -513,18 +513,29 @@ final class VideoCapture: NSObject, ExactVideoSource {
         log("camera \(device.localizedName): capture stopped")
     }
 
-    /// Interruptions as `muteReason`; after any but the background, the session runs again while leased.
+    /// Interruptions as `muteReason` (D3); after any but the background, the session runs again while leased.
     private func listen() {
-        let center = NotificationCenter.default
-        for name in [AVCaptureSession.didStartRunningNotification, AVCaptureSession.didStopRunningNotification] {
-            observers.append(center.addObserver(forName: name, object: session, queue: .main) { [weak self] _ in
-                guard let self else { return }
-                self.log("camera: running=\(self.session.isRunning), interrupted=\(self.session.interrupted)")
-            })
-        }
-        let tell = { [weak self] (reason: String?) in
+        observers = Self.listen(session, queue: queue, log: { [weak self] in self?.log($0) },
+                                leased: { [weak self] in self?.holders.isEmpty == false }) { [weak self] reason in
             guard let self else { return }
             for get in self.holders.values { if let t = get() { t.tracks?.interrupted(t, reason) } }
+        }
+    }
+
+    /// `session`'s notifications, observed on the main queue: `tell` is given the reason the capture is interrupted,
+    /// or nil when no interruption is in force, and while `leased` a stopped session is started again on `queue`.
+    static func listen(_ session: AVCaptureSession, queue: DispatchQueue, log: @escaping (String) -> Void,
+                       leased: @escaping () -> Bool, tell: @escaping (String?) -> Void) -> [NSObjectProtocol] {
+        let center = NotificationCenter.default
+        var observers: [NSObjectProtocol] = []
+        // A runtime error is told as an interruption, but AVFoundation posts no interruption's end after one
+        // (`runtimeErrorNotification`): its reason is cleared once the restarted session runs, unless an
+        // interruption has begun since.
+        var erred = false
+        for name in [AVCaptureSession.didStartRunningNotification, AVCaptureSession.didStopRunningNotification] {
+            observers.append(center.addObserver(forName: name, object: session, queue: .main) { _ in
+                log("camera: running=\(session.isRunning), interrupted=\(session.interrupted)")
+            })
         }
         observers.append(center.addObserver(forName: AVCaptureSession.wasInterruptedNotification, object: session, queue: .main) { note in
             var reason = "interrupted"
@@ -539,21 +550,31 @@ final class VideoCapture: NSObject, ExactVideoSource {
                 }
             }
             #endif
+            erred = false
             tell(reason)
         })
-        observers.append(center.addObserver(forName: AVCaptureSession.interruptionEndedNotification, object: session, queue: .main) { [weak self] _ in
+        observers.append(center.addObserver(forName: AVCaptureSession.interruptionEndedNotification, object: session, queue: .main) { _ in
+            erred = false
             tell(nil)
-            guard let self, !self.holders.isEmpty else { return }
-            let session = self.session
-            self.queue.async { if !session.isRunning { session.startRunning() } }
+            guard leased() else { return }
+            queue.async { if !session.isRunning { session.startRunning() } }
         })
-        observers.append(center.addObserver(forName: AVCaptureSession.runtimeErrorNotification, object: session, queue: .main) { [weak self] note in
-            self?.log("camera: runtime error \((note.userInfo?[AVCaptureSessionErrorKey] as? Error).map { "\($0)" } ?? "")")
+        observers.append(center.addObserver(forName: AVCaptureSession.runtimeErrorNotification, object: session, queue: .main) { note in
+            log("camera: runtime error \((note.userInfo?[AVCaptureSessionErrorKey] as? Error).map { "\($0)" } ?? "")")
+            erred = true
             tell("interrupted")
-            guard let self, !self.holders.isEmpty else { return }
-            let session = self.session
-            self.queue.async { session.startRunning() }
+            guard leased() else { return }
+            queue.async {
+                session.startRunning()
+                guard session.isRunning else { return }
+                DispatchQueue.main.async {
+                    guard erred, !session.interrupted else { return }
+                    erred = false
+                    tell(nil)
+                }
+            }
         })
+        return observers
     }
 
     // MARK: ExactVideoSource
@@ -604,7 +625,7 @@ final class VideoCapture: NSObject, ExactVideoSource {
     }
 }
 
-/// The cameras, as the platform names them.
+/// The cameras, as the platform names them (D2, D4).
 enum Cameras {
     static var all: [AVCaptureDevice] {
         AVCaptureDevice.DiscoverySession(deviceTypes: types, mediaType: .video, position: .unspecified).devices
@@ -629,7 +650,7 @@ enum Cameras {
         return name.prefix(1).lowercased() + name.dropFirst()
     }
 
-    /// The camera a call asks for: by `deviceId`, by `apple.deviceType`, by `facingMode`, else the platform's own choice.
+    /// The camera a call asks for: by `deviceId`, by `apple.deviceType`, by `facingMode`, else the platform's own choice (D2).
     static func choose(_ constraints: [String: Any], apple: [String: Any]) -> AVCaptureDevice? {
         if let id = constraints["deviceId"] as? String, let d = AVCaptureDevice(uniqueID: id) { return d }
         let facing = constraints["facingMode"] as? String
@@ -640,7 +661,7 @@ enum Cameras {
         }
         #if os(iOS)
         if position == .front { return AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .front) }
-        // The back virtual device with the most constituents, so a zoom below 1 reaches the ultra-wide.
+        // The back virtual device with the most constituents, so a zoom below 1 reaches the ultra-wide (D2).
         let back: [AVCaptureDevice.DeviceType] = [.builtInTripleCamera, .builtInDualWideCamera, .builtInDualCamera, .builtInWideAngleCamera]
         let found = AVCaptureDevice.DiscoverySession(deviceTypes: back, mediaType: .video, position: .back).devices
         return back.lazy.compactMap { type in found.first { $0.deviceType == type } }.first
@@ -659,7 +680,7 @@ enum Cameras {
         }
     }
 
-    /// Media Capture's `facingMode`; none where the platform reports no position (most Mac cameras).
+    /// Media Capture's `facingMode`; none where the platform reports no position (most Mac cameras, D2).
     static func facing(_ d: AVCaptureDevice) -> String? {
         switch d.position {
         case .back: "environment"
@@ -713,7 +734,7 @@ enum Cameras {
     }
 }
 
-/// The camera's permission, as the platform says it.
+/// The camera's permission, as the platform says it (D6).
 enum CameraPermission {
     static var state: String {
         switch AVCaptureDevice.authorizationStatus(for: .video) {

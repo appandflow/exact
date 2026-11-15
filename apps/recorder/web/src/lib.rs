@@ -1,5 +1,5 @@
 //! The recorder on the web: its TypeScript asks the page module, which owns
-//! the microphone and draws the waveform.
+//! the microphone and draws the waveform (LLP 1067.000).
 
 include!(concat!(env!("OUT_DIR"), "/module.rs"));
 const PLAN: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/app.plan"));

@@ -4,7 +4,7 @@ import XCTest
 @testable import ExactKit
 
 /// x2apps survey #2 on UIKit, which has no radio: the SF Symbols pair at
-/// the reader's body size with a 44-point target,
+/// the reader's body size with a 44-point target (LLP 1115.000 D13.2),
 /// whose tap checks it and unchecks the rest of its group at once, fires
 /// `input` then `change` with its value, nothing when it was checked, and
 /// shows the bound group after the commit; the arrows move the focus and
@@ -83,7 +83,7 @@ final class RadioIOSTests: XCTestCase {
         XCTAssertEqual(p.controls.observation(try XCTUnwrap(p.views[3]))?["view"] as? String, "radio")
     }
 
-    /// A radio is the platform's symbols at the body
+    /// LLP 1115.000 D13.2: a radio is the platform's symbols at the body
     /// text's size, as the checkbox's mark is, where it had been Safari's
     /// 16-point circle at every text size; a finger has 44 points to hit.
     func testARadioIsTheSymbolPairScaledWithTheBodyTextWithAFingersTarget() throws {
@@ -102,7 +102,7 @@ final class RadioIOSTests: XCTestCase {
         large.traitOverrides.preferredContentSizeCategory = .accessibilityExtraExtraExtraLarge
         large.updateTraitsIfNeeded()
         XCTAssertGreaterThan(large.intrinsicContentSize.width, size.width * 1.5)
-        // To 44 points, about where UIKit's list checkmark stops.
+        // To 44 points, about where UIKit's list checkmark stops (LLP 1116.019 D1).
         XCTAssertEqual(large.intrinsicContentSize.width, 44)
         large.removeFromSuperview()
         // The mark as drawn: ink at the centre only when checked.

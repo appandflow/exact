@@ -1,4 +1,4 @@
-// `input type="number"` is a field with the platform's
+// @ref LLP 1116.007 D4 — `input type="number"` is a field with the platform's
 // stepping control, where the web draws its spin buttons: on the Mac an
 // `NSStepper` beside the text field, at the input's trailing edge, as a
 // hand-built Mac settings pane sets a field and its stepper side by side. The
@@ -9,7 +9,7 @@
 // the bare field; an input of any other `type` never has one.
 //
 // A value typed past `min` or `max` is held to them too, when the edit
-// commits: the field shows the bound, and the app hears it
+// commits (LLP 1116.008 D5): the field shows the bound, and the app hears it
 // as it hears a step, `input` and then the `change` that committed.
 //
 // The stepper's own value is only ever the field's, held to `min` and `max`;
@@ -62,7 +62,7 @@ extension NodeView {
             s.action = #selector(stepperChanged(_:))
             s.autorepeat = true
             s.valueWraps = false
-            addSubview(s)
+            (clipBox ?? self).addSubview(s)
             stepper = s
             return s
         }()
@@ -144,7 +144,7 @@ extension NodeView {
     }
 }
 
-// The agent's side (every path is a place a pointer goes): `layout <id>`
+// The agent's side (LLP 1012: every path is a place a pointer goes): `layout <id>`
 // says where the stepper's arrows are in the node's own space, and `tap <id> at
 // <x> <y>` over one is a real click on it, which AppKit's stepper answers.
 extension NodeView {

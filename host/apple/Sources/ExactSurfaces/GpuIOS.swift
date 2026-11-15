@@ -1,4 +1,4 @@
-// The GPU module on iOS: the app's `<app>-gpu` dylib —
+// The GPU module on iOS (LLP 1009 D2/D4): the app's `<app>-gpu` dylib —
 // built for the simulator, carried in the bundle's Frameworks — loaded
 // with dlopen the first time a canvas is on screen, after the first painted
 // frame, and driven from the presenter: a surface per canvas node on its
@@ -12,7 +12,7 @@ import ExactKit
 
 /// A canvas node's view: the `CAMetalLayer` the module renders into, a
 /// sublayer taken from the process's spare ones and given back when the view
-/// goes (the layer is pooled, never the instance).
+/// goes (LLP 1068 §4.5: the layer is pooled, never the instance).
 ///
 /// A layer allocates its drawables — three IOSurfaces of its pixel size —
 /// when it is first drawn, and Core Animation lets a dead layer's go late:
@@ -41,11 +41,19 @@ final class MetalCanvasView: UIView {
     deinit { MetalLayerPool.give(metalLayer) }
     override func layoutSubviews() {
         super.layoutSubviews()
-        if metalLayer.frame != bounds { metalLayer.frame = bounds }
+        guard metalLayer.frame != bounds else { return }
+        let resized = metalLayer.frame.size != .zero && metalLayer.frame.size != bounds.size
+        metalLayer.frame = bounds
+        // A canvas at rest draws again at its new size; after a layout nothing else asks for a frame.
+        if resized { (superview as? NodeView)?.canvases?.session?.frames.requestCanvas() }
     }
     override func didMoveToWindow() {
         super.didMoveToWindow()
-        metalLayer.contentsScale = window?.screen.scale ?? traitCollection.displayScale
+        let scale = window?.screen.scale ?? traitCollection.displayScale
+        guard metalLayer.contentsScale != scale else { return }
+        metalLayer.contentsScale = scale
+        // A resting canvas draws again at its new scale.
+        (superview as? NodeView)?.canvases?.session?.frames.requestCanvas()
     }
     /// The canvas's first frame is with the compositor: the layer shows it.
     func reveal() {
@@ -80,7 +88,7 @@ enum MetalLayerPool {
         let layer = CAMetalLayer()
         // Composited, never direct-to-display: a translucent layer stays in
         // the compositor, where a drawable comes back as soon as it is read
-        // (the app inside the sky).
+        // (LLP 1014, the app inside the sky).
         layer.isOpaque = false
         // Never animated: a frame set or an unhide takes effect at once.
         layer.actions = ["bounds": NSNull(), "position": NSNull(), "hidden": NSNull(), "contents": NSNull(), "contentsScale": NSNull()]
@@ -124,15 +132,22 @@ private func composite(_ overlay: UIView, _ shown: Bool) {
     #endif
 }
 /// Every canvas on one session's page and its surface in the module — the
-/// module itself loaded once per process.
+/// module itself loaded once per process (LLP 1031 D12).
 final class CanvasesHost {
     lazy var lifecycle = CanvasLifecycle(self)
+    /// The canvases' haptics (LLP 1009 D10).
+    lazy var haptics = SurfaceHaptics.make()
     var editsAdmitted = false
     weak var session: ExactSession?
+    var performanceTimer: Timer?
     /// postMessage events waiting for a live canvas of their surface name.
     var pendingPosts: [(name: String, text: String, at: Double)] = []
     /// What packages wrote into the canvases' inputs (SensorRings.swift).
     let sensorRings = SensorRings()
+    /// Where a live canvas's asset files are read, one at a time in the order
+    /// asked, off the main thread (`readAssets`).
+    let assetReads = DispatchQueue(label: "exact.canvas.assets", qos: .userInitiated)
+    var assetReadSerial: UInt64 = 0
     final class Entry {
         let view: NodeView
         let name: String
@@ -140,6 +155,8 @@ final class CanvasesHost {
         var id: UInt32 = 0
         var presentable = true
         var wants = false
+        /// The box (points and scale) its last render drew at.
+        var drawnBox: SIMD3<Float>?
         /// The tick that last judged this canvas on screen and rendered it
         /// (`CanvasesHost.ticks`): a starved render draws that tick's frame.
         var shownTick = 0
@@ -147,24 +164,29 @@ final class CanvasesHost {
         /// however many of its drawables land within it.
         var drawnTick = 0
         /// A render of this canvas drew nothing, as without its drawable, and none has drawn since:
-        /// the frame waiting on it finishes when one draws.
+        /// the frame waiting on it finishes when one draws (LLP 1079.000 §4.6).
         var waiting = false
         /// `onScreen`'s last answer and the geometry epoch it was given at
         /// (`CanvasesHost.shown`).
         var screenEpoch = -1
         var screenOn = false
+        var performance = false
         var wantsInput = false
         var logCursor = 0
         var restoreAttempted = false
         var controls: [Int: SurfaceControl] = [:]
         var recoveryRedelivery = false
+        /// Asset names being read off the main thread (`readAssets`), each
+        /// with its read's serial; read bytes arrive in `arrived`.
+        var reading: [String: UInt64] = [:]
+        var arrived: [(name: String, bytes: Result<Data?, Error>)] = []
         var restorePending = false
         var restoreError: String?
-        /// The surface samples the children: the overlay is
+        /// The surface samples the children (LLP 1014 D2): the overlay is
         /// captured into its texture and composited at alpha 0.
         var through = false
         /// The surface wants each direct child as its own texture and places
-        /// it: captured one by one, hit-tested through the
+        /// it (LLP 1014 D5): captured one by one, hit-tested through the
         /// surface's placements.
         var each = false
         /// A children texture has been uploaded (so an emptied overlay is
@@ -181,13 +203,13 @@ final class CanvasesHost {
         /// A render or a capture of its children may consume the dirty
         /// flag the picture predates, so either drops it.
         var picture: CGImage?
-        /// The artifact whose surface this canvas is, once created.
+        /// The artifact whose surface this canvas is (LLP 1009 D6), once created.
         var module: GpuModule?
         init(view: NodeView, name: String, values: Any) { self.view = view; self.name = name; self.values = values }
     }
     var entries: [UInt32: Entry] = [:]
     var publishers: [String: Entry] = [:]
-    /// The loaded artifacts by name, "" the primary; each is
+    /// The loaded artifacts by name, "" the primary (LLP 1009 D6); each is
     /// asked for once, the first time one of its canvases exists.
     var modules: [String: GpuModule] = [:]
     var attempted: Set<String> = []
@@ -220,9 +242,9 @@ final class CanvasesHost {
     /// Renders that drew, so a display-link callback can tell whether it drew one
     var drawn = 0
     var awaitingDrawable: Bool { entries.values.contains { $0.waiting } }
-    /// Modules a render recorded into since their last flush.
+    /// Modules a render recorded into since their last flush (LLP 1009 D7).
     var unflushed: [GpuModule] = []
-    /// Captures since launch.
+    /// Captures since launch (LLP 1014 D3).
     var captures = 0
     private var captureScheduled = false
     var frameNow: Double?
@@ -235,7 +257,7 @@ final class CanvasesHost {
         return artifact.isEmpty ? GpuModule.modulePath(defaultPath:path, compat:GpuModule.bakedCompatibility, environment:ProcessInfo.processInfo.environment) : path
     }
 
-    /// A shader's text changed (the asset row): the module
+    /// A shader's text changed (the asset row, LLP 1030 D10): the module
     /// takes it if its interface is the one it binds — every surface then
     /// renders again through the new pipeline — or refuses it by name and
     /// keeps the old one; a module not loaded yet reads the file when it is.
@@ -267,8 +289,11 @@ final class CanvasesHost {
             if e.waiting { session?.frames.canvasLost() }
             retainEdits(e)
             e.view.canvasInput = nil
+            // By the canvas's view: a surface id is its module's, and two modules count from 1.
+            haptics.remove(view)
             if e.id != 0 { e.module?.destroy(e.id) }
             releasePublisher(e)
+            lifecycle.removedCanvas()
         }
     }
 
@@ -286,9 +311,9 @@ final class CanvasesHost {
 
     func loadIfNeeded() {
         guard !entries.isEmpty, session?.firstDrawMs != nil else { return }
-        // Each artifact the first time one of its canvases exists. A declared
-        // module loads on the next turn, after the frame that
-        // mounted its canvas; the primary as it always has.
+        // Each artifact the first time one of its canvases exists (LLP 1009
+        // D6). A declared module loads on the next turn, after the frame that
+        // mounted its canvas (D4); the primary as it always has.
         for key in Set(entries.values.map { artifact($0.name) }).sorted() where !attempted.contains(key) {
             attempted.insert(key)
             if key.isEmpty { load(key); continue }
@@ -316,9 +341,9 @@ final class CanvasesHost {
             modules[key] = m
             m.canvases.add(self)
             loadedMs = loadedMs ?? (CACurrentMediaTime() - t) * 1000
-            // The shaders as files, from the app's asset root:
-            // the app's directory in dev, the bundle in a
-            // release. They are the primary's.
+            // The shaders as files (LLP 1030 D8), from the app's asset root
+            // (LLP 1031 D1): the app's directory in dev, the bundle in a
+            // release. They are the primary's (LLP 1009 D6).
             if key.isEmpty, let resolver = session?.app.resolver { m.registerShaders(resolver: resolver) }
             for e in Array(entries.values) where entries[e.view.id] === e && e.module == nil && artifact(e.name) == key { create(m, e) }
         }
@@ -328,8 +353,8 @@ final class CanvasesHost {
         metal.window?.screen.scale ?? metal.traitCollection.displayScale
     }
 
-    /// The scale the children are captured at: the screen's.
-    /// Tried and measured 2026-08-30: capturing at 2 on a 3×
+    /// The scale the children are captured at: the screen's (LLP 1014 D3).
+    /// Tried and measured 2026-08-30 (LLP 1008 §9): capturing at 2 on a 3×
     /// phone is slower, not faster — `layer.render(in:)` then resamples
     /// every view's 3× backing store instead of blitting it, 28–39 ms a
     /// capture against 20–25 — so the scale stays the screen's.
@@ -346,22 +371,26 @@ final class CanvasesHost {
         let h = UInt32(max(1, (Float(metal.bounds.height) * scale).rounded()))
         let ptr = Unmanaged.passUnretained(layer).toOpaque()
         let bytes = Array(e.name.utf8)
+        AudioSession.prepareForSurface()
         e.id = bytes.withUnsafeBufferPointer { m.create($0.baseAddress, bytes.count, ptr, w, h) }
         e.presentable = e.id != 0
         if e.id == 0 { FileHandle.standardError.write(Data("exact gpu: \(m.error())\n".utf8)); return }
+        e.performance = publishers[e.name] === e && session?.canvasPerformanceRequested(e.name) == true
+        if e.performance { _ = m.performanceReporting?(e.id, true) }
         e.module = m
+        updatePerformanceTimer()
         lifecycle.deliver(e.id, module: m)
         bindNow(m, e)
         e.each = m.wantsChildrenEach(e.id) != 0
         e.through = e.each || m.wantsChildren(e.id) != 0
         e.wantsInput = m.wantsInput?(e.id) == 1 && m.input != nil
         deliverPosts() // a post held for this surface, if the canvas is live already
-        if e.wantsInput { e.view.canvasInput = CanvasInputHost(view: e.view) }
+        if e.wantsInput { e.view.canvasInput = CanvasInputHost(view: e.view); openPads(e) }
         if e.through { capture(m, e) }
     }
 
     /// Each direct child of the overlay captured on its own and uploaded with
-    /// its frame. Placed children composite through the surface;
+    /// its frame (LLP 1014 D5). Placed children composite through the surface;
     /// unplaced HUD children keep their ordinary overlay. Hit-testing follows
     /// the placements the surface reports after each frame.
     private func captureEach(_ m: GpuModule, _ e: Entry, overlay: UIView, scale: CGFloat) -> Bool {
@@ -391,30 +420,50 @@ final class CanvasesHost {
         return true
     }
 
-    /// After a frame, where the surface put each child: the
+    /// Tells assistive technology that a canvas's placed children appeared,
+    /// disappeared or reordered.
+    nonisolated(unsafe) static var postLayoutChanged: () -> Void = { UIAccessibility.post(notification: .layoutChanged, argument: nil) }
+
+    /// After a frame, where the surface put each child (LLP 1014 D5): the
     /// homography on the child, `nil` for the kernel's frame.
     private func readPlacements(_ m: GpuModule, _ e: Entry) {
         guard e.each, let overlay = e.view.overlay else { return }
         var h = [Float](repeating: 0, count: 10)
-        for (i, child) in overlay.subviews.compactMap({ $0 as? NodeView }).enumerated() {
+        let children = overlay.subviews.compactMap { $0 as? NodeView }
+        for (i, child) in children.enumerated() {
             let outcome = h.withUnsafeMutableBufferPointer { m.placement(e.id, UInt32(i), $0.baseAddress, $0.count) }
-            let next: [Double]? = outcome == 1 ? h.map { Double($0) } : nil
-            let changed = next != child.placement || child.placementHidden != (outcome == 2)
-            child.placement = next
+            child.placement = outcome == 1 ? h.map { Double($0) } : nil
             child.placementHidden = outcome == 2
-            child.alpha = outcome == 0 ? 1 : 0
-            if changed { child.placementChanged() }
+            child.followPlacement()
         }
-        // Alpha suppresses duplicate composition only. VoiceOver traverses the
-        // explicitly supplied children; hidden placements are excluded.
-        overlay.accessibilityElements = overlay.subviews.compactMap { $0 as? NodeView }.filter { !$0.placementHidden && !$0.isHidden }
+        // The children are listed in the order the surface was given them,
+        // and the list (and the layout change below) changes only when that
+        // set does. UIKit takes a list as given: what its walk leaves out
+        // (`isHidden`; `accessibilityElementsHidden`, which `aria-hidden`,
+        // `inert` and a hidden placement set; a transparent view, below which
+        // UIKit stops applying its rules to what the list hands it) is left
+        // out here. A placed child is never transparent (`NodeLayer`); one
+        // the surface leaves in place is at its author's opacity.
+        let exposed = children.filter { !$0.accessibilityElementsHidden && !$0.isHidden && $0.alpha >= 0.01 }
+        let listed = overlay.accessibilityElements ?? []
+        guard listed.count != exposed.count || !zip(listed, exposed).allSatisfy({ ($0 as AnyObject) === $1 }) else { return }
+        overlay.accessibilityElements = exposed
+        // A placed child that moves is read where it is on demand
+        // (`accessibilityFrame`), as a scrolled or animated view is. A layout
+        // change is for when "an individual element appears or disappears"
+        // (UIAccessibilityLayoutChangedNotification), and makes VoiceOver
+        // read the screen again: posted once when the list changes, behind a
+        // sheet or under `inert` too (a re-read there is the accepted cost).
+        // Its argument is "the element that VoiceOver should move to", so
+        // none: a child appearing is no reason to move the cursor off another.
+        Self.postLayoutChanged()
     }
 
     /// Every canvas whose children changed since its last capture is painted
-    /// again: the overlay's subtree into a bitmap at the
+    /// again (LLP 1014 D3): the overlay's subtree into a bitmap at the
     /// screen's scale, uploaded as the surface's children texture. Called at
     /// the end of every batch, and once per run-loop turn for changes that
-    /// arrive outside one.
+    /// arrive outside one (D4 b, c).
     func captureIfNeeded() {
         for e in Array(entries.values) where live(e.view.id) === e && e.presentable && e.through && e.view.needsCapture {
             if let m = e.module { capture(m, e) }
@@ -428,7 +477,7 @@ final class CanvasesHost {
         DispatchQueue.main.async { self.captureScheduled = false; self.captureIfNeeded() }
     }
 
-    /// Whether the input being edited is under the overlay: carets
+    /// Whether the input being edited is under the overlay (D4 d): carets
     /// and selection repaint without any batch.
     func editing(under overlay: UIView) -> Bool {
         session?.presenter.editing?.isDescendant(of: overlay) ?? false
@@ -456,7 +505,7 @@ final class CanvasesHost {
         // its work first.
         if m.lossGeneration == 0, !Capture.cpu, m.textureMetal != nil, Shadow.shared != nil, let sync = m.sync { _ = sync() }
         if m.lossGeneration == 0, !Capture.cpu, let hand = m.textureMetal, let shadow = Shadow.shared, let texture = shadow.renderTexture(overlay, scale: scale) {
-            // Zero-copy: the module samples the texture the
+            // Zero-copy (LLP 1008 §9): the module samples the texture the
             // renderer drew, as it is.
             guard live(e.view.id) === e else { return }
             t1 = CACurrentMediaTime()
@@ -476,7 +525,7 @@ final class CanvasesHost {
         captures += 1
         // Painted through the surface from here on: the overlay stays laid
         // out — hit-testable, in the accessibility hierarchy — and is no
-        // longer composited itself (pixels may distort, boxes may not).
+        // longer composited itself (D5: pixels may distort, boxes may not).
         composite(overlay, false)
         e.view.paintedThisTurn = true
         DispatchQueue.main.async { e.view.paintedThisTurn = false }
@@ -494,7 +543,7 @@ final class CanvasesHost {
             if !each { _ = m.childrenCount(e.id, 0) }
             if !each, let overlay = e.view.overlay {
                 for case let child as NodeView in overlay.subviews {
-                    child.placement = nil; child.placementHidden = false; child.alpha = 1
+                    child.placement = nil; child.placementHidden = false; child.followPlacement()
                 }
                 overlay.accessibilityElements = nil
                 composite(overlay, !e.through)
@@ -522,7 +571,7 @@ final class CanvasesHost {
         return e.picture
     }
 
-    /// A canvas's picture as pixels, rendered again by the module:
+    /// A canvas's picture as pixels, rendered again by the module (LLP 1014):
     /// what a canvas nested under a canvas painted through its surface paints
     /// into its ancestor's capture, since its Metal layer is not seen there.
     func readback(view: NodeView) -> UIImage? {
@@ -545,8 +594,8 @@ final class CanvasesHost {
         return bitmap.image
     }
 
-    /// Whether the app can be seen (the host judges what is on screen). A
-    /// backgrounded app's Metal layer hands out no drawables, and
+    /// Whether the app can be seen (LLP 1009 D4: the host judges what is on
+    /// screen). A backgrounded app's Metal layer hands out no drawables, and
     /// asking blocks the main thread for a frame nobody gets; so nothing
     /// renders and nothing wants a frame until the app is in the foreground
     /// again, when the lifecycle's notifications ask `Frames` to run. An
@@ -554,20 +603,20 @@ final class CanvasesHost {
     /// Center or the app switcher, as a page is still `visible` in a window
     /// without focus (`PageFacts.hidden`) — and still draws.
     var visible: Bool {
-        // A backgrounded app, or an unmounted view, wants no frames.
+        // A backgrounded app, or an unmounted view (LLP 1031 D3), wants no frames.
         !AppBackground.now && session?.presenter.viewport.window != nil
     }
 
     /// Whether any surface has something to render — or an edit is under a
-    /// canvas painted through its surface, which captures every frame.
+    /// canvas painted through its surface, which captures every frame (D4 d).
     var wantsFrames: Bool {
         guard !modules.isEmpty, visible else { return false }
         return entries.values.contains { e in
-            e.needsFrame(dirty:(e.module?.dirty(e.id) ?? 0) != 0, editing:e.through && e.view.overlay.map { editing(under: $0) } == true)
+            e.needsFrame(dirty:(e.module?.dirty(e.id) ?? 0) != 0 || e.resized(e.view.canvasMetal.map(box)), editing:e.through && e.view.overlay.map { editing(under: $0) } == true)
         }
     }
 
-    /// Under the agent's clock (a fixed point in time): the pending
+    /// Under the agent's clock (LLP 1012's fixed point): the pending
     /// captures painted and every canvas rendered at `now` before a reply
     /// leaves — placements read, nested pictures read back — so what the
     /// next call sees is what this one left, not what the display link got
@@ -628,7 +677,7 @@ final class CanvasesHost {
             guard let m = e.module else { continue }
             refreshChildren(m, e)
             if e.through && e.view.needsCapture { capture(m, e) }
-            // Nested under a canvas painted through its surface:
+            // Nested under a canvas painted through its surface (LLP 1014):
             // its Metal layer is never composited, so presenting to it would
             // block on a drawable nobody takes. It is only ever read back into
             // the ancestor's capture — which a change asks for here — and it
@@ -637,16 +686,18 @@ final class CanvasesHost {
                 if m.dirty(e.id) != 0 || (e.wants && now != e.readAt) { outer.needsCapture = true }
                 continue
             }
-            // Every frame while editing under the overlay — but not
+            // D4 (d): every frame while editing under the overlay — but not
             // twice on the turn a batch already captured.
             if e.through, !e.view.paintedThisTurn, let overlay = e.view.overlay, editing(under: overlay) { capture(m, e) }
             m.syncDynamicRange(e.id, view: e.view, layer: e.view.canvasMetal?.metalLayer)
-            guard live(e.view.id) === e, e.wants || m.dirty(e.id) != 0, let metal = e.view.canvasMetal else { continue }
-            // A canvas renders when the host judges it on screen. A
+            guard live(e.view.id) === e, let metal = e.view.canvasMetal, e.wants || m.dirty(e.id) != 0 || e.resized(box(metal)) else { continue }
+            // D4: a canvas renders when the host judges it on screen. A
             // virtualized list keeps rows mounted past the viewport; their
             // canvases keep what they want (and their dirty inputs) and render
             // the first frame they are seen.
             guard shown(e, metal) else { more = true; continue }
+            // Under its frame-rate cap (`Surface::max_fps`), a canvas skips the frames before its deadline.
+            if let due = m.due, due(e.id, now) == 0 { more = true; continue }
             e.shownTick = ticks
             // Waiting for the drawable it asked for as its last frame was
             // presented (gpu/src/acquire.rs): a render now would draw
@@ -674,8 +725,13 @@ final class CanvasesHost {
     /// Ticks so far: which tick judged a canvas on screen (`Entry.shownTick`).
     private var ticks = 1
 
+    private func box(_ metal: MetalCanvasView) -> SIMD3<Float> {
+        SIMD3(Float(metal.bounds.width), Float(metal.bounds.height), Float(metal.metalLayer.contentsScale))
+    }
+
     private func renderNow(_ m: GpuModule, _ e: Entry, _ metal: MetalCanvasView, _ now: Double, tick: Int) {
         let scale = Float(metal.metalLayer.contentsScale)
+        e.drawnBox = box(metal)
         let r = m.render(e.id, Float(metal.bounds.width), Float(metal.bounds.height), scale, now)
         e.picture = nil
         // A render that went without a drawable recorded nothing: no frame

@@ -1,4 +1,4 @@
-// A live headless session: a repeating timer that missed
+// A live headless session (LLP 1126.002 D3): a repeating timer that missed
 // beats fires once on the live clock, and a native button's title follows its
 // text (HeadlessLiveTests). Compiled by build.mjs --test.
 component HeadlessLive

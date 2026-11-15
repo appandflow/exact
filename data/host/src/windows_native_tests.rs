@@ -1,4 +1,4 @@
-//! Real worker admission.
+//! @ref LLP 1027.001#proposed-windows-native-filesystem-grant-integration — real worker admission.
 use super::*;
 use exact_data::storage;
 use exact_runner::Request;

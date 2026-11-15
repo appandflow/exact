@@ -4,7 +4,7 @@ import XCTest
 @testable import ExactKit
 @testable import ExactSurfaces
 
-/// Canvas draws run in a turn of their own on the owner, not in
+/// LLP 1072 §8.5: canvas draws run in a turn of their own on the owner, not in
 /// the turns main waits on. A list of 2D canvas rows is scrolled down and
 /// back with its slices and its draws on the owner, retiring canvases and
 /// making new ones, while main reads each draw's lists and replays them.
@@ -12,7 +12,7 @@ import XCTest
 /// asynchronous path on, so the Thread Sanitizer (`swift test
 /// --sanitize=thread`) sees the owner drawing while main applies.
 final class OwnerCanvasMacTests: XCTestCase {
-    override class func setUp() { super.setUp(); ExactSurfaces.install() }
+    override class func setUp() { super.setUp(); ExactSurfaces.install() } // LLP 1047.001 D4
     private var window: NSWindow?
     override func tearDown() { window?.close(); window = nil; ExactSession.asyncFills = false }
 

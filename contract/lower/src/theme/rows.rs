@@ -1,6 +1,7 @@
-//! The design server's write check of the rows a write reaches, which sees
-//! each Contract row's kind. The retention build's walk
-//! (`scan::Said::of`) keeps each style row whose value is literal
+//! The design server's write check of the rows a write reaches (LLP 1121
+//! D3 and D7; QUEUE's "the server's write check doesn't see a Contract
+//! row's kind", theme2's 14:19 ruling). The retention build's walk
+//! (`scan::Read::of`) keeps each style row whose value is literal
 //! ([`kept`]), and the design server keeps that map beside the
 //! retention. On a write, [`check`] runs the compiler's own check of a row
 //! (`values::check_style_value`) on just the rows that name a token the
@@ -13,27 +14,29 @@
 //!
 //! A font row (`font`, `font-family`, `font-weight`, `font-style`) is
 //! judged with its node's fonts ([`Fonts`]) through lowering's own
-//! `type_tokens::tokens_named` and `fonts::font_use`.
+//! `type_tokens::tokens_named` and `fonts::font_use` (stage 13 D1).
 //!
 //! A row whose value is computed (a name, a template with holes, a choice
 //! with such an arm) is judged whole, as the build judges it: its literal
 //! arms, and, where its type is a string for certain ([`typed`]), every
-//! number token a number row's value may name. Under a `for`
+//! number token a number row's value may name (stage 13 D2). Under a `for`
 //! or `match` it is typed and judged in the arm's scope, the names pushed
-//! as lowering pushes them, and through a `let` with its binding typed.
+//! as lowering pushes them, and through a `let` with its binding typed
+//! (stage 14 E).
 //!
 //! An SVG element's rows are judged as lowering lowers them, renamed and
-//! coerced first (`svg::coerce_lengths`): a light's `x` is the
+//! coerced first (`svg::coerce_lengths`, stage 13 D3): a light's `x` is the
 //! prop `lightX`, no row; a rect's `x` a row, a unitless one a number.
 //!
 //! A `style`'s row is judged where an element applies it, as lowering
 //! applies it there (`class::rows`), with that element's fonts and typing,
 //! keyed by the element too: refused once, at the style row, as the build
-//! refuses it.
+//! refuses it (theme2's 02:08 ruling).
 //!
 //! A written shorthand or `flex` row is expanded by lowering's own
 //! `shorthands::component` or `values::flex_component`, and each longhand
-//! judged in row order, the row's own refusal the build's of that row.
+//! judged in row order, the row's own refusal the build's of that row
+//! (theme2's ruling on the shorthand plan).
 //!
 //! Not checked here, and still caught by the build after a miss: a
 //! computed row whose type its scope doesn't give by its form (a call, an
@@ -43,17 +46,17 @@
 //! shorthand or `flex`; a state part's row; a style's row any element
 //! applying it leaves to the build (lowering rewrites its class rows first,
 //! it chooses between styles, or the `for` or `match` around it isn't typed:
-//! `scan::Said::of`); and refusals outside a style row (an SVG attribute, a
-//! canvas). Where the build would refuse one of those first, the first
-//! refusal the check says is the build's second: every refusal said is
-//! still the build's, in its words and place, and none is false (a known
-//! limit, pinned by `tamber_rows_bound`'s
-//! `a_row_left_to_the_build_before_a_judged_one_is_the_stated_limit`).
+//! `scan::Read::of`); and refusals outside a style row (an SVG attribute, a
+//! canvas). A newly failing row is the design server's trigger: the first
+//! diagnostic of the proposed design's build is the refusal, which
+//! [`first_failing`] says when every use the write reaches is a row judged
+//! here ([`Left`]) and the build before it passed, and only a build
+//! otherwise.
 
 use super::{bind, fold, profiles, scan, Origin, Refusals, Sink, ThemeEntry};
 use crate::{DeclaredFont, LowerError};
 use contract_syntax::{Attr, Expr, Span};
-use exact_tamber as tamber;
+use exact_forma as forma;
 use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -61,6 +64,40 @@ use std::sync::Arc;
 thread_local! {
     /// The literal rows the last design lowered on this thread names.
     static ROWS: RefCell<Vec<Row>> = const { RefCell::new(Vec::new()) };
+    /// What those rows leave to the build.
+    static LEFT: RefCell<Left> = RefCell::new(Left::default());
+}
+
+/// The design's uses the row map leaves to the build: every word a literal
+/// writes outside a judged row (a role's other name inside one too), each
+/// role such a word names, and whether a style row it leaves is computed,
+/// where a string from data may name any token.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Left {
+    pub(crate) words: std::collections::BTreeSet<String>,
+    pub(crate) roles: std::collections::BTreeSet<String>,
+    pub(crate) computed: bool,
+}
+
+impl Left {
+    /// Whether a write to `touched`, folded as `folded`, reaches a use the
+    /// row map leaves to the build, whose refusal only a build can place.
+    pub fn reaches(&self, touched: &[&str], folded: &forma::Folding) -> bool {
+        self.computed
+            || reach(touched, folded)
+                .iter()
+                .any(|h| self.words.contains(h) || self.roles.contains(h))
+    }
+}
+
+/// Leave `left` for [`left`] beside the rows.
+pub(crate) fn note_left(left: Left) {
+    LEFT.with(|l| *l.borrow_mut() = left);
+}
+
+/// What the last build's rows on this thread leave to the build, taken.
+pub fn left() -> Left {
+    LEFT.with(|l| std::mem::take(&mut *l.borrow_mut()))
 }
 
 /// A literal row, and every place it is written alike (one name, one
@@ -134,7 +171,7 @@ pub struct Fonts {
 /// The app's declared fonts as a build read them, and each file whose
 /// faces' weights it read from the file itself (an `auto` face): its path,
 /// length and time, so a check after the file changes leaves font rows to
-/// the build.
+/// the build (Astra's D1 round 2).
 #[derive(Debug, Default, PartialEq)]
 pub struct Declared {
     fonts: BTreeMap<String, DeclaredFont>,
@@ -156,7 +193,7 @@ impl Declared {
     }
 
     /// Whether a file the build read has changed since, or its path now
-    /// resolves to another (a link retargeted).
+    /// resolves to another (a link retargeted: Astra's D1 round 3).
     fn stale(&self) -> bool {
         self.files.iter().any(|(path, resolved, len, time)| {
             path.canonicalize().ok().as_ref() != Some(resolved)
@@ -183,7 +220,7 @@ impl Fonts {
                 .rfind(|s| s.name == name)
                 .map(|s| s.attrs.as_slice())
         };
-        let class = crate::class::rows(attrs, &style).ok()?;
+        let class = crate::class::rows(attrs, &style, &[]).ok()?;
         let all = class.map(|(_, rows)| rows).unwrap_or_default();
         let attrs = all
             .iter()
@@ -219,7 +256,7 @@ pub struct Place {
     /// For a style's row, the element that applies it, numbered in the order
     /// lowering lowers elements (`scan`), where the build judges it: one row
     /// written in a style is judged, and passes or fails, per element
-    /// 0 for a row of the element's own.
+    /// (theme2's 02:08 Q1). 0 for a row of the element's own.
     pub element: usize,
     /// The element's number in that order, its own row's or its style's: a
     /// write's refusals are said as the build reaches them (0 for none).
@@ -246,7 +283,7 @@ impl Place {
 /// `attrs` as [`Row`]s: each literal a row may write (every arm of a `?:`
 /// or `match`, which the build checks each of, whatever the condition), as
 /// a row of its own; those alike, with alike fonts, as one.
-fn grouped(attrs: Vec<Said>) -> Vec<Row> {
+pub(crate) fn grouped(attrs: Vec<Said>) -> Vec<Row> {
     let mut out: Vec<Row> = Vec::new();
     let mut at: std::collections::HashMap<(String, bool, String, usize), usize> =
         Default::default();
@@ -285,7 +322,7 @@ fn grouped(attrs: Vec<Said>) -> Vec<Row> {
         // together (one longhand set, one axis rule): refused where the
         // build's refusal is said. Alike, one value and one type.
         // So is a written shorthand or `flex`: its longhands judged over the
-        // whole choice, as the build expands and judges it.
+        // whole choice, as the build expands and judges it (Astra's round 1).
         if computed.is_some()
             || matches!(a.name.as_str(), "font" | "font-family")
             || expanded(&a).is_some()
@@ -372,8 +409,8 @@ fn grouped(attrs: Vec<Said>) -> Vec<Row> {
 /// with such an arm beside literal ones), judged whole where its type and
 /// scope are known ([`typed`]): its literal arms, and, in a number row,
 /// every number token a string may name, or its string arms where the
-/// design has none; through a `let` too, typed with its
-/// binding. A shorthand or `flex` only literal (its
+/// design has none (stage 13 D2); through a `let` too, typed with its
+/// binding (stage 14 E). A shorthand or `flex` only literal (its
 /// longhands judged as the build expands them, [`expanded`]), and `font`,
 /// whose type tokens are judged whole ([`font_row`]); not a transition's
 /// or an animation's, whose motion
@@ -383,7 +420,7 @@ pub(crate) fn kept(a: &Attr) -> Option<bool> {
     match written(&a.value, &mut leaves) {
         true => (style_row(a) || expanded(a).is_some()).then_some(false),
         // A shorthand's or `flex`'s choice may clear with `none` in an arm,
-        // which lowering expands too.
+        // which lowering expands too (Grok's round 3).
         false if expanded(a).is_some() && cleared(&a.value) => Some(false),
         false => style_row(a).then_some(true),
     }
@@ -483,9 +520,9 @@ pub(crate) fn typed(v: &Expr, typing: &Typing) -> Option<contract_types::Ty> {
     // Every name it reads, a condition's and a hole's too, one `compile`
     // loads (a state, a derive, a resource or a mutation, or a name a
     // `for`, a `match` or a `let` around it binds): a root prop or an action
-    // as a value is lowering's refusal of its own.
+    // as a value is lowering's refusal of its own (Grok's D2 round 2).
     let mut loads = true;
-    scan::exprs(v, &mut |e| {
+    v.walk().for_each(|e| {
         if let Expr::Ident(name, _) = e {
             loads &= matches!(
                 scope.lookup(name),
@@ -552,8 +589,8 @@ fn style_row(a: &Attr) -> bool {
 
 /// Each literal `v` writes as written, into `out`: a string or number, or
 /// each arm of a `?:` or `match`, when every arm is one; never a `let`
-/// (the build judges its bound literal through the binding, as the row)
-/// nor a name a derive binds (checked where it is bound). Whether
+/// (the build judges its bound literal through the binding, as the row:
+/// QUEUE's) nor a name a derive binds (checked where it is bound). Whether
 /// `v` is so written: a choice with a computed arm is not, and is judged
 /// whole as a computed row ([`kept`]); a shorthand's or `flex`'s literal
 /// choice is judged whole by its expansion instead ([`judge_expanded`]).
@@ -569,8 +606,9 @@ fn written<'e>(v: &'e Expr, out: &mut Vec<&'e Expr>) -> bool {
     }
 }
 
-/// A row the retention build's walk keeps ([`scan::Said::of`]): the row,
+/// A row the retention build's walk keeps ([`scan::Read::of`]): the row,
 /// a font row's node's fonts, and a computed row's type ([`Row`]'s).
+#[derive(Clone)]
 pub(crate) struct Said {
     pub attr: Attr,
     pub fonts: Option<Fonts>,
@@ -587,6 +625,10 @@ pub(crate) struct Said {
 /// Leave `rows` for [`rows`] (the design server's build reads it).
 pub(crate) fn note(rows: Vec<Said>) {
     ROWS.with(|r| *r.borrow_mut() = grouped(rows));
+}
+
+pub(crate) fn note_grouped(rows: Vec<Row>) {
+    ROWS.with(|r| *r.borrow_mut() = rows);
 }
 
 /// The literal rows the last build on this thread names, taken: the map
@@ -614,29 +656,115 @@ pub struct Broken {
 pub fn check(
     rows: &[Row],
     touched: &[&str],
-    after: &tamber::Design,
-    folded: &tamber::Folding,
-    before: impl FnOnce() -> Option<tamber::Design>,
+    after: &forma::Design,
+    folded: &forma::Folding,
+    before: impl FnOnce() -> Option<forma::Design>,
     exprs: &[(String, bool)],
     params: &[crate::params::ParamToken],
 ) -> Vec<Broken> {
-    // Every name that is touched or reaches one: back from the touched
-    // names over who names whom, once.
+    let (reached, _) = reached(rows, &reach(touched, folded));
+    if reached.is_empty() {
+        return Vec::new();
+    }
+    let Some(failing) = judged(after, Some(folded), &reached, exprs, params) else {
+        return Vec::new();
+    };
+    let failing: Vec<(&Row, LowerError)> = reached
+        .into_iter()
+        .zip(failing)
+        .filter_map(|(a, r)| r.err().map(|e| (a, e)))
+        .collect();
+    if failing.is_empty() {
+        return Vec::new();
+    }
+    // Only the authored rows that passed before are the write's: every
+    // literal of the row judged under `before`, not the failing one alone
+    // (theme2's Q1, a row's own).
+    let Some(before) = before() else {
+        return Vec::new();
+    };
+    // A place is its authored row and, for a style's row, the element
+    // applying it (theme2's 02:08 Q1): passes before, fails after, per key.
+    let key = |p: &Place| (p.row, p.element);
+    let authored: std::collections::HashSet<(Span, usize)> = failing
+        .iter()
+        .flat_map(|(r, _)| r.places.iter().map(key))
+        .collect();
+    let theirs: Vec<&Row> = rows
+        .iter()
+        .filter(|r| r.places.iter().any(|p| authored.contains(&key(p))))
+        .collect();
+    let Some(was) = judged(&before, None, &theirs, exprs, params) else {
+        return Vec::new();
+    };
+    let failed_before: std::collections::HashSet<(Span, usize)> = theirs
+        .iter()
+        .zip(&was)
+        // Failing, or not judged here (a `font` naming no type token, the
+        // build's to judge another way): not known to have passed.
+        .filter(|(_, w)| !matches!(w, Ok(true)))
+        .flat_map(|(r, _)| r.places.iter().map(key))
+        .collect();
+    in_order(failing, |p| failed_before.contains(&key(p)))
+}
+
+/// The build's first refusal of a row `touched` reaches, when a whole build
+/// under the design before the write passed: every row reached, judged
+/// under `after`, the first failing in the build's order. `None` when the
+/// check cannot say it: a reached row it does not judge, a font file read
+/// since changed, or a design that does not fold.
+pub fn first_failing(
+    rows: &[Row],
+    touched: &[&str],
+    after: &forma::Design,
+    folded: &forma::Folding,
+    exprs: &[(String, bool)],
+    params: &[crate::params::ParamToken],
+) -> Option<Broken> {
+    let (reached, stale) = reached(rows, &reach(touched, folded));
+    if stale {
+        return None;
+    }
+    let verdicts = judged(after, Some(folded), &reached, exprs, params)?;
+    if verdicts.iter().any(|v| matches!(v, Ok(false))) {
+        return None;
+    }
+    let failing = reached
+        .into_iter()
+        .zip(verdicts)
+        .filter_map(|(a, r)| r.err().map(|e| (a, e)))
+        .collect();
+    in_order(failing, |_| false).into_iter().next()
+}
+
+/// Every name that is touched or reaches one: back from the touched names
+/// over who names whom, once.
+pub(crate) fn reach(
+    touched: &[&str],
+    folded: &forma::Folding,
+) -> std::collections::HashSet<String> {
     let mut named_by: std::collections::HashMap<&str, Vec<&str>> = Default::default();
     for t in &folded.tokens {
         for r in t.names.iter().chain(&t.bases) {
             named_by.entry(r.as_str()).or_default().push(&t.name);
         }
     }
-    let mut hit: std::collections::HashSet<&str> = touched.iter().copied().collect();
+    let mut hit: std::collections::HashSet<String> =
+        touched.iter().map(|t| t.to_string()).collect();
     let mut todo: Vec<&str> = touched.to_vec();
     while let Some(n) = todo.pop() {
         for &by in named_by.get(n).map_or(&[][..], Vec::as_slice) {
-            if hit.insert(by) {
+            if hit.insert(by.to_string()) {
                 todo.push(by);
             }
         }
     }
+    hit
+}
+
+/// The rows `hit` reaches, and whether a font file the build read has
+/// changed since: font rows are then the build's, and left out.
+fn reached<'r>(rows: &'r [Row], hit: &std::collections::HashSet<String>) -> (Vec<&'r Row>, bool) {
     let reaches = |w: &str| hit.contains(w);
     // A font file the build read has changed: font rows are the build's.
     let stale = rows
@@ -660,9 +788,10 @@ pub fn check(
                 super::leaves(&a.value, &mut Vec::new(), &mut leaves);
             }
             // A longhand's own text too, which an expansion may write
-            // (`flex="none"`'s basis `auto`).
+            // (`flex="none"`'s basis `auto`; Astra's round 3).
             // One that doesn't expand here, unbound (a word only the design
-            // gives), is reached: judged under the design, as the build does.
+            // gives), is reached: judged under the design, as the build does
+            // (Astra's narrow re-check).
             let longhands: Vec<Expr> = match expanded(&r.attr).map(|rows| {
                 (0..rows.len())
                     .map(|i| component_of(&r.attr, i))
@@ -681,62 +810,22 @@ pub fn check(
             })
         })
         .collect();
-    if reached.is_empty() {
-        return Vec::new();
-    }
-    let Some(failing) = judged(after, Some(folded), &reached, exprs, params) else {
-        return Vec::new();
-    };
-    let failing: Vec<(&Row, LowerError)> = reached
-        .into_iter()
-        .zip(failing)
-        .filter_map(|(a, r)| r.err().map(|e| (a, e)))
-        .collect();
-    if failing.is_empty() {
-        return Vec::new();
-    }
-    // Only the authored rows that passed before are the write's: every
-    // literal of the row judged under `before`, not the failing one alone.
-    let Some(before) = before() else {
-        return Vec::new();
-    };
-    // A place is its authored row and, for a style's row, the element
-    // applying it: passes before, fails after, per key.
-    let key = |p: &Place| (p.row, p.element);
-    let authored: std::collections::HashSet<(Span, usize)> = failing
-        .iter()
-        .flat_map(|(r, _)| r.places.iter().map(key))
-        .collect();
-    let theirs: Vec<&Row> = rows
-        .iter()
-        .filter(|r| r.places.iter().any(|p| authored.contains(&key(p))))
-        .collect();
-    let Some(was) = judged(&before, None, &theirs, exprs, params) else {
-        return Vec::new();
-    };
-    let failed_before: std::collections::HashSet<(Span, usize)> = theirs
-        .iter()
-        .zip(&was)
-        // Failing, or not judged here (a `font` naming no type token, the
-        // build's to judge another way): not known to have passed.
-        .filter(|(_, w)| !matches!(w, Ok(true)))
-        .flat_map(|(r, _)| r.places.iter().map(key))
-        .collect();
+    (reached, stale)
+}
+
+/// Each place of each failing row not `skipped`, as the build reaches it.
+fn in_order(failing: Vec<(&Row, LowerError)>, skipped: impl Fn(&Place) -> bool) -> Vec<Broken> {
     // Each place the row is written whose authored row passed, refused
     // there: where the representative's refusal was, moved alike. A style's
-    // row newly failing at several elements is one refusal, the build's:
-    // at the row, said once.
+    // row newly failing at several elements is one refusal, the build's
+    // (theme2's 02:08 condition 2): at the row, said once.
     // Said as the build reaches them: by element, an element's style rows
     // before its own (lowering expands the class first), each in its order.
     let mut out: Vec<(Reached, Broken)> = Vec::new();
     let mut style: BTreeMap<(u32, u32, u32, u32), (Reached, Broken)> = BTreeMap::new();
     for (row, error) in failing {
         let first = row.places[0];
-        for p in row
-            .places
-            .iter()
-            .filter(|p| !failed_before.contains(&key(p)))
-        {
+        for p in row.places.iter().filter(|p| !skipped(p)) {
             let at = if error.span == first.literal {
                 p.literal
             } else if error.span == first.at {
@@ -812,7 +901,7 @@ impl Sink for Quiet {
     fn said(&self, _: Span, _: &str) -> bool {
         false
     }
-    fn plan(&mut self, _: &[ThemeEntry], _: &tamber::Folding) {}
+    fn plan(&mut self, _: &[ThemeEntry], _: &forma::Folding) {}
     fn stacks(&mut self, entries: &[ThemeEntry]) -> Vec<String> {
         entries.iter().map(|e| e.value.clone()).collect()
     }
@@ -824,8 +913,8 @@ impl Sink for Quiet {
 /// says the design). `Ok(true)` a row that passes, `Ok(false)` one not
 /// judged here ([`judge`]).
 fn judged(
-    design: &tamber::Design,
-    folded: Option<&tamber::Folding>,
+    design: &forma::Design,
+    folded: Option<&forma::Folding>,
     rows: &[&Row],
     exprs: &[(String, bool)],
     params: &[crate::params::ParamToken],
@@ -893,8 +982,8 @@ fn judge(
         None => Vec::new(),
     };
     let kind = match a.name.as_str() {
-        "font" => Some((tamber::Kind::Type, &uses[..])),
-        "font-family" => Some((tamber::Kind::Family, &[][..])),
+        "font" => Some((forma::Kind::Type, &uses[..])),
+        "font-family" => Some((forma::Kind::Family, &[][..])),
         _ => None,
     };
     if let (Some((kind, uses)), Some(f)) = (kind, fonts) {
@@ -923,7 +1012,7 @@ fn judge(
 struct Kept {
     shown: Vec<crate::params::ParamToken>,
     params: Vec<crate::params::ParamToken>,
-    measures: Vec<(String, tamber::Kind, Vec<String>)>,
+    measures: Vec<(String, forma::Kind, Vec<String>)>,
     motion: Vec<(String, String)>,
     axes: Vec<(String, Vec<String>)>,
     roles: Vec<(String, Span)>,
@@ -960,20 +1049,20 @@ impl Drop for Kept {
 mod tests {
     use super::*;
 
-    /// A check leaves the thread's tables as they were:
+    /// A check leaves the thread's tables as they were (Astra's round 1):
     /// the design server's later builds read none of its binding.
     #[test]
     fn a_check_puts_the_threads_tables_back() {
         let sentinel = vec![(
             "kept".to_string(),
-            tamber::Kind::Length,
+            forma::Kind::Length,
             vec!["1px".to_string()],
         )];
         super::super::MEASURES.with(|m| *m.borrow_mut() = sentinel.clone());
         super::super::ROLES.with(|r| *r.borrow_mut() = vec![("label".into(), Span::default())]);
         crate::scale::declare(vec!["kept".into()]);
-        let design = tamber::parse("tamber t\n\ntheme\n  gap = 10px\n").unwrap();
-        let folded = tamber::check_design(design.clone(), &super::super::vocab()).unwrap();
+        let design = forma::parse("forma t\n\ntheme\n  gap = 10px\n").unwrap();
+        let folded = forma::check_design(design.clone(), &super::super::vocab()).unwrap();
         let row = Row {
             attr: Attr {
                 name: "padding".into(),
@@ -996,8 +1085,8 @@ mod tests {
         assert_eq!(crate::scale::declared(), vec!["kept".to_string()]);
     }
 
-    /// A style's row is keyed by the element applying it too: one already
-    /// failing where one element applies it doesn't
+    /// A style's row is keyed by the element applying it too (theme2's
+    /// 02:08 Q1): one already failing where one element applies it doesn't
     /// hide it newly broken where another does; and broken at several, it
     /// is one refusal (condition 2). (Here the two elements' rows differ in
     /// their literal; in an app, in what lowering judges them with, their
@@ -1026,13 +1115,13 @@ mod tests {
             within: None,
         };
         let design = |gap: &str| {
-            tamber::parse(&format!(
-                "tamber t\n\ntheme\n  gap = {gap}\n  wide = {gap}\n  bad = #222222\n"
+            forma::parse(&format!(
+                "forma t\n\ntheme\n  gap = {gap}\n  wide = {gap}\n  bad = #222222\n"
             ))
             .unwrap()
         };
         let after = design("#333333");
-        let folded = tamber::check_design(after.clone(), &super::super::vocab()).unwrap();
+        let folded = forma::check_design(after.clone(), &super::super::vocab()).unwrap();
         // `bad` fails before and after at one element; `gap` passes before at
         // the other and fails after: refused, by its element's key.
         let rows = [at(6, "bad"), at(8, "gap")];
@@ -1065,8 +1154,8 @@ mod tests {
     }
 
     /// A written shorthand's longhand is typed as `expr::compile` types it:
-    /// a nested choice of a number and strings is a string, its arms unified,
-    /// a choice of a number and a string not known.
+    /// a nested choice of a number and strings is a string, its arms unified
+    /// (Astra's round 2), a choice of a number and a string not known.
     #[test]
     fn a_written_values_type_is_the_compilers() {
         use contract_types::Ty;
@@ -1082,7 +1171,7 @@ mod tests {
     }
 
     /// A font file the build read that has changed since leaves the font
-    /// rows to the build: `body` made `700` over a
+    /// rows to the build (Astra's D1 round 2): `body` made `700` over a
     /// family whose faces the build read as 400 alone is refused while the
     /// file is as it was, and not once it changes (it may be variable now).
     #[test]
@@ -1106,10 +1195,10 @@ mod tests {
                 m.modified().ok(),
             )],
         ));
-        let parse = |t: &str| tamber::parse(t).unwrap();
-        let before = "tamber t\n\ntheme\n  body = 400 1rem \"F\"\n";
-        let after = parse("tamber t\n\ntheme\n  body = 700 1rem \"F\"\n");
-        let folded = tamber::check_design(after.clone(), &super::super::vocab()).unwrap();
+        let parse = |t: &str| forma::parse(t).unwrap();
+        let before = "forma t\n\ntheme\n  body = 400 1rem \"F\"\n";
+        let after = parse("forma t\n\ntheme\n  body = 700 1rem \"F\"\n");
+        let folded = forma::check_design(after.clone(), &super::super::vocab()).unwrap();
         let row = Row {
             attr: Attr {
                 name: "font".into(),
@@ -1147,7 +1236,8 @@ mod tests {
     }
 
     /// A font path the app names that a link resolves: retargeted to another
-    /// file, the old one untouched, the font rows are the build's too.
+    /// file, the old one untouched, the font rows are the build's too
+    /// (Astra's D1 round 3).
     #[cfg(unix)]
     #[test]
     fn a_retargeted_font_link_leaves_font_rows_to_the_build() {
@@ -1180,15 +1270,15 @@ mod tests {
     }
 
     /// A `font` row naming no type token isn't judged here, so it never
-    /// counts as having passed: `font="choice"` with
+    /// counts as having passed (Astra's D1 round 1): `font="choice"` with
     /// `choice = 1` (a shorthand the build refuses another way), whose
     /// token a write makes a family, is not the write's to refuse.
     #[test]
     fn a_font_row_not_judged_here_never_passed() {
-        let parse = |t: &str| tamber::parse(t).unwrap();
-        let before = "tamber t\n\ntheme\n  choice = 1\n";
-        let after = parse("tamber t\n\ntheme\n  choice: family = Georgia\n");
-        let folded = tamber::check_design(after.clone(), &super::super::vocab()).unwrap();
+        let parse = |t: &str| forma::parse(t).unwrap();
+        let before = "forma t\n\ntheme\n  choice = 1\n";
+        let after = parse("forma t\n\ntheme\n  choice: family = Georgia\n");
+        let folded = forma::check_design(after.clone(), &super::super::vocab()).unwrap();
         let row = Row {
             attr: Attr {
                 name: "font".into(),

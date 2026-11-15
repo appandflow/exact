@@ -357,7 +357,7 @@ fn run_expansion(args: &[String]) -> Result<bool, String> {
         for e in &errors {
             println!("SCRIPT {e}");
         }
-        // Queued sends and gated tasks are the flat semantics'
+        // Queued sends and gated tasks (LLP 1092) are the flat semantics'
         // alone; the component-level one refuses them.
         let scheduled = |src: &str| {
             src.lines().any(|l| {

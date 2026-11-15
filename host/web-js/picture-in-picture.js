@@ -1,4 +1,4 @@
-// `requestPictureInPicture(id)` on the JS target: the image's
+// @ref LLP 1042 §9. `requestPictureInPicture(id)` on the JS target: the image's
 // pictures are drawn onto a canvas, its `captureStream()` plays in a hidden
 // video, and the video floats by HTMLVideoElement.requestPictureInPicture(),
 // as a page floats pictures that are not a video. A picture the image loads
@@ -7,7 +7,7 @@
 // then sends none of its frames (Media Capture from DOM Elements, origin-clean),
 // so such a picture is refused, not floated blank.
 //
-// `presentation: "window"` or `"panel"` asks for a window the page draws:
+// `presentation: "window"` or `"panel"` (LLP 1042 §9.1) asks for a window the page draws:
 // Document Picture-in-Picture's, where the browser has it, holding an <img>
 // that loads each picture the image loads; its document's title is `title`
 // and it opens at `width` by `height` at the picture's aspect. A browser

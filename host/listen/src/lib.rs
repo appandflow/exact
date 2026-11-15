@@ -1,12 +1,15 @@
-//! A local listener: a `unix:` socket bound under the path rules
-//! ([`bind`]), each connection read as lines within the bounds and written
-//! as the app sends, and each address held by one listener of the process
-//! at a time. One thread per listener runs a `poll` loop over the socket,
+//! A local listener (LLP 1133.005): a `unix:` socket bound under D4's
+//! rules, each connection read as lines within D3's bounds and written as
+//! the app sends, and each address held by one listener of the process at a
+//! time (D2). One thread per listener runs a `poll` loop over the socket,
 //! its connections, the directory watch and a wake pipe.
 //!
 //! The caller hears events through a sink, which may refuse one ([`Taken`]):
-//! the executor bounds what waits for the runner. Sends arrive from
+//! the executor bounds what waits for the runner (D3). Sends arrive from
 //! another thread ([`Listener::send`]) and are written by the loop.
+//!
+//! @ref LLP 1133.005 D1 (events, options) / D2 (the hold) / D3 (bounds) /
+//! D4 (paths, `takeover`, the lock, the watch) / D13 (a separate artifact)
 #![cfg(unix)]
 
 pub mod abi;
@@ -24,17 +27,20 @@ use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-/// Bytes a connection may hold unwritten.
+/// Bytes a connection may hold unwritten (D3).
 pub const SEND_BYTES: usize = 1 << 20;
 
-/// What to listen on, and how.
+/// How often a listener with no directory to watch looks at its path.
+const REWATCH_MS: i32 = 100;
+
+/// What to listen on, and how (D1).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Config {
     /// The address as the app asked: `unix:<path>`.
     pub address: String,
     /// The path, its existing ancestors resolved.
     pub path: PathBuf,
-    /// Newest wins.
+    /// Newest wins (D2, D4).
     pub takeover: bool,
     /// How long a connection has for its first complete line.
     pub first_line: Option<Duration>,
@@ -69,7 +75,7 @@ pub enum Taken {
     Queued,
     /// Nobody wants the listener any more: it closes.
     Gone,
-    /// Past a bound: a connection is closed at once, with no event; a
+    /// Past a bound (D3): a connection is closed at once, with no event; a
     /// line ends its connection `overflow`.
     Full,
 }
@@ -315,7 +321,9 @@ impl Loop {
 
     /// No new connections: a newer listener holds the address.
     fn displace(&mut self) {
-        if self.bound.take().is_some() {
+        if let Some(bound) = self.bound.take() {
+            bind::forget(&self.config.path, bound.identity);
+            drop(bound);
             self.emit(Event::Standing("displaced"));
         }
     }
@@ -330,7 +338,8 @@ impl Loop {
         match &self.bound {
             Some(bound) if now == Some(bound.identity) => {}
             // Removed under it: bound again where it can be.
-            Some(_) if now.is_none() => {
+            Some(bound) if now.is_none() => {
+                bind::forget(&self.config.path, bound.identity);
                 self.bound = None;
                 if let Ok(bound) = bind::publish(&self.config.path, false, false) {
                     self.bound = Some(bound);
@@ -343,6 +352,21 @@ impl Loop {
             // That process let go: take it back while it is free.
             None if now.is_none() && self.ever_bound => self.bind(false),
             None => {}
+        }
+    }
+
+    /// The watched directory is no longer the path's (renamed or removed),
+    /// or there was none: look at the path, which may bind it again and so
+    /// make its directory, then watch the directory now there and look
+    /// again for what changed before that watch began. With none to watch,
+    /// the loop comes back here on a timer.
+    fn rewatch(&mut self) {
+        self.watch = None;
+        self.look();
+        let dir = (self.config.path.parent()).unwrap_or(std::path::Path::new("/"));
+        self.watch = watch::Watch::new(dir).ok();
+        if self.watch.is_some() {
+            self.look();
         }
     }
 
@@ -382,12 +406,20 @@ impl Loop {
         }
         let now = Instant::now();
         let soonest = self.conns.values().filter_map(|c| c.deadline).min();
-        let timeout = soonest.map_or(-1, |d| {
+        let mut timeout = soonest.map_or(-1, |d| {
             d.saturating_duration_since(now)
                 .as_millis()
                 .min(i32::MAX as u128) as i32
                 + 1
         });
+        let unwatched = !watched && self.ever_bound;
+        if unwatched {
+            timeout = if timeout < 0 {
+                REWATCH_MS
+            } else {
+                timeout.min(REWATCH_MS)
+            };
+        }
         // SAFETY: `fds` is a live array of its own length.
         let n = unsafe { libc::poll(fds.as_mut_ptr(), fds.len() as libc::nfds_t, timeout) };
         if n < 0 {
@@ -413,12 +445,15 @@ impl Loop {
         }
         if watched {
             if fds[at].revents != 0 {
-                if let Some(watch) = &self.watch {
-                    watch.drain();
+                if self.watch.as_ref().is_some_and(watch::Watch::drain) {
+                    self.rewatch();
+                } else {
+                    self.look();
                 }
-                self.look();
             }
             at += 1;
+        } else if unwatched {
+            self.rewatch();
         }
         if let Some(fd) = listening {
             if fds[at].revents != 0

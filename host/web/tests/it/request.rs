@@ -1,4 +1,4 @@
-//! On the web host, a `send` whose source answers later leaves
+//! LLP 1016 D2 on the web host: a `send` whose source answers later leaves
 //! the runner as a `request` op the page runs, and `exact_fulfill`'s reply
 //! commits through the same batch path as an event.
 
@@ -91,7 +91,7 @@ fn a_send_leaves_as_a_request_op_and_the_reply_commits() {
 
     host.dispatch(view(&host, "who"), Event::Change("ada".into()));
     let batch = host.dispatch(view(&host, "login"), Event::Press);
-    assert!(batch.contains("\"op\":\"request\",\"ticket\":1,\"target\":\"session\",\"scope\":null,\"method\":\"POST\",\"url\":\"https://api.castle.test/graphql\",\"headers\":[[\"content-type\",\"application/json\"],[\"x-who\",\"ada\"]],\"body\":\"eyJxIjoxfQ==\",\"cache\":\"default\"}"), "{batch}");
+    assert!(batch.contains("\"op\":\"request\",\"ticket\":1,\"target\":\"session\",\"scope\":null,\"method\":\"POST\",\"url\":\"https://api.castle.test/graphql\",\"headers\":[[\"content-type\",\"application/json\"],[\"x-who\",\"ada\"]],\"body\":\"eyJxIjoxfQ==\"}"), "{batch}");
     assert!(batch.contains("Logging in…"), "the view says busy: {batch}");
     assert_eq!(host.runner().pending(), vec![("session".to_string(), 1)]);
 
@@ -153,7 +153,7 @@ fn a_dev_module_replacement_swaps_with_a_post_in_flight_and_an_update_refuses() 
     assert!(String::from_utf8_lossy(bridge.output_bytes(len as usize)).contains("in-flight"));
     assert_eq!(bridge.request_active(1.0), 1);
     // The dev loop's swap does not wait on it, as an app may always have a
-    // request out, and the new runner carries what was typed.
+    // request out (LLP 1007 §6), and the new runner carries what was typed.
     bridge.input_write(&input);
     let len = bridge.boot_module([plan.len(), 0, 6], Later, true);
     let out = String::from_utf8_lossy(bridge.output_bytes(len as usize)).into_owned();
@@ -184,6 +184,7 @@ fn storage_batch_preserves_text_and_scope_and_refuses_invalid_utf8() {
         request.grants = Some(String::new());
         let mut batch = exact_web::batch::Batch::default();
         batch.request(&RequestOut {
+            class: exact_runner::RequestClass::Ordered,
             ticket: 1,
             target: "backup".into(),
             request,
@@ -212,6 +213,7 @@ fn surface_batch_and_outcomes_keep_their_typed_kind() {
     ] {
         let mut batch = exact_web::batch::Batch::default();
         batch.request(&RequestOut {
+            class: exact_runner::RequestClass::Ordered,
             ticket: 7,
             target: "save".into(),
             request,
@@ -246,6 +248,7 @@ fn surface_batch_and_outcomes_keep_their_typed_kind() {
     mixed.storage = Some(b"{}".to_vec());
     let mut batch = exact_web::batch::Batch::default();
     batch.request(&RequestOut {
+        class: exact_runner::RequestClass::Ordered,
         ticket: 8,
         target: "save".into(),
         request: mixed,
@@ -257,7 +260,7 @@ fn surface_batch_and_outcomes_keep_their_typed_kind() {
     assert!(!wire.contains(r#""payload":"#));
 }
 
-/// Crew's set: one camelCase secret name
+/// Crew's set (the port report of 2026-09-24, F1): one camelCase secret name
 /// among good lines. A native host holds nothing of it; neither does the web.
 #[derive(Default)]
 struct Crew;

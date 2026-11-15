@@ -1,5 +1,7 @@
 //! The safe document projection: the page the live host builds, as HTML,
-//! before browser layout. The document is the page.
+//! before browser layout.
+//!
+//! @ref LLP 1048 D1 (the document is the page) / LLP 1048.000 D1
 //!
 //! One walk over the kernel tree from the runner's roots. Each element's tag,
 //! attributes and inline style come from the live host's own rules —
@@ -39,7 +41,10 @@ mod markup;
 #[path = "page.rs"]
 mod page;
 use crate::css;
-use bars::bar_header;
+#[path = "document_before.rs"]
+mod before;
+use before::Before;
+pub use before::HeroImage;
 use exact_kernel::paint_order::{self, Child, Facts};
 use exact_kernel::{NodeFacts, PropId, SortedMap, SortedSet, ViewId};
 use exact_plan::EventKind;
@@ -48,7 +53,7 @@ pub use markup::dataset;
 use markup::{markup_pieces, Json};
 pub use page::{
     build_locations, canonical_location, checkpoint, digest, read_checkpoint, route_at,
-    route_location, Site,
+    route_location, route_title, Site,
 };
 use std::borrow::Cow;
 use std::fmt;
@@ -68,15 +73,22 @@ pub struct Document {
     pub viewport_fit: Option<String>,
     /// The first root's `interactive-widget`, likewise.
     pub interactive_widget: Option<String>,
-    /// The active head's fields: the page's `<head>`. A
+    /// The active head's fields: the page's `<head>` (LLP 1048.003 D1). A
     /// head node has no element in the root.
     pub head: exact_runner::Head,
-    /// Every `@keyframes` rule an element's `animation` names, once each,
-    /// for the head: a reader without JavaScript sees it play.
+    /// The selected route's header heading (LLP 1115.000 D4.1).
+    pub route_title: Option<String>,
+    /// Every `@keyframes` rule an element's `animation` names, once each
+    /// (LLP 1055 D7), for the head: a reader without JavaScript sees it play.
     pub keyframes: String,
-    /// An element is the page's scroller (`scroll document`):
-    /// `<html data-scrolldocument>`, which the shell's rule reads.
+    /// An element is the page's scroller (`scroll document`, LLP 1048.003
+    /// D4): `<html data-scrolldocument>`, which the shell's rule reads.
     pub scroll_document: bool,
+    /// The first shown, eager image, preloaded on JavaScript pages (LLP 1048.007 D5).
+    pub hero_image: Option<HeroImage>,
+    /// The views whose elements carry `data-exact-on`, in document order: a
+    /// boot document's swap moves a queued event by them (LLP 1048.005).
+    pub controls: Vec<ViewId>,
 }
 
 /// Why a tree has no document.
@@ -108,8 +120,8 @@ pub fn project<D: DataSource>(runner: &Runner<D>) -> Result<Document, DocumentEr
     walk(runner, None, true).map(|(document, _)| document)
 }
 
-/// [`project`], with the JavaScript template's conditional text-style fills,
-/// so its static styles can become classes at adoption.
+/// [`project`], with the JavaScript template's conditional text-style fills
+/// (LLP 1115.000 D12.2), so its static styles can become classes at adoption.
 pub fn project_for_js<D: DataSource>(runner: &Runner<D>) -> Result<Document, DocumentError> {
     walk(runner, None, false).map(|(document, _)| document)
 }
@@ -126,7 +138,7 @@ pub(crate) fn project_keeping<D: DataSource>(
 }
 
 /// A tree a document is written from: a kernel's nodes, or those a render
-/// holds without one ([`DocTree`]). One walk writes both, so
+/// holds without one ([`DocTree`], LLP 1048.004). One walk writes both, so
 /// the two documents differ only where the trees do.
 pub trait Source {
     /// Whether CSS must resolve text-style fills after the document is adopted.
@@ -140,8 +152,9 @@ pub trait Source {
     /// The element an SVG reference from `from` names.
     fn resolve(&self, from: ViewId, id: &str) -> Option<ViewId>;
     /// `style`, node `id`'s, with the weight and leading a text style named
-    /// on it gives the wasm host. JavaScript's fills
-    /// are written from the node's facts instead.
+    /// on it gives the wasm host (LLP 1115.000 D12.2), and its animation row
+    /// held for a prefetched row (LLP 1055 D13). JavaScript's fills and holds
+    /// are applied when it adopts the document.
     fn with_style_rows<'s>(
         &self,
         _id: ViewId,
@@ -181,7 +194,10 @@ impl Source for KernelSource<'_> {
         style: Cow<'s, exact_kernel::StyleProps>,
     ) -> Cow<'s, exact_kernel::StyleProps> {
         match self.kernel.node(id) {
-            Some(node) if self.bare => super::element::with_style_rows(style, &node),
+            Some(node) if self.bare => super::element::with_style_rows(
+                super::element::animation_style(self.kernel, &node, style),
+                &node,
+            ),
             _ => style,
         }
     }
@@ -212,6 +228,8 @@ pub struct Writing<'w> {
     /// Handed each finished run of the root's HTML of at least
     /// [`STREAM_CHUNK`] bytes, as it is written: a server sends it on.
     pub sink: Option<&'w mut dyn FnMut(&str)>,
+    /// Mark a rendered JavaScript page's first eager image at high priority.
+    pub prioritize_image: bool,
 }
 
 /// How an inline style is written in the runtime's form ([`Writing::style`]).
@@ -241,7 +259,7 @@ pub fn project_tree<D: DataSource>(
             .and_then(|n| n.site)
             .is_some_and(|site| exact_runner::rows::lazy(runner.plan(), site))
     };
-    let (out, keyframes, scroll_document, _, sent) = write(
+    let (out, keyframes, scroll_document, _, sent, hero_image, controls) = write(
         tree,
         tree.roots(),
         handlers,
@@ -257,18 +275,21 @@ pub fn project_tree<D: DataSource>(
         viewport_fit: first_prop(tree, tree.roots(), PropId::ViewportFit),
         interactive_widget: first_prop(tree, tree.roots(), PropId::InteractiveWidget),
         head: tree.head(),
+        route_title: page::route_title(tree, tree.roots()),
         keyframes,
         scroll_document,
+        hero_image,
         root: out,
+        controls,
     };
     Ok((document, sent))
 }
 
 /// What a document's head and body need before its root is written, from
 /// its tree alone (a streamed page sends them first): the `@keyframes`
-/// rules its elements' animations name, and whether an element is the
-/// page's scroller — as the walk finds them.
-pub fn before_root(tree: &DocTree) -> (String, bool) {
+/// rules its elements' animations name, whether an element is the page's
+/// scroller, and the first eager image — as the walk finds them.
+pub fn before_root(tree: &DocTree, plan: &exact_plan::Plan) -> (String, bool, Option<HeroImage>) {
     let mut keyframes = SortedMap::new();
     let mut scroll = false;
     for node in tree.nodes() {
@@ -283,7 +304,16 @@ pub fn before_root(tree: &DocTree) -> (String, bool) {
             exact_kernel::NodeType::SvgFe | exact_kernel::NodeType::SvgFilter
         ) && node.props.bool(PropId::ScrollDocument) == Some(true);
     }
-    (keyframes.values().map(String::as_str).collect(), scroll)
+    let before = Before::new(tree, tree.roots(), &tree.handlers(plan), &|id| {
+        tree.node(id)
+            .and_then(|n| n.site)
+            .is_some_and(|site| exact_runner::rows::repeated(plan, site))
+    });
+    (
+        keyframes.values().map(String::as_str).collect(),
+        scroll,
+        before.hero.map(|(_, hero)| hero),
+    )
 }
 
 fn first_prop<S: Source>(src: &S, roots: &[ViewId], id: PropId) -> Option<String> {
@@ -298,7 +328,7 @@ fn walk<D: DataSource>(
     computed: Option<Computed>,
     bare: bool,
 ) -> Result<(Document, Option<Computed>), DocumentError> {
-    let _roles = runner.bind_roles(); // Its own.
+    let _roles = runner.bind_roles(); // Its own (LLP 1121 stage 5).
     let src = KernelSource {
         kernel: runner.kernel(),
         bare,
@@ -314,7 +344,7 @@ fn walk<D: DataSource>(
             .site_of(id)
             .is_some_and(|(site, _)| exact_runner::rows::lazy(runner.plan(), site))
     };
-    let (out, keyframes, scroll_document, computed, _) = write(
+    let (out, keyframes, scroll_document, computed, _, hero_image, controls) = write(
         &src,
         &roots,
         handlers,
@@ -322,7 +352,10 @@ fn walk<D: DataSource>(
         &lazy,
         font_names_for_runner(runner),
         computed,
-        Writing::default(),
+        Writing {
+            prioritize_image: !bare,
+            ..Default::default()
+        },
     )?;
     let document = Document {
         lang: runner.resolved_locale().into(),
@@ -331,15 +364,18 @@ fn walk<D: DataSource>(
         viewport_fit: first_prop(&src, &roots, PropId::ViewportFit),
         interactive_widget: first_prop(&src, &roots, PropId::InteractiveWidget),
         head: runner.head(),
+        route_title: page::route_title(&src, &roots),
         keyframes,
         scroll_document,
+        hero_image,
+        controls,
     };
     Ok((document, computed))
 }
 
 /// The roots' elements; the `@keyframes`, whether an element is the page's
-/// scroller, what was computed, and what of the HTML the sink has not been
-/// handed yet.
+/// scroller, what was computed, what of the HTML the sink has not been
+/// handed yet, and [`Document::controls`].
 #[allow(clippy::type_complexity, clippy::too_many_arguments)]
 fn write<S: Source>(
     src: &S,
@@ -350,7 +386,19 @@ fn write<S: Source>(
     fonts: Vec<String>,
     computed: Option<Computed>,
     writing: Writing<'_>,
-) -> Result<(String, String, bool, Option<Computed>, String), DocumentError> {
+) -> Result<
+    (
+        String,
+        String,
+        bool,
+        Option<Computed>,
+        String,
+        Option<HeroImage>,
+        Vec<ViewId>,
+    ),
+    DocumentError,
+> {
+    let before = Before::new(src, roots, &handlers, lazy);
     let mut walk = Walk {
         src,
         isolation: isolation(src, roots),
@@ -359,8 +407,8 @@ fn write<S: Source>(
         handlers,
         presses,
         lazy,
-        routes: SortedMap::new(),
-        bars: SortedSet::new(),
+        routes: before.routes,
+        bars: before.bars,
         sites: SortedSet::new(),
         keyframes: SortedMap::new(),
         out: String::new(),
@@ -370,19 +418,16 @@ fn write<S: Source>(
         touch: 0,
         select: None,
         scroll_document: false,
-        page: SortedSet::new(),
+        page: before.page,
+        hero: before.hero.as_ref().map(|(id, _)| *id),
+        prioritize_image: writing.prioritize_image,
+        image_priority_at: None,
         css: std::collections::HashMap::new(),
         style: writing.style,
         sink: writing.sink,
         sent: 0,
+        controls: Vec::new(),
     };
-    let mut live = Vec::new();
-    for root in roots {
-        walk.page_scrollers(*root, false, &mut Vec::new(), &mut live);
-    }
-    if let [path] = &live[..] {
-        walk.page = path.iter().copied().collect();
-    }
     for root in roots {
         walk.element(*root, None, 16., false)?;
     }
@@ -393,6 +438,11 @@ fn write<S: Source>(
         walk.scroll_document,
         walk.computed,
         rest,
+        before.hero.map(|(_, hero)| HeroImage {
+            priority_at: walk.image_priority_at,
+            ..hero
+        }),
+        walk.controls,
     ))
 }
 
@@ -454,7 +504,7 @@ fn isolation<S: Source>(src: &S, roots: &[ViewId]) -> SortedMap<ViewId, Child> {
 }
 
 /// Add the rules `style`'s animations name, once each by name, for the
-/// head: a reader without JavaScript sees them play.
+/// head: a reader without JavaScript sees them play (LLP 1055 D7).
 fn animations(style: &exact_kernel::StyleProps, keyframes: &mut SortedMap<String, String>) {
     if let Some(link) = crate::link::linked().animations {
         let press = css::press_composes(style);
@@ -483,7 +533,7 @@ struct Route {
 pub(crate) type Computed = Vec<(ViewId, String, SortedMap<String, String>, String)>;
 
 /// A navigation root's routes as `navigation.project` marks them when the
-/// root has tabs, the `tabs` capability's walk:
+/// root has tabs (LLP 1075.003 §3.7), the `tabs` capability's walk:
 /// `(view, hidden, inert)` for each tabpanel and each route. Every panel but
 /// the selected one is hidden and inert, and each stack shows its own route;
 /// without tabs the stack is the root's own rows. Empty when the key names
@@ -582,7 +632,7 @@ struct Walk<'r, 'w, S: Source> {
     handlers: SortedMap<ViewId, Vec<EventKind>>,
     presses: SortedMap<ViewId, bool>,
     /// Whether an image's view is a row's, which loads as the row comes into
-    /// view (`loading="lazy"`, as the JS build writes it).
+    /// view (`loading="lazy"`, LLP 1048.007 D5, as the JS build writes it).
     lazy: &'r dyn Fn(ViewId) -> bool,
     routes: SortedMap<ViewId, Route>,
     /// The headers marked as their route's bar ([`bar_header`]).
@@ -600,12 +650,15 @@ struct Walk<'r, 'w, S: Source> {
     touch: u32,
     /// Open routes `navigation.project` hides.
     hidden: u32,
-    /// The open `select`'s value: the option that carries it is `selected`.
+    /// The open `select`'s value, consumed by its first matching option.
     select: Option<String>,
     scroll_document: bool,
     /// The page's scroller's ancestors while one element is it:
     /// `data-exact-frame` (host/web-js/document.js `markDocument`).
     page: SortedSet<ViewId>,
+    hero: Option<ViewId>,
+    prioritize_image: bool,
+    image_priority_at: Option<usize>,
     /// A shared style's CSS, by the style's address: the nodes of a
     /// repeated template share one style, and its CSS is computed once.
     css: std::collections::HashMap<usize, String>,
@@ -614,6 +667,8 @@ struct Walk<'r, 'w, S: Source> {
     /// [`Writing::sink`], and how much of `out` it has been handed.
     sink: Option<&'w mut dyn FnMut(&str)>,
     sent: usize,
+    /// [`Document::controls`].
+    controls: Vec<ViewId>,
 }
 
 impl<S: Source> Walk<'_, '_, S> {
@@ -649,7 +704,7 @@ impl<S: Source> Walk<'_, '_, S> {
         }
         let resolve = |from: ViewId, target: &str| src.resolve(from, target);
         let mut props = props_of(&node);
-        // A decoration's and an atom kind's paint rows as CSS text by name.
+        // A decoration's and an atom kind's paint rows as CSS text by name (LLP 1114.007, 1045.000 D3).
         for name in ["data-decoration-styles", "data-atom-styles"] {
             if let Some(raw) = props.get(name) {
                 let css = crate::css::decoration_styles(raw, &self.fonts);
@@ -711,7 +766,6 @@ impl<S: Source> Walk<'_, '_, S> {
         let kept = self.computed.is_some().then(|| style.clone());
         // `glue.js` create: a canvas is a `div` holding the surface element.
         let element = if tag == "canvas" { "div" } else { tag };
-        self.route_children(&node, &children);
         bars::mark_sites(self.src, &node, &children, &mut self.sites);
         let chosen = (element == "select").then(|| props.get("value").cloned());
         // A waiting keyed row is opaque to adoption. Its complete paint
@@ -747,11 +801,13 @@ impl<S: Source> Walk<'_, '_, S> {
                 node.style.display,
                 exact_kernel::Display::Flex | exact_kernel::Display::Grid
             )) << 12);
-        let z = node.style.mask.has(exact_kernel::StyleId::ZIndex).then(|| {
-            node.style
-                .z_index
-                .clamp(-paint_order::Z_MAX, paint_order::Z_MAX)
-        });
+        let z = node
+            .style
+            .mask
+            .has(exact_kernel::StyleId::ZIndex)
+            .then_some(node.style.z_index)
+            .flatten()
+            .map(|z| z.clamp(-paint_order::Z_MAX, paint_order::Z_MAX));
         let z = z.map_or_else(|| "null".into(), |z| z.to_string());
         let mut attrs: Vec<(String, Option<String>)> = Vec::new();
         let mut content: Option<String> = None;
@@ -788,10 +844,9 @@ impl<S: Source> Walk<'_, '_, S> {
                 // `writeValue`: an input's value and a button's (a reflected
                 // attribute) are the element's; a textarea's is its text.
                 "value" => match element {
-                    "input" | "button" | "option" => {
-                        if element == "option" && self.select.as_ref() == Some(value) {
-                            attrs.push(("selected".into(), None));
-                        }
+                    // `progress` is HTML's `<progress value max>` (LLP 1116 D8): without
+                    // its value a determinate bar is written indeterminate.
+                    "input" | "button" | "option" | "progress" => {
                         attrs.push((name.clone(), Some(value.clone())));
                     }
                     "textarea" => content = Some(value.clone()),
@@ -830,6 +885,18 @@ impl<S: Source> Walk<'_, '_, S> {
                 _ => attrs.push((name.clone(), Some(value.clone()))),
             }
         }
+        if element == "option" {
+            if let Some(selected) = &self.select {
+                let value = props
+                    .get("value")
+                    .cloned()
+                    .unwrap_or_else(|| option_label(src, id));
+                if &value == selected {
+                    attrs.push(("selected".into(), None));
+                    self.select = None;
+                }
+            }
+        }
         if let (Some(computed), Some(css)) = (self.computed.as_mut(), kept) {
             computed.push((id, tag.into(), props, css));
         }
@@ -856,13 +923,17 @@ impl<S: Source> Walk<'_, '_, S> {
         if self.sites.contains(&id) {
             attrs.push(("data-exact-site".into(), None));
         }
-        if element == "img" && (self.lazy)(id) {
-            attrs.push(("loading".into(), Some("lazy".into())));
+        if element == "img" {
+            attrs.push(("decoding".into(), Some("async".into())));
+            if (self.lazy)(id) {
+                attrs.push(("loading".into(), Some("lazy".into())));
+            }
         }
         // `attach`: the view id, and a tab stop for an element that hears
         // focus, blur or keys and is not one already.
         attrs.push(("data-view".into(), Some(id.to_string())));
         if let Some(kinds) = self.handlers.get(&id).filter(|kinds| !kinds.is_empty()) {
+            self.controls.push(id);
             attrs.push((
                 "data-exact-on".into(),
                 Some({
@@ -883,7 +954,7 @@ impl<S: Source> Walk<'_, '_, S> {
                 .any(|k| matches!(k, EventKind::Focus | EventKind::Blur | EventKind::Key))
         });
         // An authored `tabindex` is explicit and wins, a negative one
-        // included, as `glue.js`'s `hasAttribute` check does.
+        // included (LLP 1088 D7.3), as `glue.js`'s `hasAttribute` check does.
         if hears
             && !matches!(element, "input" | "button")
             && !attrs.iter().any(|(n, _)| n == "tabindex")
@@ -1015,6 +1086,13 @@ impl<S: Source> Walk<'_, '_, S> {
     ) -> Result<(), DocumentError> {
         self.out.push('<');
         self.out.push_str(element);
+        if element == "img" && self.hero == Some(id) {
+            if self.prioritize_image {
+                self.out.push_str(HeroImage::PRIORITY);
+            } else {
+                self.image_priority_at = Some(self.out.len());
+            }
+        }
         let runtime = self.style;
         let has_class = runtime.is_some() && attrs.iter().any(|(n, _)| n == "class");
         for (name, value) in attrs {
@@ -1047,90 +1125,10 @@ impl<S: Source> Walk<'_, '_, S> {
         Ok(())
     }
 
-    /// Each path from the roots to an element that is a page scroller on the
-    /// page, not in a hidden route, as the walk will find them: found
-    /// before any opening tag streams, marking the routes as it goes.
-    fn page_scrollers(
-        &mut self,
-        id: ViewId,
-        hidden: bool,
-        path: &mut Vec<ViewId>,
-        live: &mut Vec<Vec<ViewId>>,
-    ) {
-        let src = self.src;
-        let Some(node) = src.facts(id) else { return };
-        if node.node_type.is_metadata() {
-            return;
-        }
-        let hidden = hidden || self.routes.get(&id).is_some_and(|r| r.hidden);
-        if !hidden
-            && !matches!(
-                node.node_type,
-                exact_kernel::NodeType::SvgFe | exact_kernel::NodeType::SvgFilter
-            )
-            && node.props.bool(PropId::ScrollDocument) == Some(true)
-        {
-            live.push(path.clone());
-        }
-        let children = src.children(id);
-        self.route_children(&node, &children);
-        path.push(id);
-        for child in children.iter().copied() {
-            self.page_scrollers(child, hidden, path, live);
-        }
-        path.pop();
-    }
-
-    /// Mark the routes under a navigation root as `navigation.project` does;
-    /// with tabs, as the `tabs` capability does ([`tab_routes`]).
-    fn route_children(&mut self, node: &NodeFacts<'_>, children: &[ViewId]) {
-        if node.props.str(PropId::NavigationBack).is_none() {
-            return;
-        }
-        let src = self.src;
-        let key = node.props.str(PropId::NavigationKey);
-        if let Some(tabs) = crate::link::linked().tabs {
-            for (id, hidden, inert) in tabs(src, children, key) {
-                self.routes.insert(id, Route { hidden, inert });
-                if let Some(header) = bar_header(src, &self.handlers, id) {
-                    self.bars.insert(header);
-                }
-            }
-            return;
-        }
-        let routes: Vec<NodeFacts<'_>> = children
-            .iter()
-            .filter_map(|c| src.facts(*c))
-            .filter(|c| c.props.str(PropId::NavigationKey).is_some())
-            .collect();
-        // A key that names no route leaves the stack as it is.
-        let Some(selected) = routes
-            .iter()
-            .position(|r| r.props.str(PropId::NavigationKey) == key)
-        else {
-            return;
-        };
-        let modal = routes[selected].props.str(PropId::NavigationPresentation) == Some("modal");
-        for (index, route) in routes.iter().enumerate() {
-            if let Some(header) = bar_header(src, &self.handlers, route.id) {
-                self.bars.insert(header);
-            }
-            let active = index == selected;
-            let shown = active || (modal && index + 1 == selected);
-            self.routes.insert(
-                route.id,
-                Route {
-                    hidden: !shown,
-                    inert: !active,
-                },
-            );
-        }
-    }
-
     /// `renderMarkup`: each piece a `span`, or an `a` when it is a link to
     /// a navigable destination; newlines are `<br>`s. A list item's
     /// paragraph is a block `span` padded by its indent, its marker hung in
-    /// the gutter by a negative `text-indent`.
+    /// the gutter by a negative `text-indent` (LLP 1045 D4).
     fn markup(&mut self, id: ViewId, json: &str) -> Result<(), DocumentError> {
         let refuse = |reason: String| DocumentError { view: id, reason };
         // At a paragraph's start; inside a list item's block.
@@ -1175,6 +1173,11 @@ impl<S: Source> Walk<'_, '_, S> {
             }
             if link {
                 attrs.push(("href".to_owned(), Some(piece.href.clone())));
+                // It leaves the app, as natively: renderMarkup's rule (navigation.js).
+                if super::element::leaves_app(&piece.href) {
+                    attrs.push(("target".to_owned(), Some("_blank".to_owned())));
+                    attrs.push(("rel".to_owned(), Some("external noopener".to_owned())));
+                }
             }
             let lines: Vec<&str> = if hang {
                 vec![piece.text.as_str()]
@@ -1260,6 +1263,19 @@ fn symbol_scale() -> f64 {
     }
 }
 
+/// An option without `value` uses its text (LLP 1069.001 D2).
+fn option_label(src: &impl Source, id: ViewId) -> String {
+    let mut text = String::new();
+    let mut pending = vec![id];
+    while let Some(id) = pending.pop() {
+        if let Some(node) = src.facts(id) {
+            text.push_str(node.props.str(PropId::Text).unwrap_or(""));
+            pending.extend(src.children(id).iter().rev());
+        }
+    }
+    exact_kernel::control::option_label(&text)
+}
+
 /// Append `text` escaped for HTML text (`attribute` false) or a
 /// double-quoted attribute value. A carriage return is a reference (the
 /// parser folds a literal one into a newline); a NUL has no spelling the
@@ -1286,9 +1302,7 @@ fn escape(out: &mut String, text: &str, attribute: bool) -> Result<(), &'static 
     Ok(())
 }
 
-// Resolve the first concrete ARIA role before supplying item semantics; navigation.js has the same vocabulary.
-// https://www.w3.org/TR/wai-aria-1.3/#host_general_role
-// https://www.w3.org/TR/dpub-aria-1.1/ and https://www.w3.org/TR/graphics-aria-1.0/
+// Resolve the first concrete ARIA role before supplying item semantics.
 fn role_is(value: &str, wanted: &str) -> bool {
     let mut words = value
         .split(['\t', '\n', '\x0c', '\r', ' '])
@@ -1302,8 +1316,11 @@ fn role_is(value: &str, wanted: &str) -> bool {
     let Some(next) = words.next() else {
         return false;
     };
-    const ROLES: &str = "alert alertdialog application article banner blockquote button caption cell checkbox code columnheader combobox comment complementary contentinfo definition deletion dialog directory doc-abstract doc-acknowledgments doc-afterword doc-appendix doc-backlink doc-biblioentry doc-bibliography doc-biblioref doc-chapter doc-colophon doc-conclusion doc-cover doc-credit doc-credits doc-dedication doc-endnote doc-endnotes doc-epigraph doc-epilogue doc-errata doc-example doc-footnote doc-foreword doc-glossary doc-glossref doc-index doc-introduction doc-noteref doc-notice doc-pagebreak doc-pagefooter doc-pageheader doc-pagelist doc-part doc-preface doc-prologue doc-pullquote doc-qna doc-subtitle doc-tip doc-toc document emphasis feed figure form generic graphics-document graphics-object graphics-symbol grid gridcell group heading image img insertion link list listbox listitem log main mark marquee math menu menubar menuitem menuitemcheckbox menuitemradio meter navigation none note option paragraph presentation progressbar radio radiogroup region row rowgroup rowheader scrollbar search searchbox sectionfooter sectionheader separator slider spinbutton status strong subscript suggestion superscript switch tab table tablist tabpanel term textbox time timer toolbar tooltip tree treegrid treeitem";
-    let known = |word: &str| ROLES.split(' ').any(|r| r.eq_ignore_ascii_case(word));
+    let known = |word: &str| {
+        exact_kernel::ARIA_ROLES
+            .iter()
+            .any(|r| r.eq_ignore_ascii_case(word))
+    };
     !known(first)
         && std::iter::once(next)
             .chain(words)

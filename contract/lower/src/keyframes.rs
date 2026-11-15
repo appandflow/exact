@@ -1,6 +1,6 @@
-//! A keyframe's value through palette functions.
+//! A keyframe's value through palette functions (LLP 1062 D9).
 //!
-//! A keyframe is constant, and a palette is written once: a
+//! A keyframe is constant (LLP 1055 D5), and a palette is written once: a
 //! keyframe value may call a function of literal arguments
 //! (`color=accent()`, `color=tone("strong", 0.4)`), which folds here to the
 //! literal the plan's `@keyframes` rule carries.
@@ -127,7 +127,7 @@ fn text(c: Constant) -> String {
     }
 }
 
-/// A colour keyframe with the app's design tokens replaced by
+/// A colour keyframe with the app's design tokens (LLP 1121 D3) replaced by
 /// the colours they stand for, as a row reads them: each whole component of
 /// the value (a colour, or a shadow's part, split at the top level) that is a
 /// token's name, a role's spelling, or an expression over tokens the build

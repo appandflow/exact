@@ -3,10 +3,10 @@ import AppKit
 import XCTest
 @testable import ExactKit
 
-/// On AppKit, a `glassGroup` node's container view is its
-/// innermost view and holds its children; a material wins over it;
-/// a grouped glass whose path fades or clips moves into a container
-/// of its own and back, keeping the first responder; the group view
+/// LLP 1053.000.000 on AppKit: a `glassGroup` node's container view is its
+/// innermost view and holds its children (D2); a material wins over it
+/// (D6); a grouped glass whose path fades or clips moves into a container
+/// of its own and back (D4), keeping the first responder; the group view
 /// is never a hit target.
 final class GlassGroupMacTests: XCTestCase {
     private var window: NSWindow!
@@ -44,9 +44,38 @@ final class GlassGroupMacTests: XCTestCase {
         p.apply(wireBatch([["op": "present", "id": id, "property": "opacity", "x": opacity, "y": 0.0, "w": 0.0, "h": 0.0]]))
     }
 
-    /// An auto group's spacing is the points the Rust host resolved —
-    /// the props' at creation, then the style key a gap change sends —
-    /// and a number again when the prop is one.
+    func testViewportCaptureKeepsTheContentOfAGlassRoot() throws {
+        let f = try SheetFixture(page: """
+        component App
+          view
+            column viewport-fit="cover" backgroundMaterial="glass" width="100%" height="100%"
+              box width=200 height=100 background-color="#ff0000"
+              text "Glass content"
+
+        """)
+        defer { f.close() }
+        f.view.controlsOverlay = true
+        f.window.styleMask.insert(.fullSizeContentView)
+        f.window.titlebarAppearsTransparent = true
+        f.window.orderFrontRegardless()
+        f.window.layoutIfNeeded()
+        f.window.displayIfNeeded()
+        let glass = try XCTUnwrap(f.presenter.views.values.first { $0.props["backgroundMaterial"] == "glass" })
+        XCTAssertEqual(glass.appliedMaterial, "NSGlassEffectView(.regular)")
+        let root = f.presenter.navigation.split.agentRoot
+        for capture in [{ Capture.picture(of: root) }, { Capture.bitmap(of: root, scale: root.pixelScale ?? 2) }] {
+            let picture = try XCTUnwrap(capture())
+            let scale = CGFloat(picture.pixelsWide) / picture.size.width
+            let red = try XCTUnwrap(picture.paintedColorAt(x: Int(100 * scale), y: Int(50 * scale))?.usingColorSpace(.sRGB))
+            XCTAssertGreaterThan(red.redComponent, 0.9)
+            XCTAssertLessThan(red.greenComponent, 0.3)
+            XCTAssertLessThan(red.blueComponent, 0.3)
+        }
+    }
+
+    /// LLP 1053.000.000.000 D2: an auto group's spacing is the points the
+    /// Rust host resolved — the props' at creation, then the style key a
+    /// gap change sends — and a number again when the prop is one.
     func testAnAutoGroupTakesItsSpacingFromWhatTheHostResolved() throws {
         let p = presenter(cluster(["glassGroup": "8", "glassGroupAuto": "true"]))
         let group = try XCTUnwrap(p.views[1])

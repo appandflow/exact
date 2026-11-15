@@ -4,7 +4,7 @@ import XCTest
 @testable import ExactKit
 import ExactGroupedLists
 
-/// A page with no native container keeps the area it is laid out
+/// LLP 1130: a page with no native container keeps the area it is laid out
 /// in, the view less its safe area, and is drawn in a viewport that takes
 /// the whole view, so it scrolls under the status bar and the home
 /// indicator; a scroller at the area's top and foot reaches into those bands
@@ -96,6 +96,58 @@ final class PageEdgesIOSTests: XCTestCase {
         XCTAssertEqual(p.viewport.contentOffset, .zero, "and rests at offset zero, its scrollTop")
         let top = try node(session, "list-top")
         XCTAssertEqual(top.convert(top.bounds, to: nil).minY, safe.top, accuracy: 0.5, "the content shows where it did")
+    }
+
+    func testAnEmptyResizeRefitsTheDocument() throws {
+        guard hostedWindowScene() != nil else { throw missing("scene", "an embedded page resizes inside a scene's safe area") }
+        let (session, view) = try fixture("FIXED_PAGE")
+        let p = session.presenter
+        let origin = CGPoint(x: view.safeAreaInsets.left + 20, y: view.safeAreaInsets.top + 20)
+        view.frame = CGRect(origin: origin, size: CGSize(width: 300, height: 500))
+        view.fit()
+        waitForActivation(session)
+        XCTAssertEqual(p.pageMargins, .zero, "the embedded view is inside the safe area")
+        XCTAssertEqual(p.root.bounds.size, view.bounds.size)
+        XCTAssertEqual(p.viewport.contentSize, view.bounds.size)
+        let list = try node(session, "list")
+        XCTAssertEqual(list.bounds.size, CGSize(width: 100, height: 100))
+        for size in [CGSize(width: 200, height: 300), CGSize(width: 300, height: 500)] {
+            let applied = session.appliedBatches
+            view.frame.size = size
+            view.fit()
+            XCTAssertEqual(session.appliedBatches, applied, "the fixed root produces no runtime operations")
+            XCTAssertEqual(p.pageMargins, .zero, "the margins did not change")
+            XCTAssertEqual(list.bounds.size, CGSize(width: 100, height: 100))
+            XCTAssertEqual(p.root.bounds.size, size, "the document follows the viewport")
+            XCTAssertEqual(p.viewport.contentSize, size, "a fitting page has no blank scroll range")
+        }
+    }
+
+    func testAnEmptyResizeRefitsTheEdgeBands() throws {
+        guard hostedWindowScene() != nil else { throw missing("scene", "the home indicator's band belongs to a scene window") }
+        let (session, view) = try fixture("FIXED_PAGE")
+        let p = session.presenter, host = try XCTUnwrap(host?.view)
+        let bottom = host.safeAreaInsets.bottom
+        XCTAssertGreaterThan(bottom, 0, "the window has a home indicator")
+        func resize(_ height: CGFloat) {
+            view.frame = CGRect(x: 20, y: host.bounds.maxY - height - bottom, width: 200, height: height + bottom)
+            view.fit()
+        }
+        resize(300)
+        waitForActivation(session)
+        let list = try node(session, "list")
+        let margins = p.pageMargins
+        XCTAssertEqual(margins, UIEdgeInsets(top: 0, left: 0, bottom: bottom, right: 0))
+        XCTAssertEqual(list.pageBand.bottom, 0)
+        for height: CGFloat in [100, 300] {
+            let applied = session.appliedBatches
+            resize(height)
+            XCTAssertEqual(session.appliedBatches, applied, "the fixed root produces no runtime operations")
+            XCTAssertEqual(p.pageMargins, margins, "the margins did not change")
+            XCTAssertEqual(p.root.bounds.size, CGSize(width: 200, height: height))
+            XCTAssertEqual(p.viewport.contentSize, view.bounds.size)
+            XCTAssertEqual(list.pageBand.bottom, height == 100 ? bottom : 0, accuracy: 0.5, "only a scroller at the page's foot reaches into its band")
+        }
     }
 
     func testTheScrollerAtTheEdgesReachesIntoTheBands() throws {
@@ -208,7 +260,7 @@ final class PageEdgesIOSTests: XCTestCase {
         XCTAssertEqual(cv.layer.animationKeys() ?? [], [], "one shown again since the last frame is at its offset at once")
     }
 
-    /// A route's list under its control bars, drawn through them and the route's cover.
+    /// LLP 1131: a route's list under its control bars, drawn through them and the route's cover.
     func testAListRunsUnderItsControlBarsAndKeepsItsPlace() throws {
         guard UIApplication.shared.connectedScenes.first is UIWindowScene else { throw missing("scene", "the bars and the safe area are a scene window's") }
         guard #available(iOS 26.0, *) else { throw XCTSkip("control bars are iOS 26's, where UIKit draws the edge effect over them") }
@@ -223,6 +275,20 @@ final class PageEdgesIOSTests: XCTestCase {
         let hit = try XCTUnwrap(filter.window?.hitTest(filter.convert(CGPoint(x: filter.bounds.midX, y: filter.bounds.midY), to: nil), with: nil))
         XCTAssertTrue(hit.isDescendant(of: filter), "a tap on the switcher is the switcher's, not \(type(of: hit))")
         XCTAssertTrue(filter.interactions.contains { $0 is UIScrollEdgeElementContainerInteraction }, "UIKit's edge effect over the list")
+        // An app's own scroll view holds the bar's edge through a batch, and its nil gives the edge
+        // back to the list at once, through the list's band under the switcher, since the title
+        // does not collapse with the list
+        let route = try XCTUnwrap(p.navigation.activeRoute)
+        XCTAssertNil(route.collapseScroll, "the switcher stands between the title and the list")
+        XCTAssertTrue(route.contentScrollView(for: .top) === sv, "the bar follows the list under the switcher")
+        let own = UIScrollView(frame: route.view.bounds)
+        route.view.addSubview(own)
+        route.setContentScrollView(own, for: .top)
+        p.apply(wireBatch([]))
+        XCTAssertTrue(route.contentScrollView(for: .top) === own)
+        route.setContentScrollView(nil, for: .top)
+        own.removeFromSuperview()
+        XCTAssertTrue(route.contentScrollView(for: .top) === sv, "nil gives the edge back to the list drawn under the switcher")
         sv.contentOffset.y = 100 - list.scrollTopInset(sv)
         p.press(try node(session, "pick-chat").id)
         until("the switcher goes and a composer comes") { list.pageBand.top == 0 && list.pageBand.bottom > 0 }
@@ -238,7 +304,7 @@ final class PageEdgesIOSTests: XCTestCase {
 
     /// A transcript in a box over a composer its author filled: the composer is no bar, so
     /// the rows stop above it, and the top still runs under the inline bar, as a hand-built
-    /// table under its navigation bar does whatever is pinned under it.
+    /// table under its navigation bar does whatever is pinned under it (bake-off r28's chat).
     func testAListOverAFilledComposerStillRunsUnderTheBar() throws {
         guard UIApplication.shared.connectedScenes.first is UIWindowScene else { throw missing("scene", "the bars and the safe area are a scene window's") }
         guard #available(iOS 26.0, *) else { throw XCTSkip("control bars are iOS 26's, where UIKit draws the edge effect over them") }
@@ -401,5 +467,57 @@ final class PageEdgesIOSTests: XCTestCase {
         XCTAssertFalse(ControlBars(p).isBar(p.views[1]!))
     }
 
+    /// #223: under `viewport-fit="cover"` a tab's route keeps the tab bar's cover, and its
+    /// last scroller, with nothing under it, is drawn on under the bar and inset by the gap,
+    /// as a hand-built table runs under its tab bar: layout is unchanged, its end rests where
+    /// its box ends, UIKit adds no inset of its own and the bar's edge effect follows it. The
+    /// route's own `env()` padding is reached through too; a caption under the scroller keeps
+    /// it above the bar; content that fits gains no scroll range; a virtualized list is banded.
+    func testUnderACoverRootARoutesLastScrollerRunsUnderTheTabBar() throws {
+        guard UIApplication.shared.connectedScenes.first is UIWindowScene else { throw missing("scene", "the tab bar and the safe area are a scene window's") }
+        guard #available(iOS 26.0, *) else { throw XCTSkip("control bars are iOS 26's, where UIKit draws the edge effect over them") }
+        let (session, _) = try fixture("COVER_TABS")
+        let p = session.presenter, routeNode = try node(session, "route-home")
+        let route = try XCTUnwrap(p.navigation.controllers[routeNode.id])
+        let foot = { routeNode.convert(routeNode.bounds, to: nil).maxY }
+        // Not `node`: its XCTUnwrap records a failure while a variant is on its way.
+        let list = { p.views.values.first { $0.props["testId"] == "list" && $0.window != nil } }
+        until("the scroller runs under the tab bar") { (list()?.pageBand.bottom ?? 0) > 0.5 }
+        guard case .edges(let cover)? = p.navigation.covers[routeNode.id] else { return XCTFail("the route keeps the tab bar's cover") }
+        XCTAssertGreaterThan(cover.bottom, 0.5)
+        var v = try XCTUnwrap(list()), sv = try XCTUnwrap(v.scrollView)
+        let box = v.convert(v.bounds, to: nil)
+        XCTAssertEqual(box.maxY, foot() - cover.bottom, accuracy: 0.5, "laid out above the cover, as before")
+        XCTAssertEqual(v.pageBand, UIEdgeInsets(top: 0, left: 0, bottom: cover.bottom, right: 0))
+        XCTAssertEqual(sv.convert(sv.bounds, to: nil).maxY, foot(), accuracy: 0.5, "its scroll view reaches the route's foot, under the bar")
+        XCTAssertEqual(sv.adjustedContentInset.bottom, cover.bottom, accuracy: 0.5, "inset by the band alone")
+        XCTAssertTrue(route.contentScrollView(for: .bottom) === sv, "the tab bar's edge effect follows it")
+        sv.contentOffset.y = sv.contentSize.height + sv.adjustedContentInset.bottom - sv.bounds.height
+        let end = try node(session, "end")
+        XCTAssertEqual(end.convert(end.bounds, to: nil).maxY, box.maxY, accuracy: 0.5, "at its end the content rests where the box ends, above the bar")
+
+        p.press(try node(session, "use-padded").id)
+        until("the route's env() padding is reached through") { (list()?.pageBand.bottom ?? 0) > cover.bottom + 0.5 }
+        v = try XCTUnwrap(list()); sv = try XCTUnwrap(v.scrollView)
+        XCTAssertEqual(v.pageBand.bottom, foot() - v.convert(v.bounds, to: nil).maxY, accuracy: 0.5)
+        XCTAssertEqual(sv.convert(sv.bounds, to: nil).maxY, foot(), accuracy: 0.5)
+        XCTAssertEqual(sv.adjustedContentInset.bottom, v.pageBand.bottom, accuracy: 0.5, "the padding and the cover, once")
+
+        p.press(try node(session, "use-footer").id)
+        until("a caption under the scroller keeps it above the bar") { list()?.pageBand == .zero }
+        XCTAssertNil(route.bandedBottom)
+
+        p.press(try node(session, "use-short").id)
+        until("content that fits is banded") { (list()?.pageBand.bottom ?? 0) > 0.5 }
+        v = try XCTUnwrap(list()); sv = try XCTUnwrap(v.scrollView)
+        let i = sv.adjustedContentInset
+        XCTAssertLessThanOrEqual(sv.contentSize.height + i.top + i.bottom, sv.bounds.height + 0.5, "and gains no scroll range")
+
+        p.press(try node(session, "use-list").id)
+        until("a virtualized list is banded") {
+            guard let l = list(), l.scrollView != nil, p.collections.entries[l.id] != nil else { return false }
+            return abs(l.pageBand.bottom - cover.bottom) < 0.5
+        }
+    }
 }
 #endif

@@ -1,8 +1,8 @@
-// Shared viewport collections and explicit height/transform bindings.
+// LLP 1041 §8.5: shared viewport collections and explicit height/transform bindings.
 fn photoFit(bw: number, bh: number, nw: number, nh: number): number = bw > 0 and bh > 0 and nw > 0 and nh > 0 ? min(bw / nw, bh / nh) : 0
 fn photoZoom(scale: number): number = min(max(scale, 1), 4)
 fn photoClamp(value: number, natural: number, fit: number, zoom: number, port: number): number = min(max(value, -max(0, (natural * fit * zoom - port) / 2)), max(0, (natural * fit * zoom - port) / 2))
-// The sheet's stops from geometry. Full is the room its bay
+// LLP 1051.000 §3: the sheet's stops from geometry. Full is the room its bay
 // has, at most 640; Read fits content shorter than 360. Without an answer (the
 // web before its geometry piece has loaded; a measure while a change waits to
 // be laid out) the last stops stand, and they start as the authored 640 and 360.
@@ -11,25 +11,25 @@ fn sheetReadOf(sheet: Geometry, full: number, last: number): number = sheet.unav
 fn sheetChoice(value: number, read: number, full: number, px: number): number = value == 180 ? 180 : (value == 360 ? read : (value == 640 ? full : px))
 fn sheetStop(projected: number, read: number, full: number): number = projected < (180 + read) / 2 ? 180 : (projected < (read + full) / 2 ? read : full)
 
-// The header rises in unless the reader asked for less motion.
+// LLP 1061: the header rises in unless the reader asked for less motion.
 keyframes rise
   from opacity=0 translate="0px 6px"
 
-// The viewer's backdrop fades as the photo is dragged down
+// LLP 1057.003 C1: the viewer's backdrop fades as the photo is dragged down
 // at Fit, held by the drag timeline `--dismiss` at the photo's presented
 // translate, through the drag and the spring that follows it.
 keyframes viewerFade
   from opacity=1
   to opacity=0
 
-// A list of cards, each with its own timeline. Every row
+// LLP 1057.003 D4: a list of cards, each with its own timeline. Every row
 // scopes `--swipe`, so its label follows its own card's drag and no other
 // row's: one name, four timelines.
 keyframes swipeReveal
   from opacity=0 scale=0.8
   to opacity=1 scale=1
 
-// A card thrown aside. Over the top card's horizontal
+// LLP 1057.003 C6: a card thrown aside. Over the top card's horizontal
 // travel, -300 to 300 points, its face tilts -15 to 15 degrees (dx / 20)
 // and the card beneath rises from 0.95 to full size as it leaves either way.
 keyframes deckTilt
@@ -115,6 +115,18 @@ component InteractionGallery
   derive sheetNominal = sheetPx == sheetFull ? 640 : (sheetPx == sheetRead ? 360 : sheetPx)
   derive fullCollection = gallery.mode != "photos" and rendering != "manual"
   resource rows = galleryRows(gallery.revision, (fullCollection ? 0 : gallery.page), fullCollection) as shape Photo[]
+  // The token of the viewer a drag down dismissed.
+  state dismissing = 0
+  state dealt = 0
+  state thrown = false
+  // A dismissed photo and a thrown card are past their clips about 100 ms
+  // after the release, long before the spring rests: the root acts at 150.
+  // A viewer closed or replaced first has another token, and its timer goes
+  // with the gate.
+  task leave when gallery.viewerOpen and dismissing == gallery.viewerToken
+    after(150, closeDismissed)
+  task dealNext when thrown
+    after(150, deal)
 
   action chooseRendering(value: string)
     if value == "windowed" or value == "manual" or value == "eager"
@@ -158,6 +170,17 @@ component InteractionGallery
   action dropArrange(item: string, before: option<string>)
     send changed = galleryReorder(item, before, gallery.revision)
 
+  action dismiss(token: number)
+    dismissing = token
+  action closeDismissed
+    command("close", "", dismissing)
+    dismissing = 0
+  action throwCard
+    thrown = true
+  action deal
+    thrown = false
+    dealt = dealt + 1
+
   action edit(value)
     if value.length <= 512
       draft = value
@@ -195,7 +218,7 @@ component InteractionGallery
       if gallery.mode == "photos"
         if gallery.viewerOpen
           for viewer in gallery.viewer key=viewer.viewerToken
-            Viewer(viewer=viewer, gallery=gallery, command=command)
+            Viewer(viewer=viewer, gallery=gallery, command=command, dismiss=dismiss)
         else
           scroll testId="photos-scroll" flex=1 min-height=0 overflow-x="hidden"
             column padding=24 gap=20 width="100%" box-sizing="border-box"
@@ -211,7 +234,7 @@ component InteractionGallery
                 SwipeRow(n=2)
                 SwipeRow(n=3)
                 SwipeRow(n=4)
-              CardDeck()
+              CardDeck(dealt=dealt, deal=deal, thrown=throwCard)
               if gallery.total == 0
                 text "A clean slate. Add a study or reset your collection." font-size=(18 * k) color=theme.muted
       if gallery.mode == "reorder"
@@ -318,11 +341,11 @@ component PhotoCard
         text photo.title font-size=(17 * k) font-weight=600 color=theme.ink
         text photo.subtitle font-size=(11 * k) color=theme.muted
 
-// The card drives `--swipe` with its horizontal translate
+// LLP 1057.003 D4: the card drives `--swipe` with its horizontal translate
 // as a swipe holds it, and the label behind it follows over the swipe's
 // 64-point knee. Past the knee, a release keeps the study and the card
 // springs back, the label with it. A swipe holds any row: the transform
-// drag has one target per window.
+// drag has one target per window (LLP 1002 D7).
 component SwipeRow
   inject
     theme: Theme
@@ -340,37 +363,42 @@ component SwipeRow
         text `Study ${n}` font-size=(15 * k) font-weight=600 color=theme.ink
         text (kept ? "kept" : "") testId=`swipe-kept-${n}` font-size=(11 * k) color=theme.muted
 
-// The top card drives `--fling` with its horizontal
+// LLP 1057.003 C6: the top card drives `--fling` with its horizontal
 // translate as the transform drag holds it and as its release spring
 // carries it. Its face, a child, tilts with it about its bottom edge: a drag
 // binding refuses a rotated node above its handle, so the rotation sits
 // below. The card beneath, the top card's sibling, follows through the
 // clip's `timeline-scope`. A release past 120 points or 800 points a second
 // throws the card off on the release spring, carrying the fling; anything
-// less springs back.
+// less springs back. The root deals the next card after a throw. The top card
+// is keyed by its deal and reads the pan only of the deal that set it, so a
+// new top card is a new node at rest.
 component CardDeck
   inject
     theme: Theme
     k: number
+  props
+    dealt: number
+    deal: action
+    thrown: action
   state panX = 0
   state panY = 0
-  state dealt = 0
+  state panDeal = 0
   state clipWidth = 0
   action deckGeometry(bw: number, bh: number, pw: number, ph: number)
     clipWidth = pw
   action releaseCard(x: number, y: number, scale: number, vx: number, vy: number, vscale: number)
+    panDeal = dealt
     panX = 0
     panY = 0
     if x > 120 or vx > 800
       panX = clipWidth + 60
       panY = y
+      thrown()
     if x < -120 or vx < -800
       panX = 0 - clipWidth - 60
       panY = y
-  action deal
-    panX = 0
-    panY = 0
-    dealt = dealt + 1
+      thrown()
   view
     column gap=8 testId="deck"
       row gap=8 align-items="center"
@@ -380,10 +408,11 @@ component CardDeck
       box testId="deck-clip" timeline-scope="--fling" width="100%" height=320 flex-shrink=0 position="relative" overflow="hidden" padding=0 border-width=0 box-sizing="border-box" border-radius=12 background-color=theme.wash
         box testId="deck-next" position="absolute" left=40 right=40 top=20 bottom=20 border-radius=14 background-color=theme.card display="flex" align-items="center" justify-content="center" animation="deckRise 1s linear both" animation-timeline="--fling" animation-range="-300px 300px"
           text `Card ${dealt + 2}` font-size=(18 * k) font-weight=600 color=theme.ink
-        box id="deck-top" testId="deck-top" width="100%" height="100%" position="relative" padding=0 border-width=0 margin=0 box-sizing="border-box" translate=`${panX}px ${panY}px` transition="translate -exact-spring(300, 30, 1), scale -exact-spring(300, 30, 1)" -exact-drag-timeline="--fling x"
-          box testId="deck-face" position="absolute" left=40 right=40 top=20 bottom=20 border-radius=14 background-color=theme.accent display="flex" align-items="center" justify-content="center" transform-origin="50% 100%" animation="deckTilt 1s linear both" animation-timeline="--fling" animation-range="-300px 300px"
-            text `Card ${dealt + 1}` font-size=(18 * k) font-weight=600 color="#ffffff"
-          box transformDragFor="deck-top" transformgeometry=deckGeometry transformrelease=releaseCard touch-action="none" position="absolute" left=0 top=0 width="100%" height="100%" testId="deck-handle" aria-label="Throw the top card aside"
+        for n in [dealt] key=n
+          box id="deck-top" testId="deck-top" width="100%" height="100%" position="relative" padding=0 border-width=0 margin=0 box-sizing="border-box" translate=(panDeal == n ? `${panX}px ${panY}px` : "0px 0px") transition="translate -exact-spring(300, 30, 1), scale -exact-spring(300, 30, 1)" -exact-drag-timeline="--fling x"
+            box testId="deck-face" position="absolute" left=40 right=40 top=20 bottom=20 border-radius=14 background-color=theme.accent display="flex" align-items="center" justify-content="center" transform-origin="50% 100%" animation="deckTilt 1s linear both" animation-timeline="--fling" animation-range="-300px 300px"
+              text `Card ${n + 1}` font-size=(18 * k) font-weight=600 color="#ffffff"
+            box transformDragFor="deck-top" transformgeometry=deckGeometry transformrelease=releaseCard touch-action="none" position="absolute" left=0 top=0 width="100%" height="100%" testId="deck-handle" aria-label="Throw the top card aside"
 
 component Viewer
   inject
@@ -393,6 +422,7 @@ component Viewer
     viewer: ViewerState
     gallery: GalleryState
     command: action
+    dismiss: action
   state panX = 0
   state panY = 0
   state zoom = 1
@@ -427,18 +457,20 @@ component Viewer
         panX = 0
         panY = 0
 
-  // A pinch's scale is adopted between Fit and 4×; Fit, 2× and
+  // A pinch's scale is adopted between Fit and 4× (LLP 1057.001 §4); Fit, 2× and
   // Center remain the controls that need no gesture.
   action releasePhoto(x: number, y: number, scale: number, vx: number, vy: number, vscale: number)
     zoom = photoZoom(scale)
     panX = geometryReady ? photoClamp(x, viewer.naturalWidth, fit, photoZoom(scale), portWidth) : 0
     panY = geometryReady ? photoClamp(y, viewer.naturalHeight, fit, photoZoom(scale), portHeight) : 0
-    // At Fit, a drag down far or fast enough dismisses. The
+    // LLP 1057.003 C1: at Fit, a drag down far or fast enough dismisses. The
     // photo leaves on the release spring, carrying the fling, well past the
     // 410-point clip; the backdrop reaches 0 on the same spring. Anything
-    // less springs back to centre, and the backdrop returns with it.
+    // less springs back to centre, and the backdrop returns with it. The
+    // root closes the dismissed viewer once the photo is out of sight.
     if photoZoom(scale) == 1 and (y > 120 or vy > 800)
       panY = 900
+      dismiss(viewer.viewerToken)
 
   view
     scroll flex=1 min-height=0 testId="viewer-scroll" overflow-x="hidden"
@@ -459,9 +491,9 @@ component Viewer
             text "Center and fit" font-size=(12 * k) color=theme.ink
         // Zoomed, a drag pans and the backdrop stays. At Fit a pinch's
         // translate fades it too: the timeline reads the translate, not
-        // which gesture made it. The photo
+        // which gesture made it (LLP 1057.003 D6, LLP 1057.000). The photo
         // and the backdrop are siblings, so the clip scopes `--dismiss` for
-        // both, as CSS's `timeline-scope` does.
+        // both, as CSS's `timeline-scope` does (D4).
         box testId="viewer-clip" timeline-scope="--dismiss" width="100%" height=410 flex-shrink=0 position="relative" overflow="hidden" padding=0 border-width=0 box-sizing="border-box" border-radius=12
           box testId="viewer-backdrop" position="absolute" left=0 top=0 width="100%" height="100%" padding=0 border-width=0 box-sizing="border-box" background-color="#172521" animation=(zoom == 1 ? "viewerFade 1s linear both" : "none") animation-timeline="--dismiss" animation-range="0px 300px"
           box id="viewer-transform" testId="viewer-transform" width="100%" height="100%" position="relative" padding=0 border-width=0 margin=0 box-sizing="border-box" translate=`${panX}px ${panY}px` scale=zoom transition="translate -exact-spring(300, 30, 1), scale -exact-spring(300, 30, 1)" -exact-drag-timeline="--dismiss y"

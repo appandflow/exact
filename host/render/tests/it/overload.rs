@@ -1,4 +1,4 @@
-//! The server under overload: a connection it turns away
+//! The server under overload (LLP 1048.000 D10): a connection it turns away
 //! gets its 503 whole, and holds neither the accept loop nor a render
 //! worker, however slowly its peer sends.
 //!

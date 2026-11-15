@@ -1,17 +1,17 @@
 // Markdown — a reader for Markdown files.
 //
 // The document is data: `apps/markdown/data` reads the file the person
-// chose through storage (a `doc:` handle) and
+// chose through storage (a `doc:` handle, LLP 1069.010 D1) and
 // `apps/markdown/parse` turns it into the ordered blocks and styled runs
 // below. Nothing here parses anything, and no file content is
-// ever Contract source.
+// ever Contract source (LLP 1033).
 //
 // One field carries every way of opening a document: `⌘O`, a Finder
 // double-click, `mdview README.md`, the Open… and Folder… pickers, a link
 // followed inside a document, a name in the folder beside this one. They are all a value arriving at
 // `open-file`, which is why there is one code path and not five.
 
-// The readers' palette, one `light-dark()` pair an entry; a
+// The readers' palette (LLP 1095 D4), one `light-dark()` pair an entry; a
 // row names an entry (`color="ink"`). The dark half is warm rather than
 // blue-black, so the same documents read as the same documents, and its text
 // sits below white-on-black contrast, which is what makes a long document
@@ -39,7 +39,7 @@ theme
   warnEdge="light-dark(#f5c6c0, #5d302a)" // its border
   warnInk="light-dark(#8a1c12, #f0a89c)" // its text
 
-use Run, Cell, Block, Runs, SchemeButton from "@exact/reading"
+use Run, Cell, Block, Runs, ColumnSizer, SchemeButton from "@exact/reading"
 use speak, cancelSpeech, pauseSpeech, resumeSpeech, speechSynthesisState, speechUtterance, SpeechUtteranceInfo, SpeechSynthesisState, SpeechUtterance from "@exact/speech-synthesis"
 
 shape Entry
@@ -48,8 +48,9 @@ shape Entry
   path: string
   current: bool
 
-// A document the reader keeps to reopen after a relaunch: the host keeps
-// what the person chose, on a Mac in File ▸ Open Recent's list.
+// A document the reader keeps to reopen after a relaunch (LLP
+// 1069.010.000 D5): the host keeps what the person chose, on a Mac in File ▸
+// Open Recent's list.
 shape Kept
   path: string
   name: string
@@ -69,8 +70,8 @@ shape Document
   blocks: Block[]
   siblings: Entry[]
 
-// The system's colour scheme, beneath whatever `setScheme` chose: CSS's
-// `prefers-color-scheme`, on every host.
+// The system's colour scheme, beneath whatever `setScheme` chose (LLP
+// 1069.000 D1): CSS's `prefers-color-scheme`, on every host.
 shape SystemMedia
   prefersColorScheme: string
 
@@ -87,7 +88,7 @@ component Markdown
   // The recent document a context menu was opened on.
   state aimed = ""
 
-  // Listen: the document read aloud, one utterance a block
+  // Listen (LLP 1133.012 §10): the document read aloud, one utterance a block
   // of prose, queued one after another as each id is answered; the word being
   // spoken is marked in its block. The queue's ids in order, and the block
   // each one speaks.
@@ -177,7 +178,7 @@ component Markdown
   action forgetRecent
     send forgotten = forgetDocument(aimed)
   // The File System Access API's pickers, on every host that has them; the
-  // handle arrives at `open-file` like every other way in.
+  // handle arrives at `open-file` like every other way in (LLP 1069.010 D2).
   action chooseFile
     showOpenFilePicker("open-file")
   action chooseFolder
@@ -187,14 +188,15 @@ component Markdown
     setScheme(name)
 
   // The one thing the appearance is still needed for: a PNG has no
-  // `currentColor` to follow, so the artwork is chosen rather than tinted.
+  // `currentColor` to follow, so the artwork is chosen rather than tinted
+  // (LLP 1034 D3).
   derive dark = (scheme == "system" ? media.prefersColorScheme : scheme) == "dark"
   derive iconSet = dark ? "-dark" : ""
   derive hasFolder = not doc.siblings.isEmpty()
   derive hasRecent = not recent.isEmpty()
   // The window is titled by the file it shows, as a Mac document window
-  // is, so two documents in two windows or tabs tell apart; the welcome
-  // document's name is the app's.
+  // is, so two documents in two windows or tabs tell apart (LLP 1069.010
+  // D6); the welcome document's name is the app's.
   derive title = doc.name != "" ? doc.name : "Markdown"
 
   view
@@ -218,7 +220,7 @@ component Markdown
             text doc.name font-size=12 font-weight=600 color="softInk" testId="document-name"
             // Appearance: system, light, dark — the icons exact1's blog used
             // (`js/src/blog/lib/icons.ts`: monitor, sun, moon), rasterised
-            // to PNG because an Exact `image` is a raster asset
+            // to PNG because an Exact `image` is a raster asset (LLP 1011)
             // and the Apple host decodes through ImageIO, which has no SVG.
             // Following the system is the absence of an override, not a
             // third appearance, on every host.
@@ -238,7 +240,7 @@ component Markdown
             if failure != ""
               text `Could not read aloud: ${failure}` font-size=12 color="warnInk" testId="listen-error"
         // A file that would not open never replaces the one being read: the
-        // reader says so and keeps the page.
+        // reader says so and keeps the page (LLP 1033's milestone).
         if doc.failed
           row width="100%" padding=10 gap=8 background-color="warnBg" border-bottom-style="solid" border-bottom-width=1 border-color="warnEdge" box-sizing="border-box" testId="open-failed"
             text "Could not open" font-size=12 font-weight=700 color="warnInk"
@@ -252,7 +254,7 @@ component Markdown
             scroll width=230 height="100%" overflow-x="hidden" overscroll-behavior="contain" box-sizing="border-box" background-color="chrome" border-right-style="solid" border-right-width=1 border-color="edge" testId="folder"
               column width="100%" box-sizing="border-box" padding=8 gap=1
                 // What the person opened before, kept across launches:
-                // one press reopens it with no panel.
+                // one press reopens it with no panel (LLP 1069.010.000).
                 if hasRecent
                   text "Recent" font-size=11 font-weight=600 color="softInk" padding-left=6 padding-top=4 padding-bottom=2
                   for k in recent key=k.path
@@ -271,7 +273,7 @@ component Markdown
           // first and last rows' own. A block's id is its index.
           // A document is text its reader copies from, so it says so: the
           // web and the Mac select it anyway, and an iPhone selects only
-          // what its author said, one block at a time.
+          // what its author said (LLP 1115.000 D11.6), one block at a time.
           list appearance="none" virtualized=true estimated-item-height=96 flex=1 height="100%" overflow-x="hidden" overscroll-behavior="contain" user-select="text" testId="document" box-sizing="border-box"
             for b in doc.blocks key=`${doc.path}:${b.id}`
               view width="100%" padding-top=(b.id == "0" ? 28 : 0) padding-bottom=(b.id == `${doc.count - 1}` ? 72 : 0) box-sizing="border-box"
@@ -369,25 +371,23 @@ component Blocks
                 view testId=`block-${block.id}` width="100%" max-width=740 margin-left="auto" margin-right="auto" padding-left=32 padding-right=32 padding-top=22 padding-bottom=24 box-sizing="border-box"
                   view width="100%" height=1 background-color="edge"
               else
-                // A table is one block and one grid, as a browser lays out a
-                // table: every row shares the columns, which `auto` tracks
-                // size from the cells of all rows, never narrower than their
-                // longest words, and which share what is left of the reading
-                // column (`depth` columns; the first `depth` cells are the
-                // header's). One whose words are wider than the reading column
-                // scrolls sideways inside it, as GitHub's tables do, rather
-                // than running past its edge or breaking its words.
+                // Groups share the whole table's intrinsic sizing text,
+                // keeping native grids below their row limit. A table stays
+                // one reading block and scrolls sideways when its words need it.
                 if block.kind == "table"
                   view testId=`block-${block.id}` width="100%" max-width=740 margin-left="auto" margin-right="auto" padding-left=32 padding-right=32 padding-bottom=2 box-sizing="border-box"
                     scroll testId=`table-${block.id}` width="100%" overflow-x="auto" overflow-y="hidden"
-                      view display="grid" grid-template-columns=`repeat(${block.depth}, auto)`
-                        for c, i in block.cells key=c.id
-                          if i < block.depth
-                            text padding=8 border-bottom-style="solid" border-bottom-width=1 border-color="edge" color="strongInk" line-height="20px"
-                              Runs(runs=c.runs, size=13, weight=700)
-                          else
-                            text padding=8 border-bottom-style="solid" border-bottom-width=1 border-color="edge" color="ink" line-height="20px"
-                              Runs(runs=c.runs, size=13, weight=400)
+                      for g in block.tableGroups key=g.id
+                        view display="grid" grid-template-columns=`repeat(${block.depth}, minmax(min-content, auto))`
+                          for s in block.tableSizers key=s.id
+                            ColumnSizer(sizer=s, cells=block.cells, size=13)
+                          for c, i in block.cells.slice(g.start, g.end) key=c.id
+                            if g.start + i < block.depth
+                              text text-align=(c.align == "" ? "start" : c.align) padding=8 border-bottom-style="solid" border-bottom-width=1 border-color="edge" color="strongInk" line-height="20px"
+                                Runs(runs=c.runs, size=13, weight=700)
+                            else
+                              text text-align=(c.align == "" ? "start" : c.align) padding=8 border-bottom-style="solid" border-bottom-width=1 border-color="edge" color="ink" line-height="20px"
+                                Runs(runs=c.runs, size=13, weight=400)
                 else
                   if block.kind == "image"
                     // A `<p>` or `<div>` `align` places it in the column as `text-align` places an inline image.

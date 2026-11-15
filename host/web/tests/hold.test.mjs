@@ -1,19 +1,20 @@
-// Held states in a real browser: the input
+import { hostFixtureFile as readFileSync } from './glue-fixture.mjs';
+// Held states in a real browser (LLP 1122 D8, LLP 1121 stage 8 E): the input
 // glue's `hold`, which the build channel's `hold` and the agent's `holdState`
 // call. `active` holds the press of the node the press resolves to (its paint,
 // as a real press shows it); `hover` and `focus-visible` hold that node's look
 // (`data-exact-held`, which the looks rules take); a disabled node refuses one;
 // real input on the node, its disabling and its going let it go, said why.
 import { expect, beforeAll, afterAll } from 'bun:test';
-import { readFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { resolve } from 'node:path';
 import { cdpBrowser, chromium } from '../../../scripts/agent-launch.mjs';
 import { withLook } from '../look.mjs';
 import { need } from '../../../scripts/coverage.mjs';
 import { readyPage } from './page.mjs';
+import { fileURLToPath } from 'node:url';
 
-const WEB = resolve(new URL('..', import.meta.url).pathname);
+const WEB = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const { unavailable } = chromium();
 const check = need('chrome', unavailable);
 

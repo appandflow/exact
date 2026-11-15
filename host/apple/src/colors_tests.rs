@@ -1,4 +1,4 @@
-//! Colour references on the Apple host: what the kernel resolves itself — a
+//! LLP 1095 D1, D6 on the Apple host: what the kernel resolves itself — a
 //! gradient's stops, an SVG scene's paint, paint motion's endpoints —
 //! follows the presenter's report, and a new report re-presents it.
 use super::*;
@@ -71,8 +71,8 @@ fn a_report_re_presents_what_the_kernel_resolved() {
     host.set_scheme(false);
     let c = brand();
     assert_eq!(c.resolve(false), Color(0x1020_30ff));
-    // The first report corrects boot's resolution without motion:
-    // here a blue brand, after the scheme was already reported.
+    // The first report corrects boot's resolution without motion (LLP 1095
+    // D6): here a blue brand, after the scheme was already reported.
     let blue = Color(0x0000_ffff);
     let first = host.set_colors(vec![(c, false, blue), (c, true, blue)]);
     let v: serde_json::Value = serde_json::from_str(&first).unwrap();
@@ -109,7 +109,7 @@ fn a_report_re_presents_what_the_kernel_resolved() {
         "{}",
         scene["scene"]
     );
-    // The text's colour transitions toward the reported one.
+    // The text's colour transitions toward the reported one (LLP 1095 D6).
     let v: serde_json::Value = serde_json::from_str(&batch).unwrap();
     assert_eq!(v["motion"], true, "a transition runs");
     // The same report again changes nothing and sends nothing.
@@ -120,7 +120,7 @@ fn a_report_re_presents_what_the_kernel_resolved() {
     assert_eq!(c.resolve(false), Color(0x1020_30ff));
 }
 
-/// A space Core Graphics has no name for crosses as extended
+/// LLP 1100 D2: a space Core Graphics has no name for crosses as extended
 /// linear sRGB, unclipped.
 #[test]
 fn a_wide_colour_crosses_as_its_space_and_components() {
@@ -151,7 +151,7 @@ fn a_wide_colour_crosses_as_its_space_and_components() {
     );
 }
 
-/// End to end: box, shadow, SVG, gradient and profile
+/// LLP 1100 D2, D3 end to end: box, shadow, SVG, gradient and profile
 /// colours reach the presenter in their own space.
 #[test]
 fn wide_colours_reach_the_presenter_in_their_space() {
@@ -208,7 +208,7 @@ fn wide_colours_reach_the_presenter_in_their_space() {
     );
 }
 
-/// A transition to a wide colour moves in Oklab and ends in
+/// LLP 1100 D2: a transition to a wide colour moves in Oklab and ends in
 /// the colour as written.
 #[test]
 fn a_transition_to_a_wide_colour_ends_in_its_space() {
@@ -244,7 +244,7 @@ fn a_transition_to_a_wide_colour_ends_in_its_space() {
     );
 }
 
-/// `dynamic-range-limit` is inherited, so a box below the node
+/// LLP 1100 D8: `dynamic-range-limit` is inherited, so a box below the node
 /// that sets it gets it too.
 #[test]
 fn the_dynamic_range_limit_reaches_a_box_below_the_node_that_sets_it() {
@@ -269,7 +269,7 @@ fn the_dynamic_range_limit_reaches_a_box_below_the_node_that_sets_it() {
     );
 }
 
-/// `color-scheme` reaches every native view below the node
+/// LLP 1034 §8: `color-scheme` reaches every native view below the node
 /// that sets it (UIKit and AppKit inherit it too, but a popover or dialog the
 /// host lifts out of its ancestor would not), a change restyles them, and a
 /// box outside it carries nothing.
@@ -334,7 +334,7 @@ fn every_session_re_presents_a_changed_report_not_only_the_first() {
 fn a_box_filters_shadow_follows_the_report() {
     let _turn = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
     // One shadow is `currentcolor` under a referenced `color`, one names the
-    // reference itself.
+    // reference itself (LLP 1095 D1).
     let (mut host, _) = boot(&format!(
         "component A\n  view\n    column\n      box testId=\"inherits\" width=20 height=20 color=\"{BRAND}\" filter=\"drop-shadow(0px 2px 4px)\"\n      box testId=\"names\" width=20 height=20 filter=\"drop-shadow(0px 2px 4px {BRAND})\"\n"
     ));
@@ -352,7 +352,7 @@ fn a_box_filters_shadow_follows_the_report() {
         })
         .collect();
     assert_eq!(shadows.len(), 2, "{batch}");
-    // Light in `p`, and the dark appearance's own chain in `pd`.
+    // Light in `p`, and the dark appearance's own chain in `pd` (LLP 1095 D5).
     for (p, pd) in shadows {
         assert!(p.contains("1,0,0,1"), "the shadow is the reported red: {p}");
         assert!(pd.contains("0,1,0,1"), "and green when dark: {pd}");
@@ -499,11 +499,11 @@ fn hdr_colors_outside_motion_storage_change_discretely() {
     }
 }
 
-/// A role crosses as this platform's name for it. The accent
-/// is the view's tint on both Apple platforms (on the Mac
+/// A role crosses as this platform's name for it (LLP 1095 D1). The accent
+/// is the view's tint on both Apple platforms (LLP 1115.000 D3.4: on the Mac
 /// the nearest authored `accent-color`, else the system's), so an authored
 /// accent reaches it. A link and a button's text are the tint on iOS, and
-/// resolve alike there; on the Mac they are AppKit's own colours. An
+/// resolve alike there (D3.6); on the Mac they are AppKit's own colours. An
 /// unset page is `-exact-background`.
 #[test]
 fn a_role_crosses_as_this_platforms_colour() {
@@ -533,7 +533,7 @@ fn a_role_crosses_as_this_platforms_colour() {
     );
 }
 
-/// A batch says `facts` when the root font size or the window's
+/// LLP 1122 D4: a batch says `facts` when the root font size or the window's
 /// modes moved, the app's `setMode` (no command reaches the presenter) and
 /// `setRootFontSize` included, and only then.
 #[test]
@@ -541,7 +541,7 @@ fn a_batch_says_when_the_root_font_size_or_the_modes_moved() {
     let dir = std::env::temp_dir().join(format!("exact2-apple-facts-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
-    std::fs::write(dir.join("app.tamber"), "tamber t\n\naxes\n  density = cozy | compact\n\ntheme\n  ink = #111111\n    when density=compact: #222222\n").unwrap();
+    std::fs::write(dir.join("app.forma"), "forma t\n\naxes\n  density = cozy | compact\n\ntheme\n  ink = #111111\n    when density=compact: #222222\n").unwrap();
     std::fs::write(dir.join("app.contract"), "component App\n  action compact\n    setMode(\"density\", \"compact\")\n  action larger\n    setRootFontSize(20)\n  action nothing\n    copyText(\"x\")\n  view\n    column\n      button press=compact testId=\"compact\"\n        text \"compact\" color=\"ink\"\n      button press=larger testId=\"larger\"\n        text \"larger\"\n      button press=nothing testId=\"nothing\"\n        text \"nothing\"\n").unwrap();
     let plan = contract::compile_path(&dir.join("app.contract"))
         .unwrap()

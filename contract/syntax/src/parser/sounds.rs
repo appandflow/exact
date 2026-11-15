@@ -1,5 +1,5 @@
-//! `sound "assets/kit/kick.wav"` and the test step `expect sound`. `sound`
-//! is a keyword only at the start of a top-level line, as
+//! `sound "assets/kit/kick.wav"` and the test step `expect sound` (LLP 1096
+//! D1, D10). `sound` is a keyword only at the start of a top-level line, as
 //! `font` is, so `state sound = true` still declares a slot.
 
 use super::*;

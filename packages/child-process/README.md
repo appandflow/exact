@@ -1,7 +1,7 @@
 # @exact/child-process
 
 Programs a desktop app's data code starts, with Node's `child_process`
-names. macOS and Linux run them; iOS, tvOS, Android,
+names (LLP 1133.007). macOS and Linux run them; iOS, tvOS, Android,
 Windows and the web answer every name with `NotSupportedError`.
 
 ```ts

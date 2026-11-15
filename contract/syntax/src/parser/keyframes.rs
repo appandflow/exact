@@ -1,5 +1,5 @@
-//! `keyframes Name`: CSS `@keyframes` in Contract's indented form.
-//! Each line is one or more selectors — `from`, `to`, or a
+//! `keyframes Name`: CSS `@keyframes` in Contract's indented form
+//! (LLP 1055 D5). Each line is one or more selectors — `from`, `to`, or a
 //! percentage, separated by commas — then `attr=literal` values.
 
 use super::*;
@@ -15,8 +15,9 @@ impl Parser {
             loop {
                 let token = p.next();
                 let offset = match token.kind {
-                    TokenKind::Ident(w) if w == "from" => 0.0,
-                    TokenKind::Ident(w) if w == "to" => 100.0,
+                    // In any ASCII case, as CSS reads a keyword (CSS Values 4 §6.1).
+                    TokenKind::Ident(w) if w.eq_ignore_ascii_case("from") => 0.0,
+                    TokenKind::Ident(w) if w.eq_ignore_ascii_case("to") => 100.0,
                     TokenKind::Number(n) if p.eat_punct("%") => n,
                     TokenKind::Indent => {
                         return Err(SyntaxError {
@@ -60,6 +61,7 @@ impl Parser {
                     }
                 };
                 p.next();
+                p.unquoted_percent(&aname)?;
                 let value = match p.expr()? {
                     // `-8` is a literal to anyone writing a keyframe.
                     Expr::Unary(UnOp::Neg, inner, span) if matches!(*inner, Expr::Number(..)) => {
@@ -75,7 +77,7 @@ impl Parser {
                 p.unquoted_unit(&aname, &value)?;
                 // A palette function (`color=accent()`, `color=tone("strong",
                 // 0.4)`) is constant too: lowering folds it to its literal
-                // from its arguments.
+                // from its arguments (LLP 1062 D9).
                 if !matches!(value, Expr::Number(..) | Expr::Str(..) | Expr::Call(..)) {
                     return Err(SyntaxError {
                         id: "contract-keyframe-literal",

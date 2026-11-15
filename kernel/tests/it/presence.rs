@@ -1,4 +1,4 @@
-//! Exit animation and layout transition rows: which destroyed
+//! Exit animation and layout transition rows (LLP 1063): which destroyed
 //! nodes leave with an exit, and the seam that hands layout rows to motion.
 
 use crate::keyframed;
@@ -460,8 +460,8 @@ fn a_box_closing_to_zero_presents_the_size_it_closes_from() {
     assert_eq!(presented(&engine), [0.0; 4]);
 }
 
-/// A box a list moved for no author (rows built or measured before it)
-/// takes its place with no transition when idle; one already moving
+/// A box a list moved for no author (rows built or measured before it, LLP
+/// 1010) takes its place with no transition when idle; one already moving
 /// goes on moving toward the new place.
 #[test]
 fn an_unauthored_move_snaps_an_idle_box_and_retargets_a_moving_one() {

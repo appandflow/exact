@@ -1,19 +1,21 @@
-// @exact/background on Android: the fixture app (`test/fixture`) built as the Canvas
-// reader's APK, which compiles the package's Kotlin, with WorkManager in the one locked, verified Gradle
-// graph: a graph with no lock is refused, `--write-locks` writes the lock and checksums beside the app's other
-// locks, and a build checks against both. The roster binds the implementation, and WorkManager's library
+// @exact/background on Android (LLP 1133.017 §14 stage 3): the fixture app (`test/fixture`) built as the Canvas
+// reader's APK, which compiles the package's Kotlin, with WorkManager in the one locked, verified Gradle graph (LLP
+// 1133.008 D8 item 5): a graph with no lock is refused, `--write-locks` writes the lock and checksums beside the app's
+// other locks, and a build checks against both. The roster binds the implementation, and WorkManager's library
 // manifest merges its job service and the permissions it uses, so the package declares none. With `--emulator
 // <serial>` it drives the APK on that running emulator under the agent with the implementation bound (`--bind
 // background`): the status, a tag fired at once as the implementation's own wake, and `registerPeriodicSync`.
 //
 // usage: bun packages/background/test/android.mjs [--emulator <serial>]
 //   (an NDK of clang 18 or newer in ANDROID_NDK_HOME, and a JDK 17 or newer in JAVA_HOME)
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { checker } from '../../camera/test/fixture.mjs';
 import { texts, until } from '../../photos/test/fixture.mjs';
+import { ensureShells } from '../../../scripts/app-shells.mjs';
+import { apkBuildDir } from '../../../scripts/agent-android.mjs';
 
 const here = import.meta.dir, pkg = resolve(here, '..'), root = resolve(pkg, '../..');
 const argv = process.argv.slice(2), emulator = argv.includes('--emulator') ? argv[argv.indexOf('--emulator') + 1] : null;
@@ -31,7 +33,7 @@ const puller = Bun.serve({ port: 0, hostname: '127.0.0.1', fetch() { pulls++; re
 
 const dir = mkdtempSync(join(tmpdir(), 'exact-background-')), name = 'bgfixture', app = join(dir, name);
 try {
-  run('bun', [resolve(root, 'scripts/exact.mjs'), 'new', app], root);
+  run('bun', [resolve(root, 'scripts/exact.mjs'), 'new', app, '--with', 'android'], root);
   for (const f of ['app.contract', 'app.ts']) cpSync(join(here, 'fixture', f), join(app, f));
   rmSync(join(app, 'app.test.contract'), { force: true });
   const id = JSON.parse(readFileSync(join(app, 'app.json'), 'utf8')).app.id;
@@ -40,17 +42,10 @@ try {
   manifest.dependencies = { ...manifest.dependencies, '@exact/background': `file:${pkg}` };
   writeFileSync(join(app, 'package.json'), JSON.stringify(manifest, null, 2));
   run('bun', ['install'], app);
-  // `exact new` writes no Canvas library: Weatherlight's, by path into this checkout.
-  const template = resolve(root, 'apps/weatherlight/android'), crate = resolve(app, 'android');
-  mkdirSync(resolve(crate, 'src'), { recursive: true });
-  writeFileSync(resolve(crate, 'Cargo.toml'), readFileSync(resolve(template, 'Cargo.toml'), 'utf8')
-    .replace('name = "weatherlight-android"', `name = "${name}-android"`).replaceAll('"../../../', `"${root}/`));
-  writeFileSync(resolve(crate, 'build.rs'), readFileSync(resolve(template, 'build.rs'), 'utf8').replace('"bake Weatherlight"', '"bake the fixture"'));
-  writeFileSync(resolve(crate, 'src/lib.rs'), readFileSync(resolve(template, 'src/lib.rs'), 'utf8'));
-  const workspace = resolve(app, 'Cargo.toml');
-  writeFileSync(workspace, readFileSync(workspace, 'utf8').replace('members = ["apple", "linux", "web"]', 'members = ["android", "apple", "linux", "web"]'));
-  run('bun', ['exact.mjs', 'lock'], app);
-  const env = { ...process.env, EXACT_APP_DIR: app, EXACT2: root, HERMES_LEAN_SYS_OFFLINE: '1' };
+  // The native workspace written before the build starts: one the build wrote
+  // is newer than the build, and the driver refuses the build as stale.
+  ensureShells(app);
+  const env = { ...process.env, EXACT_APP_DIR: app, EXACT: root, HERMES_LEAN_SYS_OFFLINE: '1' };
   const build = (...flags) => spawnSync('bun', [resolve(root, 'scripts/agent-android.mjs'), 'build', name, '--apk', ...flags], { cwd: root, env, encoding: 'utf8', maxBuffer: 1 << 28 });
   const lock = resolve(app, 'gradle.lockfile'), checksums = resolve(app, 'gradle-verification.xml');
 
@@ -63,11 +58,11 @@ try {
   const sums = existsSync(checksums) ? readFileSync(checksums, 'utf8') : '';
   check('android', 'the checksums cover it', /<component group="androidx\.work" name="work-runtime" version="2\.12\.0">/.test(sums) && /sha256/.test(sums), sums.slice(0, 400) || `no ${checksums}`);
 
-  const generated = resolve(root, 'host/android/app/build', name, 'extensions/exact/app/ExactExtensions.kt');
+  const out = apkBuildDir(app), generated = resolve(out, 'extensions/exact/app/ExactExtensions.kt');
   const roster = existsSync(generated) ? readFileSync(generated, 'utf8') : '';
   check('android', 'the roster binds the implementation', roster.includes('exact.background.BackgroundModule'), roster || `no ${generated}`);
-  const merged = readdirSync(resolve(root, 'host/android/app/build', name), { recursive: true }).find((f) => String(f).includes('merged_manifests/release/') && String(f).endsWith('AndroidManifest.xml'));
-  const xml = merged ? readFileSync(resolve(root, 'host/android/app/build', name, merged), 'utf8') : '';
+  const merged = readdirSync(out, { recursive: true }).find((f) => String(f).includes('merged_manifests/release/') && String(f).endsWith('AndroidManifest.xml'));
+  const xml = merged ? readFileSync(resolve(out, merged), 'utf8') : '';
   check('android', "the manifest carries WorkManager's job service and the network state permission", xml.includes('androidx.work.impl.background.systemjob.SystemJobService')
     && xml.includes('android.permission.ACCESS_NETWORK_STATE'), merged ?? 'no merged manifest');
 

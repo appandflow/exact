@@ -1,8 +1,10 @@
 //! SVG 2 shapes: the paint and dash values, and the one geometry every host
 //! paints.
 //!
-//! Presentation properties are style rows, and geometry is parsed once, in
-//! Rust. Every host is Rust at its boundary, so path data, points, basic shapes and
+//! @ref LLP 1055 D1 (the subset), D2 (presentation properties as rows), D3
+//! (geometry parsed once, in Rust)
+//!
+//! Every host is Rust at its boundary, so path data, points, basic shapes and
 //! the `viewBox` transform are computed here and nowhere else: no host parses
 //! SVG, and no two hosts can disagree about an arc.
 
@@ -26,7 +28,7 @@ pub use shape::{circle, dash_scale, ellipse, geometry, view_box, view_box_transf
 pub use transform::{Affine, TransformList, TransformOrigin};
 
 impl NodeType {
-    /// An element inside an `svg`: `g` or a shape. Never laid
+    /// An element inside an `svg`: `g` or a shape (LLP 1055 D3). Never laid
     /// out as a box; painted by its `svg` from [`geometry`].
     pub fn is_svg_element(self) -> bool {
         matches!(
@@ -74,7 +76,7 @@ impl NodeType {
 
     /// Whether the element renders where it stands: definitions (`defs`,
     /// gradients, `stop`, `symbol`) render only through a reference, and a
-    /// `foreignObject` only on the web: a native host's
+    /// `foreignObject` only on the web (LLP 1055.000 D13): a native host's
     /// scene has none.
     pub fn renders(self) -> bool {
         !matches!(
@@ -151,7 +153,7 @@ impl NodeType {
 }
 
 /// An `svg` box's natural aspect ratio, width over height, from a view box
-/// with area; `None` for any other node.
+/// with area (LLP 1055.000 D4); `None` for any other node.
 pub(crate) fn natural_ratio(arena: &crate::arena::NodeArena, slot: u32) -> Option<f32> {
     if arena.node_type(slot) != NodeType::Svg {
         return None;
@@ -161,8 +163,8 @@ pub(crate) fn natural_ratio(arena: &crate::arena::NodeArena, slot: u32) -> Optio
 }
 
 /// SVG paint (`fill`, `stroke`, `stop-color`): `none`, `currentcolor`, a
-/// colour, or a paint server `url(#id)` with an optional fallback. Only
-/// same-document references: an external URL is
+/// colour, or a paint server `url(#id)` with an optional fallback (LLP
+/// 1055.000 D3, D7). Only same-document references: an external URL is
 /// refused.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub enum Paint {
@@ -194,7 +196,7 @@ pub enum PaintFallback {
 
 impl Paint {
     /// `stop-color`'s and `flood-color`'s initial value, SVG's own. `fill`'s
-    /// was this too; unsaid it is `currentcolor` now.
+    /// was this too; unsaid it is `currentcolor` now (LLP 1115.000 D3.8).
     pub const BLACK: Paint = Paint::Color(ColorValue::Fixed(Color(0x0000_00ff)));
     /// `lighting-color`'s initial value.
     pub const WHITE: Paint = Paint::Color(ColorValue::Fixed(Color(0xffff_ffff)));
@@ -234,7 +236,7 @@ impl Paint {
         self.text(ColorText::Css)
     }
 
-    /// The wire form: [`Self::css`], with every reference kept.
+    /// The wire form: [`Self::css`], with every reference kept (LLP 1095 D1).
     pub fn wire(&self) -> String {
         self.text(ColorText::Wire)
     }
@@ -338,7 +340,7 @@ impl PaintOrder {
 }
 
 /// SVG `marker-start`, `marker-mid` and `marker-end`: `none`, or a
-/// `marker` by `url(#id)`.
+/// `marker` by `url(#id)` (LLP 1055.000 D9).
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct MarkerRef(pub Option<Box<str>>);
 
@@ -419,7 +421,7 @@ impl DashArray {
 
     /// The pattern a painter draws: the list repeated to even length, each
     /// entry multiplied by `scale` (the path's length over `pathLength`).
-    /// Empty when there is no dashing: `none`, or a pattern that sums to 0.
+    /// Empty for `none` or an authored pattern that sums to 0.
     pub fn pattern(&self, scale: f32) -> Vec<f32> {
         if self.0.iter().sum::<f32>() <= 0.0 {
             return Vec::new();

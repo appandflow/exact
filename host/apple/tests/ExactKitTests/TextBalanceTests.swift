@@ -1,4 +1,4 @@
-// CSS `text-wrap-style: balance` on Apple: the lines before
+// CSS `text-wrap-style: balance` on Apple (LLP 1001 §6): the lines before
 // the first forced break break at the narrowest width that keeps their
 // count, up to six lines, as Chrome's do; the box measures as greedy lines.
 // The expected lines and widths are Chrome's for 16px Arial (a Range per

@@ -1,4 +1,4 @@
-//! Keys and paste, and where they are routed.
+//! Keys and paste, routed as LLP 1101 D6 says.
 //!
 //! A key goes to the focused node's (or its nearest ancestor's) `key`
 //! handler first, with nothing focused to the root's (as the web's `window`
@@ -6,8 +6,10 @@
 //! called `preventDefault()`, a field edits, a dialog's Escape closes it,
 //! `aria-keyshortcuts` presses its node (without moving the focus), Tab and
 //! the arrows move the focus — or, with nothing focused, the arrows, Space,
-//! Home and End scroll, as a page's keys do — and Ctrl-C leaves — so an app that wants Ctrl-C (an agent interrupting
-//! a reply) claims it with `preventDefault()`.
+//! Home and End scroll, as a page's keys do. Ctrl-C leaves and Ctrl-Z
+//! suspends unless the app claims them with `preventDefault()`. Ctrl-\ leaves
+//! before any of this: no handler or shortcut can take it, so an app that
+//! claims every key still has one that ends it.
 
 use crate::host::{After, Host, Key};
 use exact_kernel::{PropId, ViewId};
@@ -119,10 +121,14 @@ impl<D: DataSource> Host<D> {
             }
             Key::Named(dir @ ("ArrowUp" | "ArrowDown")) if self.is_textarea(f) => {
                 // By visual line, keeping the column; at the first or last
-                // line the caret stays: the arrows never
+                // line the caret stays (LLP 1101.001 P15): the arrows never
                 // leave the field.
                 let up = *dir == "ArrowUp";
-                let width = self.cells_of(f).map_or(1, |r| r.w.max(1) as usize);
+                let width = self.kernel().node(f).map_or(1, |n| {
+                    crate::paint::content_cells(self.kernel(), &n, 0.0, 0.0)
+                        .w
+                        .max(1) as usize
+                });
                 let value = self.value(f);
                 let lines = visual_lines(&value, width);
                 let caret = self.caret.min(lines.last().map_or(0, |l| l.1));
@@ -166,11 +172,14 @@ impl<D: DataSource> Host<D> {
 
     /// A key, routed as the module comment says.
     pub fn key(&mut self, key: Key) -> After {
+        if key == Key::Ctrl('\\') {
+            return After::Quit;
+        }
         self.advance_for_input();
         let chord = key.chord();
         // A focused control the screen has not shown yet (a dialog this
         // read opened) takes no typed-ahead key: not its handler, not its
-        // text, not its submit.
+        // text, not its submit (LLP 1101.002 §0 P1).
         let focus = self.focus.filter(|f| self.armed(*f));
         // The focused node's (or its nearest ancestor's) `key` handler
         // first; with nothing focused, the first root's.
@@ -189,7 +198,10 @@ impl<D: DataSource> Host<D> {
         if std::mem::take(&mut self.prevented) {
             return After::Continue;
         }
-        if let Some(f) = focus.filter(|f| self.is_field(*f)) {
+        // The handler may have moved the focus, or covered the field.
+        let field =
+            |h: &Self, f: ViewId| h.focus == Some(f) && h.input_eligible(f) && h.is_field(f);
+        if let Some(f) = focus.filter(|f| field(self, *f)) {
             if self.field_key(f, &key) {
                 return After::Continue;
             }
@@ -217,12 +229,12 @@ impl<D: DataSource> Host<D> {
             return After::Continue;
         }
         match key {
-            // Ctrl-\ always leaves; Ctrl-C and Ctrl-D leave when nothing took them.
-            Key::Ctrl('\\') => return After::Quit,
+            // Ctrl-C and Ctrl-D leave when nothing took them.
             Key::Ctrl('c') | Key::Ctrl('d') => return After::Quit,
+            Key::Ctrl('z') => return After::Suspend,
             // With nothing focused the keys scroll, as a page's do on the
             // web; with a control focused the arrows move among controls
-            // (a terminal list's convention).
+            // (a terminal list's convention, LLP 1101 D6).
             Key::Named("ArrowDown") if self.focus.is_none() => self.scroll_rows(1),
             Key::Named("ArrowUp") if self.focus.is_none() => self.scroll_rows(-1),
             Key::Char(' ') if self.focus.is_none() => self.page(true),
@@ -267,18 +279,16 @@ fn same_chord(declared: &str, chord: &str) -> bool {
 /// A textarea's visual lines as (first cluster, end cluster) pairs, broken
 /// at newlines and at `width` columns, as the painter lays them out.
 fn visual_lines(value: &str, width: usize) -> Vec<(usize, usize)> {
-    use unicode_width::UnicodeWidthStr;
     let mut lines = vec![(0, 0)];
     let mut col = 0;
-    for (i, g) in value.graphemes(true).enumerate() {
-        if g == "\n" || g == "\r\n" {
+    for (i, (g, w)) in crate::paint::clusters(value).into_iter().enumerate() {
+        if g == "\n" {
             lines.last_mut().expect("a line").1 = i;
             lines.push((i + 1, i + 1));
             col = 0;
             continue;
         }
-        let w = g.width().max(1);
-        if col + w > width && col > 0 {
+        if crate::paint::wraps_before(col, w, width) {
             lines.last_mut().expect("a line").1 = i;
             lines.push((i, i));
             col = 0;
@@ -296,5 +306,37 @@ mod tests {
         assert_eq!(super::visual_lines("ab\ncd", 10), vec![(0, 2), (3, 5)]);
         assert_eq!(super::visual_lines("abcdef", 4), vec![(0, 4), (4, 6)]);
         assert_eq!(super::visual_lines("", 4), vec![(0, 0)]);
+    }
+
+    /// ArrowUp and ArrowDown move through the lines the screen shows: a
+    /// textarea's border and padding are not its lines' columns.
+    #[test]
+    fn arrows_move_through_the_lines_painted() {
+        use crate::host::{Host, Key, Mode};
+        for (value, frame, end, up) in [
+            (
+                "abcdefghijklmnopqrstuvwxy",
+                "border=\"thin solid\" padding=\"0 1ch\"",
+                (7, 3),
+                (7, 2),
+            ),
+            (
+                "abcdefghijkl",
+                "border=\"thin solid\" padding=\"0 1ch\"",
+                (4, 2),
+                (4, 1),
+            ),
+            ("abcdefghijkl", "", (2, 1), (2, 0)),
+        ] {
+            let plan = contract::compile_terminal(&format!(
+                "component App\n  state draft = \"{value}\"\n  action write(v: string)\n    draft = v\n  view\n    column\n      textarea value=draft input=write appearance=\"none\" autofocus=true width=\"10ch\" rows=4 {frame}\n"
+            ))
+            .unwrap();
+            let mut host = Host::boot(plan, (), Mode::Fullscreen, 20, 8).unwrap();
+            host.arm = false;
+            assert_eq!(host.frame().grid.cursor, Some(end), "{value} {frame}");
+            host.key(Key::Named("ArrowUp"));
+            assert_eq!(host.frame().grid.cursor, Some(up), "{value} {frame}");
+        }
     }
 }

@@ -1,7 +1,7 @@
 #!/bin/sh
-# UIKit spring probe: what UIKit's spring calls really run.
+# UIKit spring probe (LLP 1099 §3): what UIKit's spring calls really run.
 # Builds a one-scene simulator app, runs it on the given simulator, prints
-# its report (one line per call) and uninstalls it.
+# its report (one line per call; formats in LLP 1099 §3) and uninstalls it.
 #
 #   motion/tests/fixtures/uikit-springs/probe/probe.sh <simulator udid> > report.txt
 set -eu

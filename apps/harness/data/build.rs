@@ -1,5 +1,5 @@
 //! Generate the seam's Rust types from `../shapes.contract` with
-//! `contract rust`, into `OUT_DIR`, as that generator's
+//! `contract rust` (LLP 1101.002 P9), into `OUT_DIR`, as that generator's
 //! documentation says: a field added to a shape is a compile error here,
 //! not a record built one position off. The declaration file needs a
 //! component to compile; a bare one is added, and every declared shape is
@@ -12,7 +12,7 @@ fn main() {
     let source = format!("{shapes}\ncomponent Seam\n  view\n    text \"\"\n");
     let plan = contract::compile(&source)
         .unwrap_or_else(|e| panic!("../shapes.contract does not compile: {e}"));
-    let rust = contract::rust(&plan).expect("contract rust");
+    let rust = contract::rust(&plan, &Default::default()).expect("contract rust");
     let out = std::path::Path::new(&std::env::var("OUT_DIR").expect("OUT_DIR")).join("shapes.rs");
     std::fs::write(out, rust).expect("write shapes.rs");
 }

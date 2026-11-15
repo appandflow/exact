@@ -42,7 +42,7 @@ pub(super) fn rows(
             "--exact-button-leading-subtitle-areas:\"image space title\" \"image space subtitle\";--exact-button-trailing-subtitle-areas:\"title space image\" \"subtitle space image\";--exact-button-space-width:var(--exact-button-column-gap,auto);--exact-button-space-height:0px;--exact-button-columns:auto auto minmax(var(--exact-button-title-min,min-content),auto);--exact-button-space:var(--exact-button-column-space);"
         });
     }
-    // The title column keeps its min-content floor
+    // @ref LLP 1116 D1 — the title column keeps its min-content floor
     // (index.html), so a narrow row never cuts a word; a title the author
     // keeps to one line may still truncate.
     if style.mask.has(StyleId::WhiteSpace)
@@ -98,21 +98,42 @@ pub(super) fn face(node: &exact_kernel::NodeFacts<'_>, mut css: String) -> Strin
             css = css.replace("display:-webkit-box;", "");
             if node.style.line_clamp > 0 {
                 css.push_str(&format!(
-                    "--exact-button-clamp:{};--exact-button-title-display:-webkit-box;",
+                    "--exact-button-clamp:{};--exact-button-title-display:-webkit-box;--exact-button-title-overflow:hidden;",
                     node.style.line_clamp
                 ));
             }
         }
     }
+    // A bare button's inline padding, which the neutral sheet adds a checked menu's mark column to
+    // (neutral.css): the inline style outranks the sheet, which cannot read it.
+    if node.node_type == NodeType::Pressable {
+        let mut mirrors = String::new();
+        for row in css.split(';') {
+            for side in ["padding-left:", "padding-right:", "padding-inline-start:"] {
+                if let Some(value) = row.strip_prefix(side) {
+                    mirrors.push_str("--exact-");
+                    mirrors.push_str(side);
+                    mirrors.push_str(value);
+                    mirrors.push(';');
+                }
+            }
+        }
+        css.push_str(&mirrors);
+    }
     // A face text's own clamp overrides the button's inherited clamp.
     if node.node_type == NodeType::Text && node.style.mask.has(StyleId::LineClamp) {
         css.push_str(&format!(
-            "--exact-button-clamp:{};--exact-button-title-display:{};",
+            "--exact-button-clamp:{};--exact-button-title-display:{};--exact-button-title-overflow:{};",
             node.style.line_clamp,
             if node.style.line_clamp > 0 {
                 "-webkit-box"
             } else {
                 "block"
+            },
+            if node.style.line_clamp > 0 {
+                "hidden"
+            } else {
+                "clip"
             }
         ));
     }
@@ -149,5 +170,34 @@ mod tests {
         css.clear();
         super::rows(&style, &mut css, &|_, _| false);
         assert!(css.contains("--exact-button-row-gap:0px;"), "{css}");
+    }
+
+    #[test]
+    fn a_bare_button_copies_its_inline_padding_for_the_menu_mark() {
+        use exact_kernel::{NodeFacts, NodeType, PropList, StyleProps};
+        let style = StyleProps::default();
+        let props = PropList::new();
+        let node = |node_type| NodeFacts {
+            id: 1,
+            node_type,
+            style: &style,
+            props: &props,
+            is_root: false,
+            inline_run: false,
+            symbol_color: false,
+            has_looks: false,
+        };
+        let written = "padding-top:4px;padding-right:calc(2px + 1em);padding-left:4px;";
+        assert_eq!(
+            super::face(&node(NodeType::Pressable), written.into()),
+            format!("{written}--exact-padding-right:calc(2px + 1em);--exact-padding-left:4px;")
+        );
+        // The sheet's mirrored side, the end of an unsaid pair, is not the mark's.
+        let unsaid = "padding-inline-start:8px;padding-inline-end:8px;";
+        assert_eq!(
+            super::face(&node(NodeType::Pressable), unsaid.into()),
+            format!("{unsaid}--exact-padding-inline-start:8px;")
+        );
+        assert_eq!(super::face(&node(NodeType::View), written.into()), written);
     }
 }

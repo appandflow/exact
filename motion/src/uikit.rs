@@ -1,6 +1,6 @@
 //! UIKit's spring parameterisations, resolved to the springs UIKit builds.
 //!
-//! UIKit's springs, everywhere.
+//! @ref LLP 1099 D1–D4 (UIKit's springs, everywhere)
 //!
 //! UIKit describes a spring as "0.4 s, damping ratio 0.8, velocity 1" and
 //! hands Core Animation a physical spring (mass 1, a solved stiffness) that it
@@ -12,13 +12,13 @@
 //! - [`duration`]: `animate(withDuration:usingSpringWithDamping:
 //!   initialSpringVelocity:)` and `UIViewPropertyAnimator(duration:
 //!   dampingRatio:)`. A closed form at zero velocity; otherwise a
-//!   reconstruction of UIKit's twelve Newton steps.
+//!   reconstruction of UIKit's twelve Newton steps (D2).
 //! - [`bounce`]: iOS 17's `animate(springDuration:bounce:)`, exact
-//!   coefficients and the end time UIKit computes.
-//! - [`response`]: response and damping fraction, the SwiftUI form a
-//!   messaging app's helper feeds `UISpringTimingParameters(mass:stiffness:damping:)`.
+//!   coefficients and the end time UIKit computes (D3).
+//! - [`response`]: response and damping fraction, the SwiftUI form Signal's
+//!   helper feeds `UISpringTimingParameters(mass:stiffness:damping:)`.
 //! - [`sample`]: Core Animation's curve, including its overdamped branch,
-//!   which pairs each coefficient with the other exponent.
+//!   which pairs each coefficient with the other exponent (D4).
 //!
 //! Velocities here are UIKit's: moves per second, where 1 is the whole
 //! distance in a second. Every transcendental goes through [`crate::math`].
@@ -32,13 +32,13 @@ pub const EPSILON: f64 = 1e-3;
 /// The shortest duration or response accepted, in seconds.
 pub const MIN_DURATION: f64 = 0.001;
 
-/// The latest a timed spring may end, in seconds after it starts.
+/// The latest a timed spring may end, in seconds after it starts (D3).
 pub const MAX_END: f64 = 60.0;
 
 /// The smallest damping ratio accepted: the probe measured nothing below.
 pub const MIN_RATIO: f64 = 0.01;
 
-/// Where Newton starts, in W = ω·duration.
+/// Where Newton starts, in W = ω·duration (D2).
 const START: f64 = 5.0;
 
 /// How many Newton steps UIKit takes. The step cap, not convergence, is
@@ -55,11 +55,11 @@ pub enum Branch {
     /// Animation without `allowsOverdamping` clamps ζ to 1; the duration and
     /// response forms clamp ζ when they resolve, so their springs are
     /// already Core Animation's. A physical spring keeps true overdamped
-    /// physics.
+    /// physics (LLP 1099 D4).
     Textbook,
     /// Core Animation with `allowsOverdamping`: above critical, each
     /// coefficient pairs with the other exponent, so the spring starts
-    /// faster than its velocity and overshoots.
+    /// faster than its velocity and overshoots (D4).
     Overdamped,
 }
 
@@ -88,7 +88,7 @@ pub enum UikitError {
     Ratio,
     /// A bounce outside (−1, 1).
     Bounce,
-    /// The duration-form procedure found no root.
+    /// The duration-form procedure found no root (D2's validation).
     NoRoot,
     /// The spring would end more than [`MAX_END`] after it starts.
     EndTooLate,
@@ -97,7 +97,7 @@ pub enum UikitError {
 }
 
 /// The duration form's settle residual `g(W)`: `|B|·e^(−ζ'W) − ε` below
-/// critical, `|−1 + (u/W − 1)·W|·e^(−W) − ε` at it. `zeta` is already
+/// critical, `|−1 + (u/W − 1)·W|·e^(−W) − ε` at it (D2). `zeta` is already
 /// clamped to at most 1.
 pub fn residual(w: f64, zeta: f64, u: f64) -> f64 {
     let e = math::exp(-zeta * w);
@@ -110,7 +110,7 @@ pub fn residual(w: f64, zeta: f64, u: f64) -> f64 {
 }
 
 /// W = ω·duration for a damping ratio (clamped to 1) and a normalised
-/// velocity `u` = velocity × duration. The closed form at
+/// velocity `u` = velocity × duration, by D2's procedure. The closed form at
 /// zero velocity; otherwise twelve Newton steps from W = 5, halving a step
 /// that lands at or below zero, stopping early only on a zero derivative.
 /// The answer is not validated; see [`is_root`].
@@ -152,7 +152,7 @@ pub fn duration_w(zeta: f64, u: f64) -> f64 {
 }
 
 /// Whether `w` is an acceptable root: finite, in (0, 10⁴], with
-/// `|g(w)| ≤ 0.1·ε`. Where the procedure matches UIKit, |g| is at most
+/// `|g(w)| ≤ 0.1·ε` (D2). Where the procedure matches UIKit, |g| is at most
 /// 0.059·ε.
 pub fn is_root(w: f64, zeta: f64, u: f64) -> bool {
     w.is_finite() && w > 0.0 && w <= 1e4 && residual(w, zeta.min(1.0), u).abs() <= 0.1 * EPSILON
@@ -160,7 +160,7 @@ pub fn is_root(w: f64, zeta: f64, u: f64) -> bool {
 
 /// Whether (ζ, u) lies in the band where UIKit's own solver is chaotic and
 /// the reconstruction may pick another root: u > 0 and
-/// 0.6 ≤ u/min(ζ, 1) ≤ 8. It holds every measured miss.
+/// 0.6 ≤ u/min(ζ, 1) ≤ 8 (LLP 1099 §4.3). It holds every measured miss.
 pub fn in_band(zeta: f64, u: f64) -> bool {
     let r = u / zeta.min(1.0);
     u > 0.0 && (0.6..=8.0).contains(&r)
@@ -201,7 +201,7 @@ fn finish(
 
 /// The duration form: duration `d` seconds, damping ratio `zeta`, initial
 /// velocity `velocity` in moves per second. Mass 1, ζ' = min(ζ, 1),
-/// k = (W/d)², c = 2ζ'·W/d, ending at `d`.
+/// k = (W/d)², c = 2ζ'·W/d, ending at `d` (D1–D3).
 pub fn duration(d: f64, zeta: f64, velocity: f64) -> Result<Resolved, UikitError> {
     if !zeta.is_finite() || !velocity.is_finite() {
         return Err(UikitError::NonFinite);
@@ -228,7 +228,7 @@ pub fn duration(d: f64, zeta: f64, velocity: f64) -> Result<Resolved, UikitError
 /// The bounce form: iOS 17's `animate(springDuration: d, bounce: b,
 /// initialSpringVelocity: velocity)`. k = (2π/d)², c = 4π(1 − b)/d for
 /// b ≥ 0 and 4π/(d(1 + b)) below; below b 0 Core Animation's overdamped
-/// branch. It ends where UIKit ends it.
+/// branch. It ends where UIKit ends it (D3).
 pub fn bounce(d: f64, b: f64, velocity: f64) -> Result<Resolved, UikitError> {
     if !b.is_finite() || !velocity.is_finite() {
         return Err(UikitError::NonFinite);
@@ -266,7 +266,7 @@ pub fn bounce(d: f64, b: f64, velocity: f64) -> Result<Resolved, UikitError> {
 
 /// The response form: response `r` seconds and damping fraction `zeta`,
 /// k = (2π/r)², c = 4π·min(ζ, 1)/r, ending at rest unless the spelling
-/// gives an end time.
+/// gives an end time (D1, D3).
 pub fn response(r: f64, zeta: f64, velocity: f64) -> Result<Resolved, UikitError> {
     if !zeta.is_finite() || !velocity.is_finite() {
         return Err(UikitError::NonFinite);
@@ -286,8 +286,8 @@ pub fn response(r: f64, zeta: f64, velocity: f64) -> Result<Resolved, UikitError
 }
 
 /// Core Animation's `settlingDuration` below critical damping:
-/// `ln((1 + |B|)/ε)/(ζω)` with `B = (v − ζω)/ω_d`, `v` in moves per second.
-/// It matches every measured row to 2.2·10⁻¹⁶.
+/// `ln((1 + |B|)/ε)/(ζω)` with `B = (v − ζω)/ω_d`, `v` in moves per second
+/// (D3). It matches every measured row to 2.2·10⁻¹⁶.
 pub fn core_animation_settle(config: &SpringConfig, velocity: f64) -> f64 {
     let omega = math::sqrt(config.stiffness / config.mass);
     let zeta = config.damping / (2.0 * math::sqrt(config.stiffness * config.mass));
@@ -298,7 +298,7 @@ pub fn core_animation_settle(config: &SpringConfig, velocity: f64) -> f64 {
 
 /// The critically damped settle time UIKit gives the bounce form at and
 /// above critical: the last root of `F(T) = |−1 + (v − ω)T|·e^(−ωT) − ε`,
-/// by bracketing (the chosen lobe's peak, doubling from max(peak, 1/ω)
+/// by D3's bracket (the chosen lobe's peak, doubling from max(peak, 1/ω)
 /// while F > 0, then 200 bisection steps keeping F(lo) > 0).
 pub fn critical_settle(omega: f64, velocity: f64) -> f64 {
     let f = |t: f64| (-1.0 + (velocity - omega) * t).abs() * math::exp(-omega * t) - EPSILON;
@@ -339,7 +339,7 @@ pub fn critical_settle(omega: f64, velocity: f64) -> f64 {
 
 /// The state `elapsed` seconds after release at `displacement` from the
 /// target with `velocity` (both in property units), as Core Animation
-/// evaluates the spring on `branch`.
+/// evaluates the spring on `branch` (D4).
 pub fn sample(
     config: &SpringConfig,
     branch: Branch,

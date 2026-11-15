@@ -1,4 +1,4 @@
-// Markdown source into the text engine's runs.
+// Markdown source into the text engine's runs (LLP 1045 D3, D4).
 //
 // A `markup="markdown"` node reaches the engine as one run of source. The
 // archive's `exact_markup_pieces` turns it into display pieces — the same
@@ -25,27 +25,27 @@ enum MarkupRuns {
     }
 
     /// A link's target as the reader follows it: an absolute path is a
-    /// location in the app (`ExactSession.follow`), which needs
-    /// no document base, as the web's `[Ideas](/note/3)` needs none;
-    /// otherwise `navigationURL`'s, or nothing.
+    /// location in the app (`ExactSession.follow`, LLP 1038 §7), which needs
+    /// no document base, as the web's `[Ideas](/note/3)` needs none (notes
+    /// diary); otherwise `navigationURL`'s, or nothing.
     static func target(_ href: String) -> String? {
         if href.hasPrefix("/"), !href.hasPrefix("//") { return href }
         return navigationURL(href)?.absoluteString
     }
 
     /// The `href` an atom's run carries: the press it reports, never a
-    /// destination (`NodeView.activateLink` takes it).
+    /// destination (`NodeView.activateLink` takes it, LLP 1045.000 D7).
     static let atomScheme = "exact-atom:"
 
     /// Expand `source` into runs over `base` (the node's own run style).
     /// `color` is the node's ink; nil keeps the paragraph colour. `boldText`:
     /// Bold Text weights `base`, and a piece's own weight takes its step.
-    /// An atom is its label on a rounded inline box, a
+    /// An atom (LLP 1045.000 D6) is its label on a rounded inline box, a
     /// narrow no-break space each side its padding (none where its kind's
     /// padding is zero), so a line breaks around it and never inside its
     /// ends; its label is isolated in the direction its face pins, else in
     /// the lines' (`atoms.rtl`, D4). Its kind's own paint draws (colours,
-    /// radius, underline); a border, a ring, a state's paint and an icon do
+    /// radius, underline); a border, a ring and a state's paint do
     /// not, in a reader.
     static func expand(_ source: String, base: Run, color: [Double]?, boldText: Bool = false, atoms: MarkdownAtoms = MarkdownAtoms()) -> [Run] {
         var out: [Run] = []
@@ -66,7 +66,7 @@ enum MarkupRuns {
                 if p.font_weight != 0 { run.weight = boldText ? TextEngine.bolder(Int(p.font_weight)) : Int(p.font_weight) }
                 if p.italic != 0 { run.italic = true }
                 if p.mono != 0 { run.family = monospaceFamily }
-                // A list item's indent and hung marker (`LineInsets`).
+                // A list item's indent and hung marker (LLP 1045 D4, `LineInsets`).
                 run.indent = CGFloat(p.indent); run.hang = p.hang != 0
                 if let href = p.href, p.href_len > 0 {
                     let target = String(decoding: UnsafeBufferPointer(start: href, count: p.href_len), as: UTF8.self)
@@ -85,18 +85,24 @@ enum MarkupRuns {
                 }
                 if let detail = atom {
                     let kind = detail["kind"] as? String ?? ""
-                    // One line, as a pill is: its spaces and hyphens do not break.
+                    // One line, as a pill is (D4): its spaces and hyphens do not break.
                     let unbroken = run.text.replacingOccurrences(of: " ", with: "\u{00A0}").replacingOccurrences(of: "-", with: "\u{2011}")
                     // One box in the line, as the web's is: isolated in the direction its
-                    // face pins, else in its line's.
+                    // face pins, else in its line's (D4).
                     let pinned = ["ltr": "\u{2066}", "rtl": "\u{2067}"][detail["direction"] as? String ?? ""]
                     let pad = metrics[kind]?.padding == 0 ? "" : "\u{202F}"
+                    if let icon = detail["icon"] as? String, !icon.isEmpty {
+                        let m = metrics[kind]
+                        run.atomIcon = AtomIconRun(source: icon, size: m?.icon, sizeEm: m?.iconEm ?? false,
+                                                   gap: m?.gap, gapEm: m?.gapEm ?? false,
+                                                   rtl: pinned.map { $0 == "\u{2067}" } ?? atoms.rtl)
+                    }
                     run.text = pad + (pinned ?? (atoms.rtl ? "\u{2067}" : "\u{2066}")) + unbroken + "\u{2069}" + pad
                     // Its press is the atom's, not a link's: never underlined as one, but as its kind says.
                     let rows = paint[kind]
                     run.decoration = [p.strike != 0 ? "line-through" : "", rows?.underline == true ? "underline" : ""].filter { !$0.isEmpty }.joined(separator: " ")
                     if run.decoration.isEmpty { run.decoration = "none" }
-                    // The face's paint over its kind's.
+                    // The face's paint over its kind's (D2, D4).
                     run.background = AtomPaint.face(detail["background"], atoms) ?? rows?.background ?? AtomPaint.token(dark: atoms.dark, contrast: atoms.contrast)
                     if let ink = AtomPaint.face(detail["color"], atoms) ?? rows?.ink { run.color = ink }
                     boxes += 1
@@ -184,7 +190,7 @@ enum MarkupRuns {
                 var pill = runs[i]
                 pill.text = "\u{FFFC}"; pill.hidden = true
                 // A point above the descender, where TextKit's line ends: the
-                // line keeps its height, as the field's does.
+                // line keeps its height, as the field's does (§5.1).
                 pill.box = InlineBox(width: bounds.width, height: bounds.height - 1, align: 0, shift: bounds.minY + 1)
                 out.append(pill)
                 i += 1; continue

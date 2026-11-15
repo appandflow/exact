@@ -1,5 +1,5 @@
 # Markdown for reading and editing: one styler over the source string.
-# A leaf below the kernel and hosts.
+# @ref LLP 1045 D2 — a leaf below the kernel and hosts.
 # No exact2 dependency; builds for wasm32-unknown-unknown.
 [package]
 name = "exact-markdown"

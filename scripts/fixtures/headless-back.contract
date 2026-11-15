@@ -1,4 +1,4 @@
-// The platform's Back in a headless session:
+// The platform's Back in a headless session (LLP 1126.002 D5, LLP 1115 D5):
 // each route may hold its own `id="back"`; Back from a route presses only its
 // own, and a pop of several levels stops at a route whose Back keeps it. A
 // link to a route goes there with no `navigate` on the root

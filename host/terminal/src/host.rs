@@ -1,6 +1,8 @@
 //! The runner wrapped for a cell painter: commits → layout → cells, and the
-//! keyboard and mouse back as events. The kernel is the display list; the app
-//! runs full screen or inline.
+//! keyboard and mouse back as events.
+//!
+//! @ref LLP 1101 D6 (input and focus), D7 (the kernel is the display list),
+//! D10 (full screen and inline)
 
 use crate::grid::CellRect;
 use crate::paint::{paint, Painted, Scene};
@@ -101,6 +103,8 @@ impl Key {
 pub enum After {
     /// Repaint if anything changed.
     Continue,
+    /// Restore the terminal and stop until continued.
+    Suspend,
     /// Leave.
     Quit,
 }
@@ -147,7 +151,7 @@ impl ById {
     }
 }
 
-/// How the app occupies the terminal.
+/// How the app occupies the terminal (LLP 1101 D10).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Mode {
     /// The alternate screen, every cell the app's, the mouse captured.
@@ -156,6 +160,40 @@ pub enum Mode {
     /// scrollback once; only the live tail is redrawn. No mouse capture, so
     /// selection, copy and scroll are the terminal's.
     Inline,
+}
+
+/// How a command line starts the host (LLP 1101.003 D3, D6).
+pub(crate) struct Start {
+    /// The person's place and wall clock (interactive and print mode), not
+    /// the agent's fixed ones (a headless drive).
+    pub person: bool,
+    /// The directory a relative `image` source is read beneath.
+    pub assets: Option<std::path::PathBuf>,
+    /// The launch location.
+    pub location: String,
+    /// The `update` media feature: `none` in print mode.
+    pub update: exact_runner::Update,
+}
+
+impl Default for Start {
+    fn default() -> Start {
+        Start {
+            person: false,
+            assets: None,
+            location: "/".into(),
+            update: exact_runner::Update::Fast,
+        }
+    }
+}
+
+/// What one step of the loop did: whether it committed, and the runner's
+/// refusal if one stopped it (LLP 1101.003 D2, D8).
+#[derive(Debug, Default)]
+pub struct Pass {
+    /// Something committed, so the frame changed.
+    pub committed: bool,
+    /// The runner refused an announcement, a timer or an action.
+    pub error: Option<RunnerError>,
 }
 
 /// One runner, one grid.
@@ -173,7 +211,7 @@ pub struct Host<D: DataSource> {
     pub(crate) scroll: HashMap<ViewId, f32>,
     pub(crate) collections: crate::collection::Collections,
     /// The cell a mouse press is at while it is sent, from the painting's
-    /// top-left: its `MouseEvent`'s `clientX`/`clientY`.
+    /// top-left: its `MouseEvent`'s `clientX`/`clientY` (LLP 1021 D2).
     pub(crate) press_point: Option<(i32, i32)>,
     /// Open dialogs and popovers, bottom to top, with the focus each took
     /// and whether it was opened modally (`show-modal`) or as a popover.
@@ -198,7 +236,7 @@ pub struct Host<D: DataSource> {
     pub outbound: Vec<String>,
     /// Frames written to the terminal so far. With the count when each
     /// interactive node appeared, and the count when the keys being handled
-    /// were read: a key can press only a node that a
+    /// were read (LLP 1101.001 P11): a key can press only a node that a
     /// frame written before the key was read had shown. No timer.
     pub frames: u64,
     pub(crate) born: HashMap<ViewId, u64>,
@@ -225,7 +263,7 @@ impl<D: DataSource> Host<D> {
         cols: usize,
         rows: usize,
     ) -> Result<Host<D>, String> {
-        Self::boot_with_clock(plan, data, mode, cols, rows, false)
+        Self::boot_with_clock(plan, data, mode, cols, rows, Start::default())
     }
 
     pub(crate) fn boot_with_clock(
@@ -234,18 +272,18 @@ impl<D: DataSource> Host<D> {
         mode: Mode,
         cols: usize,
         rows: usize,
-        interactive: bool,
+        start: Start,
     ) -> Result<Host<D>, String> {
         exact_kernel::style::link_segments();
         exact_kernel::timeline::link();
-        // The terminal's own column: the web's in every
+        // The terminal's own column (LLP 1121 stage 11 B2): the web's in every
         // metric, cells for the base scale's spacings, no corners.
         exact_kernel::style::metrics::set_column(exact_kernel::style::metrics::Column::Terminal);
         let mut kernel = Kernel::new(Box::new(crate::measure::CellMeasurer::default()));
         kernel.set_cell_borders(true);
-        // And its spaces in whole cells.
+        // And its spaces in whole cells (LLP 1121 stage 11 (c)).
         kernel.set_cell_spaces(true);
-        // The user's cell face, at one 16px layout row.
+        // LLP 1104 D4/D7: the user's cell face, at one 16px layout row.
         let font = exact_kernel::ControlFont {
             family: "ui-monospace".into(),
             family_id: 5,
@@ -262,10 +300,12 @@ impl<D: DataSource> Host<D> {
             ..kernel.env().clone()
         };
         kernel.set_env(env).map_err(|e| format!("{e:?}"))?;
-        let viewport = Viewport::sized(cols as f64 * COLUMN as f64, rows as f64 * ROW as f64);
-        let (launch, notes) = crate::zone::launch(interactive, |key| std::env::var(key).ok());
+        let mut viewport = Viewport::sized(cols as f64 * COLUMN as f64, rows as f64 * ROW as f64);
+        viewport.preferences.update = start.update;
+        let (launch, notes) = crate::zone::launch(start.person, |key| std::env::var(key).ok())?;
+        let location = start.location.as_str();
         let mut runner = exact_runner::time::launching_with(launch, ||
-            Runner::boot(plan, data, kernel, viewport, "/")).map_err(|e| match e {
+            Runner::boot(plan, data, kernel, viewport, location)).map_err(|e| match e {
                 // The data module answered another declaration than the
                 // screen's: most often a binary older than the shapes.
                 RunnerError::Shape { resource, why } => format!(
@@ -277,7 +317,7 @@ impl<D: DataSource> Host<D> {
             runner.log(note);
         }
         // The declarations' per-target words are the terminal's: a name a
-        // module marks `unsupported` here is refused.
+        // module marks `unsupported` here is refused (LLP 1133.004 §8).
         runner.set_module_target("terminal");
         let mut host = Host {
             runner,
@@ -298,7 +338,7 @@ impl<D: DataSource> Host<D> {
             generation: 0,
             quit: false,
             prevented: false,
-            images: crate::image::Images::default(),
+            images: crate::image::Images::new(start.assets),
             presented: crate::pointer::Presented::default(),
             requests: crate::requests::Requests::default(),
             outbound: Vec::new(),
@@ -329,22 +369,29 @@ impl<D: DataSource> Host<D> {
     }
 
     /// Wake `waker` whenever the data module announces a change from another
-    /// thread: the loop then calls [`Host::announced`].
+    /// thread (LLP 1016.002): the loop then calls [`Host::announced`].
     pub fn listen(&mut self, waker: Arc<dyn Fn() + Send + Sync>) {
         self.requests.listen(waker.clone());
+        self.images.listen(waker.clone());
         self.runner.listen(waker);
     }
 
     /// Apply what the data module announced: the watching resources are
     /// asked again.
-    pub fn announced(&mut self) {
+    pub fn announced(&mut self) -> Pass {
+        let pictures = self.land_images();
         let landed = self.land_requests();
-        let (receipts, _) = self.runner.apply_announced();
-        if landed || !receipts.is_empty() {
+        let (receipts, error) = self.runner.apply_announced();
+        let committed = landed || !receipts.is_empty();
+        if committed {
             self.after_commit();
         } else {
             // (what a landing asked with no commit, a background round's next request, still goes out)
             self.run_requests();
+        }
+        Pass {
+            committed: committed || pictures,
+            error,
         }
     }
 
@@ -353,8 +400,8 @@ impl<D: DataSource> Host<D> {
         self.runner.kernel()
     }
 
-    /// Its session's role overrides resolve until the scope ends: a
-    /// reader beside other sessions on the thread binds them.
+    /// Its session's role overrides resolve until the scope ends (LLP 1121
+    /// stage 5): a reader beside other sessions on the thread binds them.
     pub fn bind_roles(&self) -> exact_kernel::style::roles::RolesScope {
         self.runner.bind_roles()
     }
@@ -383,6 +430,7 @@ impl<D: DataSource> Host<D> {
         self.after_commit_inner();
         self.collections.settling = settling;
         self.settle_collections();
+        self.deliver_image_events();
         if !settling {
             let live = self.runner.kernel().live_count().max(64);
             if live <= self.trim_at / 2 {
@@ -483,8 +531,8 @@ impl<D: DataSource> Host<D> {
         self.images.load(self.runner.kernel());
         self.run_requests();
         self.changed();
-        // Dialogs an action opened or closed, and focus it moved, after
-        // the commit that asked for them.
+        // Dialogs an action opened or closed, and focus it moved (LLP
+        // 1101.001 P5), after the commit that asked for them.
         for op in layer_ops {
             // A dialog by the rule a button's `commandfor` names it by.
             let named = match op {
@@ -547,7 +595,6 @@ impl<D: DataSource> Host<D> {
             layers: self.layers.iter().map(|(id, ..)| *id).collect(),
             images: &self.images,
             center: self.mode == Mode::Fullscreen,
-            env: self.runner.kernel().env(),
             // A disabled or inert box is still hit, and swallows the press
             // (`handler`), so nothing beneath it takes it either.
             presses: Box::new(|id| self.runner.handlers_of(id).contains(&EventKind::Press)),
@@ -557,7 +604,7 @@ impl<D: DataSource> Host<D> {
     /// The current full-screen frame, painted once per change.
     pub fn frame(&mut self) -> &Painted {
         if self.painted.is_none() {
-            let _roles = self.runner.bind_roles(); // Its own.
+            let _roles = self.runner.bind_roles(); // Its own (LLP 1121 stage 5).
             let roots = self.runner.roots();
             let painted = paint(&self.scene(), &roots, self.cols, self.rows, 0);
             if self.mode == Mode::Fullscreen {
@@ -570,16 +617,17 @@ impl<D: DataSource> Host<D> {
 
     /// Rows `top..top + count` of the whole document, painted (inline mode).
     pub fn render(&self, top: usize, count: usize) -> Painted {
-        let _roles = self.runner.bind_roles(); // Its own.
+        let _roles = self.runner.bind_roles(); // Its own (LLP 1121 stage 5).
         let roots = self.runner.roots();
         paint(&self.scene(), &roots, self.cols, count, top)
     }
 
     /// Rows for the scrollback: as `render`, without the open layers or
     /// their faint backdrop. A dialog open while an entry settles is not
-    /// printed into the transcript over it.
+    /// printed into the transcript over it (LLP 1101.002, Astra's code
+    /// review).
     pub fn render_settled(&self, top: usize, count: usize) -> Painted {
-        let _roles = self.runner.bind_roles(); // Its own.
+        let _roles = self.runner.bind_roles(); // Its own (LLP 1121 stage 5).
         let roots = self.runner.roots();
         let mut scene = self.scene();
         scene.layers.clear();
@@ -602,10 +650,10 @@ impl<D: DataSource> Host<D> {
     /// afresh, as `/clear` does) is a new transcript, and an inline
     /// terminal clears for it.
     ///
-    /// The transcript: each child of the `role="log"` node,
+    /// The transcript (LLP 1101 D10): each child of the `role="log"` node,
     /// in order — its identity, its `id`, its bottom row, and whether it is
     /// `aria-busy`. A child before the first busy one is settled: in inline
-    /// mode it is final (Exact's policy), printed once
+    /// mode it is final (Exact's policy, LLP 1101.001 P1), printed once
     /// into the terminal's scrollback and never laid out for it again.
     pub fn log_key(&self) -> Option<exact_kernel::NodeKey> {
         let log = self.find(|n| n.props.str(PropId::AccessibilityRole) == Some("log"))?;
@@ -634,8 +682,8 @@ impl<D: DataSource> Host<D> {
             .collect()
     }
 
-    /// Publish the terminal's record to the app, `exactSurface("terminal")`:
-    /// a host record, not a media feature.
+    /// Publish the terminal's record to the app, `exactSurface("terminal")`
+    /// (LLP 1101.001 P1, P10): a host record, not a media feature.
     pub fn publish(&mut self, json: &str) {
         if let Ok(Some(_)) = self.runner.set_surface_record("terminal", Some(json)) {
             self.after_commit();
@@ -664,8 +712,9 @@ impl<D: DataSource> Host<D> {
         self.after_commit();
     }
 
-    /// The loop's clock, milliseconds since `start`, owns time: a repeat that
-    /// missed beats fires once, and every commit observes the clock.
+    /// The loop's clock, milliseconds since `start`, owns time (the timers
+    /// RFC, D1): a repeat that missed beats fires once, and every commit
+    /// observes the clock.
     pub fn live_from(&mut self, start: std::time::Instant) {
         self.input_clock = Some(start);
         self.runner.hold_waits(exact_runner::WaitKinds::ALL);
@@ -682,18 +731,24 @@ impl<D: DataSource> Host<D> {
         self.tick(now);
     }
 
-    /// Advance the app's clock: timers fire.
-    pub fn tick(&mut self, now_ms: f64) {
+    /// Advance the app's clock: timers fire. A refusal stops it.
+    pub fn tick(&mut self, now_ms: f64) -> Pass {
         let kinds = exact_runner::WaitKinds::FRAME
             .union(exact_runner::WaitKinds::UPDATE)
             .union(exact_runner::WaitKinds::SCROLLEND);
+        let mut pass = Pass::default();
         loop {
             let batch = self.runner.release_waits(kinds, now_ms);
             if !batch.advanced.receipts.is_empty() {
                 self.after_commit();
+                pass.committed = true;
+            }
+            if let Some(error) = batch.advanced.error {
+                pass.error = Some(error);
+                return pass;
             }
             if !batch.continuing {
-                break;
+                return pass;
             }
         }
     }
@@ -736,7 +791,7 @@ impl<D: DataSource> Host<D> {
     }
 
     /// Whether a key may press `id` yet: a frame written before the key
-    /// was read showed it.
+    /// was read showed it (LLP 1101.001 P11).
     pub(crate) fn armed(&self, id: ViewId) -> bool {
         !self.arm || self.born.get(&id).is_some_and(|born| *born < self.read_at)
     }
@@ -894,6 +949,13 @@ impl<D: DataSource> Host<D> {
                 self.dispatch(old, Event::Blur);
             }
         }
+        // The blur's commit may have focused something (`focus()`, a
+        // dialog's autofocus), or made the target ineligible: that stands.
+        if self.focus.is_some() || to.is_some_and(|id| !self.input_eligible(id)) {
+            self.changed();
+            self.settle_collections();
+            return;
+        }
         self.focus = to;
         if let Some(new) = to {
             self.caret = self.value(new).graphemes(true).count();
@@ -943,7 +1005,6 @@ impl<D: DataSource> Host<D> {
     /// least move that shows it (`nearest`).
     pub(crate) fn reveal_to(&mut self, id: ViewId, block: &str) {
         let kernel = self.runner.kernel();
-        let env = kernel.env();
         let Some(target) = kernel.node(id).map(|n| n.frame) else {
             return;
         };
@@ -958,7 +1019,7 @@ impl<D: DataSource> Host<D> {
         while let Some(p) = at {
             let Some(n) = kernel.node(p) else { break };
             if Self::is_scroller(&n) {
-                let [bt, _, bb, _] = n.style.border_widths_in(&env);
+                let [bt, _, bb, _] = n.style.border_widths_in(&kernel.env_of(n.id));
                 let top = n.frame.y + bt;
                 let height = n.frame.height - bt - bb;
                 let reach = (n.content.1 - height).max(0.0);
@@ -989,7 +1050,6 @@ impl<D: DataSource> Host<D> {
     /// Keep a `scrollFollowEnd` scroller at its end while it was there.
     fn follow_ends(&mut self) {
         let kernel = self.runner.kernel();
-        let env = kernel.env();
         let mut stack: Vec<ViewId> = self.runner.roots();
         let mut ends = Vec::new();
         while let Some(id) = stack.pop() {
@@ -998,7 +1058,7 @@ impl<D: DataSource> Host<D> {
                 && n.props.bool(PropId::ScrollFollowEnd) == Some(true)
                 && n.props.bool(PropId::Virtualized) != Some(true)
             {
-                let [bt, _, bb, _] = n.style.border_widths_in(&env);
+                let [bt, _, bb, _] = n.style.border_widths_in(&kernel.env_of(n.id));
                 let reach = (n.content.1 - (n.frame.height - bt - bb)).max(0.0);
                 ends.push((id, reach));
             }
@@ -1021,7 +1081,7 @@ impl<D: DataSource> Host<D> {
         self.press_with(id, true);
     }
 
-    /// Follow a link as Exact's hosts do (`host/linux`'s
+    /// Follow a link as Exact's hosts do (LLP 1038 §7, `host/painted`'s
     /// `presenter/links.rs`): a path naming one of the app's routes is a
     /// `navigate` on its navigation root; an `http`, `https`, `mailto` or
     /// `tel` URL leaves the app; anything else goes nowhere.
@@ -1044,9 +1104,10 @@ impl<D: DataSource> Host<D> {
     /// system to open (the web's one allowlist); anything else is refused.
     /// Whether it was handed on.
     pub(crate) fn open_url(&mut self, url: &str) -> bool {
-        let allowed = ["http://", "https://", "mailto:", "tel:"]
-            .iter()
-            .any(|p| url.len() > p.len() && url[..p.len()].eq_ignore_ascii_case(p));
+        // Bytes, not a `str` slice, which panics off a character boundary.
+        let allowed = ["http://", "https://", "mailto:", "tel:"].iter().any(|p| {
+            url.len() > p.len() && url.as_bytes()[..p.len()].eq_ignore_ascii_case(p.as_bytes())
+        });
         let handed = allowed && !url.chars().any(|c| c.is_control() || c.is_whitespace());
         if handed {
             self.outbound.push(url.to_string());
@@ -1151,10 +1212,10 @@ impl<D: DataSource> Host<D> {
     pub fn open_layer(&mut self, layer: ViewId, modal: bool) {
         self.layers.push((layer, self.focus, modal));
         self.sync_top_layer();
-        // Its controls are born now, unseen, even when it was open before: a
-        // key read before a frame shows them cannot reach them (typed-ahead). A
-        // click aimed at what was on the screen goes nowhere until the next
-        // frame presents this.
+        // Its controls are born now, unseen, even when it was open before:
+        // a key read before a frame shows them cannot reach them (LLP
+        // 1101.002 §0, typed-ahead). A click aimed at what was on the
+        // screen goes nowhere until the next frame presents this.
         for id in self.focusables() {
             self.born.insert(id, self.frames);
         }
@@ -1198,7 +1259,7 @@ impl<D: DataSource> Host<D> {
 
     /// A close request the person made — Escape, or a press outside a
     /// `closedby="any"` layer: close it, then fire HTML's `cancel` at it
-    /// when the app listens, so a dialog's draft can
+    /// when the app listens (LLP 1101.002 §0 P8), so a dialog's draft can
     /// be dropped with it.
     pub fn dismiss(&mut self, layer: ViewId) {
         self.close_layer(layer);
@@ -1234,10 +1295,10 @@ impl<D: DataSource> Host<D> {
         !self.layers.is_empty()
     }
 
-    /// The open layers, told to the runner. A popover in the viewport's block
-    /// is where it paints, not at its frame: by its block's rectangle in the
-    /// grid, which `frame` and `elementFromPoint` map it through; any other
-    /// layer is at its frame, as before.
+    /// The open layers, told to the runner. A popover in the viewport's
+    /// block (stage 14 B) is where it paints, not at its frame: by its
+    /// block's rectangle in the grid, which `frame` and `elementFromPoint`
+    /// map it through; any other layer is at its frame, as before.
     fn sync_top_layer(&mut self) {
         let open: Vec<ViewId> = self.layers.iter().map(|(id, ..)| *id).collect();
         let frames = {
@@ -1314,7 +1375,7 @@ mod notify_tests {
     }
 
     /// `@exact/notifications` has no terminal implementation: a post is
-    /// refused, journaled, never substituted.
+    /// refused, journaled, never substituted (LLP 1133.004 §8).
     #[test]
     fn a_notification_refused_by_the_terminal_is_journaled() {
         let dir =

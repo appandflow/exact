@@ -1,5 +1,5 @@
 # Contract analysis: effect signatures (`writes`), handler arity, component
-# uses, derive cycles, and the v1 shape restrictions.
+# uses, derive cycles, and the v1 shape restrictions. @ref LLP 1004 D2.
 [package]
 name = "contract-analyze"
 version.workspace = true

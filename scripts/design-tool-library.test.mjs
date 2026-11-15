@@ -1,5 +1,5 @@
 // Back to the default right after Set on a library component's param, against a real design server (the second
-// pass's #9; split from design-tool-ops.test.mjs, so it runs in parallel with the others).
+// pass's #9; split from design-tool-ops.test.mjs, so a lane runs it beside the others).
 import { expect, test } from 'bun:test';
 import { cpSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { join, resolve } from 'node:path';
@@ -11,10 +11,10 @@ test('Back to the default right after Set for this app on a package param is acc
   // Inside the checkout, where `@exact/cards` resolves as it does for apps/library-gate.
   const app = mkdtempSync(join(ROOT, 'target', 'design-tool-library-'));
   cpSync(resolve(ROOT, 'apps/library-gate'), app, { recursive: true });
-  const original = readFileSync(join(app, 'app.tamber'), 'utf8');
+  const original = readFileSync(join(app, 'app.forma'), 'utf8');
   const unsets = [];
   // (The server's wait 3 s, not 25 s: `clock held` below returns on the write's push or, landed already, the next
-  // heartbeat, inside its 20 s bound either way; tamber-timing.mjs.)
+  // heartbeat, inside its 20 s bound either way; forma-timing.mjs.)
   const tool = await proxied(app, request => { if (request.method === 'propose' && request.ops?.some(o => o.op === 'unset-param')) unsets.push(request.ops); }, { env: timed({ POLL: 3_000 }) });
   try {
     await drive(tool.url, `design-tool-library-${process.pid}`, [

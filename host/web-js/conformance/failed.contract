@@ -1,7 +1,7 @@
 // data: completion-storm
 // Synthetic conformance plan: a request that fails without an answer is let
-// go (runner/src/runner/admission.rs `release_failed`), on Completion
-// Storm's sources. `lost(n, _)` answers now for
+// go (runner/src/runner/admission.rs `release_failed`; LLP 1054.000.002 D4,
+// LLP 1016 D4), on Completion Storm's sources. `lost(n, _)` answers now for
 // n = 0, with how many requests it has sent, and otherwise sends one whose
 // reply its parse never takes; `fixtureStats()` answers a record `Mismatch`
 // does not describe. Either way the request is no longer pending: a resource
@@ -12,7 +12,7 @@
 // ends unsent, its slot as it was and its `then` not run. `sent` counts the
 // requests `lost` sent, so an ask that should not happen shows. The root
 // paints the page white over the data app's manifest background.
-// `probe` passes its call argument first and context last. A
+// LLP 1027.005: `probe` passes its call argument first and context last. A
 // context-only change retries a failed ask; an equal context does not. `sent`
 // exposes every ask, so dropping the tail, swapping argument order or using
 // only identity for failed-request equality disagrees with the Rust runner.

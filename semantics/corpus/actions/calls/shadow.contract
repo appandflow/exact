@@ -1,4 +1,4 @@
-// A local of one spelling in caller and callee: each reads
+// A local of one spelling in caller and callee (LLP 1089 D2): each reads
 // its own, and the caller's after the call is still its own.
 component App
   state out = ""

@@ -1,5 +1,5 @@
-//! @exact/local-network on Linux and Windows, composed
-//! into the app's host crate by the desktop builder.
+//! @exact/local-network on Linux and Windows (LLP 1133.036 §13), composed
+//! into the app's host crate by the desktop builder (LLP 1133.022 D10 item 5).
 //!
 //! Neither host browses yet: Linux's browser over Avahi's D-Bus API and
 //! Windows' over `DnsServiceBrowse` are not built, so `available` is false,
@@ -7,7 +7,7 @@
 //! asks for local network access, so the state is `granted` and a typed
 //! address under `net.fetch local-network` is reached as on any host.
 
-use exact_linux::package::{json, Context, Json, Package, Reply};
+use exact_painted::package::{json, Context, Json, Package, Reply};
 
 /// The session's instance; it holds nothing.
 pub struct LocalNetwork;

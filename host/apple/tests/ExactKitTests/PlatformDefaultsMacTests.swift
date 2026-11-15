@@ -1,8 +1,8 @@
-// Each host tests its own defaults. Pinning the root size and the colours
-// makes a cross-host comparison a comparison of layout, and hides a
-// presentation regression; so, as `PlatformDefaultsIOSTests` does for
-// UIKit, this holds what the Mac shows with nothing pinned and nothing
-// written.
+// @ref LLP 1115.000 D14.3 — each host tests its own defaults. Pinning the
+// root size and the colours makes a cross-host comparison a comparison of
+// layout, and hides a presentation regression; so, as
+// `PlatformDefaultsIOSTests` does for UIKit, this holds what the Mac shows
+// with nothing pinned and nothing written.
 #if os(macOS)
 import AppKit
 import XCTest

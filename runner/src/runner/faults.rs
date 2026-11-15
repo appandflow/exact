@@ -1,4 +1,4 @@
-//! Driver faults: a fetch whose URL starts with an armed prefix
+//! Driver faults (LLP 1103): a fetch whose URL starts with an armed prefix
 //! fails as a refused connection does, without going out. The table is the
 //! session's: one per runner, shared by every source, placement and lane,
 //! and consulted where the host would hand a plain request to its transport
@@ -10,7 +10,7 @@ use super::Runner;
 use crate::{DataSource, Dispatch, FailureKind, Outcome, RequestOut, Work};
 use std::sync::Mutex;
 
-/// One armed prefix: how many matching fetches it fails yet (`None`:
+/// One armed prefix (D3): how many matching fetches it fails yet (`None`:
 /// every one until `pass`), whether it still matches, and how many it has
 /// failed since it was armed.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -163,7 +163,7 @@ impl Faults {
     }
 
     /// Whether a live fault is armed for exactly `point`, uncounted: it holds
-    /// a presence move there until it is passed (drive 4).
+    /// a presence move there until it is passed (LLP 1133.010 §9, drive 4).
     pub fn holds(&self, point: &str) -> bool {
         self.table().iter().any(|f| f.live() && f.prefix == point)
     }
@@ -198,16 +198,16 @@ impl Faults {
 }
 
 impl<D: DataSource> Runner<D> {
-    /// The session's driver faults.
+    /// The session's driver faults (LLP 1103).
     pub fn faults(&self) -> &Faults {
         &self.faults
     }
 
     /// What a host runs for a plain request instead of its transport, when
-    /// a driver fault matches its URL: the failure a
+    /// a driver fault matches its URL (LLP 1103 D1, D2): the failure a
     /// refused connection is, `Failed { kind: Network }`, which a
     /// TypeScript source's `fetch` rejects with as `FetchError('Network')`.
-    /// A stream is not matched. The journal says so.
+    /// A stream is not matched (D5). The journal says so.
     pub fn fault_dispatch(&mut self, r: &RequestOut) -> Option<Dispatch> {
         let request = &r.request;
         if request.stream || request.is_native() || request.is_auth() || request.surface.is_some() {

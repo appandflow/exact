@@ -1,4 +1,4 @@
-//! One disjoint drive namespace.
+//! @ref LLP 0068#proposed-windows-native-filesystem-grants — one disjoint drive namespace.
 fn refuse(detail: &str) -> std::io::Error {
     std::io::Error::other(detail)
 }

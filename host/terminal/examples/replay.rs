@@ -2,7 +2,7 @@
 //! feed a recorded terminal byte stream to a VT emulator (vt100) and print
 //! what a person would see — every row that scrolled into the scrollback,
 //! then the screen — so the inline writer can be checked without a
-//! terminal.
+//! terminal (LLP 1101 §5).
 
 fn scrollback_len(parser: &mut vt100::Parser) -> usize {
     parser.set_scrollback(usize::MAX);

@@ -1,4 +1,4 @@
-// Activity region sizing and nested privacy edges.
+// @ref LLP 1126.001 WP14 — WP10's sizing and nested privacy edges.
 import XCTest
 import SwiftUI
 import ExactCore

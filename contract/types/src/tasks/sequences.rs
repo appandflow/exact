@@ -1,4 +1,4 @@
-//! A `sequence`: its gate and key as a task's, and its
+//! A `sequence` (LLP 1125 D2): its gate and key as a task's, and its
 //! `play(tracks, bpm=, from=, countIn=, clock=, clockOut=)`. The runner reads
 //! a track's and a step's fields by position, so their shapes are checked
 //! whole, in order, as `playSounds`'s hit is (a record carries no names at
@@ -190,7 +190,7 @@ fn step(name: &str, shapes: &Shapes, span: Span) -> Result<(), TypeError> {
         ("pan", Ty::Number),
     ];
     match fits(shapes, name, &want, 9) {
-        // A step carries both `playbackRate` and `pan` or neither.
+        // A step carries both of D10's fields or neither.
         Ok(()) if shapes.map.get(name).map_or(0, Vec::len) != 10 => Ok(()),
         Ok(()) => err(
             format!("`{name}` has `playbackRate` without `pan`: {STEP}"),

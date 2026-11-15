@@ -1,7 +1,7 @@
-# A remembered setting
+# Recipe: a remembered setting
 
 A setting the app keeps across launches — a tip percentage, °C or °F — is a root
-`state` that ends in `persist`. There is no data module, grant or
+`state` that ends in `persist` (LLP 1116 D5). There is no data module, grant or
 JSON to write: the runner reads the store before the first frame and writes it
 after every commit that changes the state.
 

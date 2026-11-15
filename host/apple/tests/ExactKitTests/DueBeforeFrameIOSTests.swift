@@ -4,14 +4,14 @@ import XCTest
 @testable import ExactKit
 
 /// A deadline already due when a batch lands. A `then` is armed at its
-/// answer's time and advances before control goes back to
+/// answer's time (LLP 1016.001 D3) and advances before control goes back to
 /// UIKit, so the frame shows the answer with what its `then` does (Lexy's
 /// sign-in button read "Sign In" for a frame between two requests): the
 /// runner's `land_then_first` tests pin that. A timer's deadline is posted to
-/// the owner instead, and its commit lands with a later
+/// the owner instead (LLP 1072.000 §4 B), and its commit lands with a later
 /// main-queue turn. Here a timer's deadline passes with no turn of the run
 /// loop, and then a batch lands. On the wall clock a task's timer is
-/// Foundation's: its wake is queued when the timer fires and
+/// Foundation's (#1144): its wake is queued when the timer fires and
 /// delivered as the run loop delivers it (`deliverNativeTimer`).
 final class DueBeforeFrameIOSTests: XCTestCase {
     private var session: ExactSession?

@@ -1,4 +1,4 @@
-//! The agent's side of the module seam:
+//! The agent's side of the module seam (LLP 1133.002 §6, LLP 1124 D7):
 //! `state.extensions`, and `prefer extension` and `prefer permission`.
 
 use super::super::{CommitReceipt, DataSource, Runner};
@@ -7,13 +7,13 @@ use super::{error_code, Json, ModulesRow, Route, Waits};
 use serde_json::{json, Map};
 
 impl<D: DataSource> Runner<D> {
-    /// `state.extensions` (Disclosure): each module the plan
+    /// `state.extensions` (LLP 1133.002 §6, Disclosure): each module the plan
     /// names, by its extension: whether a host's implementation answers it
     /// (`bound`, and `agent` where it answers under the agent), its
     /// permission's state, the preferred values, each source's readers (a
     /// resource that reads it, or whose data code did), the tickets held
     /// with their calls' origins, and its ceremonies and signals, each by
-    /// name, RP ID, origin and outcome, never a response.
+    /// name, RP ID, origin and outcome, never a response (LLP 1133.011 §9).
     /// `None` for a plan that names none.
     pub fn extensions_json(&self) -> Option<String> {
         if self.plan.modules.is_empty() && self.plan.views.is_empty() {
@@ -22,8 +22,8 @@ impl<D: DataSource> Runner<D> {
         let mut out = Map::new();
         for row in &self.plan.modules {
             let extension = self.plan.str(row.extension).to_owned();
-            let declared = self.plan.str(row.declared).to_owned();
             let key = self.key(row);
+            let declared = key.split_once('.').unwrap().1.to_owned();
             let bound = self.extensions.bound.contains(&extension);
             let entry = out.entry(extension.clone()).or_insert_with(
                 || json!({ "bound": bound, "preferred": {}, "readers": {}, "held": [] }),
@@ -34,6 +34,9 @@ impl<D: DataSource> Runner<D> {
             self.devices_json(&extension, entry);
             // Each permission by name; `permission` too where it has one.
             let sub = self.substitute(row);
+            if sub["owner"].is_string() {
+                entry["names"][&declared] = json!({ "owner": sub["owner"], "route": match self.route(row) { Route::Real => "real", Route::Agent => "agent", Route::Substitute => "substitute" } });
+            }
             let by = sub["permissionBy"].as_object().into_iter().flatten();
             let list = sub["permissionList"].as_array().into_iter().flatten();
             for p in std::iter::once(&sub["permission"])
@@ -62,13 +65,12 @@ impl<D: DataSource> Runner<D> {
                 entry["preferred"][&declared] = v.clone();
             }
             if !row.send {
-                let readers: Vec<&str> = (0..self.plan.resources.len())
+                let readers: Vec<&str> = (0..self.resources.len())
                     .filter(|&i| {
-                        self.plan.resources[i].source
-                            == self.plan.sources[row.source.0 as usize].name
-                            || self.watching[i].contains(&key)
+                        self.resource_row(i).source == self.plan.sources[row.source.0 as usize].name
+                            || self.resources[i].watching.contains(&key)
                     })
-                    .map(|i| self.plan.str(self.plan.resources[i].name))
+                    .map(|i| self.plan.str(self.resource_row(i).name))
                     .collect();
                 entry["readers"][&declared] = json!(readers);
             }
@@ -92,7 +94,7 @@ impl<D: DataSource> Runner<D> {
             }
         }
         for (extension, entry) in out.iter_mut() {
-            // Its streams, sampled readers and canvas inputs.
+            // Its streams, sampled readers and canvas inputs (LLP 1133.013 §9).
             if let Some(samples) = self.samples_json(extension) {
                 for (k, v) in samples.as_object().into_iter().flatten() {
                     entry[k] = v.clone();
@@ -107,7 +109,7 @@ impl<D: DataSource> Runner<D> {
             if let Some(claims) = self.services_json(extension) {
                 entry["foregroundService"] = claims;
             }
-            // The canvases its inputs feed, and their leases.
+            // The canvases its inputs feed, and their leases (D6).
             if let Some(surfaces) = self.fed_json(extension) {
                 entry["surfaces"] = surfaces;
             }
@@ -120,7 +122,7 @@ impl<D: DataSource> Runner<D> {
                 entry["permission"] = state;
             }
         }
-        // Each module event not yet heard.
+        // Each module event not yet heard (LLP 1133.004 D6).
         for (extension, event) in self.queued_events() {
             let entry = out.entry(extension).or_insert_with(
                 || json!({ "bound": false, "preferred": {}, "readers": {}, "held": [] }),
@@ -130,7 +132,7 @@ impl<D: DataSource> Runner<D> {
                 None => entry["queued"] = json!([event]),
             }
         }
-        // What each bound implementation disclosed of its own.
+        // What each bound implementation disclosed of its own (D8 item 9).
         for extension in self.disclosed_extensions() {
             let bound = self.extensions.bound.contains(&extension);
             let entry = out.entry(extension.clone()).or_insert_with(
@@ -138,7 +140,7 @@ impl<D: DataSource> Runner<D> {
             );
             entry["implementation"] = self.disclosed_json(&extension).unwrap_or_default();
         }
-        // Each package view, and who made it displayed.
+        // Each package view, and who made it displayed (LLP 1133.008 D8 item 2).
         for row in &self.plan.views {
             let extension = self.plan.str(row.extension);
             let views = self.views_json(extension);
@@ -147,12 +149,26 @@ impl<D: DataSource> Runner<D> {
                 || json!({ "bound": bound, "preferred": {}, "readers": {}, "held": [] }),
             );
             entry["views"] = json!(views);
+            entry["preferred"] = json!(self
+                .extensions
+                .preferred
+                .iter()
+                .filter_map(|(key, value)| {
+                    Some((
+                        key.strip_prefix(&format!("{extension}."))?.to_owned(),
+                        value.clone(),
+                    ))
+                })
+                .collect::<Map<String, Json>>());
+            if self.extensions.agent.contains(extension) && !bound {
+                entry["agent"] = json!(true);
+            }
         }
         Some(Json::Object(out).to_string())
     }
 
-    /// The agent's `prefer extension` and `prefer permission`:
-    /// `{"op":"prefer","extension":{"geolocation.watchPosition":
+    /// The agent's `prefer extension` and `prefer permission` (LLP 1124 D7,
+    /// LLP 1069.007 D2): `{"op":"prefer","extension":{"geolocation.watchPosition":
     /// {…}|"clear"}}` sets a source's answer; `{"op":"prefer","permission":
     /// {"geolocation":"granted"}}` a permission's state. Readers are asked
     /// again. `None` for any other request.
@@ -226,7 +242,7 @@ impl<D: DataSource> Runner<D> {
                 ));
             };
             // A send answered from its own preferred value (`from` itself,
-            // as a geocoder's is) takes one; any other is answered.
+            // LLP 1133.021 §12's geocoder) takes one; any other is answered.
             let own = self.substitute(&row)["from"] == self.plan.str(row.declared);
             if row.send && !own {
                 return refuse(format!(
@@ -238,7 +254,7 @@ impl<D: DataSource> Runner<D> {
             for permission in &statuses {
                 let field = permission["field"].as_str().unwrap_or_default();
                 if value.get(field).is_some() {
-                    // One authority per fact: the state is the permission's.
+                    // One authority per fact (§6): the state is the permission's.
                     let name = permission["name"].as_str().unwrap_or_default();
                     return refuse(format!(
                         "prefer extension: `{key}`'s `{field}` is set by `prefer permission.{name}`"
@@ -248,7 +264,7 @@ impl<D: DataSource> Runner<D> {
             if value != "clear" && error_code(value).is_none() {
                 // Checked with the state the permission has, which is
                 // in the field's enum where `prompt` may not be (a
-                // permission no platform asks).
+                // permission no platform asks, LLP 1133.017 D14).
                 let mut checked = value.clone();
                 for permission in &statuses {
                     let (Some(field), Some(name)) =
@@ -262,9 +278,9 @@ impl<D: DataSource> Runner<D> {
                     }
                 }
                 // An implementation's own substitute takes a partial
-                // overlay, as a `partial` source
+                // overlay (LLP 1133.009 D10 item 11), as a `partial` source
                 // does over its default; a declared one, a value. A sampled
-                // source's takes a reading or a track of steps.
+                // source's takes a reading or a track of steps (§9).
                 let checked = if sub["network"] == "browse" {
                     self.network_checked(value)
                 } else if sub["track"] == true {
@@ -314,6 +330,16 @@ impl<D: DataSource> Runner<D> {
             });
             if let Some(row) = row.filter(|r| self.route(r) == Route::Agent) {
                 told.insert(self.plan.str(row.extension).to_owned());
+            } else if self.agent_word(key).is_some()
+                && self.extensions.agent.contains(extension)
+                && !self.extensions.bound.contains(extension)
+                && self
+                    .plan
+                    .views
+                    .iter()
+                    .any(|v| self.plan.str(v.extension) == extension)
+            {
+                told.insert(extension.to_owned());
             }
         }
         for extension in told {
@@ -342,17 +368,29 @@ impl<D: DataSource> Runner<D> {
     }
 
     /// The type of `key` (`speech-recognition.heard`) where it is one of the
-    /// words its interface declares for the agent path alone (`agent`) and
-    /// is no name of the interface.
+    /// words its interface declares for the agent path alone (`agent`, LLP
+    /// 1133.012 §9) and is no name of the interface.
     fn agent_word(&self, key: &str) -> Option<String> {
         let (extension, word) = key.split_once('.')?;
         if (self.plan.modules.iter()).any(|m| self.key(m) == key) {
             return None;
         }
-        let row = (self.plan.modules.iter()).find(|m| self.plan.str(m.extension) == extension)?;
-        self.substitute(row)["agent"][word]
-            .as_str()
-            .map(str::to_owned)
+        let words = if let Some(row) = self
+            .plan
+            .modules
+            .iter()
+            .find(|m| self.plan.str(m.extension) == extension)
+        {
+            self.substitute(row)["agent"].clone()
+        } else {
+            let view = self
+                .plan
+                .views
+                .iter()
+                .find(|v| self.plan.str(v.extension) == extension)?;
+            serde_json::from_str(self.plan.str(view.agent)).ok()?
+        };
+        words[word].as_str().map(str::to_owned)
     }
 }
 

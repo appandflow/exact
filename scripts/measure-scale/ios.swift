@@ -1,4 +1,4 @@
-// The base scale's measured cells, iOS (scripts/measure-scale.mjs builds and runs it on a simulator): UIKit's own
+// Stage 11 B's measured cells, iOS (scripts/measure-scale.mjs builds and runs it on a simulator): UIKit's own
 // spacing and corners, read from its API where it says them and from the inked shape where it only draws them.
 // Prints one `measure <id> <value>` line each, then exits.
 import UIKit

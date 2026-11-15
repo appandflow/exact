@@ -17,8 +17,9 @@ import { dirname, resolve } from 'node:path';
 import { readTree, tapPoint } from '../elements.mjs';
 import { openTouches } from '../touches.mjs';
 import { analyze, pickList, readTrace, report, summary } from './analyze.mjs';
+import { fileURLToPath } from 'node:url';
 
-const HERE = dirname(new URL(import.meta.url).pathname);
+const HERE = dirname(fileURLToPath(new URL(import.meta.url)));
 const ROOT = resolve(HERE, '../../..');
 const USAGE = 'usage: bun host/apple/feel/probe.mjs --udid <simulator udid> --app <bundle id> [--steps \'tap "label";tap x,y;wait 1;drag x1,y1,x2,y2[,v]\' (a newline: another list)] [--at x,y] [--out DIR] [--sample N] [--dump DIR] [--short]';
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -254,7 +255,7 @@ export async function play({ touches, tracePath, steps = '', at = null, script =
       }
       await statusBar();
       await pull();
-      // The tap while decelerating and the carousel are the full script's: across 103 runs
+      // The tap while decelerating and the carousel are the full script's: in bake-off rounds r24 to r26 (103 runs)
       // they found nothing an app could fix. A scrub tests more than the flings only on a long list (`SCRUB_FROM`).
       if (list.cs[1] >= SCRUB_FROM) await scrub('scrub');
     } else {

@@ -1,4 +1,4 @@
-// formatDecimal (decided (c)): an integer count of a smallest
+// formatDecimal (LLP 1102 §3.2, decided (c)): an integer count of a smallest
 // unit as a decimal, exactly: 1234 at 2 is "12.34", -5 at 2 is "-0.05", 7 at
 // 0 is "7", -0 is "0.00"; a count that is not an integer, or not finite, is
 // "", so money rounds first: formatDecimal(round(price * 100), 2).

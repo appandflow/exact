@@ -28,6 +28,8 @@ pub(crate) struct Material {
     pub alpha: AlphaMode,
     pub double_sided: bool,
     pub untextured: bool,
+    /// Draws in the layered pipelines (`model_pipeline::layered`).
+    pub layered: bool,
     data: MaterialData,
     names: [Option<String>; 5],
 }
@@ -38,9 +40,11 @@ pub(crate) const REPLACE: u32 = 1 << 31;
 /// A record's look word flag: its draw has parts of several materials, which
 /// its vertices number in `uv.x` (merge.rs).
 pub(crate) const NUMBERED: u32 = 1 << 30;
-/// A merged part's entry: tint, glow, its first vertex as bits; then, in a
-/// draw of several materials, its material (merge.rs `PartMaterial`).
-pub(crate) type PartLook = [f32; 16];
+/// A look-table entry: tint, glow, its part's first vertex as bits; then, in a
+/// draw of several materials, its material (merge.rs `PartMaterial`); then the
+/// record's current and previous base colour and emission UV offsets, and its
+/// optional surface factors.
+pub(crate) type PartLook = [f32; 24];
 pub(crate) type ModelNode = (MeshId, MaterialId, Mat4, Option<u32>);
 /// What the feed batches one loaded model from.
 pub(crate) struct Draws<'a> {
@@ -88,10 +92,16 @@ impl Uploaded {
 mod looks;
 mod merge;
 mod poses;
+mod prepare;
 pub(crate) use poses::Moved;
+pub(crate) use prepare::{caster, depth, ModelFrame};
 mod textures;
-use textures::upload_texture;
+#[cfg(not(target_arch = "wasm32"))]
+mod uploads;
+mod variants;
 pub(crate) use textures::Texture;
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) use uploads::Uploads;
 struct PoseHistory {
     entity: exact_game::Entity,
     saved: Option<(u64, u64, [exact_game::Transform; 2])>,
@@ -123,14 +133,20 @@ pub(crate) struct Models {
     bind_buffers: Option<(wgpu::BindGroupLayout, [wgpu::Buffer; 3])>,
     words: Vec<u32>,
     normals: Vec<([u32; 16], [u32; 16])>,
-    /// Per record, 1 + the first of its merged parts' looks (0: none), and
-    /// those looks (tint, glow, then the part's first vertex as bits; a
+    /// Per record, 1 + the first of its look-table entries (0: none), and
+    /// those entries: one per merged part, or one for a whole record with a
+    /// UV offset (tint, glow, then the part's first vertex as bits; a
     /// `u32::MAX` start ends each record's run), appended after the records.
     pub(crate) part_looks: (Vec<u32>, Vec<PartLook>),
     /// Materials a game's `CustomMaterial` shades (never merged).
     pub(crate) custom: std::collections::BTreeSet<MaterialId>,
     /// The feed's looks for the next `set_draw_instances`, part starts relative.
     pub(crate) pending_looks: (Vec<u32>, Vec<PartLook>),
+    /// Materials drawn with an instance's textures (`MaterialOverride::textures`).
+    pub(crate) variants: variants::Variants,
+    /// Bytes the instance, skin palette, local pose and skin job buffers grow
+    /// to at least (`Game::PREPARE`, prepare.rs).
+    pub(crate) reserve: [u64; 4],
 }
 impl Models {
     pub fn custom_data(&mut self, queue: &wgpu::Queue, data: impl Fn(u32) -> u32) {
@@ -224,6 +240,7 @@ impl Models {
     ) -> Result<(), RenderError> {
         // Four u32 header words + affine matrix + inverse-transpose normal matrix.
         let skinning = self.skinning.as_mut().unwrap();
+        skinning.reserve = [self.reserve[1], self.reserve[2], self.reserve[3]];
         skinning.set(device, queue, uniform, records)?;
         let words = &mut self.words;
         words.clear();
@@ -265,12 +282,14 @@ impl Models {
             };
             words.push(at | (look & (REPLACE | NUMBERED)));
         }
-        // A merged part's look is one record-sized entry: its tint and glow,
-        // and in `local`'s first two columns its material, when it has one.
+        // A look-table entry is one record-sized entry: its tint and glow, in
+        // `local`'s first two columns its material, when it has one, and in
+        // the third its current and previous UV offsets, and in the fourth its
+        // surface factors.
         for look in &self.part_looks.1 {
             words.extend([0; 4]);
             words.extend(look[8..].iter().map(|v| v.to_bits()));
-            words.extend([0; 24]);
+            words.extend([0; 16]);
             words.extend(look[..8].iter().map(|v| v.to_bits()));
         }
         if words.len() as u64 * 4 > device.limits().max_storage_buffer_binding_size {
@@ -279,7 +298,8 @@ impl Models {
             ));
         }
         let instances = self.instances.as_mut().expect("prepared model instances");
-        self.reallocations += u64::from(instances.grow(device, queue, (words.len() * 4) as u64));
+        let needed = (words.len() as u64 * 4).max(self.reserve[0]);
+        self.reallocations += u64::from(instances.grow(device, queue, needed));
         let buffers = (
             layout.clone(),
             [
@@ -598,6 +618,11 @@ impl<const ASSETS: bool> crate::renderer::RendererWithAssets<ASSETS> {
                 .flat_map(|(_, m)| m.materials.iter())
                 .map(|id| self.models.materials[id.0].bytes)
                 .sum::<u64>()
+            + variants::unused_bytes(
+                &self.models.variants,
+                &self.models.materials,
+                &self.models.records,
+            )
             + self
                 .models
                 .textures
@@ -663,12 +688,18 @@ impl<const ASSETS: bool> crate::renderer::RendererWithAssets<ASSETS> {
             .values()
             .flat_map(|m| m.meshes.iter().map(|id| id.0))
             .collect();
-        let materials: std::collections::BTreeSet<_> = self
+        let mut materials: std::collections::BTreeSet<_> = self
             .models
             .loaded
             .values()
             .flat_map(|m| m.materials.iter().map(|id| id.0))
             .collect();
+        variants::retain(
+            &mut self.models.variants,
+            &mut materials,
+            &self.models.textures,
+            &self.models.records,
+        );
         for (i, m) in self.meshes.iter_mut().enumerate() {
             if m.asset && !meshes.contains(&i) {
                 m.indices = 0..0;
@@ -708,53 +739,6 @@ impl<const ASSETS: bool> crate::renderer::RendererWithAssets<ASSETS> {
             }
         }
     }
-    /// Reuse a name only when its content digest matches. CPU mips may be dropped.
-    pub fn add_texture(&mut self, name: &str, data: &TextureData) -> Result<(), RenderError> {
-        let digest = exact_game::hash::of(data);
-        if let Some(texture) = self
-            .models
-            .textures
-            .get_mut(name)
-            .filter(|t| t.digest == digest)
-        {
-            texture.active = true;
-            return Ok(());
-        }
-        data.validate().map_err(RenderError::scene)?;
-        let sprite = self
-            .models
-            .textures
-            .get(name)
-            .is_some_and(|texture| texture.sprite_bind.is_some());
-        let mut texture =
-            upload_texture(&self.device, &self.queue, data, &mut self.models.samplers)?;
-        texture.digest = digest;
-        if sprite {
-            texture.sprite_bind = Some(self.quads.sprite_bind(&self.device, &texture));
-        }
-        self.models.textures.insert(name.into(), texture);
-        self.models.uploads += 1;
-        for material in &mut self.models.materials {
-            if material.bind.is_some()
-                && material.names.iter().flatten().any(|n| n == name)
-                && material
-                    .names
-                    .iter()
-                    .flatten()
-                    .all(|n| self.models.textures.contains_key(n))
-            {
-                *material = material_bind(
-                    &self.device,
-                    &self.queue,
-                    &self.pipelines.models.as_ref().unwrap().material,
-                    (&material.data, &material.names),
-                    &self.models.textures,
-                    None,
-                );
-            }
-        }
-        Ok(())
-    }
     /// Cumulative model pipeline creations and asset texture uploads, for diagnostics.
     pub fn asset_work(&self) -> (usize, u64) {
         (
@@ -771,6 +755,10 @@ impl<const ASSETS: bool> crate::renderer::RendererWithAssets<ASSETS> {
     /// Resident texture bytes and formats, as JSON for the world state.
     pub(crate) fn texture_summary(&self) -> String {
         textures::summary(&self.models.textures)
+    }
+    /// Device bytes of the delivered textures held, retired ones included.
+    pub(crate) fn texture_bytes(&self) -> u64 {
+        textures::resident_bytes(&self.models.textures)
     }
     pub(crate) fn residency_work(&self) -> crate::world::assets::Work {
         let (pipelines, textures) = self.asset_work();
@@ -845,6 +833,7 @@ fn material_bind(
         alpha: m.alpha_mode,
         double_sided: m.double_sided,
         untextured: crate::model_pipeline::untextured(m),
+        layered: crate::model_pipeline::layered(m),
         data: m.clone(),
         names: names.clone(),
     }
@@ -873,12 +862,16 @@ fn baked(m: &MaterialData) -> Vec<f32> {
             AlphaMode::Blend => 2.,
         },
         m.rim,
-        0.,
+        f32::from(u8::from(m.unlit)),
         0.,
     ]);
     for uv in m.uv_transforms {
         values.extend([uv[0], uv[1], uv[2], uv[3], uv[4], uv[5], 0., 0.]);
     }
+    let mask = if m.clearcoat_mask_from_alpha { 1. } else { 0. };
+    values.extend([m.clearcoat, m.clearcoat_roughness, m.sheen_roughness, mask]);
+    values.extend(m.sheen_color);
+    values.push(0.);
     values
 }
 
@@ -1438,6 +1431,9 @@ impl<P: crate::Executor> crate::Executor for ModelExecutor<P> {
     }
     fn suspend(&mut self, suspended: bool) {
         self.inner.suspend(suspended);
+    }
+    fn audio_state(&self) -> Option<&'static str> {
+        self.inner.audio_state()
     }
     fn sync(&mut self, world: &exact_game::World, generation: u64, playing: bool, seekable: bool) {
         self.inner.sync(world, generation, playing, seekable);

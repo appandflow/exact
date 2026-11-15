@@ -47,7 +47,7 @@ fn exclusion_rows_keep_authored_css_visible() {
     assert!(skipped.is_empty());
 }
 
-/// The browser resolves `light-dark()` by the inherited
+/// LLP 1034 §8: the browser resolves `light-dark()` by the inherited
 /// `color-scheme`; an unset (`normal`) row follows the parent's.
 #[test]
 fn color_scheme_is_passed_through() {

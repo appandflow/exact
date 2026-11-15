@@ -1,4 +1,4 @@
-// The auth callback page's script, served at
+// The auth callback page's script (LLP 1069.006 D4), served at
 // /.exact/auth/callback.js: hand this page's URL (the code, state and iss)
 // back to the app on a same-origin BroadcastChannel — the channel that
 // survives a provider's Cross-Origin-Opener-Policy — and to window.opener

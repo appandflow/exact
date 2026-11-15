@@ -3,7 +3,7 @@
     "30": "0x312dd9bcd1ee4514"
   },
   "saves": {
-    "after-shortcuts": "dde3bda65bfea576174f22eed395435bc16ab9f88d53c6b03b1f7373fdcc0164"
+    "after-shortcuts": "645a28e2ea56490774e7991e5f7ec568cbf99ab7f3ee2d671d5f89f1d2f89081"
   },
   "hosts": [
     "linux",
@@ -17,10 +17,10 @@
   "profiles": [
     "gpu-dev"
   ],
-  "inputs": "1b3963e46e9e996d15474acfb7c36db1cc04a97f35ccb12289bba3dcacd88d41",
-  "sourceInputs": "7f9a7d5d0d8828f41f97d94fa892c8a7359beabe59e5b066cf1614d7b56d50e7",
+  "inputs": "9cf7f465c18e320ee51087ce1e2814f9b687e84825615eedca500899322ae28d",
+  "sourceInputs": "29236c872d7d304e6cd55ac26eae444fcb88aabd949b1ba73f2b48a7cb25b6a2",
   "game": "shortcut-fixture",
   "generated": "bun game/prove.mjs shortcut-fixture --repin --hosts 'linux,web'",
-  "at": "inputs:7f9a7d5d0d8828f41f97d94fa892c8a7359beabe59e5b066cf1614d7b56d50e7",
-  "reason": "EXSIM v8 (player: u8, pads) over EXGAME v6: continuation bytes change; tick hashes unchanged"
+  "at": "15e4d7856b6cbd7c514aea9ae519e8c18cdf00ad",
+  "reason": "East taps and holds as dash and charge: save bytes change; tick hashes unchanged"
 }

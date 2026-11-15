@@ -4,7 +4,7 @@ import XCTest
 
 /// Answers Arrange's calls as the runtime would, and records them in order:
 /// the Swift half of the web/Linux sequence (`host/web/src/reorder_tests.rs`,
-/// `host/linux/tests/it/arrange.rs`); `host/apple/src/arrange_tests.rs` is
+/// `host/painted/tests/it/arrange.rs`); `host/apple/src/arrange_tests.rs` is
 /// the Rust half.
 final class ReorderRecorder: ReorderCalls {
     var log: [String] = []
@@ -31,7 +31,7 @@ final class ReorderRecorder: ReorderCalls {
     }
 }
 
-/// The grouped session's calls, recorded: the drop answers
+/// The grouped session's calls, recorded (LLP 1094 D5): the drop answers
 /// `holding` until the test says otherwise.
 final class ReorderGroupRecorder: ReorderGroupCalls {
     var log: [String] = []
@@ -67,7 +67,7 @@ final class ReorderGroupRecorder: ReorderGroupCalls {
 }
 
 final class ReorderTests: XCTestCase {
-    override class func setUp() { super.setUp(); ExactDrag.install() }
+    override class func setUp() { super.setUp(); ExactDrag.install() } // LLP 1047.001 D4
     func testStateKeepsTheSerialExactAndRefusesAMalformedOp() {
         let state = ReorderState(["token": "18446744073709551615", "list": 3, "wrapper": 9, "phase": "settling", "dispatched": true])
         XCTAssertEqual(state?.token, UInt64.max)

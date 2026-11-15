@@ -1,7 +1,7 @@
-//! A symbol's authored `-exact-tint-color` is no paint of it: a symbol is drawn in its `color` on
-//! every host, so lowering answers the tint with `currentcolor`, each state's row too, as Apple and
-//! the web draw it. A native button's face keeps its tint, and a raster's tint is still its
-//! silhouette's paint.
+//! A symbol's authored `-exact-tint-color` is no paint of it (theme2 2026-10-23, after `lower-symbol-tint`): a symbol
+//! is drawn in its `color` on every host (LLP 1081 stage 2), so lowering answers the tint with `currentcolor`, each
+//! state's row too, which Apple already drew and the web now draws. A native button's face keeps its tint (LLP 1115
+//! D4), and a raster's tint is still its silhouette's paint.
 
 use exact_kernel::{Color, ColorValue, Kernel, StyleId};
 use exact_plan::Value;
@@ -78,7 +78,7 @@ fn a_states_tint_is_answered_in_and_out_of_the_state_and_a_computed_source_by_wh
 
 #[test]
 fn a_grouped_rows_symbol_with_a_colour_and_only_a_states_tint_is_its_colour_not_the_sheets() {
-    // (A state-only tint must not drop the base answer, or the sheet's accent tint shows.)
+    // (Astra's round 1: a state-only tint must not drop the base answer, or the sheet's accent tint shows.)
     let src = "component A\n  state off = false\n  action go\n  view\n    list appearance=\"auto\" listStyle=\"inset-grouped\"\n      section\n        button press=go testId=\"row\"\n          image \"symbol:star\" testId=\"lead\" color=\"#ff0000\" disabled=off\n            :disabled\n              -exact-tint-color=\"#00ff00\"\n          text \"Row\"\n        button press=go testId=\"plain-row\"\n          image \"symbol:star\" testId=\"plain-lead\"\n          text \"Plain\"\n";
     let plan = contract::bake(contract::compile(src).unwrap(), NoData).unwrap();
     let r = Runner::boot(
@@ -154,7 +154,7 @@ fn a_computed_sources_state_tint_a_partial_template_and_an_apps_own_starts_with(
 
 #[test]
 fn a_shape_named_starts_with_makes_no_answer_through_it() {
-    // (A `shape startsWith` is resolved before the roster function, as an app's `fn` is.)
+    // (Astra's re-check: a `shape startsWith` is resolved before the roster function, as an app's `fn` is.)
     let src = "shape startsWith\n  s: string\ncomponent A\n  state off = true\n  state pic = \"symbol:heart\"\n  view\n    column\n      image pic testId=\"computed\" disabled=off alt=\"Pic\"\n        :disabled\n          -exact-tint-color=\"#00ff00\"\n";
     let plan = contract::bake(contract::compile(src).unwrap(), NoData).unwrap();
     let r = Runner::boot(

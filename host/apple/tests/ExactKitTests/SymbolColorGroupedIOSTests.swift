@@ -4,7 +4,7 @@ import XCTest
 @testable import ExactKit
 @testable import ExactGroupedLists
 
-/// A symbol colour in a standard grouped row, which draws the row's
+/// LLP 1121 stage 9 B (D10) in a standard grouped row, which draws the row's
 /// symbol as the cell's image: untinted, a colour its author wrote is its
 /// tint, as the same row's image is on the web and the Mac; a written tint
 /// still wins, a destructive row's red goes over it, and a change of the

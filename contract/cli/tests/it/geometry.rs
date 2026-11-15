@@ -1,4 +1,4 @@
-//! Geometry reads from actions: `frame(id)` is where layout
+//! Geometry reads from actions (LLP 1051.000): `frame(id)` is where layout
 //! put a node and `measure(id)` its box at `height: auto`, answered here by
 //! the kernel, as on a native host. Outside an action there is no read at all
 //! (the compiler refuses it: `contract/corpus/rejects.txt`).
@@ -102,7 +102,7 @@ fn before_the_first_layout_every_read_is_unavailable() {
 
 #[test]
 fn a_read_sees_the_box_where_the_viewer_does_with_every_scroll_above_it_applied() {
-    // A kanban board's drop target under the pointer, read from a
+    // The kanban diary's F4: a drop target under the pointer, read from a
     // scrolled column, without the app tracking `scrollTop` itself.
     let plan = contract::compile(
         r#"component App
@@ -160,9 +160,9 @@ fn a_read_sees_the_box_where_the_viewer_does_with_every_scroll_above_it_applied(
     );
 }
 
-/// The box through every transform on it and above it, as
-/// `getBoundingClientRect` — a dragged kanban card reads where it shows, not
-/// where layout left it. A turned box answers its
+/// LLP 1051.000 D1, changed 2026-10-04: the box through every transform on
+/// it and above it, as `getBoundingClientRect` — kanban2's dragged card read
+/// where it showed, not where layout left it. A turned box answers its
 /// bounding box; a scroller inside a moved box moves with it.
 #[test]
 fn a_read_sees_the_box_through_every_transform_above_it() {
@@ -302,7 +302,7 @@ fn resize_given_an_action_is_the_element_resize_event_and_a_string_is_css() {
     );
 }
 
-/// `elementFromPoint(x, y)`: the `id` nearest the front-most
+/// `elementFromPoint(x, y)` (LLP 1094 D10): the `id` nearest the front-most
 /// box at a viewport point, over `frame`'s boxes, as DOM's
 /// `elementFromPoint(x, y)?.closest("[id]")?.id`.
 #[test]
@@ -366,7 +366,8 @@ fn element_from_point_names_the_front_most_box_by_its_nearest_id() {
     // The higher `z-index` in a sibling's subtree is in front, though the
     // other sibling comes later in tree order.
     assert_eq!(at(&mut r, 10.0, 170.0), "low");
-    // Boxes through their transforms, as `frame` reads them: the shifted box is hit where it shows, not
+    // Boxes through their transforms, as `frame` reads them (LLP 1051.000
+    // D1, changed 2026-10-04): the shifted box is hit where it shows, not
     // where layout left it.
     assert_eq!(at(&mut r, 120.0, 210.0), "shifted");
     assert_eq!(at(&mut r, 10.0, 210.0), "none");
@@ -809,7 +810,7 @@ fn a_resize_rect_is_placed_by_padding_not_border() {
     );
 }
 
-/// A box that straddles columns is sized as Chrome's
+/// LLP 1093 D11: a box that straddles columns is sized as Chrome's
 /// `ResizeObserver` sizes it, one column wide and as tall as its fragments
 /// end to end (measured in Chrome 154: 200×136 here), not as its union
 /// frame, which is three columns wide and one column tall.

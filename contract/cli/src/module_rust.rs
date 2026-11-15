@@ -1,15 +1,16 @@
-//! The Rust binding of the native modules an app's plan names: generated from
-//! the plan's `modules` table, as [`crate::rust`] is from its shapes, into a
-//! data crate's `OUT_DIR` and never committed. Per extension, a module with a
-//! record for each shape its names take and answer (a call's options as
-//! `<Name>Options`, a platform's words as `<Name><Platform>`), and per name a
-//! request builder and a reply parser over `exact_data::modules`.
+//! The Rust binding of the native modules an app's plan names (LLP 1133 §5,
+//! LLP 1133.002 D13): generated from the plan's `modules` table, as
+//! [`crate::rust`] is from its shapes, into a data crate's `OUT_DIR` and
+//! never committed. Per extension, a module with a record for each shape its
+//! names take and answer (a call's options as `<Name>Options`, a platform's
+//! words as `<Name><Platform>`), and per name a request builder and a reply
+//! parser over `exact_data::modules`.
 //!
 //! Only what the plan names: a module the app's Contract never calls has no
 //! rows, the runner would refuse a Rust call of it, and so it has no binding
-//! either. Rust has no synchronous form.
+//! either. Rust has no synchronous form (D14).
 
-use crate::rust::{check_fields, field_name, type_name};
+use crate::rust::{check_fields, field_name, reach, type_name};
 use exact_plan::{ModulesRow, Plan, TypeKind, TypesId};
 use std::collections::BTreeMap;
 use std::fmt::Write;
@@ -41,7 +42,7 @@ pub fn module_rust(plan: &Plan) -> Result<String, String> {
                     .into_iter()
                     .flatten()
                     .filter_map(|f| f.as_str());
-                let name = record_name(plan.str(plan.types[p.0 as usize].name));
+                let name = type_name(plan.str(plan.types[p.0 as usize].name));
                 whole
                     .entry(name)
                     .or_default()
@@ -50,76 +51,37 @@ pub fn module_rust(plan: &Plan) -> Result<String, String> {
         }
         writeln!(
             out,
-            "\n/// `{extension}`'s names.\npub mod {} {{",
+            "\n/// `{extension}`'s names (LLP 1133 §5).\npub mod {} {{",
             field_name(extension)
         )
         .unwrap();
-        out.push_str("    #![allow(clippy::all, dead_code)]\n    use exact_data::modules::{self as m, ModuleValue};\n");
+        // A record may be named `Option`, `String` or `ModuleValue` and then
+        // shadows that name in the module, so the binding imports nothing and
+        // spells every type and trait it does not generate by its path, as
+        // `crate::rust` does (which says why values, macros and methods stay
+        // bare).
+        out.push_str("    #![allow(clippy::all, dead_code)]\n");
         for (name, ty) in &records {
             let json = whole.get(name).map(Vec::as_slice).unwrap_or_default();
             record(plan, name, *ty, json, &mut out)?;
         }
+        let owned = rows.iter().any(|row| {
+            let sub: serde_json::Value =
+                serde_json::from_str(plan.str(row.substitute)).unwrap_or_default();
+            sub["owner"].is_string()
+        });
         for row in rows {
-            call(plan, extension, row, &mut out)?;
+            call(plan, extension, row, owned, &mut out)?;
         }
         out.push_str("}\n");
     }
     Ok(out)
 }
 
-/// A desugared record's name in Rust's form: `getCurrentPosition__options`
-/// is `GetCurrentPositionOptions`; a shape's own name stays.
-fn record_name(name: &str) -> String {
-    if !name.contains("__") {
-        return type_name(name);
-    }
-    let upper = |part: &str| {
-        let mut chars = part.chars();
-        chars.next().unwrap().to_ascii_uppercase().to_string() + chars.as_str()
-    };
-    type_name(
-        &name
-            .split("__")
-            .filter(|p| !p.is_empty())
-            .map(upper)
-            .collect::<String>(),
-    )
-}
-
 fn params<'a>(plan: &'a Plan, row: &ModulesRow) -> impl Iterator<Item = TypesId> + 'a {
     let source = &plan.sources[row.source.0 as usize];
     let range = source.params.start as usize..(source.params.start + source.params.len) as usize;
     plan.source_params[range].iter().map(|p| p.ty)
-}
-
-/// Every record `ty` holds, by its Rust name.
-fn reach(plan: &Plan, ty: TypesId, out: &mut BTreeMap<String, TypesId>) -> Result<(), String> {
-    let row = plan.types.get(ty.0 as usize).ok_or("a type out of range")?;
-    match row.kind {
-        TypeKind::Option | TypeKind::List => {
-            reach(plan, row.elem.ok_or("a type with no element")?, out)
-        }
-        TypeKind::Record => {
-            let name = plan.str(row.name);
-            let rust = record_name(name);
-            if let Some(previous) = out.get(&rust) {
-                let previous = plan.str(plan.types[previous.0 as usize].name);
-                return if previous == name {
-                    Ok(())
-                } else {
-                    Err(format!(
-                        "shapes `{previous}` and `{name}` both become Rust `{rust}`"
-                    ))
-                };
-            }
-            out.insert(rust, ty);
-            for f in fields(plan, ty) {
-                reach(plan, f.ty, out)?;
-            }
-            Ok(())
-        }
-        _ => Ok(()),
-    }
 }
 
 fn fields(plan: &Plan, ty: TypesId) -> &[exact_plan::FieldsRow] {
@@ -138,19 +100,19 @@ fn rust_type(plan: &Plan, ty: TypesId) -> Result<String, String> {
     let row = &plan.types[ty.0 as usize];
     let elem = || rust_type(plan, row.elem.ok_or("a type with no element")?);
     Ok(match row.kind {
-        TypeKind::Number => "f64".into(),
-        TypeKind::Bool => "bool".into(),
-        TypeKind::String => "String".into(),
-        TypeKind::Option => format!("Option<{}>", elem()?),
-        TypeKind::List => format!("Vec<{}>", elem()?),
-        TypeKind::Record => record_name(plan.str(row.name)),
-        // A signal answers nothing.
+        TypeKind::Number => "::core::primitive::f64".into(),
+        TypeKind::Bool => "::core::primitive::bool".into(),
+        TypeKind::String => "::std::string::String".into(),
+        TypeKind::Option => format!("::core::option::Option<{}>", elem()?),
+        TypeKind::List => format!("::std::vec::Vec<{}>", elem()?),
+        TypeKind::Record => type_name(plan.str(row.name)),
+        // A signal answers nothing (LLP 1133.011 D1).
         TypeKind::Unit => "()".into(),
     })
 }
 
-/// What the declaration reader noted of `row`'s WebAuthn dictionaries
-/// (`json<T>`, which the plan holds as strings): `{"options": [...],
+/// What the declaration reader noted of `row`'s values passed whole as
+/// JSON (`json<T>`, which the plan holds as strings): `{"options": [...],
 /// "answers": bool}`, or null.
 fn json_of(plan: &Plan, row: &ModulesRow) -> serde_json::Value {
     let substitute: serde_json::Value =
@@ -158,12 +120,17 @@ fn json_of(plan: &Plan, row: &ModulesRow) -> serde_json::Value {
     substitute["json"].clone()
 }
 
-/// A dictionary passed whole keeps its option: `Option<Value>` for
-/// `option<json<T>>`, which the plan holds as `option<string>`.
-fn whole_type(plan: &Plan, ty: TypesId) -> &'static str {
-    match plan.types[ty.0 as usize].kind {
-        TypeKind::Option => "Option<m::serde_json::Value>",
-        _ => "m::serde_json::Value",
+/// A value passed whole keeps the options and lists around it:
+/// `Option<Vec<Value>>` for `option<json<T>[]>`, which the plan holds as
+/// `option<string[]>`. What `T` is, the module checks, not the binding.
+fn whole_type(plan: &Plan, ty: TypesId) -> String {
+    let row = &plan.types[ty.0 as usize];
+    match (row.kind, row.elem) {
+        (TypeKind::Option, Some(elem)) => {
+            format!("::core::option::Option<{}>", whole_type(plan, elem))
+        }
+        (TypeKind::List, Some(elem)) => format!("::std::vec::Vec<{}>", whole_type(plan, elem)),
+        _ => "::exact_data::modules::serde_json::Value".into(),
     }
 }
 
@@ -184,7 +151,7 @@ fn record(
     for f in fields(plan, ty) {
         let (key, rust) = (plan.str(f.name), field_name(plan.str(f.name)));
         let rust_ty = match json.iter().any(|j| j == key) {
-            true => whole_type(plan, f.ty).to_owned(),
+            true => whole_type(plan, f.ty),
             false => rust_type(plan, f.ty)?,
         };
         writeln!(out, "        /// `{key}`.\n        pub {rust}: {rust_ty},").unwrap();
@@ -203,31 +170,37 @@ fn record(
             };
             writeln!(
                 checks,
-                "        if let Some(x) = {at} {{ m::member(x, &{members:?}).map_err(|e| format!(\"{key}: {{e}}\"))?; }}"
+                "        if let Some(x) = {at} {{ ::exact_data::modules::member(x, &{members:?}).map_err(|e| format!(\"{key}: {{e}}\"))?; }}"
             )
             .unwrap();
         }
     }
     out.push_str("    }\n");
     let v = if checks.is_empty() { "_" } else { "v" };
-    writeln!(out, "    impl {name} {{\n        fn check({v}: &Self) -> Result<(), String> {{\n{checks}        Ok(())\n        }}\n    }}").unwrap();
-    writeln!(out, "    impl ModuleValue for {name} {{").unwrap();
-    out.push_str("        fn encode(&self) -> Result<Option<m::serde_json::Value>, String> {\n            Self::check(self)?;\n            let mut o = m::serde_json::Map::new();\n");
+    writeln!(out, "    impl {name} {{\n        fn check({v}: &Self) -> ::core::result::Result<(), ::std::string::String> {{\n{checks}        Ok(())\n        }}\n    }}").unwrap();
+    writeln!(
+        out,
+        "    impl ::exact_data::modules::ModuleValue for {name} {{"
+    )
+    .unwrap();
+    out.push_str("        fn encode(&self) -> ::core::result::Result<::core::option::Option<::exact_data::modules::serde_json::Value>, ::std::string::String> {\n            Self::check(self)?;\n            let mut o = ::exact_data::modules::serde_json::Map::new();\n");
     for f in fields(plan, ty) {
         writeln!(
             out,
-            "            m::put(&mut o, {:?}, &self.{})?;",
+            "            ::exact_data::modules::put(&mut o, {:?}, &self.{})?;",
             plan.str(f.name),
             field_name(plan.str(f.name))
         )
         .unwrap();
     }
-    out.push_str("            Ok(Some(m::serde_json::Value::Object(o)))\n        }\n");
-    out.push_str("        fn decode(json: &m::serde_json::Value) -> Result<Self, String> {\n            if !json.is_object() { return Err(format!(\"{json} is not a record\")); }\n            let v = Self {\n");
+    out.push_str(
+        "            Ok(Some(::exact_data::modules::serde_json::Value::Object(o)))\n        }\n",
+    );
+    out.push_str("        fn decode(json: &::exact_data::modules::serde_json::Value) -> ::core::result::Result<Self, ::std::string::String> {\n            if !json.is_object() { return Err(format!(\"{json} is not a record\")); }\n            let v = Self {\n");
     for f in fields(plan, ty) {
         writeln!(
             out,
-            "                {}: m::take(json, {:?})?,",
+            "                {}: ::exact_data::modules::take(json, {:?})?,",
             field_name(plan.str(f.name)),
             plan.str(f.name)
         )
@@ -240,7 +213,13 @@ fn record(
 }
 
 /// A name's request builder and reply parser.
-fn call(plan: &Plan, extension: &str, row: &ModulesRow, out: &mut String) -> Result<(), String> {
+fn call(
+    plan: &Plan,
+    extension: &str,
+    row: &ModulesRow,
+    owned: bool,
+    out: &mut String,
+) -> Result<(), String> {
     let declared = plan.str(row.declared);
     let (verb, kind) = if row.send {
         ("send", "a send")
@@ -249,44 +228,61 @@ fn call(plan: &Plan, extension: &str, row: &ModulesRow, out: &mut String) -> Res
     } else {
         ("source", "a source")
     };
-    let (f, at) = (field_name(declared), format!("{extension}.{declared}"));
+    let sub: serde_json::Value = serde_json::from_str(plan.str(row.substitute)).unwrap_or_default();
+    let owner = sub["owner"].as_str();
+    let local = if owned {
+        plan.str(plan.sources[row.source.0 as usize].name)
+    } else {
+        declared
+    };
+    let (f, at) = (field_name(local), format!("{extension}.{declared}"));
+    let request = |args: &str| {
+        match owner {
+        Some(owner) => format!("::exact_runner::Request::native(::exact_data::modules::serde_json::json!({{\"extension\": {extension:?}, \"owner\": {owner:?}, {verb:?}: {declared:?}, \"args\": {args}}}).to_string().into_bytes())"),
+        None => format!("::exact_data::modules::request({extension:?}, {verb:?}, {declared:?}, {args})"),
+    }
+    };
     let ty = plan.sources[row.source.0 as usize].ty;
-    // A send that answers nothing: its reply is `()`.
+    // A send that answers nothing (LLP 1133.004 D5): its reply is `()`.
     let nothing = plan.types[ty.0 as usize].kind == TypeKind::Unit;
     let answer = if nothing {
         "()".to_owned()
     } else if json_of(plan, row)["answers"] == true {
-        "m::serde_json::Value".to_owned()
+        whole_type(plan, ty)
     } else {
         rust_type(plan, ty)?
     };
     match params(plan, row).next() {
         Some(options) => {
             let options = rust_type(plan, options)?;
+            let request = request("args.unwrap_or_default()");
             writeln!(
                 out,
                 "\n    /// `{declared}` ({kind}): its request, with the keyword arguments `options` writes; an omitted one\n    \
                  /// stays the platform's. `TypeError` for a value an option cannot take.\n    \
-                 pub fn {f}(options: &{options}) -> Result<exact_runner::Request, m::ModuleError> {{\n        \
-                 let args = options.encode().map_err(|e| m::ModuleError::new(\"TypeError\", format!(\"{at}: {{e}}\")))?;\n        \
-                 Ok(m::request({extension:?}, {verb:?}, {declared:?}, args.unwrap_or_default()))\n    }}"
+                 pub fn {f}(options: &{options}) -> ::core::result::Result<::exact_runner::Request, ::exact_data::modules::ModuleError> {{\n        \
+                 let args = ::exact_data::modules::ModuleValue::encode(options).map_err(|e| ::exact_data::modules::ModuleError::new(\"TypeError\", format!(\"{at}: {{e}}\")))?;\n        \
+                 Ok({request})\n    }}"
             )
             .unwrap();
         }
-        None => writeln!(
-            out,
-            "\n    /// `{declared}` ({kind}): its request.\n    \
-             pub fn {f}() -> exact_runner::Request {{\n        \
-             m::request({extension:?}, {verb:?}, {declared:?}, m::serde_json::json!({{}}))\n    }}"
-        )
-        .unwrap(),
+        None => {
+            let request = request("::exact_data::modules::serde_json::json!({})");
+            writeln!(
+                out,
+                "\n    /// `{declared}` ({kind}): its request.\n    \
+             pub fn {f}() -> ::exact_runner::Request {{\n        \
+             {request}\n    }}"
+            )
+            .unwrap()
+        }
     }
     if nothing {
         writeln!(
             out,
             "    /// The reply to [`{f}`]'s request: done, or the module's error.\n    \
-             pub fn {f}_reply(outcome: &exact_runner::Outcome) -> Result<(), m::ModuleError> {{\n        \
-             m::reply({at:?}, outcome).map(|_| ())\n    }}"
+             pub fn {f}_reply(outcome: &::exact_runner::Outcome) -> ::core::result::Result<(), ::exact_data::modules::ModuleError> {{\n        \
+             ::exact_data::modules::reply({at:?}, outcome).map(|_| ())\n    }}"
         )
         .unwrap();
         return Ok(());
@@ -294,9 +290,9 @@ fn call(plan: &Plan, extension: &str, row: &ModulesRow, out: &mut String) -> Res
     writeln!(
         out,
         "    /// The reply to [`{f}`]'s request: its value, or the module's error.\n    \
-         pub fn {f}_reply(outcome: &exact_runner::Outcome) -> Result<{answer}, m::ModuleError> {{\n        \
-         let json = m::reply({at:?}, outcome)?;\n        \
-         <{answer} as ModuleValue>::decode(&json).map_err(|e| m::malformed({at:?}, e))\n    }}"
+         pub fn {f}_reply(outcome: &::exact_runner::Outcome) -> ::core::result::Result<{answer}, ::exact_data::modules::ModuleError> {{\n        \
+         let json = ::exact_data::modules::reply({at:?}, outcome)?;\n        \
+         <{answer} as ::exact_data::modules::ModuleValue>::decode(&json).map_err(|e| ::exact_data::modules::malformed({at:?}, e))\n    }}"
     )
     .unwrap();
     Ok(())

@@ -3,7 +3,7 @@ import UIKit
 import XCTest
 @testable import ExactKit
 
-/// On UIKit, a `pointerdown` action that calls `preventDefault()`
+/// LLP 1005 §3 on UIKit: a `pointerdown` action that calls `preventDefault()`
 /// keeps the focus where it is: the view the touch went down on takes no
 /// focus from it (a field's own tap, a node's), and the press still fires, as
 /// Chrome does for a prevented pointerdown by touch

@@ -1,6 +1,6 @@
 // A paste's files (DOM's `clipboardData.files`): what the pasteboard holds
-// beside its text, each minted a `doc:` handle for this session and heard
-// in the `ClipboardEvent`'s `files` (ABI kind 57).
+// beside its text, each minted a `doc:` handle for this session (LLP
+// 1069.010 D1) and heard in the `ClipboardEvent`'s `files` (ABI kind 57).
 // File URLs come first, folders included (a Finder copy, which also carries
 // the file's icon as an image and its name as text: the file is what is
 // pasted, not its icon). With none, image data (a screenshot copied to the

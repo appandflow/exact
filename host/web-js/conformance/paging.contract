@@ -4,8 +4,8 @@
 // its way (then its action does nothing), a timer lands it 30 rows later
 // and, in the same commit, takes the reader to the new end (an authored
 // scrollTop, as a reader jumping to the bottom every 150 ms does before the
-// new rows are measured). Rows appended past the end re-arm it
-// (provisionally), so this reader, who never
+// new rows are measured). Rows appended past the end re-arm it (LLP 1010,
+// Charlie's ruling of 2026-09-29, provisional), so this reader, who never
 // leaves the end, is offered each next page. The source has five: a long
 // clock jump then delivers list feedback between timers on the JS target
 // and after them on the wasm target, which only a bounded source hides.

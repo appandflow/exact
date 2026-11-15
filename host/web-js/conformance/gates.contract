@@ -1,5 +1,5 @@
 // Synthetic conformance plan: tasks that wait for state (`task … when cond
-// key=expr`) on both executors. A toast's `after` is
+// key=expr`, LLP 1092 D7–D10) on both executors. A toast's `after` is
 // armed while it shows and re-armed by a new deadline (`key=until`), so a
 // replaced toast gets its whole five seconds and the first deadline does
 // nothing; it fires at its deadline exactly. An `every` runs while its gate

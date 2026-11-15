@@ -1,12 +1,12 @@
-//! The job wave's progress as it happens: one server-sent event stream per
-//! wave, replacing a poll. Each event carries the wave's counts and the log
-//! entries since this reader's cursor.
-//! The host keeps only the newest undelivered event (coalescing); a gap
-//! in the log re-asks from the cursor with `Last-Event-ID`, and the
-//! server answers every entry after it in one event. The counters here are
-//! what the smoke measures.
+//! The job wave's progress as it happens (LLP 1016.000; LLP 1069.004 slice
+//! 2): one server-sent event stream per wave, replacing a poll. Each event
+//! carries the wave's counts and the log entries since this reader's cursor.
+//! The host keeps only the newest undelivered event (coalescing, D4); a gap
+//! in the log re-asks from the cursor with `Last-Event-ID` (D6), and the
+//! server answers every entry after it in one event. "On trial" (1069.004
+//! Decided 3): the counters here are what the smoke measures.
 //!
-//! `jobFrames(wave)` is the same reading over a WebSocket, in
+//! `jobFrames(wave)` is the same reading over a WebSocket (slice 3), in
 //! Jetstream's shape: a `ws:` URL is the whole difference to the host, each
 //! text frame carries the newest sequence as `cursor`, and a re-ask passes
 //! the cursor as a query parameter instead of a header.
@@ -142,7 +142,7 @@ impl Log {
             .max(json.number("cursor") as u64);
         let entries = json.entries();
         // A gap: what came is past the cursor. Re-ask from it; the server
-        // sends everything after it in one event.
+        // sends everything after it in one event (LLP 1016.000 D6).
         if entries.first().is_some_and(|e| e.0 > self.cursor + 1) {
             self.gaps += 1;
             self.reasks += 1;

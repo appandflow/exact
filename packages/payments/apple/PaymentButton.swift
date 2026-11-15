@@ -1,4 +1,4 @@
-// `exact-payment-button` on Apple: PassKit's own
+// `exact-payment-button` on Apple (LLP 1133.034 D4, D8): PassKit's own
 // `PKPaymentButton`, whose look Apple's guidelines fix ("Apple Pay buttons":
 // the type's words, the system's style for the appearance). A press is the
 // view's `press` event, whose action makes the call.

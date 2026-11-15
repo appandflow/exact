@@ -1,4 +1,4 @@
-//! A component's `params` section: `name: kind = "default"`
+//! A component's `params` section (LLP 1121 D15): `name: kind = "default"`
 //! and its attributes, one param a line.
 
 use super::{Parser, R};

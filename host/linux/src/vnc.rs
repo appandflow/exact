@@ -2,6 +2,7 @@
 //! `EXACT_VNC=1` binds loopback; another address must be explicit.
 //! `EXACT_VNC_PASSWORD` supplies the RFB password (one to eight bytes).
 //! The protocol does not encrypt frames or input.
+//! @ref LLP 1015 §6
 
 mod auth;
 
@@ -339,7 +340,10 @@ fn serve(mut stream: TcpStream, shared: Arc<Shared>, key: [u8; 8]) -> io::Result
             }
         }
     })();
-    if buttons & 1 != 0 {
+    // A button the client still held (primary 1, middle 2, right 4) is never
+    // released: the next client starts from none. The cancel releases the
+    // hold whichever button took it.
+    if buttons & 0b111 != 0 {
         push(&shared, InputEvent::Cancel);
     }
     for code in held {
@@ -452,6 +456,18 @@ fn keysym(sym: u32) -> Option<(u16, Option<bool>)> {
     ))
 }
 
+/// A client's RFB 3.8 handshake through VNC authentication with `key`.
+#[cfg(test)]
+fn sign_in(client: &mut TcpStream, key: &[u8; 8]) {
+    assert_eq!(&read_exact::<12>(client).unwrap(), b"RFB 003.008\n");
+    client.write_all(b"RFB 003.008\n").unwrap();
+    assert_eq!(read_exact::<2>(client).unwrap(), [1, 2]);
+    client.write_all(&[2]).unwrap();
+    let challenge = read_exact::<16>(client).unwrap();
+    client.write_all(&auth::response(key, challenge)).unwrap();
+    assert_eq!(read_exact::<4>(client).unwrap(), [0; 4]);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -497,16 +513,13 @@ mod tests {
             height: 1,
         });
         let server = shared.clone();
-        let task = thread::spawn(move || serve(listener.accept().unwrap().0, server));
+        let key = auth::password_key(b"secret").unwrap();
+        let task = thread::spawn(move || serve(listener.accept().unwrap().0, server, key));
         let mut client = TcpStream::connect(addr).unwrap();
         client
             .set_read_timeout(Some(std::time::Duration::from_secs(3)))
             .unwrap();
-        assert_eq!(&read_exact::<12>(&mut client).unwrap(), b"RFB 003.008\n");
-        client.write_all(b"RFB 003.008\n").unwrap();
-        assert_eq!(read_exact::<2>(&mut client).unwrap(), [1, 1]);
-        client.write_all(&[1]).unwrap();
-        assert_eq!(read_exact::<4>(&mut client).unwrap(), [0; 4]);
+        sign_in(&mut client, &key);
         client.write_all(&[1]).unwrap();
         let init = read_exact::<24>(&mut client).unwrap();
         drain(
@@ -569,6 +582,27 @@ mod contact_tests {
 
     #[test]
     fn disconnect_while_down_queues_cancel_and_never_a_successful_release() {
+        let events = disconnect_holding(1);
+        assert!(events.contains(&InputEvent::Button(true)));
+        assert_eq!(events.last(), Some(&InputEvent::Cancel));
+        assert!(!events.contains(&InputEvent::Button(false)));
+    }
+
+    /// RFB's middle (2) and right (4) buttons are the web's 4 and 2: a
+    /// disconnect holding either cancels the hold its press took.
+    #[test]
+    fn disconnect_holding_the_middle_or_right_button_cancels_too() {
+        for (rfb, bit) in [(2, 4), (4, 2)] {
+            let events = disconnect_holding(rfb);
+            assert!(events.contains(&InputEvent::Aux(bit, true)), "{rfb}");
+            assert_eq!(events.last(), Some(&InputEvent::Cancel), "{rfb}");
+            assert!(!events.contains(&InputEvent::Aux(bit, false)), "{rfb}");
+        }
+    }
+
+    /// The events a session queues when its client presses the buttons of
+    /// `mask` and disconnects without releasing them.
+    fn disconnect_holding(mask: u8) -> Vec<InputEvent> {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let address = listener.local_addr().unwrap();
         let (wake, _read) = UnixStream::pair().unwrap();
@@ -581,24 +615,21 @@ mod contact_tests {
             height: 500,
         });
         let server = shared.clone();
+        let key = auth::password_key(b"secret").unwrap();
         let (finished, receive) = std::sync::mpsc::channel();
         let worker = thread::spawn(move || {
             let (stream, _) = listener.accept().unwrap();
             stream
                 .set_read_timeout(Some(Duration::from_secs(2)))
                 .unwrap();
-            let result = serve(stream, server);
+            let result = serve(stream, server, key);
             finished.send(result.map_err(|e| e.kind())).unwrap();
         });
         let mut client = TcpStream::connect(address).unwrap();
         client
             .set_read_timeout(Some(Duration::from_secs(2)))
             .unwrap();
-        assert_eq!(&read_exact::<12>(&mut client).unwrap(), b"RFB 003.008\n");
-        client.write_all(b"RFB 003.008\n").unwrap();
-        assert_eq!(read_exact::<2>(&mut client).unwrap(), [1, 1]);
-        client.write_all(&[1]).unwrap();
-        read_exact::<4>(&mut client).unwrap();
+        sign_in(&mut client, &key);
         client.write_all(&[1]).unwrap();
         let init = read_exact::<24>(&mut client).unwrap();
         drain(
@@ -606,7 +637,7 @@ mod contact_tests {
             u32::from_be_bytes(init[20..24].try_into().unwrap()) as u64,
         )
         .unwrap();
-        client.write_all(&[5, 1, 0, 20, 0, 40]).unwrap();
+        client.write_all(&[5, mask, 0, 20, 0, 40]).unwrap();
         client.shutdown(std::net::Shutdown::Both).unwrap();
         drop(client);
         assert_eq!(
@@ -615,8 +646,6 @@ mod contact_tests {
         );
         worker.join().unwrap();
         let events = shared.events.lock().unwrap();
-        assert!(events.contains(&InputEvent::Button(true)));
-        assert_eq!(events.last(), Some(&InputEvent::Cancel));
-        assert!(!events.contains(&InputEvent::Button(false)));
+        events.clone()
     }
 }

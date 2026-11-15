@@ -1,5 +1,4 @@
-//! Offline, bounded interaction fixtures: shared viewport collections and
-//! explicit height and transform bindings.
+//! Offline, bounded interaction fixtures for LLP 1041 §8.5.
 #![forbid(unsafe_code)]
 
 pub mod board;
@@ -280,7 +279,7 @@ impl DataSource for Gallery {
                 let before = before.as_ref().map(|v| v.as_str().ok_or_else(|| DataError::BadArguments("reorder destination must be option<string>".into()))).transpose()?;
                 Ok(self.reorder(item.text(), before, revision))
             }
-            // The cross-list reorder fixture's board.
+            // The cross-list reorder fixture's board (LLP 1094 D12).
             ("boardCards", []) => Ok(self.board_cards()),
             ("boardColumns", []) => Ok(Value::list(
                 ["todo", "doing", "done"].map(Value::str).to_vec(),

@@ -1,5 +1,5 @@
 //! The runner's tree read, with opt-in plan identity for development layout.
-//! Only the driver joins the source map.
+//! @ref LLP 1104 D2; LLP 1035.002 D6 — only the driver joins the source map.
 
 use super::*;
 
@@ -101,7 +101,7 @@ fn tree_rows<D: DataSource>(
         let (inactive, hidden) = activity.get(&node.id).copied().unwrap_or_default();
         if inactive {
             s.push_str(",\"inactive\":true");
-            // `hidden` where no host shows the route (every
+            // LLP 1153 D8: `hidden` where no host shows the route (every
             // inactive one but a page a sheet covers), so an agent reading
             // the tree sees which screen shows.
             if hidden {
@@ -112,7 +112,7 @@ fn tree_rows<D: DataSource>(
             s.push_str(",\"unopened\":true");
         }
         // A status item is placed in the menu bar or tray, not the window,
-        // where the target has one; `tap` reaches it the
+        // where the target has one (LLP 1133.025 D4); `tap` reaches it the
         // same. Elsewhere the button is an ordinary button.
         if runner.places_status_items() && crate::desktop::presents(node.props, "status") {
             s.push_str(",\"presented\":\"status\"");

@@ -1,10 +1,10 @@
-//! Ceremonies: a send whose substitute declares a
+//! Ceremonies (LLP 1133.011 §9): a send whose substitute declares a
 //! `ceremony` is a sheet the person answers, held under its `ticket`.
 //!
 //! - **Admission** first matches a grant by the argument's value: an
 //!   argument whose grant is `{"line", "matches": "target"}` must be the
 //!   target of one of the app's lines (`publicKey.rp.id` against
-//!   `auth.passkey <rp id>`), else the call fails the grant's `refuse`
+//!   `auth.passkey <rp id>`, D6), else the call fails the grant's `refuse`
 //!   code before anything is asked. An omitted one stands for the page's
 //!   host on the web (`"omitted": "page"`) and refuses natively, where
 //!   there is no page; `localhost` refuses natively too, since no
@@ -13,7 +13,7 @@
 //!   `targets` laid over its default) fails a call at once where a rule's
 //!   `field` `is` the value it names, for the calls its `when` matches: no
 //!   credential manager, or no conditional `get` on macOS.
-//! - **One at a time**: a modal ceremony, or a second conditional one,
+//! - **One at a time** (D9): a modal ceremony, or a second conditional one,
 //!   ends a held conditional one with `AbortError`; a ceremony that arrives
 //!   while a modal one is held waits behind it, with no ticket until the
 //!   modal one ends.
@@ -24,9 +24,9 @@
 //!   `type @t <JSON>` answers it with a response, checked against the
 //!   declared `answer` fields; `tap @t cancel` and each declared choice
 //!   fail it with their error.
-//! - **Withheld.** The answer's `withhold` paths (a PRF output) are
+//! - **Withheld.** The answer's `withhold` paths (a PRF output, D10) are
 //!   removed before it leaves the runner.
-//! - **Dropped**: a data-code call's reply that carries handles
+//! - **Dropped** (D11): a data-code call's reply that carries handles
 //!   (`create`'s credential id) is provisional until its request lands. One
 //!   answered after its request was let go (its mutation superseded) is
 //!   disposed of at once and the journal says so.
@@ -68,7 +68,7 @@ pub(super) fn at<'a>(value: &'a Json, path: &str) -> Option<&'a Json> {
 }
 
 /// The value at `path` in `value`, reading a string on the way as the JSON
-/// it holds (a payment method's `data`).
+/// it holds (a payment method's `data`, LLP 1133.034 D10).
 pub(super) fn within(value: &Json, path: &str) -> Option<Json> {
     let mut at = value.clone();
     for part in path.split('.') {
@@ -109,7 +109,7 @@ impl<D: DataSource> Runner<D> {
     /// call with `args` is refused, if it is.
     pub(super) fn value_grants(&self, row: &ModulesRow, args: &Json) -> Result<(), (Json, String)> {
         let sub = self.substitute(row);
-        // A computed colour that is none fails the call.
+        // A computed colour that is none fails the call (LLP 1133.022 D10 item 2).
         for option in sub["colorOptions"].as_array().into_iter().flatten() {
             let given = option
                 .as_str()
@@ -126,13 +126,13 @@ impl<D: DataSource> Runner<D> {
             };
             let code = json!(spec["refuse"].as_str().unwrap_or("NotAllowedError"));
             // A call without the argument the path is in asks nothing of it
-            // (a sign-in alone, with no `publicKey`).
+            // (a sign-in alone, with no `publicKey`, LLP 1133.014 D3).
             let root = path.split(['.', '[']).next().unwrap_or(path);
             if path.contains('.') && args.get(root).is_none_or(Json::is_null) {
                 continue;
             }
             // A path through a list names each element `when` matches (a
-            // merchant ID per Apple Pay method).
+            // merchant ID per Apple Pay method, LLP 1133.034 D13).
             let values = match path.split_once("[].") {
                 Some((list, rest)) => {
                     let matches = |e: &Json| {
@@ -202,7 +202,7 @@ impl<D: DataSource> Runner<D> {
             .and_then(|s| self.value_of(&s))
             .unwrap_or_default();
         // The owner's status speaks for its own ceremony alone: a sign-in
-        // with no passkey asks nothing of passkeys'.
+        // with no passkey asks nothing of passkeys' (LLP 1133.014 D3).
         let owned = self.owns_ceremony(sub, args);
         for rule in (ceremony["unless"].as_array().into_iter().flatten()).filter(|_| owned) {
             let applies = (rule["when"].as_object())
@@ -317,7 +317,7 @@ impl<D: DataSource> Runner<D> {
         }
     }
 
-    /// A ceremony of `row` is about to be held: a held
+    /// A ceremony of `row` is about to be held (D9): a held
     /// conditional one, or a passive sign-in, ends with `AbortError`; `true`
     /// when a modal one is held, behind which it waits.
     pub(super) fn ceremony_begins(&mut self, row: &ModulesRow) -> bool {
@@ -327,7 +327,7 @@ impl<D: DataSource> Runner<D> {
                 && !h.queued
                 && r.plan.str(r.module_row(&h.source).extension) == extension
         };
-        // A passive sign-in ends as a conditional get does.
+        // A passive sign-in (LLP 1133.014 D5) ends as a conditional get does.
         let yields = |h: &Held| {
             h.args["mediation"] == "conditional"
                 || h.args
@@ -415,7 +415,7 @@ impl<D: DataSource> Runner<D> {
     /// `answer`, a data-code call's of held call `held`, as it leaves the
     /// runner: its withheld paths removed, its outcome listed, and, for a
     /// reply that carries handles, provisional until its request lands, or
-    /// disposed of now when that request was let go.
+    /// disposed of now when that request was let go (D11).
     pub(super) fn ceremony_ended(&mut self, held: &Held, mut answer: Json) -> Json {
         let row = self.module_row(&held.source);
         let sub = self.substitute(&row);

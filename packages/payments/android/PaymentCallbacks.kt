@@ -1,4 +1,4 @@
-// Google Pay's callbacks while its sheet is up: the service the manifest declares, which Google binds
+// Google Pay's callbacks while its sheet is up (LLP 1133.034 D5): the service the manifest declares, which Google binds
 // with `BIND_PAYMENTS_CALLBACK_SERVICE` for a request whose `callbackIntents` name shipping or authorization. It hands
 // each callback to the module whose sheet is up, on the main thread, and answers Google with the module's JSON.
 package exact.payments

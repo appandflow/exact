@@ -1,5 +1,5 @@
-// Accept fixture: what an app may read and do about its own delivery.
-// `exactDelivery` is the one source the runner answers
+// Accept fixture: what an app may read and do about its own delivery
+// (LLP 1030 D7). `exactDelivery` is the one source the runner answers
 // itself — no data crate is asked, and none could answer — and the record
 // is filled by field name from this shape, so an app that wants only the
 // stream declares only `stream`. The two commands are ordinary commands:

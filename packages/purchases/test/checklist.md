@@ -1,9 +1,9 @@
-# Purchases and store review on a device (drive 13)
+# Purchases and store review on a device (LLP 1133.015 §10, drive 13)
 
 What the agent cannot drive: StoreKit's and Play's own sheets, their sandbox
 and test-card payments, and the stores' rating prompts. Weatherlight+ is the
 consumer. Each step names what to see; a step that shows something else is a
-finding. A person runs them, never an agent on a phone.
+finding. A person runs them, never an agent on a phone (LLP 1133.020).
 
 ## What the accounts must have first
 
@@ -12,7 +12,8 @@ finding. A person runs them, never an agent on a phone.
   `plus.monthly` and `plus.yearly`, auto-renewable subscriptions in one group,
   and `tip.small`, a consumable; the Paid Apps agreement active; a
   development profile for the explicit App ID; a Sandbox Apple Account
-  signed in under Settings › Developer › Sandbox Apple Account.
+  signed in under Settings › Developer › Sandbox Apple Account (LLP 1133.020
+  §3 item 5).
 - **Google:** Weatherlight on a Play internal track with the same products
   published, the phone's account a license tester, and Weatherlight
   installed from the track.
@@ -47,7 +48,7 @@ finding. A person runs them, never an agent on a phone.
 `Weatherlight.storekit` beside this file is the catalogue as a StoreKit
 configuration file. `SKTestSession` runs only in a hosted XCTest; on this
 Mac's ad hoc signing the StoreKit service refused it (`SKInternalErrorDomain`
-4), so the StoreKit test suite waits for a development-signed
+4), so the suite of LLP 1133.015 §12 stage 1 waits for a development-signed
 test host: products, a purchase, a pending purchase approved, a purchase
 outside the app, renewals at `timeRate`, an expiry, a refund before finishing,
 and two sessions.

@@ -1,5 +1,5 @@
 // A request-answering data source in TypeScript — Weird Castle's login in
-// miniature, the executor's fixture: `fetch` is the web's
+// miniature, the executor's fixture for LLP 1027 D1a: `fetch` is the web's
 // and goes through the host's ticket path; the store is the seam's; an
 // answer may await two fetches in a row; a refusal is a thrown `DataError`.
 
@@ -65,7 +65,7 @@ async function login(who: string, password: string, store: Store): Promise<Sessi
 }
 
 // Two fetches in a row: who am I, then that user's profile — the second
-// request depends on the first reply (`parse` → `Later`).
+// request depends on the first reply (LLP 1027 D1a, `parse` → `Later`).
 async function profile(store: Store): Promise<Session> {
   const kept = store.get(SECRET);
   if (kept === null) return { ...idle, error: "Not signed in" };
@@ -101,12 +101,11 @@ async function refusedLater(): Promise<Session> {
 async function refusedWhy(offline: string): Promise<Session> {
   await fetch("https://api.castle.xyz/ping");
   const code = offline ? "E_OFFLINE" : "SLOT_FULL", error = Object.assign(new Error(`${code}: no`), { code, reason: code });
-  // `name` is defined, not assigned: Error.prototype's is read-only here (frozen intrinsics).
   throw offline ? Object.defineProperties(error, { name: { value: "FetchError" }, kind: { value: "Network" } }) : error;
 }
 
-// One fetch two answers share, as a page's code memoizes one: the second
-// answer awaits the first's request, not one of its own.
+// One fetch two answers share, as a page's code memoizes one (hn-reader
+// F7): the second answer awaits the first's request, not one of its own.
 const items = new Map<string, Promise<string>>();
 function item(id: string): Session | Promise<Session> {
   if (!id) return idle;
@@ -126,19 +125,20 @@ async function followup(id: string): Promise<Session> {
 
 // A save that does not await its POST: the answer is given at once, the
 // request still goes (a browser runs it), even while another answer is in
-// flight.
+// flight (Grok's batch 2 review, runtime).
 async function saveQuietly(id: string): Promise<Session> {
   void fetch(`https://api.castle.xyz/save/${id}`, { method: "POST", body: id });
   return { ok: true, username: id, error: "saved" };
 }
 
-// One controller for every fetch (review r4a 7): a browser realm's fetch
-// watches its signal with a listener it removes when the fetch settles;
-// Hermes's watches through Ibex's own abort hooks and adds none.
+// A reused controller must not retain listeners after a fetch. Browser realms
+// listen on dependent signals; Hermes uses hooks and freezes the intrinsic,
+// so count only listeners on the supplied signal there.
 const reusedController = new AbortController();
 const listening = { added: 0, removed: 0 };
 {
-  const signal = reusedController.signal as any, add = signal.addEventListener, remove = signal.removeEventListener;
+  const signal = (Object.isFrozen(AbortSignal.prototype) ? reusedController.signal : AbortSignal.prototype) as any;
+  const add = signal.addEventListener, remove = signal.removeEventListener;
   signal.addEventListener = function (...args: unknown[]) { listening.added++; return add.apply(this, args); };
   signal.removeEventListener = function (...args: unknown[]) { listening.removed++; return remove.apply(this, args); };
 }
@@ -226,12 +226,12 @@ function answer(source: string, args: unknown[], store: Store): unknown {
     case "withdrawn": return withdrawn();
     case "fallingBack": return fallingBack(text(args, 0));
     case "saveQuietly": return saveQuietly(text(args, 0));
-    // An answer that keeps coming: each event, and the end.
+    // An answer that keeps coming (LLP 1016.000): each event, and the end.
     case "events": return fetch("https://api.castle.xyz/events?since=" + args[0], {
       exactStream: (e: { type: string; data: string; lastEventId: string; coalesced: number; message?: string }) =>
         e.type === "error" ? `ended: ${e.message}` : `${e.type} ${e.lastEventId}:${e.data}:${e.coalesced}:${store.get("castle.session") ?? "-"}`,
     } as RequestInit);
-    // A long poll: each reply an event, its cursor the id.
+    // A long poll (LLP 1016.000 D8): each reply an event, its cursor the id.
     case "changes": return fetch("https://api.castle.xyz/changes?since=" + args[0] + "&wait=25", {
       exactStream: (e: { type: string; data: string; lastEventId: string; message?: string }) =>
         e.type === "error" ? `ended: ${e.message}` : `${e.lastEventId}:${e.data}`,
@@ -253,14 +253,14 @@ function answer(source: string, args: unknown[], store: Store): unknown {
       const [url, init] = asks[text(args, 0)];
       return fetch(url, init as RequestInit).then(() => "sent", (e: Error) => e.message);
     }
-    // A body that is not events is bytes (the byte stream).
-    // The gate's stub decode is there under the agent only.
+    // A body that is not events is bytes (LLP 1016.000, the byte stream).
+    // LLP 1133.003 §9: the gate's stub decode is there under the agent only.
     case "gate": return typeof (globalThis as { __exact_gate_decode?: unknown }).__exact_gate_decode;
     case "bytes": return fetch("https://api.castle.xyz/screen.avcc", {
       exactStream: (e: { type: string; data: ArrayBuffer | string; message?: string }) =>
         e.type === "error" ? `ended: ${e.message}` : `${e.type}:${e.data instanceof ArrayBuffer ? new Uint8Array(e.data).join(",") : "text"}`,
     } as RequestInit);
-    // A socket is the same answer with a `wss:` URL:
+    // A socket is the same answer with a `wss:` URL (LLP 1069.004 slice 3):
     // Jetstream's shape, the cursor a query parameter.
     case "socket": return fetch("wss://jetstream.castle.xyz/subscribe?cursor=" + args[0], {
       exactStream: (e: { type: string; data: string; message?: string }) =>
@@ -277,7 +277,7 @@ function answer(source: string, args: unknown[], store: Store): unknown {
         .then(r => r.text(), (e: { kind: string; message: string }) => { lastError = `${e.kind}: ${e.message}`; return "failed"; })
         .finally(() => { flushing = false; });
     case "flushing": return `${flushing} ${lastError}`;
-    // A read whose rejection, run with no store, reads the store.
+    // A read whose rejection, run with no store, reads the store (LLP 1146 D3).
     case "peek":
       return fetch("https://api.castle.xyz/peek").then(r => r.text(), () => {
         try { return `kept ${store.get("castle.session")}`; } catch (e) { lastError = (e as Error).message; return "threw"; }
@@ -293,13 +293,63 @@ function answer(source: string, args: unknown[], store: Store): unknown {
         lastError = said.join(" | ");
         return "threw";
       });
-    // A BufferSource body goes as its bytes: a view into
+    // A BufferSource body goes as its bytes (LLP 1069.002 D4): a view into
     // the middle of a buffer, the buffer itself, and a DataView, each once.
     case "upload": {
       const all = new Uint8Array([9, 0, 255, 128, 10, 13, 0, 9]);
-      const body = args[0] === "buffer" ? all.buffer : args[0] === "dataview" ? new DataView(all.buffer, 1, 6) : all.subarray(1, 7);
+      const bodies = {
+        buffer: all.buffer, view: all.subarray(1, 7), dataview: new DataView(all.buffer, 1, 6),
+        wide: new Uint16Array(all.buffer, 2, 2), one: all.subarray(1, 2), two: all.subarray(1, 3),
+        emptyBuffer: new ArrayBuffer(0), emptyView: all.subarray(3, 3), emptyDataView: new DataView(all.buffer, 3, 0),
+      };
+      const body = bodies[text(args, 0) as keyof typeof bodies];
       const sent = fetch("https://api.castle.xyz/blob", { method: "POST", headers: { "content-type": "image/png" }, body });
       all[1] = 7; // a write after the call changes nothing sent
+      return sent.then(r => r.text());
+    }
+    case "largeUpload": {
+      const offset = args[0] === "buffer" ? 0 : 1;
+      const all = new Uint8Array(2_000_000 + offset * 2).fill(0xa5);
+      const bytes = all.subarray(offset, offset + 2_000_000);
+      for (let i = 0; i < 256; i++) bytes[i] = i;
+      const body = args[0] === "buffer" ? all.buffer : args[0] === "dataview" ? new DataView(all.buffer, offset, bytes.length) : bytes;
+      const sent = fetch("https://api.castle.xyz/blob", {
+        method: "POST", body,
+        get cache() { all.fill(0); return "default"; },
+      });
+      all.fill(7);
+      return sent.then(r => r.text());
+    }
+    case "parallelUpload": {
+      const all = new Uint8Array([9, 0, 255, 9]);
+      const send = (body: BodyInit) => fetch("https://api.castle.xyz/blob", { method: "POST", body }).then(r => r.text());
+      const first = send(all.subarray(1, 3));
+      all[1] = 128;
+      const second = send(new DataView(all.buffer, 1, 2));
+      const empty = send(new ArrayBuffer(0));
+      all.fill(0);
+      return Promise.all([first, second, empty]).then(replies => replies.join("/"));
+    }
+    case "typedUpload": {
+      const forms = new URLSearchParams({ code: "a b" });
+      Object.defineProperty(forms, "toString", { value: () => "wrong" });
+      const bodies: Record<string, BodyInit | null | undefined> = {
+        string: "hello", empty: "",
+        form: new URLSearchParams({ grant_type: "authorization_code", code: "a b" }),
+        emptyForm: new URLSearchParams(), formOwnString: forms,
+        view: new Uint8Array([0, 255]), buffer: new Uint8Array([0, 255]).buffer,
+        dataview: new DataView(new Uint8Array([0, 255]).buffer),
+        emptyBytes: new Uint8Array(0), null: null, undefined: undefined,
+      };
+      const headers = args[2] === "record" ? { "CoNtEnT-TyPe": "application/custom" }
+        : args[2] === "pairs" ? [["CONTENT-TYPE", "application/custom"]] as [string, string][]
+        : args[2] === "other" ? new Headers({ "X-Test": "kept" })
+        : args[2] === "headers" ? new Headers({ "Content-Type": "" }) : undefined;
+      const before = JSON.stringify(Array.from(new Headers(headers)));
+      const sent = fetch("https://api.castle.xyz/token", {
+        method: text(args, 1), headers, body: bodies[text(args, 0)],
+      });
+      if (JSON.stringify(Array.from(new Headers(headers))) !== before) throw new Error("fetch changed init.headers");
       return sent.then(r => r.text());
     }
     // Fetch's refusals of a body, before any request: any body on a GET or
@@ -335,10 +385,31 @@ function answer(source: string, args: unknown[], store: Store): unknown {
     // A deadline for the whole exchange: a timeout rejects with its kind.
     case "timed": return fetch("https://api.castle.xyz/slow", { exactTimeout: args[0] } as RequestInit)
       .then(r => r.text(), (e: { kind: string; message: string }) => `failed: ${e.kind}: ${e.message}`);
-    // A reply the server may hold: marked on the request; beside a stream, or not a boolean, refused.
+    // A reply the server may hold (LLP 1016.000 D9): marked on the request; beside a stream, or not a boolean, refused.
     case "held": return fetch("https://api.castle.xyz/changes", (args[0] === "stream" || args[0] === "yes-stream"
       ? { exactHeld: args[0] === "stream" ? true : "yes", exactStream: (event: unknown) => event }
       : { exactHeld: args[0] === "true" ? true : args[0] === "false" ? false : args[0] }) as RequestInit).then(r => r.text(), (e: Error) => `refused: ${e.message}`);
+    case "prefetched": return fetch("https://api.castle.xyz/feed", {
+      ...(args[0] === "stream" ? { exactStream: (event: unknown) => event } : {}),
+      ...(args[0] === "file" ? { exactBodyTo: "app:/data/reply" } : {}),
+      ...(args[0] === "independent" ? { exactIndependentHttp: { maxResponseBytes: 1024 } } : {}),
+      get exactPrefetch() {
+        if (args[0] === "throws") throw new Error("prefetch getter");
+        return args[0] === "absent" ? undefined : args[0] === "false" ? false : args[0] === "number" ? 7 : args[0] === "null" ? null : true;
+      },
+    } as RequestInit).then(r => r.text(), (e: Error) => `${e instanceof TypeError ? "TypeError" : "Error"}: ${e.message}`);
+    case "preloaded": return fetch("https://api.castle.xyz/feed", args[0] === "absent" ? {} : {
+      get exactPreload() {
+        if (args[0] === "throws") throw new Error("preload getter");
+        return args[0] === "number" ? 7 : args[0] === "null" ? null : args[0];
+      },
+    } as RequestInit).then(r => r.text(), (e: Error) => `${e instanceof TypeError ? "TypeError" : "Error"}: ${e.message}`);
+    case "cached": return fetch("https://api.castle.xyz/cache", args[0] === "absent" ? {} : {
+      get cache() {
+        if (args[0] === "throws") throw new Error("cache getter");
+        return args[0] === "number" ? 7 : args[0] === "null" ? null : args[0];
+      },
+    } as RequestInit).then(r => r.text(), (e: Error) => `${e instanceof TypeError ? "TypeError" : "Error"}: ${e.message}`);
     case "redirected": return fetch("https://api.castle.xyz/moved", {
       ...(args[0] === "" ? {} : { redirect: args[0] }),
     }).then(r => r.status + " " + (r.headers.get("location") ?? ""));

@@ -1,4 +1,4 @@
-// @exact/in-app-browser on the web: the web has no
+// @exact/in-app-browser on the web (LLP 1133.024 D11, D12): the web has no
 // in-app browser, so the page opens in a new tab or window as the browser
 // chooses, which is what a web app's outside link does. With `noopener`,
 // `window.open` returns null whether or not it opened, so it answers
@@ -6,7 +6,7 @@
 //
 // Under the agent nothing opens: the `browser` ticket's tap is the answer.
 
-/** An absolute http or https URL, or null. */
+/** An absolute http or https URL, or null (D11). */
 export function webURL(text) {
   try {
     const url = new URL(String(text ?? ''));

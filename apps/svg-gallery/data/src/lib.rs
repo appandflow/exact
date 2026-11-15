@@ -1,4 +1,4 @@
-//! The SVG gallery's data source: none. Every fixture is
+//! The SVG gallery's data source (LLP 1055.000): none. Every fixture is
 //! literal Contract, so each host draws exactly the same pictures and Chrome
 //! is the reference.
 

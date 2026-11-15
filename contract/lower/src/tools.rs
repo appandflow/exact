@@ -1,12 +1,12 @@
-//! The root's `tool` lines as the plan's `tools` table, and
-//! the checks over each tool's reach: its action, the actions
+//! The root's `tool` lines (LLP 1111 D2) as the plan's `tools` table, and
+//! the checks of D3 and D4a over each tool's reach: its action, the actions
 //! that action calls, and the `then` of each mutation they send into.
 //!
 //! - **`tool-root`**: a tool names a root action, so only the root
 //!   declares one. **`tool-duplicate`**, **`tool-action`**: one tool a
 //!   name, naming an action of the root.
 //! - **`tool-condition-type`**: `fails when` and `available when` are bool.
-//! - **`tool-command`**: a command in the reach that a tool run neither skips nor
+//! - **`tool-command`**: a command in the reach that D4a neither skips nor
 //!   runs acts in the person's name, waits for them or reaches outside the
 //!   app. **`tool-reads-command`**: a `reads` tool runs only
 //!   `preventDefault` and `stopPropagation` of the run class.
@@ -18,7 +18,7 @@ use contract_syntax::{Component, File, Span, Stmt};
 use contract_types::Ty;
 
 /// The commands a call's commit does not run: each moves the person's view
-/// (the runner's `modules/calls.rs` skips them).
+/// (LLP 1111 D4a; the runner's `modules/calls.rs` skips them).
 pub const SKIPPED: &[&str] = &[
     "focus",
     "blur",
@@ -33,6 +33,7 @@ pub const SKIPPED: &[&str] = &[
 pub const RUN: &[&str] = &[
     "postMessage",
     "stopSounds",
+    "setSounds",
     "preventDefault",
     "stopPropagation",
 ];
@@ -45,7 +46,7 @@ impl Lowerer<'_> {
                 return Err(err_one(
                     "tool-root",
                     format!(
-                        "`tool {}` is in component `{}`: a tool names a root action, so only the root component declares one",
+                        "`tool {}` is in component `{}`: a tool names a root action, so only the root component declares one (LLP 1111 D2)",
                         t.name, c.name
                     ),
                     t.span,
@@ -113,7 +114,7 @@ impl Lowerer<'_> {
                 return Err(err_one(
                     "tool-command",
                     format!(
-                        "`tool {}` reaches `{name}`, which acts in the person's name, waits for them or reaches outside the app, and a caller is not the person: write the tool's own action without it",
+                        "`tool {}` reaches `{name}`, which acts in the person's name, waits for them or reaches outside the app, and a caller is not the person (LLP 1111 D4a): write the tool's own action without it",
                         t.name
                     ),
                     span,

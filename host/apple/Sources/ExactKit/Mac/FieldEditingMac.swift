@@ -5,7 +5,7 @@
 import AppKit
 
 extension NodeView {
-    /// Return in a single-line field's editor: its
+    /// Return in a single-line field's editor (LLP 1115.000 D7.4): its
     /// `change` commits, its `submit` is sent, and the editing ends as
     /// `NSTextField` ends it, with the field's text selected. A focus the
     /// action set is kept: the text is selected only while this field still
@@ -66,19 +66,16 @@ extension NodeView {
     private var isLeavingFocus: Bool { Self.leaving.contains(ObjectIdentifier(self)) }
     /// The editor editing this node's field: none once its editing is ending (`leavingFocus`).
     var editingEditor: NSTextView? { isLeavingFocus ? nil : field?.currentEditor() as? NSTextView }
-    /// A write to a field that AppKit applies by ending the field editor's
-    /// editing and beginning it again
-    /// (`-[NSTextField setPlaceholderAttributedString:]` does, so the editor
-    /// shows the new placeholder). The field keeps the focus throughout, so
-    /// the app hears no blur and no `change` from it, as the web changes a
-    /// focused input's placeholder with neither. Editing that does not come
-    /// back ends as any does.
+    /// A placeholder write or a change of field class can end AppKit's
+    /// editing and begin it again. The input keeps its focus throughout,
+    /// so the app hears no blur or `change`. Editing that does not resume
+    /// in the node's current field ends as any does.
     func keepingEditing(_ f: NSTextField, _ change: () -> Void) {
         guard f.currentEditor() != nil, Self.restartingEditing == nil else { return change() }
         Self.restartingEditing = self
         change()
         Self.restartingEditing = nil
-        if f.currentEditor() == nil { editingEnded() }
+        if field?.currentEditor() == nil { editingEnded() }
     }
     nonisolated(unsafe) private static weak var restartingEditing: NodeView?
     @objc package func controlTextDidChange(_ obj: Notification) {
@@ -95,7 +92,7 @@ extension NodeView {
             applyHeldValue(to: editor)
             applyBaseDirection(to: editor) // an undo brings back the attributes of the text it restores
         }
-        if stepper != nil { updateNumberStepper() } // the stepper shows what the field holds
+        if stepper != nil { updateNumberStepper() } // the stepper shows what the field holds (LLP 1116.007 D4)
     }
     /// The composition in `editor` is over, the app told of its text: what
     /// the app wrote while it lasted and is still held lands now
@@ -141,14 +138,14 @@ extension NodeView {
         // here, and faces that came while it was marked are drawn.
         applyHeldValue(to: editor)
         if editor === textArea, !editor.hasMarkedText() { restyleMarkupProps() }
-        // And a `direction` that came while it was marked.
+        // And a `direction` that came while it was marked (LLP 1001 §1).
         // The app heard its text first, and may have moved the focus: the editor is styled for its field now.
         if !editor.hasMarkedText() {
             if editor === textArea { applyBaseDirection(to: editor) }
             else if let now = (editor as? FieldEditor)?.owner ?? (field?.currentEditor() === editor ? self : nil) { now.styleFieldEditor(editor) }
         }
     }
-    /// The ring Exact draws for a focused field: its border,
+    /// The ring Exact draws for a focused field (LLP 1104 D6): its border,
     /// painted by the box painter (`boxPlan`) two points wide in the focus
     /// colour, so it follows the box's shape, size, clip and appearance. A
     /// bare field or textarea keeps Exact's ring, as a bare button does; a
@@ -158,7 +155,7 @@ extension NodeView {
     /// editor takes the focus, cleared as it leaves. `outline: none` draws
     /// neither (`outlineNone`).
     ///
-    /// A border the author wrote is left alone, as a
+    /// A border the author wrote is left alone (LLP 1115.000 D7.9), as a
     /// native control with a border of its own keeps it under AppKit's
     /// ring. A bare field with one takes no ring of Exact's: its ring is
     /// AppKit's exterior one around the node's box, which its field asks
@@ -200,8 +197,8 @@ extension NodeView {
         return bordersItself ? ["top", "right", "bottom", "left"].map { number("border_width_" + $0, uniform) }.max() ?? 0 : 0
     }
     /// Whether the author wrote a border on this node that draws: a side
-    /// with a width, and a border row in the rows they wrote (the `written`
-    /// bit). A border the compiler implied is the
+    /// with a width, and a border row in the rows they wrote (LLP 1115.000
+    /// D2's bit, `written`). A border the compiler implied is the
     /// platform's stand-in, and the platform's ring may stand in for it.
     var bordersItself: Bool {
         guard case .array(let rows)? = style["written"] else { return false }
@@ -209,7 +206,7 @@ extension NodeView {
         let uniform = number("border_width")
         return wrote && (uniform > 0 || ["top", "right", "bottom", "left"].contains { number("border_width_" + $0, uniform) > 0 })
     }
-    /// CSS `outline-style: none`: no ring, Exact's or
+    /// CSS `outline-style: none` (LLP 1104 D6): no ring, Exact's or
     /// AppKit's, on a field, a pressable or a native control, since the
     /// author draws the focus another way. Tab still reaches it, and its
     /// accessibility is unchanged.

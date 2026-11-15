@@ -1,5 +1,5 @@
 // Shelf's reindex task: module effects are consumed by the runner but
-// remain host commands in the semantics.
+// remain host commands in the semantics (LLP 1151 lane G).
 use setContentIndex, ContentDescription from "@exact/search-index"
 use setAppShortcuts, ShortcutItem from "@exact/quick-actions"
 

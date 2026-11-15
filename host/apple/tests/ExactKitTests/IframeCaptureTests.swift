@@ -10,10 +10,10 @@ import UIKit
 #endif
 
 #if os(macOS) || os(iOS)
-/// A frame's pictures and a local PDF's view through the web arm's C ABI:
-/// `captureScreenshot` of the whole viewport and of
-/// a clip after a pinch and a pan, and an `app:/` PDF in PDFKit's
-/// `PDFView`, against pages a loopback server in the test serves.
+/// A frame's pictures and a local PDF's view through the web arm's C ABI
+/// (LLP 1020.002 stage 3): `captureScreenshot` of the whole viewport and of
+/// a clip after a pinch and a pan (D7), and an `app:/` PDF in PDFKit's
+/// `PDFView` (D10), against pages a loopback server in the test serves.
 final class IframeCaptureTests: XCTestCase {
     private typealias EventFn = @convention(c) (UnsafeMutableRawPointer?, UInt32, UInt32, UnsafePointer<UInt8>?, UInt32) -> Void
     private typealias ReplyFn = @convention(c) (UnsafeMutableRawPointer?, UInt32, UInt32, UInt32, UnsafePointer<UInt8>?, UInt32) -> Void
@@ -214,7 +214,7 @@ final class IframeCaptureTests: XCTestCase {
         XCTAssertEqual(nowhere["error"] as? String, "SyntaxError", "\(nowhere)")
     }
 
-    /// After a pinch to 1.5 and a pan to a nonzero
+    /// RFC D7's acceptance case: after a pinch to 1.5 and a pan to a nonzero
     /// offset, a clip from the element's `getBoundingClientRect()` captures
     /// that element and nothing around it.
     func testAClipAfterAPinchAndAPanCapturesItsElement() throws {
@@ -302,7 +302,7 @@ final class IframeCaptureTests: XCTestCase {
     /// A frame said to show a local PDF (WebModule's `pdf`) shows the PDF's
     /// view from its mount, before the file comes, and makes no web view it
     /// would drop at once (the teardown WebKit's Screen Time observer threw
-    /// in twice).
+    /// in twice; LLP 1020.002 D10).
     func testALocalPDFFrameMakesNoWebView() throws {
         let arm = try arm(), seen = Seen()
         // The host's moment before each web view is made: none is, from the mount through the PDF's load.
@@ -323,7 +323,7 @@ final class IframeCaptureTests: XCTestCase {
     }
 
     /// A partitioned local PDF is WebKit's; losing its partition, it shows the
-    /// PDF's view without making another web view first.
+    /// PDF's view without making another web view first (Grok, round 3).
     func testALocalPDFLosingItsPartitionMakesNoSecondWebView() throws {
         let arm = try arm(), seen = Seen()
         let library = try XCTUnwrap(dlopen(ProcessInfo.processInfo.environment["EXACT_TEST_WEB_MODULE"], RTLD_NOW | RTLD_LOCAL))
@@ -357,7 +357,7 @@ final class IframeCaptureTests: XCTestCase {
 
     #if os(macOS)
     /// A link to another app in a PDF shown from the mount (no web view, so
-    /// none of a web view's delegates) asks first.
+    /// none of a web view's delegates) asks first, as D5 has it.
     func testALinkToAnotherAppInAPDFShownFromTheMountAsks() throws {
         let arm = try arm(), seen = Seen()
         let mail = try XCTUnwrap(URL(string: "mailto:someone@example.com"))
@@ -471,7 +471,7 @@ final class IframeCaptureTests: XCTestCase {
     }
 
     /// A short document in a taller view: where PDFKit puts it (the clone
-    /// keeps it at the top).
+    /// keeps it at the top, RFC D10's acceptance case).
     func testWhereAShortDocumentSits() throws {
         #if os(iOS)
         guard hostedWindowScene() != nil else { throw missing("scene", "WebKit paints a snapshot only in an app's window scene") }
@@ -492,7 +492,7 @@ final class IframeCaptureTests: XCTestCase {
         say("iframe pdf: a 600 x 200 page in a 400 x 300 view sits at \(box) (top \(top))")
         XCTAssertEqual(box.width, 400, accuracy: 30, "the page fits the width")
         // PDFView centres a document shorter than the view; the clone's
-        // top-aligned body is a declared difference.
+        // top-aligned body is a declared difference (RFC §11, stage 3).
         XCTAssertEqual(top, (300 - box.height) / 2, accuracy: 16, "\(box)")
     }
 
@@ -512,7 +512,7 @@ final class IframeCaptureTests: XCTestCase {
     /// A frame under the opaque titlebar of a full-size-content window with
     /// a toolbar, as an app's top-right panel is, fills its box: WebKit's
     /// automatic content insets would lay the page out below the titlebar
-    /// and draw a strip over it.
+    /// and draw a strip over it (LLP 1020 D1).
     func testAFrameUnderTheTitlebarFillsItsBox() throws {
         guard #available(macOS 26.0, *) else { throw XCTSkip("n/a: before macOS 26 no public API ends WebKit's automatic insets") }
         let arm = try arm(), seen = Seen()

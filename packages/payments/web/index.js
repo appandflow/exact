@@ -1,4 +1,4 @@
-// @exact/payments on the web: the W3C Payment Request API,
+// @exact/payments on the web (LLP 1133.034 D8): the W3C Payment Request API,
 // whichever of Apple Pay (Safari) and Google Pay (Chrome) the browser has.
 // The page runtime (host/web-js/modules.js) calls it outside the agent;
 // under the agent the declared substitute answers names, and this module
@@ -13,8 +13,8 @@
 // - A `retry` answer is `PaymentResponse.retry()` with its field errors, and
 //   the final handler runs again on the next authorization.
 // - Google Pay's `environment` is `TEST` until the app has a production
-//   Google Pay merchant, which the bake will say.
-// - `cancel` aborts the request unless its final handler is running.
+//   Google Pay merchant, which the bake will say (§13 question 7).
+// - `cancel` aborts the request unless its final handler is running (D16 item 2).
 
 const APPLE = 'https://apple.com/apple-pay';
 const GOOGLE = 'https://google.com/pay';

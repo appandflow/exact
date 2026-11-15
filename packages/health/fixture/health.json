@@ -1,5 +1,5 @@
 {
- "about": "The health fixture: hourly samples from one source, each day's 24 hours from midnight UTC; 2026-10-04 has none and 2026-10-05 sums to 0. Every drive reads this, never a person's store.",
+ "about": "The health fixture (LLP 1133.026 \u00a711): hourly samples from one source, each day's 24 hours from midnight UTC; 2026-10-04 has none and 2026-10-05 sums to 0. Every drive reads this, never a person's store.",
  "source": "Fixture Watch",
  "units": {
   "steps": "count",

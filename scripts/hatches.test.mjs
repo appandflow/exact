@@ -1,4 +1,4 @@
-// Access hatches in the build scripts: which
+// Access hatches in the build scripts (LLP 1075.003.000.001 §4.3, §5): which
 // words a platform's module handles, and the delivery check over them.
 // `bun test ./scripts/hatches.test.mjs`.
 import { test } from 'bun:test';
@@ -14,7 +14,7 @@ test('a platform handles every word of a list, and of an object the words that n
   assert.deepEqual(hatchWords({}, 'ios'), []);
 });
 
-// A plan's hatch words are a requirement per
+// LLP 1075.003.000.001 §4.3: a plan's hatch words are a requirement per
 // platform, against what the installed cohort's module was built to handle.
 test('a bundle whose plan needs a hatch word the installed module lacks is not published to that stream', () => {
   const plan = (hatches) => ({ name: 'app.plan', requires: hatches ? { hatches } : {} });

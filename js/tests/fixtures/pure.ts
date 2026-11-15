@@ -2,6 +2,7 @@
 // Contract signature small; the separate transfer corpus also uses Bun's JSON.
 // What an object says of itself never steers a copy (review r4a 5, 9, 10):
 // its own `constructor`, getters and tags, a key named `__proto__`, holes.
+import { streams, streamBody, streamBodyBrands, streamUpload } from './pure-streams.ts';
 function steered() {
   const proto=structuredClone(JSON.parse('{"__proto__":{"admin":true},"ok":1}'));
   const bytes=new Uint8Array([1,2]);
@@ -20,7 +21,160 @@ function steered() {
     map:[...structuredClone(map)], re:[structuredClone(re).flags,structuredClone(re).source],
     holes:[holes.length,0 in holes,1 in holes,2 in holes,visits]};
 }
+function shadowIntrinsics(): string {
+  const check = (run: () => unknown) => {
+    try { return run(); } catch (error) { return String(error); }
+  };
+  return JSON.stringify([
+    check(() => {
+      class MyError extends Error {
+        constructor(message: string) { super(message); this.name = 'MyError'; }
+      }
+      const error = new MyError('x');
+      return [error.name, error.message, error instanceof MyError];
+    }),
+    check(() => {
+      const money = {};
+      money.toString = () => '$2.50';
+      money.toString = () => '$3.50';
+      const d = Object.getOwnPropertyDescriptor(money, 'toString')!;
+      return [String(money), d.writable, d.enumerable, d.configurable];
+    }),
+    check(() => {
+      function Point(this: any, n: number) { this.n = n; }
+      Point.prototype.toString = function () { return `Point(${this.n})`; };
+      return String(new (Point as any)(3));
+    }),
+    check(() => {
+      const refused = Object.create(Error.prototype);
+      refused.name = 'Refused';
+      return refused.name;
+    }),
+    check(() => {
+      const seen: Record<string, boolean> = {};
+      for (const word of ['a', 'constructor', 'valueOf']) seen[word] = true;
+      return Object.keys(seen);
+    }),
+    check(() => {
+      const list = [];
+      list[Symbol.iterator] = function* () { yield 7; };
+      return [...list];
+    }),
+  ]);
+}
+
+function lockedIntrinsics(): string {
+  'use strict';
+  const refuses = (run: () => void) => {
+    try { run(); return false; } catch (error) { return error instanceof TypeError; }
+  };
+  return JSON.stringify([
+    [Object.prototype, 'toString'],
+    [Error.prototype, 'name'],
+    [Array.prototype, Symbol.iterator],
+    [Function.prototype, 'call'],
+  ].map(([object, key]) => {
+    const obj = object as any, k = key as PropertyKey, value = obj[k];
+    const d = Object.getOwnPropertyDescriptor(obj, k)!;
+    const receiver = Object.create(obj);
+    Object.defineProperty(receiver, k, { value: 'own', writable: false });
+    let getterCalled = false;
+    const accessor = Object.create(obj);
+    Object.defineProperty(accessor, k, { get() { getterCalled = true; return 'own'; } });
+    return [
+      typeof d.get === 'function', typeof d.set === 'function',
+      Object.isFrozen(obj), Object.isFrozen(d.get), Object.isFrozen(d.set), Object.isFrozen(value),
+      d.get!.prototype === undefined, d.set!.prototype === undefined,
+      refuses(() => { d.get!.prototype.slot = 1; }),
+      refuses(() => { d.set!.prototype.slot = 1; }),
+      refuses(() => { obj[k] = 'changed'; }),
+      refuses(() => { Object.defineProperty(obj, k, { value: 'changed' }); }),
+      refuses(() => { delete obj[k]; }),
+      refuses(() => { d.set!.call(receiver, 'changed'); }),
+      refuses(() => { d.set!.call(accessor, 'changed'); }),
+      refuses(() => { d.set!.call(Object.preventExtensions(Object.create(obj)), 'changed'); }),
+      obj[k] === value, receiver[k] === 'own', !getterCalled,
+    ];
+  }));
+}
+
 export function exercise(source: string): string {
+  if (source === 'lockedIntrinsics') return lockedIntrinsics();
+  if (source === 'shadowIntrinsics') return shadowIntrinsics();
+  if (source === 'streamBody') return streamBody() as unknown as string;
+  if (source === 'streamBodyBrands') return streamBodyBrands() as unknown as string;
+  if (source === 'streamUpload') return streamUpload() as unknown as string;
+  if (source === 'consoleAbortListeners') {
+    const controller = new AbortController();
+    controller.signal.onabort = () => { throw new Error('boom'); };
+    controller.signal.addEventListener('abort', () => { throw new RangeError('listener'); });
+    controller.signal.addEventListener('abort', () => { console.log('later listener'); });
+    controller.abort();
+    return 'reached the return';
+  }
+  if (source === 'consoleTrailingNewline') {
+    console.log('done\n');
+    return 'reached the return';
+  }
+  if (source === 'consoleTrailingCarriageReturn') {
+    console.log('100%\r');
+    return 'reached the return';
+  }
+  if (source === 'consoleLineEndings') {
+    for (const entry of ['done\n', '100%\r', 'next', '', '\n', 'a\r\nb\n', 'x\0é😀\n', 'end\n\n']) {
+      console.log(entry);
+    }
+    return 'reached the return';
+  }
+  if (source === 'consoleErrors') {
+    const error = new TypeError('boom');
+    console.error(error);
+    console.error('load failed', error);
+    return error.stack!;
+  }
+  if (source === 'consoleCycle') {
+    const row: any = { id: 1, children: [] };
+    row.children.push({ parent: row });
+    console.log('row', row);
+    console.log('after');
+    return 'reached the return';
+  }
+  if (source === 'consoleBigInt') {
+    console.info('bigint', 1n, { n: 1n });
+    return 'reached the return';
+  }
+  if (source === 'consoleFallback') {
+    const error = new RangeError('no stack');
+    Object.defineProperty(error, 'stack', { get() { throw new Error('stack getter'); } });
+    console.warn(error);
+    console.debug({
+      toJSON() { throw new Error('Javascript execution has timed out.'); },
+      toString() { return 'fallback'; },
+    });
+    console.log({
+      toJSON() { throw new Error('JSON hook'); },
+      toString() { throw new Error('string hook'); },
+    }, 'after');
+    console.info(null, undefined, true, 42, Symbol('label'), { ok: true });
+    return 'reached the return';
+  }
+  if (source === 'consoleLevels') {
+    console.debug('d');
+    console.log('l');
+    console.info('i');
+    console.warn('w');
+    console.error('e\nsecond');
+    return 'reached the return';
+  }
+  if (source === 'consoleEmpty' || source === 'consoleEmptyBatch') {
+    console.log('');
+    if (source === 'consoleEmptyBatch') {
+      console.log('middle');
+      console.log('');
+      console.log();
+    }
+    return 'reached the return';
+  }
   const encoder = new TextEncoder();
   if(source==='text') {
     const labels=['UTF-8',' utf8 ','unicode-1-1-utf-8','unicode11utf8','unicode20utf8','x-unicode20utf8'].map(s=>new TextDecoder(s).encoding);
@@ -56,7 +210,41 @@ export function exercise(source: string): string {
     const live=new URLSearchParams('a=1'), iterator=live.entries();
     const seen=[iterator.next().value];live.append('b','2');seen.push(iterator.next().value);
     const visits:string[]=[];live.forEach((v,k)=>{visits.push(k+v);if(k==='a')live.append('c','3');});
-    return JSON.stringify({seen,visits,first,linked,href:url.href,same:params===url.searchParams,entries:Array.from(params),bad:URL.canParse('/x'),parse:URL.parse('not a url'),nul:new URLSearchParams([['\0','\0']]).get('\0')});
+    // An iterator reads the list at its index as the list is at each step
+    const order=new URLSearchParams('a=1&b=2&c=3&d=4'), stepped=order.keys(), steps:unknown[]=[stepped.next().value];
+    order.delete('a');steps.push(stepped.next().value);order.append('e','5');
+    steps.push(stepped.next().value,stepped.next().value,stepped.next().done);
+    order.append('f','6');steps.push(stepped.next().value);
+    // through its owning URL too, and a pair it hands out is the caller's own
+    const owner=new URL('https://example.test/?x=1&y=2'), viewed=owner.searchParams.entries(), views:unknown[]=[viewed.next().value];
+    owner.search='?p=1&q=2&r=3';const pair=viewed.next().value!;pair[0]='changed';views.push(pair,String(owner.searchParams));
+    owner.href='https://example.test/?only=1';views.push(viewed.next().done,owner.searchParams.size);
+    // The constructor removes one leading `?` and a URL's query has none: a second is the name's
+    const marks:unknown[]=[new URLSearchParams('??a=1'),new URLSearchParams('?%3Fa=1'),new URL('https://example.test/??a=1&b=2').searchParams].map(p=>[...p]);
+    const marked=new URL('https://example.test/??a=1&b=2'), own=new URLSearchParams('??a=1');
+    marked.searchParams.set('b','3');own.append('c','2');
+    marks.push(marked.searchParams.get('?a'),marked.searchParams.has('a'),marked.href,own.get('?a'),String(own));
+    return JSON.stringify({seen,visits,steps,views,marks,first,linked,href:url.href,same:params===url.searchParams,entries:Array.from(params),bad:URL.canParse('/x'),parse:URL.parse('not a url'),nul:new URLSearchParams([['\0','\0']]).get('\0')});
+  }
+  if(source==='headersWork') {
+    // Iterating 4,000 unchanged headers three ways, within the test's turn budget
+    const headers=new Headers();
+    for(let i=0;i<4000;i++)headers.append(`x-${i}`,String(i));
+    let seen=0;
+    for(const pair of headers)seen+=pair.length/2;
+    headers.forEach(()=>{seen++;});
+    for(const _ of headers.keys())seen++;
+    return String(seen);
+  }
+  if(source==='searchParamsWork') {
+    // Iterating 2,000 unchanged pairs three ways, within the test's turn budget
+    const n=2000, query=Array.from({length:n},(_,i)=>`k${i}=${i}`).join('&');
+    const params=new URLSearchParams(query), owner=new URL('https://example.test/?'+query);
+    let seen=0;
+    for(const pair of params)seen+=pair.length/2;
+    params.forEach(()=>{seen++;});
+    for(const _ of owner.searchParams.keys())seen++;
+    return String(seen);
   }
   if(source==='standard') {
     // What a web developer expects of a data module (docs/reference.md):
@@ -107,8 +295,7 @@ export function exercise(source: string): string {
     const nextOnce={[Symbol.iterator]:()=>({get next(){nexts++;return ()=>({done:n++>0,value:signal});}})};
     let gets=0;
     const valueOnce={[Symbol.iterator]:()=>{let k=0;return {next:()=>k++?{done:true}:{done:false,get value(){gets++;return signal;}}};}};
-    // An iterator method and a `next` with a `call` of their own, which a conversion must not use (defined, as data
-    // code's prototypes are frozen)
+    // An iterator method and a `next` with a `call` of their own, which a conversion must not use.
     const ownCall={[Symbol.iterator]:()=>({next:Object.defineProperty(()=>({done:true}),'call',{value:()=>({done:false,value:{}})})})};
     const methodCall={[Symbol.iterator]:Object.defineProperty(function*(){yield signal;},'call',{value:()=>1})};
     return JSON.stringify([said(()=>AbortSignal.any(once as unknown as AbortSignal[])),reads,said(()=>AbortSignal.any(lateThrow())),said(()=>AbortSignal.any(badStep as unknown as AbortSignal[])),
@@ -129,6 +316,11 @@ export function exercise(source: string): string {
       said(()=>new Response('x',{statusText:'Done \u2713'})), said(()=>new Response('x',{statusText:'a\nb'})),
       said(()=>Response.json(undefined)), said(()=>Response.redirect('https://example.test/x',200)), said(()=>Response.redirect('http://[',200)), said(()=>Response.redirect('/relative')),
       Response.redirect('https://example.test/x',301.9).status];
+    // A headers iterator reads the sorted list at its index as the list is at each step
+    const listed=new Headers({b:'2',D:'4',a:'1'}), stepped=listed.keys(), steps:unknown[]=[stepped.next().value];
+    listed.delete('a');steps.push(stepped.next().value);listed.append('c','3');listed.append('B','5');
+    steps.push(stepped.next().value,stepped.next().done);listed.set('e','6');steps.push(stepped.next().value);
+    listed.forEach((v,k)=>{steps.push(k+v);if(k==='b')listed.set('bb','7');});
     const original=new Response('copied',{headers:{'X-A':'b'}}), copy=original.clone();
     copy.headers.set('X-A','c');
     // Headers: a cookie a server sets is refused, a redirect's take no change, and a clone keeps its original's guard
@@ -225,7 +417,7 @@ export function exercise(source: string): string {
       Promise.race([new Response('{"a":1}').json(),Promise.resolve('fallback')]),Promise.race([new Response().json(),Promise.resolve('fallback')]).then(v=>v,nameOf),
       Promise.race([(()=>{const used=new Response('u');used.text();return used.json();})(),Promise.resolve('fallback')]).then(v=>v,nameOf),
       Promise.race([Response.prototype.json.call({}),Promise.resolve('fallback')]).then(v=>v,nameOf),bytesOf(extracted)])
-      .then(bodies=>JSON.stringify({shapes,bodies,statuses,refused,guards,clones,converted,ownHeaders,startedNow,headers:[original.headers.get('x-a'),copy.headers.get('x-a')]})) as unknown as string;
+      .then(bodies=>JSON.stringify({shapes,bodies,statuses,refused,guards,clones,converted,ownHeaders,startedNow,steps,headers:[original.headers.get('x-a'),copy.headers.get('x-a')]})) as unknown as string;
   }
   if(source==='abort') {
     // A fetch's `signal`, before and after the request starts; the reply of
@@ -248,8 +440,8 @@ export function exercise(source: string): string {
     return JSON.stringify({present:'__exact_ibex2_abort_hooks' in globalThis,own:typeof hook?.own,subscribe:typeof hook?.subscribe,
       headersHooks:['__exact_ibex2_headers_hooks','__ibex2_headers_hooks'].some(name=>name in globalThis)});
   }
-  // Intl.NumberFormat as the browser formats it (Hermes on macOS prints
-  // `9,274,743` for compact): compact in its displays,
+  // Intl.NumberFormat as the browser formats it (x2apps stocks #3: Hermes
+  // on macOS printed `9,274,743` for compact): compact in its displays,
   // currency and percent, each in a few locales.
   if(source==='intl') {
     const values=[0,-0,0.5,0.0123,1,12,999,999.9,1000,1234,1250,9999,12345,99999,123456,999999,1e6,1234567,9274743,99999999,543578062292.7,1e12,1.5e13,-2500,-9274743,1e15];
@@ -268,8 +460,32 @@ export function exercise(source: string): string {
     changing.maximumFractionDigits=3;
     kept.push((1.23456).toLocaleString('en-US',changing),(1.23456).toLocaleString(['de-DE'],changing),(1.23456).toLocaleString('de-DE',changing),(1234.5).toLocaleString('en-US'));
     out['en-US toLocaleString kept']=kept;
-    // A DateTimeFormat made with the same locales and options shares one
-    // engine formatter, each `new` an object of its own; a Date's
+    // A formatter reads its options once: changing the object after
+    // construction changes neither its output nor its resolved options.
+    const shared:Intl.NumberFormatOptions={notation:'compact',maximumFractionDigits:1};
+    const made=new Intl.NumberFormat('en-US',shared), before=made.format(12345);
+    shared.maximumFractionDigits=0; shared.minimumFractionDigits=0;
+    out['en-US compact options kept']=[before,made.format(12345),made.format(12000),String(made.resolvedOptions().maximumFractionDigits)];
+    // A compact formatter's signDisplay, applied after rounding: 0.4 rounds
+    // to a zero that "exceptZero" prints unsigned. sv-SE's minus is U+2212.
+    const signed=[0,-0,0.5,999,12345,-12345,1234567,-1e12,0.00001,-0.00001];
+    for(const locale of ['en-US','de-DE','ja-JP','sv-SE']) for(const signDisplay of ['always','exceptZero','never','auto'] as const)
+      out[locale+' compact '+signDisplay]=signed.map(v=>new Intl.NumberFormat(locale,{notation:'compact',signDisplay}).format(v))
+        .concat([0.4,-0.4].map(v=>new Intl.NumberFormat(locale,{notation:'compact',signDisplay,maximumFractionDigits:0}).format(v)));
+    // Every signDisplay, "negative" too, of a decimal, a currency and a
+    // percent: -0.0001 rounds to a negative zero, and NaN and ∞ take signs.
+    const signs=[0,-0,0.5,-0.5,12345,-12345,-0.0001,NaN,Infinity,-Infinity];
+    const signedFormat=(locale:string,options:object,v:number)=>{try{return new Intl.NumberFormat(locale,options).format(v);}catch(e){return (e as Error).name;}};
+    for(const locale of ['en-US','de-DE','ja-JP','sv-SE']) for(const signDisplay of ['always','exceptZero','never','auto','negative'])
+      for(const [style,options] of [['decimal',{}],['currency',{style:'currency',currency:'USD'}],['percent',{style:'percent'}]] as [string,object][])
+        out[locale+' '+style+' '+signDisplay]=signs.map(v=>signedFormat(locale,{...options,signDisplay},v));
+    // An accounting negative has no minus for a plus to replace: `+$0.50`, `($0.50)`.
+    for(const signDisplay of ['always','exceptZero','never','auto','negative'])
+      out['en-US accounting '+signDisplay]=signs.map(v=>signedFormat('en-US',{style:'currency',currency:'USD',currencySign:'accounting',signDisplay},v));
+    out['en-US signDisplay resolved']=['always','negative',undefined].map(signDisplay=>String(new Intl.NumberFormat('en-US',{signDisplay} as Intl.NumberFormatOptions).resolvedOptions().signDisplay))
+      .concat([(12.5).toLocaleString('en-US',{signDisplay:'always'}),(-12.5).toLocaleString('en-US',{signDisplay:'negative'}),signedFormat('en-US',{signDisplay:'sometimes'},1)]);
+    // A DateTimeFormat with an explicit timeZone and the same locales and
+    // options shares an engine formatter, each `new` an object of its own; a Date's
     // toLocale…String adds its default fields when the options name none.
     const days=[Date.UTC(2026,0,5,9,30,15),Date.UTC(2025,11,31,23,5,0),Date.UTC(2024,1,29,12,0,0)].map(t=>new Date(t));
     const utc={timeZone:'UTC'} as const, short:Intl.DateTimeFormatOptions={month:'short',day:'numeric',year:'numeric',timeZone:'UTC'};
@@ -300,7 +516,7 @@ export function exercise(source: string): string {
       out[locale+' resolved']=[new Intl.NumberFormat(locale,{notation:'compact'}).resolvedOptions().notation as string];
     }
     // A half rounds away from zero, from the number's shortest digits
-    // (Apple's engine rounds USD 0.825 to even, `$0.82`), in each
+    // (X72: Apple's engine rounded USD 0.825 to even, `$0.82`), in each
     // style and digit option, and by the formatter's roundingMode.
     const halves=[0.825,1.005,2.675,0.125,-0.825], usd={style:'currency',currency:'USD'} as const;
     const format=(options:object,v:number)=>{try{return new Intl.NumberFormat('en-US',options).format(v);}catch(e){return (e as Error).name;}};
@@ -415,4 +631,4 @@ function wire(text:string,mode:string):unknown {
   const value=mode.includes('capture')?'a\\\0é😀\u2028\u2029'.repeat(8192):'settled';
   return mode.startsWith('async')?Promise.resolve(value):value;
 }
-(globalThis as any).exact={abi:1,appId:'test.pure',grants:'',answer:(source:string,args:unknown[]=[])=>source==='wire'?wire(String(args[0]),String(args[1])):source==='transfer'?transfer(String(args[0])):exercise(source)};
+(globalThis as any).exact={abi:1,appId:'test.pure',grants:'',answer:(source:string,args:unknown[]=[])=>source==='wire'?wire(String(args[0]),String(args[1])):source==='transfer'?transfer(String(args[0])):source==='streams'?streams():exercise(source)};

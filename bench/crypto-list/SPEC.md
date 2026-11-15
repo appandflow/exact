@@ -11,7 +11,7 @@ driven by the same probe (`../heavy-list/probe`), on a 120 Hz iPad Pro (M1, 12.9
 | SwiftUI | `dev.exact.cryptobench.swiftui` | `List`/`LazyVStack` as SwiftUI normally does it; `Path` shape with `.trim(from:to:)` draw-in, pulse via `.repeatForever` animation |
 | Expo | `dev.exact.cryptobench.expo` | React Native + `@shopify/react-native-skia` `Canvas` per row + LegendList — the Skia-embed case |
 | Exact2 (SVG) | `dev.exact.cryptobench.svgi` | inline `svg` + `polyline` mapped from the row's series in the view, CSS `stroke-dasharray`/`stroke-dashoffset` draw-in, CSS `@keyframes` pulse — what a web developer writes (`exact-crypto-svg/`) |
-| Exact2 (GPU) | `dev.exact.cryptobench.gpu` | a `canvas` node per row (wgpu) drawing the line and the pulse (`exact-crypto-gpu/`) |
+| Exact2 (GPU) | `dev.exact.cryptobench.gpu` | a `canvas` node per row (LLP 1009, wgpu) drawing the line and the pulse (`exact-crypto-gpu/`) |
 | UIKit | `dev.exact.cryptobench.uikit` | hand-written UIKit (`uikit/`): `UICollectionView` + compositional layout + diffable data source; `CAShapeLayer` line with a `strokeEnd` draw-in, `CAAnimationGroup` pulse, Core Animation opacity flash |
 
 Each is written the most normal way for its stack, not tuned against the others.
@@ -73,7 +73,7 @@ web); the others are compared by eye and by row geometry.
 
 Ambiguities resolved by the builder (2026-09-26), the most ordinary choice each time. Every app follows these.
 
-- **Expo: LegendList 3.4.0 (`@legendapp/list`) instead of FlashList.** Written as its
+- **Expo: LegendList 3.4.0 (`@legendapp/list`) instead of FlashList, per Charlie 2026-09-27.** Written as its
   README and performance guide say: `keyExtractor = id`, `recycleItems`, `getFixedItemSize` 64 (the row pitch is
   exactly 64 pt), the default `maintainVisibleContentPosition` (scroll-time stabilisation; no data anchoring: a
   tick changes values, never inserts or reorders). The FlashList 2.0.2 build (series `ipad-r2`, 2026-09-26) is not
@@ -187,7 +187,7 @@ series stand; their memory carries a small fixed probe offset (about +11 MB exac
 The first exact2 SVG app (`dev.exact.cryptobench.svg`) formatted every changed coin's 48-point series into a
 `points` string in the data source on each tick, off-screen coins included (54 of 117 ms/s CPU at rest on the
 iPhone went to that float formatting). The SVG app measured since 2026-09-30, and the one here, is the idiomatic
-port (`svgi`): the series held as numbers in the row and mapped to points in the view, as the
+port (`svgi`): the series held as numbers in the row and mapped to points in the view (LLP 1017.003), as the
 SwiftUI and UIKit apps build a row's path only when it shows. The A/B at the same exact2 commit (iPhone 13 Pro
 Max, three rounds): rest CPU 92 → 65 ms/s (UIKit 22), late frames 16 → 4, rest footprint 27.2 → 23.5 MB; live
 fling unchanged.

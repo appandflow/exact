@@ -1,7 +1,7 @@
 // Synthetic conformance plan: dynamic style rows — colours, dimensions in
 // points and percent, auto, enums, numbers — and dynamic props. Colours take
 // every CSS form the browser paints, parsed by the kernel to the same value
-// (`hsl()` painted on the web and was refused on macOS).
+// (feed F13: `hsl()` painted on the web and was refused on macOS).
 component Styles
   state on = false
   state width = 120

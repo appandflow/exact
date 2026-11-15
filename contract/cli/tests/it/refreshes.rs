@@ -1,6 +1,6 @@
-//! A mutation's declared `refreshes`, and a re-ask that keeps the identical
-//! request already in flight. A send asks nothing; its write shows through
-//! the source's overlay (`overlay.rs`).
+//! LLP 1054.000.000: a mutation's declared `refreshes`, and a re-ask that
+//! keeps the identical request already in flight. A send asks nothing; its
+//! write shows through the source's overlay (`overlay.rs`).
 
 use exact_kernel::{Kernel, PropId};
 use exact_runner::{
@@ -311,7 +311,7 @@ fn a_mutation_answered_at_once_forces_its_network_resource_in_that_commit() {
 /// A send answered at once replaces the request in flight before the
 /// settlement its refresh asks for: the derives and gates of that commit
 /// read the mutation as no longer pending, though the settlement hands out
-/// a request (the gate step runs once per commit).
+/// a request (LLP 1092 D8 runs the gate step once per commit).
 #[test]
 fn a_send_answered_at_once_is_not_pending_to_the_gates_of_its_commit() {
     let src = r#"

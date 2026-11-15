@@ -7,6 +7,7 @@ fn main() {
     let trust = env::var("EXACT_UPDATE_TRUST").unwrap_or_else(|_| "development".into());
     println!("cargo:rustc-env=EXACT_UPDATE_TRUST={trust}");
     let out = env::var_os("OUT_DIR").unwrap();
+    // @ref llp/1046.006.000-render-hooks.rfc.md#d2-the-frame-as-data-frameview
     let frame = fs::read_to_string("src/shaders/frame.wgsl").unwrap();
     fs::write(
         Path::new(&out).join("frame_interface.rs"),

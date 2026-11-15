@@ -1,4 +1,4 @@
-// The sign-in sheet,
+// @ref LLP 1069.006 D3, LLP 1047.001.000 E — the sign-in sheet,
 // `ASWebAuthenticationSession`, for `openAuthSession`. AuthenticationServices
 // is in its own module because linking it costs every iOS launch, before
 // `main`, the loading of ~300 more images (~1 s in the simulator). An app's

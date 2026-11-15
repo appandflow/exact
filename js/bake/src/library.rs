@@ -1,4 +1,4 @@
-//! A package's prebuilt dynamic library, linked into the app's crate.
+//! A package's prebuilt dynamic library, linked into the app's crate (LLP 1154 D3 "The library", LLP 1133.001 D9).
 //! The package that fills the app's native slot (`contract::native::native_slot`, which chooses it and refuses two)
 //! names one `{url, sha256}` per Rust target in its `exact.json` `native.library`; the native build fetched and
 //! checked the target's file before Cargo ran and laid out its link inputs under
@@ -13,13 +13,25 @@ use std::path::{Path, PathBuf};
 
 /// Print the link of the app's package library for Cargo's `TARGET`; nothing for a web bake or when the package that
 /// fills the native slot declares none.
-pub(crate) fn link(app: &Path, platform: &str) -> Result<(), String> {
+pub(crate) fn link(app: &Path, platform: &str, linked: bool) -> Result<(), String> {
     let target = std::env::var("TARGET").map_err(|_| "build requires TARGET".to_string())?;
     if platform == "web" || target.starts_with("wasm32-") {
         return Ok(());
     }
     let selection = contract::native::native_slot(app)?;
-    for file in &selection.watched {
+    // `linked`: a TypeScript app's bake ran outside Cargo (EXACT_BAKED) and
+    // watched these, and the slot it chose is in the module.rs EXACT_BAKED
+    // names, so a change of slot is a new EXACT_BAKED; watching them all here
+    // too would rerun this script (and compile the archive again) for apps
+    // whose generated Rust is the same. The slot's own `exact.json` is still
+    // watched: its `native.link` and `native.library` reach only the lines
+    // printed below, never module.rs.
+    let watched = match (&selection.slot, linked) {
+        (_, false) => selection.watched.iter().collect::<Vec<_>>(),
+        (Some(slot), true) => vec![&slot.declaration],
+        (None, true) => Vec::new(),
+    };
+    for file in watched {
         println!("cargo:rerun-if-changed={}", file.display());
     }
     let Some(slot) = selection.slot else {
@@ -45,7 +57,7 @@ pub(crate) fn link(app: &Path, platform: &str) -> Result<(), String> {
     let Some(entry) = library.get(&target) else {
         let named: Vec<&str> = library.keys().map(String::as_str).collect();
         return Err(format!(
-            "{name} has no native library for {target}: its exact.json native.library names {}. An app that builds for {target} waits for the package to publish one",
+            "{name} has no native library for {target}: its exact.json native.library names {}. An app that builds for {target} waits for the package to publish one (LLP 1154 D6)",
             if named.is_empty() {
                 "no target".to_string()
             } else {
@@ -55,7 +67,7 @@ pub(crate) fn link(app: &Path, platform: &str) -> Result<(), String> {
     };
     if target.contains("-android") {
         return Err(format!(
-            "{name} declares a native library for {target}, and exact2 links a package's library only for Apple and Linux targets; Android's APK carries none yet"
+            "{name} declares a native library for {target}, and exact2 links a package's library only for Apple and Linux targets; Android's APK carries none yet (LLP 1154 D6)"
         ));
     }
     let sha256 = entry["sha256"]

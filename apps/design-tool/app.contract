@@ -1,6 +1,6 @@
-// The design tool: a `tamber/1` client over an app's design
-// files, served by the app's Tamber server at its own local URL
-// (`bun exact.mjs tamber tool <app>`). app.ts is the protocol client; this
+// The design tool (LLP 1122), T1: a `forma/1` client over an app's design
+// files, served by the app's Forma server at its own local URL
+// (`bun exact.mjs forma tool <app>`). app.ts is the protocol client; this
 // view keeps no design state of its own: the files are the design.
 use Written, Inspected, Uses, Hello, CanvasCheck, Clients, CanvasIn, Canvas, AppAxes, Changes, Grid, Design, Levels, Contrast, Branch, Proposal, Scrub, Changeset, Scope, Lit, History, Typed, Pinned, SelectUp, PairCode, Committed, Imported, Reverted, Choices, ChosenDiffs from "./shapes.contract"
 use Pairing from "./pairing.contract"
@@ -13,7 +13,7 @@ component DesignTool
   // Who this person is, asked once: every write is `design-tool:<person>`.
   state person = "" persist
   state renaming = false
-  // The canvas's size: a bare frame never sizes to its guest.
+  // The canvas's size: a bare frame never sizes to its guest (LLP 1020 D1).
   state canvasSize = "phone" persist
   // The pin being composed: which build ("" every build), and the facts
   // `prefer` pins, each "" when left alone.
@@ -23,7 +23,7 @@ component DesignTool
   state pinMode: string[] = []
   state pinFont = 0
   mutation pinned as shape Pinned
-  // Inspect mode on the builds, and the token whose
+  // Inspect mode on the builds (LLP 1122 D4, D5), and the token whose
   // impact the inspector shows.
   resource inspected = loadSelection(changes.answer, design.answer, appAxes.answer) as shape Inspected else empty()
   mutation inspectSent as shape Pinned refreshes inspected
@@ -50,18 +50,18 @@ component DesignTool
   resource hello = loadHello() as shape Hello else empty(ok=true)
   // Asked again with hello, so a loop restarted with EXACT_TOOL_PORT clears it.
   resource canvasCheck = loadCanvasCheck() as shape CanvasCheck else empty(refused="")
-  // Pairing, the local tool's alone: the scope a code is
+  // Pairing (LLP 1122 D12, T6), the local tool's alone: the scope a code is
   // minted at, the code, the paired clients, and a revoke.
   state pairScope = "propose"
   mutation paircode as shape PairCode
   resource clients = loadClients(hello.local, changes.clients) as shape Clients else empty(ok=true)
   mutation revoked as shape Pinned refreshes clients
   state clientsTries = 0
-  // The builds gone up to this number are no longer shown as reloading: the window closed on them.
+  // The builds gone up to this number are no longer shown as reloading: the window closed on them (D1.2).
   state reloadSeen = 0
-  // A paired client is the name the server gave it, whatever it asks.
+  // A paired client is the name the server gave it (T6), whatever it asks.
   derive client = hello.client != "" ? hello.client : `design-tool:${person}`
-  // Its scope: below write, what writes is greyed, said once why; the
+  // Its scope (T6): below write, what writes is greyed, said once why; the
   // tool sends none of it (wire.ts), and the server refuses it too.
   derive canWrite = hello.scope == "" or hello.scope == "write"
   derive canPropose = canWrite or hello.scope == "propose"
@@ -73,7 +73,7 @@ component DesignTool
   // Its canvas, read once a server run, and again when it is opened again
   // or asked for again (a grant enters once).
   state canvasTick = 0
-  // Its entry page's word that it entered, asked each second while the
+  // Its entry page's word that it entered (C2), asked each second while the
   // frame's URL holds the grant: then the canvas comes back as its gateway
   // page, the grant gone from the frame and this state.
   state canvasPoll = 0
@@ -90,7 +90,7 @@ component DesignTool
   derive pinAxes = file == "" ? design.axes : appAxes.axes
   derive pinFontOk = pinFont == 0 or (pinFont >= 4 and pinFont <= 64)
   resource changes = waitChanges(epoch, asks, client) as shape Changes else empty(ok=true)
-  // Several live copies: one copy, a grid of modes, or the
+  // Several live copies (LLP 1122 T7): one copy, a grid of modes, or the
   // selected view's states side by side; the axis the grid's dark copies
   // vary, its larger text size, how many copies, and whether a copy moved
   // leads the others. The copies frame the dev loop's page (paired: the
@@ -139,7 +139,7 @@ component DesignTool
   state editTarget = ""
   state editWhen = ""
   state editValue = ""
-  // The typed fields' cut (by the value's kind): the value they are cut from is
+  // The typed fields' cut (stage 6's kinds): the value they are cut from is
   // the branch's, or what its text field set (`rawBase`, for `rawFor`'s
   // branch); a field's edits keep the cut, so a part mid-typing (`1` on its
   // way to `1px`) leaves every field where it is. `partTexts`: the fields'
@@ -155,7 +155,7 @@ component DesignTool
   state renameTo = ""
   resource branch = loadBranch(file, selToken, selColumn, design.answer) as shape Branch else empty(ok=true)
   resource proposal = proposeEdit(file, editKind, editTarget, editWhen, editValue, filesAt, proposeAt, hello.live, epoch) as shape Proposal else empty(ok=true)
-  // Scrubbing, chosen explicitly (never the default): each value the
+  // Scrubbing, chosen explicitly (D6, never the default): each value the
   // draft takes is a frame previewed on every running copy, written to no
   // file; Keep (or a slider let go) writes it once, Cancel puts the
   // committed value back. `scrubAsk` counts Scrub live presses, `scrubTick`
@@ -171,10 +171,10 @@ component DesignTool
   // The changeset follows the long poll and each design read (which
   // measures what changed); history is read when shown.
   resource changeset = loadChangeset(file, since, design.answer) as shape Changeset else empty(ok=true)
-  // Each import card's choice, sent to the server as it is ticked (tamber/1.18 `choose`), so a reload or another
+  // Each import card's choice, sent to the server as it is ticked (forma/1.18 `choose`), so a reload or another
   // client starts from it; and the flips another client's choice since makes stale.
   resource choices = sendChoices(client, picked.join(";"), changes.answer) as shape Choices else empty(ok=true)
-  // The diff each recomputed or edited import's card shows, as its choice is now.
+  // The diff each recomputed or edited import's card shows, as its choice is now (stage 15 D1.1).
   resource chosenDiffs = loadChosenDiffs(client, picked.join(";"), changes.answer) as shape ChosenDiffs else empty(ok=true)
   resource scope = loadScope(client, changes.committable) as shape Scope else empty(open=0, refused=false, unavailable=false)
   // The items of held proposals picked for "Accept picked"
@@ -183,20 +183,20 @@ component DesignTool
   state faded = ""
   resource lit = loadLit(file, design.answer, faded) as shape Lit else empty(seq=0)
   state historyShown = false
-  // The server's files and their digests, folded below the canvas and the tokens (on a large app,
-  // 25 rows would come before either).
+  // The server's files and their digests, folded below the canvas and the tokens (the hands-on pass: 25 rows came
+  // before either on the clone).
   state filesShown = false
-  // A move up the chain (tamber/1.16 `select`; 1.17 by the page's own tree): the selection it moved from, and whether one
+  // A move up the chain (forma/1.16 `select`; 1.17 by the page's own tree): the selection it moved from, and whether one
   // is on its way (upExpect >= 0); the page says how many steps it took (`moved`), and a move that reached the root
   // before `up` is said so.
   state upFromKey = ""
   state upFromArrival = ""
   // The component the press meant to select: the chain line's, or (no call site above: the step to what holds it)
-  // the selection's own, which a landing on another is said against.
+  // the selection's own, which a landing on another is said against (the Apple pass's #1).
   state upFromComponent = ""
   state upFromFill = false
   // Every copy the selection is a caller's of (its own component and each chain line's, `|`-bounded): a landing on
-  // none of them holds it in a slot (the map says so); on another of them, it is plainly
+  // none of them holds it in a slot (the map says so, theme2's 08:51 condition); on another of them, it is plainly
   // the nearest copy with a node of its own.
   state upFromCallers = ""
   state upExpect = -1
@@ -222,7 +222,7 @@ component DesignTool
   // bottom: the panels sit far above the panel's own place. One begun from the token grid stays in place, under it.
   state dockedFor = ""
   derive docked = editKind != "" and dockedFor == `${editKind}|${editTarget}`
-  // The edit dock shows while a cell is selected or an edit is open; the selected cell's branch, read
+  // The edit dock (third pass #7) shows while a cell is selected or an edit is open; the selected cell's branch, read
   // for the grid shown, is its editor. Each press of a grid cell (`pressed`, counted) moves the focus into it once it
   // shows (`focusedPress`), and Close or Escape gives it back to that cell (`returnTo`); a selection made otherwise
   // (the Inspector, an input's button) moves no focus and has no cell to give it back to.
@@ -254,11 +254,11 @@ component DesignTool
   derive draftKey = `${file}␟${editKind}␟${editTarget}␟${editWhen}␟${editValue}`
   // A cell's edit whose branch the grid no longer shows (another client
   // changed it): not applied, lest it make a `when` no one asked for.
-  // What the branch editor writes: a token's branch, or a param's line.
+  // What the branch editor writes: a token's branch, or a param's line (T3).
   derive branchOp = branch.param ? "set-param" : "set-token"
   // A state edit is of the copy it was opened on: once that is no longer current, it is stale.
   state stateFor = ""
-  // The row editor's heading for a `set-row` edit.
+  // The row editor's heading for a `set-row` edit (T5).
   state rowWords = ""
   // (Bound to the copy and the files' digests it was opened on, which its selection was reported
   // under: a write since either, anyone's, leaves it stale until selected and opened again; a
@@ -299,7 +299,7 @@ component DesignTool
   derive foldedHeld = initialFor == inspected.visit ? [] : inspected.heldRows.filter(r => r.initial and not (editTarget != "" and (editTarget == r.edit or editTarget == r.state))).map(r => r.name)
   // Apply can be pressed: the proposal is in, for this draft, and nothing it rests on moved.
   // Said once each draft first can be applied, and kept while it is read again on each answer (no repeat), but not
-  // while a scrub replaces Apply or the draft is stale.
+  // while a scrub replaces Apply or the draft is stale (review2's round 1).
   state readyFor = ""
   derive draftReadyKey = `${editKind}|${editTarget}|${editWhen}|${editValue}`
   derive readyLine = readyFor == draftReadyKey and editKind != "" and applyAnswer and not scrubShown ? "Proposal ready: Apply or Cancel." : ""
@@ -318,7 +318,7 @@ component DesignTool
   task retry when not pending(changes) and not changes.ok key=changes.answer
     after(3000, advance)
   // A newer design read under a held list on the long poll by cursor: asked once again (at once, from where it is),
-  // so its swatches are of that read; no idle re-ask does it there.
+  // so its swatches are of that read; no idle re-ask does it there (stage 14 D).
   task heldSwatches when changes.stream and changes.held.length > 0 and design.answer > changes.heldDesign and not pending(design) key=design.answer
     after(1, reheld)
   // A clients read refused while the poll goes on is asked again, each 3 s
@@ -330,7 +330,7 @@ component DesignTool
   task retryClients when hello.local and not pending(clients) and not clients.ok key=clientsTries
     after(3000, reloadClients)
   // A build that goes (a rebuild's reload) is shown reloading for 10 s from the first going this window saw, those
-  // going meanwhile with it, so none shows longer: past that, one not back is no build.
+  // going meanwhile with it, so none shows longer: past that, one not back is no build (stage 15 D1.2).
   task reloadWindow when changes.reloadGen > reloadSeen key=reloadSeen
     after(10000, closeReload)
 
@@ -500,7 +500,7 @@ component DesignTool
     editWhen = ""
     editValue = ""
     // A press: focus goes to the dock at once (drawn in this commit, and never disabled, as Apply is while the
-    // proposal is read again), Tab then reaching Apply; a typed draft's never moves. Its row
+    // proposal is read again), Tab then reaching Apply; a typed draft's never moves (review2 06:54). Its row
     // scrolled to the top, clear of the dock.
     focus("proposal-dock")
     scrollIntoView(`dial-${name}`, block="start")
@@ -517,7 +517,7 @@ component DesignTool
       send inspectSent = sendInspect(client, not inspected.inspecting)
   action selectUp(up: number)
     if not pending(selectedUp)
-      // How deep the selection it lands on should be, from the selection it moves from.
+      // How deep the selection it lands on should be, from the selection it moves from (review2 11:33).
       upFromKey = inspected.key
       upFromArrival = inspected.arrival
       upFromComponent = inspected.chain.length == 0 ? inspected.component : inspected.chain.filter(c => c.up == up).map(c => c.component).join("")
@@ -531,7 +531,7 @@ component DesignTool
     initialFor = key
   action editState(target: string, value: string)
     dockedFor = ""
-    // A style's state part row: `set-state`, which rebuilds, so no scrub.
+    // A style's state part row (T4): `set-state`, which rebuilds, so no scrub.
     if scrubShown
       scrubTick = scrubTick + 1
       scrubWant = false
@@ -549,7 +549,7 @@ component DesignTool
     scopeOwn = false
   action editRow(target: string, words: string, value: string)
     dockedFor = ""
-    // A row as its author wrote it: `set-row` where it is written, or on its style; it rebuilds, so no scrub.
+    // A row as its author wrote it (T5): `set-row` where it is written, or on its style; it rebuilds, so no scrub.
     if scrubShown
       scrubTick = scrubTick + 1
       scrubWant = false
@@ -567,7 +567,7 @@ component DesignTool
     scopeOwn = false
   action moveRow(kind: string, target: string, words: string)
     dockedFor = ""
-    // A row moved between rungs: promoted to a new param or token (its name typed), or a param
+    // A row moved between rungs (T5, D6's set): promoted to a new param or token (its name typed), or a param
     // detached to its template; one transaction, rebuilt.
     if scrubShown
       scrubTick = scrubTick + 1
@@ -753,10 +753,10 @@ component DesignTool
       // of their name is refused. Decided by the rows as they are now, not the name last set.
       let n = newName.trim()
       // (Only in the app's design, opened as "" or by its path, where set-token of their name is the app's line; another
-      // open file shows their rows beside its own but holds none of them, so a name added there is add-token.)
+      // open file shows their rows beside its own but holds none of them, so a name added there is add-token, round 2.)
       let theirs = design.appDesign and design.tokenGroups.filter(g => g.tokens.filter(t => t.name == n and (t.of == "base" or t.of == "package")).length > 0).length > 0
       editKind = theirs ? "set-token" : "add-token"
-      // (Their read-only cell, if open, is no guard on the form's edit, as setForApp closes it.)
+      // (Their read-only cell, if open, is no guard on the form's edit, as setForApp closes it, round 2.)
       if theirs
         selToken = ""
       editTarget = n
@@ -766,8 +766,8 @@ component DesignTool
       draftFor = ""
       rawFor = ""
       partFor = ""
-  // A base or package value set for this app (its override line: set-token, one op for
-  // both), or the app's line over one of theirs taken away (remove-token), each
+  // Stage 11: a base or package value set for this app (its override line: set-token, theme2's 17:09Z
+  // ruling, one op for both), or the app's line over one of theirs taken away (remove-token), each
   // reviewed and applied as any edit.
   action setForApp(name: string, value: string, from: string)
     dockedFor = ""
@@ -944,7 +944,7 @@ component DesignTool
   // A mapped token's id is picked when it differs from where it began (in, unless the server's choice leaves it out).
   action toggleLeaveOut(id: string, on: bool, checked: bool)
     picked = checked != on ? picked.filter(p => p != id).concat([id]) : picked.filter(p => p != id)
-  // Flips on a card another client chose on since: dropped, its choice the card's now (tamber/1.18).
+  // Flips on a card another client chose on since: dropped, its choice the card's now (forma/1.18).
   action takeChoices
     picked = picked.filter(p => not choices.drop.includes(p))
   // An offer's id is picked when it differs from where it began.
@@ -972,7 +972,7 @@ component DesignTool
     filesShown = not filesShown
   action markReady
     readyFor = draftReadyKey
-  // Where the step landed, always said: at the root (already, or before the steps asked), or a
+  // Where the step landed, always said (the Apple pass's #1): at the root (already, or before the steps asked), or a
   // copy other than the one the press named, the one holding it in its slot (a step the call-site chain doesn't list).
   action landUp
     upNote = inspected.movedUp > 0 and inspected.key == upFromKey ? `It is at the app's root already: no other copy above holds this one, so it stays on ${inspected.source}.` : inspected.movedUp > 0 and inspected.movedStepped < inspected.movedUp ? `It reached the app's root after ${inspected.movedStepped} of ${inspected.movedUp} steps: no other copy above holds this one, so it selected ${inspected.source}.` : inspected.movedUp > 0 and upFromComponent != "" and inspected.component != "" and inspected.component != upFromComponent ? (upFromCallers.includes(`|${inspected.component}|`) ? `It landed on ${inspected.component}, the nearest copy with a node of its own here: ${inspected.source}.` : upFromFill ? `It landed on ${inspected.component}, which holds this fill (written in ${upFromComponent}) in its slot: ${inspected.source}.` : `It landed on ${inspected.component}, which holds ${upFromComponent} in its slot: ${inspected.source}.`) : ""
@@ -1032,11 +1032,11 @@ component DesignTool
             text hello.error color="-exact-secondary-label" testId="no-server-message"
             button press=reconnect buttonStyle="bordered" testId="reconnect"
               text "Try Again"
-            // Remote mode: another machine's server, by the address and
+            // Remote mode (T6): another machine's server, by the address and
             // code its tool shows; an https door or a tunnel to this machine.
             column gap=8 padding=12 border-radius=12 background-color="-exact-secondary-background" testId="pair-remote"
               text "A design server on another machine" role="heading" aria-level=3
-              text "Its tool shows a code and an address. Pair from the tool that address serves (<address>/__tamber/tool/, its certificate accepted in this browser if its SHA-256 is the one shown): type the address and the code there. That server refuses a tool opened anywhere else." color="-exact-secondary-label" font="-exact-footnote" testId="pair-remote-how"
+              text "Its tool shows a code and an address. Pair from the tool that address serves (<address>/__forma/tool/, its certificate accepted in this browser if its SHA-256 is the one shown): type the address and the code there. That server refuses a tool opened anywhere else." color="-exact-secondary-label" font="-exact-footnote" testId="pair-remote-how"
               input value=remoteAt input=editRemoteAt placeholder="https://192.168.1.20:7743" aria-label="Design server address" testId="remote-at"
               input value=remoteCode input=editRemoteCode submit=pairRemote placeholder="XXXXX-XXXXX" aria-label="Pairing code" testId="remote-code"
               button press=pairRemote disabled=(pending(pairedWith) or remoteAt.trim() == "" or remoteCode.trim() == "") buttonStyle="bordered" testId="remote-pair"
@@ -1056,7 +1056,7 @@ component DesignTool
                 text (canWrite ? `Paired with this design server as ${hello.client}, at write.` : canPropose ? `Paired as ${hello.client}, at propose: an edit is held for review, for someone with write to accept; undo, commit, pins, holds, outlines, inspect mode and scrubs are greyed.` : `Paired as ${hello.client}, at read: you see the design, its history and the inspector's last selections; edits, pins, holds and the rest are greyed.`) color="-exact-system-orange" font="-exact-footnote" testId="paired-scope"
             if hello.local
               Pairing(pairScope=pairScope, clients=clients, paircode=paircode, revoked=revoked, minting=pending(paircode), revoking=pending(revoked), choosePairScope=choosePairScope, mintCode=mintCode, revokeClient=revokeClient)
-            // The canvas: the running app, at the dev loop's own
+            // The canvas (LLP 1122 D3): the running app, at the dev loop's own
             // URL, in a frame the tool never scripts; every control goes
             // through the design server. Sandboxed short of navigating the tool.
             column gap=8 testId="canvas"
@@ -1105,8 +1105,8 @@ component DesignTool
               else
                 column gap=4 padding=16 border-radius=12 background-color="-exact-secondary-background" testId="no-app"
                   text "No app running" role="heading" aria-level=3
-                  text "The canvas shows the app from its dev loop. Start one (bun exact.mjs web, in the app's directory), then open the tool through it: bun exact.mjs tamber tool --via <its URL>. Stop this tool first: it holds the design server, and --via refuses while it runs." color="-exact-secondary-label" testId="no-app-how"
-              // Several live copies, each its own build: pinned to its
+                  text "The canvas shows the app from its dev loop. Start one (bun exact.mjs web, in the app's directory), then open the tool through it: bun exact.mjs forma tool --via <its URL>. Stop this tool first: it holds the design server, and --via refuses while it runs." color="-exact-secondary-label" testId="no-app-how"
+              // Several live copies (LLP 1122 T7), each its own build: pinned to its
               // mode and text size, or holding the selected view's state.
               if canvasView != "one"
                 column gap=8 testId="grid-section"
@@ -1144,7 +1144,7 @@ component DesignTool
             Inspector(inspected=inspected, changes=changes, canWrite=canWrite, canPropose=canPropose, canvasView=canvasView, gridAt=gridAt, upNote=upNote, upNoteKey=upNoteKey, foldedRows=foldedRows, foldedHeld=foldedHeld, impactToken=impactToken, uses=uses, inspectSent=inspectSent, selectedUp=selectedUp, holdSent=holdSent, outlined=outlined, sendingInspect=pending(inspectSent), movingUp=pending(selectedUp), sendingHold=pending(holdSent), outlining=pending(outlined), readingUses=pending(uses), toggleInspect=toggleInspect, selectUp=selectUp, showInitial=showInitial, editState=editState, editRow=editRow, moveRow=moveRow, holdState=holdState, editFromSelection=editFromSelection, outlineImpact=outlineImpact)
             Builds(builds=changes.builds, reloading=changes.reloading, reloadGen=changes.reloadGen, reloadSeen=reloadSeen, canWrite=canWrite, pinBuild=pinBuild, pinScheme=pinScheme, pinContrast=pinContrast, pinMode=pinMode, pinFont=pinFont, pinFontOk=pinFontOk, pinAxes=pinAxes, pinned=pinned, sendingPin=pending(pinned), choosePinBuild=choosePinBuild, choosePinScheme=choosePinScheme, choosePinContrast=choosePinContrast, choosePinMode=choosePinMode, choosePinFont=choosePinFont, applyPin=applyPin, previewPin=previewPin, clearPins=clearPins)
             // Design files only: the server's files hold the app's Contract
-            // sources too, whose state parts it writes.
+            // sources too (LLP 1121 stage 8 D), whose state parts it writes.
             if hello.files.filter(f => !f.path.endsWith(".contract")).length > 1
               select value=file change=chooseFile aria-label="Design file" testId="file"
                 option "The app's design" value=""
@@ -1215,7 +1215,7 @@ component DesignTool
                         row gap=8 align-items="center" testId=`token-${t.name}`
                           column width=200 flex-shrink=0
                             text t.name
-                            // (The base's and a package's values are read-only; the app sets its own.)
+                            // (Stage 11: the base's and a package's values are read-only; the app sets its own.)
                             if t.source == "base"
                               text "Exact's base, per platform" font="-exact-caption1" color="-exact-secondary-label" testId=`token-source-${t.name}`
                             else if t.source == "package"
@@ -1265,7 +1265,7 @@ component DesignTool
                     row gap=8 align-items="center" testId=`icon-${ic.name}`
                       text ic.name width="12rem" flex-shrink=0
                       text [ic.sf != "" ? `sf ${ic.sf}` : "", ic.material != "" ? `material ${ic.material}` : "", ic.svg != "" ? "svg" : ""].filter(x => x != "").join(" · ") color="-exact-secondary-label" font="-exact-footnote" testId=`icon-${ic.name}-sources`
-              // The edit dock: the selected cell's editor and the edit's
+              // The edit dock (the design tool's third hands-on pass, #7): the selected cell's editor and the edit's
               // proposal, one region at the window's bottom (at most half of it, scrolling inside) while either shows,
               // so neither opens a screen below the grid nor covers the other. Escape, or Close, with nothing pending
               // ends the selection and gives the focus back to its cell; with an edit pending Escape does nothing.
@@ -1368,8 +1368,8 @@ component DesignTool
                         text "The copy this edit was opened on is no longer current: select it again." color="-exact-system-orange" font="-exact-footnote" testId="state-stale"
                       input value=editValue input=stateValue disabled=(not canPropose) aria-label=(editKind == "set-row" ? "The row's value" : "The state part's value") testId="state-value"
                   if editKind != ""
-                    // In the edit dock with the cell's editor (undocked, a param's proposal could open
-                    // about 16,500 px below its field).
+                    // In the edit dock with the cell's editor (the third pass's #7; the second pass's param proposal, opened
+                    // about 16,500 px below its field, docked first).
                     column gap=8 padding=12 border-radius=10 background-color="-exact-tertiary-background" id="proposal-dock" tabindex=-1 role="region" aria-label="Proposal" testId="proposal"
                       if editKind == "set-token" and editTarget == setForAppName and setForAppNote != ""
                         text setForAppNote font="-exact-footnote" color="-exact-secondary-label" testId="set-for-app-note"
@@ -1405,7 +1405,7 @@ component DesignTool
                           button press=cancelEdit testId="cancel-edit"
                             text "Cancel"
                         if (editKind == "set-dial" or editKind == "set-token" or editKind == "set-param") and proposal.ok and proposal.active and proposal.chip != "live"
-                          text (hello.live ? "This edit rebuilds the app, so it can't be scrubbed: Apply writes it." : "Scrubbing previews on the running copies: open the tool through a dev loop (tamber tool --via).") color="-exact-secondary-label" font="-exact-footnote" testId="scrub-unavailable"
+                          text (hello.live ? "This edit rebuilds the app, so it can't be scrubbed: Apply writes it." : "Scrubbing previews on the running copies: open the tool through a dev loop (forma tool --via).") color="-exact-secondary-label" font="-exact-footnote" testId="scrub-unavailable"
               // The Remove confirmation outside the dock, so its own Escape (which closes it) never reaches the dock's.
               if branchShown and not branch.param
                 dialog id="confirm-remove" role="alertdialog" aria-label=`Remove ${selToken}?`

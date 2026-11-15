@@ -1,9 +1,9 @@
 //! A settled resource's value, as the runner holds it and expressions read it.
 //!
-//! A resource that took its compiled value holds what the
+//! A resource that took its compiled value (LLP 1038 D5) holds what the
 //! runner decoded from the plan's bytes. Once nothing outside the runner
 //! holds that decoded object — a live tick replaced it on screen, or the
-//! source adopted it and answers its edits another way —
+//! source adopted it (LLP 1027 D11) and answers its edits another way —
 //! the copy is released: the plan's bytes stay in the executable, and a
 //! later read decodes them again. Every holder inside the runner (the
 //! settled state, the values expressions read, the tree's last inputs)

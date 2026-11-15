@@ -3,7 +3,7 @@ import XCTest
 @testable import ExactKit
 import UIKit
 
-/// A picture at rest: a screenshot waits out UIKit's own
+/// A picture at rest (LLP 1116.003 D8): a screenshot waits out UIKit's own
 /// motion — an animation, a view moved frame by frame, a segment's thumb —
 /// and never a repeating one (a caret's blink, a spinner).
 final class AgentMotionIOSTests: XCTestCase {
@@ -73,7 +73,7 @@ final class AgentMotionIOSTests: XCTestCase {
         moving.removeFromSuperview()
     }
 
-    /// A native module's motion on the wall clock (a boot
+    /// A native module's motion on the wall clock (the euxy port's boot
     /// splash, a view on the window faded with `UIView.animate`): `clock`
     /// waits it out and its completion runs, and a tap waits for the
     /// overlay to go.

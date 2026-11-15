@@ -1,5 +1,5 @@
 //! A page whose TypeScript source spins renders 503 at its deadline, and the
-//! server keeps serving: the render's watchdog interrupts
+//! server keeps serving (LLP 1048.000 D10): the render's watchdog interrupts
 //! the running call, which is refused, and the page shows its placeholder.
 
 #![cfg(all(exact_js_engine, unix))]

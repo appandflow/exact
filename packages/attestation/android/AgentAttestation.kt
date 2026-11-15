@@ -1,5 +1,5 @@
-// @exact/attestation's agent path on Android, the Apple one's (AgentAttestation.swift): the
-// per-account key lifecycle over synthetic keys in the session's memory, with no call to Play. A token is `exact-substitute`, the
+// @exact/attestation's agent path on Android (LLP 1133.028 §7), the Apple one's (AgentAttestation.swift): D3's
+// lifecycle over synthetic keys in the session's memory, with no call to Play. A token is `exact-substitute`, the
 // base64url of a JSON object naming the client data's SHA-256, the key id, the kind and the counter, which
 // `packages/attestation/test/verify.mjs` checks. The agent's words are Apple's: the status overlay, `fail` (the next
 // call fails with that name; a `NetworkError` keeps the key) and `delay` (each answer waits that long on the
@@ -52,7 +52,7 @@ internal class AgentAttestation(private val context: ExtensionContext) {
         if (!available) return later(reply, AttestationModule.error("NotSupportedError", "attestation is unavailable"))
         val key = keys.getOrPut(account) { Key(newId(), false, 0) }
         takeFailure()?.let { failed ->
-            // As with Apple's errors: a network failure keeps the key, any other discards one not yet attested.
+            // As D3 says of Apple's errors: a network failure keeps the key, any other discards one not yet attested.
             if (failed.optString("error") != "NetworkError" && !key.attested) keys.remove(account)
             say("failed ${failed.optString("error")}")
             return later(reply, failed)

@@ -1,12 +1,12 @@
-//! A node's `:hover` and `:focus-visible` looks for the Swift presenter:
-//! carried in its style dictionary, which the
+//! A node's `:hover` and `:focus-visible` looks for the Swift presenter
+//! (LLP 1121 D8, stage 8 B2): carried in its style dictionary, which the
 //! presenter compares, and composes over the base on its own tracking.
 
 use crate::style::{num, style_json_rows};
 use exact_kernel::{ColorValue, Env, NodeRef, StyleId, StyleMask};
 
-/// The pressed paint's rows, `:active`'s absolute opacity
-/// among them: a cleared one is no pressed look.
+/// The pressed paint's rows (LLP 1061 D7), `:active`'s absolute opacity
+/// (LLP 1121 D8) among them: a cleared one is no pressed look.
 pub(crate) fn press_paint_rows() -> StyleMask {
     use StyleId::{PressBackgroundColor, PressColor, PressOpacity, PressOpacityTo};
     [
@@ -226,5 +226,31 @@ mod tests {
             serde_json::json!([255, 0, 0, 255]),
             "a cleared side is currentcolor: {hover}"
         );
+    }
+
+    /// A look's `color` crosses as its `text_color`, a scheme pair as the
+    /// style's own is, which the presenter lends the subtree.
+    #[test]
+    fn a_looks_colour_crosses_as_its_text_colour() {
+        let mut kernel = Kernel::new(Box::new(MonospaceMeasurer::default()));
+        let mut hover = StyleProps::default();
+        let ink = StyleValue::Text("light-dark(#222222, #e2e2e2)".into());
+        hover.set_dynamic(StyleId::TextColor, &ink).unwrap();
+        let ops = vec![
+            Op::CreateView {
+                id: 1,
+                node_type: NodeType::View,
+            },
+            Op::SetLooks {
+                id: 1,
+                looks: vec![(LOOK_HOVER, hover)],
+            },
+        ];
+        kernel.apply(0, 1, &ops).unwrap();
+        let json: serde_json::Value =
+            serde_json::from_str(&style_json_for(&kernel.node(1).unwrap(), &Env::default()).0)
+                .unwrap();
+        let pair = serde_json::json!([[34, 34, 34, 255], [226, 226, 226, 255]]);
+        assert_eq!(json["looks"]["hover"]["text_color"], pair, "{json}");
     }
 }

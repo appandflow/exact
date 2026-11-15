@@ -6,6 +6,154 @@ use exact_kernel::{
 };
 
 #[test]
+fn auto_z_index_round_trips_separately_from_every_integer() {
+    use exact_kernel::{export, wire, Kernel, NodeType, Op};
+    let mut style = StyleProps::default();
+    assert_eq!(style.z_index, None);
+    for (value, expected) in [
+        (StyleValue::Auto, None),
+        (StyleValue::Number(0.0), Some(0)),
+        (StyleValue::Text("auto".into()), None),
+        (StyleValue::Number(f64::from(i32::MIN)), Some(i32::MIN)),
+        (StyleValue::Text(" AUTO ".into()), None),
+        (StyleValue::Number(f64::from(i32::MAX)), Some(i32::MAX)),
+        (StyleValue::Text("-2".into()), Some(-2)),
+    ] {
+        style.set_dynamic(StyleId::ZIndex, &value).unwrap();
+        assert_eq!(style.z_index, expected);
+        assert_eq!(
+            style.get(StyleId::ZIndex),
+            expected.map_or(RowValue::Enum("auto"), |n| RowValue::Number(f64::from(n)))
+        );
+        let ops = [
+            Op::CreateView {
+                id: 1,
+                node_type: NodeType::View,
+            },
+            Op::SetStyle {
+                id: 1,
+                patch: Box::new(style.clone()),
+            },
+            Op::AttachRoot { id: 1 },
+        ];
+        let bytes = wire::frame::encode(1, 0, &ops);
+        assert_eq!(wire::frame::decode(&bytes).unwrap().ops, ops);
+        let mut kernel = Kernel::with_monospace();
+        kernel.apply(0, 1, &ops).unwrap();
+        let snapshot = export::decode(&kernel.export(None).unwrap()).unwrap();
+        assert_eq!(snapshot.styles[0].z_index, expected);
+        assert!(snapshot.styles[0].mask.has(StyleId::ZIndex));
+    }
+    let before = style.clone();
+    for value in [
+        StyleValue::Number(0.5),
+        StyleValue::Number(f64::from(i32::MAX) + 1.0),
+        StyleValue::Number(f64::NAN),
+        StyleValue::Text("0.5".into()),
+        StyleValue::Text("none".into()),
+    ] {
+        assert!(style.set_dynamic(StyleId::ZIndex, &value).is_err());
+        assert_eq!(style, before);
+    }
+    let mut reader = wire::codec::Reader::new(&[2]);
+    assert_eq!(
+        reader.auto_i32(),
+        Err(exact_kernel::DecodeError::BadAutoI32(2))
+    );
+}
+
+#[test]
+fn scroll_padding_and_svg_radii_refuse_negative_literals_atomically() {
+    for id in [
+        StyleId::ScrollPaddingTop,
+        StyleId::ScrollPaddingRight,
+        StyleId::ScrollPaddingBottom,
+        StyleId::ScrollPaddingLeft,
+        StyleId::R,
+        StyleId::Rx,
+        StyleId::Ry,
+    ] {
+        let mut style = StyleProps::default();
+        for (value, expected) in [
+            (StyleValue::Number(0.0), Dimension::Points(0.0)),
+            (StyleValue::Number(10.0), Dimension::Points(10.0)),
+            (StyleValue::Text("10px".into()), Dimension::Points(10.0)),
+            (StyleValue::Percent(5.0), Dimension::Percent(5.0)),
+            (StyleValue::Text("5%".into()), Dimension::Percent(5.0)),
+            (StyleValue::Text("1rem".into()), Dimension::Points(16.0)),
+            (StyleValue::Text("1em".into()), Dimension::Points(16.0)),
+        ] {
+            style.set_dynamic(id, &value).unwrap();
+            assert_eq!(
+                style.get(id),
+                RowValue::Dimension(expected),
+                "{id:?}: {value:?}"
+            );
+        }
+        let before = style.clone();
+        for value in [
+            StyleValue::Text("-10px".into()),
+            StyleValue::Text("-5%".into()),
+            StyleValue::Number(-10.0),
+            StyleValue::Percent(-5.0),
+            StyleValue::Text("-1rem".into()),
+            StyleValue::Text("-1em".into()),
+            StyleValue::Text("-1vh".into()),
+            StyleValue::Text("-1cm".into()),
+        ] {
+            let result = style.set_dynamic(id, &value);
+            assert!(
+                matches!(result, Err(StyleValueError::WrongKind { style, expected })
+                    if style == id && expected.contains("nonnegative")),
+                "{id:?}: {value:?}: {result:?}"
+            );
+            assert_eq!(style, before, "{id:?}: {value:?}");
+        }
+    }
+}
+
+#[test]
+fn scroll_margins_refuse_percentages_without_changing_the_length() {
+    for id in [
+        StyleId::ScrollMarginTop,
+        StyleId::ScrollMarginRight,
+        StyleId::ScrollMarginBottom,
+        StyleId::ScrollMarginLeft,
+    ] {
+        let mut style = StyleProps::default();
+        for (value, points) in [
+            (StyleValue::Number(10.0), 10.0),
+            (StyleValue::Text("-4px".into()), -4.0),
+            (StyleValue::Text("calc(10px + 4px)".into()), 14.0),
+        ] {
+            style.set_dynamic(id, &value).unwrap();
+            assert_eq!(
+                style.get(id),
+                RowValue::Dimension(Dimension::Points(points))
+            );
+        }
+        let before = style.clone();
+        for value in [
+            StyleValue::Percent(10.0),
+            StyleValue::Text("10%".into()),
+            StyleValue::Text("calc(10% + 4px)".into()),
+            StyleValue::Text("calc(0% + 4px)".into()),
+            StyleValue::Text("min(10%, 4px)".into()),
+            StyleValue::Text("max(10%, 4px)".into()),
+            StyleValue::Text("clamp(0px, 10%, 4px)".into()),
+        ] {
+            let result = style.set_dynamic(id, &value);
+            assert!(
+                matches!(result, Err(StyleValueError::WrongKind { style, expected })
+                    if style == id && expected.contains("CSS takes no percentage")),
+                "{id:?}: {value:?}: {result:?}"
+            );
+            assert_eq!(style, before, "{id:?}: {value:?}");
+        }
+    }
+}
+
+#[test]
 fn borrowed_css_parses_like_owned_css_and_retains_no_source_borrow() {
     for (id, css, valid) in [
         (StyleId::TextColor, "#abcdef80", true),
@@ -73,8 +221,8 @@ fn translate_text_is_a_narrow_css_pixel_subset_with_atomic_refusal() {
             .unwrap();
         assert_eq!(s.translate, exact_kernel::Vec2 { x, y }, "{text}");
     }
-    // A percentage of the box is the percent row's, the length row's zero;
-    // both rows take their part of the one text.
+    // A percentage of the box is the percent row's, the length row's zero
+    // (chess diary #4); both rows take their part of the one text.
     for (text, px, pct) in [
         ("-50% -50%", (0.0, 0.0), (-50.0, -50.0)),
         ("12px 25%", (12.0, 0.0), (0.0, 25.0)),
@@ -103,7 +251,7 @@ fn translate_text_is_a_narrow_css_pixel_subset_with_atomic_refusal() {
         "0 1",
         "none",
         "1px,2px",
-        // A third length is `translate`'s z, a fourth nothing.
+        // A third length is `translate`'s z (LLP 1077 D8), a fourth nothing.
         "1px 2px 0px 0px",
         "1px 2px 3",
         "10%% 0",
@@ -261,7 +409,7 @@ fn every_dynamic_codec_fills_its_row_and_marks_the_mask() {
     assert_eq!(s.height, Dimension::Auto);
     assert_eq!(s.flex_grow, 1.0);
     assert_eq!(s.font_weight, 700);
-    assert_eq!(s.z_index, -2);
+    assert_eq!(s.z_index, Some(-2));
     assert_eq!(
         s.background_color,
         Some(ColorValue::Fixed(Color::rgba(255, 0, 0, 128)))
@@ -298,7 +446,7 @@ fn refusals_are_typed_and_change_nothing() {
                 expected: "nonnegative number",
             },
         ),
-        // CSS refuses a negative flex factor.
+        // CSS refuses a negative flex factor (LLP 1053 G3).
         (
             StyleId::FlexShrink,
             StyleValue::Number(-1.0),
@@ -465,7 +613,7 @@ fn enum_rows_resolve_names_and_others_do_not() {
         // A keyword row (a bit set named by CSS keywords) lists its words too.
         let keywords = matches!(
             id,
-            StyleId::FontVariantNumeric | StyleId::FontVariantLigatures
+            StyleId::FontVariantNumeric | StyleId::FontVariantLigatures | StyleId::SafeArea
         );
         assert_eq!(
             names.is_empty(),
@@ -487,7 +635,7 @@ fn enum_rows_resolve_names_and_others_do_not() {
 
 #[test]
 fn font_variant_numeric_is_a_keyword_bit_set() {
-    // `normal` is 0, `tabular-nums` bit 0; others refused.
+    // @ref LLP 1053 §0 G4 — `normal` is 0, `tabular-nums` bit 0; others refused.
     let set = |v: StyleValue| {
         let mut p = StyleProps::default();
         p.set_dynamic(StyleId::FontVariantNumeric, &v)
@@ -577,7 +725,7 @@ fn caret_auto_and_transparent_are_distinct_and_survive_the_wire() {
         StyleValue::Text("#00000000".into()),
         StyleValue::Text("#ffffff".into()),
         StyleValue::Text("light-dark(#ffffff, #112233)".into()),
-        // A system colour crosses by its index.
+        // A system colour crosses by its index (LLP 1077 D13).
         StyleValue::Text("-apple-system-label".into()),
     ] {
         let mut style = StyleProps::default();
@@ -745,7 +893,7 @@ fn line_height_preserves_kinds_through_dynamic_changes_wire_and_refusal() {
 fn dimension_pixel_strings_use_css_numbers_and_refuse_invalid_values_atomically() {
     let mut style = StyleProps::default();
     // `rem`/`em` hold their pixels at the initial root size until the
-    // kernel resolves them.
+    // kernel resolves them (LLP 1069.000 D3).
     for (text, expected) in [
         ("0px", 0.),
         ("12.5PX", 12.5),
@@ -778,7 +926,7 @@ fn dimension_pixel_strings_use_css_numbers_and_refuse_invalid_values_atomically(
 
 #[test]
 fn every_row_writes_its_own_field_and_no_other() {
-    // Linked by use, as every host that sets the rows links it.
+    // Linked by use (LLP 1057.003), as every host that sets the rows links it.
     exact_kernel::timeline::link();
     exact_kernel::style::link_backdrop_filter();
     let candidates = [
@@ -817,7 +965,7 @@ fn every_row_writes_its_own_field_and_no_other() {
             .chain(candidates.iter().cloned());
         let mut written = None;
         // A row whose one value is its initial one (`outline-style`'s
-        // `none`) is written by marking it.
+        // `none`, LLP 1104 D6) is written by marking it.
         let only_initial = names.len() == 1;
         for value in values {
             let mut s = base.clone();
@@ -850,4 +998,36 @@ fn style_ids_round_trip_through_their_names() {
     for name in ["", "widt", "width ", "Width", "min_widthx"] {
         assert_eq!(StyleId::from_name(name), None, "{name:?}");
     }
+}
+
+#[test]
+fn translate_velocity_takes_a_finite_pair_and_refuses_atomically() {
+    let mut style = StyleProps::default();
+    let row = StyleId::TranslateVelocity;
+    style
+        .set_dynamic(row, &StyleValue::Text("800 -600".into()))
+        .unwrap();
+    assert_eq!(
+        style.translate_velocity,
+        exact_kernel::Vec2 { x: 800., y: -600. }
+    );
+    for text in [
+        "", "1", "1 2 3", "1px 2px", "1,2", "NaN 0", "inf 0", "1e39 0", "0x10 0",
+    ] {
+        let before = style.clone();
+        assert!(
+            style
+                .set_dynamic(row, &StyleValue::Text(text.into()))
+                .is_err(),
+            "{text}"
+        );
+        assert_eq!(style, before, "{text}");
+    }
+    style
+        .set_dynamic(row, &StyleValue::Text("0 0".into()))
+        .unwrap();
+    assert!(style.mask.has(row));
+    assert_eq!(style.translate_velocity, exact_kernel::Vec2::default());
+    style.clear(exact_kernel::StyleMask::of(row));
+    assert!(!style.mask.has(row));
 }

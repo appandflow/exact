@@ -1,4 +1,4 @@
-// A press's focus handoff on UIKit. An `autofocus`
+// A press's focus handoff on UIKit (Charlie, 2026-10-17). An `autofocus`
 // never takes a focus an element holds, however it got it, as Chrome's and
 // AppKit's do not: a later mount unrelated to a press (a timer's) leaves a
 // button a tap focused where it is. The one exception is the press's own

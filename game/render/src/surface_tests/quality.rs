@@ -1,4 +1,4 @@
-//! A quality rung changes the picture and never the world.
+//! LLP 1139.003 D3: a rung changes the picture and never the world.
 use super::*;
 use exact_game::{DirectionalLight, Material, Quality, Shadows};
 
@@ -256,7 +256,7 @@ impl Game for WithLabel {
     fn tick(_: &mut World, _: &Input, _: &PlacedArgs) {}
 }
 
-/// A new rung remakes the renderer and keeps the textures
+/// LLP 1139.003 D2: a new rung remakes the renderer and keeps the textures
 /// the host captured for its placed children (an in-world label): the host
 /// does not capture them again, and the label stays on screen.
 #[test]
@@ -321,7 +321,7 @@ fn a_new_tier_keeps_the_placed_childrens_pixels() {
     assert_eq!(state(&mut s)["quality"]["rung"], "low");
 }
 
-/// A world that has drawn no live frame keeps its look
+/// LLP 1139.003 D2: a world that has drawn no live frame keeps its look
 /// renderer between look frames; a new tier drops it, so the next look is made
 /// at the new rung's samples, in either direction.
 #[test]
@@ -358,7 +358,7 @@ fn a_new_tier_remakes_a_headless_look_renderer() {
     }
 }
 
-/// Through the module, a Low world's raster scale is a half:
+/// LLP 1139.003 D3: through the module, a Low world's raster scale is a half:
 /// `Module::render_scale` is what `Module::render` sizes the drawable by
 /// (gpu/src/hdr_tests.rs) and what the web glue sizes the canvas's backing
 /// store by.
@@ -440,7 +440,7 @@ impl Game for Tank {
     fn tick(_: &mut World, _: &Input, _: &TankArgs) {}
 }
 
-/// Under `Low` a world with `Water` draws
+/// LLP 1139.003 D3 with LLP 1139.002: under `Low` a world with `Water` draws
 /// without its caustics and shafts, at present time (the resource keeps
 /// them); under `High` it draws them. Without water the two rungs draw the
 /// same bytes, so the difference is the water's effects alone.

@@ -1,12 +1,12 @@
 #!/usr/bin/env bun
 /**
  * no-tells — an app's `.contract` files say no colour, font size or font weight
- * of their own ("Write the web, ship the platform").
+ * of their own (LLP 1115, "Write the web, ship the platform").
  *
  *   bun scripts/no-tells.mjs <app name | app directory | file.contract | guide.md …>
  *
  * A Markdown file is read for its fenced `contract` blocks, as the recipes are
- * (docs/recipes: a recipe builders copy carries no tells).
+ * (docs/recipes, LLP 1116 D3: a recipe builders copy carries no tells).
  *
  * A literal colour (`#8e8e93`, `rgb(…)`, `hsl(…)`, `red`) on a colour property, or
  * a literal `font-size`/`font-weight`, is a value copied from one platform's
@@ -17,26 +17,26 @@
  * (`font="-exact-footnote"`, `font-size="-exact-caption1"`). Layout (sizes,
  * padding, gaps, radii) is CSS and the author's, and is not looked at.
  *
- * The one authored colour is the accent: a role, or one
+ * The one authored colour is the accent (LLP 1116.002 D1): a role, or one
  * `light-dark(light, dark)` pair on `accent-color`, which is not flagged. A pair
  * anywhere else is, as a bare literal is everywhere: the compiler's
  * `lower-colour-one-scheme` warning names the bare ones (outside `svg`), so what
  * passes here never earns it.
  *
- * The app's `theme` is where its colours are said: its entries'
+ * The app's `theme` (LLP 1095 D4) is where its colours are said: its entries'
  * literals are the palette, not tells, and a colour property naming an entry
  * (`color="brand"`, `light-dark(brand, ink)`) names what the colour is. Lowering
  * refuses an entry spelled as a CSS colour name, so a name here is never one.
- * So is an app's design (`app.tamber`, or the file `app.json`'s `"tamber"`
- * names): a token name is not a literal, and neither is an
+ * So is an app's design (`app.forma`, or the file `app.json`'s `"forma"`
+ * names, LLP 1121): a token name is not a literal, and neither is an
  * expression over tokens and roles (`color-mix(in oklab, accent.fill 40%,
  * surface.card)`, `rgb(from surface.card r g b / 0.5)`), which the build folds.
  *
- * A numeric readout is design, not a tell: a literal `font-size` on
+ * A numeric readout is design, not a tell (LLP 1116 D3): a literal `font-size` on
  * a node that also sets `font-variant-numeric="tabular-nums"` (a timer's or a
  * total's big number) is not flagged. A line that must keep a literal ends with
- * `// no-tells: <why>`. `overflow-wrap="anywhere"` on prose is one too
- * (`brokenWordsIn`). Exit 0 when there is nothing to say, 1 with every
+ * `// no-tells: <why>`. `overflow-wrap="anywhere"` on prose is one too (LLP 1116.021
+ * D6, `brokenWordsIn`). Exit 0 when there is nothing to say, 1 with every
  * finding, 2 on a bad invocation. `apps/shelf` is held to it by its
  * `app.test.ts`.
  */
@@ -92,7 +92,7 @@ function uncomment(text) {
 }
 
 /** The source with the root `theme` block's lines blanked, offsets unchanged:
- * its literals are the app's palette. */
+ * its literals are the app's palette (LLP 1095 D4). */
 function withoutTheme(text) {
   // Only a line that starts outside any bracket or string is a
   // declaration's: a `theme` word continuing an expression is not one.
@@ -235,7 +235,7 @@ function nodeHeads(lines) {
  * `tokens`, the app design's token names. */
 export function tellsIn(source, tokens = new Set()) {
   const text = withoutTheme(uncomment(source)), lines = source.split('\n'), found = [];
-  // The root `theme` block's entries are tokens too.
+  // The root `theme` block's entries are tokens too (LLP 1095 D4, LLP 1121 D2).
   tokens = new Set([...tokens, ...themeNames(uncomment(source))]);
   // The nodes that are numeric readouts: their literal `font-size` is design.
   const heads = nodeHeads(text.split('\n'));
@@ -264,7 +264,7 @@ export function tellsIn(source, tokens = new Set()) {
   return found.sort((a, b) => a.line - b.line || a.column - b.column);
 }
 
-// A font size that stays put as the reader's text size grows, which `verify` names: a bare number, px or pt,
+// LLP 1116.020 D4: a font size that stays put as the reader's text size grows, which `verify` names: a bare number, px or pt,
 // whole or as a ternary's branch. `tabular-nums` excuses none of it (a readout's designed size is a rem one), and a native
 // control's own field sizes its text as the platform does. Exact's parts fixed on purpose (`RoundButton`'s title) are the
 // library's, not the app's files.
@@ -321,7 +321,7 @@ function placed(source) {
   return { out, rows, heads };
 }
 
-// `overflow-wrap="anywhere"` lets a line break inside any word, and lets its box shrink below its
+// @ref LLP 1116.021 D6 — `overflow-wrap="anywhere"` lets a line break inside any word, and lets its box shrink below its
 // longest word, so prose, a number or a date breaks mid-word at the largest text size ("Octo/ber", "$15.2/1"): no
 // hand-built UIKit label does. It is right for a URL or a long token, which this reads by structure: on a `link`, or on text
 // set in a monospace face (a password, a hash, a key). Anything else that must keep it says why with `// no-tells: <why>`.
@@ -335,7 +335,7 @@ export function brokenWordsIn(source) {
     .map(a => ({ line: a.line, column: a.column, tag: a.tag, value: a.value, testId: testIdOf(rows, heads, a.head) }));
 }
 
-// A symbol `image` sized in points beside text that grows stays small as Dynamic Type grows, as a
+// @ref LLP 1116.021 D6 — a symbol `image` sized in points beside text that grows stays small as Dynamic Type grows, as a
 // fixed `font-size` does: an unsized symbol follows its text, and one sized by a `font-size` in rem grows with the root.
 // "Beside text" is a `text` in the same parent box, at any depth, whose size is not fixed itself. A symbol alone (an
 // icon-only button, a hero glyph) is the author's size; Exact's parts and the platform's controls are not the app's files.
@@ -400,15 +400,15 @@ function contractBlocks(text) {
   return blocks.filter(b => !b.skip).map(b => ({ at: b.at, source: b.lines.join('\n') }));
 }
 
-/** The token names of the design beside `file`'s app: the
- * `"tamber"` file `app.json` names, else `app.tamber`, in the nearest
+/** The token names of the design beside `file`'s app (LLP 1121 D2): the
+ * `"forma"` file `app.json` names, else `app.forma`, in the nearest
  * directory up that has either. Its `theme` block's entries, each `name = …`
  * at the block's own indent, with or without a kind (`name: color = …`). */
 export function designTokens(file) {
   for (let dir = resolve(file, '..'); ; dir = resolve(dir, '..')) {
     let named = null;
-    try { named = JSON.parse(readFileSync(join(dir, 'app.json'), 'utf8')).tamber ?? null; } catch {}
-    const path = named ? join(dir, named) : join(dir, 'app.tamber');
+    try { named = JSON.parse(readFileSync(join(dir, 'app.json'), 'utf8')).forma ?? null; } catch {}
+    const path = named ? join(dir, named) : join(dir, 'app.forma');
     if (existsSync(path)) {
       // The block's entries share one indent, its first's; a `when` line is deeper.
       const names = new Set();
@@ -436,7 +436,7 @@ export function tells(target) {
     : tellsIn(readFileSync(file, 'utf8'), designTokens(file)).map(t => ({ file, ...t })));
 }
 
-export const ADVICE = `These are tells ("Write the web, ship the platform"): values one platform's
+export const ADVICE = `These are tells (LLP 1115, "Write the web, ship the platform"): values one platform's
 screenshot had, which miss dark mode, Increased Contrast, Dynamic Type and the next OS.
 - Colour: leave it unsaid (text, tint, backgrounds, separators and controls are the
   platform's), or name a role: CanvasText, AccentColor, -exact-secondary-label,
@@ -444,7 +444,7 @@ screenshot had, which miss dark mode, Increased Contrast, Dynamic Type and the n
   Leave the accent unsaid too (the platform's); if written, a role or one
   light-dark(light, dark) pair on accent-color (docs/contract-for-agents.md, "Colours:
   say a role, not a value").
-  An app's own palette is its design (app.tamber) or its root \`theme\`
+  An app's own palette is its design (app.forma, LLP 1121) or its root \`theme\`
   block, and rows name its tokens.
 - Type: leave body text unsaid; say a heading (h1 .. h4) or
   a text style (font="-exact-footnote", -exact-headline, -exact-caption1 …)

@@ -1,18 +1,20 @@
-// `check`: what is wrong with the presented screen, in text (scripts/agent-check.mjs judging
+// @ref LLP 1116.003 D8 — `check`: what is wrong with the presented screen, in text (scripts/agent-check.mjs judging
 // host/web-js/check.js's observations and a capture's pixels): one fixture view per finding class, found on the page in
 // each scheme and absent from a page that has none; and a screenshot shows a transition where it ends, unless filmed.
 import { test, expect } from 'bun:test';
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { open } from '../../scripts/agent.mjs';
 import { checkOp, judge, ratio } from '../../scripts/agent-check.mjs';
-import { decodePng } from '../../scripts/png.mjs';
+import { decodePng, encodePng } from '../../scripts/png.mjs';
 import { serveBuildTree } from './serve.mjs';
+import { fileURLToPath } from 'node:url';
+import { webCompiler } from '../web-js/module.mjs';
 
-const ROOT = resolve(new URL('../..', import.meta.url).pathname);
+const ROOT = resolve(fileURLToPath(new URL('../..', import.meta.url)));
 const compiler = resolve(process.env.CARGO_TARGET_DIR ?? resolve(ROOT, 'target'), 'debug', process.platform === 'win32' ? 'contract.exe' : 'contract');
 
 // One view per finding class, each named by its testId; `fits`, `ellipsis`, `covered-card` (a card under a view drawn over
@@ -80,13 +82,15 @@ const CLEAN = `component CleanFixture
         text testId="detail" color="-exact-secondary-label" "Secondary detail"
       button testId="go" press=bump buttonStyle="bordered-prominent"
         text "Go"
+      button testId="start" press=bump buttonStyle="tinted" accent-color="-exact-system-green"
+        text "Start"
       row gap=8
         button testId="one" press=bump
           text "One"
         button testId="two" press=bump
           text "Two"
 `;
-// A written percentage width and the padding it does not include,
+// LLP 1116.009 D5 (focus-timer, recipe-finder, round 11): a written percentage width and the padding it does not include,
 // past what the parent gives it, inside the `scroll` that holds the overflow so nothing else sees it. `card` is the finding;
 // each other box is what must not be one: border-box, a width that leaves room, a row's shrinking item, a pager that scrolls on
 // purpose, a nowrap readout, a bar and a sheet the platform draws.
@@ -121,9 +125,9 @@ component PaddedFixture
                   text "Scrolls on purpose"
               text testId="readout" white-space="nowrap" font-size="-exact-title2" "00:25:00"
 `;
-// A vertical scroller holds no sideways overflow, though CSS computes
+// LLP 1116.020 D4 (focus-timer and trivia-quiz, round 18): a vertical scroller holds no sideways overflow, though CSS computes
 // its x `auto` (a native host's vertical scroll view cuts it at the screen's edge). `count` runs past the screen; a strip that
-// scrolls sideways on purpose and a swipe row's snap scroll hold what lies past their sides.
+// scrolls sideways on purpose and a swipe row's snap scroll (LLP 1116.020 D1) hold what lies past their sides.
 const SIDEWAYS = `component SidewaysFixture
   view
     column testId="app" height="100vh" display="flex" flex-direction="column"
@@ -186,7 +190,7 @@ const SWIPE_BESIDE = `component SwipeBesideFixture
       column width=190 flex-shrink=0
         text testId="pane" "A pane"
 `;
-// A text judged on the fill under it — its own box's (a rounded bubble, whose corners show the page), a
+// LLP 1116.006 D5: a text judged on the fill under it — its own box's (a rounded bubble, whose corners show the page), a
 // bubble column's, the page's — in each scheme; and rows a scroller cuts, overlapping nothing past its edge.
 const BUBBLES = `component BubbleFixture
   state n = 0
@@ -215,6 +219,48 @@ const BUBBLES = `component BubbleFixture
           text "Two"
 `;
 
+// A reading screen (#392): verses as runs of one paragraph, each a number and its words with a `press`, narrow enough
+// that runs wrap and share lines; `nudged` is drawn back over the run before it, and `alone` is the only run of its
+// paragraph, so in no sentence.
+const VERSES = `component VerseFixture
+  state n = 0
+  action tap(v: number)
+    n = v
+  view
+    column testId="root" padding=16 width=240
+      text testId="chapter"
+        text "1 " press=tap(1) testId="number-1" font-weight=700
+        text "In the beginning God created the heaven and the earth. " press=tap(1) testId="verse-1"
+        text "2 " press=tap(2) testId="number-2" font-weight=700
+        text "And the earth was without form, and void; and darkness was upon the face of the deep. " press=tap(2) testId="verse-2"
+        text "3 " press=tap(3) testId="number-3" font-weight=700
+        text "And God said, Let there be light. " press=tap(3) testId="verse-3"
+      text margin-top=24
+        text "Light " press=tap(4) testId="before"
+        text "dark" press=tap(5) testId="nudged" position="relative" left=-30
+      text margin-top=24
+        text "4" press=tap(6) testId="alone"
+`;
+
+// A toast (#394): an announcement laid over the page while it shows. `toast` lets taps through and lies over the row
+// beneath by design; `stuck` takes them, so it covers the button under it and overlaps its label. `low` lets taps
+// through and runs past the screen's bottom, which cuts it all the same.
+const TOAST = `component ToastFixture
+  state n = 0
+  action bump
+    n = n + 1
+  view
+    column testId="root" height="100%" position="relative"
+      text testId="under" padding=16 "A sentence the toast lies over while it shows"
+      button testId="beneath" press=bump margin-top=40
+        text "Beneath the stuck one"
+      text "Saved" position="absolute" top=16 left=16 right=16 padding=12 border-radius=12 background-color="-exact-secondary-background"
+        pointer-events="none" aria-live="polite" testId="toast"
+      text "Stuck" position="absolute" top=72 left=16 right=16 padding=12 border-radius=12 background-color="-exact-secondary-background"
+        aria-live="polite" testId="stuck"
+      text "Past the screen's bottom" position="absolute" left=16 bottom=-24 height=48 pointer-events="none" testId="low"
+`;
+
 const built = (() => {
   const ready = new Map();
   return (name, source) => {
@@ -234,7 +280,7 @@ const built = (() => {
   };
 })();
 
-// A row is covered only if nothing scrolls it clear. Four stages, each 300 px: (a) a list
+// LLP 1116.012 D3 (contacts, round 14): a row is covered only if nothing scrolls it clear. Four stages, each 300 px: (a) a list
 // above an in-flow bar, a row past the list's end whose middle is in the bar's lower half (the fold row, which scrolls up clear);
 // (b) the same list under a bar laid over it, with the range to scroll up clear; (c) the bar over a list that scrolls only 6 px, its
 // last row under the bar for good; (d) a header over the list's first row at the start, which scrolling can only move further under.
@@ -313,7 +359,7 @@ test('judging: WCAG ratios, the floors, a clamp asked for, a reachable cover, th
   // A white card whose box crosses into the grey (a rotated card over a band): the side in the grey shows its edge, and
   // the white-on-white sides do not outweigh it.
   expect(found([{ ...card, x: 10, w: 12 }])).toEqual([]);
-  // A card the host says none of is presented (below the viewport, past its scroller's edge) is
+  // LLP 1116.010 D2 (trivia, round 12): a card the host says none of is presented (below the viewport, past its scroller's edge) is
   // not judged on the page's pixels there.
   expect(found([{ ...card, vis: { x: 4, y: 20, w: 0, h: 0 } }])).toEqual([]);
   // Two 16 px targets: under 24 px and closer than 24 px apart, both; far apart, neither (WCAG 2.5.8's spacing); the platform's own, never.
@@ -324,7 +370,7 @@ test('judging: WCAG ratios, the floors, a clamp asked for, a reachable cover, th
   expect(found([{ ...small(3, 0), sized: 'platform' }, { ...small(4, 18), sized: 'platform' }])).toEqual([]);
   // Covered at rest is a finding; the host leaves out what a scroller could move clear.
   expect(found([{ ...small(5, 0), w: 30, h: 30, cover: { by: 9, kind: 'node' } }])).toEqual(['covered:5']);
-  // A text on a fill the host found is judged on it, not on the pixels (here white): white on indigo reads,
+  // LLP 1116.006 D5: a text on a fill the host found is judged on it, not on the pixels (here white): white on indigo reads,
   // white on a pale indigo does not, and the finding names the fill's owner.
   const white = { ...text, fg: [255, 255, 255, 1] };
   expect(found([white])).toEqual(['contrast:1']);
@@ -332,7 +378,7 @@ test('judging: WCAG ratios, the floors, a clamp asked for, a reachable cover, th
   const pale = judge(obs([{ ...white, bg: [142, 140, 240], on: 7 }]), png);
   expect(pale.map((f) => [f.kind, f.detail.bg, f.detail.on])).toEqual([['contrast', '#8e8cf0', 7]]);
   expect(judge(obs([{ ...white, bg: [142, 140, 240], on: 'own' }]), null).length).toBe(1); // no capture needed
-  // UIKit's white on a filled button's teal (2.1:1) is still found, and its hint names the accent, not a label colour.
+  // LLP 1116.019 D3: UIKit's white on a filled button's teal (2.1:1) is still found, and its hint names the accent, not a label colour.
   const teal = judge(obs([{ ...white, bg: [0, 195, 208], on: 'own', label: true, onAccent: true }]), null);
   expect(teal.map((f) => f.kind)).toEqual(['contrast']);
   expect(teal[0].hint).toContain('leave the accent unsaid');
@@ -341,25 +387,29 @@ test('judging: WCAG ratios, the floors, a clamp asked for, a reachable cover, th
   const green = { ...text, fg: [52, 199, 89, 1], bg: [225, 247, 231], on: 'own', label: true };
   expect(found([{ ...green, tinted: true }])).toEqual([]);
   expect(found([green])).toEqual(['contrast:1']);
-  // White on an accent fill that is no button (a sent bubble) is held to a filled button's 3:1: UIKit's blue
+  // LLP 1116.020 D7: white on an accent fill that is no button (a sent bubble) is held to a filled button's 3:1: UIKit's blue
   // (3.4:1) reads, a pale accent (the web's dark one, 2.6:1) is found with the accent's hint; on another fill it stays 4.5:1.
   expect(found([{ ...white, bg: [0, 136, 255], on: 'own', onAccentFill: true }])).toEqual([]);
   expect(found([{ ...white, bg: [0, 136, 255], on: 'own' }])).toEqual(['contrast:1']);
   const paleAccent = judge(obs([{ ...white, bg: [104, 165, 254], on: 'own', onAccentFill: true }]), null);
   expect(paleAccent.map((f) => [f.kind, f.detail.need])).toEqual([['contrast', 3]]);
   expect(paleAccent[0].hint).toContain('leave the accent unsaid');
+  // White on a fill in a system hue is the platform's pair, as that hue on white is: iOS's badge, the dark scheme's label
+  // on its red (3.4:1), is held to 3:1. The same white on a red of the author's own stays 4.5:1.
+  expect(found([{ ...white, bg: [255, 66, 69], on: 'own' }], { scheme: 'dark' })).toEqual([]);
+  expect(found([{ ...white, bg: [240, 60, 60], on: 'own' }], { scheme: 'dark' })).toEqual(['contrast:1']);
   // Overlap is judged on what is presented of each box: a row its scroller cuts at y = 10 overlaps nothing below.
   const row = { id: 6, x: 0, y: 0, w: 40, h: 20, control: 'press', sized: 'platform' }, tab = { id: 7, x: 0, y: 10, w: 40, h: 20, control: 'press', sized: 'platform' };
   expect(found([row, tab])).toEqual(['overlap:6']);
   expect(found([{ ...row, vis: { x: 0, y: 0, w: 40, h: 10 } }, tab])).toEqual([]);
-  // What a bar is drawn over is covered, not presented (`vis` empty): a text wholly under it is not judged for
+  // LLP 1116.007 D3.8: what a bar is drawn over is covered, not presented (`vis` empty): a text wholly under it is not judged for
   // contrast, nor a control for size; one partly under it is judged on the fill under the part that shows (here the grey).
   const under = { ...text, fg: [130, 130, 130, 1] };
   expect(found([{ ...under, vis: { x: 2, y: 2, w: 16, h: 0 } }])).toEqual([]);
   expect(found([{ id: 8, x: 0, y: 2, w: 16, h: 16, control: 'press', sized: 'author', vis: { x: 0, y: 2, w: 16, h: 0 } }])).toEqual([]);
   const part = judge(obs([{ ...under, w: 36, vis: { x: 22, y: 2, w: 16, h: 16 } }]), png);
   expect(part.map((f) => [f.kind, f.detail.bg])).toEqual([['contrast', '#808080']]);
-  // The keyboard covers like a bar. A card under it shows the keyboard in the capture, not its
+  // LLP 1116.007 D3 (unit-converter): the keyboard covers like a bar. A card under it shows the keyboard in the capture, not its
   // edge, so it is not "invisible"; one partly under it is judged on the edges that show.
   expect(found([card], { keyboard: 4 })).toEqual([]); // wholly under the keyboard
   expect(found([card], { keyboard: 10 })).toEqual(['card:2']); // its top half shows, and is white on white
@@ -370,7 +420,7 @@ test('judging: WCAG ratios, the floors, a clamp asked for, a reachable cover, th
   expect(spill.map((f) => [f.kind, f.id, f.detail.past, f.detail.of])).toEqual([['overflow', 9, 6, 8]]);
 });
 
-// A role known only by its drawn value is read in what its host draws, as the page says it (`palette`).
+// LLP 1115.000 D4: a role known only by its drawn value is read in what its host draws, as the page says it (`palette`).
 test('an ink and a page\'s ground are known by what the page draws each role in', () => {
   const png = { width: 40, height: 20, data: new Uint8Array(40 * 20 * 4).fill(255) };
   const obs = (items, extra = {}) => ({ viewport: { w: 40, h: 20 }, scheme: 'light', target: 24, items, ...extra });
@@ -401,7 +451,7 @@ test('an ink and a page\'s ground are known by what the page draws each role in'
   expect(hint({})).not.toContain('on a plain page a card is');
 });
 
-// The judge names the cause: the written width, the padding, and the parent it runs past.
+// LLP 1116.009 D5: the judge names the cause: the written width, the padding, and the parent it runs past.
 test('a padded percentage width past its parent is an overflow that names its cause and its repair', () => {
   const png = { width: 40, height: 20, data: new Uint8Array(40 * 20 * 4).fill(255) };
   const padded = { id: 4, x: 0, y: 2, w: 54, h: 16, padded: { by: 3, dx: 14, pad: 14, width: '100%' } };
@@ -415,6 +465,39 @@ test('a padded percentage width past its parent is an overflow that names its ca
   expect(judge({ viewport: { w: 40, h: 20 }, scheme: 'light', target: 24, items: [{ ...padded, outX: 14 }] }, png)).toHaveLength(1);
 });
 
+test('a graphic past the viewport needs fitting or clipping, including one hidden from accessibility', async () => {
+  const nodes = new Map([
+    [1, { id: 1, type: 'Svg', props: { testId: 'chart' } }],
+    [2, { id: 2, type: 'Svg', props: { testId: 'decoration', accessibilityElementsHidden: true } }],
+    [3, { id: 3, type: 'Image', props: { testId: 'photo' } }],
+    [4, { id: 4, type: 'Control', props: { testId: 'button' } }],
+    [5, { id: 5, type: 'Text', props: { testId: 'caption' } }],
+  ]);
+  const obs = { viewport: { w: 402, h: 874 }, scheme: 'light', target: 44, items: [...nodes.keys()].map((id) => ({
+    id, x: 0, y: (id - 1) * 100, w: 420, h: 80, outX: 18, ...(id === 4 ? { control: 'button', sized: 'author' } : id === 5 ? { text: 'Caption' } : {}),
+  })) };
+  const graphic = 'fit the graphic (`width="100%"`), or clip it in its containing box (`overflow="hidden"`)';
+  const layout = 'let it wrap (`flex-wrap: wrap` with a `flex-basis` in rem, `min-width: 0`, `max-width: 100%`), or scroll it inside its own box';
+  for (const host of ['web', 'ios']) {
+    const found = judge(obs, null, { host, nodes });
+    expect(found.map((f) => [f.kind, f.id, f.box, f.detail])).toEqual([...nodes.keys()].map((id) => [
+      'overflow', id, [0, (id - 1) * 100, 420, 80], { past: 18, width: 402, unit: host === 'web' ? 'px' : 'pt' },
+    ]));
+    expect(found.map((f) => f.hint)).toEqual([graphic, graphic, graphic, layout, layout]);
+  }
+  const png = encodePng({ width: 402, height: 874, data: new Uint8Array(402 * 874 * 4).fill(255) });
+  const session = {
+    host: 'ios',
+    op: async ({ op }) => op === 'check' ? obs : { nodes: [...nodes.values()] },
+    carrier: { screenshot: async (path) => writeFileSync(path, png) },
+    tagged: (result) => result,
+  };
+  const run = (await checkOp(session)).check[0];
+  expect(run.findings.map((f) => [f.node, f.hint])).toEqual([
+    ['chart', graphic], ['decoration', graphic], ['photo', graphic], ['button', layout], ['caption', layout],
+  ]);
+});
+
 test('two texts drawn over each other run together, unless one stands on the opaque fill of the view laid over the other', () => {
   const vp = { viewport: { w: 200, h: 100 }, scheme: 'light', target: 24 };
   const row = { id: 3, text: 'Row 5', x: 0, y: 40, w: 60, h: 20 }, tab = { id: 7, text: 'Tab', x: 10, y: 45, w: 30, h: 20, on: 6 };
@@ -426,9 +509,24 @@ test('two texts drawn over each other run together, unless one stands on the opa
   expect(kindsOf([{ ...row, beneath: { ...bar, by: 9 } }, { ...tab, solid: true }])).toEqual(['3 overlap']); // under something else
   // The tab's label running past its bar's edge meets the row outside the fill: they run together there.
   expect(kindsOf([{ ...row, beneath: { ...bar, x: 20, w: 15 } }, { ...tab, solid: true }])).toEqual(['3 overlap']);
-  // A list's section header pinned over its rows as they pass under it (contacts at the largest text size).
+  // A list's section header pinned over its rows as they pass under it (contacts at the largest text size, bake-off r28).
   expect(kindsOf([row, { ...tab, pinned: true }])).toEqual([]);
   expect(judge({ ...vp, items: [{ ...row, control: 'press' }, { ...tab, pinned: true }] }, null)).toEqual([]);
+});
+
+test('a run of a paragraph that wraps is judged by its lines, and one drawn over its neighbour still overlaps it', () => {
+  const vp = { viewport: { w: 300, h: 200 }, scheme: 'light', target: 24 };
+  // "1 In the beginning … earth." ends mid-line; the next run starts there: their boxes meet, their lines do not.
+  const one = { id: 1, control: 'press', inline: true, x: 16, y: 16, w: 268, h: 36, lines: [{ x: 30, y: 16, w: 254, h: 18 }, { x: 16, y: 34, w: 120, h: 18 }] };
+  const two = { id: 2, control: 'press', inline: true, x: 16, y: 34, w: 268, h: 36, lines: [{ x: 136, y: 34, w: 148, h: 18 }, { x: 16, y: 52, w: 200, h: 18 }] };
+  const kindsOf = (items) => judge({ ...vp, items }, null).map((f) => `${f.id} ${f.kind}`);
+  expect(kindsOf([one, two])).toEqual([]);
+  expect(kindsOf([one, { ...two, lines: [{ x: 120, y: 34, w: 164, h: 18 }, two.lines[1]] }])).toEqual(['1 overlap']); // drawn back over it
+  const box = ({ lines, ...it }) => it;
+  expect(kindsOf([box(one), box(two)])).toEqual(['1 overlap']); // judged by its box, as before
+  // A block control beside it meets only its lines.
+  const button = { id: 3, control: 'button', sized: 'author', x: 230, y: 52, w: 60, h: 30 };
+  expect(kindsOf([button, two])).toEqual([]);
 });
 
 test('a page with every finding class has each found, by testId, in the scheme it shows in; a clean page has none', async () => {
@@ -442,13 +540,13 @@ test('a page with every finding class has each found, by testId, in the scheme i
     expect(l.hidden).toEqual(['covered']); // its label "Under" is the button's finding, not a second one
     expect(l.a).toEqual(['overlap']);
     expect(l.wide).toEqual(['overflow']);
-    expect(l['share-b']).toEqual(['overflow']); // a flex item wider than its row, within the viewport
+    expect(l['share-b']).toEqual(['overflow']); // a flex item wider than its row, within the viewport (LLP 1116.007 D3)
     expect(l['share-a']).toBeUndefined();
     // The same row of platform buttons (tip-splitter's radios): in the neutral look a button keeps to its share of the
-    // row, so the longer title is cut at its button's edge rather than spill past the row.
+    // row, so the longer title is cut at its button's edge (LLP 1116 D1's look let the button spill past the row).
     expect(l['opt-b']).toEqual(['clipped']);
     expect(l['opt-a']).toBeUndefined();
-    // The page says what it draws each of Exact's roles in, light and dark (Apple's colours): an ink is
+    // The page says what it draws each of Exact's roles in, light and dark (Apple's colours, LLP 1115.000 D4): an ink is
     // judged by that palette.
     const { palette } = await session.op({ op: 'check' });
     expect([palette?.light?.['secondary-label'], palette?.dark?.background]).toEqual([[60, 60, 67, 0.6], [0, 0, 0, 1]]);
@@ -468,7 +566,7 @@ test('a page with every finding class has each found, by testId, in the scheme i
     expect(l.ellipsis).toBeUndefined(); // an ellipsis the author asked for
     expect(l.go).toBeUndefined(); // white on the light accent reads
     // In dark the card shows and the faint text reads on it; the author's white label on the pale
-    // dark accent does not (unsaid, the web picks black there).
+    // dark accent does not (unsaid, the web picks black there: LLP 1116.003 D3.1).
     expect(d.card).toBeUndefined();
     expect(d.grouped).toBeUndefined(); // its ground is the plain page's colour in dark, under its section's card
     expect(d.faint).toBeUndefined();
@@ -512,7 +610,7 @@ test('a page with every finding class has each found, by testId, in the scheme i
   try {
     expect(kinds((await checkOp(scrolled, [])).check[0])).toEqual({});
   } finally { await scrolled.close(); }
-  // A row under a bar is covered only when no scroller moves it clear: the fold row of a list above an in-flow bar, or
+  // A row under a bar is covered only when no scroller moves it clear (LLP 1116.012 D3): the fold row of a list above an in-flow bar, or
   // under a bar laid over it with the range to scroll by, is not; the last row of a list that scrolls too little, and the first row
   // under a header at the start of its list, are.
   const folds = await open({ host: 'web', url: await built('folds', FOLDS), size: [390, 1300] });
@@ -543,13 +641,51 @@ test('a text is judged on the fill under it in each scheme, and a row its scroll
     const obs = await session.op({ op: 'check' }), ids = new Map(((await session.op({ op: 'tree' })).nodes ?? []).map((n) => [n.props?.testId, n.id]));
     const item = (testId, pick = (it) => it.id === ids.get(testId)) => obs.items.find(pick);
     expect(item('in').on).toBe(ids.get('bubble'));
-    // Its box's corners alone (a chat bubble's) judged white on the white page.
+    // Its box's corners alone (round 8's chat bubbles) judged white on the white page.
     const pixels = judge({ ...obs, items: obs.items.map(({ bg, ...it }) => it) }, decodePng(readFileSync(join(dir, 'light.png'))));
     expect(pixels.filter((f) => f.kind === 'contrast').map((f) => f.id)).toEqual([ids.get('own')]);
     expect([item('page').bg, item('page').on]).toEqual([[255, 255, 255], 'page']); // the canvas, which nothing above paints
     expect(item('row3').vis.h).toBeLessThan(item('row3').h); // the list cuts it
     const whole = { ...obs, items: obs.items.map(({ vis, ...it }) => it) }; // judged on its whole box, it overlapped the tabs
     expect(judge(whole, null).filter((f) => f.kind === 'overlap').map((f) => f.id)).toContain(ids.get('row3'));
+  } finally { await session.close(); }
+}, 900000);
+
+test('pressable runs of a paragraph are targets in a sentence, judged by their lines', async () => {
+  const session = await open({ host: 'web', url: await built('verses', VERSES), size: [390, 844] });
+  try {
+    const obs = await session.op({ op: 'check' }), ids = new Map(((await session.op({ op: 'tree' })).nodes ?? []).map((n) => [n.props?.testId, n.id]));
+    const item = (testId) => obs.items.find((it) => it.id === ids.get(testId));
+    expect(item('verse-2').lines?.length).toBeGreaterThan(1); // it wraps
+    expect(['number-1', 'verse-1', 'verse-2', 'nudged'].map((t) => item(t).inline)).toEqual([true, true, true, true]);
+    expect(item('alone').inline).toBeUndefined(); // the only words of its paragraph: no sentence to be in
+    const found = judge(obs, null).map((f) => `${[...ids].find(([, id]) => id === f.id)?.[0]} ${f.kind}`);
+    // The verses wrap into each other's lines and are drawn once: nothing. The nudged run is drawn over "Light ".
+    expect(found.sort()).toEqual(['before covered', 'before overlap']);
+    // Judged by their boxes, the runs that share a line overlapped, and a finger at a wrapped run's box's middle met the next.
+    const boxes = judge({ ...obs, items: obs.items.map(({ lines, ...it }) => it) }, null).filter((f) => f.kind === 'overlap').map((f) => f.id);
+    expect(boxes).toContain(ids.get('verse-1'));
+    expect(item('verse-1').cover).toBeUndefined();
+  } finally { await session.close(); }
+}, 900000);
+
+test('a toast that lets taps through lies over the page by design; one that takes them covers what is under it', async () => {
+  const session = await open({ host: 'web', url: await built('toast', TOAST), size: [390, 844] });
+  try {
+    // Contract has no `fixed`; the page pins `low` to the viewport, where nothing scrolls to what runs past its bottom.
+    await session.carrier.evaluate(`[...document.querySelectorAll('#exact-root [data-exact-text]')].find((e) => e.textContent.startsWith('Past the screen')).style.position = 'fixed'`);
+    const obs = await session.op({ op: 'check' }), ids = new Map(((await session.op({ op: 'tree' })).nodes ?? []).map((n) => [n.props?.testId, n.id]));
+    const item = (testId) => obs.items.find((it) => it.id === ids.get(testId));
+    expect([item('toast').overlay, item('stuck').overlay]).toEqual([true, undefined]);
+    expect(item('toast').cover).toBeUndefined(); // a hit test passes through it, so cannot say what lies over it
+    expect(item('low').cut).toMatchObject({ edge: 'bottom' }); // what lets taps through is still cut by the screen's edge
+    const name = (id) => [...ids].find(([, n]) => n === id)?.[0];
+    const found = judge(obs, null).map((f) => `${name(f.id) ?? name(f.of)} ${f.kind}${f.detail?.with != null ? ` ${name(f.detail.with)}` : ''}`);
+    expect(found.filter((f) => /toast/.test(f))).toEqual([]);
+    expect(found).toContain('beneath covered');
+    // Without the mark, the toast and the sentence it lies over run together.
+    const unmarked = judge({ ...obs, items: obs.items.map(({ overlay, ...it }) => it) }, null).map((f) => `${name(f.id)} ${f.kind} ${name(f.detail?.with)}`);
+    expect(unmarked.some((f) => /overlap/.test(f) && /toast/.test(f) && /under/.test(f)), unmarked.join('\n')).toBe(true);
   } finally { await session.close(); }
 }, 900000);
 
@@ -573,9 +709,158 @@ test('a screenshot shows a transition where it ends, the clock unmoved; a film\'
     expect(frame(0)[0]).toBeGreaterThan(240); // still red at the clock it starts on
     expect(frame(1)[0]).toBeLessThan(200); // half way
     expect(frame(2)[2]).toBeGreaterThan(240); // blue where it ends
-    // After `resize` a screenshot is the new viewport, in its reply as in its pixels.
+    // LLP 1116.007 D3.6: after `resize` a screenshot is the new viewport, in its reply as in its pixels.
     await session.resize(390, 844);
     const small = await session.screenshot(join(dir, 'small.png')), png = decodePng(readFileSync(join(dir, 'small.png')));
     expect([small.w, small.h, png.width, png.height]).toEqual([390, 844, 390, 844]);
   } finally { await session.close(); }
 }, 900000);
+
+test('folded captions over pictures use captured pixels unless their own fill covers the picture', async () => {
+  const source = `component Captions
+  view
+    column background-color="black" color="white" padding=16 gap=16
+      column position="relative" height=48
+        image "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='400' height='48'%3E%3Cpath fill='%2300ff00' d='M0 0h400v48H0z'/%3E%3C/svg%3E" position="absolute" inset=0 width="100%" height="100%"
+        column position="relative" testId="caption"
+          text "Caption on a picture"
+      column position="relative" height=48
+        image "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='400' height='48'%3E%3Cpath fill='%2300ff00' d='M0 0h400v48H0z'/%3E%3C/svg%3E" position="absolute" inset=0 width="100%" height="100%"
+        column position="relative" background-color="black" testId="opaque-caption"
+          text "Caption on its own fill"
+`;
+  const session = await open({ host: 'web', url: await built('folded-captions', source) });
+  try {
+    const display = await session.carrier.evaluate(`getComputedStyle(document.querySelector('[data-testid="caption"] [data-exact-text]')).display`);
+    expect(display).toBe('contents');
+    const ids = new Map((await session.op({ op: 'tree' })).nodes.map(n => [n.props.testId, n.id]));
+    const obs = await session.op({ op: 'check' });
+    expect(obs.items.find(it => it.text === 'Caption on a picture').bg).toBeUndefined();
+    expect(obs.items.find(it => it.text === 'Caption on its own fill')).toMatchObject({ bg: [0, 0, 0], on: ids.get('opaque-caption') });
+    const runs = (await checkOp(session, ['both'])).check;
+    expect(runs.map(run => run.findings.map(f => [f.text, f.kind]))).toEqual([
+      [['Caption on a picture', 'contrast']], [['Caption on a picture', 'contrast']],
+    ]);
+    for (const run of runs) expect(run.findings[0].detail.bg).toBe('#00ff00');
+  } finally { await session.close(); }
+}, 120_000);
+
+// Spark's swipe stamps: `pointer-events: none` takes a text out of hit testing, so the scan starts at its card.
+test('a text outside hit testing stands on its own fill, and on captured pixels without one', async () => {
+  const picture = `"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='400' height='48'%3E%3Cpath fill='%2300ff00' d='M0 0h400v48H0z'/%3E%3C/svg%3E"`;
+  const source = `component Stamps
+  view
+    column background-color="black" color="white" padding=16 gap=16
+      column position="relative" height=48
+        image ${picture} position="absolute" inset=0 width="100%" height="100%"
+        column position="relative" testId="card"
+          text testId="stamp" pointer-events="none" background-color="black" "Stamp on its own fill"
+      column position="relative" height=48
+        image ${picture} position="absolute" inset=0 width="100%" height="100%"
+        column position="relative"
+          text pointer-events="none" "Stamp on a picture"
+`;
+  const session = await open({ host: 'web', url: await built('unhit-stamps', source) });
+  try {
+    const ids = new Map((await session.op({ op: 'tree' })).nodes.map(n => [n.props.testId, n.id]));
+    const obs = await session.op({ op: 'check' });
+    expect(obs.items.find(it => it.text === 'Stamp on its own fill')).toMatchObject({ bg: [0, 0, 0], on: 'own', solid: true });
+    expect(obs.items.find(it => it.text === 'Stamp on a picture').bg).toBeUndefined();
+    expect(ids.has('stamp')).toBe(true);
+  } finally { await session.close(); }
+}, 120_000);
+
+// Spark's card beneath the one being dragged: its name's right corners lie under the top card's white name.
+test('a corner another view is drawn over is not read as the ground of the text under it', async () => {
+  const source = `component Overdrawn
+  view
+    column background-color="black" padding=16
+      column position="relative" width=300 height=48
+        image "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='48'%3E%3Cpath fill='%2300ff00' d='M0 0h300v48H0z'/%3E%3C/svg%3E" position="absolute" inset=0 width="100%" height="100%"
+        text position="relative" color="white" font-size=24 "Partly under a card"
+        column position="absolute" top=24 left=0 right=0 bottom=0 background-color="white"
+        column position="absolute" top=0 left=150 right=0 bottom=0 background-color="white"
+`;
+  const session = await open({ host: 'web', url: await built('overdrawn', source) });
+  try {
+    const item = (await session.op({ op: 'check' })).items.find(it => it.text === 'Partly under a card');
+    expect(item.bg).toBeUndefined();
+    expect(item.drawnOver).toEqual([1, 2, 3]);
+    // Its one uncovered corner is no majority: the text is left unjudged, never judged white on white.
+    const runs = (await checkOp(session, ['both'])).check;
+    expect(runs.map(run => run.findings.filter(f => f.kind === 'contrast'))).toEqual([[], []]);
+  } finally { await session.close(); }
+}, 120_000);
+
+test('Shared Elements keeps Zoom Close painted, observed and usable after repeated flights in both schemes', async () => {
+  if (webCompiler().cmd === 'cargo') throw new Error('build the compiler first: cargo build -p exact-web-js');
+  const root = resolve(import.meta.dir, '../..'), dir = mkdtempSync(resolve(root, 'target/shared-elements-agent-'));
+  let browser, server;
+  try {
+    const build = Bun.spawn([process.execPath, 'host/web-js/build.mjs', 'shared-elements', '--out', dir, '--render', 'none'], {
+      cwd: root, stdout: 'pipe', stderr: 'pipe',
+    });
+    const [status, stdout, stderr] = await Promise.all([build.exited, new Response(build.stdout).text(), new Response(build.stderr).text()]);
+    expect({ status, error: status ? stdout + stderr : '' }).toEqual({ status: 0, error: '' });
+    server = Bun.serve({ hostname: '127.0.0.1', port: 0, async fetch(req) {
+      const path = new URL(req.url).pathname, file = Bun.file(resolve(dir, path === '/' ? 'index.html' : path.slice(1)));
+      return await file.exists() ? new Response(file) : new Response('not found', { status: 404 });
+    } });
+    browser = await open({ host: 'web', app: 'shared-elements', url: server.url.href, size: [420, 780] });
+    const settle = async () => expect((await browser.clock('settle')).settled).toBe(true);
+    const tap = async id => { await browser.tap(id); await settle(); };
+    const scheme = async value => { await browser.prefer({ 'prefers-color-scheme': value }); await settle(); };
+    await settle();
+    for (const appearance of ['light', 'dark', 'light', 'dark']) {
+      await scheme(appearance);
+      await tap('tab-grid'); await tap('open-p1'); await tap('close');
+      await scheme(appearance === 'light' ? 'dark' : 'light');
+      await tap('tab-cards'); await tap('card-c1'); await tap('close-card');
+      await scheme(appearance);
+      await tap('tab-tasks'); await tap('task-t1');
+      await tap('tab-zoom'); await tap('zoom-open-p1');
+      const button = (await browser.op({ op: 'tree' })).nodes.find(n => n.props.testId === 'zoom-close');
+      const bounds = await browser.carrier.evaluate(`(() => {
+        const label = document.querySelector('[data-testid="zoom-close"] [data-exact-text]');
+        const range = document.createRange(); range.selectNodeContents(label);
+        return range.getBoundingClientRect().toJSON();
+      })()`);
+      const shot = resolve(dir, 'zoom.png');
+      await browser.screenshot(shot);
+      const png = decodePng(readFileSync(shot));
+      let ink = 0;
+      for (let y = Math.ceil(bounds.top); y < Math.floor(bounds.bottom); y++) {
+        for (let x = Math.ceil(bounds.left); x < Math.floor(bounds.right); x++) {
+          const i = (y * png.width + x) * 4;
+          if (Math.min(png.data[i], png.data[i + 1], png.data[i + 2]) > 200) ink++;
+        }
+      }
+      expect(ink).toBeGreaterThan(10);
+      const checked = await browser.op({ op: 'check' });
+      expect(checked.items.some(item => item.text === 'Close' && item.of === button.id)).toBe(true);
+      await tap('zoom-close');
+      expect((await browser.op({ op: 'tree' })).nodes.some(n => n.props.testId === 'zoom-close')).toBe(false);
+    }
+    await tap('zoom-open-p1');
+    for (const [style, visible] of [
+      ['label.style.visibility = "hidden"', false],
+      ['button.style.visibility = "hidden"; label.style.visibility = "visible"', true],
+      ['button.style.opacity = "0"', false],
+      ['button.style.display = "none"', false],
+      ['button.style.contentVisibility = "hidden"', false],
+      ['button.inert = true', false],
+      ['label.style.opacity = "0"', true],
+    ]) {
+      await browser.carrier.evaluate(`(() => {
+        const button = document.querySelector('[data-testid="zoom-close"]'), label = button.querySelector('[data-exact-text]');
+        button.style.cssText = ''; button.inert = false; label.style.cssText = '';
+        ${style};
+      })()`);
+      const label = (await browser.op({ op: 'check' })).items.find(item => item.text === 'Close');
+      expect(!!label).toBe(visible);
+      if (label) expect(label.fg[3]).toBe(1);
+    }
+  } finally {
+    await browser?.close(); server?.stop(true); rmSync(dir, { recursive: true, force: true });
+  }
+}, 120_000);

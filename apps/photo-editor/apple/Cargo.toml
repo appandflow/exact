@@ -1,4 +1,4 @@
-# The photo editor on Apple platforms: the host's C exports
+# The photo editor on Apple platforms (LLP 1067.000): the host's C exports
 # over its TypeScript source and baked plan. `<photo-editor>` is the app's
 # module artifact (modules/apple), which the host loads per session.
 [package]
@@ -15,6 +15,7 @@ test = false
 bench = false
 
 [dependencies]
+ibex2-sqlite = { path = "../../../vendor/ibex/crates/ibex2-sqlite" }
 exact-logic = { path = "../../../logic" }
 exact-apple = { path = "../../../host/apple" }
 exact-js = { path = "../../../js" }

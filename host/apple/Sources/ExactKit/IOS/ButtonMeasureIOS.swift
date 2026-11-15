@@ -1,4 +1,4 @@
-// Cached real UIKit height-for-width before publication.
+// @ref LLP 1069.011.001 D11: cached real UIKit height-for-width before publication.
 #if os(iOS) || os(tvOS)
 import UIKit
 import CExact
@@ -13,8 +13,15 @@ final class ButtonMeasureCache: @unchecked Sendable {
     private let lock = NSLock()
     private var traits = UITraitCollection.current
     private weak var surface: UIView?
-    private var entries: [Key: ExactButtonMeasure] = [:]
+    /// Each title, offer and kind at the current traits, within a budget: a
+    /// session's history of faces is not kept.
+    private var entries = RecentMeasures<Key, ExactButtonMeasure>(entries: 256, bytes: 128 << 10) { key, _ in key.face.count }
     private(set) var misses = 0
+    var retained: (entries: Int, bytes: Int) {
+        lock.lock(); defer { lock.unlock() }
+        let (a, b) = (entries.retained, numerals.retained)
+        return (a.entries + b.entries, a.bytes + b.bytes)
+    }
     @discardableResult
     func configure(_ next: UITraitCollection, in surface: UIView) -> Bool {
         precondition(Thread.isMainThread)
@@ -22,6 +29,8 @@ final class ButtonMeasureCache: @unchecked Sendable {
         let changed = FieldChromeCache.Traits(next) != FieldChromeCache.Traits(traits)
         traits = next
         self.surface = surface
+        // Measurements at the old traits answer no key from now on.
+        if changed { entries.removeAll(); numerals.removeAll() }
         return changed
     }
     /// Read UIKit's configured title font, including buttonSize and current traits.
@@ -45,33 +54,46 @@ final class ButtonMeasureCache: @unchecked Sendable {
     func answer(face data: Data, widthKind: UInt8, width: Float) -> ExactButtonMeasure {
         lock.lock()
         let key = Key(face: data, widthKind: widthKind, width: width, traits: .init(traits))
-        if let exact = entries[key] { lock.unlock(); return exact }
+        if let exact = entries.value(key) { lock.unlock(); return exact }
         let numeral = Self.numeral(data).map { (key: Key(face: $0.face, widthKind: widthKind, width: width, traits: key.traits), title: $0.title) }
-        if let numeral, let known = numerals[numeral.key], let measured = known.answer(numeral.title, widthKind: widthKind, width: width) {
-            entries[key] = measured
+        let known = numeral.flatMap { numerals.value($0.key) }
+        // A count's answer comes from its face's reference each time, so
+        // the counts a feed shows are not each kept.
+        if let numeral, let known, let measured = known.answer(numeral.title, widthKind: widthKind, width: width) {
             lock.unlock()
             return measured
         }
+        let needsNumeral = numeral != nil && known == nil
         misses += 1
         lock.unlock()
         return Owner.shared.callMain {
             lock.lock(); let current = traits; lock.unlock()
             let now = Key(face: data, widthKind: widthKind, width: width, traits: .init(current))
+            let face = ButtonFace(json: data)
             var title: NSAttributedString?
-            var measured = measure(ButtonFace(json: data), widthKind: widthKind, width: CGFloat(width), traits: current, probe: data, title: &title)
+            var measured = measure(face, widthKind: widthKind, width: CGFloat(width), traits: current, probe: data, title: &title)
+            var reference: Numeral?
+            if needsNumeral, now == key {
+                // A count can wrap inside its digits. Its reference must fit
+                // unconstrained, including the button's insets, symbol and gap.
+                // Keep definite-offer rounding; intrinsic widths add a pixel.
+                let unwrapped = widthKind == 0
+                    ? measure(face, widthKind: 0, width: .greatestFiniteMagnitude, traits: current, probe: data, title: &title)
+                    : measured
+                if let title { reference = Numeral(unwrapped, title: title, scale: max(1, current.displayScale)) }
+            }
             lock.lock()
-            entries[now] = measured
-            if let numeral, now == key, let title { numerals[numeral.key] = Numeral(measured, title: title, scale: max(1, current.displayScale)) }
+            entries.insert(now, measured)
+            if let numeral, let reference { numerals.insert(numeral.key, reference) }
             lock.unlock()
             measured.provisional = now == key ? 0 : 1
             return measured
         }
     }
 
-    /// A count's button (a like's, a reply's) measured once for its face:
-    /// its title is digits, on one line it cannot break, so another count's
-    /// button is that one wider or narrower by the difference of the two
-    /// titles' ink, as UIKit lays its label out at its text's width rounded
+    /// A count's button (a like's, a reply's) measured unwrapped for its face:
+    /// another count's single-line button is wider or narrower by the
+    /// difference of the titles' ink, as UIKit lays its label out at its text's width rounded
     /// up to the pixel. Measured in the title's own attributes, off the main
     /// thread: every count is a new face, and each asked a configured button
     /// on main (a feed's posts, ~1 ms each).
@@ -100,7 +122,9 @@ final class ButtonMeasureCache: @unchecked Sendable {
             return result
         }
     }
-    private var numerals: [Key: Numeral] = [:]
+    private var numerals = RecentMeasures<Key, Numeral>(entries: 64, bytes: 32 << 10) { key, numeral in
+        key.face.count + numeral.title.length * 2
+    }
     /// A face whose title is a count (digits, with `,` or `.`), keyed
     /// without its title or its label, which measures nothing.
     static func numeral(_ data: Data) -> (face: Data, title: String)? {
@@ -194,8 +218,8 @@ final class ButtonMeasureCache: @unchecked Sendable {
             // needs. The box is drawn between its edges rounded to the pixel
             // grid (PixelGrid), which can come out a pixel narrower than
             // layout's width, and UIKit wraps a title that does not fit its
-            // drawn bounds: a centred "Find a recipe" broke onto a second
-            // line spilling out of its capsule.
+            // drawn bounds: Recipe Finder's centred "Find a recipe" broke
+            // onto a second line spilling out of its capsule (round 27).
             let slack = widthKind == 0 ? 0 : 1 / scale
             result = ExactButtonMeasure(width: Float((ceil(max(0, minimumWidth ?? size.width) * scale) / scale) + slack),
                 height: Float(ceil(max(0, size.height) * scale) / scale), provisional: 0)

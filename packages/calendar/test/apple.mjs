@@ -1,7 +1,7 @@
-// @exact/calendar's conformance suite on Apple: the fixture app built for
-// an iOS simulator or macOS and driven by the agent with the
-// implementation bound (`--bind calendar`), so EventKit answers and not
-// the agent's store. It never reads this Mac's calendars:
+// @exact/calendar's conformance suite on Apple (LLP 1133.018 §11, §14 stage
+// 2): the fixture app built for an iOS simulator or macOS and driven by the
+// agent with the implementation bound (`--bind calendar`), so EventKit
+// answers and not the agent's store. It never reads this Mac's calendars:
 //
 // - iOS: the simulator's own event store, its access set by `xcrun simctl
 //   privacy`, the host's own means: full, revoked and undetermined;
@@ -31,7 +31,7 @@ const walked = (t) => /\s\d+$/.test(t ?? '');
 /** The fixture built for `host`, its plist read, and `open` bound to it. */
 async function fixtureFor(host, reads) {
   const fixture = makeFixture('calendar', { reads });
-  Object.assign(process.env, { EXACT_APP_DIR: fixture.app, EXACT2: root, EXACT_IDENTITY: process.env.EXACT_IDENTITY ?? '-' });
+  Object.assign(process.env, { EXACT_APP_DIR: fixture.app, EXACT: root, EXACT_IDENTITY: process.env.EXACT_IDENTITY ?? '-' });
   if (sim) process.env.EXACT_SIM = sim;
   run('bun', [resolve(root, 'host/apple/build.mjs'), ...(host === 'ios' ? ['--ios', '--sim', sim] : ['--bundle']), `${fixture.name}-apple`], root);
   const target = join(fixture.app, 'target'), files = readdirSync(target, { recursive: true });
@@ -98,7 +98,7 @@ for (const host of hosts.length ? hosts : ['ios', 'macos']) {
       await s.tap('too-long');
       const long = await until(s, 'walk', (t) => /^error/.test(t ?? ''));
       check(where, 'more than four years fails calendar-range-too-long', /^error TypeError .*calendar-range-too-long/.test(long ?? ''), long);
-      // The page measurements: each read's time off the main thread.
+      // D6's page measurements: each read's time off the main thread.
       const lines = (await s.logs())?.lines ?? [];
       console.log(`NOTE ${where}: ${lines.filter((l) => /page calendarEvents .* in \d+ ms/.test(l)).map((l) => l.replace(/^.*page /, '')).join('; ')}`);
     } finally {

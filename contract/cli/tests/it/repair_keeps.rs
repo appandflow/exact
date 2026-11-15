@@ -1,5 +1,5 @@
-//! Where a refusal's message claims the same behaviour, the edit it names is
-//! run, and shows what the refused form was for.
+//! LLP 1116.018 D2: where a refusal's message claims the same behaviour, the
+//! edit it names is run, and shows what the refused form was for.
 
 use exact_kernel::{Kernel, PropValue};
 use exact_plan::Value;

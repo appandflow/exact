@@ -6,7 +6,7 @@ import AppKit
 import XCTest
 @testable import ExactKit
 
-/// `share`'s anchor: the pressed node's view; a menu
+/// `share`'s anchor (LLP 1069.003 D3): the pressed node's view; a menu
 /// row's popover invoker when the row is not on screen; the content's
 /// centre when no input ran the action. On iOS the sheet's popover source is
 /// that anchor (what an iPad shows and an iPhone run can't catch).
@@ -23,7 +23,7 @@ final class ShareMacTests: XCTestCase {
 }
 #endif
 
-/// `share(files=["#id"])`: the node's view drawn to a PNG at
+/// `share(files=["#id"])` (LLP 1125 D12): the node's view drawn to a PNG at
 /// the display's scale, its pixels the view's.
 enum SharePictureCase {
     static func run() throws {

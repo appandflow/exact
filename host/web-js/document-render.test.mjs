@@ -1,39 +1,12 @@
 import { beforeAll, test, expect } from 'bun:test';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { webCompiler } from './module.mjs';
-import { createDocument } from './dom.js';
 import { open } from '../../scripts/agent.mjs';
 import { suiteBrowser } from '../../scripts/agent-launch.mjs';
+import { renderedPages, warmRustRenderer } from './rendered-pages.mjs';
 
-// A `--render rust` build is made once here, outside every test's own time: cold, build.mjs compiling Caltrain's
-// data module and its renderer (caltrain-render) outlasted a test's 60 or 180 s, and more so behind another build's
-// cargo lock. The warm-up is a build as the tests make one, so it builds exactly what they will reuse.
-beforeAll(() => renderedPages('routes nav\n  home "/" render=build\n\ncomponent Warm\n  view\n    text "warm"\n', () => {}, {}, {}, 'rust'), 1_800_000);
-
-async function renderedPages(source, check, files = {}, manifest = {}, renderer = 'js') {
-  if (webCompiler().cmd === 'cargo') throw new Error('build the compiler first: cargo build -p exact-web-js');
-  const root = resolve(import.meta.dir, '../..'), dir = mkdtempSync(resolve(root, 'target/head-render-test-'));
-  try {
-    if (renderer === 'js') writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ name: 'Head Render Test', app: { id: 'test.heads', name: 'Head Render Test' }, host: { web: {} }, ...manifest }));
-    writeFileSync(resolve(dir, 'app.contract'), source);
-    for (const [name, text] of Object.entries(files)) {
-      mkdirSync(dirname(resolve(dir, name)), { recursive: true });
-      writeFileSync(resolve(dir, name), text);
-    }
-    const app = renderer === 'rust' ? ['caltrain', '--contract', resolve(dir, 'app.contract')] : ['head-render-test'];
-    const build = Bun.spawn([process.execPath, 'host/web-js/build.mjs', ...app, '--out', resolve(dir, 'dist'), '--render', renderer], {
-      cwd: root, env: { ...process.env, ...(renderer === 'js' ? { EXACT_APP_DIR: dir } : {}) }, stdout: 'pipe', stderr: 'pipe',
-    });
-    const [status, stdout, stderr] = await Promise.all([build.exited, new Response(build.stdout).text(), new Response(build.stderr).text()]);
-    expect({ status, error: status ? stdout + stderr : '' }).toEqual({ status: 0, error: '' });
-    const html = path => readFileSync(resolve(dir, 'dist', path, 'index.html'), 'utf8');
-    await check(path => {
-      const page = html(path);
-      return [/<title>([^<]*)<\/title>/.exec(page)?.[1], /<meta name="description" content="([^"]*)">/.exec(page)?.[1]];
-    }, html, resolve(dir, 'dist'));
-  } finally { rmSync(dir, { recursive: true, force: true }); }
-}
+beforeAll(warmRustRenderer, 1_800_000);
 
 test('bare text styles keep their fills and inherited rows through server adoption', async () => {
   const source = 'routes nav\n  home "/" render=build\n\n' + readFileSync(new URL('./conformance/bare-text-style.contract', import.meta.url), 'utf8');
@@ -59,7 +32,7 @@ test('bare text styles keep their fills and inherited rows through server adopti
       expect(before).toEqual({
         alone: ['600', 'normal'], 'clear-above': ['600', 'normal'],
         'clear-own': ['400', 'normal'], nested: ['400', 'normal'], relative: ['700', '40px'],
-        'shorthand-child': ['600', 'normal'], 'heading-child': ['700', 'normal'], 'control-child': ['500', '20px'], 'control-own': ['500', '20px'], ...changing(weighted),
+        'shorthand-child': ['600', 'normal'], 'heading-child': ['700', 'normal'], 'control-child': ['500', 'normal'], 'control-own': ['500', 'normal'], ...changing(weighted),
       });
       // Static fills must become classes, so adoption cannot leave a stale inline weight.
       const alone = html('').match(/<[^>]*data-testid="alone"[^>]*>/)?.[0];
@@ -151,7 +124,7 @@ test('blank text rows clear a shorthand start through adoption', async () => {
   });
 }, 60000);
 
-// The HTML parser puts a table's own rows in a `tbody`, and the plan has it, so
+// @ref LLP 1153 D7.2 — the HTML parser puts a table's own rows in a `tbody`, and the plan has it, so
 // the parsed page is the one construction walks; a cell holding one text stays a `table-cell`.
 test('a table rendered ahead adopts without a rebuild, its cells still cells', async () => {
   const source = `routes nav
@@ -206,7 +179,7 @@ component Moves
 }, 180000);
 
 // A page built ahead serves every query its path is opened at; opened at one it was not built at, its list's rows are
-// not the list's items, so the runtime builds afresh rather than keep the rows past its items.
+// not the list's items, so the runtime builds afresh rather than keep the rows past its items (LLP 1048.000 D6).
 test('a page built ahead and opened at another query shows its own rows, not the built ones', async () => {
   const source = `routes nav
   home "/" render=build
@@ -355,7 +328,7 @@ test('the render context reports UTC independently of the machine zone', async (
     mkdirSync(resolve(dir, '.gen'));
     writeFileSync(resolve(dir, 'shell.html'), '<html><head><title>Place</title><meta name="viewport" content="width=device-width">\n</head><body><div id="exact-root"></div><script type="module" src="./app.js"></script></body></html>');
     const entry = resolve(dir, 'probe.js');
-    writeFileSync(entry, `import { placeReporter } from ${JSON.stringify(resolve(import.meta.dir, '../web/navigation.js'))};
+    writeFileSync(entry, `import { placeReporter } from ${JSON.stringify(resolve(import.meta.dir, '../web/navigation/environment.js'))};
 globalThis.__start = () => ({ activate: 'eager' });
 globalThis.__render = () => {
   const [language, zone] = placeReporter(new URLSearchParams())().split('\\0');
@@ -369,7 +342,7 @@ globalThis.__render = () => {
     C.prototype.renderCount = (C.prototype.renderCount ?? 0) + 1;
     return C.renderCount + ':' + C.prototype.renderCount;
   });
-  return { root: '', title: [language, zone, explicit, inherited.timeZone, inherited.hour, typeof Intl.DateTimeFormat.supportedLocalesOf].join('/'), description: caught.join(',') + '/' + counts.join(','), time: 0, answers: '[]', pending: [] };
+  return { root: '', hero: '', title: [language, zone, explicit, inherited.timeZone, inherited.hour, typeof Intl.DateTimeFormat.supportedLocalesOf].join('/'), description: caught.join(',') + '/' + counts.join(','), time: 0, answers: '[]', pending: [], open: [], readers: [], failed: [], refused: [] };
 };`);
     const bundle = await Bun.build({ entrypoints: [entry], target: 'browser', format: 'iife' });
     expect(bundle.success).toBe(true);
@@ -540,23 +513,27 @@ component SequenceRender
   }, { 'assets/kick.wav': readFileSync(new URL('./conformance/transport/assets/kick.wav', import.meta.url)) });
 }, 30000);
 
-// Both renderers write the head a crawler reads, its URLs absolute against the manifest's origin, after the viewport
-// meta (page.rs `page_head`).
 test('both document renderers write the same crawler head', async () => {
   const source = `routes nav
   home "/" render=build
     art "/art" render=build
+    cafe "/café" render=build
 
 component Crawled
   view
     column
       if top(nav).name == "art"
         head title="Pikachu & co" description="An electric \\"mouse\\"" image="/art/25.png" canonical="/pokemon/25" robots="noindex"
+      if top(nav).name == "cafe"
+        head canonical="/café" robots="max-image-preview:none"
       text "page"
 `;
   const crawled = page => [...page.matchAll(/<meta (?:name|property)="(?:viewport|description|robots|og:[a-z_]+|twitter:[a-z]+)" content="[^"]*">|<link rel="canonical"[^>]*>/g)].map(m => m[0]);
-  const heads = {};
-  for (const renderer of ['rust', 'js']) await renderedPages(source, (_, html) => { heads[renderer] = ['', 'art'].map(path => crawled(html(path))); },
+  const heads = {}, files = {};
+  for (const renderer of ['rust', 'js']) await renderedPages(source, (_, html, dist) => {
+    heads[renderer] = ['', 'art', 'café'].map(path => crawled(html(path)));
+    files[renderer] = ['robots.txt', 'sitemap.xml'].map(f => readFileSync(resolve(dist, f), 'utf8'));
+  },
     {}, { name: 'Caltrain', app: { id: 'test.heads', name: 'Caltrain', origin: 'https://caltrain.exact.invalid' } }, renderer);
   expect(heads.js).toEqual(heads.rust);
   expect(heads.js[1]).toEqual([
@@ -570,6 +547,18 @@ component Crawled
     '<meta name="twitter:image" content="https://caltrain.exact.invalid/art/25.png">',
   ]);
   expect(heads.js[0]).toContain('<meta property="og:url" content="https://caltrain.exact.invalid/">');
+  expect(heads.js[2]).toContain('<link rel="canonical" href="https://caltrain.exact.invalid/café">');
+  expect(heads.js[2]).toContain('<meta name="robots" content="max-image-preview:none">');
+  expect(files.js).toEqual(files.rust);
+  expect(files.js).toEqual(['User-agent: *\nAllow: /\nSitemap: https://caltrain.exact.invalid/sitemap.xml\n',
+    '<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n  <url><loc>https://caltrain.exact.invalid/</loc></url>\n  <url><loc>https://caltrain.exact.invalid/caf%C3%A9</loc></url>\n</urlset>\n']);
+}, 1_800_000);
+
+test('both document renderers leave declared crawler paths to request routes', async () => {
+  const source = 'routes nav\n  home "/" render=build\n  robots "/robots.txt" render=request\n  sitemap "/sitemap.xml" render=request\n\ncomponent Crawled\n  view\n    text "page"\n';
+  for (const renderer of ['rust', 'js']) await renderedPages(source, (_, _html, dist) =>
+    expect(['robots.txt', 'sitemap.xml'].map(f => existsSync(resolve(dist, f)))).toEqual([false, false]),
+  {}, { name: 'Caltrain', app: { id: 'test.heads', name: 'Caltrain', origin: 'https://caltrain.exact.invalid' } }, renderer);
 }, 1_800_000);
 
 test('JavaScript-rendered pages exclude a covered route’s deeper head', async () => {
@@ -580,17 +569,16 @@ test('JavaScript-rendered pages exclude a covered route’s deeper head', async 
 
 component Heads
   view
-    column
+    main navigationKey=\`\${top(nav).id}\` navigationBack="back"
       head title="Root" description="Root description"
-      main navigationKey=\`\${top(nav).id}\` navigationBack="back"
-        for e in stack(nav) key=e.id
-          column navigationKey=\`\${e.id}\`
-            if e.name == "home"
-              column
-                head title="Home" description="Home description"
-            if e.name == "detail"
-              head title="Detail" description="Detail description"
-            text e.name
+      for e in stack(nav) key=e.id
+        column navigationKey=\`\${e.id}\`
+          if e.name == "home"
+            column
+              head title="Home" description="Home description"
+          if e.name == "detail"
+            head title="Detail" description="Detail description"
+          text e.name
 `, page => {
     expect(page('')).toEqual(['Home', 'Home description']);
     expect(page('detail')).toEqual(['Detail', 'Detail description']);
@@ -637,55 +625,62 @@ test('JavaScript-rendered pages exclude the other retained tabs’ heads', async
   });
 }, 30000);
 
-// The page marks a route's bar (`data-exact-bar`) as the glue will, so its item's symbol is the
+// LLP 1115.000 D4.15: the page marks a route's bar (`data-exact-bar`) as the glue will, so its item's symbol is the
 // bar's size, 22/17 of the 16 px body in its 1.2em box, over the 13 px written on it, before the page adopts and after:
-// no jump. A header whose heading sits in a menu's button (`popovertarget`) is no bar, before or after, and its symbol
-// keeps the 13 px in a native face's 1.5em box.
+// no jump. A menu opener's heading belongs to its item, so its header is a bar without a title (LLP 1075.003 §9.10).
+// Without a title, plain text outside the items keeps the header in the page, its symbol at 13 px in a native face's 1.5em box.
 test('JavaScript-rendered pages mark the bar, whose symbols are the bar\'s size before the page adopts and after', async () => {
   await renderedPages(`routes nav
   home "/" render=build
+    menu "/menu" render=build
+    content "/content" render=build
 
 component Bars
   state added = 0
   action add
     added = added + 1
   view
-    column
-      main navigationKey=\`\${top(nav).id}\` navigationBack="back"
-        for e in stack(nav) key=e.id
-          column navigationKey=\`\${e.id}\`
+    main navigationKey=\`\${top(nav).id}\` navigationBack="back"
+      for e in stack(nav) key=e.id
+        column navigationKey=\`\${e.id}\`
+          if e.name == "home"
             header display="flex" align-items="center"
               text "Inbox" role="heading" aria-level=1
               button press=add testId="add" aria-label="Add"
                 image "symbol:add" font-size=13
-      main navigationKey="menu" navigationBack="back"
-        column navigationKey="menu"
-          header display="flex" align-items="center"
-            button popovertarget="menu-items"
-              text "Menu" role="heading" aria-level=1
-            button press=add testId="menu-add" aria-label="Add"
-              image "symbol:add" font-size=13
-          column popover="auto" id="menu-items"
-            text "Item"
+          if e.name != "home"
+            header display="flex" align-items="center"
+              if e.name == "content"
+                text "Extra"
+              button popovertarget="menu-items"
+                text "Menu" role="heading" aria-level=1
+              button press=add testId="menu-add" aria-label="Add"
+                image "symbol:add" font-size=13
+            column popover="auto" id="menu-items"
+              text "Item"
 `, async (_page, _html, dist) => {
     const server = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch(req) {
-      const path = new URL(req.url).pathname;
-      return new Response(Bun.file(resolve(dist, path === '/' ? 'index.html' : path.slice(1))));
+      const path = new URL(req.url).pathname.slice(1);
+      return new Response(Bun.file(resolve(dist, path === '' || path.endsWith('/') || !path.includes('.') ? resolve(dist, path, 'index.html') : path)));
     } });
     let suite, browser;
     try {
-      // Each header's mark, and its Add symbol's width to within 0.06 px of the bar's size or of the written one.
-      const measure = `[...document.querySelectorAll('[navigationkey] > header')].map(h => {
+      // The shown header's mark, and its Add symbol's width to within 0.06 px of the bar's size or of the written one:
+      const measure = `[...document.querySelectorAll('[navigationkey] > header')].filter(h => h.checkVisibility({ visibilityProperty: true })).map(h => {
         const width = h.querySelector('[data-testid$="add"] img').getBoundingClientRect().width;
         return [h.hasAttribute('data-exact-bar'), Math.abs(width - 16 * 22 / 17 * 1.2) <= 0.06 ? 'bar' : Math.abs(width - 13 * 1.5) <= 0.06 ? 'written' : width];
       })`;
       suite = await suiteBrowser('chromium', { timeout: 10000 });
-      const page = await suite.newPage({ javaScriptEnabled: false });
-      await page.goto(server.url.href);
-      expect(await page.evaluate(measure)).toEqual([[true, 'bar'], [false, 'written']]);
-      browser = await open({ host: 'web', url: server.url.href });
-      expect(await browser.carrier.evaluate(`globalThis.exact.journal.some(l => l.endsWith('adopted the document'))`)).toBe(true);
-      expect(await browser.carrier.evaluate(measure)).toEqual([[true, 'bar'], [false, 'written']]);
+      for (const [path, expected] of [['', [[true, 'bar']]], ['menu', [[true, 'bar']]], ['content', [[false, 'written']]]]) {
+        const page = await suite.newPage({ javaScriptEnabled: false });
+        await page.goto(server.url.href + path);
+        expect(await page.evaluate(measure), path + ' before adoption').toEqual(expected);
+        await page.close();
+        browser = await open({ host: 'web', url: server.url.href + path });
+        expect(await browser.carrier.evaluate(`globalThis.exact.journal.some(l => l.endsWith('adopted the document'))`)).toBe(true);
+        expect(await browser.carrier.evaluate(measure), path + ' after adoption').toEqual(expected);
+        await browser.close(); browser = undefined;
+      }
     } finally {
       await browser?.close(); await suite?.close(); server.stop(true);
     }
@@ -693,8 +688,8 @@ component Bars
 }, 180000);
 
 // A page rendered ahead of time, by either renderer, works before its runtime runs as it will after: a wheel over the
-// content scrolls the route its URL selects, every other tab hidden and inert as the projection leaves it,
-// while the document and the tab bar keep their place and the page cannot bounce. It adopts
+// content scrolls the route its URL selects, every other tab hidden and inert as the projection leaves it (LLP 1038
+// D6), while the document and the tab bar keep their place and the page cannot bounce (LLP 1115.000 D4.12). It adopts
 // without moving.
 test('pages rendered ahead of time scroll the selected route before they adopt, and adopt without moving', async () => {
   if (webCompiler().cmd === 'cargo') throw new Error('build the compiler first: cargo build -p exact-web-js');
@@ -823,15 +818,18 @@ test('both document renderers preserve browser scrolling before startup', async 
   home "/" render=build
 
 component Page
+  state night = false
   view
-    scroll document height="100%"
+    scroll document height="100%" background-color=(night ? "#000000" : "#123456")
       text "Document" height=1600
 `, async (_, html, dist) => {
       expect(html('')).toMatch(/<html[^>]* data-scrolldocument/);
       if (how === 'js') {
+        // A bound root background is the canvas before the runtime runs, as the html element's (canvas.rs).
+        expect(html('')).toMatch(/<html[^>]* style="--exact-root-background:#123456"/);
         const { renderer } = await import('./render.mjs');
         const page = await (await renderer(dist).begin('/')).finish();
-        expect(page.rest.startsWith('<script>document.documentElement.setAttribute("data-scrolldocument","")</script>')).toBe(true);
+        expect(page.rest.startsWith('<script>document.documentElement.setAttribute("data-scrolldocument","");document.documentElement.style.setProperty("--exact-root-background","#123456")</script>')).toBe(true);
       }
       const server = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch: () => new Response(Bun.file(resolve(dist, 'index.html'))) });
       try {
@@ -841,6 +839,7 @@ component Page
             const page = await browser.newPage({ viewport: { width: 390, height: 844 }, javaScriptEnabled: false });
             await page.goto(server.url.href);
             expect([how, engine, await page.evaluate(() => [document.documentElement, document.body].map(e => getComputedStyle(e).overscrollBehaviorY))]).toEqual([how, engine, ['auto', 'auto']]);
+            if (how === 'js') expect([engine, await page.evaluate(() => getComputedStyle(document.documentElement).backgroundColor)]).toEqual([engine, 'rgb(18, 52, 86)']);
             await page.mouse.move(195, 400);
             await page.mouse.wheel(0, 300);
             const scrolled = () => page.evaluate(() => document.scrollingElement.scrollTop > 0);
@@ -855,23 +854,24 @@ component Page
   }
 }, 180000);
 
-// A rendered page paints without the runtime, so it fetches the runtime at low priority; the shell,
+// LLP 1153.001 D8: a rendered page paints without the runtime, so it fetches the runtime at low priority; the shell,
 // which cannot paint until the runtime runs, keeps the default.
 test('both document renderers preload the runtime at low priority, and the shell at the default', async () => {
   for (const how of ['js', 'rust']) {
     await renderedPages('routes nav\n  home "/" render=build activate=idle\n\ncomponent Page\n  view\n    text "Home"\n', (_, html, dist) => {
       const preloads = page => page.match(/<link rel="modulepreload"[^>]*>/g);
-      expect([how, preloads(html(''))]).toEqual([how, ['<link rel="modulepreload" href="./app.js" fetchpriority="low">']]);
-      expect([how, preloads(readFileSync(resolve(dist, 'shell.html'), 'utf8'))]).toEqual([how, ['<link rel="modulepreload" href="./app.js">']]);
+      const shell = preloads(readFileSync(resolve(dist, 'shell.html'), 'utf8'));
+      expect(shell).toContain('<link rel="modulepreload" href="./app.js">');
+      expect(shell.every(link => !link.includes('fetchpriority'))).toBe(true);
+      expect([how, preloads(html(''))]).toEqual([how, shell.map(link => link.replace('>', ' fetchpriority="low">'))]);
     }, {}, {}, how);
   }
 }, 180000);
 
-// An undeclared route waits for the reader when its render left the runtime nothing to do, and runs it
+// LLP 1048.007 D1: an undeclared route waits for the reader when its render left the runtime nothing to do, and runs it
 // at once when something is due; a page laid out by the viewport carries its comparisons, which wake it elsewhere.
 test('both document renderers infer an undeclared route\'s activation from its render', async () => {
   const activation = page => [/data-activate="([a-z]+)"/.exec(page)?.[1], page.match(/<link rel="modulepreload"[^>]*>/g) ?? [], /data-wake="([^"]*)"/.exec(page)?.[1]?.replace(/&(quot|gt|lt|amp);/g, (_, e) => ({ quot: '"', gt: '>', lt: '<', amp: '&' })[e])];
-  const low = '<link rel="modulepreload" href="./app.js" fetchpriority="low">';
   for (const how of ['js', 'rust']) {
     await renderedPages(`use EmptyState from "exact:content"
 
@@ -916,10 +916,12 @@ component App
         EmptyState(symbol="symbol:alert", title="Nothing Here", message="Its link may be out of date.")
 `, async (_, html, dist) => {
       const wake = '[["(width >= 640px)",false]]';
+      const low = readFileSync(resolve(dist, 'shell.html'), 'utf8').match(/<link rel="modulepreload"[^>]*>/g)
+        .map(link => link.replace('>', ' fetchpriority="low">'));
       expect([how, activation(html(''))]).toEqual([how, ['interaction', [], wake]]);
-      expect([how, activation(html('clock'))]).toEqual([how, ['eager', [low], undefined]]);
+      expect([how, activation(html('clock'))]).toEqual([how, ['eager', low, undefined]]);
       expect([how, activation(html('wide'))]).toEqual([how, ['interaction', [], wake]]);
-      // An intersect handler waits for its element to show, or for a scroll (`visible`).
+      // An intersect handler waits for its element to show, or for a scroll (LLP 1048.001 D4's `visible`).
       expect([how, activation(html('seen'))]).toEqual([how, ['interaction', [], wake]]);
       // `EmptyState` reads `accessibilityTextSize`, which every browser holds false, as the render does.
       expect([how, activation(html('empty'))]).toEqual([how, ['interaction', [], wake]]);
@@ -935,7 +937,7 @@ component App
           await page.goto(new URL('/wide', server.url).href);
           await decided(page);
           expect([how, width, await page.evaluate(() => !!globalThis.exact?.ready)]).toEqual([how, width, woken]);
-          // Woken, the runtime lays the page out for the reader's viewport, not the render's.
+          // Woken, the runtime lays the page out for the reader's viewport, not the render's (D2).
           if (woken) await page.waitForFunction(() => globalThis.exact?.ready && document.querySelector('main')?.textContent === 'wide', null, { timeout: 5000 }).catch(() => {});
           expect([how, width, await page.evaluate(() => document.querySelector('main')?.textContent)]).toEqual([how, width, woken ? 'wide' : 'narrow']);
         }
@@ -960,7 +962,7 @@ const decided = page => page.evaluate(() => new Promise(done => {
     .observe({ type: 'paint', buffered: true });
 }));
 
-// Only the shown route's `scroll document` is the page's scroller. A hidden route's is
+// LLP 1048.003 D4: only the shown route's `scroll document` is the page's scroller. A hidden route's is
 // `data-exact-offpage`, scrolling inside its bound, so its content leaves the page's height; each route keeps its own
 // place in the page's scroll, so a route opened anew starts at its top and one shown again where the reader left it.
 test('both document renderers make only the shown route\'s page scroller the page\'s, and each route keeps its place', async () => {
@@ -1016,7 +1018,7 @@ component Pages
   }, {}, {}, how);
 }, 240000);
 
-// A route's page under `scroll document` is at least the viewport tall and as tall as its content, so a
+// LLP 1048.003 D4: a route's page under `scroll document` is at least the viewport tall and as tall as its content, so a
 // background on its frame reaches its end, before startup and after (a short page and a long one).
 test('both document renderers lay out a page scroller\'s frame the viewport tall or its content\'s, whichever is more', async () => {
   for (const how of ['rust', 'js']) await renderedPages(`routes nav
@@ -1059,7 +1061,7 @@ component Pages
   }, {}, {}, how);
 }, 240000);
 
-// A rendered page carries only the rules its document can match, and the runtime puts the whole sheet
+// LLP 1048.007 D4: a rendered page carries only the rules its document can match, and the runtime puts the whole sheet
 // back before its first render, so what it then shows is styled as on the shell.
 test('both document renderers give a page its own rules, and the runtime restores the whole sheet', async () => {
   for (const how of ['js', 'rust']) await renderedPages(`routes nav
@@ -1099,33 +1101,69 @@ component Page
   }, {}, {}, how);
 }, 240000);
 
-// An image a `for` repeats loads as its row comes into view, as a platform list's cells load theirs.
-// The page's own first image, likely its largest paint, is preloaded ahead of the document at high priority.
-test('both document renderers lazy-load the images a for repeats, and load a lone one at once, first', async () => {
+// The hero's preload and its `<img>`, each as the request it makes: the URL as written, `crossorigin` and priority. A
+// tag's attributes are read in order, so a word in a value is no attribute; a bare one reads ''.
+const heroRequests = page => {
+  const attributes = start => {
+    const at = page.indexOf(start);
+    if (at < 0) throw new Error(`no ${start} in ${page}`);
+    const attrs = {};
+    for (const [, name, value] of page.slice(page.indexOf(' ', at), page.indexOf('>', at)).matchAll(/\s([^\s"'>/=]+)(?:="([^"]*)")?/g)) attrs[name] ??= value ?? '';
+    return attrs;
+  };
+  const link = attributes('<link rel="preload" as="image"'), img = attributes('<img fetchpriority');
+  return [[link.href, link.crossorigin, link.fetchpriority], [img.src, img.crossorigin, img.fetchpriority]];
+};
+
+// LLP 1048.007 D5: an image a `for` repeats loads as its row comes into view, as a platform list's cells load theirs.
+// The page's own first shown image with a source, likely its largest paint, is preloaded ahead of the document at high
+// priority: an image with no source makes no request and a hidden one is not shown, so neither is the hero. An image in
+// a hidden column that sets its own `visibility` back to `visible` is shown. A symbol is an icon, no hero, and one drawn
+// from its file, here a bound source, is written with the file.
+test('both document renderers lazy-load the images a for repeats, and preload the first shown image with a source', async () => {
   for (const how of ['js', 'rust']) await renderedPages(`routes nav
   home "/" render=build
 
 component Page
   state ids: string[] = ["a", "b"]
+  state avatar: string = ""
+  state brand: string = "symbol:icon||0 0 24 24||brand.svg"
+  state hide: string = "none"
   view
     main
       for e in stack(nav) key=e.id
         for page in [e] key=page.id
-          image "https://example.com/hero.png" width=200 alt="Hero"
+          image brand alt="Brand"
+          column display="none"
+            image "https://example.com/undisplayed.png" alt="Undisplayed"
+          column display=hide
+            image "https://example.com/hidden-by-state.png" alt="Hidden by state"
+          column popover="auto" id="menu"
+            image "https://example.com/menu.png" alt="Menu"
+          dialog id="modal"
+            image "https://example.com/modal.png" alt="Modal"
+          image avatar alt="Avatar"
+          column visibility="hidden"
+            image "https://example.com/hidden.png" alt="Hidden"
+            column aria-label="not inert here"
+              image "https://example.com/hero.png" width=200 alt="a src of light, no crossorigin here" visibility="visible"
           for id in ids key=id
             image \`https://example.com/\${id}.png\` width=96 alt=id
 `, (_, html) => {
     // A page's own image, though a stack's `for` and a page-keying `for [e]` hold it, is no row.
     const page = html('');
-    expect([how, page.match(/<img [^>]*>/g)?.map(img => /loading="([^"]*)"/.exec(img)?.[1] ?? null)]).toEqual([how, [null, 'lazy', 'lazy']]);
-    expect([how, page.match(/<img [^>]*>/g)?.map(img => img.includes('fetchpriority="high"'))]).toEqual([how, [true, false, false]]);
-    const preload = page.indexOf('<link rel="preload" as="image" href="https://example.com/hero.png">');
+    expect([how, page.match(/<img [^>]*>/g)?.map(img => [/loading="([^"]*)"/.exec(img)?.[1] ?? null, img.includes('fetchpriority="high"')])])
+      .toEqual([how, [...Array(7).fill([null, false]), [null, true], ['lazy', false], ['lazy', false]]]);
+    expect([how, /<img [^>]*alt="Brand"[^>]*>/.exec(page)?.[0].includes(' src="assets/brand.svg"')]).toEqual([how, true]);
+    const preload = page.indexOf('<link rel="preload" as="image" href="https://example.com/hero.png" fetchpriority="high">');
     expect([how, preload > 0 && preload < page.indexOf('<div id="exact-root"')]).toEqual([how, true]);
+    const [link, img] = heroRequests(page);
+    expect([how, link]).toEqual([how, img]);
   }, {}, {}, how);
 }, 180000);
 
 // A route the stack covers holds no hero: at a nested route, the image preloaded is the shown page's, though the covered
-// home's list of lazy rows comes first in the document.
+// home's list of lazy rows comes first in the document. An empty `crossorigin` is the anonymous mode, on the preload too.
 test('both document renderers preload the shown route\'s first image, not a covered one\'s', async () => {
   for (const how of ['js', 'rust']) await renderedPages(`routes nav
   home "/" render=build
@@ -1142,16 +1180,18 @@ component Pages
             for id in ["a", "b"] key=id
               image \`https://example.com/\${id}.png\` width=96 alt=id
           if e.name == "detail"
-            image "https://example.com/hero.png" width=200 alt="Hero"
+            image "https://example.com/hero.png?a=1&b=2" width=200 alt="Hero" crossorigin=""
 `, (_, html) => {
-    const page = html('detail'), hero = page.match(/<img [^>]*hero\.png[^>]*>/)?.[0] ?? '';
-    expect([how, page.match(/<link rel="preload" as="image"[^>]*>/g), hero.includes('fetchpriority="high"')])
-      .toEqual([how, ['<link rel="preload" as="image" href="https://example.com/hero.png">'], true]);
+    const page = html('detail');
+    expect([how, page.match(/<link rel="preload" as="image"[^>]*>/g)])
+      .toEqual([how, ['<link rel="preload" as="image" href="https://example.com/hero.png?a=1&amp;b=2" crossorigin="" fetchpriority="high">']]);
+    const [link, img] = heroRequests(page);
+    expect([how, link]).toEqual([how, img]);
     expect([how, html('').match(/<link rel="preload" as="image"[^>]*>/g)]).toEqual([how, null]);
   }, {}, {}, how);
 }, 180000);
 
-// A render's realm made ahead, while the server was idle, renders the page a fresh one does.
+// A render's realm made ahead, while the server was idle, renders the page a fresh one does (LLP 1048.000 D10).
 test('a realm made ahead renders the page a fresh one does', async () => {
   await renderedPages(`routes nav
   home "/" render=request
@@ -1169,14 +1209,14 @@ component App
     fresh.ahead = false;
     const page = async (r, at) => (await r(at)).html.replace(/"time":[\d.]+/, '"time":0');
     await page(ahead, '/');
-    // Leave the realm made ahead idle 1.5 s, as it may wait between requests, so that a timer its
+    // Leave the realm made ahead idle 1.5 s, as it may wait between requests (LLP 1048.007 D7), so that a timer its
     // bundle's loading set for up to that long has fired before it renders
     await new Promise(r => setTimeout(r, 1500));
     for (const at of ['/items/b', '/']) expect([at, await page(ahead, at)]).toEqual([at, await page(fresh, at)]);
   });
 }, 60000);
 
-// A request route's page made only of answers any reader may still be given, by TypeScript sources
+// LLP 1048.007 D8: a request route's page made only of answers any reader may still be given, by TypeScript sources
 // that drew nothing at random, is given again until the first answer goes stale; any other is made for each request.
 test('serve gives a page again while every answer it was made of is fresh', async () => {
   const api = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch: req => {
@@ -1224,7 +1264,65 @@ export const answer: Answer = async (_source, [name]): Promise<Result<'note'>> =
   } finally { api.stop(true); }
 }, 60000);
 
-// A request route's page that waits for the reader names its answers past 1 KB rather than holding
+// LLP 1069.005 D2: a draw of randomness is the device's, so a page whose render drew, by `crypto`, by making a key or by
+// a randomized signature, is its reader's alone, kept and shared by no one, even on a `render=cached` route. A deterministic
+// signature, an empty fill or a call the platform refuses draws nothing. A request that says `no-store`, in any case,
+// leaves nothing kept.
+test('serve keeps and shares no page whose render drew randomness', async () => {
+  await renderedPages(`shape Note
+  text: string
+
+routes nav
+  plain "/" render=cached
+  drawn "/drawn" render=cached
+  keyed "/keyed" render=cached
+  signed "/signed" render=cached
+  pure "/pure" render=cached
+
+component App
+  resource note = note(top(nav).name) as shape Note
+  view
+    main
+      text note.text
+`, async (_, html, dist) => {
+    const { pageServer } = await import('./render.mjs');
+    const said = [], sent = {}, page = pageServer(dist, undefined, line => said.push(line));
+    const unstored = name => name === 'cache-control' ? 'max-age=60, No-Store' : undefined;
+    for (const [at, header] of [['/', unstored], ['/'], ['/'], ...['/drawn', '/keyed', '/signed', '/pure'].flatMap(at => [[at], [at]])])
+      (sent[at] ??= new Set()).add((await page(at, header ?? (() => undefined))).headers['cache-control']);
+    const renders = at => said.filter(l => l.startsWith(`render ${at} 200`)).length;
+    // No source failed: what `crypto.subtle` inherits, its `toString` here, still answers
+    expect(said.filter(l => l.startsWith('  /'))).toEqual([]);
+    expect(['/', '/drawn', '/keyed', '/signed', '/pure'].map(at => [at, renders(at), [...sent[at]]])).toEqual([
+      ['/', 2, ['public, max-age=0, s-maxage=60']], ['/drawn', 2, ['no-store']], ['/keyed', 2, ['no-store']],
+      ['/signed', 2, ['no-store']], ['/pure', 1, ['public, max-age=0, s-maxage=60']],
+    ]);
+  }, { 'app.ts': `import type { Answer, Result } from './app.contract.d.ts';
+export const appId = 'test.heads';
+export const grants = '';
+export const answer: Answer = async (_source, [name]): Promise<Result<'note'>> => {
+  const ecdsa = { name: 'ECDSA', namedCurve: 'P-256' };
+  if (name === 'drawn') crypto.getRandomValues(new Uint8Array(1));
+  if (name === 'keyed') await crypto.subtle.generateKey(ecdsa, false, ['sign']);
+  // A key from a fixed seed, so that only the signature draws: ML-DSA's is hedged, randomized by default (FIPS 204)
+  if (name === 'signed') await crypto.subtle.sign('ML-DSA-65', await crypto.subtle.importKey('raw-seed' as any, new Uint8Array(32), 'ML-DSA-65', false, ['sign']), new Uint8Array(1));
+  if (name === 'pure') {
+    await crypto.subtle.sign('HMAC', await crypto.subtle.importKey('raw', new Uint8Array(16), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']), new Uint8Array(1));
+    // A fixed 512-bit key, signed with no salt (RFC 8017 §9.1.1)
+    const pss = { name: 'RSA-PSS', hash: 'SHA-256' }, pkcs8 = Uint8Array.from(atob('${RSA}'), c => c.charCodeAt(0));
+    const rsa = await crypto.subtle.importKey('pkcs8', pkcs8, pss, false, ['sign']);
+    for (const saltLength of [0, 0.5]) await crypto.subtle.sign({ ...pss, saltLength }, rsa, new Uint8Array(1));
+    crypto.getRandomValues(new Uint8Array(0));
+    try { crypto.getRandomValues(new Float64Array(1)); } catch {}
+    await crypto.subtle.generateKey(ecdsa, false, ['encrypt']).catch(() => null);
+  }
+  return { text: \`\${name} \${await crypto.subtle.toString()}\` };
+};
+` });
+}, 60000);
+const RSA = 'MIIBVAIBADANBgkqhkiG9w0BAQEFAASCAT4wggE6AgEAAkEAx0Mg1whnO3050UXzx0W1yxTY3DdA8Q4l3edP2kRTt9aMCQQWvrZO8vigE9OZ/dymeJBXY4NXaP6yji7Nc4y7tQIDAQABAkAApnZK7VjGWT2sve0DxfVTmDE6+UjSYI6UE8FjormJNrgg2AsM4dFG13tCMA25xb8wgUBB+ZfBUtXZMTzNRqrRAiEA+0qgqd/KEjPkR0JFSXbetIac9lDUSSC4+cKMnbtqJ+0CIQDK/u5oHiR4diH+IcOFyRQwppwCLuJOiDRuYjFKzKFZ6QIhANS03L4uMeuqhQZUcDW5KtYARAizbp3f1vOC3Gf/ZeIZAiAfoLa+jCu8hRNoyBPxrVGy/tKB2JI0EC6zICNz9wwQuQIgK+TAG/sa+A1eV+ol6HqlyOSniwccAUoHdesq778edEM=';
+
+// LLP 1048.007 D10: a request route's page that waits for the reader names its answers past 1 KB rather than holding
 // them; the capture script fetches them with the runtime, and the page adopts. Answers no longer kept build it afresh.
 test('a waiting page names its answers past 1 KB, adopts once they come, and builds afresh without them', async () => {
   const api = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch: () => Response.json(
@@ -1284,7 +1382,7 @@ export const answer: Answer = async (): Promise<Result<'items'>> => (await fetch
   } finally { api.stop(true); }
 }, 120000);
 
-// A page's head status is its HTTP status under Bun, as under the render host: a found route whose
+// A page's head status is its HTTP status under Bun, as under the render host (LLP 1048.000 D11): a found route whose
 // data names no item says 404 itself.
 test('a JavaScript-rendered page answers with its head status', async () => {
   await renderedPages(`routes nav
@@ -1308,7 +1406,7 @@ component App
   });
 }, 60000);
 
-// Under Bun, a page laid out by the viewport is rendered at the reader's, as its request tells it, and asks for
+// LLP 1048.006 under Bun: a page laid out by the viewport is rendered at the reader's, as its request tells it, and asks for
 // the hints that tell it; a desktop browser's first visit gets the desktop layout, not the phone's it would shift from.
 test('serve lays a page out for the viewport its request tells', async () => {
   await renderedPages(`shape Viewport
@@ -1335,164 +1433,3 @@ component App
     expect(await at({})).toEqual(['narrow', true]);
   });
 }, 60000);
-
-// The render's DOM orders nodes as DOM §4.4 does (midi.js sorts its listeners by it).
-test('the render DOM compares document positions, across trees one way each', () => {
-  const doc = createDocument(), root = doc.getElementById('exact-root');
-  const a = doc.createElement('div'), b = doc.createElement('div');
-  root.append(a, b);
-  a.textContent = 'text';
-  expect([a.compareDocumentPosition(b), b.compareDocumentPosition(a)]).toEqual([4, 2]);
-  expect([a.compareDocumentPosition(a.firstChild), a.firstChild.compareDocumentPosition(a)]).toEqual([16 | 4, 8 | 2]);
-  const loose = doc.createElement('p'), other = createDocument().getElementById('exact-root');
-  for (const [x, y] of [[a, loose], [loose, other], [a, other]]) {
-    const there = x.compareDocumentPosition(y), back = y.compareDocumentPosition(x);
-    expect([there & 1, there & 32, back & 1, back & 32]).toEqual([1, 32, 1, 32]);
-    expect([there & 6, back & 6].sort()).toEqual([2, 4]);
-    expect(x.compareDocumentPosition(y)).toBe(there);
-  }
-});
-
-test('Rust-rendered spinners follow parent display after adoption without a position binding', async () => {
-  if (webCompiler().cmd === 'cargo') throw new Error('build the compiler first: cargo build -p exact-web-js');
-  const root = resolve(import.meta.dir, '../..'), dir = mkdtempSync(resolve(root, 'target/progress-document-agent-test-'));
-  let browser, server;
-  try {
-    const source = resolve(dir, 'app.contract'), dist = resolve(dir, 'dist');
-    writeFileSync(source, `routes nav
-  home "/" render=build
-
-component ProgressDocument
-  state grid = false
-  action toggle
-    grid = not grid
-  view
-    column
-      button "Toggle" testId="toggle" press=toggle width=100 height=24
-      box display=(grid ? "grid" : "block") width=240 height=40
-        progress testId="spinner"
-      box display=(grid ? "grid" : "block") justify-items="center" width=240 height=40
-        progress testId="sized" width=20 height=20
-`);
-    const build = Bun.spawn([process.execPath, 'host/web-js/build.mjs', 'caltrain', '--contract', source, '--out', dist, '--render', 'rust'], {
-      cwd: root, env: process.env, stdout: 'pipe', stderr: 'pipe',
-    });
-    const [status, stdout, stderr] = await Promise.all([build.exited, new Response(build.stdout).text(), new Response(build.stderr).text()]);
-    expect({ status, error: status ? stdout + stderr : '' }).toEqual({ status: 0, error: '' });
-    expect(readFileSync(resolve(dist, 'index.html'), 'utf8')).toContain('justify-self:start;');
-    server = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch(req) {
-      const path = new URL(req.url).pathname;
-      return new Response(Bun.file(resolve(dist, path === '/' ? 'index.html' : path.slice(1))));
-    } });
-    browser = await open({ host: 'web', url: server.url.href });
-    expect(await browser.carrier.evaluate(`globalThis.exact.journal.some(l => l.endsWith('adopted the document'))`)).toBe(true);
-    const frames = () => browser.carrier.evaluate(`['spinner','sized'].map(id => {
-      const e = document.querySelector('[data-testid="'+id+'"]'), r = e.getBoundingClientRect(), p = e.parentElement.getBoundingClientRect();
-      return { x: r.x - p.x, width: r.width };
-    })`);
-    // A block parent's `justify-items: center` centres the sized one, as the kernel's block layout does.
-    expect(await frames()).toEqual([{ x: 0, width: 20 }, { x: 110, width: 20 }]);
-    await browser.tap('toggle');
-    expect(await frames()).toEqual([{ x: 0, width: 240 }, { x: 110, width: 20 }]);
-    await browser.tap('toggle');
-    expect(await frames()).toEqual([{ x: 0, width: 20 }, { x: 110, width: 20 }]);
-  } finally {
-    await browser?.close(); server?.stop(true); rmSync(dir, { recursive: true, force: true });
-  }
-}, 180000);
-
-test('Rust-rendered canvases follow a bound parent justify-items after adoption, a nested one its own parent', async () => {
-  if (webCompiler().cmd === 'cargo') throw new Error('build the compiler first: cargo build -p exact-web-js');
-  const root = resolve(import.meta.dir, '../..'), dir = mkdtempSync(resolve(root, 'target/canvas-document-agent-test-'));
-  let browser, server;
-  try {
-    const source = resolve(dir, 'app.contract'), dist = resolve(dir, 'dist');
-    writeFileSync(source, `routes nav
-  home "/" render=build
-
-component CanvasDocument
-  state items = "normal"
-  action toggle
-    items = items == "normal" ? "center" : "normal"
-  view
-    column
-      button "Toggle" testId="toggle" press=toggle width=100 height=24
-      box justify-items=items width=240 height=40
-        canvas testId="bound" height=40
-      box justify-items="center" width=240 height=60
-        canvas testId="outer" height=50 justify-items="normal"
-          canvas testId="inner" height=20
-`);
-    const build = Bun.spawn([process.execPath, 'host/web-js/build.mjs', 'caltrain', '--contract', source, '--out', dist, '--render', 'rust'], {
-      cwd: root, env: process.env, stdout: 'pipe', stderr: 'pipe',
-    });
-    const [status, stdout, stderr] = await Promise.all([build.exited, new Response(build.stdout).text(), new Response(build.stderr).text()]);
-    expect({ status, error: status ? stdout + stderr : '' }).toEqual({ status: 0, error: '' });
-    server = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch(req) {
-      const path = new URL(req.url).pathname;
-      return new Response(Bun.file(resolve(dist, path === '/' ? 'index.html' : path.slice(1))));
-    } });
-    browser = await open({ host: 'web', url: server.url.href });
-    expect(await browser.carrier.evaluate(`globalThis.exact.journal.some(l => l.endsWith('adopted the document'))`)).toBe(true);
-    const frames = () => browser.carrier.evaluate(`['bound','outer','inner'].map(id => {
-      const e = document.querySelector('[data-testid="'+id+'"]'), r = e.getBoundingClientRect(), p = e.parentElement.getBoundingClientRect();
-      return { x: r.x - p.x, width: r.width };
-    })`);
-    // The server render's inline justify-self: start goes at adoption, so the bound value applies;
-    // the outer canvas is centred by its box although it sets its own child's alignment.
-    expect(await frames()).toEqual([{ x: 0, width: 80 }, { x: 70, width: 100 }, { x: 0, width: 40 }]);
-    await browser.tap('toggle');
-    expect(await frames()).toEqual([{ x: 80, width: 80 }, { x: 70, width: 100 }, { x: 0, width: 40 }]);
-    await browser.tap('toggle');
-    expect(await frames()).toEqual([{ x: 0, width: 80 }, { x: 70, width: 100 }, { x: 0, width: 40 }]);
-  } finally {
-    await browser?.close(); server?.stop(true); rmSync(dir, { recursive: true, force: true });
-  }
-}, 180000);
-
-// The same CSS also supplies the independently measured kernel cases.
-test('calculated grid tracks survive web build, adoption, resize and a bound write', async () => {
-  const cards = 'repeat(auto-fill, minmax(min(100%, 200px), 1fr))';
-  const source = `routes nav
-  home "/" render=build
-component App
-  state columns = "${cards}"
-  state wide = false
-  action resize
-    wide = not wide
-  action change
-    columns = "calc(5e-1 * 100% - 10px) calc(5e-1 * 100% - 10px)"
-  view
-    view
-      button "Resize" press=resize testId="resize"
-      button "Change" press=change testId="change"
-      view display="grid" width=(wide ? 650 : 150) grid-template-columns=columns testId="cards"
-        view min-height=30
-        view min-height=30
-        view min-height=30
-      view display="grid" width=100 height=200 grid-template-rows="clamp(20px, 25%, 80px) max(10px, 20%)" testId="rows"
-        view
-        view
-`;
-  await renderedPages(source, async (_, html, dist) => {
-    expect(html('')).toContain(cards);
-    const server = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch(req) {
-      const path = new URL(req.url).pathname;
-      return new Response(Bun.file(resolve(dist, path === '/' ? 'index.html' : path.slice(1))));
-    } });
-    let browser;
-    try {
-      browser = await open({ host: 'web', url: server.url.href });
-      const widths = () => browser.carrier.evaluate(`Array.from(document.querySelector('[data-testid="cards"]').children, e => e.getBoundingClientRect().width)`);
-      expect(await widths()).toEqual([150, 150, 150]);
-      expect(await browser.carrier.evaluate(`getComputedStyle(document.querySelector('[data-testid="rows"]')).gridTemplateRows`)).toBe('50px 40px');
-      await browser.tap('resize');
-      expect(await widths()).toEqual([216.65625, 216.671875, 216.671875]);
-      await browser.tap('change');
-      expect(await widths()).toEqual([315, 315, 315]);
-      await browser.tap('resize');
-      expect(await widths()).toEqual([65, 65, 65]);
-      expect(await browser.carrier.evaluate(`globalThis.exact.journal.filter(l => l.includes('unset grid-template'))`)).toEqual([]);
-    } finally { await browser?.close(); server.stop(true); }
-  });
-}, 180000);

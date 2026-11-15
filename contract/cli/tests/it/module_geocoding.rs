@@ -1,8 +1,8 @@
-//! `@exact/geocoding`, the package copied out of the checkout as an
-//! installed package is: each send answers its preferred value, an error
-//! preferred fails it with that code, and with nothing preferred it answers
-//! its declared default, `[]`; on the web, which has no geocoder, the status
-//! reads `available` false and each send fails.
+//! LLP 1133.021 §12 for `@exact/geocoding`, the package copied out of the
+//! checkout as an installed package is: each send answers its preferred
+//! value, an error preferred fails it with that code, and with nothing
+//! preferred it answers its declared default, `[]`; on the web, which has
+//! no geocoder, the status reads `available` false and each send fails.
 
 use exact_runner::{agent, Runner, Value};
 use std::path::{Path, PathBuf};

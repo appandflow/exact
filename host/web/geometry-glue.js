@@ -1,4 +1,4 @@
-// Geometry reads for actions: where the viewer
+// Geometry reads for actions (LLP 1051.000 D1, D4, D5): where the viewer
 // sees an element, and its border box at `height: auto`, answered synchronously to
 // the runner's one import, `exact_geometry.read(op, view, out)`. Loaded after
 // first paint when the app's wasm imports it; until then glue.js answers 0
@@ -6,7 +6,7 @@
 //
 // `frame` writes nothing: the border box where the viewer sees it,
 // `getBoundingClientRect`'s, through every transform and with every scroll
-// offset above it applied (the kernel's hosts compose the
+// offset above it applied (LLP 1051.000 D1; the kernel's hosts compose the
 // same from their rows and the offsets their presenters note). `measure`
 // writes one inline `height` and restores it within the call, so no
 // rendering step sees it; it never goes through the host's `apply`, which
@@ -48,7 +48,7 @@ function createGeometry(root) {
     return [r.x, r.y, r.width, r.height];
   };
 
-  // Its border box at `height: auto`, every other style kept: refused
+  // Its border box at `height: auto`, every other style kept (D4): refused
   // while it or an ancestor animates layout, since an inline write would
   // cancel a CSS transition and lose to a running WAAPI one. Every scroller
   // the write can move is put back: an ancestor, which anchoring may shift,
@@ -87,7 +87,7 @@ function createGeometry(root) {
   };
 
   // An image or video inside that waits for its natural size, or fonts still
-  // loading: the box may change.
+  // loading: the box may change (D5).
   const provisional = el => {
     const media = [el, ...el.querySelectorAll('img, video')];
     return media.some(m => (m instanceof HTMLImageElement && (!m.complete || m.naturalWidth === 0))
@@ -95,9 +95,9 @@ function createGeometry(root) {
       || (document.fonts && document.fonts.status !== 'loaded');
   };
 
-  // `elementFromPoint(x, y)`: the page's own hit test, DOM's
+  // `elementFromPoint(x, y)` (LLP 1094 D10): the page's own hit test, DOM's
   // `elementsFromPoint`, front to back — through every transform, as `frame`
-  // reads boxes (changed 2026-10-04), an overflow clip
+  // reads boxes (LLP 1051.000 D1, changed 2026-10-04), an overflow clip
   // cutting descendants, `pointer-events: none` and a hidden `visibility`
   // passed over — less what is not the app's own: a leaving node, the host's
   // drag ghost and anything else outside the root. The runner's kernel walk
@@ -195,7 +195,7 @@ function createGeometry(root) {
     // The painted caret as `caretProbe` finds it, for the tests that hold it
     // to Chrome's own carets on lines with text.
     caretAt(el, offset) { return caretProbe(el, offset); },
-    // `rangeFrame`: a plain textarea's range through
+    // `rangeFrame` (LLP 1114.007): a plain textarea's range through
     // `createValueRange` (OpaqueRange), the Markdown editor's through its own
     // source mapping; a collapsed range is the caret's rectangle. Offsets are
     // truncated toward zero; a bad range, one past the text, a hidden field
@@ -203,7 +203,7 @@ function createGeometry(root) {
     range(el, start, end, out) {
       if (!el?.isConnected || !root.contains(el) || !el.getClientRects().length || getComputedStyle(el).visibility === 'hidden') return 0;
       [start, end] = [Math.trunc(start), Math.trunc(end)];
-      // A Markdown reader answers from its atoms' pills (atoms.js), its offsets the source's.
+      // A Markdown reader answers from its atoms' pills (LLP 1045.000 D7, atoms.js), its offsets the source's.
       const reader = !el.exactMarkup && !('value' in el) && el.getAttribute('markup') === 'markdown';
       if (!(start >= 0 && start <= end && end <= (reader ? el.$source?.length ?? Infinity : el.value?.length ?? 0)) || composing.has(el) || el.exactComposing) return 0;
       let box = null;

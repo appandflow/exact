@@ -1,13 +1,12 @@
-//! Liveness: an answer waiting on another's work, or on the background's,
-//! is asked again after each delivery;
-//! a call let go mid-turn runs its steps to the end.
+//! Liveness: a waiting answer is asked again when its chain moves (LLP 1162 D3);
+//! a call let go mid-turn runs its steps to the end (ledger F12).
 use super::{secrets, Key, Module, TIMER, WAITING, YIELDED};
 use exact_runner::{Dispatch, InFlight, Outcome, Request};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 impl Module {
     /// A waiting answer's work: nothing to run, only an answer to ask again
-    /// (`Dispatch::Again`). A host
+    /// (`Dispatch::Again`, LLP 1041 §8.4 amended 2026-10-09). A host
     /// settles it in its ordered place without executor work.
     pub(crate) fn ask_again() -> Dispatch {
         Dispatch::Again
@@ -22,27 +21,68 @@ impl Module {
             .any(|(_, p)| p.call == token && matches!(p.ticket, YIELDED | TIMER))
     }
 
-    /// Whether anything in the module may yet settle a waiting answer: a
-    /// fetch, a storage step, a stream, a yield. The module's storage queued or in flight counts, an answer's or the
-    /// background's (an answer may await background work).
+    /// Whether anything in the module may yet settle a waiting answer.
+    /// The module's storage queued or in flight counts, an answer's or the
+    /// background's (LLP 1097 D2: an answer may await background work).
     pub(crate) fn outstanding(&self) -> bool {
         !self.streams.is_empty()
             || self.host.module_outstanding > 0
             || self.background.state.queued + self.background.state.in_flight > 0
-            || self.parked.iter().any(|(_, p)| p.ticket != WAITING)
+            || self
+                .parked
+                .iter()
+                .any(|(_, p)| p.ticket != WAITING || p.ready || p.due.is_some())
     }
 
-    /// Ask a waiting answer again when something landed since it parked,
-    /// or, with nothing outstanding, for its last settle, which refuses it
-    /// as pending on nothing if it still waits.
-    pub(crate) fn wake(&mut self, token: u64) -> Option<Dispatch> {
+    pub(crate) fn refresh_waiting(&mut self) {
+        let waiting: Vec<_> = self
+            .parked
+            .iter()
+            .filter(|(_, p)| p.ticket == WAITING)
+            .map(|(_, p)| p.call)
+            .collect();
+        if waiting.is_empty() {
+            return;
+        }
+        let ids = serde_json::to_string(&waiting).expect("call ids");
+        let ready = self.engine.as_mut().and_then(|engine| {
+            let text = engine.call("__exact_ready", [&ids, "", ""]).ok()?;
+            serde_json::from_str::<HashSet<u64>>(&text).ok()
+        });
+        self.readied(ready.as_ref());
+    }
+
+    fn readied(&mut self, ready: Option<&HashSet<u64>>) {
+        for (_, p) in &mut self.parked {
+            if p.ticket == WAITING {
+                // A failed readiness query must not strand an answer (LLP 1162 D3).
+                p.ready = ready.is_none_or(|ids| ids.contains(&p.call));
+            }
+        }
+    }
+
+    pub(crate) fn release_ready(&mut self, now: f64) -> Vec<(u64, Dispatch)> {
+        let mut released = self.host.secrets.release();
+        for token in std::mem::take(&mut self.waiters) {
+            match self.wake(token, now) {
+                Some(work) => released.push((token, work)),
+                None if self.parked.iter().any(|(_, p)| p.call == token) => {
+                    self.waiters.push(token)
+                }
+                None => {}
+            }
+        }
+        released
+    }
+
+    /// With nothing outstanding, a last settle refuses an answer still pending on nothing.
+    pub(crate) fn wake(&mut self, token: u64, now: f64) -> Option<Dispatch> {
         let outstanding = self.outstanding();
-        let progress = self.progress;
         let (_, parked) = self
             .parked
             .iter_mut()
             .find(|(_, p)| p.call == token && p.ticket == WAITING)?;
-        if parked.progress < progress || !outstanding {
+        if parked.ready || parked.due.is_some_and(|due| due as f64 <= now) || !outstanding {
             parked.last = !outstanding;
             return Some(Module::ask_again());
         }
@@ -55,13 +95,19 @@ impl Module {
     /// ticket in a module turn, and the answer parks on its timer, asked
     /// again at once. On the main thread only: a worker runs one turn to its
     /// end.
-    pub(crate) fn timer_first(&mut self, f: &InFlight<'_>) -> Option<(u64, Request)> {
+    pub(crate) fn timer_first(
+        &mut self,
+        f: &InFlight<'_>,
+        fetch: Option<u64>,
+    ) -> Option<(u64, Request)> {
         if !self.main_thread {
             return None;
         }
         let key = Module::key(Some(f.target), f.source, f.args);
         let at = self.parked.iter().position(|(k, p)| {
-            *k == key && !matches!(p.ticket, 0 | WAITING | YIELDED | TIMER | secrets::TICKET)
+            *k == key
+                && fetch.is_none_or(|fetch| p.ticket == fetch)
+                && !matches!(p.ticket, 0 | WAITING | YIELDED | TIMER | secrets::TICKET)
         })?;
         let (call, ticket) = (self.parked[at].1.call, self.parked[at].1.ticket);
         let adopted = self.engine.as_mut()?.call(
@@ -71,10 +117,10 @@ impl Module {
         if adopted.ok().as_deref() != Some("adopted") {
             return None;
         }
+        self.work.keep_ticket(ticket);
         let parked = &mut self.parked[at].1;
         parked.ticket = TIMER;
         parked.effects = false;
-        parked.progress = self.progress;
         Some((ticket, Request::continuation(call)))
     }
 
@@ -84,7 +130,7 @@ impl Module {
     /// goes on behind them. A browser runs that turn to its end, and so does
     /// this, now, its answer discarded: otherwise the next answer chained
     /// behind it waits on steps nobody delivers and is refused as pending on
-    /// nothing (a pre-mutation refresh the runner discarded, say).
+    /// nothing (ledger F12: a pre-mutation refresh the runner discarded).
     pub(crate) fn forget_calls(&mut self, calls: Vec<u64>) {
         let Some(engine) = self.engine.as_mut() else {
             return;
@@ -93,13 +139,13 @@ impl Module {
         for call in &calls {
             self.host.secrets.cancel_wait(*call);
             // Its waiter, if one is still running, now gives up without
-            // taking any compression's right.
+            // taking any compression's right (LLP 1069.002 A1.5).
             if let Some(retired) = self.retired.remove(call) {
                 retired.store(true, std::sync::atomic::Ordering::Release);
             }
         }
         // No answer's turn: a live answer's step that would run here waits
-        // for its own.
+        // for its own (LLP 1146 D2).
         let _ = engine.call("__exact_turn", ["", "", ""]);
         for call in calls {
             if let Ok(said) = engine.call("__exact_forget", [&call.to_string(), "", ""]) {
@@ -129,11 +175,7 @@ impl Module {
                 drained = engine.drain();
             }
             self.host.between_answers = false;
-            if drained.is_ok() {
-                // A continuation another answer shared may have settled it:
-                // a waiter counts this as progress (`wake`).
-                self.progress += 1;
-            } else {
+            if drained.is_err() {
                 self.watch.take();
             }
             // Storage a continuation started is the background's: arm it.
@@ -145,8 +187,8 @@ impl Module {
     }
 
     /// Drop targeted calls the runner no longer has in flight. Storage a
-    /// call already issued still runs ([`Module::forget_calls`]). No answer
-    /// waits on another to begin, so a call that had not started
+    /// call already issued still runs ([`Module::forget_calls`]). LLP 1097
+    /// deletes the answer-to-answer deferral, so a call that had not started
     /// is not replayed later in a cloned store.
     pub(crate) fn forget_in_flight(&mut self, in_flight: &[InFlight<'_>]) {
         let keep: HashMap<Key, Option<u64>> = in_flight
@@ -194,10 +236,12 @@ impl Module {
             .call("__exact_let_go", ["", "", ""])
             .is_ok_and(|r| r == "storage")
         {
-            if let Outcome::Failed { message, .. } = session.continuation()() {
+            if let Outcome::Failed { message, .. } = session.continuation(engine)() {
                 // A compression so failed is settled and what was queued
-                // behind it issued: a progress, and the
-                // chain's other storage is delivered on.
+                // behind it issued (LLP 1069.002 A1.5): a progress, and the
+                // chain's other storage is delivered on. Any other operation
+                // is the module's until it completes: the loop ends at it,
+                // and a background round delivers it and the chain behind.
                 if engine
                     .call("__exact_let_go", ["failed", &message, ""])
                     .is_ok_and(|r| r == "settled")
@@ -217,8 +261,10 @@ impl Module {
         if !delivered {
             return;
         }
-        // What landed may settle an answer waiting on another's work.
-        self.progress += 1;
         self.refresh_background();
     }
 }
+
+#[cfg(all(test, exact_js_engine))]
+#[path = "turns_tests.rs"]
+mod tests;

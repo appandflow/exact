@@ -1,9 +1,9 @@
 // A grouped list's row that goes somewhere or does something (the clone's
 // NavRow, ValueRow, CheckRow and ActRow): the platform's list cell, a
 // native button holding a symbol, a title and, by `accessory`, a value, a
-// chevron or a checkmark. The platform draws the button as its list's cell,
-// so it is no native control's part and the row
-// has none; nothing inside it is a part either.
+// chevron or a checkmark. The platform draws the button as its list's cell
+// (LLP 1084), so it is no native control's part (LLP 1139 D6) and the row
+// has none; nothing inside it is a part either (§9 Q3).
 component ListRow
   params
     tint: color = "lists.symbol-tint" control = "token" group = "Color" priority = 1 label = "Symbol tint"

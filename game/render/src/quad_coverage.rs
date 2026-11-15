@@ -1,4 +1,4 @@
-//! A look frame's quads: what `Quads::frame` did with each
+//! A look frame's quads (LLP 1127.000 D1, D4): what `Quads::frame` did with each
 //! sprite and emitter, each quad draw's batch, and the particle counts.
 //!
 //! The counts come from the particle draws themselves. While a look frame is

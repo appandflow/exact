@@ -1,4 +1,4 @@
-// The seam is public: @exact/photos
+// The seam is public (LLP 1133.001 D8, LLP 1133.019 stage 4): @exact/photos
 // packed as a registry would carry it (`bun pm pack`), installed into an app
 // `exact new` made outside the repo, builds unchanged, and its pictures are
 // drawn. The fixture package serving its own `img` scheme from outside the
@@ -17,7 +17,7 @@ import { checker, makeFixture, root, run, texts, until } from './fixture.mjs';
 
 const hosts = process.argv.slice(2).length ? process.argv.slice(2) : ['web', ...(process.platform === 'darwin' ? ['macos'] : [])];
 const { app, dir } = makeFixture({ packed: true }), name = app.split('/').pop();
-Object.assign(process.env, { EXACT_APP_DIR: app, EXACT2: root, HERMES_LEAN_SYS_OFFLINE: '1', EXACT_IDENTITY: process.env.EXACT_IDENTITY ?? '-' });
+Object.assign(process.env, { EXACT_APP_DIR: app, EXACT: root, HERMES_LEAN_SYS_OFFLINE: '1', EXACT_IDENTITY: process.env.EXACT_IDENTITY ?? '-' });
 const { open } = await import(resolve(root, 'scripts/agent.mjs'));
 const { check, failed } = checker();
 

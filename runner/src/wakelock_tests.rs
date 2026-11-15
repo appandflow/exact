@@ -1,4 +1,4 @@
-//! The rule through a runner: held while displayed, released
+//! The rule through a runner (LLP 1125 D11): held while displayed, released
 //! under a `display: none` ancestor, on unmount and at `none`; a computed
 //! word outside the two is journaled and holds nothing.
 
@@ -187,7 +187,7 @@ component App
           text "Second"
 "#;
 
-/// A tab not yet selected is not built; one selected
+/// A tab not yet selected is not built (LLP 1075.003 §3.7); one selected
 /// once stays mounted, hidden by every host when another is selected: it
 /// holds nothing then.
 #[test]
@@ -276,6 +276,7 @@ fn a_splits_list_beside_its_detail_holds_under_a_sheet_too() {
     press(&mut r, "close");
     let detail = r.kernel().node(view(&r, "back")).unwrap().parent.unwrap();
     let pane = HostBlock {
+        tactic: Default::default(),
         width: BlockAxis::Is(500.0),
         height: BlockAxis::Is(400.0),
     };
@@ -306,7 +307,7 @@ fn a_whole_host_cover_holds_nothing() {
 
 /// A `dialog` or popover holds nothing until its host reports it open: a
 /// host other than iOS and tvOS lays a closed box out and hides it only in
-/// its views.
+/// its views (LLP 1133.029 §12).
 #[test]
 fn a_closed_dialog_holds_nothing_until_its_host_opens_it() {
     let mut r = boot_source(

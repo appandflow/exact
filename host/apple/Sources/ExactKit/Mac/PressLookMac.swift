@@ -1,11 +1,11 @@
 // What a press and a disabled state show on a pressable that is no native
-// control, on the Mac: what AppKit shows on a borderless
+// control, on the Mac (LLP 1115.000 D6): what AppKit shows on a borderless
 // `NSButton`. A card, a custom button and a `link` take the system's pressed
 // effect while the mouse is down inside them, and half their opacity while
 // disabled. A default yields only to the author's version of the same state:
 // authored press feedback replaces the pressed look, and a `hover` handler,
 // which only observes, replaces nothing. A native control keeps its own
-// feedback, and a row of a `list` its cell's. There is no hover look.
+// feedback, and a row of a `list` its cell's (D16). There is no hover look.
 #if os(macOS)
 import AppKit
 
@@ -27,7 +27,7 @@ extension NodeView {
     private static let washName = "exact.pressWash"
 
     /// A row of a `list`: the list's child, or a `section`'s in it. Its
-    /// press and its disabled look are a cell's (which is
+    /// press and its disabled look are a cell's (LLP 1115.000 D16, which is
     /// of a vertical list's rows). An item of a list that scrolls sideways
     /// is a carousel's card, not a row, as the web host has it.
     var isListRow: Bool {
@@ -83,7 +83,7 @@ extension NodeView {
         defer { CATransaction.commit() }
         let dark = effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
         let scale = pixelScale ?? layer.contentsScale
-        let tree = Capture.paintOrderLayer(of: self, root: layer, redraw: scale)
+        let tree = Capture.paintOrderLayer(of: self, root: layer)
         defer { Capture.releasePaintCopy(tree) }
         // The copy stands where the node does in its parent: here it is the wash's own box, whole and unshadowed.
         tree.transform = CATransform3DIdentity
@@ -105,7 +105,7 @@ extension NodeView {
 
     /// A disabled custom pressable shows as a disabled control does, at half
     /// its opacity, and takes no press (`mouseDown`), unless its author
-    /// styles its own disabled state (`disabledStyled`).
+    /// styles its own disabled state (`disabledStyled`, LLP 1115.000 D6).
     /// Written when the state changes; the presented opacity is multiplied
     /// in as it arrives.
     func syncDisabledLook() {

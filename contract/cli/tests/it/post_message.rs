@@ -1,6 +1,7 @@
 //! `postMessage(text, "world")`: the inverse of a canvas's `message=`. Every
 //! call reaches the host as its own command, in order, even when two presses
-//! land between frames and pass the same text through a live argument.
+//! land between frames with the same text (Grow a Garden kept only the second
+//! through a live argument).
 use exact_runner::{DataError, DataSource, Runner, Value};
 
 const APP: &str = r#"component App

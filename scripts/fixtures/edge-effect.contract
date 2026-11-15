@@ -1,4 +1,4 @@
-// Content scrolled under the bar takes iOS 26's scroll edge
+// LLP 1141.001 D4: content scrolled under the bar takes iOS 26's scroll edge
 // effect when the scroller's rows paint above their in-flow siblings.
 // The large and inline tabs have scrollers with pull to refresh and rows
 // holding native buttons. The large tab also has a sticky child with a

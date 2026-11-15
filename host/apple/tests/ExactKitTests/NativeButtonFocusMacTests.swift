@@ -1,4 +1,4 @@
-// One native owner, independent of Keyboard navigation.
+// @ref LLP 1104 D6 — one native owner, independent of Keyboard navigation.
 #if os(macOS)
 import AppKit
 import ObjectiveC
@@ -40,7 +40,61 @@ final class NativeButtonFocusMacTests: XCTestCase {
         if !p.routeKey(event, focused: true, in: window) { window.sendEvent(event) }
     }
 
-    /// Tab honours the Mac's Keyboard Navigation setting,
+    func testBorderlessImageButtonsTabToAnImageShapedFocusRing() throws {
+        let p = try fixture()
+        let previous = KeyboardNavigation.agent
+        KeyboardNavigation.agent = true
+        defer { KeyboardNavigation.agent = previous }
+        for symbol in ["plus", "xmark"] {
+            p.buttonFace = { _ in
+                var face = ButtonFace(); face.symbol = symbol; face.macos = "borderless"
+                return face
+            }
+            p.controls.facesChanged()
+            p.controls.sync()
+            p.flushKeyViewLoop()
+            let first = try XCTUnwrap(p.controls.controls[2] as? NativeButtonMac)
+            let cell = try XCTUnwrap(first.cell as? NSButtonCell)
+            XCTAssertTrue(window.makeFirstResponder(try XCTUnwrap(p.views[3])))
+            deliver(p, try key("\t", 48, flags: .shift))
+            XCTAssertTrue(window.firstResponder === first)
+            XCTAssertEqual(first.focusRingType, .default)
+            let imageRect = cell.imageRect(forBounds: first.bounds)
+            XCTAssertFalse(imageRect.isEmpty)
+            XCTAssertEqual(first.focusRingMaskBounds, imageRect, symbol)
+
+            let hand = NSButton(image: try XCTUnwrap(NSImage(systemSymbolName: symbol, accessibilityDescription: nil)), target: nil, action: nil)
+            hand.isBordered = false
+            hand.font = NSFont.systemFont(ofSize: NSFont.systemFontSize(for: .regular))
+            hand.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: hand.font!.pointSize, weight: .regular)
+            hand.frame = first.frame
+            let expected = try ringPixels(hand) {
+                let cell = try XCTUnwrap(hand.cell as? NSButtonCell)
+                cell.drawImage(try XCTUnwrap(hand.image), withFrame: cell.imageRect(forBounds: hand.bounds), in: hand)
+            }
+            let actual = try ringPixels(first) { first.drawFocusRingMask() }
+            XCTAssertEqual(actual, expected, symbol)
+        }
+    }
+
+    private func ringPixels(_ button: NSButton, draw: () throws -> Void) throws -> Data {
+        let width = Int(ceil(button.bounds.width)) + 16, height = Int(ceil(button.bounds.height)) + 16
+        var bytes = [UInt8](repeating: 0, count: width * height * 4)
+        try bytes.withUnsafeMutableBytes { buffer in
+            let context = try XCTUnwrap(CGContext(data: buffer.baseAddress, width: width, height: height, bitsPerComponent: 8,
+                bytesPerRow: width * 4, space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+            NSGraphicsContext.saveGraphicsState()
+            defer { NSGraphicsContext.restoreGraphicsState() }
+            NSGraphicsContext.current = NSGraphicsContext(cgContext: context, flipped: false)
+            context.translateBy(x: 8, y: 8)
+            NSFocusRingPlacement.only.set()
+            try draw()
+        }
+        XCTAssertTrue(stride(from: 3, to: bytes.count, by: 4).contains { bytes[$0] > 0 }, "the ring must contain visible pixels")
+        return Data(bytes)
+    }
+
+    /// LLP 1115.000 D7.2: Tab honours the Mac's Keyboard Navigation setting,
     /// read from AppKit where no drive or test says (this overrides only the
     /// process's AppKit query; it never changes the person's preferences).
     /// On, Tab and Shift-Tab reach each button, only its native owner in the
@@ -100,7 +154,7 @@ final class NativeButtonFocusMacTests: XCTestCase {
         }
     }
 
-    /// `outline: none` takes AppKit's ring
+    /// LLP 1104 D6 (amended 2026-11-05): `outline: none` takes AppKit's ring
     /// off a native button and a bare one, which still take the focus;
     /// unset, the ring is back.
     func testOutlineNoneTakesTheRingOffNativeAndBareButtons() throws {
@@ -150,7 +204,7 @@ final class NativeButtonFocusMacTests: XCTestCase {
         XCTAssertNil(p.focusedNode)
     }
 
-    /// Space presses the focused control, once. Return is
+    /// LLP 1115.000 D7.3: Space presses the focused control, once. Return is
     /// the default button's, and outside a dialog there is none: a merely
     /// focused button does nothing with it (DefaultButtonMacTests holds the
     /// default). A key the app prevented does nothing more.
@@ -271,8 +325,9 @@ final class NativeButtonFocusMacTests: XCTestCase {
             var focuses: [UInt32] = [], blurs: [UInt32] = []
             p.onFocus = { focuses.append($0) }; p.onBlur = { blurs.append($0) }
             p.focusElement(["before"])
-            let forward: [UInt32] = enabled ? [3, 4, 5, 6, 7] : [3, 4, 5, 6]
-            let backward: [UInt32] = enabled ? [6, 5, 4, 3, 2] : [5, 4, 3]
+            // Off, the select (6) is no stop, as an NSPopUpButton is none, though it hears focus and keys.
+            let forward: [UInt32] = enabled ? [3, 4, 5, 6, 7] : [3, 4, 5]
+            let backward: [UInt32] = enabled ? [6, 5, 4, 3, 2] : [4, 3]
             for id in forward {
                 deliver(p, try key("\t", 48))
                 let owner = p.keyView(of: try XCTUnwrap(p.views[id]))
@@ -288,8 +343,8 @@ final class NativeButtonFocusMacTests: XCTestCase {
                 deliver(p, try key("\t", 48, flags: .shift))
                 XCTAssertTrue(window.firstResponder === p.keyView(of: try XCTUnwrap(p.views[id])))
             }
-            XCTAssertEqual(focuses, enabled ? [3, 4, 5, 6, 6, 5, 4, 3] : [3, 4, 5, 6, 5, 4, 3])
-            XCTAssertEqual(blurs, enabled ? [3, 4, 5, 6, 6, 5, 4, 3] : [3, 4, 5, 6, 5, 4])
+            XCTAssertEqual(focuses, enabled ? [3, 4, 5, 6, 6, 5, 4, 3] : [3, 4, 5, 4, 3])
+            XCTAssertEqual(blurs, enabled ? [3, 4, 5, 6, 6, 5, 4, 3] : [3, 4, 5, 4])
             window.close(); window = nil
         }
     }

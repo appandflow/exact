@@ -1,4 +1,4 @@
-//! What a form control's `input` and `change` may carry:
+//! What a form control's `input` and `change` may carry (LLP 1069.001 D4):
 //! the payload its kind reports, held to HTML's rules on every host, so an
 //! action's parameter is never a string to parse and an agent's `type`
 //! fails the same way wherever it runs.
@@ -33,7 +33,7 @@ impl<D: DataSource> Runner<D> {
             )
             | (Some(ControlKind::Checkbox | ControlKind::Switch), ControlValue::Checked(_))
             | (Some(ControlKind::File), ControlValue::Files(_)) => Ok(value.value()),
-            // A select reports the chosen option's
+            // @ref LLP 1069.001 D4 — a select reports the chosen option's
             // value: one of its enabled options, as a menu could choose.
             (Some(ControlKind::Select), ControlValue::Text(chosen)) => {
                 let choices = self.kernel.select_choices(view);
@@ -50,8 +50,8 @@ impl<D: DataSource> Runner<D> {
                     ))),
                 }
             }
-            // A radio reports its own value as it becomes checked: HTML's
-            // `value`, `on` when it has none.
+            // A radio reports its own value as it becomes checked (x2apps
+            // survey #2): HTML's `value`, `on` when it has none.
             (Some(ControlKind::Radio), ControlValue::Text(text)) => {
                 let own = self.kernel.radio_value(view);
                 if *text != own {
@@ -62,7 +62,7 @@ impl<D: DataSource> Runner<D> {
                 Ok(value.value())
             }
             // A range reports a number, clamped and snapped as HTML does,
-            // whatever a host sent.
+            // whatever a host sent (LLP 1069.001 D4).
             (Some(ControlKind::Range), ControlValue::Text(text)) => {
                 let node = self.kernel.node(view).expect("a control");
                 let number = exact_num::parse_f64(text.trim())
@@ -74,13 +74,14 @@ impl<D: DataSource> Runner<D> {
                 ))
             }
             // A date control reports HTML's value format, within its `min`
-            // and `max` (which a picker never passes), or empty when cleared.
+            // and `max`, or empty when cleared.
             (
                 Some(kind @ (ControlKind::Date | ControlKind::Time | ControlKind::DateTimeLocal)),
                 ControlValue::Text(text),
             ) => {
                 let node = self.kernel.node(view).expect("a control");
-                if !kind.valid_value(text) {
+                let number = kind.date_value(text);
+                if !text.is_empty() && number.is_none() {
                     return Err(invalid(format!(
                         "{text:?} is not a {} value (HTML's format: {})",
                         node.props.str(exact_kernel::PropId::Type).unwrap_or(""),
@@ -94,18 +95,28 @@ impl<D: DataSource> Runner<D> {
                 let bound = |id| {
                     node.props
                         .str(id)
-                        .filter(|b| kind.valid_value(b) && !b.is_empty())
+                        .and_then(|text| kind.date_value(text).map(|number| (text, number)))
                 };
-                if !text.is_empty() {
-                    if let Some(min) =
-                        bound(exact_kernel::PropId::Min).filter(|m| text.as_str() < *m)
-                    {
-                        return Err(invalid(format!("{text:?} is before min {min:?}")));
-                    }
-                    if let Some(max) =
-                        bound(exact_kernel::PropId::Max).filter(|m| text.as_str() > *m)
-                    {
-                        return Err(invalid(format!("{text:?} is after max {max:?}")));
+                if let Some(number) = number {
+                    let min = bound(exact_kernel::PropId::Min);
+                    let max = bound(exact_kernel::PropId::Max);
+                    match (kind, min, max) {
+                        // HTML's time domain wraps at midnight.
+                        (ControlKind::Time, Some((min, lo)), Some((max, hi))) if lo > hi => {
+                            if number < lo && number > hi {
+                                return Err(invalid(format!(
+                                    "{text:?} is outside reversed range {min:?} to {max:?}"
+                                )));
+                            }
+                        }
+                        _ => {
+                            if let Some((min, _)) = min.filter(|(_, lo)| number < *lo) {
+                                return Err(invalid(format!("{text:?} is before min {min:?}")));
+                            }
+                            if let Some((max, _)) = max.filter(|(_, hi)| number > *hi) {
+                                return Err(invalid(format!("{text:?} is after max {max:?}")));
+                            }
+                        }
                     }
                 }
                 Ok(value.value())

@@ -1,7 +1,7 @@
 //! A data-code call of a module's send is let go with the request that
-//! made it. A Contract send forwarded to an
+//! made it (LLP 1133.035 D16 item 4). A Contract send forwarded to an
 //! implementation carries a number that `cancel` names when it is let go
-//! (`bound.rs`); a data-code call's body gets one
+//! (LLP 1133.016 D15 item 2, `bound.rs`); a data-code call's body gets one
 //! as the request it travels in is handed out, so the same bookkeeping
 //! covers it, and a call the substitute or the agent holds for its value
 //! is retired when that request is no longer in flight: the answer that made it is no
@@ -58,7 +58,7 @@ impl<D: DataSource> Runner<D> {
 
     /// Each held data-code call whose request is no longer in flight:
     /// retired with its ticket, its reply answered with its `stopped`
-    /// (a scan let go is stopped), else its `cancel`.
+    /// (a scan let go is stopped, LLP 1133.035 §6), else its `cancel`.
     pub(super) fn let_go_data_calls(&mut self) {
         let gone: Vec<u64> = (self.extensions.letgo.held.iter())
             .filter(|(_, t)| !self.pending.iter().any(|p| p.ticket == **t))
@@ -67,7 +67,7 @@ impl<D: DataSource> Runner<D> {
         for token in gone {
             self.extensions.letgo.held.remove(&token);
             // Only a call waiting on its value: a ceremony runs to its end
-            // and its reply is disposed of, and a
+            // and its reply is disposed of (LLP 1133.016 D11), and a
             // permission's ticket is the person's to answer.
             let Some(h) =
                 (self.extensions.held.iter()).find(|h| h.token == token && h.waits == Waits::Value)

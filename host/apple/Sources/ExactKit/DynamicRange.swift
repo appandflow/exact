@@ -1,4 +1,4 @@
-// What a display can show and what a node allows.
+// @ref LLP 1100 D8, D9 — what a display can show and what a node allows.
 // Exact asks a layer for a dynamic range and tags what it hands Core
 // Animation; it never tone-maps itself.
 import QuartzCore
@@ -12,7 +12,7 @@ package typealias PlatformView = NSView
 
 package enum DisplayRange {
     /// The agent's pinned display headroom (`prefer dynamic-range`); `nil`
-    /// reads the live display. Under the agent it starts SDR.
+    /// reads the live display. Under the agent it starts SDR (LLP 1069.007 D2).
     nonisolated(unsafe) static var pinned: Double? = ExactEnv.agentMode ? 1 : nil
 
     /// The display's potential headroom over SDR white, not its current one.
@@ -33,7 +33,7 @@ package enum DisplayRange {
 }
 
 /// A colour's exposure over SDR white, as UIKit's `linearExposure` /
-/// `contentHeadroom` model it. A colour in an extended or
+/// `contentHeadroom` model it (LLP 1100 D2, D8). A colour in an extended or
 /// PQ/HLG space is tagged with its own peak, so an untagged PQ white doesn't
 /// draw at Core Graphics' implied 1000 nits.
 enum ColorRange {
@@ -159,7 +159,7 @@ extension CALayer {
         }
     }
 
-    /// What the agent reports of a layer's range.
+    /// What the agent reports of a layer's range (LLP 1100 D12).
     var dynamicRangeFacts: [String: Any] {
         if #available(iOS 26, macOS 26, tvOS 26, *) {
             let names: [CALayer.DynamicRange: String] = [.standard: "standard", .constrainedHigh: "constrained", .high: "high", .automatic: "automatic"]
@@ -246,7 +246,7 @@ extension NodeView {
         #endif
         var h: Float = 0
         if box {
-            for gradient in Gradient.layers(style["background_image"]) {
+            for gradient in Gradient.layers(style["background_image"], tint: gradientTint) {
                 for c in gradient.stops(dark: drawsDark).1 { h = max(h, ColorRange.headroom(c)) }
             }
             for key in ["background_color", "border_color_top", "border_color_right", "border_color_bottom", "border_color_left"] {
@@ -264,7 +264,7 @@ extension NodeView {
         let box = boxNeedsDraw
         #endif
         guard box else { return false }
-        let stops = Gradient.layers(style["background_image"]).flatMap { $0.stops(dark: drawsDark).1 }
+        let stops = Gradient.layers(style["background_image"], tint: gradientTint).flatMap { $0.stops(dark: drawsDark).1 }
         return stops.contains { ColorRange.needsExtendedComponents($0) }
             || ["background_color", "border_color_top", "border_color_right", "border_color_bottom", "border_color_left"].contains { ColorRange.needsExtendedComponents(cgColor($0)) }
     }

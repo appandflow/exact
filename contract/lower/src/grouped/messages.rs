@@ -1,9 +1,9 @@
-//! The grouped list's refusals that name an edit.
+//! The grouped list's refusals that name an edit (LLP 1116.014 D1, LLP 1116.018).
 
 use super::{is, Stray};
 use contract_syntax::{Attr, Expr, Node};
 
-/// The edit that puts a `header` or `footer` where UIKit
+/// LLP 1116.014 D1: the edit that puts a `header` or `footer` where UIKit
 /// draws one. Its words may change (`text (on ? "A" : "B")`); what comes and
 /// goes is a section, since a `header` holds one `text` and nothing else.
 pub(super) fn stray_message(stray: &Stray) -> String {
@@ -45,7 +45,7 @@ fn texts_chosen(node: &Node) -> Option<usize> {
     Some(arm(then)? + arm(otherwise)?)
 }
 
-/// The edit for a `header` or `footer` that holds more than one
+/// LLP 1116.018: the edit for a `header` or `footer` that holds more than one
 /// `text`. A repair told only the rule moved or dropped the status a chain of
 /// texts showed; this names the edit that keeps every arm.
 pub(super) fn label(tag: &str, children: &[Node]) -> String {
@@ -73,10 +73,12 @@ pub(crate) fn folds(c: &Node) -> bool {
         && fold_label(c).is_some()
 }
 
-/// A `header` or `footer` whose one child is an `if` /
+/// LLP 1116.017 D3: a `header` or `footer` whose one child is an `if` /
 /// `else if` / `else` chain, every arm one `text` with the same literal
 /// attributes, is that one `text` with its words chosen by the same
-/// conditions in order. `None` leaves the label to its refusal.
+/// conditions in order. A `match` among them is read as an `if` is, its
+/// words chosen by a `match` expression. `None` leaves the label to its
+/// refusal.
 pub(super) fn fold_label(label: &Node) -> Option<Node> {
     let Node::Element {
         tag,
@@ -124,26 +126,38 @@ fn fold(node: &Node) -> Option<(Expr, Vec<Attr>, contract_syntax::Span)> {
             }] if tag == "text" && positional.len() == 1 && children.is_empty() => {
                 Some((positional[0].clone(), attrs.clone(), *span))
             }
-            [inner @ Node::When { .. }] => fold(inner),
+            [inner @ (Node::When { .. } | Node::Match { .. })] => fold(inner),
             _ => None,
         }
     };
-    let Node::When {
-        cond,
-        then,
-        otherwise,
-        span,
-        ..
-    } = node
-    else {
-        return None;
+    let [first, second] = match node {
+        Node::When { .. } | Node::Match { .. } => node.child_lists(),
+        _ => return None,
     };
-    let (yes, yes_attrs, at) = arm(then)?;
-    let (no, no_attrs, _) = arm(otherwise)?;
+    let (yes, yes_attrs, at) = arm(first)?;
+    let (no, no_attrs, _) = arm(second)?;
     if !same_literals(&yes_attrs, &no_attrs) {
         return None;
     }
-    let words = Expr::Ternary(Box::new(cond.clone()), Box::new(yes), Box::new(no), *span);
+    let (yes, no) = (Box::new(yes), Box::new(no));
+    // A `match`'s words are a `match` expression, its arm's name bound in
+    // the `some` words as in the `some` arm.
+    let words = match node {
+        Node::Match {
+            subject,
+            some: (var, _),
+            span,
+            ..
+        } => Expr::Match {
+            subject: Box::new(subject.clone()),
+            var: var.clone(),
+            some: yes,
+            none: no,
+            span: *span,
+        },
+        Node::When { cond, span, .. } => Expr::Ternary(Box::new(cond.clone()), yes, no, *span),
+        _ => return None,
+    };
     Some((words, yes_attrs, at))
 }
 

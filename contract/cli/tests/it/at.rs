@@ -1,4 +1,4 @@
-//! `at(list, i)`: JavaScript's `Array.prototype.at`, `some` of
+//! `at(list, i)` (LLP 1006 §3): JavaScript's `Array.prototype.at`, `some` of
 //! the item or `none`, and a type error for anything but a list and a number.
 
 use exact_kernel::{Kernel, PropId};

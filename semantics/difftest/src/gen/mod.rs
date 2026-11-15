@@ -4,7 +4,7 @@
 //! states with literal initializers, resources and a mutation over any
 //! source name (the harness's data source answers every one from the
 //! declared shape), derives, actions with `let`, `if`, `match`, `send`,
-//! repeated writes and calls of the root's earlier actions,
+//! repeated writes and calls of the root's earlier actions (LLP 1089),
 //! timer tasks, child components with their own state, and
 //! a view that shows every slot in a `text` with a `testId`. The script taps
 //! buttons (and ids that are missing or inert), types into inputs and
@@ -43,7 +43,7 @@ pub struct Size {
     pub depth: usize,
     /// Script events.
     pub events: usize,
-    /// Whether a mutation may be `queue` and a task gated: the
+    /// Whether a mutation may be `queue` and a task gated (LLP 1092): the
     /// component-level semantics has neither (`difftest expansion`).
     pub schedule: bool,
 }
@@ -72,9 +72,10 @@ pub fn case(seed: u64, size: &Size) -> Case {
     };
     let (mut source, mut events, called) = written(true);
     // A call among statements that the compiler refuses (a second send
-    // through calls) is written again with calls only in
+    // through calls, LLP 1089 D6) is written again with calls only in
     // bodies that only call, so the sweep keeps its size. A read another
-    // frame made stale is a warning, and such a case runs: the semantics and both executors read the snapshot alike.
+    // frame made stale is a warning since LLP 1035.005.002 C2, and such a
+    // case runs: the semantics and both executors read the snapshot alike.
     if called && contract::compile(&source).is_err_and(|e| e.id == "analyze-send-twice") {
         (source, events, _) = written(false);
     }
@@ -129,7 +130,7 @@ pub(crate) struct Mutation {
     pub(crate) name: String,
     pub(crate) source: String,
     pub(crate) args: Vec<Ty>,
-    /// `queue`: a path may send it more than once.
+    /// `queue` (LLP 1092 D1): a path may send it more than once.
     pub(crate) queue: bool,
 }
 
@@ -188,20 +189,20 @@ pub(crate) struct Gen<'s> {
     pub(crate) calls: bool,
     pub(crate) called: bool,
     /// The mutations a path of the body being written has sent, its calls'
-    /// included: each is sent once per path (`analyze-send-twice`).
+    /// included: each is sent once per path (LLP 1088 D8, `analyze-send-twice`).
     pub(crate) sent: Vec<String>,
     /// The mutations any path of the body being written sends.
     pub(crate) sending: Vec<String>,
     /// The mutations each of `actions` may send, by index, once written.
     pub(crate) sends: Vec<Vec<String>>,
     next: usize,
-    /// Which root states say `persist`: drawn apart from
+    /// Which root states say `persist` (LLP 1116 D5): drawn apart from
     /// `rng`, so a seed's program is the one it was with the word added.
     pub(crate) persist: Rng,
 }
 
 /// `length` among them: a record's field `x.length` reads, beside a list's
-/// count.
+/// count (LLP 1116.015 D2, amended 2026-10-17).
 const FIELDS: &[&str] = &[
     "id", "name", "n", "flag", "tag", "items", "sub", "score", "label", "note", "on", "at",
     "length",

@@ -1,4 +1,4 @@
-// The acceptance drives 1-6 on the Calendar under the agent:
+// LLP 1133.018 §11's acceptance drives 1-6 on the Calendar under the agent:
 // the fixture stores of packages/contacts and packages/calendar, admission
 // and tickets by the runner. Drives 1, 2, 4, 5 and 6 need a calendar store,
 // so they run on macOS and iOS; drive 3 also runs on the web, whose agent

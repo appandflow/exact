@@ -1,7 +1,7 @@
 # Start here: a website with Exact
 
 The only required reading for a website: pages at URLs, served and read in a browser. A phone
-or desktop app reads [start-here.md](start-here.md) instead. The rest is lookup.
+or desktop app reads [Start here: building an app with Exact](start-here.md) instead. The rest is lookup.
 
 ## The idea
 
@@ -19,9 +19,13 @@ rendered ahead or per request, sent whole, then a small script for its links and
   `border-bottom="1px solid var(--line)"`. A bare number is pixels; quote units and
   keywords. `row` and `column` are a flex `view`, `view` a `div`. `style Card` with its rows,
   then `class=Card`, is a class.
-- **A design's tokens** come in with `bun exact.mjs tamber import css tokens.css`, which
-  writes `app.tamber`; a row names one as `var(--ink)` or `ink`, also inside `calc()`.
+- **A design's tokens** come in with `bun exact.mjs forma import css tokens.css`, which
+  writes `app.forma`; a row names one as `var(--ink)` or `ink`, also inside `calc()`.
 - **A page is a route**, so Back, reload, a shared link and a new tab work.
+- **The page's colour is the root's `background-color`**, on the `App` view's outermost node. The
+  browser paints it wherever the page does not reach: behind an iPhone's status bar, in the
+  overscroll and past a short page's end, as the native hosts paint their window. A translucent
+  root leaves the platform's colour. A route's own background covers only its route.
 
 ## The workflow
 
@@ -33,7 +37,7 @@ bun exact.mjs pattern site   # a tested website: start from it
 The pattern writes `app.contract` (the pages), `app.ts` (the data module), `app.test.contract`
 (its tests), `server.ts` (a stand-in for its API) and `.env` (the API's origin). Its comments
 say why each line is so: keep its shape, replace its content. Read
-[recipes/website.md](recipes/website.md) next: when a page is made, serving it, the markup.
+[a website](recipes/website.md) next: when a page is made, serving it, the markup.
 
 |`bun exact.mjs …`|What it does|
 |---|---|
@@ -42,6 +46,9 @@ say why each line is so: keep its shape, replace its content. Read
 |`test web`|Runs `app.test.contract` in Chrome.|
 
 Keep scratch files in `.exact/` and helper scripts in `tools/`: neither makes the build stale.
+
+On a new machine, `bun <exact2>/scripts/exact.mjs setup --platform web` installs the
+web prerequisites. See [web CI preparation](reference.md#web-ci-preparation) for a Linux test runner.
 
 ## The language
 
@@ -120,7 +127,14 @@ names one.
 It reaches only what its `grants` name: `export const grants = \`net.fetch ${API}\``, with
 `const API = import.meta.env.API_BASE_URL` (app.json's `env`). A failed read should throw,
 failing its resource. It imports its own `.ts` and pure-JS npm packages; one needing Node
-(`fs`, `Buffer`) or the DOM is refused by name.
+(`fs`, `Buffer`) or the DOM is refused by name. A page rendered on the server has no
+storage. A source still waiting there on a `storage` call is left pending: its placeholder
+shows with `pending(x)` true, and the reader's page asks it once it loads. A `storage` call
+the source does not wait for does not run there, and nothing it chains runs either. If the
+source answers anyway, the page keeps that answer and asks the source again on the reader's device.
+The render's `store` stays empty and refuses writes, including deletions. A source can handle
+the error. An uncaught TypeScript store error fails its resource and keeps its placeholder;
+a Rust source that returns a refusal refuses the render.
 
 ## CSS that is not here
 
@@ -142,4 +156,5 @@ name, not a chapter. `bun exact.mjs contract vocab <name> …` answers for any t
 function or recipe in one call (`contract vocab head select table media`); `contract vocab`
 alone prints the card, every name on one page. `bun exact.mjs docs <heading words>` prints the
 one section of the long guides that answers a question. Recipes: `website`, `web-look` and `responsive-columns` (wide layouts), `select`,
-`fetch-loading-error`, `rest-backend`, `tamber` (a brand), `tests`.
+`fetch-loading-error`, `rest-backend`, `forma` (a brand), `tools` (what a browser's agent may
+call, through WebMCP), `tests`.

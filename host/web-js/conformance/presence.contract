@@ -1,6 +1,6 @@
 // data: svg-gallery
 // Synthetic conformance plan: `-exact-exit-animation` and `-exact-layout-transition`
-// (presence-glue.js), over a dist that links the animation
+// (LLP 1063, presence-glue.js), over a dist that links the animation
 // grammars. A removed row leaves with the keyframes it names while the row
 // after it slides up into its place, eased, and on a spring; one coming
 // back pushes it down again. Compared mid-flight on the driver's clock and

@@ -108,7 +108,7 @@ final class RegionController {
             surface?.invalidateRetainedSource()
         }
         for op in regionOps {
-            // Retire opaque raster before native flow.
+            // @ref LLP 1043.000 §3 D7 — retire opaque raster before native flow.
             if op.payload["disabled"] as? String != nil { reset(); continue }
             guard let next = RegionSnapshot(op.payload) else { refuse("invalid region wire"); continue }
             if generation != session.generation || snapshot?.incarnation != next.incarnation {

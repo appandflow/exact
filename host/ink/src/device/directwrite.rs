@@ -1,4 +1,5 @@
 //! DirectWrite's grayscale candidate. Layout and advances stay with the shaper.
+//! @ref LLP 1149 D3.2–D3.3; LLP 1149.001 M9.
 use super::windows_library::Library;
 use crate::glyph::Font;
 use std::{collections::HashMap, mem::ManuallyDrop};

@@ -1,5 +1,6 @@
 //! The world's half of presentation state: rows cleared before each present,
 //! and the guards that keep ticks and presents on their own side.
+//! @ref llp/1046.008-game-presentation-seams.plan.md#amendment-2026-10-04-derived-presentation-state-and-gamerender
 use super::*;
 
 impl World {

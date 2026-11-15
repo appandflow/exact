@@ -127,7 +127,7 @@ test('a length named is the design\'s own, else a base name\'s in the kernel tab
   expect([baseLength(schema, none, 'radius.md', 'web'), baseLength(schema, none, 'radius.md', 'linux')]).toEqual([8, 8]);
   // A metric row with no Material cell reads the web's first look's there.
   expect(baseLength(schema, none, 'space.sm', 'android')).toBe(8);
-  // A stretch reads its metric: the Mac's space.xl is grouped-label-inset's 30.
+  // A stretch reads its metric (stage 13 D5): the Mac's space.xl is grouped-label-inset's 30.
   expect(baseLength(schema, none, 'space.xl', 'macos')).toBe(30);
   // A measured cell, a guideline's, radius.full's one length.
   expect(baseLength(schema, none, 'space.xs', 'ios')).toBe(5);
@@ -136,7 +136,7 @@ test('a length named is the design\'s own, else a base name\'s in the kernel tab
   // A name neither has; a host with no column (the terminal has no agent host yet; `host` is the Mac's sample).
   expect(baseLength(schema, none, 'space.header', 'web')).toBeUndefined();
   expect(baseLength(schema, none, 'space.md', 'host')).toBeUndefined();
-  // The design's own, as the compiler reads it (`contract tamber ir`), wins on every host.
+  // The design's own, as the compiler reads it (`contract forma ir`), wins on every host.
   const names = schema.scale.map(r => r[0]);
   const ir = (tokens) => ({ tokens });
   const own = overridesOf(ir([
@@ -219,14 +219,15 @@ test('the terminal: its cells by its reply\'s grid, its corners from its reply, 
     { testId: 'round', radius: 'radius.md' },
   ] }, base);
   // (Half a row of padding laid out and painted as a row above and none
-  // below: not whole cells, nor even.)
+  // below, as before stage 11 (c): not whole cells, nor even.)
   expect(rows.map(r => r.ok)).toEqual([false, false, true, false]);
   expect(rows[0].margins).toEqual({ top: 1, bottom: 0, left: 1, right: 1 });
   expect(rows[0].box.cells).toEqual({ x: 0, y: 0, w: 22, h: 3 });
   expect(rows[0].why).toContain('expected 0 rows and 1 columns');
   expect(rows[1].why).toContain('not equal rows above and below');
   expect(rows[3].why).toContain('radii 8, 8, 8, 8, expected 0');
-  // As the kernel lays a terminal's spaces out, in whole cells: half a row of padding is none, the box its child's two rows.
+  // As the kernel lays a terminal's spaces out, in whole cells (stage 11
+  // (c)): half a row of padding is none, the box its child's two rows.
   const rounded = { ...layout, nodes: layout.nodes.map(n => (
     n.testId === 'inner' ? { ...n, y: 0, cells: { x: 1, y: 0, w: 20, h: 2 } }
       : n.testId === 'box' ? { ...n, h: 32, cells: { x: 0, y: 0, w: 22, h: 2 } } : n)) };

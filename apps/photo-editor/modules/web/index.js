@@ -1,4 +1,4 @@
-// `<photo-editor>` on the web: the module table's names as
+// `<photo-editor>` on the web (LLP 1024 D7): the module table's names as
 // exports. The host defines the custom element and hands this module the
 // element; the editor renders into its shadow root with Pointer Events as the
 // native canvases' gestures: two pointers pinch about their centroid and
@@ -44,7 +44,7 @@ function summary(e, stage) {
 }
 
 // The edit in the photo's terms, as `storage.fs.transformImage` takes it
-// (`PhotoEdit.inPhoto` in PhotoEditor.swift): the clockwise
+// (LLP 1133.019 §11; `PhotoEdit.inPhoto` in PhotoEditor.swift): the clockwise
 // angle in degrees, and the crop in the turned photo's pixels.
 function inPhoto(e, stage, fit, w, h) {
   let d = ((angle(e) * 180 / Math.PI) % 360 + 360) % 360;

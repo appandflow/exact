@@ -1,4 +1,4 @@
-// Synthetic conformance plan: strings compare in UTF-16
+// Synthetic conformance plan (LLP 1088 D1, D2): strings compare in UTF-16
 // code-unit order, and `slice`, `replaceAll` and `toLowerCase` are the web's,
 // each result made well formed — beside the roster's other string and list
 // entries (`at`, `join`, `includes`, `formatDate`). A `replaceAll` whose

@@ -1,6 +1,6 @@
 // A device a call names, a send answered after a span, and a list whose
-// changes are events: forms of the declared substitute a
-// module with devices of its own declares, as
+// changes are events: forms of the declared substitute (LLP 1133.002 §6) a
+// module with devices of its own declares (LLP 1133.022 D10 item 3, §9), as
 // the runner's `modules/spans.rs` answers them:
 //
 // - `of` (`{source, list, key, current, missing, lacks, needs}`): a call

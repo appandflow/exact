@@ -1,4 +1,4 @@
-//! `share(…)` on the web: the runner's decision on the command
+//! `share(…)` on the web (LLP 1069.003): the runner's ruling on the command
 //! and an agent's answer, linked when the plan runs `share`.
 
 use exact_web::Linked;

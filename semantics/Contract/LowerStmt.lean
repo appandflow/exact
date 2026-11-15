@@ -31,7 +31,7 @@ def BlockSpec (env : Contract.Env) (ls : Locals) (venv : Vm.Env) (P : Code) (L :
     (Halts P venv (M pc S L cbs (lowerFx Lay fx0)) → ∃ fx1, ExecR env ls ss fx0 fx1)
 
 /-- The component's names correspond with no locals bound: what a
-callee's scope reads beyond its parameters. -/
+callee's scope reads beyond its parameters (LLP 1089 D9). -/
 def GlobalsAgree (env : Contract.Env) (venv : Vm.Env) (p : Program) (Lay : Layout) : Prop :=
   Agree env false [] venv [] (globalScope p Lay)
 
@@ -295,7 +295,7 @@ theorem stmt_match (ihb : BlockOk fuel)
       obtain ⟨fx1, h2⟩ := (ihsm u (vty_inner htw) fx0).2 (hh2.pc (by simp; omega))
       exact ⟨fx1, .matchSome h1 (by subst hn; exact h2) .nil⟩
 
-/-- A call: its arguments bound as the next locals, the
+/-- A call (LLP 1089 D9): its arguments bound as the next locals, the
 callee's body run in a scope of them and the component's names, the
 locals dropped; no call opcode. -/
 theorem stmt_call (ihb : BlockOk fuel)
@@ -496,7 +496,7 @@ state whose `writes` admit the body's writes, the compiled body returns
 exactly the effects `exec` records (names resolved as the plan did), and
 returns at all exactly when `exec` has an outcome. `hg`: the component's
 names correspond on their own, as a called action's scope reads them
-. -/
+(LLP 1089 D9). -/
 theorem compileAction_correct {a code} (hc : compileAction p Lay a = .ok code)
     (hx : Ctx env false ls venv [] p (paramScope a.params ++ globalScope p Lay) 0) (hw : Writes env venv Lay)
     (hg : GlobalsAgree env venv p Lay) :

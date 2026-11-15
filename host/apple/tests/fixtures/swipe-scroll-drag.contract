@@ -1,0 +1,30 @@
+component App
+  state lefts = 0
+  state rights = 0
+  state starts = 0
+  state ends = 0
+  state velocity = 0
+  state rest = "none"
+  action left
+    lefts = lefts + 1
+  action right
+    rights = rights + 1
+  action began
+    starts = starts + 1
+  action released(e: ScrollDragEvent)
+    ends = ends + 1
+    velocity = e.velocityY
+    rest = match e.targetTop { case some(t) => `${t}`, case none => "none" }
+  view
+    column width="100%" height=600
+      box testId="left" swipeleft=left touch-action="pan-y" width="100%" height=60
+        text "left"
+      box testId="right" swiperight=right touch-action="pan-y" width="100%" height=60
+        text "right"
+      box testId="both" swipeleft=left swiperight=right touch-action="pan-y" width="100%" height=60
+        text "both"
+      text `${lefts}:${rights}` testId="swipes"
+      text `${starts}:${ends}:${velocity}:${rest}` testId="drags"
+      scroll testId="port" height=200 scrolldragstart=began scrolldragend=released
+        box height=2000
+          text "content"

@@ -1,4 +1,4 @@
-// All branch selectors are flat per primitive.
+// @ref LLP 1149 D1.1, D2, D6.1. All branch selectors are flat per primitive.
 
 struct Viewport { size: vec2<f32>, pad: vec2<f32> }
 @group(0) @binding(0) var<uniform> viewport: Viewport;
@@ -106,6 +106,24 @@ fn rounded_distance(p: vec2<f32>, rect: vec4<f32>, r: vec4<f32>) -> f32 {
 }
 
 fn shape_coverage(p: vec2<f32>, rect: vec4<f32>, radii: vec4<f32>, pixel: vec2<f32>) -> f32 {
+    // Deep inside the shape and off every corner arc, the evaluation below
+    // gives exactly 1, so return it early. There all three samples take the
+    // straight-edge branch with q < 0, so each distance is max(q.x, q.y). With
+    // coordinates under 2^15, f32 rounding keeps each component of `normal`
+    // within 0.015, so `width` is at most 1.5 * (pixel.x + pixel.y) or 0.00001;
+    // -distance is at least 2 * (pixel.x + pixel.y) and 0.05, so
+    // 0.5 - distance / width is at least 1.83 and clamps to exactly 1. Being
+    // 0.05 clear of every radius on one axis keeps the samples, 0.01 away, off
+    // the corner branches. A NaN fails a comparison and takes the full path.
+    let lo = rect.xy;
+    let hi = lo + rect.zw;
+    let q = abs(p - (lo + hi) * 0.5) - rect.zw * 0.5;
+    let depth = max(q.x, q.y);
+    if depth <= -2.0 * (pixel.x + pixel.y) && depth <= -0.05
+        && all(vec4<f32>(min(q.x, q.y)) <= -0.05 - radii)
+        && all(abs(vec4<f32>(lo, hi)) < vec4<f32>(32768.0)) {
+        return 1.0;
+    }
     let distance = rounded_distance(p, rect, radii);
     let normal = vec2<f32>(rounded_distance(p + vec2<f32>(0.01, 0.0), rect, radii),
                           rounded_distance(p + vec2<f32>(0.0, 0.01), rect, radii)) - vec2<f32>(distance);
@@ -230,11 +248,21 @@ fn brush(v: Vertex, dx: vec2<f32>, dy: vec2<f32>) -> vec4<f32> {
                 uv = (v.local - v.param.xy) / max(v.param.zw, vec2<f32>(0.00001));
             }
             if (flags & 1073741824u) != 0u {
-                uv = v.position.xy / vec2<f32>(textureDimensions(picture));
+                uv = (v.position.xy - v.param.zw) / vec2<f32>(textureDimensions(picture));
             }
             var c = textureSample(picture, filtering, uv);
             if (v.data.x >> 16u) == 3u {
                 c = textureSampleGrad(picture, filtering, uv, dx / v.param.zw, dy / v.param.zw);
+            }
+            if (flags & 67108864u) != 0u {
+                let size = vec2<f32>(textureDimensions(picture));
+                let n = max(v.param.xy, vec2<f32>(1.0));
+                let at = uv * size * n - vec2<f32>(0.5);
+                let lo = floor(at);
+                let a = floor(lo / n);
+                let b = floor((lo + vec2<f32>(1.0)) / n);
+                let sample_uv = (a + vec2<f32>(0.5) + fract(at) * (b - a)) / size;
+                c = textureSampleLevel(picture, filtering, sample_uv, 0.0);
             }
             if (flags & 16u) != 0u {
                 let size = vec2<i32>(textureDimensions(picture));
@@ -256,6 +284,14 @@ fn mirror_index(value: i32, size: i32) -> i32 {
     return select(period - 1 - index, index, index < size);
 }
 
+fn picture_pixel(at: vec2<i32>) -> vec4<f32> {
+    // Backdrop snapshots omit pixels beyond the visible output's sampling support.
+    if any(at < vec2<i32>(0)) || any(at >= vec2<i32>(textureDimensions(picture))) {
+        return vec4<f32>(0.0);
+    }
+    return textureLoad(picture, at, 0);
+}
+
 fn blur_pixel(v: Vertex) -> vec4<f32> {
     let lo = vec2<i32>(v.rect.xy);
     let size = vec2<i32>(v.rect.zw);
@@ -268,7 +304,7 @@ fn blur_pixel(v: Vertex) -> vec4<f32> {
         p = lo + vec2<i32>(mirror_index(p.x, size.x), mirror_index(p.y, size.y));
         var weight = 1.0;
         if v.param.w > 0.0 { weight = exp(-0.5 * f32(k * k) / (v.param.w * v.param.w)); }
-        sum += textureLoad(picture, p, 0) * weight;
+        sum += picture_pixel(p + vec2<i32>(v.uv.xy)) * weight;
         total += weight;
     }
     return sum / total;
@@ -285,7 +321,7 @@ fn area_pixel(v: Vertex) -> vec4<f32> {
         for (var x = i32(floor(lo.x)); x < i32(ceil(hi.x)); x++) {
             let p = vec2<f32>(f32(x), f32(y));
             let weight = max(vec2<f32>(0.0), min(hi, p + 1.0) - max(lo, p));
-            sum += textureLoad(picture, vec2<i32>(x, y), 0) * weight.x * weight.y;
+            sum += picture_pixel(vec2<i32>(x, y)) * weight.x * weight.y;
         }
     }
     return sum / (ratio.x * ratio.y);
@@ -358,13 +394,25 @@ fn fs_main(v: Vertex) -> @location(0) vec4<f32> {
     let flags = v.data.y;
     var alpha = 1.0;
     var color = brush(v, dx, dy);
+    var clip1 = 1.0;
+    if (flags & 128u) != 0u {
+        clip1 = shape_coverage(v.position.xy, v.clip1, unpack_radii(v.clip_radii.zw), vec2<f32>(1.0));
+    }
     switch kind {
         case 0u: { alpha = shape_coverage(v.local, v.rect, v.radii, pixel); }
         case 1u: {
             alpha = max(0.0, shape_coverage(v.local, v.rect, v.radii, pixel) - shape_coverage(v.local, v.uv, v.param, pixel));
         }
         case 2u: {
-            alpha = shadow(v.local, v.uv, v.radii, v.param.x, pixel);
+            // An outer shadow is multiplied by 1 - clip1 below, which is 0
+            // where its border box covers the pixel, so the integral is skipped
+            // there. The integral is finite for sigma at most 0 or at least
+            // 1e-30; below that 0.39894228 / sigma can overflow and make a NaN,
+            // which the 0 would not cancel.
+            let sigma = v.param.x;
+            if (flags & 128u) == 0u || clip1 < 1.0 || (sigma > 0.0 && sigma < 1.0e-30) {
+                alpha = shadow(v.local, v.uv, v.radii, sigma, pixel);
+            }
         }
         case 3u: {
             let uv = mapped(v.local, v.rect, v.uv);
@@ -378,7 +426,7 @@ fn fs_main(v: Vertex) -> @location(0) vec4<f32> {
         }
         case 6u: { color = blur_pixel(v); }
         case 7u: {
-            let c = textureLoad(picture, vec2<i32>(v.position.xy), 0);
+            let c = picture_pixel(vec2<i32>(v.position.xy) + vec2<i32>(v.uv.xy));
             let gray = dot(c.rgb, vec3<f32>(0.213, 0.715, 0.072));
             color = vec4<f32>(clamp(vec3<f32>(gray) + v.param.x * (c.rgb - vec3<f32>(gray)), vec3<f32>(0.0), vec3<f32>(c.a)), c.a);
         }
@@ -392,7 +440,7 @@ fn fs_main(v: Vertex) -> @location(0) vec4<f32> {
         alpha *= shape_coverage(v.position.xy, v.clip0, unpack_radii(v.clip_radii.xy), vec2<f32>(1.0));
     }
     if (flags & 128u) != 0u {
-        var clip = shape_coverage(v.position.xy, v.clip1, unpack_radii(v.clip_radii.zw), vec2<f32>(1.0));
+        var clip = clip1;
         // Shadow's second slot is its border box, excluded for an outer shadow.
         if kind == 2u { clip = 1.0 - clip; }
         alpha *= clip;
@@ -403,11 +451,11 @@ fn fs_main(v: Vertex) -> @location(0) vec4<f32> {
     }
     alpha = clamp(alpha, 0.0, 1.0);
     if (flags & 1073741824u) != 0u {
-        return mix(textureLoad(destination, vec2<i32>(v.position.xy), 0), color, alpha);
+        return mix(textureLoad(destination, vec2<i32>(v.position.xy - v.param.xy), 0), color, alpha);
     }
     let mode = (flags >> 11u) & 15u;
     if mode != 0u {
-        return blended(textureLoad(destination, vec2<i32>(v.position.xy), 0), color * alpha, mode);
+        return blended(textureLoad(destination, vec2<i32>(v.position.xy - v.param.xy), 0), color * alpha, mode);
     }
     return color * alpha;
 }

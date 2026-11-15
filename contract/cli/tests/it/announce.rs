@@ -1,5 +1,5 @@
-//! The device says a topic changed; the answers that watch it are asked
-//! again, and nothing else is.
+//! @ref LLP 1016.002 — the device says a topic changed; the answers that
+//! watch it are asked again, and nothing else is.
 use exact_kernel::Kernel;
 use exact_runner::{Answer, DataError, DataSource, Native, Runner, Store, Value};
 use std::sync::atomic::{AtomicUsize, Ordering};

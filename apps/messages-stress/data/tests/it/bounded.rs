@@ -178,8 +178,8 @@ fn feedback_alone_traverses_tail_to_first_and_back_preserving_every_anchor() {
                 // Accept the correction. A changed endpoint key cannot re-arm
                 // an edge that stayed inside the geometric window, except the
                 // end edge once the window reaches the history's end: its old
-                // last row stays with rows after it, so it fires if the
-                // reader is near the new end
+                // last row stays with rows after it (LLP 1010, the 2026-09-29
+                // ruling), so it fires if the reader is near the new end
                 // (the shorter last window at 1,000); reachLater then has
                 // nothing later to ask.
                 let queries = r.data_ref().queries;

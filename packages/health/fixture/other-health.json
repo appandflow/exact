@@ -1,5 +1,5 @@
 {
- "about": "The health fixture with one more workout (the Calendar's activity drive 6): a run at 06:30 UTC on 2026-10-12, which `prefer extension health.store=\"other-health.json\"` swaps in.",
+ "about": "The health fixture with one more workout (LLP 1133.026 \u00a712, the Calendar's drive 6): a run at 06:30 UTC on 2026-10-12, which `prefer extension health.store=\"other-health.json\"` swaps in.",
  "source": "Fixture Watch",
  "units": {
   "steps": "count",

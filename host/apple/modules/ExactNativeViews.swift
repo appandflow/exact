@@ -1,5 +1,5 @@
-// A module's views on the module side of the native-module table:
-// what a view instance is, the roster's factories,
+// A module's views on the module side of the native-module table (@ref LLP
+// 1024 D4; LLP 1133.001 D1): what a view instance is, the roster's factories,
 // and the table's view entries (`ExactNativeViewABI`), which
 // ExactNativeModule.swift lays out. The roster is the app's own module's
 // `views` and the views its packages serve (`exactPackageViews`, written by
@@ -61,7 +61,7 @@ open class ExactNativeInstance {
     /// observes its own bounds.
     open var view: ExactNativeView { fatalError("\(type(of: self)) has no view") }
     #if os(iOS) || os(tvOS)
-    /// A native screen: a controller whose view is
+    /// A native screen (LLP 1075.003 §3.6): a controller whose view is
     /// `view`, contained in the route's controller as a child while it shows.
     open var controller: UIViewController? { nil }
     #endif
@@ -79,7 +79,7 @@ open class ExactNativeInstance {
     open func snapshot() throws -> Data { throw ExactNativeRefusal("no snapshot") }
     /// Last call. The events object is dead to the host after this.
     open func destroy() {}
-    /// Reuse (a factory with `reuse`): the instance is now as
+    /// Reuse (a factory with `reuse`, LLP 1068 §4.8): the instance is now as
     /// if created with no props; throw to refuse, and the host destroys it.
     /// The next `setProps` is a first mount, and `events.load()` follows once
     /// nothing of the last row shows. Events sent before that mount are dropped.
@@ -87,7 +87,7 @@ open class ExactNativeInstance {
 }
 
 #if os(iOS) || os(tvOS)
-/// A module view that is a whole screen: `screen`'s view
+/// A module view that is a whole screen (LLP 1075.003 §3.6): `screen`'s view
 /// fills the node's box, and `screen` is a child of the route's controller,
 /// with UIKit's appearance, safe-area and trait propagation.
 open class ExactNativeScreen: ExactNativeInstance {
@@ -102,11 +102,11 @@ open class ExactNativeScreen: ExactNativeInstance {
 #endif
 
 /// A roster entry: how to make an instance from the session's module,
-/// whether it answers snapshots, whether a list may reuse it,
-/// and whether it joins the first frame its node shows in.
+/// whether it answers snapshots, whether a list may reuse it (LLP 1068
+/// §4.8), and whether it joins the first frame its node shows in.
 ///
-/// Every other tag's view attaches after the first frame has painted,
-/// so a slow view (a map) never delays it. `firstFrame` is for a
+/// Every other tag's view attaches after the first frame has painted (LLP
+/// 1024 D3), so a slow view (a map) never delays it. `firstFrame` is for a
 /// cheap view that must be there from the first frame, such as a boot
 /// splash: the artifact loads, and its view and the session's module are
 /// made, before that frame commits, so their time is first pixel's. Its
@@ -117,7 +117,7 @@ public struct ExactNativeFactory {
     public let reuse: Bool
     public let firstFrame: Bool
     public let make: (ExactModule, [String: String], ExactNativeEvents) throws -> ExactNativeInstance
-    /// A package's view, made with its node's id in the
+    /// A package's view (LLP 1133.001 D1), made with its node's id in the
     /// session, by which its implementation hears whether it is displayed.
     let made: ((ExactModule, String, [String: String], ExactNativeEvents) throws -> ExactNativeInstance)?
     public init(snapshot: Bool = false, reuse: Bool = false, firstFrame: Bool = false, make: @escaping (ExactModule, [String: String], ExactNativeEvents) throws -> ExactNativeInstance) {
@@ -181,7 +181,7 @@ private func made(_ owner: UnsafeMutableRawPointer?, _ view: String?, _ tag: Uns
     do {
         let events = ExactNativeEvents(fn: event, ctx: ctx, nonce: nonce), given = try props(json, jsonLength)
         let instance = try factory.made.map { try $0(owner, view ?? "", given, events) } ?? factory.make(owner, given, events)
-        Tambers.made(instance.view, by: owner)
+        Formas.made(instance.view, by: owner)
         return Unmanaged.passRetained(Handle(instance, reply: reply, ctx: ctx, nonce: nonce)).toOpaque()
     } catch {
         write(String(describing: error), out, capacity)

@@ -1,4 +1,4 @@
-// A WLED device simulator for Lights' drives: the subset
+// A WLED device simulator for Lights' drives (LLP 1133.036 §10): the subset
 // of WLED's JSON API Lights reads and writes (https://kno.wled.ge/interfaces/json-api/),
 // one light per loopback port, with WLED's `Access-Control-Allow-Origin: *`.
 //
@@ -11,7 +11,7 @@
 //   GET  /control/log     the bodies POSTed to /json/state, in order
 // It never advertises: drives give Lights the light through the agent's
 // `prefer extension local-network.browseServices=…`, and a real DNS-SD drive
-// uses its own service type.
+// uses its own type (§14).
 
 type Light = { name: string; mac: string; on: boolean; bri: number; log: unknown[] };
 

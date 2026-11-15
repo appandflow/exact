@@ -1,4 +1,4 @@
-//! The order siblings paint in, on every host.
+//! The order siblings paint in, on every host (LLP 1083.000).
 //!
 //! CSS paints a stacking context in phases (CSS 2.1 Appendix E): in-flow
 //! boxes, then positioned boxes and child stacking contexts at level 0 in
@@ -26,20 +26,20 @@ use crate::kernel::Kernel;
 
 /// Authored `z-index` is clamped to this. The values above it are reserved
 /// for the host: the Arrange lift on every host and, on the web, the
-/// development tools.
+/// development tools (§3.7).
 pub const Z_MAX: i32 = i32::MAX - 2;
 
-/// A node's paint facts of its own.
+/// A node's paint facts of its own (§2.1).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct Own {
     /// Its used `position` is not `static`; a root counts.
     pub positioned: bool,
-    /// A stacking context by its own values or by host policy.
+    /// A stacking context by its own values or by host policy (D2, D3).
     pub stacks: bool,
     /// Its applicable `z-index`: authored, on a positioned box or a flex or
     /// grid item, clamped to ±[`Z_MAX`].
     pub z: Option<i32>,
-    /// It stacks only by host policy, motion or structure, not by
+    /// It stacks only by host policy, motion or structure (D2, D3), not by
     /// CSS it carries: the web writes `isolation: isolate` for it.
     pub policy: bool,
     /// Outside the box tree's painting (an element inside an `svg`, a
@@ -60,7 +60,7 @@ impl Own {
     }
 }
 
-/// What a node lets escape into its parent's painting.
+/// What a node lets escape into its parent's painting (§2.2).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct Potentials {
     /// A non-zero `z-index` that nothing between traps.
@@ -110,7 +110,7 @@ pub fn potentials(children: &[Child]) -> Potentials {
         })
 }
 
-/// Which of a parent's children the web isolates, left to right:
+/// Which of a parent's children the web isolates, left to right (§2.3):
 /// (z) a non-stacking child that lets a non-zero `z-index` escape; (a) a
 /// static, non-stacking child that lets something at level 0 escape, after
 /// a sibling that is positioned, stacks, is isolated or leaks; (b) a static,
@@ -137,7 +137,7 @@ pub fn decide(children: &[(Own, Potentials)]) -> Vec<bool> {
     out
 }
 
-/// A child's place among its siblings, as an integer twice the rank:
+/// A child's place among its siblings (§2.4), as an integer twice the rank:
 /// a non-zero `z` is `2z`, rank ½ is 1, in flow is 0. Lossless, and the
 /// encoding the Apple batch carries.
 pub fn rank(own: &Own, isolated: bool) -> i64 {
@@ -161,7 +161,7 @@ pub struct Placed {
     pub policy: bool,
 }
 
-/// The motion properties that change stacking while they animate.
+/// The motion properties that change stacking while they animate (D3).
 fn stacking_property(p: exact_motion::Property) -> bool {
     use exact_motion::Property as P;
     matches!(
@@ -170,7 +170,7 @@ fn stacking_property(p: exact_motion::Property) -> bool {
     )
 }
 
-/// Whether a node's motion can stack it, so it stacks at rest.
+/// Whether a node's motion can stack it (D3), so it stacks at rest.
 fn motion_stacks(s: &crate::StyleProps) -> bool {
     let m = &s.mask;
     let transition = s.transition.0.iter().any(|t| {
@@ -214,7 +214,7 @@ pub struct Facts<'a> {
     pub holds_layout_transition: bool,
 }
 
-/// A node's own facts from its rows, props and structure.
+/// A node's own facts from its rows, props and structure (§2.1, D2, D3).
 pub fn own_from(f: Facts<'_>) -> Own {
     let s = f.style;
     let m = &s.mask;
@@ -227,8 +227,10 @@ pub fn own_from(f: Facts<'_>) -> Own {
     let position = crate::style::top_layer::of(s, props);
     let positioned = position != PositionType::Static || f.root;
     let item = matches!(f.parent_display, Some(Display::Flex | Display::Grid));
-    let z =
-        (m.has(StyleId::ZIndex) && (positioned || item)).then(|| s.z_index.clamp(-Z_MAX, Z_MAX));
+    let z = (m.has(StyleId::ZIndex) && (positioned || item))
+        .then_some(s.z_index)
+        .flatten()
+        .map(|z| z.clamp(-Z_MAX, Z_MAX));
     let authored = (m.has(StyleId::Opacity) && s.opacity < 1.0)
         || m.has(StyleId::Translate)
         || m.has(StyleId::Scale)
@@ -245,7 +247,7 @@ pub fn own_from(f: Facts<'_>) -> Own {
         || s.isolation == Isolation::Isolate
         || position == PositionType::Sticky
         || z.is_some();
-    // Host policy: what the hosts paint as a stacking context of their own.
+    // Host policy (D2): what the hosts paint as a stacking context of their own.
     let button = kind == NodeType::Control && props.str(PropId::Type) == Some("button");
     let style = props.str(PropId::ButtonStyle).unwrap_or("bordered");
     let host = kind == NodeType::Canvas
@@ -261,7 +263,7 @@ pub fn own_from(f: Facts<'_>) -> Own {
         // A root traps what its children let escape, as a native host's
         // root view does: a negative z-index stays above its background.
         || f.root;
-    // Structural: a paragraph beside an exclusion; the parent of a
+    // Structural (D2, D3): a paragraph beside an exclusion; the parent of a
     // child with a layout transition.
     let flowing = kind == NodeType::Text && f.beside_exclusion;
     let policy = host || motion_stacks(s) || flowing || f.holds_layout_transition;

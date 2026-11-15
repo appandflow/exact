@@ -1,7 +1,7 @@
 #if os(iOS) || os(tvOS)
 import UIKit
 
-/// The layout regions UIKit lays out beside the safe area,
+/// The layout regions UIKit lays out beside the safe area (LLP 1123 D10),
 /// what `env(-exact-<region>-inset-<edge>)` resolves to: each region of the
 /// view controller's view that holds the session, as an inset per edge from
 /// the layout viewport. UIKit is the source: its margins are a controller's
@@ -57,12 +57,8 @@ enum LayoutRegionsIOS {
     /// view UIKit gives a screen's margins, which a plain subview does not
     /// have (8 points, not the system minimum). `view` when it has none.
     private static func controllerView(of view: UIView) -> UIView {
-        var responder: UIResponder? = view
-        while let r = responder {
-            if let controller = r as? UIViewController, let root = controller.viewIfLoaded { return root }
-            responder = r.next
-        }
-        return view
+        guard let controller = ViewPresentation.controller(for: view, layout: true) else { return view }
+        return (controller as? RouteController)?.surface ?? controller.view
     }
 }
 #endif

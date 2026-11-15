@@ -18,7 +18,7 @@ live ticks on), `live` (`fling` with the 1 Hz clocks running), and for the neste
 
 | path | what |
 |---|---|
-| `SPEC.md`, `mac/SPEC.md` | the benchmark |
+| `SPEC.md`, `mac/SPEC.md` | the benchmark; `EXACT2-GAPS.md` is the record of what exact2 lacked for it (2026-09-27) |
 | `gen.py`, `gen_video.swift`, `fetch-fonts.sh`, `fetch-lottie.sh`, `prepare.sh` | the data and every generated input (below) |
 | `exact-xheavy/` | the exact2 app, one app for iOS, macOS and the web (its README says how each kind is written) |
 | `expo/` | the Expo app, iOS and react-native-web |

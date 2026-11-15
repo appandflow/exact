@@ -1,6 +1,6 @@
 decoration mention color="light-dark(#1083fe, #208bfe)"
 decoration link color="light-dark(#1083fe, #208bfe)" text-decoration="underline"
-decoration tag color="light-dark(#1083fe, #208bfe)" background-color="light-dark(#e8f1ff, #14243a)"
+decoration tag color="light-dark(#1083fe, #208bfe)" background-color="light-dark(#e8f1ff, #14243a)" text-shadow="0 0 1px #000"
 
 component App
   state draft = "hi @alice.bsky.social see https://bsky.app #art"
@@ -24,16 +24,16 @@ component App
     let mention = rangeFrame("composer", 3, 21)
     let past = rangeFrame("composer", 0, 999)
     let field = frame("composer")
-    // Facts every host's fonts agree on, and the sizes, which wasm and JS
-    // compare and Linux does not (its fonts are its own: conform.mjs's
-    // LINUX_APART).
+    // Facts every host's fonts agree on (theme2's 17:27 ruling), and the
+    // sizes, which wasm and JS compare and Linux does not (its fonts are its
+    // own: conform.mjs's LINUX_APART, theme2's 18:18 ruling).
     let line = mention.y == caret.y && mention.height == caret.height
     let inside = mention.x > field.x && mention.x + mention.width <= field.x + field.width && mention.y > field.y
     sizes = caret.unavailable ? "unavailable" : `caret ${caret.width}×${caret.height} mention ${mention.width}×${mention.height} past ${past.unavailable}`
     geometry = caret.unavailable ? "unavailable" : `caret width ${caret.width} mention on its line ${line} from it ${mention.x == caret.x} wide ${mention.width > caret.height * 4} inside ${inside} past ${past.unavailable}`
   action measureLines
-    // The painted caret on an empty line and in an empty field, as facts
-    // every host's fonts agree on.
+    // The painted caret on an empty line and in an empty field (theme2's
+    // 18:42 ruling), as facts every host's fonts agree on.
     let first = rangeFrame("notes", 0, 0)
     let middle = rangeFrame("notes", 2, 2)
     let next = rangeFrame("notes", 3, 3)

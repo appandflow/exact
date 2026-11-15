@@ -1,4 +1,4 @@
-// The acceptance drives 1-5 and 7 under the agent, on the photo
+// LLP 1133.008 §10's acceptance drives 1-5 and 7 under the agent, on the photo
 // editor, on one host: the agent's cameras and picture, admission by the
 // runner, leases taken by the viewfinder's displays. Drive 6 needs a tool
 // door no host has; contract/cli/tests/it/camera.rs covers it in the runner.

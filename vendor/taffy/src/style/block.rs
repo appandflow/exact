@@ -32,7 +32,7 @@ pub trait BlockContainerStyle: CoreStyle {
 /// EXACT PATCH 27: a multi-column container (CSS Multi-column Layout 1). Its
 /// in-flow children are laid out once, as one column of the used column
 /// width (the *flow thread*); cutting that column into columns is the
-/// caller's (Exact's kernel).
+/// caller's (Exact's kernel, LLP 1093 D2–D5).
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct Multicol {

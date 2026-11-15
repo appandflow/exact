@@ -9,7 +9,7 @@ publish = false
 
 [dependencies]
 libc = "0.2"
-# A partial URL parser is a security bug rather than a
+# LLP 0059.000 §3.4: a partial URL parser is a security bug rather than a
 # missing feature, so URL is a well-tested crate and not hand-written.
 base64 = "0.22"
 getrandom = "0.2"
@@ -21,7 +21,7 @@ serde_json = "1"
 # The one normal dependency: it owns native link lines and the selected ICU
 # tier, and its `links` metadata gives this crate's build script headers,
 # hermesc and the bytecode version. There is deliberately no build-dependency
-# on it, so no second instance can select or report an ICU tier.
+# on it, so no second instance can select or report an ICU tier (R-e).
 hermes-lean-sys = { path = "../hermes-lean-sys", optional = true, default-features = false }
 
 [dev-dependencies]
@@ -39,22 +39,25 @@ sha2 = "0.10"
 [build-dependencies]
 cc = "1"
 
-# The transport off Apple platforms: HTTP/1.1 over rustls with the webpki
-# roots — pure Rust, no system TLS, nothing a builder without -dev packages
-# lacks. Redirects and the rest of `fetch` stay above it, in Rust, as on Apple.
+# HTTP/1.1 and WebSockets off Apple use rustls. Android delegates certificate
+# verification to its trust manager; other hosts read native roots and fall back
+# to webpki roots only when none are usable.
 [target.'cfg(not(target_vendor = "apple"))'.dependencies]
 mio = { version = "1", features = ["os-poll", "net"] }
 socket2 = "0.6"
 libc = "0.2"
 ureq = { version = "=3.4.0", default-features = false, features = ["rustls"] }
-# The trust store is the platform's: the distro's CA bundle
-# through rustls-native-certs; the compiled-in webpki roots only where the
-# machine has none. The same rustls ureq pins, so one copy is linked.
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 rustls-native-certs = "0.7"
 # The compiled-in roots for a socket's own TLS where the machine has none
 # (the copy ureq already links).
 webpki-roots = "1"
+
+[target.'cfg(target_os = "android")'.dependencies]
+ureq = { version = "=3.4.0", default-features = false, features = ["rustls", "platform-verifier"] }
+# The local Android JNI companion implements this version's interface.
+rustls-platform-verifier = "=0.7.0"
+jni = { version = "0.22.4", default-features = false }
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61.2", features = ["Wdk_Foundation", "Wdk_Storage_FileSystem", "Wdk_System_SystemServices", "Win32_Foundation", "Win32_Networking_WinSock", "Win32_Security", "Win32_Security_Authorization", "Win32_Storage_FileSystem", "Win32_System_IO", "Win32_System_LibraryLoader", "Win32_System_SystemInformation", "Win32_System_WindowsProgramming"] }
@@ -70,7 +73,7 @@ webpki-roots = { version = "1", optional = true }
 [features]
 default = ["crypto", "websocket"]
 bindings = ["dep:hermes-lean-sys"]
-# Linux's JSI Intl shims exceed the default-on size budget. The
+# Linux's JSI Intl shims exceed LLP 0057.000 D5's default-on budget. The
 # ordinary Intl door selects the English ICU tier; callers that need every ICU
 # locale select the separate all-locales door. hermes-lean-sys alone owns link
 # lines and the selected data.
@@ -79,8 +82,8 @@ intl-all-locales = ["intl", "hermes-lean-sys/icu-full-data"]
 # Symmetric WebCrypto algorithms backed by the workspace's unmodified,
 # vendored ring. Randomness remains available without this feature.
 crypto = ["dep:ring"]
-# ECDSA P-256, Ed25519, and their SPKI/PKCS#8 codecs exceed the default-on
-# size budget, so consumers opt in explicitly.
+# ECDSA P-256, Ed25519, and their SPKI/PKCS#8 codecs exceed LLP 0057.000
+# D6's default-on size budget, so consumers opt in explicitly.
 crypto-asymmetric = ["crypto"]
 # Application WebSockets. The grant grammar and the refusing Rust/JS surface
 # remain present when this is off; only the transport implementation is cut.

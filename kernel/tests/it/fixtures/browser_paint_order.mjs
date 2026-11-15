@@ -1,4 +1,4 @@
-// Measures browser_paint_order.tsv in Chrome: for each
+// Measures browser_paint_order.tsv in Chrome (LLP 1083.000 D6): for each
 // case, the topmost box at each probe with the markup as written (bare) and
 // with `isolation: isolate` on exactly the boxes the kernel isolates or
 // stacks by policy (exact). The kernel's decisions come from the Rust test
@@ -11,8 +11,9 @@ import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { Cdp } from '../../../../scripts/agent.mjs';
 import { chromium } from '../../../../scripts/agent-launch.mjs';
+import { fileURLToPath } from 'node:url';
 
-const here = new URL('.', import.meta.url).pathname;
+const here = fileURLToPath(new URL('.', import.meta.url));
 const root = resolve(here, '../../../..');
 const fixture = resolve(here, 'browser_paint_order.tsv');
 const scratch = mkdtempSync(resolve(tmpdir(), 'exact-paint-order-'));

@@ -132,7 +132,7 @@ component ListBench
                 text "Fast scrolling may briefly show placeholders while the next rows load." font-size=13 line-height="16px" color="#85858b" padding-left=16 padding-right=16 padding-top=8
                 box height=40
 
-// The native trailing swipe (UIKit's swipe cell): the scroll is
+// The native trailing swipe (UIKit's swipe cell, LLP 1008 §9): the scroll is
 // the web's fallback and the owner; `body-…` is the cell's content and
 // `delete-…` becomes its destructive "Delete" action. Disabled in edit mode,
 // where a disabled control is no action, as SwiftUI shows no swipe there.

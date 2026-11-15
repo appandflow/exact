@@ -1,4 +1,4 @@
-// Synthetic conformance plan: records built and
+// Synthetic conformance plan (LLP 1035.005.000 D2, D3): records built and
 // copied in expressions, compared with `!=`, and `let` in actions — through
 // branches, in a `match` arm, after a write (which it does not see), and in a
 // child's action lifted into the root; and built and copied in `map` and

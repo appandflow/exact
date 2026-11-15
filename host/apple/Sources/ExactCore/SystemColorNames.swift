@@ -1,4 +1,4 @@
-// the platform colours a row may name: the documented
+// @ref LLP 1095 D3 — the platform colours a row may name: the documented
 // class colours of `UIColor` and `NSColor` that are not deprecated, by their
 // Objective-C names (`systemTealColor`), each where its SDK declares it.
 // Apple's lists: UIKit's "UI element colors" and "Standard colors"
@@ -127,7 +127,8 @@ package enum SystemColorNames {
         case "secondaryLabelColor": .secondaryLabelColor
         case "tertiaryLabelColor": .tertiaryLabelColor
         case "quaternaryLabelColor": .quaternaryLabelColor
-        case "quinaryLabelColor": .quinaryLabelColor
+        // The macOS 26.5 SDK requires this Swift spelling; macOS 27 SDKs retain it as an alias.
+        case "quinaryLabelColor": .quinaryLabel
         case "linkColor": .linkColor
         case "placeholderTextColor": .placeholderTextColor
         case "windowFrameTextColor": .windowFrameTextColor

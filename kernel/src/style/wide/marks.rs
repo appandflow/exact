@@ -210,9 +210,10 @@ impl Colors for Scene {
 /// Replace each wide colour held with its 8-bit colour, or 8-bit
 /// `light-dark()` pair (its sRGB clip, what a painting host resolves it to
 /// anyway): what a host keeps of paint it retains and paints as 8-bit
-/// colours (an svg scene), so it holds no id and still flips scheme. Mirrors
-/// [`Colors`]; after it, a visit marks nothing. A gradient's ramp needs its
-/// stops' exact colours, so it keeps their [`Values`](super::Values) instead.
+/// colours (an svg scene), so it holds no id and still flips scheme (LLP
+/// 1121 stage 4). Mirrors [`Colors`]; after it, a visit marks nothing. A
+/// gradient's ramp needs its stops' exact colours, so it keeps their
+/// [`Values`](super::Values) instead.
 pub trait Settle {
     /// Settle each wide `ColorValue` this holds.
     fn settle(&mut self);

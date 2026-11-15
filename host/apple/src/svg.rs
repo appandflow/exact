@@ -1,4 +1,4 @@
-//! Inline SVG and CSS animations on Apple.
+//! Inline SVG and CSS animations on Apple (LLP 1055 D4, D7).
 //!
 //! An `svg` is an ordinary node view; its SVG elements are not views. Each
 //! commit that touches an element (or its `svg`, or the `svg`'s size) sends
@@ -36,7 +36,7 @@ pub(crate) const LOWERED: [Property; 7] = [
     Property::Stroke,
 ];
 
-/// On iOS, a box's transform and background colour too:
+/// On iOS, a box's transform and background colour too (LLP 1055.001):
 /// UIKit anchors a view's layer at its centre, CSS's initial
 /// `transform-origin`, and Core Animation's `transform.translation`,
 /// `transform.rotation.z` and `transform.scale` key paths replace one
@@ -51,8 +51,8 @@ pub(crate) const BOX_LOWERED: [Property; 4] = [
 ];
 
 /// Whether this host has a Core Animation render server to hand motion to.
-/// watchOS has none: its views are SwiftUI, drawn by the watch drivers,
-/// so every property is sampled there.
+/// watchOS has none: its views are SwiftUI, drawn by LLP 1126's drivers
+/// (D10), so every property is sampled there.
 pub(crate) fn render_server() -> bool {
     !cfg!(target_os = "watchos")
 }
@@ -83,6 +83,8 @@ pub(crate) struct SvgState {
     pub(crate) scene_builds: usize,
     /// The last scene sent per `svg`, and its content box.
     sent: IdMap<ViewId, (String, Rect)>,
+    /// SVG roots whose cost-limit warning was logged during this node's lifetime.
+    over_warned: IdSet<ViewId>,
     /// Environment used by the cached scenes, including the window unit basis.
     environment: Option<exact_kernel::Env>,
     /// Boxes whose lowered animations may have changed, and their last spec.
@@ -97,10 +99,10 @@ pub(crate) struct SvgState {
     played: IdSet<ViewId>,
     /// Each played transition's spec and the transition it was made for.
     pub(crate) played_specs: std::collections::BTreeMap<(u64, usize), super::svg_lower::PlayedSpec>,
-    /// SVG elements with a press handler.
+    /// SVG elements with a press handler (LLP 1055.000 D17).
     pressable: IdSet<ViewId>,
     /// Whether a `foreignObject` was met: its boxes are then looked for
-    /// (refused on this host).
+    /// (LLP 1055.000 D13, refused on this host).
     foreign: bool,
     /// Whether boxes' transforms and background colours are lowered
     /// ([`BOX_LOWERED`]): iOS.
@@ -128,7 +130,7 @@ impl SvgState {
             return None;
         }
         if !node.node_type.is_svg_element() {
-            // A box inside a `foreignObject` is the
+            // @ref LLP 1055.000 D13 — a box inside a `foreignObject` is the
             // web's; here it is left out with the element.
             if self.foreign {
                 let mut up = node.parent;
@@ -139,7 +141,11 @@ impl SvgState {
                     up = p.parent;
                 }
             }
-            if !node.style.animation.0.is_empty() || self.box_sent.contains_key(&id) {
+            // An inline run has no view for an `animations` op: its
+            // animations are sampled (`svg_lower::eligibility`).
+            if !node.is_inline_run()
+                && (!node.style.animation.0.is_empty() || self.box_sent.contains_key(&id))
+            {
                 self.boxes.insert(id);
             }
             return None;
@@ -174,8 +180,8 @@ impl SvgState {
         }
     }
 
-    /// Every scene sent so far is rebuilt: the colours it resolved changed.
-    /// An unchanged scene is not sent again.
+    /// Every scene sent so far is rebuilt: the colours it resolved changed
+    /// (LLP 1095 D1). An unchanged scene is not sent again.
     pub(crate) fn all_dirty(&mut self) {
         self.dirty.extend(self.sent.keys().copied());
     }
@@ -201,6 +207,7 @@ impl SvgState {
         self.pressable.remove(&id);
         self.played.remove(&id);
         self.sent.remove(&id);
+        self.over_warned.remove(&id);
         self.box_sent.remove(&id);
         self.box_size.remove(&id);
         self.boxes.remove(&id);
@@ -210,6 +217,19 @@ impl SvgState {
                 true
             }
             None => false,
+        }
+    }
+
+    /// A view renewed for another list item (LLP 1078): the presenter drops
+    /// its scene and its box's animations, so an `svg`'s scene is owed whole
+    /// and a box's animations are sent as a new view's are.
+    pub(crate) fn renewed(&mut self, id: ViewId) {
+        self.played.remove(&id);
+        self.box_sent.remove(&id);
+        self.box_size.remove(&id);
+        if let Some((scene, _)) = self.sent.get_mut(&id) {
+            scene.clear();
+            self.dirty.insert(id);
         }
     }
 
@@ -232,8 +252,15 @@ impl SvgState {
         }
     }
 
-    /// The `svg` and `animations` ops this batch owes.
-    pub(crate) fn emit(&mut self, kernel: &Kernel, engine: &Engine, batch: &mut Batch) {
+    /// The `svg` and `animations` ops this batch owes, and new cost-limit warnings.
+    pub(crate) fn emit(
+        &mut self,
+        kernel: &Kernel,
+        engine: &Engine,
+        appearance: &exact_kernel::motion::PaintMotion,
+        batch: &mut Batch,
+    ) -> Vec<String> {
+        let mut notes = Vec::new();
         let environment = kernel.arena().env();
         if self.environment.as_ref() != Some(environment) {
             // A fixed content box can contain window-relative geometry, including
@@ -265,7 +292,20 @@ impl SvgState {
             {
                 self.scene_builds += 1;
             }
-            let scene = scene(kernel, engine, &self.pressable, &node, bx);
+            // Sampled motion contributes its value; lowered motion carries its spec.
+            let resolved = exact_kernel::svg::scene::resolve(
+                kernel,
+                &node,
+                bx,
+                &Sampled(engine),
+                appearance.dark(node.key),
+            );
+            if let Some(limit) = resolved.over {
+                if self.over_warned.insert(root) {
+                    notes.push(format!("svg #{root}: {limit}; drawing nothing"));
+                }
+            }
+            let scene = serialize(&resolved, engine, &self.pressable, bx);
             if self.sent.get(&root).is_none_or(|(s, _)| *s != scene) {
                 batch.svg(root, &scene);
                 self.sent.insert(root, (scene, bx));
@@ -356,19 +396,20 @@ impl SvgState {
                 }
             }
         }
+        notes
     }
 }
 
-/// An SVG file's scene as the `svg` op carries one: no
+/// An SVG file's scene as the `svg` op carries one (LLP 1011.001 D4): no
 /// animation runs in a picture, so the engine is empty and nothing presses.
-/// `Err` names the cost limit a scene passed.
+/// `Err` names the cost limit a scene passed (D2).
 pub(crate) fn image_scene(
     kernel: &Kernel,
     node: &NodeRef<'_>,
     bx: (f32, f32, f32, f32),
 ) -> Result<String, String> {
     let engine = Engine::new();
-    let resolved = exact_kernel::svg::scene::resolve(kernel, node, bx, &Sampled(&engine));
+    let resolved = exact_kernel::svg::scene::resolve(kernel, node, bx, &Sampled(&engine), false);
     match resolved.over {
         Some(limit) => Err(limit.to_string()),
         None => Ok(serialize(&resolved, &engine, &IdSet::default(), bx)),
@@ -377,22 +418,7 @@ pub(crate) fn image_scene(
 
 /// `{"box":[x,y,w,h],"t":[a,b,c,d,e,f]|null,"els":[…]}`: `t` null renders
 /// nothing (a view box with no area). The scene is the kernel's resolved
-/// one; this only serializes it with the lowered
-/// animations of each item.
-fn scene(
-    kernel: &Kernel,
-    engine: &Engine,
-    press: &IdSet<ViewId>,
-    node: &NodeRef<'_>,
-    bx: (f32, f32, f32, f32),
-) -> String {
-    // A sampled animation's value now; a lowered one is Core Animation's,
-    // so the scene carries its underlying value and the spec.
-    let resolved = exact_kernel::svg::scene::resolve(kernel, node, bx, &Sampled(engine));
-    serialize(&resolved, engine, press, bx)
-}
-
-/// A resolved scene as [`scene`] sends it.
+/// one (LLP 1055.000 D1), serialized with each item's lowered animations.
 fn serialize(
     resolved: &exact_kernel::svg::Scene,
     engine: &Engine,
@@ -430,7 +456,8 @@ fn serialize(
 }
 
 /// The engine's values as a scene presents them: a sampled animation's
-/// value now, and a path's `d` while a transition moves it.
+/// value now, and a path's `d` while a transition moves it (LLP 1055.000
+/// D15).
 struct Sampled<'e>(&'e Engine);
 
 impl exact_kernel::svg::scene::Present for Sampled<'_> {
@@ -456,7 +483,7 @@ fn affine_json(t: Affine, s: &mut String) {
 }
 
 /// How an item is written: as itself, or as a piece of a marked shape
-/// — the group standing for the shape, one of its paint
+/// (LLP 1055.000 D9) — the group standing for the shape, one of its paint
 /// parts (its opacity is the group's), or a marker (which takes no hits).
 #[derive(Clone, Copy, PartialEq)]
 enum Role {
@@ -545,7 +572,7 @@ fn marked(
     element(engine, press, &group, parent_ctm, s, Role::Marked);
 }
 
-/// A filtered item as a group standing for it (its
+/// A filtered item (LLP 1055.000 D14) as a group standing for it (its
 /// opacity, transform, clip and mask) whose picture is an island: `"fl"`
 /// holds the filter region, points per user unit `k`, the chain as numbers
 /// `p` (`Filter::encode`), and the element without its effects `c`.
@@ -637,10 +664,10 @@ fn element(
     let key = motion_node(item.key);
     let opacity = item.opacity as f64;
     let _ = write!(s, "{{\"id\":{},\"o\":{}", item.uid, num(item.opacity));
-    // The presenter hits it: its node, whether it
+    // @ref LLP 1055.000 D17 — the presenter hits it: its node, whether it
     // takes presses, and what `pointer-events` reads.
     let _ = write!(s, ",\"n\":{}", item.id);
-    // `mix-blend-mode` and `isolation`.
+    // @ref LLP 1055.000 D19 — `mix-blend-mode` and `isolation`.
     if item.blend != 0 {
         let _ = write!(s, ",\"bl\":{}", item.blend);
     }
@@ -664,7 +691,7 @@ fn element(
         (_, true) => {
             // A non-scaling stroke is drawn in the content box's space: the
             // path comes mapped through the item's ctm, and the layer undoes
-            // its parents'.
+            // its parents' (LLP 1055.000 D5).
             s.push_str(",\"inv\":");
             affine_json(tf::invert(parent_ctm).unwrap_or(tf::IDENTITY), s);
         }
@@ -679,7 +706,7 @@ fn element(
             s.push_str(",\"m\":");
             affine_json(t.matrix, s);
             // The individual properties' lowered animations, for the outer
-            // layer (iOS, as a box's), over the row's values.
+            // layer (iOS: LLP 1055.001, as a box's), over the row's values.
             let turns: Vec<Property> = [Property::Translate, Property::Rotate, Property::Scale]
                 .into_iter()
                 .filter(|p| engine.is_lowered(*p))
@@ -719,7 +746,7 @@ fn element(
         clip_json(&clip, s);
     }
     if let Some(mask) = &item.mask {
-        // A mask: its region and content, and the
+        // @ref LLP 1055.000 D10 — a mask: its region and content, and the
         // element's user space to its layer's (as the clip's above).
         let local = match &item.kind {
             Kind::Shape(sh) if sh.non_scaling => item.ctm,
@@ -847,7 +874,7 @@ fn shape_json(
         }
         Some(p)
     };
-    // A pattern's tile, in the same space.
+    // @ref LLP 1055.000 D7 — a pattern's tile, in the same space.
     let place = match centered {
         Some((cx, cy, _)) => tf::translate(-cx, -cy),
         None if shape.non_scaling => item.ctm,
@@ -878,6 +905,12 @@ fn shape_json(
             }
             None => paint_json(local(paint.as_ref()).as_ref(), s),
         }
+    }
+    // @ref LLP 1055.000 D17 — which paints take hits, as `pointer-events`
+    // reads them: a set fill that draws nothing (an empty gradient) still
+    // does, so the presenter cannot tell from the paints above.
+    if let Some((fill, stroke)) = shape.hit_paints() {
+        let _ = write!(s, ",\"hp\":[{},{}]", fill as u8, stroke as u8);
     }
     if shape.order != [0, 1, 2] {
         let _ = write!(
@@ -962,10 +995,10 @@ fn shape_json(
     let _ = write!(s, ",\"a\":{specs}");
 }
 
-/// A `d` transition Core Animation plays (`svg_lower::hand_over_paths`): a
-/// `path` spec between the paths at its ends, in the shape's own space, held at
-/// its start through any delay (fill both). An easing that is no cubic, and a
-/// spring's frames, become linear keys.
+/// A `d` transition Core Animation plays (LLP 1115.003 D4,
+/// `svg_lower::hand_over_paths`): a `path` spec between the paths at its ends,
+/// in the shape's own space, held at its start through any delay (fill both).
+/// An easing that is no cubic, and a spring's frames, become linear keys.
 fn path_spec(engine: &Engine, key: u64) -> Option<String> {
     let (from, to, start, curve) = engine.played_path(key)?;
     let at = |t: f64| {
@@ -1086,7 +1119,7 @@ fn server_json(server: &Server, opacity: f32, s: &mut String) {
     s.push('}');
 }
 
-/// SVG text: `[{"x","y","an","bl","runs":[{"t","dx",
+/// SVG text (LLP 1055.000 D11): `[{"x","y","an","bl","runs":[{"t","dx",
 /// "dy","fs","fw","ff","it","ls","f","s","w","cap","join","ml"},…]},…]`,
 /// shaped by the presenter with its own fonts.
 fn text_json(text: &TextItem, s: &mut String) {
@@ -1157,7 +1190,7 @@ fn serde_json_string(text: &str) -> String {
 }
 
 /// A clip: `{"s":[[path, evenodd],…],"n":clip|null}`, its shapes' union
-/// intersected with `n`.
+/// intersected with `n` (LLP 1055.000 D10).
 fn clip_json(clip: &Clip, s: &mut String) {
     s.push_str("{\"s\":[");
     for (i, shape) in clip.shapes.iter().enumerate() {
@@ -1215,7 +1248,7 @@ fn paint_json(paint: Option<&ShapePaint>, s: &mut String) {
             return crate::style::push_profiled(s, &p, paint.opacity);
         }
     }
-    // A colour in its own space paints in that space.
+    // LLP 1100 D2: a colour in its own space paints in that space.
     if let ColorValue::Wide(id) = paint.color {
         if let Some(w) = exact_kernel::style::wide::wide(id) {
             s.push_str("{\"cs\":[");
@@ -1232,10 +1265,10 @@ fn paint_json(paint: Option<&ShapePaint>, s: &mut String) {
             return;
         }
     }
-    // The tint crosses as a reference, so the presenter
+    // LLP 1116.001 D2: the tint crosses as a reference, so the presenter
     // resolves it by the svg view's own tint (the nearest `accent-color`),
     // the reported pair its fallback: UIKit's inherited tint, and on the Mac
-    // the nearest authored accent up the view chain.
+    // the nearest authored accent up the view chain (LLP 1115.000 D3.4).
     if let ColorValue::Role(id) = paint.color {
         if paint.pattern.is_none()
             && exact_kernel::style::roles::follows_accent(id, cfg!(target_os = "macos"))
@@ -1257,7 +1290,7 @@ fn paint_json(paint: Option<&ShapePaint>, s: &mut String) {
             return;
         }
     }
-    // A reference paints what the presenter reported; a new
+    // LLP 1095 D1: a reference paints what the presenter reported; a new
     // report rebuilds the scene.
     let color = match paint.color {
         c @ (ColorValue::Role(_)

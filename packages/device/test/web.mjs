@@ -1,4 +1,4 @@
-// @exact/device's conformance suite on the web:
+// @exact/device's conformance suite on the web (LLP 1133.031 §12 stage 1):
 // the fixture app (`test/fixture`) made with `exact new` outside the repo,
 // depending on this package by `file:`, built for the web, and driven in
 // each engine with the web implementation bound. No agent: a substitute

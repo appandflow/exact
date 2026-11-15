@@ -1,4 +1,4 @@
-//! `-exact-control-size`.
+//! `-exact-control-size` (LLP 1069.011.001 D8).
 use exact_kernel::style::relative::{text_style, text_style_size, MEDIUM};
 use exact_num::push_text;
 

@@ -1,5 +1,5 @@
 /-
-`sortBy`: a list's items in a stable order of one key, a
+`sortBy` (LLP 1116.016 §5): a list's items in a stable order of one key, a
 number or a string, ascending or descending.
 
 The order is core's `List.mergeSort` on the items decorated with their

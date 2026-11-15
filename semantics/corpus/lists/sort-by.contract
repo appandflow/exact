@@ -1,4 +1,4 @@
-// `sortBy`: a stable sort by one number or string key.
+// `sortBy` (LLP 1116.016 §5): a stable sort by one number or string key.
 // Equal keys keep their input order in both directions; NaN, -0 and +0 tie;
 // strings compare by UTF-16 code units, so "😀" (0xD83D 0xDE00) comes before
 // "～" (0xFF5E), where code-point order has it after.

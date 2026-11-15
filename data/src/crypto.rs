@@ -1,10 +1,10 @@
-//! A source's cryptography, the same on every executor:
+//! A source's cryptography, the same on every executor (LLP 1069.005):
 //! what a Rust source calls for what a TypeScript source reaches through
 //! `crypto`, under the same read marking.
 //!
-//! `digest`, `random_bytes`, `random_uuid`: the
+//! @ref LLP 1069.005 D5 — `digest`, `random_bytes`, `random_uuid`: the
 //! right way is the short way (trusted Rust can still call `getrandom`).
-//! Under the agent, randomness is a repeatable
+//! @ref LLP 1069.005 D2b — under the agent, randomness is a repeatable
 //! stream: ChaCha20 (RFC 8439 §2.3) keyed by the launch seed.
 
 use std::sync::{Mutex, OnceLock};
@@ -16,7 +16,7 @@ pub use ecdsa::{
 
 use exact_runner::{DataError, Store};
 
-/// The agent's repeatable random stream: the ChaCha20
+/// The agent's repeatable random stream (LLP 1069.005 D2b): the ChaCha20
 /// keystream (RFC 8439 §2.3, 20 rounds) under a key that is the launch seed
 /// as eight little-endian bytes followed by 24 zero bytes, with the
 /// executor's label (`typescript`, `rust`) as the nonce, zero-padded to 12
@@ -65,11 +65,11 @@ impl AgentStream {
     /// The seed the agent flag names, or `None` outside the agent: the
     /// process's `EXACT_AGENT=1` and `EXACT_AGENT_SEED` (default 1), which
     /// every native host also reads for `exactTime().seed`. A seed that is
-    /// not an integer below 2^32 is 1, as the Apple host
+    /// not an integer below 2^32 (LLP 1116.005 D5) is 1, as the Apple host
     /// takes it.
     pub fn agent_seed() -> Option<u64> {
-        // `EXACT_DEVICE=real`: a drive that reaches the
-        // real device reaches it with OS entropy.
+        // `EXACT_DEVICE=real` (LLP 1069.007 D8): a drive that reaches the
+        // real device reaches it with OS entropy (LLP 1069.006 D7).
         if std::env::var("EXACT_AGENT").as_deref() != Ok("1")
             || std::env::var("EXACT_DEVICE").as_deref() == Ok("real")
         {
@@ -126,7 +126,7 @@ impl AgentStream {
     }
 }
 
-/// A SHA-2 size for [`digest`]: one of the three Web Crypto names.
+/// A SHA-2 size for [`digest`] (LLP 1069.005 D1's three).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Sha {
     /// SHA-256: 32 bytes.
@@ -138,7 +138,7 @@ pub enum Sha {
 }
 
 /// The digest of `data`: pure, so no read and allowed anywhere, as
-/// `crypto.subtle.digest` is on every executor.
+/// `crypto.subtle.digest` is on every executor (LLP 1069.005 D1, D5).
 pub fn digest(sha: Sha, data: &[u8]) -> Vec<u8> {
     use sha2::Digest;
     match sha {
@@ -152,10 +152,10 @@ pub fn digest(sha: Sha, data: &[u8]) -> Vec<u8> {
 pub const MAX_RANDOM_BYTES: usize = 65_536;
 
 /// Fill `out` with secure random bytes, and mark the answer being made as
-/// having drawn them: a device read, so bake compiles
+/// having drawn them (LLP 1069.005 D2, D5): a device read, so bake compiles
 /// no value that drew one and the device asks it, as for a TypeScript
 /// source's `crypto.getRandomValues`. The OS's entropy; under the agent the
-/// repeatable `rust` stream. More than [`MAX_RANDOM_BYTES`] refuses,
+/// repeatable `rust` stream (D2b). More than [`MAX_RANDOM_BYTES`] refuses,
 /// with nothing written; an entropy failure clears `out` and refuses.
 pub fn random_bytes(store: &Store, out: &mut [u8]) -> Result<(), DataError> {
     if out.len() > MAX_RANDOM_BYTES {
@@ -173,7 +173,10 @@ pub fn random_bytes(store: &Store, out: &mut [u8]) -> Result<(), DataError> {
             DataError::Unavailable(format!("random_bytes: OS randomness unavailable: {error}"))
         })?,
     }
-    store.observe_entropy();
+    // An empty fill drew nothing
+    if !out.is_empty() {
+        store.observe_entropy();
+    }
     Ok(())
 }
 
@@ -201,7 +204,7 @@ pub(crate) mod platform {
 
 /// In the page's wasm, entropy and the drive's seed are the page's (the
 /// `exact_data` imports `host/web/glue.js` supplies). A Wasm logic module
-/// has no such import yet: one that draws is refused at load.
+/// (LLP 1029.000) has no such import yet: one that draws is refused at load.
 #[cfg(target_arch = "wasm32")]
 pub(crate) mod platform {
     #[link(wasm_import_module = "exact_data")]
@@ -323,10 +326,12 @@ mod tests {
         ));
         assert!(too_many.iter().all(|&b| b == 7), "nothing written");
         assert_eq!(store.entropy_draws(), 3, "a refusal draws nothing");
+        random_bytes(&store, &mut []).unwrap();
+        assert_eq!(store.entropy_draws(), 3, "an empty fill draws nothing");
     }
 
     /// Two processes under the agent with seed 1 mint the `rust` stream's
-    /// UUID; one outside it does not. A child process each, since the
+    /// UUID; one outside it does not (D2b). A child process each, since the
     /// flag is the process's and read once.
     #[test]
     fn under_the_agent_two_runs_of_a_rust_source_mint_the_same_uuid() {

@@ -1,56 +1,59 @@
 #!/usr/bin/env bun
 // Serve a web build for a browser — and, through exact.json, for a native
-// client: the app's (`web-build`'s target/web-dist), or the
-// directory named. LAN by default; --loopback (or EXACT_LOOPBACK=1) binds
+// client (LLP 1023 D1): the app's (`web-build`'s target/web-dist), or the
+// directory named. LAN by default (D8); --loopback (or EXACT_LOOPBACK=1) binds
 // 127.0.0.1 only, as the app's `serve` verb does unless given --lan.
 // Usage: bun host/web/serve.mjs [<dir> | --origin <dir>] [--port <n>] [--loopback|--lan]
 import { createServer } from 'node:http';
 import { createServer as createSocketServer } from 'node:net';
-import { brotliCompress, brotliCompressSync, constants as zlib, gzip, gzipSync } from 'node:zlib';
+import { brotliCompressSync, constants as zlib, createBrotliCompress, createGzip, gzipSync } from 'node:zlib';
 import { createHash, randomBytes } from 'node:crypto';
 import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { arch, cpus, networkInterfaces, platform } from 'node:os';
 import { basename, dirname, extname, isAbsolute, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { filesystem, filesystemRead } from '../../scripts/filesystem.mjs';
+import { filesystem, filesystemRead, filesystemTree } from '../../scripts/filesystem.mjs';
 import { withLock } from './build-lock.mjs';
-import { canonicalBytes } from '../../scripts/deploy-signing.mjs';
+import { canonicalBytes, readAssetIndex } from '../../scripts/deploy-signing.mjs';
 import { copyShaders, developmentURLScheme, resolveApp, webDist, webHostFiles } from '../../scripts/app.mjs';
 import { settingChanges } from '../../js/bake/src/__exact_env.mjs';
-import { acceptsHTML, appDocumentPath, webRequestURL, parseWebRoot, sha256, webReleasePath, webRootPath } from '../../scripts/origin.mjs';
-import { canonical, matchPattern } from '../web-js/route-pattern.js';
+import { acceptsHTML, appDocumentPath, prefersMarkdown, webRequestURL, parseWebRoot, sha256, webReleasePath, webRootPath } from '../../scripts/origin.mjs';
+import { canonical, filePathOf, matchPattern } from '../web-js/route-pattern.js';
 import { guardFlags } from '../../scripts/help.mjs';
+import { slashRelative, within } from '../../scripts/paths.mjs';
 
 import { INSTALL_FILES, INSTALL_PUBLIC, INSTALL_ROOT, installRoute, installNetworkPage } from '../../scripts/install-page.mjs';
-import { generationOf, keepGeneration, reapGenerations, servedFile, withGenerationBase } from './generations.mjs';
+import { COMPRESSIBLE, acceptedEncodings, bodyDigest, compressionCache, matchesETag } from './compression.mjs';
+import { foreignBeside, generationPath, keepGeneration, reapGenerations, servedFile } from './generations.mjs';
 
 const PUBLIC_FILES = new Set([
   ...INSTALL_PUBLIC,
   ...Object.keys(webHostFiles()).map(name => '/' + name),
-  '/app.js', '/app.hbc', '/app.module.json', '/app.plan', '/app.wasm', '/exact.json',
+  '/app.js', '/app.hbc', '/app.module.json', '/app.plan', '/app.wasm', '/assets.json', '/exact.json',
   '/gpu.js', '/gpu_bg.wasm', '/markup-editor.wasm', '/textflow.wasm', '/index.html', '/manifest.json',
+  '/robots.txt', '/sitemap.xml',
   // The one dot path a static origin serves: the deep-link association
-  // file bake generates, read by Apple's CDN over HTTPS.
+  // file the web build writes (LLP 1030 D1), read by Apple's CDN over HTTPS.
   '/.well-known/apple-app-site-association',
 ]);
-// `/gpu/`: each declared GPU module's wasm and its glue.
-// `/stages/`: the core's staged capabilities, named by digest.
-// `/modules/`: the app's native-module web executor, page code.
+// `/gpu/`: each declared GPU module's wasm and its glue (LLP 1009 D6).
+// `/stages/`: the core's staged capabilities, named by digest (LLP 1047.000).
+// `/modules/`: the app's native-module web executor (LLP 1024 D3), page code.
 const PUBLIC_TREES = ['/assets/', '/deck/', '/shaders/', '/rust/', '/gpu/', '/stages/', '/modules/', '/plans/', '/activities/'];
 const REQUIRED_BUILD_FILES = ['app.plan', 'app.wasm', 'exact.json', 'glue.js', 'navigation.js', 'index.html', 'manifest.json'];
-// An origin's update streams (`scripts/origin.mjs`):
+// An origin's update streams (LLP 1030.000 D7; `scripts/origin.mjs`):
 // `.exact/blobs/<sha256>` and `.exact/<channel>/<compatibility id>/…` — the
 // one dot path a client fetches. Inside it every other dot name (the
 // stream's `.lock`) stays private.
 const UPDATE_TREE = '/.exact/';
-// The web's auth callback page and its script, under the
+// The web's auth callback page and its script (LLP 1069.006 D4), under the
 // update tree: never stored, and sent with no referrer.
 export const AUTH_CALLBACK = '/.exact/auth/callback';
 
 /** Dev-only opening instructions. Never infers installation or publishes a
  * build. `links` are the token-bearing opening links this Mac's development
- * clients admit for the page's origin (`developmentLinks`). */
+ * clients admit for the page's origin (`developmentLinks`, LLP 1030.000 §7). */
 export function developmentOpenPage(app, links = [], page = '/') {
   const escape = value => String(value).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const name = escape(app.displayName), crate = escape(app.crate('apple')), url = escape(page);
@@ -113,12 +116,22 @@ export function moduleCards(files, appId) {
     return [key, { bytes: bytes.length, sha256: sha256(bytes) }];
   }));
 }
-export function retainDevGeneration(cache, epoch, seq, files, quota = DEV_GENERATION_CACHE_BYTES, previousToken = null) {
+export function retainDevGeneration(cache, epoch, seq, files, quota = DEV_GENERATION_CACHE_BYTES, previousToken = null, batch = 64 * 1024 * 1024) {
   if (!/^[0-9a-f]{32}$/.test(epoch) || !Number.isSafeInteger(seq) || seq < 0) throw new Error('invalid dev generation identity');
+  // The assets the index names are kept once, by digest, for every generation. One request cannot hold a large
+  // generation: batches of new assets go first, each admitted with the bytes still to come (`reserve`).
+  const root = resolve(cache), index = files.get('assets.json'), own = {}, fresh = new Map(), sent = [], kept = new Set(filesystem({ op: 'list', root, path: 'blobs' }) ?? []);
+  const digests = new Map(index ? JSON.parse(index).assets.map((asset) => [asset.name, asset.sha256]) : []);
+  for (const [name, bytes] of files) { const digest = digests.get(name); if (!digest) own[staticRelative(name)] = bytes; else if (!kept.has(digest)) fresh.set(digest, bytes); }
+  let reserve = [...Object.values(own), ...fresh.values()].reduce((sum, bytes) => sum + bytes.length, 0), blobs = {}, pending = 0, result;
+  const send = (more) => { reserve -= pending; result = filesystem({ op: 'retain', root, path: `${epoch}/${seq}`, quota, previousToken, blobs, reserve: more ? 0 : reserve, ...more }); previousToken = result.token; sent.push(...Object.keys(blobs)); blobs = {}; pending = 0; };
   try {
-    return filesystem({ op: 'retain', root: resolve(cache), path: `${epoch}/${seq}`, quota, previousToken,
-      files: Object.fromEntries([...files].map(([name, bytes]) => [staticRelative(name), Buffer.from(bytes).toString('base64')])) });
+    for (const [digest, bytes] of fresh) { blobs[digest] = Buffer.from(bytes).toString('base64'); if ((pending += bytes.length) >= batch) send(); }
+    send({ files: Object.fromEntries(Object.entries(own).map(([name, bytes]) => [name, Buffer.from(bytes).toString('base64')])) });
+    return result;
   } catch (error) {
+    // A refused publication's blobs that no published generation names are not left charged against the quota.
+    if (sent.length) try { filesystem({ op: 'release', root, blobs: sent }); } catch (release) { error.message += `; its kept assets were not released: ${release.message}`; }
     if (error.message.includes('cache quota exceeded')) throw new Error(`dev generation cache is full: ${resolve(cache)}; close all pages and native dev connections before manually removing this cache, then restart the dev server`);
     throw error;
   }
@@ -131,19 +144,20 @@ function* devGenerationRead(cache, pathname) {
     const match = /^\/__dev\/generation\/([0-9a-f]{32})\/([0-9]+)\/(.+)$/.exec(pathname);
     if (!match) return null;
     const name = staticRelative(decodeURIComponent(match[3]));
-    if (!['app.plan', 'app.plan.map.json', 'exact.json', ...Object.values(MODULE_FILES)].includes(name) && !PUBLIC_TREES.some((tree) => ('/' + name).startsWith(tree))) return null;
+    if (!['app.plan', 'app.plan.map.json', 'assets.json', 'exact.json', ...Object.values(MODULE_FILES)].includes(name) && !PUBLIC_TREES.some((tree) => ('/' + name).startsWith(tree))) return null;
     const prefix = `${match[1]}/${match[2]}`;
     const raw = (yield { op: 'get', root: resolve(cache), path: `${prefix}/exact.json` });
     if (raw === null) return null;
     const envelopeBytes = Buffer.from(raw, 'base64');
     const envelope = JSON.parse(envelopeBytes.toString('utf8'));
-    if (envelope.dev?.epoch !== match[1] || String(envelope.dev?.seq) !== match[2]) return null;
-    if (name === 'exact.json') return { name, body: envelopeBytes };
+    if (envelope.dev?.epoch !== match[1] || String(envelope.dev?.seq) !== match[2]) return null; if (name === 'exact.json') return { name, body: envelopeBytes };
     const moduleKey = Object.keys(MODULE_FILES).find(key => MODULE_FILES[key] === name);
     const rustCard = Object.values(envelope.rust ?? {}).flatMap(v => [v.receipt, v.module]).find(card => card.url?.endsWith('/' + name) || card.url === name);
-    const card = name === 'app.plan.map.json' ? envelope.dev.sourceMap : name === 'app.plan' ? envelope.plan : moduleKey ? envelope.module?.[moduleKey] : rustCard ?? envelope.assets?.find((asset) => asset.name === name);
+    let card = name === 'app.plan.map.json' ? envelope.dev.sourceMap : name === 'app.plan' ? envelope.plan : name === 'assets.json' ? envelope.assets : moduleKey ? envelope.module?.[moduleKey] : rustCard;
+    let path = `${prefix}/${name}`;
+    if (!card && envelope.assets) { const index = (yield { op: 'get', root: resolve(cache), path: `${prefix}/assets.json` }); card = index !== null && readAssetIndex(envelope.assets, Buffer.from(index, 'base64')).find((asset) => asset.name === name); path = `blobs/${card?.sha256}`; }
     if (!card) return null;
-    const value = (yield { op: 'get', root: resolve(cache), path: `${prefix}/${name}` });
+    const value = (yield { op: 'get', root: resolve(cache), path });
     if (value === null) return null;
     const body = Buffer.from(value, 'base64');
     if (body.length !== card.bytes || sha256(body) !== card.sha256) return null;
@@ -155,8 +169,8 @@ function* devGenerationRead(cache, pathname) {
 export function readDevGeneration(cache, pathname) { return runReads(devGenerationRead(cache, pathname)); }
 export function readDevGenerationAsync(cache, pathname) { return runReadsAsync(devGenerationRead(cache, pathname)); }
 
-/** Every regular file under a static source tree, sorted and refused when
- * the root or any entry is a symlink or another special filesystem object. */
+/** Static files other than Finder's `.DS_Store` metadata, sorted and refused
+ * when the root or any entry is a symlink or another special filesystem object. */
 export function listStaticFiles(source) {
   return Object.keys(filesystem({ op: 'names', root: resolve(source) }));
 }
@@ -249,9 +263,7 @@ export function syncStaticTree(source, target, validate = null) {
   }
 }
 
-function staticTreeSnapshot(root) {
-  return new Map(Object.entries(filesystem({ op: 'tree', root: resolve(root), optionalRoot: true }) ?? {}).map(([name, bytes]) => [name, Buffer.from(bytes, 'base64')]));
-}
+const staticTreeSnapshot = (root) => filesystemTree(resolve(root)) ?? new Map();
 
 /** Atomically reconcile a watched whole-tree creation/deletion and return
  * only changed leaf rows. Root events are common when Darwin removes a
@@ -571,7 +583,7 @@ function planRoutes(bytes) {
   return routes;
 }
 /** The plan's route table, in its order: each route's name, pattern, render policy and whether it is the
- * `notfound` route (`routes.json`). Throws on a plan this format does not read. */
+ * `notfound` route (`routes.json`, LLP 1153 D3). Throws on a plan this format does not read. */
 export function planRouteTable(bytes) {
   if (bytes.subarray(0, 4).toString() !== 'EXPL' || bytes.readUInt32LE(4) !== planFormat.formatVersion
     || !bytes.subarray(8, 16).equals(planFormatDigest)) throw new Error('unknown plan format');
@@ -698,7 +710,7 @@ export async function builtAppMatches(dist, app) {
         || Object.keys(marker.files[i]).sort().join(',') !== 'bytes,name,sha256')) return false;
     const identity = marker.exactBuild === 1 && marker.app?.id === app.id
       && marker.app.name === app.displayName && marker.manifestSha256 === appManifestDigest(app);
-    // A JS-target build has no envelope; its plan names the app.
+    // A JS-target build (LLP 1071) has no envelope; its plan names the app.
     if (js) return identity && planAppId(readFileSync(resolve(root, 'app.plan'))) === app.id;
     const found = await readStaticFileAsync(dist, '/exact.json');
     const plan = await readStaticFileAsync(dist, '/app.plan');
@@ -713,7 +725,7 @@ export async function builtAppMatches(dist, app) {
   } catch { return false; }
 }
 
-// A JS-target build (`host/web-js/build.mjs`) is whatever its
+// A JS-target build (LLP 1071, `host/web-js/build.mjs`) is whatever its
 // bundler wrote — the entry, content-named chunks, pages at their locations —
 // so the local tools list and serve it as a tree: every regular file whose
 // path has no dot component, never through a symlink. Its completion marker
@@ -739,15 +751,25 @@ export const buildFileCards = (dist) => listBuildFiles(dist).map((name) => {
 /** Put the complete build in `stage` (a sibling of `dist`, or on its volume) in place of `dist`; a server reads
  * `dist.previous` meanwhile. Builds that run at once (`test web` beside `agent web`, the dev loop's watcher) each
  * build in a stage of their own and swap here in turn, under `dist.lock`, so none deletes or overwrites the files
- * another is writing. */
+ * another is writing (app farm round 1: two of three concurrent builds failed and the third lost `app.css`). */
 export function replaceBuild(stage, dist) {
   mkdirSync(dirname(dist), { recursive: true });
   withLock(`${dist}.lock`, () => {
     // Before `.previous` goes: it may be the only tree left by a swap that
     // was killed between its renames.
     if (!realDirectory(stage)) throw new Error(`${stage}: no build to put in place`);
+    const foreign = foreignBeside(dist);
+    if (foreign) throw new Error(foreign);
     // No dist (that swap's state): the stage in place first, then `.previous` gone.
-    if (!existsSync(dist)) { renameSync(stage, dist); keepGeneration(`${dist}.previous`, dist); reapGenerations(dist); return; }
+    if (!existsSync(dist)) {
+      renameSync(stage, dist);
+      // This swap did not move `.previous`; another process may have created it during the rename.
+      const foreign = foreignBeside(dist);
+      if (foreign) throw new Error(foreign);
+      keepGeneration(`${dist}.previous`, dist);
+      reapGenerations(dist);
+      return;
+    }
     rmSync(`${dist}.previous`, { recursive: true, force: true });
     // One step where the system has one: dist is the new tree from one
     // instant to the next, never absent, and the old tree is left at the
@@ -762,7 +784,7 @@ export function replaceBuild(stage, dist) {
   });
 }
 
-/** The lines `web-build --out` ends with: the routes the browser draws, each route a static root
+/** The lines `web-build --out` ends with (LLP 1153 D3): the routes the browser draws, each route a static root
  * cannot render on request, which `serve` renders, then the directory and the rule any static host serves it by, which `serve` applies
  * (`buildTreeFile`). */
 export function hostingNotes(dist, serve = 'bun exact.mjs serve') {
@@ -826,7 +848,7 @@ export function jsTargetBuild(dist) {
   try { return JSON.parse(readFileSync(resolve(dist, '.exact-build.json'), 'utf8')).target === 'js'; }
   catch { return false; }
 }
-/** A file of a JS-target build for a request path, by the hosting rule: the file, or a directory's
+/** A file of a JS-target build for a request path, by the hosting rule (LLP 1153 D3): the file, or a directory's
  * index.html (a page rendered at build); else, for an HTML navigation (`acceptsHTML`) whose path a route in the
  * build's `routes.json` matches, `shell.html`. With `miss`, a request the rule finds nothing for gets the build's
  * `404.html`, else, for a navigation to a page, the shell, whose client draws the notfound route; either marked
@@ -836,9 +858,10 @@ export function buildTreeFileAsync(dist, pathname, accept = '', { miss = false }
 function* treeFile(dist, pathname, accept, miss) {
   let path;
   try { path = installRoute(decodeURIComponent(pathname)); } catch { return null; }
-  // No dot path, but the auth callback page's (`/.exact/auth/…`)
-  // and the install pages and their data.
-  if (!path.startsWith('/') || path.includes('\\') || path.includes('\0') || (!INSTALL_PUBLIC.includes(path) && path.replace(/^\/\.exact\/auth\//, '/').split('/').some((part) => part.startsWith('.')))) return null;
+  // Hidden paths serve only a declared build page, the auth callback (LLP 1069.006 D4: `/.exact/auth/…`), the
+  // install pages and their data (LLP 1030.003 D6a), or the deep-link association file (`PUBLIC_FILES`).
+  if (!path.startsWith('/') || path.includes('\\') || path.includes('\0') || path.split('/').some(part => part === '.' || part === '..')) return null;
+  const hidden = !PUBLIC_FILES.has(path) && path.replace(/^\/\.exact\/auth\//, '/').split('/').some(part => part.startsWith('.'));
   const navigation = acceptsHTML(accept), page = navigation && appDocumentPath(pathname, true);
   // Asked again, three times at most: a build put in place as it was looked up
   // moves the tree it resolved away under it (its files then resolve to
@@ -852,9 +875,18 @@ function* treeFile(dist, pathname, accept, miss) {
       try { if (at.startsWith(prefix) && realpathSync(at) === at && statSync(at).isFile()) return { path: at, route }; } catch { /* none */ }
       return null;
     };
-    const exact = file(path);
+    const named = filePathOf(pathname).replace(/\/?$/, '/index.html'), decoded = path.replace(/\/?$/, '/index.html');
+    let index = file(named);
+    // A hidden path is only a build route's page, whose file keeps its escapes; an asset directory's is decoded.
+    if (hidden || (!index && named !== decoded && !/%2f/i.test(pathname))) {
+      const routes = yield* servedRouteTable(root);
+      if (!stillBuild(dist, was)) continue;
+      const built = routes?.[matchPattern(routes, canonical(pathname))]?.render === 'build';
+      if (hidden) return built ? index : null;
+      if (!built) index = file(decoded);
+    }
+    const exact = /%2f/i.test(pathname) ? null : file(path);
     if (exact) return exact;
-    const index = file(path.replace(/\/?$/, '/index.html'));
     // Only a navigation gets the shell; a dotted last segment is a page only when it is no file's extension or a
     // route matches it (`appDocumentPath`).
     if (navigation) {
@@ -886,7 +918,7 @@ const asksPage = (req, pathname) => acceptsHTML(req.headers.accept) || (!!pathna
 /** A JS-target build's file for a request, from the build the page booted (generations.mjs): a document names its
  * generation in its base, and a path under one, or any path for a drive's `pinned` one, is read from that build. A
  * generation kept no more is 410, which the page's glue answers by loading the page again. With `pages` (`serve`'s
- * `sitePages`), a `render=request` or `cached` route's page is rendered for the request in place of
+ * `sitePages`, LLP 1153 D3.4), a `render=request` or `cached` route's page is rendered for the request in place of
  * its shell. With `compression` (`serve`'s, `compressionCache`), it is a site's server: a page goes compressed as the
  * reader accepts, and a file as its warmed variant, revalidated by its ETag; else (the drivers, the dev server) every
  * response is identity and never kept. */
@@ -894,34 +926,52 @@ export async function serveBuildTree(dist, req, res, { pinned = null, pages = nu
   // The raw target is refused as serveStatic refuses it (an encoded dot
   // segment); a parsed URL would resolve one into another route.
   const target = webRequestURL(req.url);
-  // A waiting page's answers, kept by the renderer that made it (render.mjs `deferredAnswers`).
+  // A waiting page's answers, kept by the renderer that made it (render.mjs `deferredAnswers`, LLP 1048.007 D10).
   const answers = target && pages?.answers?.(target.pathname);
   if (answers) {
     sendStaticBody(req, res, answers.body, { 'content-type': answers.status === 200 ? 'application/json' : 'text/plain; charset=utf-8', 'cache-control': answers.status === 200 ? 'private, max-age=3600, immutable' : 'no-store' }, answers.status);
     return;
   }
-  let r = target ? await servedFile(dist, target.pathname, req.headers.accept, { pinned }) : { status: 404 };
+  const under = target && generationPath(target.pathname), path = under?.path ?? target?.pathname, prefix = under ? target.pathname.slice(0, -path.length) : '';
+  const negotiated = !!target && under !== 'bad' && !extname(path), markdown = negotiated && prefersMarkdown(req.headers.accept) ? await servedFile(dist, `${prefix}${path.replace(/\/+$/, '') || '/index'}.md`, req.headers.accept, { pinned }) : null;
+  let r = markdown?.status === 200 && markdown.route.endsWith('.md') ? markdown : target ? await servedFile(dist, target.pathname, req.headers.accept, { pinned }) : { status: 404 };
   // A request taking any type (curl's) is answered as a navigation where that is a page rendered for it, as any
   // server rendering pages answers it; a route the client draws stays a browser's.
-  if (pages && target && asksPage(req, target.pathname) && !acceptsHTML(req.headers.accept)) {
+  if (pages && target && r !== markdown && asksPage(req, target.pathname) && !acceptsHTML(req.headers.accept)) {
     const page = await servedFile(dist, target.pathname, 'text/html', { pinned });
     if (page.route === '/shell.html' && ['request', 'cached'].includes(page.render)) r = page;
+  }
+  if (markdown && r.status === 404 && (await servedFile(dist, target.pathname, 'text/html', { pinned })).status === 404) {
+    const missing = await servedFile(dist, `${prefix}/404.md`, req.headers.accept, { pinned });
+    if (missing.status === 200 && missing.route === '/404.md') r = { ...missing, status: 404 };
   }
   if (r.status === 410) { res.writeHead(410, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' }); res.end(`build generation ${r.id} is no longer kept here: load the page again\n`); return; }
   if (pages && [200, 404].includes(r.status) && r.route === '/shell.html' && ['request', 'cached'].includes(r.render) && ['GET', 'HEAD'].includes(req.method)) {
     let page = null;
-    try { page = await pages(r.id, (r.location ?? target.pathname) + target.search, (name) => req.headers[name]); } catch (error) {
+    // A HEAD has no body to send the head of before the render.
+    const header = (name) => (name === 'sec-fetch-dest' && req.method === 'HEAD' ? undefined : req.headers[name]);
+    try { page = await pages(r.id, (r.location ?? target.pathname) + target.search, header); } catch (error) {
       console.error(`render ${target.pathname}: ${error.message}`);
       res.writeHead(500, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' }); res.end('This page could not be rendered.\n'); return;
     }
     if (page) {
-      const headers = { 'content-type': 'text/html; charset=utf-8', 'cache-control': page.cacheControl, ...(page.acceptCH ? { 'accept-ch': page.acceptCH } : {}) };
+      const headers = { 'content-type': 'text/html; charset=utf-8', 'cache-control': page.cacheControl, ...(page.acceptCH ? { 'accept-ch': page.acceptCH } : {}), ...(page.retryAfter ? { 'retry-after': page.retryAfter } : {}) };
       // A page made for this request is compressed as it goes: brotli at quality 5 takes a few milliseconds for a
-      // page and is a tenth of its size, which the reader's first paint waits on.
+      // page and is a tenth of its size, which the reader's first paint waits on (LLP 1048.007 D6).
       const accepted = compression ? acceptedEncodings(req.headers['accept-encoding']) : new Set();
       const encoding = ['br', 'gzip'].find(name => accepted.has(name));
+      const vary = [compression && 'Accept-Encoding', negotiated && 'Accept', ...(page.vary ?? '').split(', ').filter(v => v && v !== 'Accept-Encoding' && v !== 'Accept')].filter(Boolean).join(', ');
+      if (page.stream) {
+        // A navigation's head, sent before the render settles (LLP 1048.005), each part flushed through the encoder.
+        res.writeHead(page.status, { ...headers, ...(vary ? { vary } : {}), ...(encoding ? { 'content-encoding': encoding } : {}) });
+        const z = encoding === 'br' ? createBrotliCompress({ params: { [zlib.BROTLI_PARAM_QUALITY]: 5 } }) : encoding ? createGzip() : null;
+        z?.pipe(res);
+        // Read to its end even when the reader has gone: the render disposes its realm when it finishes.
+        for await (const part of page.stream) if (!res.destroyed) await new Promise(ok => (z ? (z.write(part), z.flush(ok)) : res.write(part, ok)));
+        if (z) z.end(); else res.end();
+        return;
+      }
       const body = encoding === 'br' ? brotliCompressSync(page.html, { params: { [zlib.BROTLI_PARAM_QUALITY]: 5 } }) : encoding ? gzipSync(page.html) : page.html;
-      const vary = [compression && 'Accept-Encoding', ...(page.vary ?? '').split(', ').filter(v => v && v !== 'Accept-Encoding')].filter(Boolean).join(', ');
       sendStaticBody(req, res, body, { ...headers, ...(vary ? { vary } : {}), ...(encoding ? { 'content-encoding': encoding } : {}) }, page.status);
       return;
     }
@@ -935,7 +985,7 @@ export async function serveBuildTree(dist, req, res, { pinned = null, pages = nu
   }
   if (!r.body) { res.writeHead(r.status, { 'cache-control': 'no-store', ...(r.status === 503 ? { 'retry-after': '1' } : {}) }); res.end(); return; }
   const type = webContentType(r.route);
-  if (!compression || r.status !== 200) { sendStaticBody(req, res, r.body, { 'content-type': type, 'cache-control': 'no-store' }, r.status); return; }
+  if (!compression || r.status !== 200) { sendStaticBody(req, res, r.body, { 'content-type': type, 'cache-control': 'no-store', ...(negotiated ? { vary: 'Accept' } : {}) }, r.status); return; }
   const body = Buffer.isBuffer(r.body) ? r.body : Buffer.from(r.body), digest = bodyDigest(body);
   let encoding = null;
   if (COMPRESSIBLE.has(type)) {
@@ -944,53 +994,12 @@ export async function serveBuildTree(dist, req, res, { pinned = null, pages = nu
     void compression.warm(digest, body);
   }
   const headers = { 'content-type': type, 'cache-control': 'no-cache', etag: `"${digest}${encoding ? `-${encoding}` : ''}"`,
-    ...(COMPRESSIBLE.has(type) ? { vary: 'Accept-Encoding' } : {}), ...(encoding ? { 'content-encoding': encoding } : {}) };
+    ...(COMPRESSIBLE.has(type) || negotiated ? { vary: [negotiated && 'Accept', COMPRESSIBLE.has(type) && 'Accept-Encoding'].filter(Boolean).join(', ') } : {}), ...(encoding ? { 'content-encoding': encoding } : {}) };
   if (matchesETag(req.headers['if-none-match'], headers.etag)) {
     const { 'content-type': _, 'content-encoding': __, ...validators } = headers;
     res.writeHead(304, validators); res.end(); return;
   }
   sendStaticBody(req, res, encoding ? compression.get(digest, encoding) : body, headers);
-}
-
-/** `serve`'s `pages` for the JS-target build at `dist`: `(id, location, header)`, the page for `location` rendered by
- * render.mjs's `pageServer` from build generation `id` (`servedFile`'s), wherever that build is (`dist`, or `<dist>.gen`
- * once another replaced it), and bound to it as a document `servedFile` sends is: its base that generation's, and
- * rendered again from where the build was kept when another replaced it during the render. Whole, not streamed, so
- * its head is sent only when all of it is known to be that build's. Null for a build with no server bundle (`--render
- * none`), whose `render=request` and `cached` routes are then served their shell. */
-function sitePages(dist, { pageServer, deferredAnswers, deferredPath }) {
-  const servers = new Map(); // `${id} ${tree}` -> its page server, a `cached` route's pages kept in it
-  const serverOf = (id, tree) => {
-    const key = `${id} ${tree}`;
-    if (!servers.has(key)) {
-      if (servers.size >= 8) servers.delete(servers.keys().next().value);
-      servers.set(key, existsSync(resolve(tree, '.gen/server.js')) ? pageServer(tree) : null);
-    }
-    return servers.get(key);
-  };
-  const pages = async (id, location, header) => {
-    // The page whole (no `sec-fetch-dest`) and uncompressed (no `accept-encoding`), as every file here is sent; laid
-    // out for the viewport the request tells (render.mjs `viewportOf`).
-    const asked = (name) => (name === 'cache-control' || name === 'user-agent' || name.startsWith('sec-ch-') || name === 'viewport-width' ? header(name) : undefined);
-    for (let attempt = 0; attempt < 3; attempt++) {
-      const current = !id || generationOf(dist) === id, tree = current ? dist : resolve(`${dist}.gen`, id);
-      const render = existsSync(tree) && serverOf(id, tree);
-      if (!render) return null;
-      const { status, headers, body } = await render(location, asked);
-      if (current && id && generationOf(dist) !== id) continue;
-      const html = Buffer.from(body).toString('utf8');
-      return { status, cacheControl: headers['cache-control'], vary: headers.vary, acceptCH: headers['accept-ch'], html: id ? withGenerationBase(html, id) : html };
-    }
-    return null;
-  };
-  // `/.exact/checkpoint/<hash>.json`: the answers a waiting page named (render.mjs `deferAnswers`), else null.
-  pages.answers = (path) => {
-    const hash = deferredPath(path);
-    if (!hash) return null;
-    const body = deferredAnswers(hash);
-    return body === undefined ? { status: 404, body: "These answers are no longer kept; the page builds itself afresh.\n" } : { status: 200, body };
-  };
-  return pages;
 }
 
 const assetTrees = (rust) => ['assets', 'deck', 'shaders', 'plans', 'activities', ...(rust ? ['rust'] : [])];
@@ -999,8 +1008,7 @@ const assetTrees = (rust) => ['assets', 'deck', 'shaders', 'plans', 'activities'
 export function captureAssets(dir, rust = false) {
   const files = new Map();
   for (const tree of assetTrees(rust)) {
-    const captured = filesystem({ op: 'tree', root: resolve(dir, tree), optionalRoot: true }) ?? {};
-    for (const [relative, encoded] of Object.entries(captured)) files.set(`${tree}/${relative}`, Buffer.from(encoded, 'base64'));
+    for (const [relative, bytes] of filesystemTree(resolve(dir, tree)) ?? []) files.set(`${tree}/${relative}`, bytes);
   }
   return files;
 }
@@ -1032,16 +1040,7 @@ export function listAssets(dir, rust = false, extraTrees = []) {
   return files.sort((a, b) => Buffer.compare(Buffer.from(a.name), Buffer.from(b.name)));
 }
 
-/** Named snapshot plans share the asset roster's authenticated bytes. */
-export function entryPlans(assets) {
-  const plans = Object.fromEntries(assets.flatMap(card => {
-    const kind = /^plans\/([A-Za-z][A-Za-z0-9_-]*)\.plan$/.exec(card.name)?.[1];
-    return kind ? [[kind, card]] : [];
-  }));
-  return Object.keys(plans).length ? { plans } : {};
-}
-
-/** A dev generation's identity: the SHA-256 of the canonical
+/** A dev generation's identity (LLP 1007 §6): the SHA-256 of the canonical
  * JSON of its plan, asset, module and Rust cards, each by its name, digest
  * and length, assets in UTF-8 order, as a client checks it (host/web/dev.js
  * `fetchGeneration`), never by its url (an asset card captured from disk
@@ -1068,7 +1067,6 @@ export function webEnvelope(app, bytes, assets, live = {}) {
     plan: { url: './app.plan', sha256: createHash('sha256').update(bytes).digest('hex'), bytes: bytes.length,
       formatVersion: bytes.readUInt32LE(4), kernelSchema: bytes.readBigUInt64LE(16).toString(16).padStart(16, '0') },
     assets,
-    ...entryPlans(assets),
     ...live,
   };
 }
@@ -1077,12 +1075,11 @@ export function webContentType(route) {
   if (route === '/exact.json') return 'application/vnd.exact.envelope+json';
   if (route === '/manifest.json') return 'application/manifest+json';
   if (route === '/.well-known/apple-app-site-association') return 'application/json';
-  // The auth callback page: one static page at exactly this path.
+  // The auth callback page (LLP 1069.006 D4): one static page at exactly this path.
   if (route === AUTH_CALLBACK) return 'text/html';
   return {
     '.html': 'text/html', '.css': 'text/css', '.js': 'text/javascript', '.mjs': 'text/javascript', '.json': 'application/json',
-    '.txt': 'text/plain; charset=utf-8', '.md': 'text/markdown; charset=utf-8', '.xml': 'application/xml',
-    '.wasm': 'application/wasm', '.plan': 'application/vnd.exact.plan',
+    '.txt': 'text/plain; charset=utf-8', '.md': 'text/markdown; charset=utf-8', '.xml': 'application/xml', '.wasm': 'application/wasm', '.plan': 'application/vnd.exact.plan',
     '.mp4': 'video/mp4', '.webm': 'video/webm', '.vtt': 'text/vtt', '.wav': 'audio/wav', '.mp3': 'audio/mpeg', '.m4a': 'audio/mp4', '.aac': 'audio/aac', '.ogg': 'audio/ogg', '.oga': 'audio/ogg',
     '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.pdf': 'application/pdf',
     '.svg': 'image/svg+xml', '.ttf': 'font/ttf', '.woff2': 'font/woff2', '.wgsl': 'text/wgsl',
@@ -1105,52 +1102,9 @@ export function webCacheControl(found) {
   return found.route.startsWith(UPDATE_TREE) && !INSTALL_PUBLIC.includes(found.route) ? 'no-store' : 'no-cache';
 }
 
-// Compressed representations for the production server (`serve.mjs` itself;
-// the dev server and drivers send identity bytes). Brotli at quality 11 takes
-// seconds for an app's wasm, so a variant is made once per body digest, off
-// the request path — the server warms its tree at startup — and a request that
-// arrives first gets the identity bytes. A variant no smaller is not kept.
-const COMPRESSIBLE = new Set(['application/wasm', 'text/javascript', 'text/css', 'text/html', 'application/json',
-  'application/manifest+json', 'application/vnd.exact.envelope+json', 'image/svg+xml', 'text/wgsl',
-  'application/vnd.exact.model', 'application/vnd.exact.texture']);
-export function compressionCache(limit = 256 * 1024 * 1024) {
-  const variants = new Map(), pending = new Map();
-  let held = 0;
-  const make = (digest, body, encoding) => {
-    const key = `${digest}:${encoding}`;
-    if (variants.has(key)) return Promise.resolve();
-    if (!pending.has(key)) pending.set(key, new Promise(done => {
-      const finish = (error, out) => {
-        pending.delete(key);
-        if (!error && out.length < body.length && held + out.length <= limit) { variants.set(key, out); held += out.length; }
-        done();
-      };
-      if (encoding === 'br') brotliCompress(body, { params: { [zlib.BROTLI_PARAM_QUALITY]: 11, [zlib.BROTLI_PARAM_SIZE_HINT]: body.length } }, finish);
-      else gzip(body, { level: 9 }, finish);
-    }));
-    return pending.get(key);
-  };
-  return {
-    get: (digest, encoding) => variants.get(`${digest}:${encoding}`) ?? null,
-    warm: (digest, body) => Promise.all(['br', 'gzip'].map(encoding => make(digest, body, encoding))),
-  };
-}
-const bodyDigest = body => createHash('sha256').update(body).digest('base64url').slice(0, 32);
-/** The encodings a request accepts, per RFC 9110 §12.5.3 (a q of 0 refuses). */
-function acceptedEncodings(header = '') {
-  const accepted = new Set();
-  for (const part of String(header).split(',')) {
-    const [name, ...params] = part.trim().toLowerCase().split(';');
-    const q = params.map(p => /^\s*q=([0-9.]+)\s*$/.exec(p)?.[1]).find(Boolean);
-    if (name && (q === undefined || Number(q) > 0)) accepted.add(name);
-  }
-  return accepted;
-}
-const matchesETag = (header, etag) => typeof header === 'string'
-  && header.split(',').some(tag => { const t = tag.trim(); return t === '*' || t.replace(/^W\//, '') === etag; });
-
 /** Warm every compressible file the server will answer for: a local build's
  * public files, or a published root's current release. */
+export { compressionCache };
 export async function warmCompression(dist, compression, js = false) {
   let names;
   try { names = listPublicFiles(dist); } catch { names = []; }
@@ -1165,7 +1119,7 @@ export async function warmCompression(dist, compression, js = false) {
   return warmed;
 }
 
-// Preserve file precedence and negotiate the app
+// @ref LLP 1038 D7 — preserve file precedence and negotiate the app
 // document after resolving the shared extensionless-location fallback.
 export async function readWebRequest(dist, pathname, accept = '', admittedPlan = undefined) {
   if (!webRequestURL(pathname)) return { found: null, index: false };
@@ -1194,7 +1148,7 @@ export async function readWebRequest(dist, pathname, accept = '', admittedPlan =
     route = release ? release[0] + 'exact.json' : '/exact.json';
     found = await readStaticFileAsync(dist, route);
     // An envelope resolves against its response URL, not HTML's <base>.
-    // A deep location must still name the root's payloads.
+    // A deep location must still name the root's payloads (1023 D2).
     if (found && !found.published && route === '/exact.json' && pathname !== '/' && pathname !== '/index.html') {
       const body = JSON.stringify(JSON.parse(found.body), (key, value) => {
         if (key !== 'url' || typeof value !== 'string') return value;
@@ -1262,8 +1216,10 @@ export async function serveStatic(dist, req, res, listener, compression = null) 
   sendStaticBody(req, res, encoding ? compression.get(digest, encoding) : body, headers);
 }
 
-async function main() {
-  const argv = guardFlags('serve', process.argv.slice(2));
+/** `serve` with `args`, as its command line takes them; `js` and `sitePages` from a caller that knows them
+ * (`render.mjs --serve`, whose module is still being evaluated and so cannot be imported here). */
+export async function serve(args = process.argv.slice(2), { js = null, sitePages = null } = {}) {
+  const argv = guardFlags('serve', [...args]);
   const value = (flag) => {
     const at = argv.indexOf(flag);
     if (at < 0) return null;
@@ -1276,12 +1232,12 @@ async function main() {
   const dist = resolve(origin ?? named[0] ?? webDist());
   const settled = settleBuild(dist);
   if (settled) return settled;
-  // A JS-target build is served as its tree. A published root is its pointer's release, whose page is the
+  // A JS-target build (LLP 1071) is served as its tree. A published root is its pointer's release, whose page is the
   // JS target's or the wasm's.
-  const js = jsTargetBuild(dist);
+  js ??= jsTargetBuild(dist);
   if (!js && !await readStaticFileAsync(dist, origin && existsSync(resolve(dist, webRootPath)) ? '/index.html' : '/app.wasm')) {
     // A build that is there but unreadable says why: the reader is a Cargo-built
-    // helper, and "build first" misled when cargo was not on PATH.
+    // helper, and "build first" misled when cargo was not on PATH (LLP 1054 O5).
     let why = null;
     if (existsSync(resolve(dist, 'app.wasm'))) {
       try { filesystem({ op: 'get', root: resolve(dist), path: 'app.wasm' }); } catch (error) { why = error.message; }
@@ -1290,19 +1246,19 @@ async function main() {
     console.error(why ? `${dist}/app.wasm is built but could not be read: ${why}` : `no build in ${dist}: run ${build} first, or serve a published --origin <dir>`);
     return 2;
   }
-  // TODO: compare each setting app.json declares with the value the build inlined before serving.
+  // TODO(LLP 1153 D4): compare each setting app.json declares with the value the build inlined before serving.
   const loopback = !argv.includes('--lan') && (argv.includes('--loopback') || process.env.EXACT_LOOPBACK === '1');
-  // `--port`, else `PORT`, which a host sets for `npm start`, else 8765.
+  // `--port`, else `PORT`, which a host sets for `npm start` (LLP 1153.001 D3), else 8765.
   const portText = portFlag ?? process.env.PORT ?? null;
   const port = portText === null || portText === '' ? 8765 : Number(portText);
   if (!Number.isInteger(port) || port < 0 || port > 65535) { console.error(`serve: ${portFlag === null ? 'PORT' : '--port'} ${portText} is not a port`); return 2; }
   const host = loopback ? '127.0.0.1' : '0.0.0.0';
   const compression = compressionCache();
   const warming = warmCompression(dist, compression, js);
-  const pages = js ? sitePages(dist, await import('../web-js/render.mjs')) : null;
+  const pages = js ? (sitePages ?? (await import('../web-js/render.mjs')).sitePages)(dist) : null;
   const rebuild = rebuildOnChange(dist);
   const server = createServer(async (req, res) => {
-    if (rebuild && asksPage(req, webRequestURL(req.url)?.pathname)) {
+    if (rebuild && (asksPage(req, webRequestURL(req.url)?.pathname) || (prefersMarkdown(req.headers.accept) && appDocumentPath(webRequestURL(req.url)?.pathname ?? '')))) {
       const failed = await rebuild();
       if (failed) { res.writeHead(500, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' }); res.end(`The app's build failed, so this is the last build's page no more:\n\n${failed.slice(-6000)}`); return; }
     }
@@ -1315,7 +1271,7 @@ async function main() {
       const priv = (a) => /^(192\.168\.|10\.|172\.(1[6-9]|2\d|3[01])\.)/.test(a);
       urls.push(...Object.values(networkInterfaces()).flat().filter((a) => a && !a.internal && a.family === 'IPv4').map((a) => a.address).sort((a, b) => priv(b) - priv(a)).map((a) => `http://${a}:${server.address().port}/`));
     }
-    // Name the app, so a directory another build replaced is seen at once.
+    // Name the app, so a directory another build replaced is seen at once (LLP 1054 O5).
     let served = '';
     try { const { app } = JSON.parse(readFileSync(resolve(dist, js ? '.exact-build.json' : 'exact.json'), 'utf8')); served = ` ${app.name} (${app.id})${js ? ', the JS target' : ''}`; } catch { /* an older build has no envelope */ }
     console.log(urls.join('\n') + `\n  (serving${served} from ${dist}; ctrl-c to stop)`);
@@ -1328,7 +1284,7 @@ async function main() {
   return 0;
 }
 
-/** The build in `dist` brought to this environment's settings: a setting it inlined that the
+/** The build in `dist` brought to this environment's settings (LLP 1153 D4): a setting it inlined that the
  * environment or the app's files now give another value is built again when the app's sources are beside the build,
  * and refused, naming the setting and both values, when they are not (a build copied elsewhere). 0 when it may be
  * served, else the exit code. */
@@ -1360,46 +1316,72 @@ function settleBuild(dist) {
   return built.status === 0 ? 0 : built.status ?? 1;
 }
 
+/** The files of the app in `app` that a build of it into `out` reads: its files at any depth, but for what builds and
+ * tools write (`out` and what is kept beside it, dependencies, Cargo's target directory, `target` or `CARGO_TARGET_DIR`
+ * as resolveApp takes it, dot directories but `.env`s, generated types, test reports). `newest`: the latest modification
+ * time among them. `digest`: of their paths, which a build's receipt records as `sources`, so that a file come or gone
+ * since the build is a change whatever its time; it names no file. As real paths: the app may be named through a link. */
+export function appSources(app, out) {
+  const real = (p) => { try { return realpathSync(p); } catch { try { return resolve(realpathSync(dirname(p)), basename(p)); } catch { return resolve(p); } } };
+  const SKIP = new Set(['node_modules', 'target', 'test-results', 'playwright-report']), cargo = process.env.CARGO_TARGET_DIR ? real(process.env.CARGO_TARGET_DIR) : null;
+  let paths = [], newest = 0, root = real(app), output = real(out);
+  const walk = (dir) => {
+    for (const e of readdirSync(dir, { withFileTypes: true })) {
+      const path = resolve(dir, e.name);
+      if (SKIP.has(e.name) || (cargo && within(cargo, path)) || (e.name.startsWith('.') && !e.name.startsWith('.env')) || e.name.endsWith('.d.ts') || within(output, path) || path.startsWith(`${output}.`)) continue;
+      if (e.isDirectory()) walk(path); else if (e.isFile()) { paths.push(slashRelative(root, path)); newest = Math.max(newest, statSync(path).mtimeMs); }
+    }
+  };
+  walk(root); return { newest, digest: sha256(Buffer.from(paths.sort().join('\n'))) };
+}
+
 /** For a build whose app's sources are beside it, as `settleBuild` builds a changed setting again: a function a
- * request for a page awaits (`asksPage`), which builds the site again once a source changed since the build (newer than its
- * receipt), as a framework's dev server does, or once another build with other settings replaced it (a test run's,
- * for its own API), and answers the build's output when it failed (null when it built or nothing changed). Null for a build without its sources (a site copied to a host), which is served as it is. */
-function rebuildOnChange(dist) {
+ * request for a page awaits (`asksPage`), which builds the site again once a source changed since the build or one
+ * came or went (`appSources`), as a framework's dev server does, or once another build with other settings replaced it
+ * (a test run's, for its own API), and answers the build's output when it failed (null when it built or nothing
+ * changed). Null for a build without its sources (a site copied to a host), which is served as it is. `build` runs one
+ * build and answers its exit code and output; a test gives its own.
+ *
+ * A build this server ran covers the sources as they were when it started, not when it wrote its receipt: a save
+ * during the build is newer than the first and older than the second, so the server builds once more before the
+ * requests waiting on it are answered. A build it did not run is taken to cover what its receipt's time does. */
+export function rebuildOnChange(dist, build = null) {
   let marker;
   try { marker = JSON.parse(readFileSync(resolve(dist, '.exact-build.json'), 'utf8')); } catch { return null; }
   const app = sourcesOf(dist, marker.app?.id);
   if (!app || (!marker.release && resolve(dist) !== webDist())) return null;
   const out = resolve(dist), receipt = () => { try { return statSync(resolve(dist, '.exact-build.json')).mtimeMs; } catch { return 0; } };
-  // What a build reads: the app's files, but for what builds and tools write (its outputs, dependencies, dot
-  // directories but `.env`s, generated types, test reports).
-  const SKIP = new Set(['node_modules', 'target', 'test-results', 'playwright-report']);
-  const newest = (dir, depth = 0) => {
-    let at = 0;
-    for (const e of readdirSync(dir, { withFileTypes: true })) {
-      const path = resolve(dir, e.name);
-      if (SKIP.has(e.name) || (e.name.startsWith('.') && !e.name.startsWith('.env')) || e.name.endsWith('.d.ts') || path === out || path.startsWith(`${out}.`)) continue;
-      if (e.isDirectory()) { if (depth < 4) at = Math.max(at, newest(path, depth + 1)); } else if (e.isFile()) at = Math.max(at, statSync(path).mtimeMs);
-    }
-    return at;
-  };
-  let since = receipt(), checked = 0, running = null;
   const target = marker.target === 'js' ? [] : ['--wasm'], release = marker.release ? ['--out', dist] : [];
+  build ??= () => new Promise((done) => {
+    const child = spawn(process.execPath, [fileURLToPath(new URL('./build.mjs', import.meta.url)), app, ...target, ...release],
+      { stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, EXACT_APP_DIR: app, ...(marker.release ? {} : { EXACT_WEB_DIST: dist }) } });
+    let said = '';
+    for (const stream of [child.stdout, child.stderr]) stream.on('data', (d) => { said += d; });
+    child.on('close', (code) => done({ code, said }));
+  });
+  // `covered`: the newest source time the served build includes; `ours`: the receipt time this server's last build
+  // wrote, which tells a receipt another build wrote apart.
+  let covered = receipt(), ours = null, checked = 0, running = null;
+  const newer = (sources) => sources.newest > (receipt() === ours ? covered : Math.max(covered, receipt()));
+  const again = async () => {
+    for (;;) {
+      const basis = appSources(app, out).newest, { code, said } = await build();
+      if (code !== 0) { console.error(said.trimEnd()); return said; }
+      covered = basis; ours = receipt();
+      if (!newer(appSources(app, out))) return null;
+      console.log(`${app}: a source changed while it built: building it again`);
+    }
+  };
   return () => {
     if (running) return running;
     if (Date.now() - checked < 300) return null;
     checked = Date.now();
-    let settings = [];
-    try { settings = settingChanges(JSON.parse(readFileSync(resolve(dist, '.exact-build.json'), 'utf8')).env ?? {}, process.env, app); } catch { /* being replaced */ }
-    if (!settings.length && newest(app) <= Math.max(since, receipt())) return null;
-    const started = Date.now();
+    let settings = [], built = null;
+    try { const now = JSON.parse(readFileSync(resolve(dist, '.exact-build.json'), 'utf8')); settings = settingChanges(now.env ?? {}, process.env, app); built = now.sources; } catch { /* being replaced */ }
+    const sources = appSources(app, out);
+    if (!settings.length && !newer(sources) && sources.digest === built) return null;
     console.log(`${app}: ${settings.length ? `the build has other settings than this server (${settings.map((c) => c.name).join(', ')})` : 'a source changed since the build'}: building it again`);
-    running = new Promise((done) => {
-      const child = spawn(process.execPath, [fileURLToPath(new URL('./build.mjs', import.meta.url)), app, ...target, ...release],
-        { stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, EXACT_APP_DIR: app, ...(marker.release ? {} : { EXACT_WEB_DIST: dist }) } });
-      let said = '';
-      for (const stream of [child.stdout, child.stderr]) stream.on('data', (d) => { said += d; });
-      child.on('close', (code) => { if (code === 0) since = started; else console.error(said.trimEnd()); done(code === 0 ? null : said); });
-    }).finally(() => { running = null; });
+    running = again().finally(() => { running = null; });
     return running;
   };
 }
@@ -1416,7 +1398,7 @@ function sourcesOf(dist, id) {
   return null;
 }
 
-/** A development page's trace: ⌥⇧T posts its journal, frames and
+/** A development page's trace (LLP 1079 D5): ⌥⇧T posts its journal, frames and
  * `perf`; this adds what only the server knows — the build's identity, as
  * stress-metrics.mjs writes it, the plan's digest and its source map — and
  * writes it under the app's target/traces/ for `agent.mjs trace <file>`. */
@@ -1442,11 +1424,11 @@ export async function saveTrace(req, res, { app, dist, root }) {
   } catch (error) { reply(400, { error: error.message }); }
 }
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) process.exitCode = await main();
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) process.exitCode = await serve();
 
 /** A dev loop its launcher started stops when that process is gone, however it ended: `EXACT_LAUNCHER_PID` names
  * it (an app's `exact.mjs`, or the JS loop for the resident producers it starts). A SIGKILL forwards no signal, and
- * an orphaned server keeps its port. Without the variable a loop runs until stopped. */
+ * an orphaned server keeps its port (chat and onboarding F20). Without the variable a loop runs until stopped. */
 /** A dev loop answers on IPv6's loopback too, the same port: `localhost`
  * resolves to [::1] first, and the design tool frames the page as
  * localhost (another site than the tool's 127.0.0.1). An HTTP server of

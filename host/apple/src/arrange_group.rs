@@ -1,4 +1,4 @@
-//! Dropping across lists on the Apple hosts: a grip whose
+//! Dropping across lists on the Apple hosts (LLP 1094 D5–D9): a grip whose
 //! list shares a `reorderGroup` lifts as a ghost Swift draws in its top
 //! layer, and the runner's session hides the row itself. Swift picks the
 //! target list under the ghost's centre and hands its content y here; the
@@ -20,10 +20,10 @@ pub(super) struct GroupArrange {
 }
 
 impl<D: DataSource> Host<D> {
-    /// Lift a grouped grip: with `ghost` Swift draws the row and the
-    /// runner hides it until `reorder_group_finish`; a key's session
+    /// Lift a grouped grip (D6): with `ghost` Swift draws the row and the
+    /// runner hides it until `reorder_group_finish`; a key's session (D9)
     /// has none. Refused while any reorder holds the owner, a hold or a
-    /// return included.
+    /// return included (D8).
     pub fn reorder_group_begin(
         &mut self,
         handle: ViewId,
@@ -64,7 +64,7 @@ impl<D: DataSource> Host<D> {
         }
     }
 
-    /// The ghost's centre is in `target`'s port at `content_y`: the gap
+    /// The ghost's centre is in `target`'s port at `content_y` (D5): the gap
     /// moves there. Outside every port Swift sends `inside` false and the
     /// certified gap stands; a scroll the runner has not accepted is stale.
     pub fn reorder_move_into(
@@ -106,7 +106,7 @@ impl<D: DataSource> Host<D> {
         }
     }
 
-    /// A key's or custom action's step: 1 earlier, 2 later, 3 the
+    /// A key's or custom action's step (D9): 1 earlier, 2 later, 3 the
     /// previous list, 4 the next.
     pub fn reorder_group_step(&mut self, serial: u64, step: u32, now_ms: f64) -> String {
         let step = match step {
@@ -126,7 +126,7 @@ impl<D: DataSource> Host<D> {
         }
     }
 
-    /// The contact ended: `drop` into the session's target, which may
+    /// The contact ended (D8): `drop` into the session's target, which may
     /// hold; otherwise a cancel, which a hold ignores (its send is out).
     pub fn reorder_group_end(&mut self, serial: u64, drop: bool, now_ms: f64) -> String {
         let Some(token) = self
@@ -173,7 +173,7 @@ impl<D: DataSource> Host<D> {
     }
 
     /// The ghost has landed or faded: the session ends, its pin retires and
-    /// the row shows. Refused while the drop holds.
+    /// the row shows (D6). Refused while the drop holds.
     pub fn reorder_group_finish(&mut self, serial: u64, now_ms: f64) -> String {
         let Some(token) = self
             .group

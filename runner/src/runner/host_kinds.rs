@@ -5,7 +5,7 @@
 use super::Event;
 use exact_plan::{EventKind, Value};
 
-/// The platform's history swipe as the host tracks it:
+/// The platform's history swipe as the host tracks it (LLP 1115.000 D5.5):
 /// AppKit's phase of the gesture, the way a lift would step, its
 /// `gestureAmount` along that way, which `ended` is about to take, and where
 /// the pointer was as it began.
@@ -65,11 +65,60 @@ impl HistorySwipe {
     }
 }
 
+/// A scroll drag's release (Charlie, 2026-11-10;
+/// `issues/20261021-scroll-drag-events-and-hit-slop.md`), as UIKit's
+/// `scrollViewWillEndDragging(_:withVelocity:targetContentOffset:)` gives it:
+/// the scroller's velocity in CSS pixels (UIKit's points) per millisecond,
+/// positive the way `scrollLeft` and `scrollTop` grow, and where its
+/// momentum will come to rest, where the host knows that before it does.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ScrollDrag {
+    /// Horizontal velocity, CSS px/ms, positive as `scrollLeft` grows.
+    pub velocity_x: f64,
+    /// Vertical velocity, CSS px/ms, positive as `scrollTop` grows.
+    pub velocity_y: f64,
+    /// The `scrollLeft` and `scrollTop` the scroll will come to rest at
+    /// (UIKit's `targetContentOffset`); `None` where the host cannot say.
+    pub target: Option<(f64, f64)>,
+}
+
+impl ScrollDrag {
+    /// ABI kind 63's payload: `velocityX,velocityY`, then
+    /// `,targetLeft,targetTop` where the host knows them; all finite.
+    fn parse(payload: &str) -> Option<Self> {
+        let numbers = payload
+            .split(',')
+            .map(|n| exact_num::parse_f64(n).ok().filter(|n| n.is_finite()))
+            .collect::<Option<Vec<f64>>>()?;
+        let target = match numbers[..] {
+            [_, _] => None,
+            [_, _, left, top] => Some((left, top)),
+            _ => return None,
+        };
+        Some(Self {
+            velocity_x: numbers[0],
+            velocity_y: numbers[1],
+            target,
+        })
+    }
+
+    /// The `ScrollDragEvent` record, its fields in the compiler's order.
+    pub(super) fn value(&self) -> Value {
+        let at = |n: Option<f64>| n.map_or(Value::NONE, |n| Value::some(Value::Number(n)));
+        Value::record(vec![
+            Value::Number(self.velocity_x),
+            Value::Number(self.velocity_y),
+            at(self.target.map(|t| t.0)),
+            at(self.target.map(|t| t.1)),
+        ])
+    }
+}
+
 impl Event {
     /// Decode ABI kind 6 (`key`), 43 (`keyup`) or 44 (`keycapture`),
     /// 10 (contextmenu, its point when it has one), 13
-    /// (scroll), 19 (media), 20 (pan), 21 (select), 28 (panrelease), 29 to
-    /// 31 (the pointer's down, up and move), 32 to 34
+    /// (scroll), 19 (media), 20 (pan), 21 (select), 28 (panrelease, LLP
+    /// 1057 §10.6), 29 to 31 (the pointer's down, up and move), 32 to 34
     /// (the clipboard's copy, cut and paste), 35 (`selectionchange`), 36
     /// (beforeunload), 37 (wheel), 38 (drop), 55 and 56 (a file drag's
     /// dragenter and dragleave), 57 (a paste with files), 59 (atompress),
@@ -78,8 +127,9 @@ impl Event {
     /// input, change, select and replacement input), 45 (intersect,
     /// `0|1,ratio`), 46 and 47 (focusin, focusout), 50 (toggle, oldState,newState)
     /// 51 (scrollend, none), 52 (field selectionchange), 53/54
-    /// (beforeinput/input metadata), or 60 (historyswipe) from its UTF-8
-    /// payload.
+    /// (beforeinput/input metadata), 60 (historyswipe), 61 (swipeleft,
+    /// none), or 62 and 63 (a scroll drag's start, none, and its release,
+    /// `ScrollDrag`) from its UTF-8 payload.
     pub fn of_host_kind(kind: u32, payload: &str) -> Result<Event, &'static str> {
         match kind {
             // A key's down (6), up (43) or capture (44, #140): the chord, then its code,
@@ -96,24 +146,31 @@ impl Event {
                 .ok_or("invalid key event"),
             13 => Event::scroll_payload(payload).ok_or("invalid scroll coordinates"),
             19 => Event::media_payload(payload).ok_or("invalid media event"),
-            // 18 is reorder, 19 is media.
+            // @ref LLP 1043.000 §3 D8 — 18 is reorder, 19 is media.
             20 => Event::pan_payload(payload).ok_or("invalid pan deltas"),
             21 => Event::selection_payload(payload).ok_or("invalid Markdown selection"),
             28 => Event::pan_release_payload(payload).ok_or("invalid pan release velocity"),
-            // The pointer's record.
+            // LLP 1056 §3 stage 3: the pointer's record.
             29..=31 => Event::pointer_payload(kind, payload).ok_or("invalid pointer event"),
             // The clipboard's copy, cut and paste, with its plain text.
             32..=34 => Event::clipboard_payload(kind, payload).ok_or("invalid clipboard event"),
             // The reader's selection inside a `text`: its offsets, then its text.
             35 => Event::selection_change_payload(payload).ok_or("invalid text selection"),
             10 => Event::contextmenu_payload(payload).ok_or("invalid contextmenu event"),
-            // DOM's beforeunload, wheel and drop.
+            // Studio diary R17, R3, R19: DOM's beforeunload, wheel and drop.
             36 => Ok(Event::Beforeunload),
-            // DOM's `scrollend`: no payload.
+            // DOM's `scrollend`: no payload (LLP 1005, 2026-10-13).
             51 => Ok(Event::Scrollend),
             60 => HistorySwipe::parse(payload)
                 .map(Event::Historyswipe)
                 .ok_or("invalid history swipe"),
+            // Charlie, 2026-11-10: the mirror of `swiperight` (12), and a
+            // scroll drag's start and release.
+            61 => Ok(Event::Swipeleft),
+            62 => Ok(Event::Scrolldragstart),
+            63 => ScrollDrag::parse(payload)
+                .map(Event::Scrolldragend)
+                .ok_or("invalid scroll drag"),
             37 => super::WheelEvent::parse(payload)
                 .map(Event::Wheel)
                 .ok_or("invalid wheel event"),
@@ -129,7 +186,7 @@ impl Event {
                 })
                 .ok_or("invalid drag event"),
             57 => Event::paste_files_payload(payload).ok_or("invalid clipboard event"),
-            // An iframe's guest: its event, then the record.
+            // @ref LLP 1020.002 D2, D5 — an iframe's guest: its event, then the record.
             58 => super::event::frame_navigation::FrameNavigation::parse(payload)
                 .map(|(kind, n)| Event::FrameNavigation(kind, Box::new(n)))
                 .or_else(|| {
@@ -137,7 +194,7 @@ impl Event {
                         .map(|(kind, v)| Event::FrameRecord(kind, Box::new(v)))
                 })
                 .ok_or("invalid frame event"),
-            // A press on an inline atom.
+            // A press on an inline atom (LLP 1045.000 D7).
             59 => super::AtomEvent::parse(payload)
                 .map(Event::Atompress)
                 .ok_or("invalid atom press"),
@@ -164,7 +221,7 @@ impl Event {
                 .map(Event::Resize)
                 .ok_or("invalid resize rect"),
             // A text field's `input`, `change` and `select` with its
-            // selection.
+            // selection (x2apps codeedit #2).
             40..=42 | 48 | 52 => {
                 Event::field_payload(kind, payload).ok_or("invalid field selection")
             }
@@ -187,7 +244,7 @@ impl Event {
     }
 
     /// Decode host kind 21: formats, mixed (0/1), unavailable, the selected
-    /// atom's source (never a line break), then the link
+    /// atom's source (LLP 1045.000 D3; never a line break), then the link
     /// remainder, separated by newlines. Token lists never contain newlines;
     /// a target may, so the final remainder is kept verbatim.
     pub fn selection_payload(payload: &str) -> Option<Self> {
@@ -218,13 +275,13 @@ impl Event {
     pub fn media_payload(payload: &str) -> Option<Self> {
         let (name, value) = payload.split_once('\n')?;
         let kind = EventKind::from_name(name)?;
-        // The media session's six sit after `drop`: listed,
+        // The media session's six sit after `drop` (LLP 1098 D11): listed,
         // so the `loadedmetadata`…`canplay` run never admits them. `resize`
         // sits between `drop` and the six; it is not a media event.
         let session = super::media_session::ACTIONS.contains(&kind);
-        // `fullscreenchange` is listed after them too: a boolean.
+        // `fullscreenchange` (LLP 1042) is listed after them too: a boolean.
         let fullscreen = kind == EventKind::Fullscreenchange;
-        // An image's picture in picture, later still: entering
+        // An image's picture in picture (LLP 1042 §9), later still: entering
         // and leaving carry nothing, a failure its reason.
         let floating = matches!(
             kind,
@@ -331,7 +388,7 @@ impl Event {
 
 #[cfg(test)]
 mod tests {
-    use super::{Event, HistorySwipe};
+    use super::{Event, HistorySwipe, ScrollDrag};
 
     #[test]
     fn selection_rectangles_preserve_geometry_and_verbatim_text() {
@@ -463,6 +520,31 @@ mod tests {
             assert_eq!(
                 Event::of_host_kind(60, bad).err(),
                 Some("invalid history swipe"),
+                "{bad}"
+            );
+        }
+        assert_eq!(Event::of_host_kind(61, ""), Ok(Event::Swipeleft));
+        assert_eq!(Event::of_host_kind(62, ""), Ok(Event::Scrolldragstart));
+        assert_eq!(
+            Event::of_host_kind(63, "0.5,-2.25"),
+            Ok(Event::Scrolldragend(ScrollDrag {
+                velocity_x: 0.5,
+                velocity_y: -2.25,
+                target: None,
+            }))
+        );
+        assert_eq!(
+            Event::of_host_kind(63, "0,1.5,0,840"),
+            Ok(Event::Scrolldragend(ScrollDrag {
+                velocity_x: 0.0,
+                velocity_y: 1.5,
+                target: Some((0.0, 840.0)),
+            }))
+        );
+        for bad in ["", "1", "1,2,3", "1,2,3,4,5", "NaN,0", "0,inf", "1,x"] {
+            assert_eq!(
+                Event::of_host_kind(63, bad).err(),
+                Some("invalid scroll drag"),
                 "{bad}"
             );
         }

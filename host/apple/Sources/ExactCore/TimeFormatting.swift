@@ -52,7 +52,7 @@ enum TimeFormatting {
             let wrapper = relativeFormatter(locale, named: false, wide: true)
                 .localizedString(from: DateComponents(minute: q.now > q.datetime ? -59 : 59))
             guard let range = wrapper.range(of: minute) else { return 0 }
-            // Abbreviated English uses m/s; the archived .relative style uses
+            // Abbreviated English uses m/s; stage 0's archived .relative uses
             // min/sec. Both candidates come from the viewer's locale.
             let archived = componentsFormatter(locale, kind: "sample-short")
             archived.allowedUnits = [.minute, .second]

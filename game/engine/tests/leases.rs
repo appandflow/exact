@@ -1,5 +1,6 @@
 //! Row leases: different rows of one component borrow together; the same row
 //! refuses, naming the component, the entity, both kinds of lease and both callers.
+//! @ref llp/1046.003-game-engine-as-built.explainer.md#row-leases-2026-09-23
 use exact_game::*;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 

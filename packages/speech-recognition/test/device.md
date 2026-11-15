@@ -1,8 +1,9 @@
-# Speech recognition on a device, by a person (drive 7)
+# Speech recognition on a device, by a person (LLP 1133.012 §10, drive 7)
 
 The drives that need a real microphone, done with the recorder
 (`apps/recorder`) built as in production: no agent, the packages bound.
-This Mac's microphone does not answer.
+The iPhone 16 Pro results are in LLP 1133.020 §8. This Mac's microphone
+does not answer.
 
 - iPhone (iOS 26): `bun host/apple/build.mjs --ios --device recorder-apple --run`
 - Mac: `bun host/apple/build.mjs recorder-apple --run`, on a Mac whose
@@ -35,7 +36,7 @@ Each step says what to do and what should happen.
    `SFSpeechRecognizer`). Record for more than a minute with on-device
    recognition. The transcript runs on past the first minute, and the
    journal (`state.extensions`, or the log) says whether a seam came at
-   the minute.
+   the minute (D9).
 5. **Android's service.** Open the app, and read
    `speechRecognitionStatus` (the log, or `state` in a development build):
    it names the inputs the phone's service takes (`track` only for a

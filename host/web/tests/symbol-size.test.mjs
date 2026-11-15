@@ -1,7 +1,8 @@
-// A symbol drawn for an SF Symbol (a role, or an icon with an
+import { symbolSheet } from './glue-fixture.mjs';
+// LLP 1011 §3: a symbol drawn for an SF Symbol (a role, or an icon with an
 // `sf` source) is the size UIKit draws that symbol at the same font size, and
 // on a button's face at UIKit's large symbol scale without making the button
-// taller beside a title, UIKit's image padding from it;
+// taller beside a title, UIKit's image padding from it (LLP 1069.011.001 D3);
 // a tab's symbol keeps the tab bar's and the sidebar's box; an icon of
 // the app's own draws its viewBox at 1em, as the Apple hosts draw its path; and
 // a page built ahead of time does not move when the symbols are painted. Each
@@ -9,7 +10,7 @@
 // under the shell and the neutral sheet, in each engine, measured from the
 // screen.
 import { test, expect } from 'bun:test';
-import { readFileSync } from 'node:fs';
+import { hostFixtureFile as readFileSync } from './glue-fixture.mjs';
 import { resolve } from 'node:path';
 import { suiteBrowser } from '../../../scripts/agent-launch.mjs';
 import { withLook } from '../look.mjs';
@@ -66,13 +67,13 @@ const content = `<div style="font-size:17px;display:flex;flex-direction:column;a
 </div>`;
 // Each runtime's painter, its module's other parts stood in for.
 const RUNTIMES = {
-  'host/web/glue.js': ['const views = new Map([...document.querySelectorAll("#exact-root img")].entries()), log = () => {};', ['tintFit', 'refreshSymbols'], 'refreshSymbols();'],
-  'host/web-js/symbols.js': ['const All = true, journal = [], clock = { now: 0 }, appSource = () => {}, Images = new Set(document.querySelectorAll("#exact-root img")), image = e => Images.add(e);', ['inked', 'refresh'], 'refresh();'],
+  'host/web/glue.js': ['const views = new Map([...document.querySelectorAll("#exact-root img")].entries()), log = () => {}, host = {};', ['tintFit', 'refreshSymbols'], 'refreshSymbols();'],
+  'host/web-js/symbols.js': ['const All = true, journal = [], clock = { now: 0 }, appSource = () => {}, Images = new Set(document.querySelectorAll("#exact-root img")), image = e => Images.add(e);', ['refresh'], 'refresh();'],
 };
 
 for (const engine of ['chromium', 'firefox', 'webkit']) for (const [file, [stand, names, run]] of Object.entries(RUNTIMES)) test(`${engine}: a symbol for an SF Symbol is SF's size, UIKit's image padding from its title (${file})`, async () => {
   const source = readFileSync(resolve(ROOT, file), 'utf8');
-  const style = source.match(/'(@property --exact-tint[^']*)'/)[1];
+  const style = symbolSheet(source);
   const html = withLook(readFileSync(resolve(ROOT, 'host/web/index.html'), 'utf8'))
     .replace('<div id="exact-root"></div>', `<style>${style} #exact-root img { --exact-tint: rgb(255, 0, 0) !important; }</style><div id="exact-root">${content}</div>`)
     .replace('<script type="module" src="./glue.js"></script>', `<script>${stand} ${glueDeclarations(source, names)} globalThis.paint = () => { ${run} };</script>`);
@@ -336,7 +337,7 @@ for (const engine of ['chromium', 'firefox', 'webkit']) for (const [file, [stand
     if (path === '/names.js') return new Response('export const sourceTypes = {};', { headers: { 'content-type': 'text/javascript' } });
     for (const dir of ['host/web-js', 'host/web', 'host']) {
       const module = Bun.file(resolve(ROOT, dir, path.slice(1)));
-      if (await module.exists()) return new Response(module);
+      if (await module.exists()) return new Response(readFileSync(module.name), { headers: { 'content-type': module.type } });
     }
     return new Response('missing', { status: 404 });
   } });
@@ -377,7 +378,7 @@ for (const engine of ['chromium', 'firefox', 'webkit']) for (const [file, [stand
     await page.locator('#sheet-alone').evaluate(el => el.style.removeProperty('transform'));
     await settled();
     const titled = await Promise.all(cases.map(async kind => [kind, await measure(`${kind}-titled`)]));
-    // Absent face text leaves a symbol alone;
+    // LLP 1011 §3 and LLP 1115.000: absent face text leaves a symbol alone;
     // a subtitle still occupies its own row. Both textContent writers clear to :empty.
     for (const text of ['', 'Go', '']) {
       await page.evaluate(text => { globalThis.changeTitle(text); globalThis.paint(); }, text);

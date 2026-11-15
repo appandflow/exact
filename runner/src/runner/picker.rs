@@ -1,6 +1,6 @@
-//! The file picker's runner half: the element a
-//! `showPicker(id)` names, the hold an agent answers in its place,
-//! the `app:/tmp/picked/` names a host copies into, and
+//! The file picker's runner half (LLP 1069.002): the element a
+//! `showPicker(id)` names, the hold an agent answers in its place (LLP
+//! 1069.007 D3, D4), the `app:/tmp/picked/` names a host copies into, and
 //! the `change` payload a host reports. The runner never sees the bytes.
 //!
 //! The payload (host event kind 26) is one line per file, tab-separated:
@@ -55,7 +55,7 @@ impl Picked {
     }
 
     /// [`Picked::payload`] for files under `dir` (`app:/tmp/shared/` for a
-    /// share's).
+    /// share's, LLP 1133.024 D3).
     pub fn payload_under(payload: &str, dir: &str) -> Option<Vec<Picked>> {
         let number = |s: &str| {
             let n = exact_num::parse_f64(s).ok()?;
@@ -124,7 +124,7 @@ pub struct PickerRequest {
 
 impl PickerRequest {
     /// `{"view":…,"accept":[…],"multiple":…}`: what a host presents from,
-    /// and, less the view, the hold's inspection summary.
+    /// and, less the view, the hold's inspection summary (LLP 1069.007 D3).
     pub fn json(&self, id: &str, with_view: bool) -> String {
         let mut s = String::from("{");
         if with_view {
@@ -156,31 +156,62 @@ pub fn extension(name: &str) -> String {
 /// The MIME type a file's name says, as a browser guesses it; unknown is
 /// `application/octet-stream`.
 pub fn mime_for(name: &str) -> &'static str {
-    match extension(name).as_str() {
-        "jpg" | "jpeg" => "image/jpeg",
-        "png" => "image/png",
-        "gif" => "image/gif",
-        "webp" => "image/webp",
-        "heic" => "image/heic",
-        "heif" => "image/heif",
-        "avif" => "image/avif",
-        "tif" | "tiff" => "image/tiff",
-        "mp4" => "video/mp4",
-        "mov" => "video/quicktime",
-        "m4v" => "video/x-m4v",
-        "webm" => "video/webm",
-        "json" => "application/json",
-        "md" | "markdown" => "text/markdown",
-        "txt" | "log" => "text/plain",
-        "csv" => "text/csv",
-        "tsv" => "text/tab-separated-values",
-        "html" | "htm" => "text/html",
-        "css" => "text/css",
-        "xml" => "application/xml",
-        "yaml" | "yml" => "application/yaml",
-        _ => "application/octet-stream",
-    }
+    let ext = extension(name);
+    MIME_TYPES
+        .iter()
+        .find(|(e, _)| *e == ext)
+        .map_or("application/octet-stream", |(_, m)| m)
 }
+
+/// Keep a matching name extension; otherwise use the delivered MIME's extension.
+pub fn extension_for(name: &str, mime: &str) -> String {
+    if mime_for(name) == mime {
+        return extension(name);
+    }
+    MIME_TYPES
+        .iter()
+        .find(|(_, m)| *m == mime)
+        .map_or_else(|| extension(name), |(e, _)| (*e).into())
+}
+
+const MIME_TYPES: &[(&str, &str)] = &[
+    ("jpg", "image/jpeg"),
+    ("jpeg", "image/jpeg"),
+    ("png", "image/png"),
+    ("gif", "image/gif"),
+    ("webp", "image/webp"),
+    ("heic", "image/heic"),
+    ("heif", "image/heif"),
+    ("avif", "image/avif"),
+    ("tif", "image/tiff"),
+    ("tiff", "image/tiff"),
+    ("svg", "image/svg+xml"),
+    ("bmp", "image/bmp"),
+    ("ico", "image/vnd.microsoft.icon"),
+    ("mp4", "video/mp4"),
+    ("mov", "video/quicktime"),
+    ("m4v", "video/x-m4v"),
+    ("webm", "video/webm"),
+    ("mp3", "audio/mpeg"),
+    ("wav", "audio/wav"),
+    ("m4a", "audio/mp4"),
+    ("ogg", "audio/ogg"),
+    ("pdf", "application/pdf"),
+    ("json", "application/json"),
+    ("md", "text/markdown"),
+    ("markdown", "text/markdown"),
+    ("txt", "text/plain"),
+    ("log", "text/plain"),
+    ("csv", "text/csv"),
+    ("tsv", "text/tab-separated-values"),
+    ("html", "text/html"),
+    ("htm", "text/html"),
+    ("xhtml", "application/xhtml+xml"),
+    ("css", "text/css"),
+    ("xml", "application/xml"),
+    ("yaml", "application/yaml"),
+    ("yml", "application/yaml"),
+];
 
 /// Whether `accept` takes a file named `name` of type `mime`, as HTML
 /// matches it: absent or `*/*` accepts all; otherwise an extension,
@@ -192,13 +223,22 @@ pub fn accepts(accept: &[String], name: &str, mime: &str) -> bool {
     let ext = format!(".{}", extension(name));
     accept.iter().any(|t| {
         t == &ext
+            || (t.starts_with('.')
+                && mime_for(t) != "application/octet-stream"
+                && mime_for(t) == mime
+                && (!name
+                    .rsplit(['/', '\\'])
+                    .next()
+                    .unwrap_or(name)
+                    .contains('.')
+                    || mime_for(name) == mime))
             || t == mime
             || t.strip_suffix("/*")
                 .is_some_and(|kind| mime.split('/').next() == Some(kind))
     })
 }
 
-/// iOS Safari's rule, on every host: a HEIC or HEIF
+/// iOS Safari's rule, on every host (LLP 1069.002 D6): a HEIC or HEIF
 /// photo is delivered as JPEG when `accept` names images but not HEIC;
 /// otherwise as it is.
 pub fn delivered_type<'a>(mime: &'a str, accept: &[String]) -> &'a str {
@@ -233,8 +273,8 @@ pub fn answer_paths(value: &str) -> Vec<String> {
 
 impl<D: DataSource> Runner<D> {
     /// A picker's answer, checked before the hold is consumed: at least one
-    /// file, one unless `multiple`, each of a type `accept` takes once
-    /// converted — what the real picker would have let the person
+    /// file, one unless `multiple`, each of a type `accept` takes once D6
+    /// has converted it — what the real picker would have let the person
     /// choose.
     pub(super) fn check_pick(&self, node: Option<ViewId>, value: &str) -> Result<(), String> {
         let n = node
@@ -274,25 +314,30 @@ impl<D: DataSource> Runner<D> {
     pub fn picker(&self, id: &str) -> Option<PickerRequest> {
         self.kernel.find_by_id(id).into_iter().find_map(|key| {
             let n = self.kernel.node_by_key(key)?;
-            if n.node_type != NodeType::Control || n.props.str(PropId::Type) != Some("file") {
-                return None;
-            }
-            Some(PickerRequest {
-                view: n.id,
-                accept: n
-                    .props
-                    .str(PropId::Accept)
-                    .unwrap_or("")
-                    .split(',')
-                    .map(|t| t.trim().to_ascii_lowercase())
-                    .filter(|t| !t.is_empty())
-                    .collect(),
-                multiple: n.props.bool(PropId::Multiple) == Some(true),
-            })
+            self.picker_at(n.id)
         })
     }
 
-    /// `showPicker(id)` under the agent: hold a `pick`
+    fn picker_at(&self, view: ViewId) -> Option<PickerRequest> {
+        let n = self.kernel.node(view)?;
+        if n.node_type != NodeType::Control || n.props.str(PropId::Type) != Some("file") {
+            return None;
+        }
+        Some(PickerRequest {
+            view,
+            accept: n
+                .props
+                .str(PropId::Accept)
+                .unwrap_or("")
+                .split(',')
+                .map(|t| t.trim().to_ascii_lowercase())
+                .filter(|t| !t.is_empty())
+                .collect(),
+            multiple: n.props.bool(PropId::Multiple) == Some(true),
+        })
+    }
+
+    /// `showPicker(id)` under the agent (LLP 1069.002 D9): hold a `pick`
     /// request for the agent; the OS is never asked. A second while one is
     /// held for the same input does nothing and says so, as on a device.
     pub fn hold_picker(&mut self, id: &str) -> Result<u64, String> {
@@ -301,6 +346,24 @@ impl<D: DataSource> Runner<D> {
             self.log(e.clone());
             return Err(e);
         };
+        self.hold_picker_request(request, id)
+    }
+
+    /// An activated file input's hold, with or without an authored `id`.
+    pub fn hold_picker_view(&mut self, view: ViewId) -> Result<u64, String> {
+        let request = self
+            .picker_at(view)
+            .ok_or_else(|| format!("picker: refused: view {view} is not a file input"))?;
+        let id = self
+            .kernel
+            .node(view)
+            .and_then(|n| n.props.str(PropId::Id))
+            .unwrap_or("")
+            .to_owned();
+        self.hold_picker_request(request, &id)
+    }
+
+    fn hold_picker_request(&mut self, request: PickerRequest, id: &str) -> Result<u64, String> {
         if self
             .device_holds()
             .iter()
@@ -320,7 +383,7 @@ impl<D: DataSource> Runner<D> {
     }
 
     /// A fresh `app:/tmp/picked/<id>.<ext>`: `<id>` from the launch seed
-    /// and a counter, never the user's file name.
+    /// and a counter (LLP 1027.000), never the user's file name.
     pub fn picked_path(&mut self, name: &str) -> String {
         self.picked_count += 1;
         format!(
@@ -335,6 +398,113 @@ impl<D: DataSource> Runner<D> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_activated_file_input_can_hold_by_view_without_an_authored_id() {
+        let source =
+            "component App\n  view\n    input type=\"file\" testId=\"files\" multiple=true\n";
+        let mut runner = Runner::boot(
+            contract::compile(source).unwrap(),
+            (),
+            exact_kernel::Kernel::with_monospace(),
+            Default::default(),
+            "/",
+        )
+        .unwrap();
+        let key = runner.kernel.find_by_test_id("files")[0];
+        let view = runner.kernel.node_by_key(key).unwrap().id;
+        let request = format!("{{\"op\":\"showPicker\",\"view\":{view}}}");
+        let (reply, _) = crate::agent::answer(&mut runner, &request).unwrap();
+        assert!(reply.contains("\"ticket\":"), "{reply}");
+        let hold = &runner.device_holds()[0];
+        assert_eq!(hold.node, Some(view));
+        assert_eq!(hold.args, r#"{"id":"","accept":[],"multiple":true}"#);
+        let ticket = hold.ticket;
+        let (again, _) = crate::agent::answer(&mut runner, &request).unwrap();
+        assert!(again.contains("already open"), "{again}");
+        assert_eq!(runner.device_holds().len(), 1);
+        runner
+            .answer_hold(ticket, &crate::HoldAnswer::Value("/a.pdf /b.pdf".into()))
+            .unwrap();
+        assert!(runner.device_holds().is_empty());
+    }
+
+    #[test]
+    fn an_image_picker_accepts_svg_bmp_and_ico_by_type() {
+        for (name, mime) in [
+            ("logo.svg", "image/svg+xml"),
+            ("scan.BMP", "image/bmp"),
+            ("icon.ico", "image/vnd.microsoft.icon"),
+            ("photo.png", "image/png"),
+            ("scan.tiff", "image/tiff"),
+        ] {
+            for accept in ["image/*", mime] {
+                let source = format!(
+                    "component App\n  view\n    input type=\"file\" accept=\"{accept}\" id=\"one\"\n"
+                );
+                let mut runner = Runner::boot(
+                    contract::compile(&source).unwrap(),
+                    (),
+                    exact_kernel::Kernel::with_monospace(),
+                    Default::default(),
+                    "/",
+                )
+                .unwrap();
+                let ticket = runner.hold_picker("one").unwrap();
+                assert!(runner
+                    .answer_hold(ticket, &crate::HoldAnswer::Value("/a/notes.txt".into()))
+                    .is_err());
+                runner
+                    .answer_hold(ticket, &crate::HoldAnswer::Value(format!("/a/{name}")))
+                    .unwrap_or_else(|e| panic!("{e}"));
+                assert_eq!(mime_for(name), mime);
+                assert!(runner.device_holds().is_empty());
+            }
+        }
+    }
+
+    #[test]
+    fn audio_picks_have_their_mime_types_and_meet_audio_accepts() {
+        for (name, mime) in [
+            ("song.mp3", "audio/mpeg"),
+            ("take.WAV", "audio/wav"),
+            ("voice.m4a", "audio/mp4"),
+            ("clip.ogg", "audio/ogg"),
+        ] {
+            assert_eq!(mime_for(name), mime, "{name}");
+            assert!(accepts(&["audio/*".into()], name, mime_for(name)), "{name}");
+            assert!(accepts(&[mime.into()], name, mime_for(name)), "{name}");
+        }
+        assert_eq!(mime_for("page.xhtml"), "application/xhtml+xml");
+    }
+
+    #[test]
+    fn extension_accepts_match_provider_mime_without_accepting_unknown_binary_types() {
+        for name in ["photo.jpeg", "photo"] {
+            assert!(accepts(&[".jpg".into()], name, "image/jpeg"));
+        }
+        for name in ["invoice.exe", "scan.png", "scan.v2"] {
+            assert!(!accepts(&[".jpg".into()], name, "image/jpeg"), "{name}");
+        }
+        assert!(!accepts(
+            &[".board".into()],
+            "photo",
+            "application/octet-stream"
+        ));
+        assert!(accepts(
+            &[".board".into()],
+            "design.board",
+            "application/octet-stream"
+        ));
+    }
+
+    #[test]
+    fn a_pdf_has_its_mime_type_and_is_not_an_image() {
+        let mime = mime_for("report.PDF");
+        assert_eq!(mime, "application/pdf");
+        assert!(accepts(&["application/pdf".into()], "report.PDF", mime));
+        assert!(!accepts(&["image/*".into()], "report.PDF", mime));
+    }
 
     #[test]
     fn a_payload_round_trips_and_refuses_a_path_outside_picked() {

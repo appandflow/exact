@@ -1,4 +1,4 @@
-// Bare styles fill only rows no ancestor says.
+// Bare styles fill only rows no ancestor says (LLP 1115.000 D12.2).
 shape TextRow
   id: string
   styled: bool

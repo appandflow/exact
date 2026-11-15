@@ -1,12 +1,13 @@
-// The conformance fixture the vision and translation packages share: an
-// app `exact new` made outside the repo, its files replaced by
-// `fixture/`'s, depending by `file:` on the three packages and on
-// @exact/media-capture and @exact/camera, whose viewfinder a live scan
-// rides on, and installed.
+// The conformance fixture the vision and translation packages share (LLP
+// 1133.001 D7, LLP 1133.027 §9): an app `exact new` made outside the repo,
+// its files replaced by `fixture/`'s, depending by `file:` on the three
+// packages and on @exact/media-capture and @exact/camera, whose viewfinder
+// a live scan rides on, and installed.
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { ensureShells } from '../../../scripts/app-shells.mjs';
 
 export const here = import.meta.dir, pkg = resolve(here, '..'), root = resolve(pkg, '../..');
 /** Each fixture image by name, in the package that carries it. */
@@ -33,11 +34,11 @@ const kept = process.env.EXACT_VISION_FIXTURE;
 /** The fixture app's directory and its bundle id. `dependencies` replace or add the app's packages by spec. */
 export function makeFixture({ dependencies = {} } = {}) {
   const app = kept && existsSync(join(kept, 'app.json')) ? resolve(kept) : join(mkdtempSync(join(tmpdir(), 'exact-vision-')), 'visionfixture');
-  if (app !== resolve(kept ?? '')) run('bun', [resolve(root, 'scripts/exact.mjs'), 'new', app], root);
+  if (app !== resolve(kept ?? '')) run('bun', [resolve(root, 'scripts/exact.mjs'), 'new', app, '--with', 'ios,mac'], root);
   else rmSync(join(app, 'node_modules/@exact'), { recursive: true, force: true });
   for (const f of ['app.contract', 'app.ts', 'strings']) cpSync(join(here, 'fixture', f), join(app, f), { recursive: true });
   rmSync(join(app, 'app.test.contract'), { force: true });
-  // The camera's agent picture is an app asset: the fixtures, as `assets/test/<file>`.
+  // The camera's agent picture is an app asset (§9): the fixtures, as `assets/test/<file>`.
   mkdirSync(join(app, 'assets/test'), { recursive: true });
   for (const path of Object.values(images)) cpSync(path, join(app, 'assets/test', basename(path)));
   const id = JSON.parse(readFileSync(join(app, 'app.json'), 'utf8')).app.id;
@@ -50,6 +51,9 @@ export function makeFixture({ dependencies = {} } = {}) {
   };
   writeFileSync(join(app, 'package.json'), JSON.stringify(manifest, null, 2));
   run('bun', ['install'], app);
+  // The native workspace written before the build starts: one the build wrote
+  // is newer than the build, and the driver refuses the build as stale.
+  ensureShells(app);
   return { app, id };
 }
 
@@ -64,7 +68,7 @@ export const STILLS = [
   ['the rotated JPEG, upright', 'rotated', 'detect', ['ean_13 9780747532743']],
   ['none.png answers an empty list', 'none', 'detect', []],
 ];
-/** The ISBN's box in the upright 468×280 image, within 4% of the longer side. */
+/** The ISBN's box in the upright 468×280 image, within §9's 4% of the longer side. */
 export const BOX = [44, 40, 380, 200], NEAR = 0.04 * 468;
 export const boxOf = line => line.split(' ').slice(2, 6).map(Number);
 export const near = b => b.length === 4 && b.every((v, i) => Math.abs(v - BOX[i]) <= NEAR);

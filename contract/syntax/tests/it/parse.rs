@@ -1,6 +1,8 @@
 //! The parser on the constructs the v1 app uses, and its rejections by id.
 
-use contract_syntax::{parse, BinOp, Expr, Node, Stmt, TaskKind, TemplatePart, TypeExpr};
+use contract_syntax::{
+    parse, BinOp, Expr, Lexer, MutationMode, Node, Span, Stmt, TaskKind, TemplatePart, TypeExpr,
+};
 
 const APP: &str = r#"
 // A slice of the Caltrain app.
@@ -195,7 +197,7 @@ fn a_task_fires_once_with_after() {
     assert_eq!(e.id, "syntax-duplicate-declaration");
 }
 
-// `frame` in `every`'s first place is a word, even
+// @ref LLP 1073 D1 — `frame` in `every`'s first place is a word, even
 // beside a slot of that name; `after(frame, …)` is refused.
 #[test]
 fn a_task_fires_each_frame_with_every_frame() {
@@ -260,6 +262,18 @@ fn a_template_expression_balances_match_braces_and_string_braces() {
         panic!()
     };
     assert!(matches!(&parts[1], TemplatePart::Expr(Expr::Match { .. })));
+}
+
+#[test]
+fn a_template_literal_ends_on_its_own_line() {
+    // A `${…}` fragment never holds a line break: the literal that would
+    // carry one is refused before its expression is parsed.
+    let error = parse(
+        "component A\n  state count = 1\n  state extra = 2\n  view\n    text `total ${count\n+ extra}`\n",
+    )
+    .unwrap_err();
+    assert_eq!(error.id, "syntax-unterminated-template", "{error}");
+    assert_eq!(error.span.line, 5, "{error}");
 }
 
 #[test]
@@ -335,7 +349,7 @@ fn rejections_carry_stable_ids_and_spans() {
             3,
         ),
         // A list literal's items are separated by commas, and the web's
-        // spread is refused with the `concat` it means.
+        // spread is refused with the `concat` it means (LLP 1088 §9.1).
         ("component A\n  derive xs = [1 2]\n", "syntax-expected", 2),
         (
             "component A\n  derive xs = [...ys, 1]\n",
@@ -351,8 +365,86 @@ fn rejections_carry_stable_ids_and_spans() {
 }
 
 #[test]
+fn unknown_declarations_name_atom_among_expected_forms() {
+    let err = parse("banana\ncomponent App\n  view\n    text \"a\"\n").unwrap_err();
+    assert_eq!(err.id, "syntax-expected-declaration");
+    assert_eq!((err.span.line, err.span.col), (1, 1));
+    assert_eq!(
+        err.message,
+        concat!(
+            "expected `routes`, `font`, `sound`, `shape`, `style`, `decoration`, `atom`, ",
+            "`keyframes`, `timeline`, `color-profile`, `theme`, `fn`, `source`, `use`, ",
+            "`component`, or `members`, found `banana`"
+        )
+    );
+}
+
+#[test]
+fn a_leading_byte_order_mark_keeps_source_byte_columns() {
+    for ending in ["\n", "\r\n"] {
+        let src = format!("\u{feff}component App{ending}  view{ending}    text \"x\"{ending}");
+        let file = contract_syntax::parse_source(&src, 7).unwrap();
+        assert_eq!(file.components[0].name, "App");
+        let tokens = Lexer::tokenize_at(
+            &src,
+            Span {
+                source_id: 7,
+                ..Span::point(1, 1)
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            tokens[0].span,
+            Span {
+                line: 1,
+                col: 4,
+                end_col: 13,
+                source_id: 7
+            }
+        );
+        for token in tokens.iter().filter(|t| t.span.col < t.span.end_col) {
+            let line = src.lines().nth(token.span.line as usize - 1).unwrap();
+            assert!(
+                !line[token.span.col as usize - 1..token.span.end_col as usize - 1]
+                    .contains('\u{feff}')
+            );
+        }
+    }
+    for (src, origin) in [
+        ("\u{feff}component App", Span::point(2, 1)),
+        ("\u{feff}component App", Span::point(1, 2)),
+        ("\n\u{feff}component App", Span::point(1, 1)),
+        (" \u{feff}component App", Span::point(1, 1)),
+        ("\u{feff}\u{feff}component App", Span::point(1, 1)),
+    ] {
+        assert_eq!(
+            Lexer::tokenize_at(src, origin).unwrap_err().id,
+            "syntax-unexpected-char"
+        );
+    }
+    let src = "component App\n  view\n    text \"\u{feff}\"\n";
+    assert!(Lexer::tokenize(src, 1)
+        .unwrap()
+        .iter()
+        .any(|t| matches!(&t.kind, contract_syntax::TokenKind::Str(s) if s == "\u{feff}")));
+}
+
+#[test]
+fn an_unexpected_character_is_named_whole_and_spans_its_bytes() {
+    for (c, len) in [("@", 1), ("é", 2), ("—", 3), ("🙂", 4)] {
+        let src = format!("component A\n  view\n    text {c} x\n");
+        let errors = Lexer::tokenize_all(&src, Span::point(1, 1)).unwrap_err();
+        assert_eq!(errors.len(), 1, "{c}: {errors:?}");
+        let e = &errors[0];
+        assert_eq!(e.id, "syntax-unexpected-char", "{c}: {e:?}");
+        assert_eq!(e.message, format!("unexpected `{c}`"), "{c}: {e:?}");
+        assert_eq!((e.span.line, e.span.col, e.span.end_col), (3, 10, 10 + len));
+    }
+}
+
+#[test]
 fn an_elements_attributes_continue_on_deeper_lines_that_begin_with_name_equals() {
-    // `name=` on a deeper line continues the attribute
+    // LLP 1035.005 D1: `name=` on a deeper line continues the attribute
     // list; a child begins with a tag, so one-token lookahead decides.
     let src = "component A\n  state n = 0\n  action go\n    n = 1\n  view\n    button press=go\n      testId=\"go\" aria-label=\"Go\"\n      width=40\n      text \"a\"\n        font-size=12\n      text \"b\"\n";
     let file = parse(src).unwrap();
@@ -475,7 +567,7 @@ fn send_is_a_name_everywhere_but_where_the_send_statement_starts() {
 
 #[test]
 fn let_starts_a_statement_only_before_a_name_and_records_build_with_named_arguments() {
-    // `let` statements and records built with named arguments.
+    // LLP 1035.005.000 D2 and D3.
     let src = "component A\n  state let = 0\n  action go\n    let next = F(base, title=\"a\")\n    if next.pinned\n      let word = \"b\"\n    let = 1\n  view\n    text \"a\"\n";
     let file = parse(src).unwrap();
     let body = &file.components[0].actions[0].body;
@@ -574,7 +666,7 @@ fn template_text_decodes_the_escapes_a_string_does_and_escaped_interpolation_is_
 
 #[test]
 fn a_mutations_clauses_may_continue_on_indented_lines() {
-    // `then` on the next line is a clause, not `syntax-expected-section`.
+    // The codeedit diary: `then` on the next line was `syntax-expected-section`.
     let src = "component A\n  mutation edited as shape Jump refreshes page\n    then followEdit\n  mutation saved as shape Ok\n    queue\n    refreshes files, page\n    then reload\n  state n = 0\n  view\n    text \"a\"\n";
     let file = parse(src).unwrap();
     let a = &file.components[0];
@@ -586,7 +678,8 @@ fn a_mutations_clauses_may_continue_on_indented_lines() {
         ["page"]
     );
     assert_eq!(edited.then.as_ref().map(|t| &*t.0), Some("followEdit"));
-    assert!(saved.queue);
+    assert_eq!(saved.mode, MutationMode::Queue);
+    assert_eq!(edited.mode, MutationMode::Newest);
     assert_eq!(saved.refreshes.len(), 2);
     let err = parse(
         "component A\n  mutation m as shape Ok refreshes board feed\n  view\n    text \"a\"\n",
@@ -603,7 +696,34 @@ fn a_mutations_clauses_may_continue_on_indented_lines() {
     assert!(err.message.contains("in that order"), "{}", err.message);
 }
 
-/// A `-` against a number, straight after an
+/// LLP 1161.000 D1: `parallel` takes `queue`'s place, and excludes it.
+#[test]
+fn a_mutation_is_parallel_where_queue_would_go_and_never_both() {
+    let src = "component A\n  mutation renamed as shape Ok parallel refreshes page\n  mutation saved as shape Ok\n    parallel\n  view\n    text \"a\"\n";
+    let file = parse(src).unwrap();
+    let modes: Vec<_> = file.components[0]
+        .mutations
+        .iter()
+        .map(|m| m.mode)
+        .collect();
+    assert_eq!(modes, [MutationMode::Parallel, MutationMode::Parallel]);
+    for both in [
+        "queue parallel",
+        "parallel queue",
+        "refreshes page parallel",
+    ] {
+        let src = format!("component A\n  mutation m as shape Ok {both}\n  view\n    text \"a\"\n");
+        let err = parse(&src).unwrap_err();
+        assert_eq!(err.id, "syntax-expected-newline", "{both}: {}", err.message);
+        assert!(
+            err.message.contains("is out of place"),
+            "{both}: {}",
+            err.message
+        );
+    }
+}
+
+/// Round 12 (LLP 1116.010 D3): a `-` against a number, straight after an
 /// attribute's `=`, is the negative literal, the number it is as `40` is.
 #[test]
 fn a_negative_number_after_an_attributes_equals_is_a_number_literal() {
@@ -656,9 +776,60 @@ fn a_negative_number_after_an_attributes_equals_is_a_number_literal() {
         let e = parse(&format!("component A\n  view\n    input {written}\n")).unwrap_err();
         assert_eq!(e.id, "syntax-unquoted-length", "{written}");
     }
-    // An exponent that overflows is no number.
+    // A literal that overflows a double is no number, with an exponent or without.
     let e = parse("component A\n  view\n    input min=-1e999\n").unwrap_err();
     assert_eq!(e.id, "syntax-bad-number");
+    let src = format!(
+        "component A\n  state n = {}\n  view\n    text \"\"\n",
+        "9".repeat(400)
+    );
+    let e = parse(&src).unwrap_err();
+    assert_eq!(e.id, "syntax-bad-number");
+    assert_eq!((e.span.line, e.span.col), (2, 13), "{e:?}");
+    assert!(e.message.contains("1.8e308"), "{}", e.message);
+}
+
+/// `width=50%` is refused as the unquoted length it is, at the number and the
+/// `%`, whatever follows on its line; a remainder with its operand is not.
+#[test]
+fn an_unquoted_percentage_is_refused_at_itself() {
+    let message = "`width=50%` needs quotes: a value with a unit is a string, `width=\"50%\"` (a bare number is pixels)";
+    for (src, at) in [
+        (
+            "component A\n  view\n    column width=50% testId=\"c\"\n      text \"a\"\n",
+            (3, 18, 21),
+        ),
+        (
+            "component A\n  view\n    column width=50%\n      text \"a\"\n",
+            (3, 18, 21),
+        ),
+        (
+            "component A\n  view\n    column width=50% apple.width=10\n",
+            (3, 18, 21),
+        ),
+        (
+            "component A\n  view\n    column\n      width=50%\n",
+            (4, 13, 16),
+        ),
+        (
+            "style Wide\n  width=50%\ncomponent A\n  view\n    text \"a\" class=\"Wide\"\n",
+            (2, 9, 12),
+        ),
+        (
+            "keyframes Grow\n  to width=50%\ncomponent A\n  view\n    text \"a\"\n",
+            (2, 12, 15),
+        ),
+    ] {
+        let e = parse(src).unwrap_err();
+        assert_eq!(e.id, "syntax-unquoted-length", "{src}\n{e:?}");
+        assert_eq!(e.message, message, "{src}");
+        assert_eq!((e.span.line, e.span.col, e.span.end_col), at, "{src}");
+    }
+    let e = parse("component A\n  view\n    column margin-top=-5%\n").unwrap_err();
+    assert!(e.message.contains("`margin-top=\"-5%\"`"), "{e:?}");
+    // A remainder that has its operand stays one.
+    let src = "component A\n  state a = 1\n  state b = 2\n  view\n    column width=a % b height=10 % b testId=\"c\"\n";
+    parse(src).unwrap();
 }
 
 /// What the negative literal leaves alone: subtraction, a negation of
@@ -729,4 +900,117 @@ fn the_negative_literal_leaves_subtraction_negation_and_exact_names_alone() {
     assert!(matches!(attrs[2].value, Expr::Number(n, _) if n == -8.0));
     // `em` after a number's `e` is a unit, not an exponent.
     assert!(parse("component A\n  view\n    image \"symbol:x\" width=\"2em\"\n").is_ok());
+}
+
+#[test]
+fn update_operators_are_refused_with_alternatives() {
+    for expression in [
+        "--n",
+        "++n",
+        "n--",
+        "n++",
+        "10 - --n",
+        "10--n",
+        "-- n",
+        "++ n",
+        "n --",
+        "n ++",
+        "--3",
+        "++3",
+        "--(n)",
+        "(n)++",
+        "n.field--",
+        "abs(--n)",
+        "[n++]",
+        "true ? --n : n",
+        "`${--n}`",
+        "`${n++}`",
+    ] {
+        for line in [
+            format!("derive x = {expression}"),
+            format!("action down()\n    n = {expression}"),
+        ] {
+            let src = format!("component A\n  state n = 5\n  {line}\n");
+            let error = parse(&src).unwrap_err();
+            assert_eq!(error.id, "syntax-refused-idiom", "{expression}");
+            assert!(error.message.contains("n = n"), "{error}");
+        }
+    }
+}
+
+#[test]
+fn dashed_profiles_and_literal_text_are_not_update_expressions() {
+    let file = parse(
+        r#"color-profile --brand-press src="assets/brand.icc"
+theme
+  ink = "color(--brand-press 0.1 0.2 0.3)"
+  alias = "ink"
+  -exact-secondary-label = "color(--brand-press 0.1 0.2 0.3)"
+component A
+  view
+    text "--n ++n 010 01.02.03" color="var(--ink)"
+    text `--n ++n 010 ${"--brand"}` animation-timeline="--scroll"
+"#,
+    )
+    .unwrap();
+    assert_eq!(file.color_profiles[0].name, "--brand-press");
+}
+
+#[test]
+fn leading_zero_numbers_are_refused_with_alternatives() {
+    for number in ["010", "08", "00", "01.5", "01e2"] {
+        let src = format!("component A\n  derive x = {number}\n");
+        let error = parse(&src).unwrap_err();
+        assert_eq!(error.id, "syntax-bad-number", "{number}");
+        assert!(error.message.contains("decimal"), "{error}");
+    }
+    for expression in [
+        "- -n",
+        "-(-n)",
+        "n- -n",
+        "10 - - -n",
+        "0",
+        "0.5",
+        "0e2",
+        "10",
+    ] {
+        parse(&format!(
+            "component A\n  state n = 5\n  derive x = {expression}\n"
+        ))
+        .unwrap();
+    }
+}
+
+#[test]
+fn unsupported_numeric_spellings_do_not_compile_as_decimal_prefixes() {
+    for number in [
+        "0o10", "0O10", "0x10", "0X10", "0x", "0b10", "0B10", "0b", "1_000", "0_1", "1n", "0n",
+        "0x10n",
+    ] {
+        assert!(
+            parse(&format!("component A\n  derive x = {number}\n")).is_err(),
+            "{number}"
+        );
+    }
+}
+
+#[test]
+fn midi_bytes_keep_leading_zeroes() {
+    parse(
+        r#"test "MIDI"
+  tap midi "keys" 90 00 08
+  expect midi sent "synth" 90 00 08 at 0.5
+"#,
+    )
+    .unwrap();
+    for step in [
+        "tap midi \"keys\" 90 00 08 at 010",
+        "tap midi \"keys\" 90 00 08 clock 010",
+        "expect midi sent \"synth\" 90 00 08 at 010",
+    ] {
+        assert_eq!(
+            parse(&format!("test \"MIDI\"\n  {step}\n")).unwrap_err().id,
+            "syntax-bad-number",
+        );
+    }
 }

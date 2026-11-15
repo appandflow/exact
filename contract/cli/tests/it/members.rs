@@ -1,4 +1,4 @@
-//! A component's members across files.
+//! A component's members across files (LLP 1091.002).
 
 use std::path::PathBuf;
 
@@ -58,7 +58,7 @@ members App
 ";
 
 // The same members written where the line stands, and one `fn` for the two
-// files' (a `fn`'s name never reaches the plan).
+// files' (a `fn`'s name never reaches the plan, LLP 1091).
 const FLAT: &str = "\
 fn label(n: number): string = `${n}`
 fn label2(n: number): string = `${n}!`
@@ -89,7 +89,7 @@ component App
 fn component_members_across_files_compile_to_the_one_file_plan() {
     let app = App::new("plan");
     app.write("label.contract", "fn label(n: number): string = `${n}`\n");
-    // The members file's `label` is its own file's, not the root's.
+    // The members file's `label` is its own file's, not the root's (D5).
     app.write(
         "features/label.contract",
         "fn label(n: number): string = `${n}!`\n",
@@ -280,7 +280,7 @@ component App
 ";
     app.write("more.contract", "members App\n  state c = \"param.fill\"\n");
     let error = app.refuse(root);
-    assert_eq!(error.id, "tamber-param-scope", "{error}");
+    assert_eq!(error.id, "forma-param-scope", "{error}");
     assert_eq!(error.span.source_id, 1, "{error}");
 }
 
@@ -383,7 +383,7 @@ component App
 #[test]
 fn a_members_files_own_fn_is_renamed_away_from_the_components_bindings() {
     // `save(1)` in the listing file is the action; the members file's private
-    // `fn save` must not capture it.
+    // `fn save` must not capture it (review round 3).
     let app = App::new("capture");
     app.write(
         "more.contract",

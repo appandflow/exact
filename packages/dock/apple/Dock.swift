@@ -1,4 +1,4 @@
-// @exact/dock on macOS: `requestAttention` bounces the
+// @exact/dock on macOS (LLP 1133.025 D5): `requestAttention` bounces the
 // Dock icon, `NSApplication.requestUserAttention(_:)`: once for an
 // informational request, until the app is activated for a critical one.
 // Apple: "Sending requestUserAttention(_:) to an app that is already active

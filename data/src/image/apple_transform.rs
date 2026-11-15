@@ -1,13 +1,13 @@
-//! The Apple codec's edit: the source decoded once at its
+//! The Apple codec's edit (LLP 1133.019 D16): the source decoded once at its
 //! stored size, drawn once through one affine map (its orientation, then
-//! the edit's turn, flip, crop and size) into a context of the output's size,
+//! D14's turn, flip, crop and size) into a context of the output's size,
 //! and encoded once by ImageIO.
 //!
-//! `transformImage` keeps what the camera made: the source's colour
+//! `transformImage` keeps what the camera made (D15): the source's colour
 //! space where it is an RGB space a bitmap can be drawn in; an HDR source
 //! (a gain map, PQ or HLG) decoded with `kCGImageSourceDecodeToHDR`, drawn
 //! into extended linear Display P3 at half-float and encoded with
-//! `kCGImageDestinationEncodeToISOGainmap`, where the type
+//! `kCGImageDestinationEncodeToISOGainmap` (LLP 1100 D13), where the type
 //! carries a gain map (JPEG, HEIC) and the OS has the request (macOS 15, iOS
 //! 18); and the metadata `metadata` names. A gain-map attempt that ImageIO
 //! writes without one, or fails, is retried with the SDR decode and encode
@@ -170,7 +170,7 @@ impl Opened {
             CFDataCreate(ptr::null(), bytes.as_ptr(), bytes.len() as CFIndex)
         })
         .ok_or_else(undecodable)?;
-        // The source keeps no decoded copy.
+        // The source keeps no decoded copy (A1.5).
         // SAFETY: the key and value are immutable statics.
         let uncached =
             dictionary(unsafe { &[(kCGImageSourceShouldCache, super::kCFBooleanFalse)] })
@@ -250,7 +250,7 @@ impl Opened {
         }
     }
 
-    /// A gain map of either kind, or a PQ or HLG transfer.
+    /// A gain map of either kind, or a PQ or HLG transfer (LLP 1100 D4).
     fn is_hdr(&self, keys: Option<&GainMap>) -> bool {
         let aux = |kind: CFTypeRef| {
             // SAFETY: `source` is live; the copy is +1 and released at once.
@@ -405,7 +405,7 @@ pub(super) fn render(
     }
 }
 
-/// What of the source an encode writes.
+/// What of the source an encode writes (D15).
 enum Written {
     /// The source's metadata object, its orientation reset and size rewritten.
     Kept(Owned),
@@ -415,7 +415,7 @@ enum Written {
 }
 
 /// The standard tags that describe the capture, and the IPTC rights fields:
-/// `no-location`'s whole set. ImageIO's GPS switch would leave maker
+/// `no-location`'s whole set (D15). ImageIO's GPS switch would leave maker
 /// notes and XMP, so nothing is subtracted from the source's; this is copied.
 const EXIF_KEPT: &[&str] = &[
     "DateTimeOriginal",
@@ -595,7 +595,7 @@ fn encode(
     (finished || out.exceeded).then_some((out.bytes, out.exceeded))
 }
 
-/// The word `transformImage`'s result says for `space`.
+/// The word D14's result says for `space`.
 fn space_word(space: CFTypeRef) -> &'static str {
     // SAFETY: the names are immutable statics; `space` is live.
     unsafe {

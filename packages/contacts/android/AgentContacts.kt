@@ -1,4 +1,4 @@
-// The agent's address book on Android, as Apple's `AgentContacts.swift` is: what @exact/contacts
+// The agent's address book on Android (LLP 1133.018 §10), as Apple's `AgentContacts.swift` is: what @exact/contacts
 // reads and picks from under the agent, where it asks the Contacts Provider for nothing. It is the package's
 // `fixture/contacts.json`, or another file there the agent's `store` names, which an APK carries as the app's assets
 // under `contacts-fixture/` (the fixture app's `assets/`; the reader puts an app's assets at `app/assets/` in the APK).

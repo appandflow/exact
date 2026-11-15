@@ -1,4 +1,4 @@
-// Dropping across lists on UIKit: the ghost is a snapshot in
+// Dropping across lists on UIKit (LLP 1094 D6): the ghost is a snapshot in
 // the window, its port facts and scrollers in window coordinates (y down).
 #if os(iOS) || os(tvOS)
 import UIKit
@@ -15,7 +15,7 @@ final class ReorderGhost {
         snap.bounds = CGRect(origin: .zero, size: frame.size)
         snap.center = CGPoint(x: frame.midX, y: frame.midY)
         snap.isUserInteractionEnabled = false
-        // The host's look: 0 8px 24px at 25% black, and 1.03 unless
+        // The host's look (D6): 0 8px 24px at 25% black, and 1.03 unless
         // motion is reduced.
         snap.layer.shadowColor = UIColor.black.cgColor
         snap.layer.shadowOpacity = 0.25
@@ -50,7 +50,7 @@ final class ReorderGhost {
 }
 
 /// A grouped list's port in the window, and its scrollTop as its collection
-/// feedback reports it.
+/// feedback reports it (D5).
 struct ReorderPort {
     let rect: CGRect
     let scrollTop: Double
@@ -64,12 +64,12 @@ struct ReorderPort {
     func contentY(_ p: CGPoint) -> Double { scrollTop + Double(p.y - rect.minY) }
 }
 
-/// One scroller autoscroll may move, on its own axis.
+/// One scroller autoscroll may move, on its own axis (D7).
 struct ReorderScroller {
     let scroll: UIScrollView
     let vertical: Bool
     let rect: CGRect
-    /// An ancestor joins while it holds the centre,
+    /// D7, amended 2026-10-07: an ancestor joins while it holds the centre,
     /// or the contact once a ghost held off its middle has carried its centre
     /// past the edge (that edge's band then measures the centre beyond it).
     static func chain(from list: NodeView, holding centre: CGPoint, contact: CGPoint? = nil) -> [ReorderScroller] {
@@ -105,7 +105,7 @@ struct ReorderScroller {
     func canScroll(toward direction: Double) -> Bool {
         let r = range
         // (at an edge within a hundredth of a pixel: UIKit's read-back of the
-        // last pixel is a ULP off the grid's; PixelGrid.same)
+        // last pixel is a ULP off the grid's; PixelGrid.same, Astra's audit)
         if direction < 0 { return r.now > r.low && !PixelGrid.same(r.now, r.low, in: scroll) }
         return direction > 0 ? r.now < r.high && !PixelGrid.same(r.now, r.high, in: scroll) : false
     }
@@ -121,13 +121,13 @@ struct ReorderScroller {
 }
 
 extension NodeView {
-    /// Where focus goes after a keyboard or custom-action move.
+    /// Where focus goes after a keyboard or custom-action move (D9).
     func focusAfterReorder() {
         _ = becomeFirstResponder()
         UIAccessibility.post(notification: .layoutChanged, argument: self)
     }
 
-    /// A grouped grip's drag: the ghost's session, not Arrange's.
+    /// A grouped grip's drag (D6): the ghost's session, not Arrange's.
     package func reorderGroupDragged(_ gesture: UIGestureRecognizer, point: CGPoint) -> Bool {
         let mine = presenter?.reorderGroup.map { $0.handle === self } ?? false
         guard mine || (gesture.state == .began && reorderGroupList != nil) else { return false }
@@ -147,7 +147,7 @@ extension NodeView {
     }
 
     /// "Move earlier", "Move later", "Move to previous list", "Move to next
-    /// list" on a grouped grip.
+    /// list" on a grouped grip (D9).
     package override var accessibilityCustomActions: [UIAccessibilityCustomAction]? {
         get {
             guard reorderGroupList != nil else { return super.accessibilityCustomActions }

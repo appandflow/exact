@@ -4,14 +4,14 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 publish = false
-description = "Mac benchmark carrier for the painted presenter"
+description = "Mac benchmark carrier for the painted presenter (LLP 1149 S1.1)"
 
 [[bin]]
 name = "exact-apple-painted"
 path = "src/main.rs"
 
 [dependencies]
-exact-linux = { path = "../linux" }
+exact-painted = { path = "../painted" }
 exact-runner = { path = "../../runner" }
 serde_json = "1"
 

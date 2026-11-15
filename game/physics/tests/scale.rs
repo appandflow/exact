@@ -1,6 +1,6 @@
 // Cost of the retained query scene and the step at game scale. Measurements, not
 // checks: run with `cargo test -p exact-game-physics --release --test scale --
-// --ignored --nocapture`. The shapes follow a shooter and a forest game.
+// --ignored --nocapture`. The shapes follow the RIVALS and Forest diaries.
 use exact_game::{Transform, Vec3, World};
 use exact_game_physics::{self as physics, CapsuleController, Collider, Shape};
 use std::time::Instant;
@@ -66,7 +66,7 @@ fn rays_interleaved_with_unrelated_writes() {
     }
 }
 
-// A forest's trunks: static offset cylinders over a heightfield, one capsule
+// The Forest's trunks: static offset cylinders over a heightfield, one capsule
 // walking and a few collider-free movers (camera, sun) per tick.
 fn forest(trees: usize) -> World {
     let mut w = World::new(60, 0);
@@ -143,7 +143,7 @@ fn forest_trunks_per_tick_and_save() {
     }
 }
 
-// A full world hash at forest scale: static trunks, one walking capsule. The
+// A full world hash at Forest scale: static trunks, one walking capsule. The
 // Physics resource is part of the hash, and each step changes it: its snapshot is
 // re-encoded and hashed again.
 #[test]

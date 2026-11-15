@@ -1,6 +1,6 @@
-//! End to end: a resource whose source answers later, with nothing kept for
-//! its arguments, shows its placeholder — declared, or a list's empty value
-//! — with `pending(x)` true, rather than a boot refusal.
+//! LLP 1048.003 D6 end to end: a resource whose source answers later, with
+//! nothing kept for its arguments, shows its placeholder — declared, or a
+//! list's empty value — with `pending(x)` true, where boot used to refuse.
 
 use exact_kernel::{Kernel, PropId};
 use exact_runner::{
@@ -78,7 +78,7 @@ impl DataSource for Blog {
         }
         Ok(Answer::Now(match (source, outcome) {
             ("post", Outcome::Response(r)) if r.status == 200 => post("7", "Hello"),
-            // A failure is data the source shapes.
+            // A failure is data the source shapes (LLP 1016 D4).
             ("post", _) => post("7", "Unavailable"),
             ("comments", _) => Value::list(vec![Value::str("first")]),
             ("savePost", _) => post("8", "Saved"),
@@ -196,7 +196,7 @@ fn a_source_that_answers_later_at_build_is_asked_at_launch() {
 
 #[test]
 fn without_a_placeholder_a_record_that_answers_later_shows_its_zero_pending() {
-    // No placeholder declared: the zero, pending, rather than a boot refusal.
+    // @ref LLP 1054.000.002 D1 — where boot used to refuse.
     let src = corpus().replace(" else emptyPost()", "");
     let plan = contract::bake(contract::compile(&src).unwrap(), Blog::default()).unwrap();
     let mut r = boot(&plan, Blog::default(), "/post/7").unwrap();
@@ -293,9 +293,9 @@ fn a_module_not_loaded_at_boot_shows_placeholders_until_data_ready() {
 
 #[test]
 fn a_send_before_the_module_loads_waits_for_it() {
-    // A document opened at launch can reach an action before the native host
-    // has loaded the TypeScript module; refusing its send would lose the
-    // document. The send waits, pending, and goes at data_ready.
+    // Notes diary: a document opened at launch reached an action before the
+    // native host loaded the TypeScript module, and its send was refused —
+    // the document lost. The send waits, pending, and goes at data_ready.
     let src = corpus()
         .replace(
             "  resource comments",
@@ -457,7 +457,7 @@ fn asks_refused_admission_fail_without_restarting_their_sources() {
 
 #[test]
 fn empty_gives_the_zero_with_named_fields_replaced() {
-    // No source, and nothing at the bake.
+    // @ref LLP 1054.000.002 D2/D3 — no source, and nothing at the bake.
     let src = corpus().replace("else emptyPost()", "else empty(title=\"Untitled\")");
     let plan = contract::bake(contract::compile(&src).unwrap(), Blog::default()).unwrap();
     assert!(!plan.sources.iter().any(|s| plan.str(s.name) == "empty"));
@@ -489,7 +489,7 @@ fn empty_gives_the_zero_with_named_fields_replaced() {
 
 #[test]
 fn a_placeholder_shown_before_the_source_is_ready_is_never_compiled_as_its_answer() {
-    // No ticket, and still not an answer.
+    // @ref LLP 1054.000.002 D4 — no ticket, and still not an answer.
     let not_loaded = std::rc::Rc::new(std::cell::Cell::new(true));
     let data = Blog {
         not_loaded: not_loaded.clone(),

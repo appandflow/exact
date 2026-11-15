@@ -37,7 +37,7 @@ pub enum Deco {
 #[derive(Debug, Default)]
 pub(crate) struct Projection {
     pub runs: Vec<Run>,
-    /// The inline atoms' source ranges, sorted: each drawn
+    /// The inline atoms' source ranges, sorted (LLP 1045.000 D5): each drawn
     /// as one box, its source hidden. Never part of a cluster: a hidden
     /// cluster beside one keeps its own caret positions.
     pub atoms: Vec<(u32, u32)>,
@@ -75,7 +75,6 @@ impl Projection {
                 .collect(),
             ..Self::default()
         };
-        let mut prefixed = Vec::new();
         let mut prefixes = Vec::new();
         for p in &styled.paragraphs {
             let Range { start, end } = p.range;
@@ -87,7 +86,6 @@ impl Projection {
                     kind: RunKind::Prefix,
                 });
                 out.collapsed.push((start, end));
-                prefixed.push(start);
                 continue;
             }
             let listy = matches!(p.kind, K::Bullet | K::Ordered | K::Task(_));
@@ -96,13 +94,12 @@ impl Projection {
             }
             let mut at = start;
             let mut deco = None;
-            while at < end {
+            while at < p.content {
                 if let Some(h) = hidden(at) {
-                    prefixed.push(at);
                     if h <= at {
                         break;
                     }
-                    at = h;
+                    at = h.min(p.content);
                 } else if let Some(r) = replaced(at) {
                     deco = Some(match &r.with {
                         Replacement::Footnote(_) => break,
@@ -139,24 +136,26 @@ impl Projection {
             }
         }
         // Prefixes and the remaining inline syntax, each already in order,
-        // merged by start (prefixes first on a tie).
-        let inline = styled
-            .hidden
-            .iter()
-            .filter(|h| prefixed.binary_search(&h.start).is_err())
-            .map(|h| {
-                let link = ch(h.start) == u16::from(b']') && ch(h.start + 1) == u16::from(b'(');
-                Run {
-                    start: h.start,
-                    end: h.end,
-                    kind: if link {
-                        RunKind::LinkClose
-                    } else {
-                        RunKind::Inline
-                    },
-                }
-            });
-        let (mut prefixes, mut inline) = (prefixes.into_iter().peekable(), inline.peekable());
+        // merged by start (prefixes first on a tie). A hidden range may cover
+        // both the block prefix and the first inline opener.
+        let inline = styled.hidden.iter().filter_map(|h| {
+            let k = prefixes.partition_point(|p| p.start <= h.start);
+            let start = prefixes[..k].last().map_or(h.start, |p| h.start.max(p.end));
+            if start >= h.end {
+                return None;
+            }
+            let link = ch(start) == u16::from(b']') && ch(start + 1) == u16::from(b'(');
+            Some(Run {
+                start,
+                end: h.end,
+                kind: if link {
+                    RunKind::LinkClose
+                } else {
+                    RunKind::Inline
+                },
+            })
+        });
+        let (mut prefixes, mut inline) = (prefixes.iter().copied().peekable(), inline.peekable());
         while let Some(r) = match (prefixes.peek(), inline.peek()) {
             (Some(p), Some(i)) if i.start < p.start => inline.next(),
             (Some(_), _) => prefixes.next(),
@@ -260,7 +259,7 @@ impl Projection {
 
     /// Where a caret at `p` sits: before inline openers and closers, so it
     /// takes the preceding style; after line prefixes and link closers; at
-    /// an atom's end when it is inside the atom.
+    /// an atom's end when it is inside the atom (LLP 1045.000 D5).
     pub fn canonical(&self, p: u32) -> u32 {
         if let Some(a) = self.inside_atom(p) {
             return a.1;

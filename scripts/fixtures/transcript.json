@@ -537,7 +537,7 @@
     "tapped": 3,
     "target": "Sky off",
     "delivery": "unsupported",
-    "reason": "linux has no pinch",
+    "reason": "linux has no pinch (LLP 1057.001 §4)",
     "pinch": 2,
     "carrier": "linux",
     "mode": "agent",

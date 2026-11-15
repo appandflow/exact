@@ -1,10 +1,10 @@
-//! A heading's text style.
+//! A heading's text style (LLP 1115 D3, LLP 1115.000 D12.2).
 
 use exact_kernel::StyleId;
 use exact_plan::BindingsRow;
 
 impl crate::Lowerer<'_> {
-    /// A heading takes its level's platform text style.
+    /// @ref LLP 1115 D3 — a heading takes its level's platform text style.
     /// iOS, macOS and Material keep its weight and leading. The web, neutral and
     /// terminal looks add title emphasis through metrics. Authored rows win.
     /// Literal level choices select their styles; other expressions use 2.
@@ -107,7 +107,7 @@ impl crate::Lowerer<'_> {
         let expr = self.expr_code(&size, scope, locals)?;
         bindings.push(crate::style_row(StyleId::FontSize, expr, crate::IMPLIED));
         // The style is the heading's as a `font` shorthand names one: its
-        // weight and leading beat an inherited one.
+        // weight and leading beat an inherited one (LLP 1115.000 D12.2).
         let marked = self.b.constant(&exact_plan::Value::Bool(true));
         bindings.push(crate::prop_row(
             exact_kernel::PropId::FontShorthand,

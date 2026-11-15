@@ -1,5 +1,5 @@
-//! A stream's frames land as commits of the stream's origin:
-//! a frame of a stream a tool asked asks what it causes as the tool,
+//! A stream's frames land as commits of the stream's origin (LLP 1133.002
+//! D12): a frame of a stream a tool asked asks what it causes as the tool,
 //! as a one-shot reply to the tool's request would.
 use exact_kernel::Kernel;
 use exact_plan::Value;

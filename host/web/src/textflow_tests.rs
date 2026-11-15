@@ -1,4 +1,4 @@
-//! Host contexts and committed positions.
+//! @ref LLP 1043.000 §3 D7/D8 — host contexts and committed positions.
 #[test]
 fn host_announces_contexts_inline_paragraphs_and_css_without_taffy_layout() {
     let plan = contract::compile(r#"component Test
@@ -109,7 +109,7 @@ fn pan_abi_20_commits_deltas_and_refuses_nonfinite_payload_before_clock() {
     assert!(out.contains("\"text\":\"102\""), "{out}");
 }
 
-// The kernel's admission rule reaches the browser's executor.
+// @ref LLP 1043.000 §8 — the kernel's admission rule reaches the browser's executor.
 #[test]
 fn a_drop_cap_admits_its_auto_height_paragraph_and_a_flex_context_refuses() {
     let source = |container: &str| {

@@ -1,9 +1,10 @@
-//! `@exact/geofencing`, the package copied out of the checkout as an installed
-//! package is: a permission that adds to another (`base`), asked one ticket on
-//! Apple and two on Android; a send that answers the entry it lists, bounded by
-//! `most`; a tap that chooses its event by a field and flips it; an entry that
-//! stays whatever its invocation's outcome, keeping an undelivered transition;
-//! and a `--wake` entry delivered cold, or at a launch with a view.
+//! LLP 1133.021 stage 0 for `@exact/geofencing`, the package copied out of
+//! the checkout as an installed package is: a permission that adds to
+//! another (`base`), asked one ticket on Apple and two on Android; a send
+//! that answers the entry it lists, bounded by `most`; a tap that chooses
+//! its event by a field and flips it; an entry that stays whatever its
+//! invocation's outcome, keeping an undelivered transition; and a
+//! `--wake` entry delivered cold, or at a launch with a view.
 
 use exact_runner::{agent, Runner, Value};
 use serde_json::{json, Value as Json};
@@ -38,6 +39,17 @@ impl App {
     }
     fn plan(&self) -> exact_plan::Plan {
         self.compile().unwrap_or_else(|e| panic!("{e:?}"))
+    }
+    /// Replaces `from`, which occurs once, in package `name`'s `exact.json`.
+    fn edit(&self, name: &str, from: &str, to: &str) {
+        let path = self
+            .0
+            .join("node_modules/@exact")
+            .join(name)
+            .join("exact.json");
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert_eq!(text.matches(from).count(), 1, "{from}");
+        std::fs::write(&path, text.replace(from, to)).unwrap();
     }
 }
 impl Drop for App {
@@ -265,7 +277,7 @@ fn the_events_carry_their_budget_and_a_literal_radius_holds_its_floor() {
     );
 }
 
-/// On iOS: one ticket, for background location, whose `allow` grants
+/// §12 on iOS: one ticket, for background location, whose `allow` grants
 /// location too; the call answers the entry it listed, `inside` none.
 /// A tap enters, the next leaves, each a wake that flips `inside`.
 #[test]
@@ -336,7 +348,7 @@ fn an_apple_add_asks_once_and_a_tap_enters_then_leaves() {
     assert_eq!(fences(&r), json!([]), "{}", logs(&r));
 }
 
-/// On Android: location first, then background location; a denied
+/// D13 on Android: location first, then background location; a denied
 /// first ticket fails the call with no second.
 #[test]
 fn an_android_add_asks_location_then_background_location() {
@@ -365,7 +377,7 @@ fn an_android_add_asks_location_then_background_location() {
     assert_eq!(fences(&r), json!([]));
 }
 
-/// Twenty per app; the twenty-first fails `QuotaExceededError`, and
+/// D11: twenty per app; the twenty-first fails `QuotaExceededError`, and
 /// adding a name again replaces its fence rather than adding one.
 #[test]
 fn the_twenty_first_fence_is_over_the_quota() {
@@ -394,7 +406,7 @@ fn the_twenty_first_fence_is_over_the_quota() {
     );
 }
 
-/// A wake past its budget keeps the transition on the entry,
+/// D14 step 3: a wake past its budget keeps the transition on the entry,
 /// which stays listed; a later delivery clears it.
 #[test]
 fn an_expired_wake_keeps_its_transition_and_the_fence() {
@@ -422,7 +434,7 @@ fn an_expired_wake_keeps_its_transition_and_the_fence() {
     assert_eq!(kept[0]["inside"], true, "{kept}");
 }
 
-/// The cold wake and the one kept for a launch: `--wake` with the entry
+/// §12's cold wake and the one kept for a launch: `--wake` with the entry
 /// as `state.geofences` printed it and its `event`.
 #[test]
 fn a_launch_with_an_entry_delivers_its_event() {
@@ -462,7 +474,7 @@ fn a_launch_with_an_entry_delivers_its_event() {
     );
 }
 
-/// No cell on the web; the substitute answers as production does.
+/// D20: no cell on the web; the substitute answers as production does.
 #[test]
 fn the_web_has_no_geofencing() {
     let app = App::new("web", APP);
@@ -479,5 +491,68 @@ fn the_web_has_no_geofencing() {
         logs(&r).contains("addGeofence: NotSupportedError"),
         "{}",
         logs(&r)
+    );
+}
+
+const STATUS: &str = r#"use geofencingStatus, GeofencingStatus from "@exact/geofencing"
+
+component App
+  resource status = geofencingStatus() as shape GeofencingStatus
+  view
+    text status.state
+"#;
+
+/// A permission's state reads those it requires and the one that grants
+/// it, so a cycle among one interface's permissions is refused by name.
+#[test]
+fn a_cycle_among_the_permissions_is_refused() {
+    let location = r#""grants": ["device.geolocation"]"#;
+    for (edit, steps) in [
+        (
+            format!(r#"{location}, "grantedBy": "geolocation-background""#),
+            "`geolocation-background` requires `geolocation` on android, and `geolocation` is granted by `geolocation-background`",
+        ),
+        (
+            format!(r#"{location}, "requires": {{ "android": ["geolocation-background"] }}"#),
+            "`geolocation-background` requires `geolocation` on android, and `geolocation` requires `geolocation-background` on android",
+        ),
+    ] {
+        let app = App::new("cycle", STATUS);
+        app.edit("geofencing", location, &edit);
+        let refused = app.compile().unwrap_err();
+        let error = (refused.iter())
+            .find(|e| e.id == "contract-use-declaration")
+            .unwrap_or_else(|| panic!("{refused:?}"));
+        assert!(error.message.contains(steps), "{}", error.message);
+    }
+}
+
+/// A cycle through a permission another interface declares, which neither
+/// declaration shows the compiler, still reads a state, where the agent
+/// asks it too.
+#[test]
+fn a_cycle_across_interfaces_reads_a_state() {
+    let app = App::new("across", APP);
+    let requires = r#""requires": { "android": ["geolocation"] }"#;
+    let both = r#""requires": { "android": ["geolocation", "notifications"] }"#;
+    app.edit("geofencing", requires, both);
+    let notifications = r#""denied": "NotAllowedError""#;
+    let back = r#", "requires": { "android": ["geolocation-background"] }"#;
+    app.edit(
+        "notifications",
+        notifications,
+        &format!("{notifications}{back}"),
+    );
+    let mut r = boot(app.plan(), "android");
+    pump(&mut r);
+    assert!(
+        slot(&r, "status").contains("prompt"),
+        "{}",
+        slot(&r, "status")
+    );
+    let agent = state(&r).to_string();
+    assert!(
+        agent.contains(r#""geolocation-background":"prompt""#),
+        "{agent}"
     );
 }

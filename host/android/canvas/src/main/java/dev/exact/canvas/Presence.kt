@@ -29,13 +29,13 @@ import javax.crypto.spec.PSource
 import javax.crypto.spec.SecretKeySpec
 
 /**
- * Locked secrets in the reader. The host's backend owns every move (its Rust, over the
+ * Locked secrets in the reader (LLP 1133.010 D6, D8, D13). The host's backend owns every move (its Rust, over the
  * files here); this keeps the Keystore's half:
  *
  * - **A write** ([keystore], op 1, called synchronously from the host's thread): a Keystore key pair per name and
  *   policy, generated at the name's first locked write from its line alone (RSA with OAEP; authentication required
  *   for every use with the policy's authenticators; StrongBox when the line says so; unlocked-device-required from
- *   API 35). The value is sealed under a fresh AES-GCM key, which the public half wraps, so a write never asks
+ *   API 35, D3). The value is sealed under a fresh AES-GCM key, which the public half wraps, so a write never asks
  *   for the person ("public key operations are not restricted"). The file is written beside, then renamed to its
  *   generation's name, so the last value stays readable until the new one is durable.
  * - **A read** ([check], the host's request): a decrypting `Cipher` over the private key, the bound implementation's
@@ -57,7 +57,7 @@ object Presence {
     private val oaep = OAEPParameterSpec("SHA-256", "MGF1", MGF1ParameterSpec.SHA1, PSource.PSpecified.DEFAULT)
     private val background = Executors.newSingleThreadExecutor()
 
-    /** The host's synchronous call (`host/linux/src/canvas/presence.rs`): `ok:<text>` or `err:<why>`. */
+    /** The host's synchronous call (`host/painted/src/canvas/presence.rs`): `ok:<text>` or `err:<why>`. */
     @JvmStatic fun keystore(op: Int, request: String, value: String): String = try {
         when (op) {
             1 -> { add(JSONObject(request), value); "ok:" }
@@ -87,7 +87,7 @@ object Presence {
     }
 
     /** A name's key under its line: a changed policy or StrongBox word is another alias, and the old key's files are
-     * dropped as a policy change. */
+     * dropped as a policy change (D4). */
     private fun alias(name: String, policy: String): String {
         val owned = words(policy).filter { it != "optional" && !it.startsWith("apple.") }.joinToString(" ")
         val hash = MessageDigest.getInstance("SHA-256").digest(owned.toByteArray()).take(6).joinToString("") { "%02x".format(it) }
@@ -148,7 +148,7 @@ object Presence {
         }
         val builder = KeyGenParameterSpec.Builder(alias, KeyProperties.PURPOSE_DECRYPT or KeyProperties.PURPOSE_ENCRYPT).setKeySize(2048)
         own(builder)
-        // The key hatch, then what the backend owns set again: a hatch cannot weaken the gate.
+        // The key hatch, then what the backend owns set again: a hatch cannot weaken the gate (D11).
         Extensions.authenticator()?.configure(builder)
         own(builder)
         KeyPairGenerator.getInstance(KeyProperties.KEY_ALGORITHM_RSA, "AndroidKeyStore").apply { initialize(builder.build()) }.generateKeyPair()
@@ -175,7 +175,7 @@ object Presence {
         val failed = { code: String, message: String -> answer(JSONObject().put("status", "failed").put("code", code).put("message", message)) }
         val origin = request.optString("origin", "app")
         if (origin != "app") return failed("PERMISSION_DENIED", "person-required")
-        val authenticator = Extensions.authenticator() ?: return failed("NotSupportedError", "this APK binds no authenticator")
+        val authenticator = Extensions.authenticator() ?: return failed("NotSupportedError", "this APK binds no authenticator (LLP 1133.010 D13)")
         val policy = request.optString("policy")
         val reason = request.optString("reason")
         val service = request.optString("service").takeIf { it.isNotEmpty() && !request.isNull("service") }

@@ -1,4 +1,4 @@
-//! `panrelease` through the web's bridge: the page's
+//! `panrelease` through the web's bridge (LLP 1057 §10.6 phase 2): the page's
 //! pointer samples go to motion ops 13 and 14, which answer the engine
 //! tracker's velocity; ABI kind 28 delivers it to the action.
 use exact_runner::{DataError, DataSource, Value};

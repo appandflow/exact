@@ -1,4 +1,4 @@
-//! One render thread, with a bounded handoff.
+//! One render thread, with a bounded handoff. @ref LLP 1149 D11.
 use crate::device::{Error, Result};
 use std::{
     collections::VecDeque,

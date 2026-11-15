@@ -1,4 +1,4 @@
-// devices.js, the JS target's substitute for serial ports, HID and USB devices, against the
+// devices.js, the JS target's substitute for serial ports, HID and USB devices (LLP 1133.037 §11), against the
 // packages' own declarations: the same answers the runner's `modules/devices.rs` gives (contract/cli/tests/it/devices.rs).
 import { expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
@@ -53,6 +53,16 @@ test('a port streams each byte once, with errors at their offsets, and ends unpl
   expect(end.errors[0].code).toBe('NetworkError');
   expect(read().error).toBe('InvalidStateError');
   expect(w.call('serial.getPorts')).toEqual([{ id: 's3', name: '', connected: false, granted: true }]);
+});
+
+test('a read of several megabytes arrives whole', () => {
+  const w = world(), chunk = 'x'.repeat(3 << 20);
+  w.preferred.set('serial.ports', [{ id: 's3', input: [{ at: 0, data: b64(chunk) }, { at: 0, data: b64('\xff\x00') }] }]);
+  w.dv.preferred('serial.ports');
+  w.call('serial.open', { port: 's3', baudRate: 115200 });
+  const read = w.call('serial.serialInput', { connection: 'serial-1' });
+  expect(read.position).toBe(chunk.length + 2);
+  expect(atob(read.data)).toBe(chunk + '\xff\x00');
 });
 
 test('the chooser offers the preferred devices and remembers the one chosen', () => {

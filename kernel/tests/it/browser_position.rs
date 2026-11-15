@@ -1,5 +1,5 @@
 //! Absolutely positioned boxes, a root's own margins and the `aspect-ratio`
-//! paths not covered elsewhere, against literal Chrome.
+//! paths LLP 1053 left (LLP 1074), against literal Chrome.
 //!
 //! Chrome 154, 2026-09-30, by the method of `browser_cases.rs`: each case is
 //! plain HTML/CSS inside an 800px-wide box (the kernel's offer); the case's
@@ -71,8 +71,8 @@
 //! 151.0.7922.34, using the same 10px advance. It covers growing auto-height
 //! text leaves with height caps, flex bases, explicit minima, overflow,
 //! width caps, ratios, box sizing, definite heights and stretch. Controls
-//! include equal height bounds, a growing sibling and leaves without a ratio
-//! or height cap.
+//! include equal height bounds, a growing sibling, capped columns with auto
+//! and zero height minima, and leaves without a ratio or height cap.
 //! `Chrome 151 ratio text wrapping` uses the same version and date. Letter
 //! and word spacing were normalized separately: `aaaaaa aaaaaa` measures
 //! 130px at max-content and 60px at min-content. Cases cover column cross
@@ -206,7 +206,7 @@ fn failures(fixture: &str, relative: bool) -> Vec<(String, Vec<String>)> {
 
 /// Cases about what else makes a containing block in a browser: a
 /// transform, a filter. The kernel's rule is position alone; the Contract
-/// compiler lowers `position: relative` onto such a box, so a
+/// compiler lowers `position: relative` onto such a box (LLP 1074 T1), so a
 /// plan never holds one that is `static`.
 const NOT_IN_THE_KERNEL: &[&str] = &[
     "inset 0 under translate: the box",
@@ -245,11 +245,7 @@ fn check(all: Vec<(String, Vec<String>)>, owed: &[&str]) {
 #[test]
 fn positioned_boxes_roots_and_ratios_match_chrome() {
     let fixture = include_str!("fixtures/browser_position.tsv");
-    // Known difference: the auto-height column shrinks to 60px instead of its 100px cap.
-    check(
-        failures(fixture, true),
-        &["Chrome 151 ratio text wrapping column height cap"],
-    );
+    check(failures(fixture, true), &[]);
 }
 
 /// The same Chrome frames hold when the ratio container is the root in a
@@ -297,15 +293,15 @@ fn cross_axis_auto_margins_match_chrome() {
     );
 }
 
-/// Chrome 151.0.7922.34, 2026-10-24: block item sizing and placement,
-/// direction, overflow safety and auto margins. Text advances are 10px;
+/// Chrome 151.0.7922.34, 2026-10-24: block item sizing and placement;
+/// 2026-11-12: absolute static positions, insets and hoisted descendants.
+/// Direction, overflow safety and margins are covered. Text advances are 10px;
 /// the 800px offer takes the root's direction, as the kernel root solver does.
 #[test]
 fn block_justify_items_matches_chrome() {
     check(
         failures(include_str!("fixtures/browser_block_justify.tsv"), false),
-        // Known difference: absolute children still use the unaligned static position.
-        &["Chrome 151 block justify absolute automatic insets"],
+        &[],
     );
 }
 
@@ -361,6 +357,71 @@ fn block_justify_self_overrides_the_container_default() {
         })
         .collect();
     assert_eq!(frames, [(40.0, 20.0), (80.0, 20.0), (0.0, 100.0)]);
+}
+
+/// Chrome 151.0.7922.34, 2026-11-12: the vendor's per-item override,
+/// including its own overflow safety, on a block's absolute child.
+#[test]
+fn absolute_block_justify_self_overrides_the_container_default() {
+    use taffy::{prelude::*, Direction, TaffyTree};
+    for (alignment, ltr, rtl) in [
+        (None, [40.0, -10.0], [40.0, -10.0]),
+        (Some(JustifySelf::START), [0.0, 0.0], [80.0, -20.0]),
+        (Some(JustifySelf::END), [80.0, -20.0], [0.0, 0.0]),
+        (Some(JustifySelf::CENTER), [40.0, -10.0], [40.0, -10.0]),
+        (Some(JustifySelf::SAFE_CENTER), [40.0, 0.0], [40.0, -20.0]),
+        (Some(JustifySelf::SAFE_END), [80.0, 0.0], [0.0, -20.0]),
+        (Some(JustifySelf::SELF_START), [0.0, 0.0], [0.0, 0.0]),
+        (Some(JustifySelf::SELF_END), [80.0, -20.0], [80.0, -20.0]),
+        (Some(JustifySelf::LEFT), [0.0, 0.0], [80.0, -20.0]),
+        (Some(JustifySelf::RIGHT), [80.0, -20.0], [0.0, 0.0]),
+        (Some(JustifySelf::STRETCH), [0.0, 0.0], [80.0, -20.0]),
+    ] {
+        for (direction, expected) in [(Direction::Ltr, ltr), (Direction::Rtl, rtl)] {
+            for (width, x) in [20.0, 120.0].into_iter().zip(expected) {
+                let mut tree: TaffyTree = TaffyTree::new();
+                let child = tree
+                    .new_leaf(Style {
+                        position: Position::Absolute,
+                        direction: Direction::Ltr,
+                        size: Size {
+                            width: length(width),
+                            height: length(10.0),
+                        },
+                        justify_self: alignment,
+                        ..Style::default()
+                    })
+                    .unwrap();
+                let root = tree
+                    .new_with_children(
+                        Style {
+                            display: Display::Block,
+                            direction,
+                            size: Size {
+                                width: length(100.0),
+                                height: length(20.0),
+                            },
+                            justify_items: Some(JustifyItems::SAFE_CENTER),
+                            ..Style::default()
+                        },
+                        &[child],
+                    )
+                    .unwrap();
+                tree.compute_layout(root, Size::MAX_CONTENT).unwrap();
+                let layout = tree.layout(child).unwrap();
+                assert_eq!(
+                    (
+                        layout.location.x,
+                        layout.location.y,
+                        layout.size.width,
+                        layout.size.height
+                    ),
+                    (x, 0.0, width, 10.0),
+                    "{direction:?} {alignment:?} width:{width}",
+                );
+            }
+        }
+    }
 }
 
 /// Chrome 151.0.7922.34, 2026-10-18: overflowing and fitting flex lines,
@@ -502,7 +563,7 @@ fn max_content_roots_wrap_at_their_resolved_width() {
     assert!(wrong.is_empty(), "{}", wrong.join("\n"));
 }
 
-/// `position: static` is the default, an absolute box's
+/// LLP 1074 T1: `position: static` is the default, an absolute box's
 /// containing block is its nearest positioned ancestor, and with no inset on
 /// an axis it sits at its static position.
 #[test]

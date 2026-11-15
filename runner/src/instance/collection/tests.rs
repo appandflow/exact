@@ -12,8 +12,12 @@ mod ownership;
 mod position;
 #[path = "rekey_tests.rs"]
 mod rekey;
+#[path = "sizing_tests.rs"]
+mod sizing;
 #[path = "smooth_tests.rs"]
 mod smooth;
+#[path = "snap_tests.rs"]
+mod snap;
 #[path = "text_tests.rs"]
 mod text;
 
@@ -152,17 +156,18 @@ fn env_with<'a>(plan: &'a Plan, slots: &'a [Value], strings: &'a crate::vm::Stri
         format: None,
         geometry: None,
         derives: &[],
-        resources: &[],
+        resources: (&[]).into(),
         params: &[],
         frames: &[],
         now_ms: 0.0,
-        pending_resources: &[],
-        failed_resources: &[],
-        failed_why: &[],
+        pending_resources: (&[]).into(),
+        current_resources: (&[]).into(),
+        failed_resources: (&[]).into(),
+        failed_why: (&[]).into(),
         pending_mutations: &[],
         failed_mutations: &[],
         store_dependent_derives: &[],
-        store_dependent_resources: &[],
+        store_dependent_resources: (&[]).into(),
     }
 }
 fn values(n: usize) -> Value {
@@ -544,7 +549,7 @@ fn binary_feedback_roundtrips_and_rejects_malformed_reports() {
         CollectionFeedback::decode_with_fill(&f.encode_with(lean).unwrap()).unwrap(),
         (f.clone(), lean)
     );
-    // The reader's scroll, a gesture since the request, the host's own animation
+    // The reader's scroll, a gesture since the request, the host's own animation (LLP 1070.000 §2.6, §11)
     let reading = CollectionFill {
         scrolling: true,
         gesture: true,
@@ -571,7 +576,7 @@ fn binary_feedback_roundtrips_and_rejects_malformed_reports() {
         old[..4].copy_from_slice(&version.to_le_bytes());
         assert!(CollectionFeedback::decode(&old).is_err());
     }
-    // The padding the host laid out is a length: a negative
+    // The padding the host laid out (LLP 1010 §6.9) is a length: a negative
     // or nonfinite one is refused at either end
     for (end, bad) in [0, 1]
         .into_iter()
@@ -660,7 +665,7 @@ fn snapshot_json_preserves_u64_metadata_as_decimal_strings() {
     assert!(json.contains(r#""correction":{"scrollSequence":"0""#));
 }
 
-/// A snapshot names the list's latest request as
+/// LLP 1070.000 §2.6: a snapshot names the list's latest request as
 /// `lastRequest` once there has been one, ended or not, and as `request`
 /// only while it is under way.
 #[test]
@@ -1309,7 +1314,10 @@ fn a_repeated_key_is_kept_and_a_later_vm_trap_refuses_without_publication() {
     h.slots[0] = Value::list(next);
     assert!(matches!(
         h.update(),
-        Err(InstanceError::Trap(Trap::UnwrapNone { .. }))
+        Err(InstanceError::Evaluation {
+            trap: Trap::UnwrapNone { .. },
+            ..
+        })
     ));
     assert_eq!(h.snapshot(), before);
     assert_eq!(h.collection().keys.as_ptr(), keys);
@@ -1326,7 +1334,10 @@ fn a_key_repeating_a_reused_row_still_refuses_at_a_later_vm_trap() {
     h.slots[0] = Value::list(next);
     assert!(matches!(
         h.update(),
-        Err(InstanceError::Trap(Trap::UnwrapNone { .. }))
+        Err(InstanceError::Evaluation {
+            trap: Trap::UnwrapNone { .. },
+            ..
+        })
     ));
     assert_eq!(h.snapshot(), before);
 }
@@ -1359,7 +1370,10 @@ fn key_reuse_changed_row_trap_is_not_hidden_by_unchanged_key_field() {
     h.slots[0] = Value::list(next);
     assert!(matches!(
         h.update(),
-        Err(InstanceError::Trap(Trap::UnwrapNone { .. }))
+        Err(InstanceError::Evaluation {
+            trap: Trap::UnwrapNone { .. },
+            ..
+        })
     ));
     assert_eq!(h.snapshot(), before);
 }

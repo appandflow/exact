@@ -1,4 +1,4 @@
-//! Native button measurement before publication.
+//! Native button measurement before publication. LLP 1069.011.001 D11.
 use super::*;
 use crate::{ButtonMeasure, ButtonMeasureRequest, PropId};
 
@@ -26,14 +26,14 @@ impl ButtonOffer {
         Self {
             width: request.width,
             geometry: [
-                s.padding_top,
-                s.padding_right,
-                s.padding_bottom,
-                s.padding_left,
-                s.border_radius_top_left,
-                s.border_radius_top_right,
-                s.border_radius_bottom_right,
-                s.border_radius_bottom_left,
+                s.padding_top.clone(),
+                s.padding_right.clone(),
+                s.padding_bottom.clone(),
+                s.padding_left.clone(),
+                s.border_radius_top_left.clone(),
+                s.border_radius_top_right.clone(),
+                s.border_radius_bottom_right.clone(),
+                s.border_radius_bottom_left.clone(),
             ]
             .map(|d| match d {
                 crate::Dimension::Points(n) => n,
@@ -130,9 +130,11 @@ impl LayoutTree {
             if changed || retry {
                 record.provisional = false;
                 let mut request = record.request.clone();
-                request
-                    .style
-                    .resolve_geometry(arena.env(), record.parent_width, arena.frame(slot));
+                request.style.resolve_geometry(
+                    &arena.env_of(slot),
+                    record.parent_width,
+                    arena.frame(slot),
+                );
                 if let Some(answer) = record.answer(request, measurer) {
                     if !answer.is_valid() {
                         return Err(LayoutError::InvalidButtonMeasure(arena.local_id(slot)));
@@ -154,6 +156,7 @@ impl LayoutTree {
 /// Geometry is resolved against the containing block, never the button offer.
 pub(super) fn measure(
     record: &mut ButtonRecord,
+    slot: u32,
     arena: &NodeArena,
     measurer: &mut dyn TextMeasurer,
     known: Size<Option<f32>>,
@@ -178,7 +181,7 @@ pub(super) fn measure(
     frame.height = known.height.map_or(0.0, |h| h + inset.top + inset.bottom);
     request
         .style
-        .resolve_geometry(arena.env(), record.parent_width, frame);
+        .resolve_geometry(&arena.env_of(slot), record.parent_width, frame);
     record.answer(request, measurer)
 }
 

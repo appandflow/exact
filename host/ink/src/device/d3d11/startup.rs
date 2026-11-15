@@ -1,9 +1,9 @@
 //! Hardware prepares before configuration; WARP starts only after failure or
-//! the measured startup bound.
+//! the measured startup bound. @ref LLP 1149 D6.3, S2.9.
 use super::*;
 use std::sync::{mpsc, Arc};
 
-// Measured on a Windows desktop: a driver-cache-cold screen displayed at 251–255 ms;
+// NucBox S2.8b: a driver-cache-cold screen displayed at 251–255 ms;
 // the 100 ms bound opened WARP in three of ten retained-store launches.
 const STARTUP_DEVICE_BUDGET: Duration = Duration::from_millis(300);
 

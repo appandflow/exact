@@ -2,8 +2,9 @@
 //! helper executable that a macOS release signs, and the release derives its
 //! `com.apple.security.cs.*` entitlement from the line.
 //!
-//! A line is `runtime.<exception> <helper>`, scoped to one executable under
-//! `host.macos.resources`; the app's own executable takes no exception.
+//! @ref LLP 1069.008 D9 (`runtime.<exception> <helper>`, scoped to one
+//! executable under `host.macos.resources`; the app's own executable is
+//! deferred until it has a consumer)
 //!
 //! Like `device.*`, this is an exact2 grant: `io_grants` strips it before
 //! `ibex2` parses the rest, and no runtime check reads it. The OS enforces
@@ -92,7 +93,7 @@ pub fn runtime_grants(spec: &str) -> Result<Vec<RuntimeGrant<'_>>, Vec<String>> 
         };
         if target == "app" {
             errors.push(format!(
-                "`{line}`: only helper executables are admitted; the app's own executable takes no runtime exception"
+                "`{line}`: only helper executables are admitted (LLP 1069.008 D9); the app's own executable takes no runtime exception"
             ));
             continue;
         }
@@ -155,7 +156,7 @@ mod tests {
         assert_eq!(errors.len(), 3, "{errors:?}");
         assert!(errors[..2]
             .iter()
-            .all(|e| e.contains("only helper executables are admitted")));
+            .all(|e| e.contains("only helper executables are admitted (LLP 1069.008 D9)")));
         assert!(errors[2].contains("the target is"));
     }
 }

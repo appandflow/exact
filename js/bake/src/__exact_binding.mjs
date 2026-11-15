@@ -1,56 +1,292 @@
-// The TypeScript binding of a module interface: from its
+// The TypeScript binding of a module declaration (LLP 1133.002 D13): from its
 // `exact.json`, each name as a function over the runner's admission, its
-// shapes as interfaces, and a keyed shape as a class.
-// typescript.mjs writes one per interface into the stage; the bake
+// shapes as interfaces, and a keyed shape as a class (LLP 1133.006 D8
+// item 1). typescript.mjs writes one per declaration into the stage; the bake
 // writes this file beside typescript.mjs in its stage, under this name.
+
+import { readdirSync, readFileSync } from 'node:fs';
+import { isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { bare, propertyName, walkRuntime } from './__exact_portable.mjs';
+
+const OWN_CODE=/\.[cm]?[jt]sx?$/;
+
+/** Whether any of the app's captured code names the package. Data code declares a tool only in a file that
+ * imports it, so without one no graph is walked and a bake pays only for reading the files. */
+function namesLanguageModel(dir) {
+  return readdirSync(dir,{withFileTypes:true}).some(entry=>{
+    const path=join(dir,entry.name);
+    if (entry.name==='node_modules' || entry.name.startsWith('__exact_')) return false;
+    if (entry.isDirectory()) return namesLanguageModel(path);
+    return entry.isFile() && OWN_CODE.test(entry.name) && readFileSync(path,'utf8').includes('@exact/language-model');
+  });
+}
+
+/** Collect the app's own code in the bundler's runtime graph, whatever declarations the checker read for it;
+ * erased imports introduce no tools. */
+export async function languageModelToolSources(stage, options) {
+  if (!namesLanguageModel(stage)) return [];
+  const { rolldown } = await import('rolldown');
+  const own=id=>{
+    const at=relative(stage,id), path=at.split(sep);
+    return !isAbsolute(at) && path[0]!=='..' && !path.includes('node_modules') && !path.at(-1).startsWith('__exact_')
+      && OWN_CODE.test(id) && !/\.d\.[cm]?ts$/.test(id);
+  };
+  const sources=[];
+  const bundle=await rolldown({...options, cwd:stage, input:resolve(stage,'app.ts'),
+    tsconfig:resolve(stage,'__exact_tsconfig.json'), logLevel:'silent', treeshake:false,
+    external:(id,_importer,resolved)=>resolved && !own(id),
+    plugins:[{name:'language-model-tools', transform(code,id) {
+      if (own(id)) sources.push([id,code]);
+      return null;
+    }}]});
+  try { await bundle.generate({format:'esm'}); } finally { await bundle.close(); }
+  return sources;
+}
+
+/** The tools the runtimes would not find: they take only the `tools` export's own properties (`Object.hasOwn`).
+ * The export's initializer is the value when there is one; a class's methods and accessors are its prototype's,
+ * and a name its type lacks is absent. An index signature or `any` leaves the runtime to decide. */
+export async function unownedTools(checker, module, names, { SymbolFlags, TypeFlags }) {
+  const exported=names.length ? await checker.getPropertyOfType(module,'tools') : undefined;
+  if (!exported) return [];
+  const declaration=await exported.valueDeclaration?.resolve();
+  const type=declaration?.initializer ? await checker.getTypeAtLocation(declaration.initializer) : await checker.getTypeOfSymbol(exported);
+  if (!type || type.flags & (TypeFlags.Any | TypeFlags.Unknown)) return [];
+  const indexed=(await checker.getIndexInfosOfType(type)).length>0, unowned=[];
+  for (const name of names) {
+    const property=await checker.getPropertyOfType(type,name);
+    if (property ? property.flags & (SymbolFlags.Method | SymbolFlags.Accessor) && (await property.getParent())?.flags & SymbolFlags.Class : !indexed)
+      unowned.push(name);
+  }
+  return unowned;
+}
+
+/** Literal model tools in reachable data code; unresolved expressions retain the runtime check. */
+function literalModelTools(file, code, parse) {
+  const ast=parse(file,code,{sourceType:'module'}), program=ast.program ?? ast;
+  const imports=new Map(), constants=new Map(), exported=new Set(), tools=[];
+  for (let node of program.body ?? []) {
+    if (node.type==='ImportDeclaration' && node.importKind!=='type' && /^@exact\/language-model(?:\/|$)/.test(node.source.value)) {
+      for (const spec of node.specifiers) {
+        if (spec.importKind!=='type' && (spec.type==='ImportNamespaceSpecifier' || (spec.imported?.name ?? spec.imported?.value)==='createLanguageModel'))
+          imports.set(spec.local.name,spec.type==='ImportNamespaceSpecifier' ? 'namespace' : 'create');
+      }
+    }
+    const exporting=node.type==='ExportNamedDeclaration';
+    if (exporting) node=node.declaration;
+    if (node?.type==='VariableDeclaration' && node.kind==='const')
+      for (const d of node.declarations) if (d.id.type==='Identifier') {
+        constants.set(d.id.name,d.init);
+        if (exporting) exported.add(d.id.name);
+      }
+  }
+  if (!imports.size) return tools;
+  let root;
+  const modelCall=(node,local)=>{
+    if (node.type!=='CallExpression') return false;
+    const callee=bare(node.callee), object=callee?.type==='MemberExpression' ? bare(callee.object) : callee;
+    if (object?.type!=='Identifier' || local.scope(object.name)!==root) return false;
+    const kind=imports.get(object.name);
+    return kind==='create' && callee===object || kind==='namespace' && propertyName(callee)==='createLanguageModel';
+  };
+  const parents=new WeakMap(), calls=new Map(), references=[];
+  walkRuntime(ast,(node,local,parent)=>{
+    if (parent) parents.set(node,parent);
+    if (node.type==='Program') root=local.scope([...imports.keys()][0]);
+    if (modelCall(node,local)) calls.set(node,new Set([...constants.keys()].filter(name=>local.scope(name)===root)));
+    if (node.type==='Identifier' && constants.has(node.name) && local.scope(node.name)===root) references.push(node);
+  });
+  const primitive=(node,seen=new Set())=>{
+    node=bare(node);
+    if (node?.type==='Identifier' && constants.has(node.name) && !seen.has(node.name))
+      return primitive(constants.get(node.name),new Set([...seen,node.name]));
+    return node?.type==='Literal' || node?.type==='TemplateLiteral' && !node.expressions.length
+      || node?.type==='UnaryExpression' && primitive(node.argument,seen);
+  };
+  // A const binding does not freeze its object. Follow it only while every use stays
+  // inside literal declarations or the model call; aliases share that restriction.
+  const unsafe=new Set([...exported].filter(name=>!primitive(constants.get(name)))), aliases=new Map();
+  for (const ref of references) {
+    if (primitive(constants.get(ref.name))) continue;
+    let node=ref, parent=parents.get(node);
+    if (parent?.type==='VariableDeclarator' && parent.id===node
+      || parent?.type==='Property' && !parent.computed && parent.key===node && parent.value!==node
+      || parent?.type==='MemberExpression' && !parent.computed && parent.property===node) continue;
+    while (parent && (bare(parent)===node
+      || parent.type==='Property' && parent.kind==='init' && !parent.method && parent.value===node
+      || parent.type==='ObjectExpression' || parent.type==='ArrayExpression'
+      || parent.type==='ConditionalExpression' && (parent.consequent===node || parent.alternate===node))) {
+      node=parent; parent=parents.get(node);
+    }
+    if (parent?.type==='VariableDeclarator' && parent.init===node && constants.get(parent.id.name)===node) {
+      const name=parent.id.name;
+      for (const [a,b] of [[ref.name,name],[name,ref.name]]) {
+        if (!aliases.has(a)) aliases.set(a,new Set());
+        aliases.get(a).add(b);
+      }
+    }
+    else if (!(calls.has(parent) && parent.arguments[0]===node)) unsafe.add(ref.name);
+  }
+  for (const name of unsafe) for (const alias of aliases.get(name) ?? []) unsafe.add(alias);
+  const resolved=(node,scope,seen=new Set())=>{
+    node=bare(node);
+    if (node?.type!=='Identifier') return node;
+    if (scope(node.name)!==root || !constants.has(node.name) || seen.has(node.name) || unsafe.has(node.name)) return null;
+    return resolved(constants.get(node.name),()=>root,new Set([...seen,node.name]));
+  };
+  const field=(node,key,scope)=>{
+    node=resolved(node,scope);
+    if (node?.type!=='ObjectExpression' || node.properties.some(p=>p.type!=='Property' || p.computed && propertyName(p)===null)) return null;
+    return node.properties.findLast(p=>propertyName(p)===key)?.value;
+  };
+  const literal=(node,scope,seen=new Set())=>{
+    node=resolved(node,scope);
+    if (!node || seen.has(node)) throw new Error('computed');
+    seen=new Set([...seen,node]);
+    if (node.type==='Literal' && (node.value===null || ['string','number','boolean'].includes(typeof node.value))) return node.value;
+    if (node.type==='UnaryExpression' && ['+','-'].includes(node.operator)) {
+      const value=literal(node.argument,scope,seen);
+      if (typeof value==='number') return node.operator==='-' ? -value : value;
+    }
+    if (node.type==='TemplateLiteral' && !node.expressions.length) return node.quasis[0].value.cooked;
+    if (node.type==='ArrayExpression') return node.elements.map(n=>literal(n,scope,seen));
+    if (node.type==='ObjectExpression' && node.properties.every(p=>p.type==='Property' && p.kind==='init' && !p.method && propertyName(p)!==null))
+      return Object.fromEntries(node.properties.map(p=>[propertyName(p),literal(p.value,scope,seen)]));
+    throw new Error('computed');
+  };
+  const list=(node,scope,seen=new Set())=>{
+    node=resolved(node,scope);
+    if (!node || seen.has(node)) return [];
+    seen=new Set([...seen,node]);
+    if (node.type==='ConditionalExpression') return [...list(node.consequent,scope,seen),...list(node.alternate,scope,seen)];
+    return node?.type==='ArrayExpression' ? node.elements.filter(n=>n?.type!=='SpreadElement') : [];
+  };
+  for (const [node,names] of calls) {
+    const scope=name=>names.has(name) ? root : null;
+    for (const tool of list(field(node.arguments[0],'tools',scope),scope)) {
+      let name, schema=null;
+      try { name=literal(field(tool,'name',scope),scope); } catch { continue; }
+      if (typeof name!=='string') continue;
+      try { schema=literal(field(tool,'inputSchema',scope),scope); } catch { /* only the name is known */ }
+      tools.push({name,inputSchema:schema});
+    }
+  }
+  return tools;
+}
+
+export const TOOL_CHECK='\n// language-model-tool-handler\n';
+
+/** The literal tools of the Contract declarations and of the data code. */
+export function languageModelTools(declarations, sources, parse) {
+  const contract=declarations.match(/^export type LanguageModelToolSchemas = (\[[^\n]*\]);$/m);
+  const tools=contract ? JSON.parse(contract[1]) : [];
+  for (const [file,code] of sources) tools.push(...literalModelTools(file,code,parse));
+  return tools;
+}
+
+/** The generated entry checks the exported namespace, including re-exports and CommonJS; an unowned name checks
+ * as absent. */
+export function languageModelToolCheck(tools, unowned=[]) {
+  if (!tools.length) return '';
+  return TOOL_CHECK+"import * as __modelApp from './app';\n"
+    +"import type { LanguageModelToolHandlers } from './app.contract.d.ts';\n"
+    +"type __ModelTools = typeof __modelApp extends {tools: infer T} ? T : {};\n"
+    +`type __ModelUnowned = ${unowned.length ? unowned.map(n=>JSON.stringify(n)).join(' | ') : 'never'};\n`
+    +`type __ModelExpected = LanguageModelToolHandlers<${JSON.stringify(tools)}>;\n`
+    +"const __languageModelToolHandlers: __ModelExpected = {} as { [N in keyof __ModelExpected]: N extends __ModelUnowned ? undefined : N extends keyof __ModelTools ? __ModelTools[N] : undefined };\n";
+}
+
+/** Give a generated handler assertion its bake diagnostic's name. */
+export function languageModelToolNote(entry, diagnostics) {
+  const line=entry.split('\n').findIndex(line=>line.startsWith('const __languageModelToolHandlers:'))+1;
+  return line && diagnostics.includes(`__exact_entry.ts(${line},`)
+    ? '\nlanguage-model-tool-handler: each literal model tool needs a compatible function in the data module\'s tools export\n' : '';
+}
+
+const JSON_HOLDS='a shape or DOM dictionary by name, `any`, `number`, `string`, `bool` or `enum<a|b>`, or `option<T>` or `T[]` of one';
+
+/** Whether `json<t>` is a JSON value's type, as {@link JSON_HOLDS} says. */
+function jsonHolds(t) {
+  t=t.trim();
+  if (t.endsWith('[]')) return jsonHolds(t.slice(0,-2));
+  const option=/^option<(.*)>$/.exec(t);
+  if (option) return jsonHolds(option[1]);
+  return /^enum<[^<>]*>$/.test(t) || ['any','number','string','bool'].includes(t) || /^[A-Z][A-Za-z0-9_]*$/.test(t);
+}
+
+/** The names `t` passes whole as JSON (each `json<T>`'s), less an enum's members. */
+function jsonNames(t) {
+  const out=[], text=String(t ?? '');
+  for (let at=text.indexOf('json<'); at>=0; at=text.indexOf('json<',at+1)) {
+    let depth=0, end=at+4;
+    do { if (text[end]==='<') depth++; else if (text[end]==='>') depth--; end++; } while (depth>0 && end<text.length);
+    out.push(...[...text.slice(at+5,end-1).replace(/enum<[^<>]*>/g,'').matchAll(/\b[A-Z][A-Za-z0-9_]*\b/g)].map(m=>m[0]));
+  }
+  return out;
+}
 
 /** A declaration's type (`option<number>`, `enum<a|b>`, `T[]`) as TypeScript's. */
 function moduleType(t, inList=false) {
-  // A path option is a string; a handle is its id.
+  // A path option (LLP 1133.009 D10 item 4) is a string; a handle (item 10) is its id.
   if (t && typeof t==='object' && t.type==='path') t=t.optional ? 'option<string>' : 'string';
-  // An option with bounds or a default (`{"type", "min", "max", "default"}`) is its `type`.
+  // An option with bounds or a default (`{"type", "min", "max", "default"}`, LLP 1133.013 D12 item 2) is its `type`.
   else if (t && typeof t==='object' && typeof t.type==='string') t=t.type;
   t=String(t).trim();
   if (/^handle<[^>]*>$/.test(t)) return 'string';
-  // A WebAuthn dictionary passed whole is the DOM's own type.
-  const json=/^json<([A-Za-z0-9_]+)>$/.exec(t);
-  if (json) return json[1];
+  // A value passed whole as JSON (a WebAuthn dictionary, LLP 1133.011 D10) is the type it holds; a name no shape
+  // declares is the DOM's own dictionary.
+  const json=/^json<(.*)>$/.exec(t);
+  if (json) {
+    if (!jsonHolds(json[1])) throw new Error(`\`${t}\` is not a JSON value's type: \`json<T>\` holds ${JSON_HOLDS}`);
+    return moduleType(json[1],inList);
+  }
   if (t==='unit') return 'void';
-  // Bytes are data code's; an option that may be either takes both.
+  // Bytes are data code's (LLP 1133.006 D8 item 1); an option that may be either takes both (LLP 1133.035 D2).
   if (t==='string|bytes') return inList ? '(string | Uint8Array)' : 'string | Uint8Array';
   if (t.endsWith('[]')) return moduleType(t.slice(0,-2),true)+'[]';
   let m, union;
   if ((m=/^option<(.*)>$/.exec(t))) union=moduleType(m[1])+' | null';
   else if ((m=/^enum<(.*)>$/.exec(t))) union=m[1].split('|').map(s=>JSON.stringify(s.trim())).join(' | ');
-  // A `surface` is a canvas's surface name.
-  // A `shape-name` is a JSON Schema object in data code.
+  // A `surface` is a canvas's surface name (LLP 1133.013 D12 item 3).
+  // A `shape-name` is a JSON Schema object in data code (LLP 1133.016 D8).
   else return {number:'number',string:'string',bool:'boolean','strings-key':'string',surface:'string','shape-name':'Record<string, unknown>',bytes:'Uint8Array'}[t] ?? t;
   return inList ? '('+union+')' : union;
 }
 
 /** The binding of one interface: its shapes, each name's options (a
  * platform's words under its key), and each name as a function. */
-export function moduleBinding(name, declaration, implementations, dom=()=>[], members={}, target=null) {
-  const extension=name.split('/').at(-1), lines=[`// Generated by the bake from ${name}'s exact.json. Never edited.`];
+export function moduleBinding(name, ...rest) {
+  try { return binding(name, ...rest); }
+  catch (e) { e.message=`${name}'s exact.json: ${e.message}`; throw e; }
+}
+
+function binding(name, declaration, implementations, dom=()=>[], members={}, target=null) {
+  const imported=declaration.kind==='implementation' ? `owner: ${JSON.stringify(name)}, ` : '';
+  const owner=declaration.kind==='implementation' ? String(declaration.implements).replace(/@[^@]*$/,'') : name;
+  const extension=owner.split('/').at(-1), lines=[`// Generated by the bake from ${name}'s exact.json (LLP 1133.002 D13). Never edited.`];
   const shapes={...declaration.shapes};
   for (const i of implementations) Object.assign(shapes,i.shapes ?? {});
-  const written=new Set(); /* a member's types: its interface's shapes, which data code writes */ for (const m of Object.values(members).flat()) for (const [shape,fields] of Object.entries(m.shapes)) if (!shapes[shape]) { shapes[shape]=fields; written.add(shape); }
-  // A shape keyed by string (`{"record": {key: type}}`) is a class, as the web's `ClipboardItem` is.
+  const written=new Set(); /* a member's types: its interface's shapes, which data code writes (LLP 1133.014 D10 item 1) */ for (const m of Object.values(members).flat()) for (const [shape,fields] of Object.entries(m.shapes)) if (!shapes[shape]) { shapes[shape]=fields; written.add(shape); }
+  // A shape keyed by string (`{"record": {key: type}}`) is a class, as the web's `ClipboardItem` is (LLP 1133.006 D8 item 1).
   const keyed=(t)=>{ const f=shapes[String(t ?? '').trim().replace(/\[\]$/,'')]; return f && Object.keys(f).length===1 && f.record && typeof f.record==='object' ? f.record : null; };
   for (const [shape,fields] of Object.entries(shapes)) {
-    // On a target none of the interface's implementations names, `supports` answers false.
+    // On a target none of the interface's implementations names, `supports` answers false (LLP 1133.006 D7).
     if (keyed(shape)) { lines.push(...keyedClass(shape,fields.record,!target || implementations.some(i=>(i.targets ?? []).includes(target)))); continue; }
     lines.push(`export interface ${shape} {`, ...Object.entries(fields).map(([f,t])=>`  ${f}${written.has(shape) && /^option<.*>$/.test(String(t).trim()) ? '?' : ''}: ${moduleType(t)};`), '}');
   }
   const anyKeyed=Object.keys(shapes).some(s=>keyed(s));
-  // The DOM dictionaries the names pass whole (`json<T>`).
-  const dictionaries=new Set((declaration.names ?? []).flatMap(e=>[e.answers,...Object.values(e.options ?? {})])
-    .flatMap(t=>[...String(typeof t==='string' ? t : '').matchAll(/json<([A-Za-z0-9_]+)>/g)].map(m=>m[1])));
+  // The DOM dictionaries passed whole (`json<T>`): what the names, the shapes and the platforms' words name that no
+  // shape declares.
+  const typeOf=(t)=>t && typeof t==='object' ? (typeof t.type==='string' ? t.type : t.else) : t;
+  const types=[...(declaration.names ?? []).flatMap(e=>[typeOf(e.answers),...Object.values(e.options ?? {}).map(typeOf)]),
+    ...Object.values(shapes).flatMap(f=>Object.values(f).map(typeOf)),
+    ...implementations.flatMap(i=>Object.values(i.options ?? {}).flatMap(w=>Object.values(w ?? {}).map(typeOf)))];
+  const dictionaries=new Set(types.flatMap(jsonNames).filter(n=>!shapes[n]));
   if (dictionaries.size) lines.push(...dom([...dictionaries]));
   // A path option is a string; a bounded one (`{"type", "min", …}`) is its `type`.
   const pathless=(t)=>t && typeof t==='object' ? (t.type==='path' ? (t.optional ? 'option<string>' : 'string') : t.type) : t;
   const optional=(t)=>{ t=pathless(t); const m=/^option<(.*)>$/.exec(String(t).trim()); return m ? ['?',moduleType(m[1])] : ['',moduleType(t)]; };
-  // Bytes cross the seam as `{"base64": …}`: a binding whose names carry any encodes its
+  // Bytes cross the seam as `{"base64": …}` (LLP 1133.035 D2): a binding whose names carry any encodes its
   // arguments' bytes, and decodes the answers of the names whose answers carry them.
   const unwrapped=(t)=>String(pathless(t) ?? '').trim().replace(/^option<(.*)>$/,'$1').replace(/\[\]$/,'').replace(/^option<(.*)>$/,'$1');
   const carries=(t,either,seen=new Set())=>{ const n=unwrapped(t); if (n==='bytes' || (either && n==='string|bytes')) return true;
@@ -58,36 +294,36 @@ export function moduleBinding(name, declaration, implementations, dom=()=>[], me
   const answersOf=(e)=>e.answers && typeof e.answers==='object' ? e.answers.else : e.answers;
   const wired=(declaration.names ?? []).some(e=>!e.event && [answersOf(e),...Object.values(e.options ?? {})].some(t=>carries(t,true) || Object.values(keyed(t) ?? {}).some(k=>k?.or==='bytes')));
   for (const entry of declaration.names ?? []) {
-    // An event is the root's to hear, never data code's.
+    // An event is the root's to hear, never data code's (LLP 1133.004 §11).
     if (entry.event) continue;
     const fn=entry.source ?? entry.send, type=fn[0].toUpperCase()+fn.slice(1)+'Options';
-    // A name with members takes any one of its options, as Credential Management's dictionary does.
+    // A name with members takes any one of its options, as Credential Management's dictionary does (LLP 1133.014 D1).
     const extended=(members[fn] ?? []).length>0, fields=[...Object.entries(entry.options ?? {}).map(([f,t])=>{ const [q,ts]=optional(t); return `  ${f}${extended ? '?' : q}: ${ts};`; }), ...(members[fn] ?? []).map(m=>`  ${m.option}?: ${m.type};`)];
     for (const i of implementations) {
       const words=i.options?.[fn];
       if (words && Object.keys(words).length) fields.push(`  ${i.platform}?: { ${Object.entries(words).map(([w,t])=>`${w}?: ${moduleType(t)}`).join('; ')} };`);
     }
     lines.push(`export interface ${type} {`, ...fields, '}');
-    // An answer typed by an argument is `else` in data code, whose constraint is a schema.
+    // An answer typed by an argument (LLP 1133.016 D15 item 4) is `else` in data code, whose constraint is a schema.
     const answers=entry.answers && typeof entry.answers==='object' ? entry.answers.else : entry.answers;
     const required=!extended && Object.values(entry.options ?? {}).some(t=>!/^option</.test(String(pathless(t)).trim()));
     const verb=entry.source ? 'source' : 'send';
-    // A send that answers nothing resolves `undefined`.
+    // A send that answers nothing resolves `undefined` (LLP 1133.004 D5).
     const promised=entry.answers===null ? 'void' : [moduleType(answers),...(members[fn] ?? []).map(m=>m.answers)].join(' | ');
     const decoded=wired && carries(answers,false) ? ', true' : '';
-    // Positional parameters (`params`), and a call that takes keyed shapes or is one of a `sequence`:
-    // its order is taken when it is made, its views' bytes copied then, its promised data awaited after.
+    // Positional parameters (`params`), and a call that takes keyed shapes or is one of a `sequence` (LLP 1133.006 D8
+    // item 1, D2): its order is taken when it is made, its views' bytes copied then, its promised data awaited after.
     const params=Array.isArray(entry.params) ? entry.params : null;
     const signature=params ? params.map(p=>{ const [q,ts]=optional(entry.options[p]); return `${p}${q}: ${ts}`; }).join(', ') : `options: ${type}${required ? '' : ' = {}'}`;
     const args=params ? `{ ${params.join(', ')} }` : 'options';
-    const body=`{ extension: ${JSON.stringify(extension)}, ${verb}: ${JSON.stringify(fn)}, args: ${args} }`;
+    const body=`{ extension: ${JSON.stringify(extension)}, ${imported}${verb}: ${JSON.stringify(fn)}, args: ${args} }`;
     const takesKeyed=Object.values(entry.options ?? {}).some(t=>keyed(pathless(t)));
     const made=takesKeyed || entry.sequence ? `ordered(${JSON.stringify(entry.sequence ?? null)}, ${body}${decoded})` : `call(${body}${decoded})`;
     lines.push(`export function ${fn}(${signature}): Promise<${promised}> {`,
       `  return ${made}${entry.answers===null ? '.then(() => undefined)' : ''};`, '}');
-    // The synchronous form: inside an answer, where the host has a synchronous path to the module.
+    // The synchronous form (LLP 1133.002 D14): inside an answer, where the host has a synchronous path to the module.
     if (entry.sync?.name) lines.push(`export function ${entry.sync.name}(options: ${type}${required ? '' : ' = {}'}): ${moduleType(answers)} {`,
-      `  return callNow({ extension: ${JSON.stringify(extension)}, sync: ${JSON.stringify(entry.sync.name)}, args: options });`, '}');
+      `  return callNow({ extension: ${JSON.stringify(extension)}, ${imported}sync: ${JSON.stringify(entry.sync.name)}, args: options });`, '}');
   }
   if (wired) lines.push(
     'const B64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";',
@@ -120,7 +356,7 @@ export function moduleBinding(name, declaration, implementations, dom=()=>[], me
     '}');
   if (anyKeyed || (declaration.names ?? []).some(e=>e.sequence)) lines.push(...ORDERED(shapes,keyed,wired,extension,declaration.names ?? []));
   lines.push(
-    `function call(body: { extension: string; source?: string; send?: string; args: unknown }${wired ? ', bytes = false' : ''}): Promise<any> {`,
+    `function call(body: { extension: string; owner?: string; source?: string; send?: string; args: unknown }${wired ? ', bytes = false' : ''}): Promise<any> {`,
     ...(wired ? ['  body = { ...body, args: toWire(body.args) };'] : []),
     '  const via = (globalThis as any).__exact_module;',
     '  const answer: Promise<any> = via ? via(body) : fetch("exact-native:", { method: "POST", body: JSON.stringify(body), exactIndependentHttp: { maxResponseBytes: 1048576 } } as any)',
@@ -128,15 +364,15 @@ export function moduleBinding(name, declaration, implementations, dom=()=>[], me
     wired ? '  return answer.then((v: any) => { const a = answered(v, `${body.extension}.${body.source ?? body.send}`); return bytes ? fromWire(a) : a; });'
       : '  return answer.then((v: any) => answered(v, `${body.extension}.${body.source ?? body.send}`));',
     '}',
-    'function callNow(body: { extension: string; sync: string; args: unknown }): any {',
+    'function callNow(body: { extension: string; owner?: string; sync: string; args: unknown }): any {',
     '  const now = (globalThis as any).__exact_module_sync;',
     '  let v: any;',
     '  try { v = now ? now(body) : { error: "NotSupportedError" }; }',
     '  catch (e: any) { throw failed(`${body.extension}.${body.sync}: ${e?.message ?? e}`, "NotSupportedError"); }',
     '  return answered(v, `${body.extension}.${body.sync}`);',
     '}',
-    // A module's error: a `DOMException` of its name where the runtime has one, else an
-    // `Error` of that name, with the code as `code` and each platform's own detail.
+    // A module's error (LLP 1133.006 D8 item 2): a `DOMException` of its name where the runtime has one, else an
+    // `Error` of that name, with the code as `code` and each platform's own detail (LLP 1133.011 D1).
     'function answered(v: any, name: string): any {',
     '  const keys = v && typeof v === "object" && !Array.isArray(v) ? Object.keys(v) : [];',
     '  if (typeof v?.error === "string" && keys.every(k => ["error", "message", "apple", "android"].includes(k))) {',
@@ -153,7 +389,7 @@ export function moduleBinding(name, declaration, implementations, dom=()=>[], me
     '  const D = (globalThis as any).DOMException;',
     '  return D ? new D(message, name) : Object.assign(new Error(message), { name });',
     '}', '');
-  // The web's objects: each group's members, a declared name or a source's field.
+  // The web's objects (LLP 1133.011 D10 item 3): each group's members, a declared name or a source's field.
   for (const [group,members] of Object.entries(declaration.groups ?? {})) {
     const entries=Array.isArray(members) ? members.map(m=>[m,m]) : Object.entries(members);
     const body=entries.map(([member,of])=>typeof of==='string' ? `  ${member}: ${of},`
@@ -163,7 +399,7 @@ export function moduleBinding(name, declaration, implementations, dom=()=>[], me
   return lines.join('\n');
 }
 
-/** A keyed shape's class, built as the Clipboard API's `ClipboardItem` is: a record of
+/** A keyed shape's class (LLP 1133.006 D8 item 1), built as the Clipboard API's `ClipboardItem` is: a record of
  * type to data, `types` its keys in order, and a static `supports` answered from the declaration, and false where
  * the build's target has no implementation (`here`). A key that
  * takes a path or bytes (`{"type": "path", "or": "bytes"}`) takes an `app:/` path, an `ArrayBuffer` or a view;
@@ -184,17 +420,18 @@ function keyedClass(shape, keys, here) {
     '}'];
 }
 
-/** The calls taken in order: a call of a `sequence` supersedes the one before it that has not
+/** The calls taken in order (LLP 1133.006 D2): a call of a `sequence` supersedes the one before it that has not
  * gone to the module, which rejects `AbortError`; a keyed shape's data is read at the call (its views' bytes
  * copied) and awaited after, each key's bytes or text held to its `maxBytes`, and so is an option's. What is given
  * at once is held to its bounds before the call takes its place, so a call refused then supersedes nothing; the
- * settled call is held to the native module request's 4 MiB, its bytes counted as base64. */
+ * settled call is held to the native module request's 4 MiB, its bytes counted as base64 (D2). */
 function ORDERED(shapes, keyed, wired, extension, names) {
   const most=(entries)=>Object.fromEntries(entries.filter(([,t])=>t?.maxBytes).map(([k,t])=>[k,t.maxBytes]));
   const bounds=Object.fromEntries(Object.keys(shapes).filter(s=>keyed(s)).map(s=>[s,most(Object.entries(keyed(s)))]));
   const options=Object.fromEntries(names.filter(e=>!e.event).map(e=>[`${extension}.${e.send ?? e.source}`,most(Object.entries(e.options ?? {}))]).filter(([,b])=>Object.keys(b).length));
   return [
-    'const KEYED = new WeakMap<object, { shape: string; items: Record<string, unknown> }>();',
+    // One registry for every binding: an interface's keyed value passed to its implementation's call keeps its data.
+    'const KEYED: WeakMap<object, { shape: string; items: Record<string, unknown> }> = ((globalThis as any).__exact_keyed ??= new WeakMap());',
     `const BOUNDS: Record<string, Record<string, number>> = ${JSON.stringify(bounds)};`,
     `const OPTION_BOUNDS: Record<string, Record<string, number>> = ${JSON.stringify(options)};`,
     // The host's bound counts the request's grants, URL and headers beside the body: they are left 64 KiB.
@@ -247,7 +484,7 @@ function ORDERED(shapes, keyed, wired, extension, names) {
     '  if (v && typeof v === "object" && !(v instanceof Uint8Array)) { const o: any = {}; for (const f of Object.keys(v)) o[f] = await settled(v[f], name); return o; }',
     '  return v;',
     '}',
-    `function ordered(group: string | null, body: { extension: string; send?: string; source?: string; args: unknown }${wired ? ', bytes = false' : ''}): Promise<any> {`,
+    `function ordered(group: string | null, body: { extension: string; owner?: string; send?: string; source?: string; args: unknown }${wired ? ', bytes = false' : ''}): Promise<any> {`,
     '  const name = `${body.extension}.${body.send ?? body.source}`, args = taken(body.args);',
     '  try { bounded(args, name); } catch (e) { return Promise.reject(e); }',
     '  if (group === null) return settled(args, name).then(a => call({ ...body, args: sendable(a, name, body) }' + (wired ? ', bytes' : '') + '));',

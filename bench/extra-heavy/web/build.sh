@@ -2,7 +2,7 @@
 # build.sh — builds both web apps into dist/ beside this script: dist/exact (exact2's web build of
 # ../exact-xheavy, host/web/build.mjs) and dist/expo (`npx expo export -p web` of ../expo, after npm ci there).
 # PART=exact|expo builds one. WEB_FLAGS passes flags to host/web/build.mjs: the published web numbers are the
-# wasm target of 2026-09-28 (`WEB_FLAGS=--wasm`); the default today is the JS target, unmeasured here.
+# wasm target of 2026-09-28 (`WEB_FLAGS=--wasm`); the default today is the JS target (LLP 1071), unmeasured here.
 # Run ../prepare.sh first. Logs: dist/build-<part>.log.
 set -e
 H=$(cd "$(dirname "$0")" && pwd); B=$(cd "$H/.." && pwd); ROOT=$(cd "$B/../.." && pwd)

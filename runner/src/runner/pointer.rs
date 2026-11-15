@@ -1,14 +1,15 @@
-//! `pointerdown`, `pointerup` and `pointermove`'s record: a subset of DOM's
-//! `PointerEvent`, by its own names, which an action takes as an optional
-//! last parameter, so a drawing app has coordinates, movement and pressure.
+//! `pointerdown`, `pointerup` and `pointermove`'s record (LLP 1005 §3; LLP
+//! 1056 §3 stage 3, as built): a subset of DOM's `PointerEvent`, by its own
+//! names, which an action takes as an optional last parameter (the paint
+//! diary's F1: a drawing app had no coordinates, movement or pressure).
 //! A `contextmenu` offers the same record (UI Events makes it a
-//! `PointerEvent`): where the secondary click was.
+//! `PointerEvent`): where the secondary click was (studio diary R22).
 //! `wheel`'s `WheelEvent` and `drop`'s `DragEvent` are the same family,
-//! DOM's `MouseEvent`s.
+//! DOM's `MouseEvent`s (studio diary R3, R19).
 //!
 //! The wire is one UTF-8 line every host writes the same way:
 //! `offsetX,offsetY,button,buttons,pressure,pointerType,pointerId,clientX,clientY`
-//! (the viewport point last); a wheel's is
+//! (the viewport point last, LLP 1094 D11); a wheel's is
 //! `offsetX,offsetY,deltaX,deltaY,deltaMode`; a drop's is `offsetX,offsetY`
 //! and then one `doc:` handle per line; a press's is `clientX,clientY`, or
 //! nothing where there was no pointer. Each may end in the modifiers held.
@@ -42,11 +43,11 @@ pub struct PointerEvent {
     /// or pen gets its own for as long as it is down.
     pub pointer_id: f64,
     /// From the viewport's left, CSS px: `frame()`'s space, so a drag built
-    /// by hand can test the pointer against the boxes.
+    /// by hand can test the pointer against the boxes (LLP 1094 D11).
     pub client_x: f64,
     /// From the viewport's top, CSS px.
     pub client_y: f64,
-    /// The modifier keys held, `MouseEvent`'s `shiftKey`….
+    /// The modifier keys held, `MouseEvent`'s `shiftKey`… (gallery F20).
     pub held: super::KeyModifiers,
 }
 
@@ -114,9 +115,9 @@ impl PointerEvent {
 }
 
 /// A press's `MouseEvent`, what a `press` action may take: where the pointer
-/// was and the modifier keys held. A press from the keyboard or
+/// was and the modifier keys held (gallery F20). A press from the keyboard or
 /// an assistive technology is at 0, 0, as the `click` Chrome dispatches for
-/// one is, which is how a page tells it from a pointer's.
+/// one is, which is how a page tells it from a pointer's (LLP 1021 D2).
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct MouseEvent {
     /// From the viewport's left, CSS px, as a `PointerEvent`'s.
@@ -180,7 +181,7 @@ pub struct WheelEvent {
 
 /// Files dropped on a node from outside the app (DOM's `drop` with its
 /// `DataTransfer`'s files): each a `doc:` handle the host minted, as a
-/// picker's choice is.
+/// picker's choice is (LLP 1069.010 D1).
 #[derive(Debug, Clone, PartialEq)]
 pub struct DropEvent {
     /// From the left of the node's content box, CSS px.
@@ -322,7 +323,8 @@ mod tests {
             "",
             "1,2,0,1,0.5,mouse",
             // The lines before `button` and before the viewport point: every
-            // writer is in the repo, and there is no compatibility parse.
+            // writer is in the repo, and there is no compatibility parse
+            // (LLP 1094 D11).
             "1,2,1,0.5,mouse,1,0,0",
             "1,2,0,1,0.5,mouse,1",
             "1,2,0,1,0.5,mouse,1,Shift",
@@ -378,7 +380,7 @@ mod tests {
     }
 }
 
-/// A press on an inline atom of a Markdown text or field:
+/// A press on an inline atom of a Markdown text or field (LLP 1045.000 D7):
 /// its kind, source, destination and source range, and the modifiers held.
 #[derive(Debug, Clone, PartialEq)]
 pub struct AtomEvent {

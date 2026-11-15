@@ -1,5 +1,5 @@
 //! Update Lab sources, composed through the shared language-independent data seam.
-//! Each language owns one fixed source.
+//! @ref LLP 1027 D8 / LLP 1029.000 — each language owns one fixed source.
 mod probe;
 #[cfg(test)]
 mod tests;
@@ -22,7 +22,7 @@ impl DataSource for Probe {
         match source {
             "rustProbe" => probe::probe(args),
             // A resource only Rust owns: its first-frame value bakes through
-            // Rust, with no TypeScript placeholder.
+            // Rust, with no TypeScript placeholder (LLP 1027.002 §5 step 0).
             "rustConstants" => Ok(Value::record(vec![
                 Value::str(probe::VERSION),
                 Value::Number(probe::MULTIPLIER),

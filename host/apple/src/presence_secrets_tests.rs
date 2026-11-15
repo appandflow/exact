@@ -1,4 +1,4 @@
-//! The keychain vault over the hook ExactKit installs: a
+//! The keychain vault over the hook ExactPresence installs (LLP 1133.010 D6): a
 //! keychain in memory stands for it, as `Presence.swift` answers each op.
 
 use super::*;
@@ -132,7 +132,7 @@ fn locked_items_are_the_keychain_s_by_name_and_generation_and_never_plain() {
     assert_eq!(b.secrets.get("key").unwrap(), None);
     assert_eq!(backend.occupancy("key"), Some(Occupancy::Locked));
 
-    // An overwrite adds the next generation before deleting the last.
+    // An overwrite adds the next generation before deleting the last (D6).
     backend.enqueue("key", Op::Write(Some(b"secret-2".to_vec())), None);
     pump(&mut backend);
     assert_eq!(item("key#1"), None);

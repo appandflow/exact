@@ -1,4 +1,5 @@
-// A focused node under a later `backdrop-filter` node. AppKit draws the system focus ring over the
+// A focused node under a later `backdrop-filter` node (LLP 1115.002 D7, the
+// user's ruling of 2026-11-05). AppKit draws the system focus ring over the
 // window's content, where the cover's filters never sample it, so the ring
 // would show sharp through a dimmed, blurred cover; Chrome paints its ring
 // in the page and blurs it with the rest. While a later backdrop node covers

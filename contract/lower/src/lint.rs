@@ -21,13 +21,13 @@ pub(crate) fn unknown_tag(tag: &str, span: Span) -> LowerError {
 }
 
 /// CSS's fragmentation properties exact2 knows and does not implement: the
-/// spanning element and paged media's breaks. Multi-column
-/// layout and its `break-*`, `widows` and `orphans` are rows; these
+/// spanning element and paged media's breaks (LLP 1093 §1, §5). Multi-column
+/// layout and its `break-*`, `widows` and `orphans` are rows (LLP 1093); these
 /// are refused by what they would need, not as misspellings.
 pub(crate) fn fragmentation(name: &str) -> Option<&'static str> {
     Some(match name {
-        "column-span" => "is CSS Multi-column Layout's spanning element, which exact2 does not implement (only `column-span: none` exists); end the column flow and put the spanning content after it",
-        "page-break-before" | "page-break-after" | "page-break-inside" => "controls where content breaks across printed pages, and exact2 does not print; in a multi-column flow `break-before`, `break-after` and `break-inside` take `column`, `avoid-column` and `avoid`",
+        "column-span" => "is CSS Multi-column Layout's spanning element, which exact2 does not implement (only `column-span: none` exists, LLP 1093 §1); end the column flow and put the spanning content after it",
+        "page-break-before" | "page-break-after" | "page-break-inside" => "controls where content breaks across printed pages, and exact2 does not print (LLP 1093 §5); in a multi-column flow `break-before`, `break-after` and `break-inside` take `column`, `avoid-column` and `avoid`",
         _ => return None,
     })
 }
@@ -90,7 +90,7 @@ const ARIA: &[&str] = &[
     "aria-valuetext",
 ];
 
-/// The physical longhands for a CSS logical box property (`padding-block`),
+/// The physical longhands for a CSS logical box property (r37 t1 wrote `padding-block`),
 /// in a left-to-right, top-to-bottom flow.
 fn logical(name: &str) -> Option<String> {
     let (base, rest) = ["padding", "margin", "inset"]
@@ -322,16 +322,16 @@ pub(crate) fn unknown_attr(tag: &str, a: &Attr) -> LowerError {
             crate::fields::placeholder_hint(&a.name).unwrap_or_default()
         }
         Some(new @ ("press" | "change" | "input")) => format!(
-            "; `{}` is `{new}` here: a handler is named for its event",
+            "; `{}` is `{new}` here: a handler is named for its event (LLP 1005 §3)",
             a.name
         ),
-        // CSS's own shorthand, not a nickname: Contract takes the longhand.
+        // CSS's own shorthand, not a nickname: Contract takes the longhand (app farm wave 1, about twelve builds).
         Some(new @ "background-color") if a.name == "background" => {
-            format!("; CSS's `background` shorthand is not taken here: a colour is `{new}`")
+            format!("; CSS's `background` shorthand is not taken here: a colour is `{new}` (LLP 1017 §8.1)")
         }
         Some(new) if new.starts_with(":active ") => active_migration_hint(&a.name, new),
         Some(new) => format!(
-            "; `{}` is spelled `{new}` here, the web's name",
+            "; `{}` is spelled `{new}` here, the web's name (LLP 1017 §8.1)",
             a.name
         ),
         None if fragmentation(&a.name).is_some() => {
@@ -367,6 +367,15 @@ pub(crate) fn unknown_attr(tag: &str, a: &Attr) -> LowerError {
         // window losing focus) with the hold's `pointerup`.
         None if matches!(a.name.as_str(), "pointercancel" | "touchcancel" | "lostpointercapture") => {
             "; a cancelled pointer ends with `pointerup` (its `buttons` 0), so the `pointerup` handler that ends a hold covers it".into()
+        }
+        // LLP 1055.000 §8 ruling 7: the end of a motion is not an event.
+        None if matches!(
+            a.name.as_str(),
+            "animationstart" | "animationiteration" | "animationend" | "animationcancel" | "transitionend"
+        ) =>
+        {
+            "; a motion tells no handler when it starts or ends: change state after one with a gated task's `after(ms, action)`, its length the one the motion declares (docs/recipes/timers.md)"
+                .into()
         }
         None if css_hint(&a.name).is_some() => css_hint(&a.name).unwrap_or_default(),
         None if a.name == "className" => {
@@ -417,7 +426,7 @@ struct Substituted<'a> {
     /// prop, inject or derive of the same name.
     hidden: Vec<&'a str>,
     /// The names a `use` brings from a package: one may be a module's event,
-    /// heard as an attribute on the root, which only the
+    /// heard as an attribute on the root (LLP 1133.004 D6), which only the
     /// package's declaration, read when sources resolve, can say.
     imported: Vec<&'a str>,
 }
@@ -445,7 +454,7 @@ fn shorthand(a: &Attr, names: &Substituted) -> Result<(), LowerError> {
     if a.name == "font"
         && crate::type_tokens::tokens_named(
             &a,
-            exact_tamber::Kind::Type,
+            exact_forma::Kind::Type,
             &[],
             &Default::default(),
             false,
@@ -526,7 +535,92 @@ fn known_arms(v: &Expr, names: &Substituted, budget: &mut usize) -> Option<Expr>
 /// rows. The driver runs this when an earlier pass refused, so a misspelled
 /// tag or a bad colour is reported in the same run as a type error.
 pub fn lint(file: &File) -> Vec<LowerError> {
-    // A theme's names are colours; the lint asks only whether a
+    lint_components(file, |_| true)
+}
+
+/// A bad literal value (`color="notacolor"`) in a component of the root's
+/// file that nothing the root renders uses (LLP 1156.005 D3). Lowering walks
+/// from the root, so without this it built clean and was refused only at the
+/// component's first use, far from the edit.
+pub fn lint_unused(file: &File) -> Vec<LowerError> {
+    let Some(root) = file.components.first() else {
+        return Vec::new();
+    };
+    let mut reached = vec![false; file.components.len()];
+    reached[0] = true;
+    let mut todo = vec![0];
+    while let Some(i) = todo.pop() {
+        fn uses<'n>(nodes: &'n [Node], out: &mut Vec<&'n str>) {
+            for n in nodes {
+                match n {
+                    Node::Use { name, children, .. } => {
+                        out.push(name);
+                        uses(children, out);
+                    }
+                    node => {
+                        for list in node.child_lists() {
+                            uses(list, out);
+                        }
+                    }
+                }
+            }
+        }
+        let mut names = Vec::new();
+        uses(&file.components[i].view, &mut names);
+        for name in names {
+            for (j, c) in file.components.iter().enumerate() {
+                if c.name == name && !reached[j] {
+                    reached[j] = true;
+                    todo.push(j);
+                }
+            }
+        }
+    }
+    let own = root.span.source_id;
+    let unused = |i: usize| !reached[i] && file.components[i].span.source_id == own;
+    // The lint stands beside a type error; as the only verdict it may judge
+    // only what needs no context: a literal value outside SVG (whose
+    // attributes lowering renames). An attribute's name, a value read from a
+    // prop, and a row whose meaning depends on its element are the caller's.
+    fn literal(nodes: &[Node], out: &mut Vec<Span>) {
+        for n in nodes {
+            match n {
+                Node::Element {
+                    tag,
+                    attrs,
+                    children,
+                    ..
+                } if tag != "svg" => {
+                    out.extend(attrs.iter().filter_map(|a| {
+                        matches!(a.value, Expr::Str(..) | Expr::Number(..)).then_some(a.span)
+                    }));
+                    literal(children, out);
+                }
+                Node::Element { .. } => {}
+                node => {
+                    for list in node.child_lists() {
+                        literal(list, out);
+                    }
+                }
+            }
+        }
+    }
+    let mut spans = Vec::new();
+    for (i, c) in file.components.iter().enumerate() {
+        if unused(i) {
+            literal(&c.view, &mut spans);
+        }
+    }
+    if spans.is_empty() {
+        return Vec::new();
+    }
+    let mut errors = lint_components(file, unused);
+    errors.retain(|e| e.id == "lower-attr-value" && spans.contains(&e.span));
+    errors
+}
+
+fn lint_components(file: &File, checked: impl Fn(usize) -> bool) -> Vec<LowerError> {
+    // A theme's names are colours (LLP 1095 D4); the lint asks only whether a
     // row's value is one, so each stands for any.
     crate::theme::bind_axes(file);
     let _theme = crate::theme::lint_scope(file);
@@ -545,12 +639,15 @@ pub fn lint(file: &File) -> Vec<LowerError> {
                     } else {
                         let coerced = svg::coerce_lengths(tag, false, attrs);
                         let attrs = coerced.as_deref().unwrap_or(attrs);
+                        // Activity compilation consumes `slot` before lowering (LLP 1126.001 WP8).
                         // `delete=` is lowering's, a list row's swipe (`swipe_rows.rs`).
                         for a in attrs.iter().filter(|a| {
                             a.name != "class"
                                 && a.name != "delete"
+                                && a.name != "slot"
                                 && a.name != crate::row_look::ROW_LOOK
                                 && !native::leftover(tag, a)
+                                && !native::declared(tag, a)
                                 && !names.imported.contains(&a.name.as_str())
                         }) {
                             if let Some(e) = native::refused(tag, a) {
@@ -561,7 +658,7 @@ pub fn lint(file: &File) -> Vec<LowerError> {
                                 errors.extend(dataset::refused(a));
                                 continue;
                             }
-                            // A state part's row (`:hover opacity`): one
+                            // A state part's row (`:hover opacity`, LLP 1121 D8): one
                             // its state takes, checked as the row the fold lowers it to.
                             let row;
                             let a = match contract_syntax::state::state_of(&a.name) {
@@ -624,7 +721,7 @@ pub fn lint(file: &File) -> Vec<LowerError> {
                                 Some(_) => Ok(()),
                             };
                             // An expression over a token is folded by the
-                            // build (a synthetic token), not here,
+                            // build (a synthetic token, LLP 1121 D3), not here,
                             // in a choice's arm as in a whole value; the other
                             // arms are checked here.
                             let folded = |t: &str| {
@@ -646,24 +743,15 @@ pub fn lint(file: &File) -> Vec<LowerError> {
                     }
                     walk(children, names, errors);
                 }
-                Node::Use { children, .. } => walk(children, names, errors),
-                Node::When {
-                    then, otherwise, ..
-                } => {
-                    walk(then, names, errors);
-                    walk(otherwise, names, errors);
+                node => {
+                    for (list, binds) in node.scoped_child_lists() {
+                        if binds.is_empty() {
+                            walk(list, names, errors);
+                        } else {
+                            walk(list, &names.hiding(binds.iter()), errors);
+                        }
+                    }
                 }
-                Node::Each {
-                    var, index, body, ..
-                } => {
-                    let row = std::iter::once(var.as_str()).chain(index.as_deref());
-                    walk(body, &names.hiding(row), errors);
-                }
-                Node::Match { some, none, .. } => {
-                    walk(&some.1, &names.hiding([some.0.as_str()]), errors);
-                    walk(none, names, errors);
-                }
-                Node::Children { .. } => {}
             }
         }
     }
@@ -672,7 +760,12 @@ pub fn lint(file: &File) -> Vec<LowerError> {
         .filter(|u| u.path.starts_with('@'))
         .flat_map(|u| u.names.iter().map(|n| n.local()))
         .collect();
-    for (i, c) in file.components.iter().enumerate() {
+    for (i, c) in file
+        .components
+        .iter()
+        .enumerate()
+        .filter(|(i, _)| checked(*i))
+    {
         let names = match i {
             0 => Substituted {
                 imported: imported.clone(),
@@ -696,15 +789,19 @@ pub fn lint(file: &File) -> Vec<LowerError> {
         };
         walk(&c.view, &names, &mut errors);
     }
-    // A component's anatomy, which no type is needed to check.
-    for c in file.components.iter().filter(|c| !c.anatomy.is_empty()) {
+    // A component's anatomy, which no type is needed to check (LLP 1139 D2).
+    for (_, c) in
+        (file.components.iter().enumerate()).filter(|(i, c)| checked(*i) && !c.anatomy.is_empty())
+    {
         errors.extend(crate::anatomy::check(c, file));
     }
-    // A library package's host reads, said beside the type
+    // A library package's host reads (LLP 1139 D6), said beside the type
     // error a child's resource is.
-    errors.extend(crate::anatomy::platform(file));
+    if checked(0) {
+        errors.extend(crate::anatomy::platform(file));
+    }
     errors.truncate(MAX_REFUSALS);
-    // A param by its full name, never its token's.
+    // A param by its full name, never its token's (LLP 1121 D15).
     let params = crate::params::tokens(file);
     for e in &mut errors {
         e.message = crate::params::shown(&e.message, &params);

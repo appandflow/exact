@@ -4,7 +4,7 @@ import XCTest
 @testable import ExactGroupedLists
 import UIKit
 
-/// A large title survives a content swap under the bar
+/// LLP 1116.005 D4: a large title survives a content swap under the bar
 /// (`scripts/fixtures/still-title.contract`, chat-rooms' rooms screen). UIKit
 /// moves the large title into the content scroll view it follows; once a
 /// failed load's reason came between the header and the list, nothing
@@ -89,7 +89,8 @@ final class StillTitleIOSTests: XCTestCase {
         let route = try XCTUnwrap(nav.topViewController)
         XCTAssertEqual(route.navigationItem.title, "Rooms")
         XCTAssertEqual(route.navigationItem.largeTitleDisplayMode, .always)
-        XCTAssertTrue(route.contentScrollView(for: .top) is GroupedScroller, "the title collapses with the list")
+        let list = try XCTUnwrap(route.contentScrollView(for: .top))
+        XCTAssertTrue(list is GroupedScroller, "the title collapses with the list")
         XCTAssertGreaterThan(try titleInk(nav), 100, "'Rooms' is drawn large under the bar")
 
         // A failed load's reason between the header and the list: nothing
@@ -97,6 +98,10 @@ final class StillTitleIOSTests: XCTestCase {
         try tap("fail")
         XCTAssertNotNil(find("rooms-error"), "the reason shows")
         XCTAssertNil(route.contentScrollView(for: .top), "the list no longer follows the header, so nothing collapses the title")
+        // A selection the app gives back with nil returns the edge to Exact's, which names no scroller here
+        route.setContentScrollView(list, for: .top)
+        route.setContentScrollView(nil, for: .top)
+        XCTAssertNil(route.contentScrollView(for: .top), "a selection given back with nil leaves the title still")
         XCTAssertEqual(route.navigationItem.largeTitleDisplayMode, .always)
         XCTAssertGreaterThan(try titleInk(nav), 100, "'Rooms' is still drawn with the reason above the list")
 

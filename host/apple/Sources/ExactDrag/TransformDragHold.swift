@@ -20,7 +20,7 @@ final class TransformDragHold {
     private var finishing = false
     private var pin: UInt64?
     /// The newest displayed pair [x, y, scale] and its time. Velocity is the
-    /// engine's, measured over every value sent.
+    /// engine's (LLP 1057.001 §3), measured over every value sent.
     private(set) var current: [Double]
     private var time: Double
     private var queued = false
@@ -114,7 +114,7 @@ final class TransformDragHold {
     func finish(dx: Double, dy: Double, time: Double, cancel: Bool) {
         finish(to: origin.moved(dx: dx, dy: dy) ?? current, time: time, cancel: cancel)
     }
-    /// The one release while both tokens are live (a photo's pinch-and-pan pair).
+    /// The one release while both tokens are live (LLP 1002 D4's photo pair).
     func finish(to values: [Double], time: Double, cancel: Bool) {
         guard !ended, !finishing, pendingEnd == nil else { return }
         if session?.isApplyingPresentation == true || queued {
@@ -148,7 +148,7 @@ final class TransformDragHold {
 
 extension TransformDragHold {
     /// The agent's `tap … pinch <scale>` where the platform offers no pinch to
-    /// synthesize: the recognized scale, about `focal` (from
+    /// synthesize (LLP 1057.001 §5): the recognized scale, about `focal` (from
     /// the clip's centre, translate space), through the same paired hold and
     /// its one release as a finger's. Delivery `recognized`; nil when refused.
     static func recognizedPinch(_ handle: NodeView, scale: Double, focal: CGPoint) -> String? {

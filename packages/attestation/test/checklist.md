@@ -1,9 +1,9 @@
-# Attestation on a device
+# Attestation on a device (LLP 1133.028 §9 stages 2 and 3)
 
 What the agent cannot drive: a real App Attest key in a Secure Enclave and a
 Play Integrity token Google decodes. Each step names what to see; a step that
 shows something else is a finding. A person runs them, never an agent on a
-phone.
+phone (LLP 1133.020).
 
 ## What the accounts must have first
 
@@ -11,12 +11,12 @@ phone.
   identifiers, and a development profile that carries it. The build signs
   `com.apple.developer.devicecheck.appattest-environment` as `development` for
   a debuggable build and `production` otherwise (`host/apple/presence.mjs`).
-- **Google:** the Play Integrity API enabled in the test Google Cloud
+- **Google:** the Play Integrity API enabled in LLP 1133.020 §3.2's Cloud
   project; a service account with a JSON key, kept outside the repository; its
   path in `EXACT_PLAY_INTEGRITY_KEY` where the fixture server runs; the
   project's number in `apps/auth-fixture/app.ts`'s `CLOUD_PROJECT`. For a
   `PLAY_RECOGNIZED` verdict, the auth fixture on a Play track in Play Console
-  and installed from it.
+  and installed from it (LLP 1133.020 §3.4).
 - **The fixture server** reachable from the phone:
   `bun apps/auth-fixture/fixture.mjs --team <team id>` (no `--substitute`), on
   this Mac's LAN address, with `app.ts`'s `ISSUER` and its grants pointed at it.
@@ -36,7 +36,7 @@ phone.
    first check attests a new key, since the key id is excluded from backup.
 6. Turn on Airplane Mode, tap: "Failed: NetworkError; retried. Failed: …";
    turn it off, tap: the same key attests (Apple's `serverUnavailable` kept it).
-7. Record the `aaguid` the server logs
+7. Record for LLP 1133.028 stage 2: the `aaguid` the server logs
    (`appattestdevelop` or `appattest` with a development profile), and whether
    the receipt carries `apple_validation_category_01`.
 
@@ -54,7 +54,7 @@ phone.
    2026-10-26, with an `appattest` (production) `aaguid` and the bare bundle
    id as the app id, since an ad hoc signature has no team. With a profile
    carrying App Attest: steps 2 to 4. Record the `aaguid` and whether the Mac
-   needs a capability beyond the profile.
+   needs a capability beyond the profile (D17).
 
 ## Android phone (Android 10 or newer, with Play services)
 

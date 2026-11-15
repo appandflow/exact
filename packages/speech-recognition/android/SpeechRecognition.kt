@@ -1,22 +1,22 @@
-// @exact/speech-recognition on Android: `SpeechRecognizer`, answered in the interface's
+// @exact/speech-recognition on Android (LLP 1133.012 D7–D11, §9): `SpeechRecognizer`, answered in the interface's
 // shapes.
 //
-// - The recognizer: `createSpeechRecognizer`, the default service, which may stream audio to a server; with
+// - The recognizer (D9): `createSpeechRecognizer`, the default service, which may stream audio to a server; with
 //   `processLocally=true`, `createOnDeviceSpeechRecognizer` (API 31) where `isOnDeviceRecognitionAvailable`, else the
 //   recognition ends `service-not-allowed` before anything opens. `android.recognitionService` names another service.
-// - Inputs: `microphone=true`, which the service captures itself, under an exclusive hold of the session's
+// - Inputs (D8): `microphone=true`, which the service captures itself, under an exclusive hold of the session's
 //   microphone (the track table's `hold`), refused `NotReadableError` while a capture runs. A track or a file goes to a service through a
 //   pipe (`EXTRA_AUDIO_SOURCE`) only where the service is on the qualified list, which a device run builds; the list
 //   is empty, so the status lists `microphone` alone and a `track=` or `path=` start is `NotSupportedError`.
-// - Permission: `RECORD_AUDIO`, for every input; a start asks for it when the state is `prompt`.
+// - Permission (D11): `RECORD_AUDIO`, for every input; a start asks for it when the state is `prompt`.
 // - `continuous=true` starts a new session at each end, the seam journaled, since the class "is not intended to be
 //   used for continuous recognition".
-// - A recognition is an id, its state a value: final results numbered from 0, the last `history` of them (20 by
+// - A recognition is an id (D7), its state a value: final results numbered from 0, the last `history` of them (20 by
 //   default, 200 at most, 256 KB) with the interim one. Every final goes, as it arrives, to the `transcript=` directory
 //   as JSON Lines files of at most 1 MiB, the directory emptied when the recognition starts.
-// - A reply the runner drops aborts its recognition; leaving the foreground aborts every one, its finals kept.
-// - Tier 3: `SpeechRecognitionModule.hatch` is given each `RecognizerIntent` after the module's extras are set.
-// - Under the agent no recognizer is made, as on the web and Apple: a recognition hears what the drive says
+// - A reply the runner drops aborts its recognition; leaving the foreground aborts every one (D10), its finals kept.
+// - Tier 3 (D5): `SpeechRecognitionModule.hatch` is given each `RecognizerIntent` after the module's extras are set.
+// - Under the agent no recognizer is made (§9), as on the web and Apple: a recognition hears what the drive says
 //   (`heard`), one word as an interim result every 300 ms of the session clock and the final 500 ms after the last
 //   word; a non-continuous one then ends, and with no phrase ends `no-speech` after 8 s; a `path=` one answers the
 //   phrase preferred at its start, at once.
@@ -46,7 +46,7 @@ import org.json.JSONObject
 
 class SpeechRecognitionModule(context: ExtensionContext) : ExactExtension(context) {
     companion object {
-        /** The app's access hatch: each intent, after the module's extras are set, before `startListening`. */
+        /** The app's access hatch (D5): each intent, after the module's extras are set, before `startListening`. */
         @JvmStatic var hatch: ((Intent) -> Unit)? = null
         const val HISTORY = 20
         const val MAX_HISTORY = 200
@@ -107,7 +107,7 @@ class SpeechRecognitionModule(context: ExtensionContext) : ExactExtension(contex
         }
     }
 
-    // ------------------------------------------------------------ the status
+    // ------------------------------------------------------------ the status (D7, D8, D11)
 
     private fun local(args: JSONObject) = args.optBoolean("processLocally", false)
     private fun onDevice() = Build.VERSION.SDK_INT >= 31 && SpeechRecognizer.isOnDeviceRecognitionAvailable(context.application)
@@ -135,7 +135,8 @@ class SpeechRecognitionModule(context: ExtensionContext) : ExactExtension(contex
         val recognizer = recognizer(args) ?: return answer(null)
         val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
         val done = { s: RecognitionSupport? -> main.post { recognizer.destroy(); answer(s) }; Unit }
-        recognizer.checkRecognitionSupport(intent, Executors.newSingleThreadExecutor(), object : RecognitionSupportCallback {
+        // On main, which costs no thread: an executor of its own per check would leave its thread waiting forever.
+        recognizer.checkRecognitionSupport(intent, context.application.mainExecutor, object : RecognitionSupportCallback {
             override fun onSupportResult(recognitionSupport: RecognitionSupport) = done(recognitionSupport)
             override fun onError(error: Int) = done(null)
         })
@@ -185,7 +186,7 @@ class SpeechRecognitionModule(context: ExtensionContext) : ExactExtension(contex
         }
     }
 
-    /** The recognizer [args] select: the on-device one for `processLocally`, else the named or default service. */
+    /** The recognizer [args] select (D9): the on-device one for `processLocally`, else the named or default service. */
     internal fun recognizer(args: JSONObject): SpeechRecognizer? = when {
         local(args) -> if (Build.VERSION.SDK_INT >= 31 && SpeechRecognizer.isOnDeviceRecognitionAvailable(context.application))
             SpeechRecognizer.createOnDeviceSpeechRecognizer(context.application) else null
@@ -204,7 +205,7 @@ class SpeechRecognitionModule(context: ExtensionContext) : ExactExtension(contex
         val input = given[0]
         val s = status(args)
         val local = local(args)
-        // `processLocally` where the recognizer cannot keep audio on the device opens nothing.
+        // `processLocally` where the recognizer cannot keep audio on the device (D9) opens nothing.
         val refused = local && !s.optBoolean("local")
         if (!refused) {
             val inputs = s.getJSONArray("inputs").let { a -> (0 until a.length()).map { a.getString(it) } }
@@ -222,7 +223,7 @@ class SpeechRecognitionModule(context: ExtensionContext) : ExactExtension(contex
         next += 1
         val leaves = if (context.agent) !local && !s.optBoolean("local") else !local
         val r = Recognition(this, "recognition-${context.session}-$next", input, args, leaves)
-        // The service opens the microphone itself, so the session's captures stand aside while it listens.
+        // The service opens the microphone itself, so the session's captures stand aside while it listens (D8).
         if (input == "microphone" && !refused) {
             try {
                 r.hold = context.tracks.hold("audio")
@@ -230,7 +231,7 @@ class SpeechRecognitionModule(context: ExtensionContext) : ExactExtension(contex
                 return reply(error(e.code))
             }
         }
-        args.optString("transcript").takeIf { it.isNotEmpty() }?.let { path -> context.file(path)?.let { r.transcript = path to it } }
+        args.optString("transcript").takeIf { it.isNotEmpty() }?.let { path -> (context.directory(path) ?: context.file(path))?.let { r.transcript = path to it } }
         r.prepareTranscript()
         recognitions[r.id] = r
         say("${r.id}: ${if (input == "track") "on ${args.getString("track")}" else if (input == "file") "of ${args.getString("path")}" else "on the microphone"}" +
@@ -260,7 +261,7 @@ class SpeechRecognitionModule(context: ExtensionContext) : ExactExtension(contex
         reply(r.info())
     }
 
-    /** The intent for one session of [r] (the extras), given to the hatch. */
+    /** The intent for one session of [r] (D9's extras), given to the hatch. */
     internal fun intent(r: Recognition): Intent {
         val args = r.args
         val android = args.optJSONObject("android") ?: JSONObject()
@@ -286,7 +287,7 @@ class SpeechRecognitionModule(context: ExtensionContext) : ExactExtension(contex
         return intent
     }
 
-    // ------------------------------------------------------------ the agent's hearing
+    // ------------------------------------------------------------ the agent's hearing (§9)
 
     /** [r] moved to the session clock's now: the words of each phrase heard since it began. */
     internal fun advance(r: Recognition) {
@@ -330,7 +331,7 @@ class SpeechRecognitionModule(context: ExtensionContext) : ExactExtension(contex
         announce()
     }
 
-    /** Recognitions whose reply was dropped: aborted, never the app's. */
+    /** Recognitions whose reply was dropped: aborted, never the app's (D7). */
     override fun dispose(ids: List<String>) {
         for (id in ids) {
             val r = recognitions[id] ?: continue
@@ -340,7 +341,7 @@ class SpeechRecognitionModule(context: ExtensionContext) : ExactExtension(contex
         }
     }
 
-    /** Recognition is a foreground activity: leaving the foreground aborts every one. */
+    /** Recognition is a foreground activity: leaving the foreground aborts every one (D10). */
     override fun foreground(shown: Boolean) {
         if (shown) return
         for (r in recognitions.values.toList()) {
@@ -382,7 +383,7 @@ internal class Recognition(private val module: SpeechRecognitionModule, val id: 
     var subscription: (() -> Unit)? = null
     /** The exclusive hold of a `microphone=true` recognition, released at its end. */
     var hold: (() -> Unit)? = null
-    // The agent's clock.
+    // The agent's clock (§9).
     val began = module.context.now()
     var cursor = began
     var heard = 0
@@ -409,7 +410,7 @@ internal class Recognition(private val module: SpeechRecognitionModule, val id: 
         .put("start", start ?: JSONObject.NULL).put("end", end ?: JSONObject.NULL).put("apple", JSONObject.NULL)
 
     /** A final result (best first): numbered, kept in the window, appended to the transcript; a text over 16 KB in
-     * pieces split at a word boundary. */
+     * pieces split at a word boundary (D7). */
     fun final(alternatives: List<Pair<String, Double>>, start: Double?, end: Double?) {
         val pieces = pieces(alternatives.firstOrNull()?.first ?: "")
         for (piece in pieces) {
@@ -436,12 +437,12 @@ internal class Recognition(private val module: SpeechRecognitionModule, val id: 
         return out
     }
 
-    // ------------------------------------------------------------ the transcript
+    // ------------------------------------------------------------ the transcript (D7, D12 item 7)
 
     /** The directory, emptied as the recognition starts, so a replacement leaves no stale file. */
     fun prepareTranscript() {
         val dir = transcript?.second ?: return
-        writer.execute { dir.deleteRecursively(); dir.mkdirs() }
+        writer.execute { dev.exact.canvas.Files.removeTree(dir); dir.mkdirs() }
     }
 
     private fun write(result: JSONObject) {
@@ -451,13 +452,13 @@ internal class Recognition(private val module: SpeechRecognitionModule, val id: 
         fileSize += line.size
         val file = File(dir, String.format("%05d.jsonl", files - 1))
         writer.execute {
-            try { file.appendBytes(line) } catch (e: Exception) { main.post { module.say("$id: ${file.name} not written: ${e.message}") } }
+            try { dev.exact.canvas.Files.write(file, line, append = true) } catch (e: Exception) { main.post { module.say("$id: ${file.name} not written: ${e.message}") } }
         }
     }
 
     // ------------------------------------------------------------ ending
 
-    /** The recognition ends (with [why]): its input let go, its files finished; sticky. Every stop that waited
+    /** The recognition ends (with [why]): its input let go, its files finished; sticky (D7). Every stop that waited
      * is answered. */
     fun finish(why: String?, text: String? = null) {
         if (state == "ended") return
@@ -503,7 +504,7 @@ internal class Recognition(private val module: SpeechRecognitionModule, val id: 
         finish(why)
     }
 
-    // ------------------------------------------------------------ the recognizer
+    // ------------------------------------------------------------ the recognizer (D9)
 
     /** A session of the recognizer on the microphone: the first, or the next after a continuous one's end. */
     fun listen() {
@@ -518,7 +519,7 @@ internal class Recognition(private val module: SpeechRecognitionModule, val id: 
         return texts.mapIndexed { i, t -> t to (scores?.getOrNull(i)?.toDouble()?.takeIf { it >= 0 } ?: 0.0) }
     }
 
-    /** A continuous recognition's session ended: the next begins, the seam journaled. */
+    /** A continuous recognition's session ended: the next begins, the seam journaled (D9). */
     private fun again(why: String): Boolean {
         if (!continuous || stopping || state != "listening") return false
         module.say("$id: a new session ($why)")
@@ -568,7 +569,7 @@ internal class Recognition(private val module: SpeechRecognitionModule, val id: 
         finish(word, word?.let { "SpeechRecognizer error $error" })
     }
 
-    // ------------------------------------------------------------ the track
+    // ------------------------------------------------------------ the track (D8, D10)
 
     override fun live(source: dev.exact.canvas.AudioSource?) { audio = true; sound = true; module.announce() }
     override fun muted(reason: String) {}

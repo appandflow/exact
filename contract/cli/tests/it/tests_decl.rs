@@ -1,4 +1,4 @@
-//! `test` blocks parse to the agent's steps and print as JSON
+//! LLP 1017 P7: `test` blocks parse to the agent's steps and print as JSON
 //! the driver reads (`scripts/agent.mjs --test`).
 
 use contract_syntax::{Expr, Step, TapForm};
@@ -25,16 +25,16 @@ fn a_test_block_parses_to_the_eight_operations_and_expects() {
     let json = contract::tests_json(&tests);
     assert!(json.starts_with("[{\"name\":\"login\",\"steps\":[{\"op\":\"tap\",\"target\":\"title\",\"form\":\"press\",\"line\":2}"), "{json}");
     assert!(
-        json.contains("{\"op\":\"expect-state\",\"name\":\"attempt\",\"value\":1,\"line\":13}"),
+        json.contains("{\"op\":\"expect-state\",\"name\":\"attempt\",\"comparison\":\"equal\",\"value\":1,\"line\":13}"),
         "{json}"
     );
     assert!(
-        json.contains("{\"op\":\"expect-state\",\"name\":\"picked\",\"value\":null,\"line\":15}"),
+        json.contains("{\"op\":\"expect-state\",\"name\":\"picked\",\"comparison\":\"equal\",\"value\":null,\"line\":15}"),
         "{json}"
     );
     // `[]` is the empty list on the wire too, never `null`.
     assert!(
-        json.contains("{\"op\":\"expect-state\",\"name\":\"tags\",\"value\":[],\"line\":16}"),
+        json.contains("{\"op\":\"expect-state\",\"name\":\"tags\",\"comparison\":\"equal\",\"value\":[],\"line\":16}"),
         "{json}"
     );
     assert!(
@@ -43,6 +43,52 @@ fn a_test_block_parses_to_the_eight_operations_and_expects() {
         ),
         "{json}"
     );
+}
+
+#[test]
+fn a_test_traverses_browser_history() {
+    let tests =
+        contract::tests("test \"history\"\n  tap \"root\" history -1\n  tap \"root\" history 2\n")
+            .unwrap();
+    assert!(matches!(
+        tests[0].steps[0],
+        Step::Tap {
+            form: TapForm::History(-1),
+            ..
+        }
+    ));
+    let json = contract::tests_json(&tests);
+    assert!(
+        json.contains(r#"{"op":"tap","target":"root","form":"history","history":-1,"line":2}"#),
+        "{json}"
+    );
+    assert!(
+        json.contains(r#""form":"history","history":2,"line":3"#),
+        "{json}"
+    );
+    for delta in [
+        "0",
+        "1.5",
+        "-0.5",
+        "2147483648",
+        "-2147483649",
+        "1e20",
+        "",
+        "back",
+    ] {
+        let e = contract::tests(&format!(
+            "test \"history\"\n  tap \"root\" history {delta}\n"
+        ))
+        .unwrap_err();
+        assert_eq!(e.id, "syntax-expected-step", "{delta}: {e}");
+        assert!(e.message.contains("history"), "{delta}: {e}");
+    }
+    for delta in [i32::MIN, i32::MAX] {
+        assert!(contract::tests(&format!(
+            "test \"history\"\n  tap \"root\" history {delta}\n"
+        ))
+        .is_ok());
+    }
 }
 
 #[test]
@@ -113,7 +159,7 @@ fn the_apps_tests_parse() {
 
 #[test]
 fn a_test_drags_a_card_to_another_list() {
-    // `drag to` ends at the other node's middle, or at a
+    // LLP 1094 D12: `drag to` ends at the other node's middle, or at a
     // point in its box.
     let src = "test \"board\"\n  tap \"grip-a1\" drag to \"list-b\" over 300\n  tap \"grip-a2\" drag to \"list-c\" at 10 -4 mouse hold 50\n";
     let tests = contract::tests(src).unwrap();
@@ -140,9 +186,22 @@ fn a_test_drags_a_card_to_another_list() {
 }
 
 #[test]
+fn a_test_opts_into_dragging_to_the_keyboard() {
+    let tests = contract::tests("test \"keyboard\"\n  tap \"transcript\" drag 0 300 hold 1000 into keyboard during \"state\"\n").unwrap();
+    let json = contract::tests_json(&tests);
+    assert!(json.contains("\"into\":\"keyboard\""), "{json}");
+    assert!(json.contains("\"during\":[\"state\"]"), "{json}");
+    for option in ["into screen", "into", "into keyboard into keyboard"] {
+        assert!(
+            contract::tests(&format!("test \"t\"\n  tap \"a\" drag 0 300 {option}\n")).is_err()
+        );
+    }
+}
+
+#[test]
 fn a_test_drags_and_opens_at_its_size() {
-    // A drag, as the driver's `tap … drag`, and the viewport a test's session
-    // opens at, as its `--size`.
+    // kanban F18, paint F5: a drag, as the driver's `tap … drag`, and the
+    // viewport a test's session opens at, as its `--size`.
     let src = "test \"board\"\n  size 1280x800\n  tap \"card\" drag 300 -60 hold 100\n  tap \"card\" drag -4.5 0\n  tap \"row\" drag 0 -100 from 12 8 mouse over 300\n";
     let tests = contract::tests(src).unwrap();
     let t = &tests[0];
@@ -153,7 +212,7 @@ fn a_test_drags_and_opens_at_its_size() {
         matches!(&t.steps[1], Step::Drag { dx, dy, hold: Some(h), press: None, .. } if *dx == 300.0 && *dy == -60.0 && *h == 100.0)
     );
     assert!(matches!(&t.steps[2], Step::Drag { dx, .. } if *dx == -4.5));
-    // Where in the node it starts, and the left button.
+    // Where in the node it starts, and the left button (files diary F10).
     assert!(
         matches!(&t.steps[3], Step::Drag { from: Some((x, y)), mouse: true, over: Some(o), .. } if *x == 12.0 && *y == 8.0 && *o == 300.0)
     );
@@ -188,8 +247,8 @@ fn a_test_drags_and_opens_at_its_size() {
 
 #[test]
 fn a_test_pinches_holds_a_key_and_indexes_state() {
-    // A pinch; a key held on the virtual clock, and a drag that holds;
-    // `during`, a list index, a negative number.
+    // stocks: pinch. platformer R7: a key held on the virtual clock, and a
+    // drag that holds. drums R7–R8: `during`, a list index, a negative number.
     let src = "test \"play\"\n  tap \"chart\" pinch 2\n  tap \"map\" pinch 1.5 at 4 -2\n  type \"board\" key \"KeyW\" down\n  type \"board\" key \"KeyW\" up\n  type \"board\" key \"Space\" for 40\n  tap \"card\" drag 10 0 hold 100 during \"clock +500\"\n  expect state items.0 == -3\n  expect state song.patterns.0.rows.0 == 3\n";
     let tests = contract::tests(src).unwrap();
     let t = &tests[0];
@@ -253,7 +312,7 @@ fn a_test_pinches_holds_a_key_and_indexes_state() {
         "{json}"
     );
     assert!(
-        json.contains("{\"op\":\"expect-state\",\"name\":\"items.0\",\"value\":-3,\"line\":8}"),
+        json.contains("{\"op\":\"expect-state\",\"name\":\"items.0\",\"comparison\":\"equal\",\"value\":-3,\"line\":8}"),
         "{json}"
     );
     // `pinch` is not a leftover word on the line (stocks: syntax-expected-newline).
@@ -272,8 +331,7 @@ fn a_test_pinches_holds_a_key_and_indexes_state() {
 
 #[test]
 fn a_test_wheels_back_toward_the_start() {
-    // A chat app on macOS: a drag selects text there, so its scroll is the
-    // agent's wheel.
+    // Excord on macOS: a drag selects text there, so its scroll is the agent's wheel.
     let src =
         "test \"scroll\"\n  tap \"transcript\" wheel 0 -2500\n  tap \"strip\" wheel -4.5 30\n";
     let tests = contract::tests(src).unwrap();
@@ -306,9 +364,9 @@ fn a_test_wheels_back_toward_the_start() {
 
 #[test]
 fn a_file_and_a_test_carry_their_launch_facts() {
-    // The date, zone, locale, seed and viewport a test needs are written in the
-    // file, not remembered as driver flags. The file's lines lead every test
-    // that does not name its own.
+    // habits F7, calendar F13: the date, zone, locale, seed and viewport a
+    // test needs are written in the file, not remembered as driver flags.
+    // The file's lines lead every test that does not name its own.
     let src = "epoch \"2026-09-21T12:00:00Z\"\ntime-zone \"America/New_York\"\nsize 1200x800\n\ntest \"a\"\n  locale \"fr-FR\"\n  seed 7\n  tap \"x\"\n\ntest \"b\"\n  epoch 1790000000000\n  size 420x900\n  expect tree has \"y\"\n";
     let tests = contract::tests(src).unwrap();
     let json = contract::tests_json(&tests);
@@ -330,7 +388,7 @@ fn a_file_and_a_test_carry_their_launch_facts() {
         let e = contract::tests(src).unwrap_err();
         assert_eq!(e.span.line, line, "{src}: {e}");
     }
-    // The launch seed is below 2^32 on every host.
+    // The launch seed is below 2^32 on every host (LLP 1116.005 D5).
     let e = contract::tests("test \"t\"\n  seed 4294967296\n").unwrap_err();
     assert!(e.message.contains("0 through 2^32 - 1"), "{e}");
     assert!(contract::tests("test \"t\"\n  seed 4294967295\n").is_ok());
@@ -338,9 +396,9 @@ fn a_file_and_a_test_carry_their_launch_facts() {
 
 #[test]
 fn epoch_now_is_the_machines_clock_read_by_the_driver_at_launch() {
-    // A test against a live backend (a dev server that runs on real time) opts
-    // into the machine's clock; the driver reads it once at launch, so the word
-    // travels as written.
+    // App farm round 2: a test against a live backend (Snapback 4's dev
+    // server runs on real time) opts into the machine's clock; the driver
+    // reads it once at launch, so the word travels as written.
     let src = "epoch now\n\ntest \"a\"\n  tap \"x\"\n\ntest \"b\"\n  epoch now\n  tap \"y\"\n";
     let tests = contract::tests(src).unwrap();
     assert!(matches!(&tests[0].steps[0], Step::Epoch { value, .. } if value == "now"));
@@ -395,8 +453,8 @@ fn a_test_waits_for_the_apps_data_unless_it_says_before_data() {
 
 #[test]
 fn fresh_resets_the_backend_before_each_test_it_leads() {
-    // A launch line, at the top for every test or leading one, with an optional
-    // seed file.
+    // The author's ruling of 2026-10-12 (sb4 app farm): a launch line, at the
+    // top for every test or leading one, with an optional seed file.
     let src = "fresh\n\ntest \"a\"\n  tap \"x\"\n\ntest \"b\"\n  fresh \"fixtures/seed.json\"\n  tap \"y\"\n";
     let tests = contract::tests(src).unwrap();
     assert!(matches!(&tests[0].steps[0], Step::Fresh { seed: None, .. }));
@@ -445,7 +503,7 @@ fn a_test_resizes_the_window_mid_test() {
 
 #[test]
 fn a_test_closes_the_window_as_its_close_button_does() {
-    // `beforeunload` and "Save changes?" are driven.
+    // studio diary R17: `beforeunload` and "Save changes?" are driven.
     let tests = contract::tests("test \"t\"\n  type \"note\" \"x\"\n  close\n").unwrap();
     assert!(matches!(&tests[0].steps[1], Step::Close { .. }));
     let json = contract::tests_json(&tests);
@@ -454,8 +512,8 @@ fn a_test_closes_the_window_as_its_close_button_does() {
 
 #[test]
 fn a_test_goes_back_as_a_person_does() {
-    // A test that opened a detail returns to the list by the platform's Back,
-    // not the app's own control.
+    // LLP 1116.006 D4 (chat-rooms, round 8): a test that opened a detail
+    // returns to the list by the platform's Back, not the app's own control.
     let tests = contract::tests("test \"t\"\n  tap \"row\"\n  back\n  clock settle\n").unwrap();
     assert!(matches!(&tests[0].steps[1], Step::Back { .. }));
     let json = contract::tests_json(&tests);
@@ -466,8 +524,8 @@ fn a_test_goes_back_as_a_person_does() {
 
 #[test]
 fn a_test_answers_a_held_picker_by_its_node() {
-    // A picker's hold is answered by the node its answer arrives at, never by a
-    // ticket a test cannot predict.
+    // files F11: a picker's hold is answered by the node its answer
+    // arrives at, never by a ticket a test cannot predict.
     let src = "test \"import\"\n  tap \"choose\"\n  pick \"folder-input\" \"fixtures/notes\"\n  pick \"files\" \"a.txt\" \"b.txt\"\n  pick \"open-directory\" cancel\n";
     let tests = contract::tests(src).unwrap();
     let t = &tests[0];
@@ -489,7 +547,7 @@ fn a_test_answers_a_held_picker_by_its_node() {
     assert_eq!(e.id, "syntax-expected-string");
 }
 
-/// The clipboard's events are test steps, a paste carrying
+/// Spreadsheet F6: the clipboard's events are test steps, a paste carrying
 /// its text as the clipboard's.
 #[test]
 fn clipboard_steps_parse_and_print() {
@@ -511,7 +569,7 @@ fn clipboard_steps_parse_and_print() {
         ),
         "{json}"
     );
-    // A press with keys held.
+    // Gallery F20: a press with keys held.
     assert!(
         json.contains(
             "{\"op\":\"tap\",\"target\":\"b3\",\"form\":\"press\",\"modifiers\":\"Shift\",\"line\":5}"
@@ -522,8 +580,9 @@ fn clipboard_steps_parse_and_print() {
 
 #[test]
 fn a_test_double_clicks_scrolls_a_list_appends_reloads_and_reads_a_field() {
-    // The driver's `tap` forms, a list brought to a row by its key, typing
-    // after a prefill, a restart on the same store, and a field of a record.
+    // feed F8/F10, mail F19, kanban F25: the driver's `tap` forms, a list
+    // brought to a row by its key, typing after a prefill, a restart on the
+    // same store, and a field of a record.
     let src = "test \"feed\"\n  tap \"post-1\" dblclick\n  tap \"post-1\" contextmenu\n  tap \"post-1\" hover\n  tap \"timeline\" into \"s2981\"\n  type \"reply\" \"agree\" append\n  reload\n  expect state s.queued == 1\n  expect state feed.page.next == \"b\"\n";
     let tests = contract::tests(src).unwrap();
     let t = &tests[0];
@@ -558,7 +617,7 @@ fn a_test_double_clicks_scrolls_a_list_appends_reloads_and_reads_a_field() {
         "{\"op\":\"tap\",\"target\":\"timeline\",\"form\":\"into\",\"key\":\"s2981\",\"line\":5}",
         "{\"op\":\"type\",\"target\":\"reply\",\"text\":\"agree\",\"append\":true,\"line\":6}",
         "{\"op\":\"reload\",\"line\":7}",
-        "{\"op\":\"expect-state\",\"name\":\"feed.page.next\",\"value\":\"b\",\"line\":9}",
+        "{\"op\":\"expect-state\",\"name\":\"feed.page.next\",\"comparison\":\"equal\",\"value\":\"b\",\"line\":9}",
     ] {
         assert!(json.contains(want), "{want} in {json}");
     }
@@ -570,7 +629,7 @@ fn a_test_double_clicks_scrolls_a_list_appends_reloads_and_reads_a_field() {
 
 #[test]
 fn a_list_position_in_a_state_path_parses() {
-    // `cards.0.id` is a path, the same form as `items.0`.
+    // feed F10, drums R7: `cards.0.id` is a path, the same form as `items.0`.
     let tests = contract::tests("test \"t\"\n  expect state cards.0.id == \"a\"\n").unwrap();
     assert!(matches!(
         &tests[0].steps[0],
@@ -579,7 +638,7 @@ fn a_list_position_in_a_state_path_parses() {
     let json = contract::tests_json(&tests);
     assert!(
         json.contains(
-            "{\"op\":\"expect-state\",\"name\":\"cards.0.id\",\"value\":\"a\",\"line\":2}"
+            "{\"op\":\"expect-state\",\"name\":\"cards.0.id\",\"comparison\":\"equal\",\"value\":\"a\",\"line\":2}"
         ),
         "{json}"
     );
@@ -594,7 +653,7 @@ fn a_negative_number_is_an_expect_state_value() {
     ));
     let json = contract::tests_json(&tests);
     assert!(
-        json.contains("{\"op\":\"expect-state\",\"name\":\"offset\",\"value\":-1,\"line\":2}"),
+        json.contains("{\"op\":\"expect-state\",\"name\":\"offset\",\"comparison\":\"equal\",\"value\":-1,\"line\":2}"),
         "{json}"
     );
 }
@@ -625,8 +684,8 @@ fn the_test_step_grammar_names_drag_to() {
 
 #[test]
 fn fail_fetch_leads_as_a_launch_line_or_is_a_step_and_inherits_by_prefix() {
-    // Leading lines arm before the first data load; later ones are steps; the
-    // file's lines lead every test that names no such prefix.
+    // LLP 1103 D3: leading lines arm before the first data load; later ones
+    // are steps; the file's lines lead every test that names no such prefix.
     let src = "fail fetch \"https://api.test/\"\nfail fetch \"https://cdn.test/\" times 2\n\ntest \"a\"\n  fail fetch \"https://cdn.test/\"\n  tap \"retry\"\n  fail fetch \"https://api.test/x\" times 1\n  pass fetch \"https://api.test/\"\n";
     let tests = contract::tests(src).unwrap();
     let json = contract::tests_json(&tests);
@@ -659,7 +718,7 @@ fn fail_fetch_leads_as_a_launch_line_or_is_a_step_and_inherits_by_prefix() {
 #[test]
 fn only_a_tests_leading_fail_fetch_overrides_the_files() {
     // A later `fail fetch` of the same prefix is a step: the file's launch
-    // line still arms it before the first data load.
+    // line still arms it before the first data load (LLP 1103 D3).
     let src = "fail fetch \"https://api.test/\"\n\ntest \"a\"\n  tap \"go\"\n  fail fetch \"https://api.test/\" times 1\n";
     let json = contract::tests_json(&contract::tests(src).unwrap());
     assert!(
@@ -670,7 +729,7 @@ fn only_a_tests_leading_fail_fetch_overrides_the_files() {
 
 #[test]
 fn a_test_asserts_that_a_control_is_disabled_or_enabled() {
-    // `expect disabled "id"` and `expect enabled "id"`, each one testId.
+    // LLP 1116.010 D3: `expect disabled "id"` and `expect enabled "id"`, each one testId.
     let src = "test \"t\"\n  expect disabled \"send\"\n  tap \"arm\"\n  expect enabled \"send\"\n";
     let tests = contract::tests(src).unwrap();
     let steps = &tests[0].steps;
@@ -704,9 +763,34 @@ fn a_test_asserts_that_a_control_is_disabled_or_enabled() {
 }
 
 #[test]
+fn a_test_asserts_which_node_has_the_focus() {
+    let src = "test \"t\"\n  type \"picker\" key \"Escape\"\n  expect focused \"picker\"\n";
+    let tests = contract::tests(src).unwrap();
+    assert!(matches!(&tests[0].steps[1], Step::ExpectFocused { target, .. } if target == "picker"));
+    let json = contract::tests_json(&tests);
+    assert!(
+        json.contains("{\"op\":\"expect-focused\",\"target\":\"picker\",\"line\":3}"),
+        "{json}"
+    );
+    let e = contract::tests("test \"t\"\n  expect focus \"picker\"\n").unwrap_err();
+    assert!(
+        e.to_string()
+            .contains("write `expect focused \"<testId>\"`"),
+        "{e}"
+    );
+    for src in [
+        "test \"t\"\n  expect focused picker\n",
+        "test \"t\"\n  expect focused\n",
+    ] {
+        let e = contract::tests(src).unwrap_err();
+        assert_eq!(e.span.line, 2, "{src}: {e}");
+    }
+}
+
+#[test]
 fn a_test_writes_through_the_apps_server_as_another_person() {
-    // A method, a path under the server the app calls (or a whole URL), a JSON
-    // body that may span lines, and the persona.
+    // LLP 1116.006 D8: method, a path under the server the app calls (or a
+    // whole URL), a JSON body that may span lines, and the persona.
     let src = "test \"t\"\n  request POST \"/polls/1/votes\" {\"option\": 2, \"note\": \"a \\\"b\\\"\", \"tags\": [true, null, -1.5], \"by\": {}} as bob\n  request DELETE \"/items/3\" as \"token-grace\"\n  request GET \"http://127.0.0.1:8787/health\"\n  request PATCH \"/items/1\" {\n    \"locked\": false\n  }\n  clock +5000\n";
     let tests = contract::tests(src).unwrap();
     let steps = &tests[0].steps;
@@ -732,7 +816,7 @@ fn a_test_writes_through_the_apps_server_as_another_person() {
         json.contains("{\"op\":\"request\",\"method\":\"PATCH\",\"path\":\"/items/1\",\"body\":\"{\\\"locked\\\":false}\",\"as\":null,\"line\":5},{\"op\":\"clock\""),
         "{json}"
     );
-    // `expect 409` after the persona, the status a refusal answers; in the JSON only when written.
+    // LLP 1116.010 D3: `expect 409` after the persona, the status a refusal answers; in the JSON only when written.
     let src = "test \"t\"\n  request POST \"/items\" {\"title\": \"Bread\"} as bob expect 409\n  request DELETE \"/items/3\" expect 404\n  request GET \"/items\"\n";
     let tests = contract::tests(src).unwrap();
     let steps = &tests[0].steps;
@@ -772,10 +856,36 @@ fn a_test_writes_through_the_apps_server_as_another_person() {
         ("test \"t\"\n  request POST \"/items\" {a: 1}\n", 2),
         ("test \"t\"\n  request POST \"/items\" {\"a\": x}\n", 2),
         ("test \"t\"\n  request POST \"/items\" as\n", 2),
-        ("test \"t\"\n  request POST \"/items\" \"body\"\n", 2),
+        ("test \"t\"\n  request POST \"/items\" - as bob\n", 2),
     ] {
         let e = contract::tests(src).unwrap_err();
         assert_eq!(e.span.line, line, "{src}: {e}");
+    }
+}
+
+/// A body is any JSON value, a scalar as well as an object or a list.
+#[test]
+fn a_request_body_may_be_a_json_scalar() {
+    for (written, body) in [
+        ("\"str\"", "\"str\""),
+        ("5", "5"),
+        ("-5", "-5"),
+        ("1.5", "1.5"),
+        ("true", "true"),
+        ("false", "false"),
+        ("null", "null"),
+    ] {
+        let src = format!("test \"r\"\n  request PATCH \"/x\" {written} as bob expect 409\n");
+        let tests = contract::tests(&src).unwrap_or_else(|e| panic!("{written}: {e}"));
+        assert!(
+            matches!(
+                &tests[0].steps[0],
+                Step::Request { body: Some(b), persona: Some(who), status: Some(409), .. }
+                    if b == body && who == "bob"
+            ),
+            "{written}: {:?}",
+            tests[0].steps[0]
+        );
     }
 }
 
@@ -826,9 +936,25 @@ fn media_preferences_inherit_by_name_and_can_change_between_steps() {
     }
     assert!(contract::tests("test \"t\"\n  prefer hover none\n").is_ok());
     assert!(contract::tests("test \"t\"\n  prefer online false\n").is_ok());
+    let sized = contract::tests("prefer root-font-size \"24\"\ntest \"sized\"\n  expect tree has \"root\"\n  prefer root-font-size \"28px\"\n  reload\n").unwrap();
+    let sized: serde_json::Value = serde_json::from_str(&contract::tests_json(&sized)).unwrap();
+    assert_eq!(sized[0]["steps"][0]["name"], "root-font-size");
+    assert_eq!(sized[0]["steps"][0]["value"], "24");
+    assert_eq!(sized[0]["steps"][2]["value"], "28px");
     // The driver validates media names and values at the failing test's line.
     assert!(contract::tests("test \"t\"\n  prefer unknown banana\n").is_ok());
     assert!(contract::tests("test \"t\"\n  prefer prefers-color-scheme banana\n").is_ok());
+    // A module's permission, as a launch line or a step (#557).
+    let permission = contract::tests(
+        "prefer permission.notifications granted\n\ntest \"t\"\n  prefer permission.health.steps denied\n",
+    )
+    .unwrap();
+    let json: serde_json::Value = serde_json::from_str(&contract::tests_json(&permission)).unwrap();
+    assert_eq!(
+        json[0]["steps"][0],
+        serde_json::json!({"op":"prefer", "name":"permission.notifications", "value":"granted", "line":1})
+    );
+    assert_eq!(json[0]["steps"][1]["name"], "permission.health.steps");
     assert!(contract::tests("prefer midi.state granted\n").is_err());
     let midi =
         contract::tests("test \"midi\"\n  prefer midi.state granted midi.outputs \"synth\"\n")
@@ -836,7 +962,7 @@ fn media_preferences_inherit_by_name_and_can_change_between_steps() {
     assert!(contract::tests_json(&midi).contains("prefer-midi"));
 }
 
-/// `clock held [<resource>…]`: the driver's `clock held`, real time with the clock frozen until each
+/// `clock held [<resource>…]` (LLP 1016.000 D9): the driver's `clock held`, real time with the clock frozen until each
 /// held request, or each named, has had a reply; the line's names are its targets, the next line's step its own.
 #[test]
 fn clock_held_names_its_targets_up_to_the_line_end_and_a_bound_last() {
@@ -861,8 +987,9 @@ fn clock_held_names_its_targets_up_to_the_line_end_and_a_bound_last() {
     assert!(contract::tests("test \"push\"\n  clock held changes 30\n").is_err());
 }
 
-/// `clock until state <path> == <literal> within <ms>`: the driver's words, the path's fields and indexes joined by
-/// `.`, the literal as JSON text, the bound whole milliseconds; and through the JSON the driver reads.
+/// `clock until state <path> == <literal> within <ms>` (rules/DEFERRED.md, "Agent API", 2026-10-26): the driver's words,
+/// the path's fields and indexes joined by `.`, the literal as JSON text, the bound whole milliseconds; and through the
+/// JSON the driver reads.
 #[test]
 fn clock_until_state_takes_a_path_a_json_literal_and_a_bound() {
     let src = "test \"socket\"\n  clock until state gateway.state == \"ready\" within 2000\n  clock until state rows.0.n == -3 within 500\n  clock until state ok == true within 1\n  clock until state picked == null within 10\n  clock until state say == \"a \\\"b\\\"\" within 10\n  tap \"go\"\n";
@@ -903,15 +1030,15 @@ fn clock_until_state_takes_a_path_a_json_literal_and_a_bound() {
             "a string, a number, true, false or null",
         ),
         ("clock until state g within 10", "=="),
-        (huge.as_str(), "a string, a number"),
-        (positive.as_str(), "a string, a number"),
+        (huge.as_str(), "too large for a number"),
+        (positive.as_str(), "too large for a number"),
     ] {
         let e = contract::tests(&format!("test \"t\"\n  {bad}\n")).unwrap_err();
         assert!(format!("{e:?}").contains(says), "{bad}: {e:?}");
     }
 }
 
-// `on` names the hosts a test is for.
+// LLP 1146 D7: `on` names the hosts a test is for.
 #[test]
 fn a_test_names_its_hosts() {
     let tests =
@@ -930,7 +1057,7 @@ fn a_test_names_its_hosts() {
     assert!(e.message.contains("named twice"), "{e}");
 }
 
-// A measured block, its counts, and no unarranged failures.
+// LLP 1146 D3 and D4: a measured block, its counts, and no unarranged failures.
 #[test]
 fn a_perf_block_and_its_counts_parse_to_the_drivers_steps() {
     let src = "test \"lists\"\n  tap \"channel-general\"\n  perf\n    request POST \"/control/inject\" {\"what\": \"typing\"}\n    clock data\n  expect perf query channelList <= 1\n  expect perf built \"member-row\" == 0\n  expect perf evaluated \"Rail\" == 3\n  expect no failures\n";
@@ -959,8 +1086,16 @@ fn a_perf_block_and_its_counts_parse_to_the_drivers_steps() {
 
 #[test]
 fn a_perf_block_refuses_the_wall_clock_and_counts_need_a_block() {
-    let e = contract::tests("test \"t\"\n  perf\n    clock +100 real\n").unwrap_err();
-    assert!(e.message.contains("wall clock"), "{e}");
+    for clock in [
+        "clock +100 real",
+        "clock held",
+        "clock held board 5s",
+        "clock until state ready == true within 500",
+    ] {
+        let e = contract::tests(&format!("test \"t\"\n  perf\n    {clock}\n")).unwrap_err();
+        assert!(e.message.contains("wall clock"), "{clock}: {e}");
+        assert_eq!(e.span.line, 3, "{clock}: {e}");
+    }
     let e = contract::tests("test \"t\"\n  expect perf query a == 1\n").unwrap_err();
     assert!(e.message.contains("`perf` block before it"), "{e}");
     let e = contract::tests("test \"t\"\n  perf\n    clock data\n  expect perf query a == 1.5\n")
@@ -969,4 +1104,44 @@ fn a_perf_block_refuses_the_wall_clock_and_counts_need_a_block() {
     let e = contract::tests("test \"t\"\n  perf\n    clock data\n  expect perf time a == 1\n")
         .unwrap_err();
     assert!(e.message.contains("counts `query"), "{e}");
+}
+
+#[test]
+fn state_steps_compare_numeric_bounds_and_literal_membership() {
+    use contract_syntax::StateComparison as C;
+    let tests = contract::tests("test \"bounds\"\n  expect state offset >= -2\n  expect state offset <= 2\n  expect state rows.0 in 0 -2 2\n  expect state choice in \"ready\" false none []\n").unwrap();
+    let steps = &tests[0].steps;
+    assert!(
+        matches!(&steps[0], Step::ExpectState { comparison: C::AtLeast, value: Expr::Number(n, _), .. } if *n == -2.0)
+    );
+    assert!(matches!(
+        &steps[1],
+        Step::ExpectState {
+            comparison: C::AtMost,
+            ..
+        }
+    ));
+    assert!(
+        matches!(&steps[2], Step::ExpectState { comparison: C::In, value: Expr::List(values, _), .. } if values.len() == 3)
+    );
+    let json: serde_json::Value = serde_json::from_str(&contract::tests_json(&tests)).unwrap();
+    assert_eq!(json[0]["steps"][0]["comparison"], "at-least");
+    assert_eq!(json[0]["steps"][2]["value"], serde_json::json!([0, -2, 2]));
+    assert_eq!(
+        json[0]["steps"][3]["value"],
+        serde_json::json!(["ready", false, null, []])
+    );
+    for line in [
+        "offset >= \"1\"",
+        "offset <= true",
+        "offset in",
+        "offset in 1 + 2",
+        "offset == computed",
+        "offset == [1, 2]",
+    ] {
+        assert!(
+            contract::tests(&format!("test \"bad\"\n  expect state {line}\n")).is_err(),
+            "{line}"
+        );
+    }
 }

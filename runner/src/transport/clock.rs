@@ -1,4 +1,4 @@
-//! Clock in: a sequence whose `play` names `clock=<input>`
+//! Clock in (LLP 1125 D9): a sequence whose `play` names `clock=<input>`
 //! follows that input's MIDI clock instead of keeping its own time. The
 //! input's Timing Clock, Start, Continue, Stop and Song Position messages
 //! arrive with their timestamps in the host's input deliveries (batched by
@@ -13,14 +13,15 @@
 //!   later than the tick before: ticks CoreMIDI coalesced into one packet
 //!   share a stamp) once [`MIN_TICKS`] are in it. A stamp earlier than the
 //!   last, or more than [`GAP`] after it, empties the window. Until the
-//!   first estimate the tempo is `bpm=` (120 when omitted).
-//! - **Position counts ticks**: the `k`th tick after Start is
+//!   first estimate the tempo is `bpm=` (120 when omitted). Estimates above
+//!   clock out's [`TICKS_PER_SECOND`] bound leave that tempo unchanged.
+//! - **Position counts ticks** (rulings #11): the `k`th tick after Start is
 //!   beat `from + k / 24`. Start puts beat `from` at the tick it predicts
 //!   next (the last tick plus one interval, when one came within [`GAP`],
-//!   and never before Start itself), else at Start's own time; Continue
-//!   resumes at the Song Position received since the last
-//!   Stop, else where that Stop held it, else at beat 0, with no count-in.
-//!   Song Position while playing is ignored and journaled.
+//!   and never before Start itself), else at Start's own time (rulings
+//!   #1); Continue resumes at the Song Position received since the last
+//!   Stop, else where that Stop held it, else at beat 0, with no count-in
+//!   (rulings #12). Song Position while playing is ignored and journaled.
 //! - **The anchor** is re-taken at the end of each run of ticks: the last
 //!   tick's time, its beat, and the tempo. Hits are issued under one
 //!   segment up to [`LOOKAHEAD`] past the delivery (more by a track's
@@ -29,7 +30,7 @@
 //!   hits are issued — by more than [`DRIFT`] becomes the segment, and
 //!   every hit after the band's start is retracted (`by: clock`) and issued
 //!   again under it (the whole band, not only from the first beat that
-//!   drifts); one within [`DRIFT`] everywhere leaves
+//!   drifts: rulings #5, simplified); one within [`DRIFT`] everywhere leaves
 //!   the hits as they are. Nothing within the hold moves, its edge
 //!   included: a note due there is handed. A hit kept may have been timed
 //!   by an older segment, whose beats the band need not order, so the hits
@@ -39,23 +40,25 @@
 //!   revisits no beat it played, however long the gap. Start and Continue
 //!   while playing take back the hits from their delivery's time, its own
 //!   included.
-//! - **Stop** silences the sequence as its gate turning false would and
-//!   leaves it `waiting` with reason `clock`, still following; the app
-//!   hears Stop as a `midimessage` and ends its take itself. No timeout
-//!   ends a lost clock: the hits simply run out.
+//! - **Stop** silences the sequence as its gate turning false would (D4) and
+//!   leaves it `waiting` with reason `clock`, still following (rulings #3);
+//!   the app hears Stop as a `midimessage` and ends its take itself. No
+//!   timeout ends a lost clock (rulings #14): the hits simply run out.
 //! - **`exactTransport()`** says `clock: "midi"`; its tempo is rounded to
 //!   0.1 and its tempo and anchor are published again only when the state
 //!   or reason changes, the tempo moves by 0.5 or more, or the published
-//!   line puts the latest anchor more than 1/48 of a beat off.
+//!   line puts the latest anchor more than 1/48 of a beat off (rulings #7).
 //!   While waiting its tempo is the device's.
 //!
 //! An edit while following starts no segment (`bpm=` is the prior only); an
 //! edit, or Start again, in the hold after a new anchor can play a hit at
 //! that boundary twice or not at all within the drift: a declared limit.
+//!
+//! @ref LLP 1125 D9
 
 use super::{Fill, Out, Segment, State, Transport};
 use crate::agent::num;
-use crate::midi::HOLD;
+use crate::midi::{HOLD, TICKS_PER_SECOND};
 use crate::sound::{By, Cut};
 use exact_plan::Plan;
 use std::collections::VecDeque;
@@ -178,7 +181,10 @@ impl Follow {
         let elapsed = at - self.stamps[0];
         let leading = prev.is_none_or(|p| at > p);
         if leading && n >= MIN_TICKS && elapsed > 0.0 {
-            self.estimate = Some(60000.0 * (n - 1) as f64 / (elapsed * 24.0));
+            let bpm = 60000.0 * (n - 1) as f64 / (elapsed * 24.0);
+            if bpm * 24.0 / 60.0 <= TICKS_PER_SECOND {
+                self.estimate = Some(bpm);
+            }
         }
     }
 
@@ -270,7 +276,7 @@ impl Follow {
     }
 }
 
-/// What `exactTransport()` last published while following.
+/// What `exactTransport()` last published while following (rulings #7).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(super) struct Published {
     pub(super) state: State,
@@ -304,7 +310,7 @@ impl Transport {
     }
 
     /// One delivery's clock messages from the followed input at runner time
-    /// `now`: Start and Continue start a segment, Stop
+    /// `now` (LLP 1125 D9): Start and Continue start a segment, Stop
     /// silences, each run of ticks re-anchors, then the hits are issued to
     /// [`LOOKAHEAD`] past the delivery.
     pub(crate) fn follow(
@@ -404,7 +410,7 @@ impl Transport {
             num(new.bpm)
         ));
         let from = if issued > band {
-            // Only hits after the hold's edge: one at it is handed.
+            // Only hits after the hold's edge: one at it is handed (D7).
             let edge = t + HOLD + early;
             out.sounds
                 .batch(|s| s.retract_seq(t, Cut::After(edge), By::Clock, log));
@@ -428,7 +434,7 @@ impl Transport {
     }
 
     /// `exactTransport`'s answer while following, published again by
-    /// its hysteresis; called after every change.
+    /// rulings #7's hysteresis; called after every change.
     pub(crate) fn publish(&mut self) {
         if !self.clocked {
             return;

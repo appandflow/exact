@@ -1,5 +1,6 @@
-//! The kernel-free render, the differential check's fast lane: a document written from its runner's
-//! instance tree is the one a kernel's nodes give, byte for byte — the fixture's pages, and every
+//! The kernel-free render, the differential check's fast lane (LLP 1048.004
+//! D6): a document written from its runner's instance tree is the one a
+//! kernel's nodes give, byte for byte — the fixture's pages, and every
 //! corpus and conformance plan's first page.
 
 use super::{plan, warm_transport, Blog, Post, SITE};
@@ -53,6 +54,7 @@ fn the_fixture_s_pages_are_the_same_without_a_kernel() {
                 Ids::Any,
                 projection,
                 1_700_000_000_000.0,
+                &Default::default(),
             )
             .unwrap()
         };
@@ -83,6 +85,7 @@ fn direct_documents_keep_text_row_presence_and_clears() {
             Ids::Any,
             projection,
             1_700_000_000_000.0,
+            &Default::default(),
         )
         .unwrap()
     };
@@ -145,6 +148,7 @@ fn every_corpus_and_conformance_plan_is_the_same_without_a_kernel() {
                 Ids::Any,
                 projection,
                 1_700_000_000_000.0,
+                &Default::default(),
             )
         };
         let what = file.display().to_string();
@@ -160,12 +164,12 @@ fn every_corpus_and_conformance_plan_is_the_same_without_a_kernel() {
             Err(why) => skipped.push(format!("{what}: {why}")),
         }
     }
-    // Every plan a kernel renders is written without one too (virtualized
-    // lists and `id` references included),
+    // Every plan a kernel renders is written without one too (LLP
+    // 1048.004 stage 2: virtualized lists and `id` references included),
     // except one whose initializer reads a resource through a prop, which
-    // `projects_as_booted` sends to the kernel (budget.contract),
+    // `projects_as_booted` sends to the kernel (budget.contract, 976bef093),
     // and one with `rem` or `em` lengths, which the fold leaves to the
-    // kernel's inherited font sizes (rem.contract).
+    // kernel's inherited font sizes (rem.contract, 077fe52b4).
     assert!(
         skipped.iter().all(|why| why.ends_with("no kernel render")
             || why.ends_with("a slot's initializer reads a resource")
@@ -174,4 +178,214 @@ fn every_corpus_and_conformance_plan_is_the_same_without_a_kernel() {
         "{compared} of {} plans compared; skipped: {skipped:#?}",
         files.len()
     );
+}
+
+/// The hero's preload makes its `<img>`'s request: the same URL as written,
+/// `crossorigin` and priority. document.rs writes each of these with a value
+/// and escapes `"` in values, so ` name="` starts an attribute, never a word in
+/// another's value.
+pub(super) fn assert_preload_makes_the_heros_request(page: &str) {
+    fn attr<'a>(tag: &'a str, name: &str) -> Option<&'a str> {
+        let rest = tag.split(&format!(" {name}=\"")).nth(1)?;
+        Some(&rest[..rest.find('"')?])
+    }
+    let tag = |open: &str| {
+        let at = page
+            .find(open)
+            .unwrap_or_else(|| panic!("no {open} in {page}"));
+        &page[at..at + page[at..].find('>').unwrap()]
+    };
+    let (link, img) = (
+        tag("<link rel=\"preload\" as=\"image\""),
+        tag("<img fetchpriority"),
+    );
+    for (on_link, on_img) in [
+        ("href", "src"),
+        ("crossorigin", "crossorigin"),
+        ("fetchpriority", "fetchpriority"),
+    ] {
+        assert_eq!(attr(link, on_link), attr(img, on_img), "{on_link}: {page}");
+    }
+}
+
+#[test]
+fn a_javascript_page_preloads_the_hero_from_a_default_render() {
+    let plan = contract::compile(
+        r#"
+component Hero
+  view
+    column
+      column inert=true
+        image "assets/hero.png?one=1&two=2" alt="Covered"
+      image "assets/hero.png?one=1&two=2" alt="Hero" crossorigin="anonymous"
+"#,
+    )
+    .unwrap();
+    let rendered = exact_render::render(
+        &plan,
+        || Nowhere,
+        Default::default(),
+        "/",
+        &SITE,
+        Duration::from_secs(10),
+    )
+    .unwrap();
+    assert!(!rendered.document.root.contains("fetchpriority"));
+    let page = exact_render::page(super::serve::JS_SHELL, &rendered).unwrap();
+    assert!(
+        page.contains(
+            "<link rel=\"preload\" as=\"image\" href=\"assets/hero.png?one=1&amp;two=2\" crossorigin=\"anonymous\" fetchpriority=\"high\">"
+        ),
+        "{page}"
+    );
+    assert!(
+        page.contains("<img fetchpriority=\"high\" alt=\"Hero\""),
+        "{page}"
+    );
+    assert_eq!(page.matches("<img fetchpriority=\"high\"").count(), 1);
+    assert_preload_makes_the_heros_request(&page);
+}
+
+#[test]
+fn streamed_and_buffered_pages_keep_the_route_title_and_hero_image() {
+    use super::serve::{dist, get, header, serving, JS_SHELL};
+    use exact_render::{Serve, Server};
+
+    warm_transport();
+    let dir = dist("hero");
+    std::fs::write(dir.join("shell.html"), JS_SHELL).unwrap();
+    let plan = contract::compile(
+        r#"
+routes nav
+  tab home "/" render=request
+    kept "/kept" render=cached
+  notfound render=build
+component Hero
+  view
+    main navigationKey="home" navigationBack="back"
+      column navigationKey="home"
+        header
+          text "**Hero** route" markup="markdown" role="heading" aria-level=1
+        image "data:image/png;base64,AA==" alt="Inline"
+        image "symbol:circle" alt="Symbol"
+        column inert=true
+          image "assets/inert.png" alt="Inert"
+        column visibility="hidden"
+          image "assets/hidden.png" alt="Hidden"
+        image "assets/hero.png?one=1&two=2" alt="Hero" crossorigin="anonymous"
+        image "assets/second.png" alt="Second"
+"#,
+    )
+    .unwrap();
+    let served = serving(
+        Server::bind(
+            Serve {
+                dist: dir,
+                port: 0,
+                name: "Hero".into(),
+                origin: None,
+                deadline: Duration::from_secs(10),
+                renders: 2,
+                queue: 8,
+                viewport: Default::default(),
+                lifetime: Duration::from_secs(120),
+                generations: None,
+            },
+            plan,
+            "",
+        )
+        .unwrap(),
+        || Nowhere,
+    );
+    let check = |page: &str| {
+        assert!(page.contains("<title>Hero route</title>"), "{page}");
+        let link = "<link rel=\"preload\" as=\"image\" href=\"assets/hero.png?one=1&amp;two=2\" crossorigin=\"anonymous\" fetchpriority=\"high\">";
+        let at = page.find(link).expect("the hero preload");
+        assert!(at < page.find("<div id=\"exact-root\">").unwrap());
+        assert!(
+            page.contains("<img fetchpriority=\"high\" alt=\"Hero\""),
+            "{page}"
+        );
+        assert_eq!(page.matches("<img fetchpriority=\"high\"").count(), 1);
+        assert_eq!(page.matches("as=\"image\"").count(), 1);
+        assert_preload_makes_the_heros_request(page);
+    };
+    let (status, _, buffered) = get(served.addr, "/");
+    assert_eq!(status, 200);
+    check(&buffered);
+    let (streamed, _) = super::boot::navigate(served.addr, "/");
+    check(&streamed);
+    let (streamed, _) = super::boot::navigate(served.addr, "/kept");
+    check(&streamed);
+    let (status, headers, kept) = get(served.addr, "/kept");
+    assert_eq!(status, 200);
+    assert!(header(&headers, "age").is_some());
+    check(&kept);
+}
+
+#[test]
+fn hero_selection_skips_covered_routes_and_stops_at_lazy_rows() {
+    let source = r#"
+routes nav
+  home "/" render=request
+    detail "/detail" render=request
+  notfound render=build
+component Pages
+  action follow(url: string)
+    nav = go(nav, url)
+  view
+    main navigationKey=`${top(nav).id}` navigationBack="back" navigate=follow
+      for e in stack(nav) key=e.id
+        column navigationKey=`${e.id}` position="absolute" inset=0
+          if e.name == "home"
+            for id in ["a", "b"] key=id
+              image `assets/${id}.png` alt=id
+            image "assets/after-rows.png" alt="After rows"
+          if e.name == "detail"
+            image "assets/hero.png" alt="Hero"
+"#;
+    let plan = contract::compile(source).unwrap();
+    for location in ["/", "/detail"] {
+        let render = |projection| {
+            render_with_at(
+                &plan,
+                &|| Nowhere,
+                Default::default(),
+                location,
+                &SITE,
+                Duration::from_secs(10),
+                Ids::Any,
+                projection,
+                1_700_000_000_000.0,
+                &Default::default(),
+            )
+            .unwrap()
+        };
+        let kernel = render(Projection::Kernel);
+        let direct = render(Projection::Direct);
+        same(&kernel, &direct, location);
+        let expected = (location == "/detail").then_some("assets/hero.png");
+        for rendered in [kernel, direct] {
+            assert_eq!(
+                rendered
+                    .document
+                    .hero_image
+                    .as_ref()
+                    .map(|image| image.src.as_str()),
+                expected
+            );
+            let page = exact_render::page(super::serve::JS_SHELL, &rendered).unwrap();
+            assert_eq!(
+                page.matches("<img fetchpriority=\"high\"").count(),
+                usize::from(expected.is_some())
+            );
+            assert_eq!(
+                page.matches("as=\"image\"").count(),
+                usize::from(expected.is_some())
+            );
+            if expected.is_some() {
+                assert_preload_makes_the_heros_request(&page);
+            }
+        }
+    }
 }

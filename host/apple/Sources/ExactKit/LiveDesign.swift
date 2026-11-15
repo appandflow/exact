@@ -1,13 +1,13 @@
-// The live table: a value-only design edit applied to
+// The live table (LLP 1121 D13, stage 4): a value-only design edit applied to
 // a running app, every session in place, no plan and no restart.
 import Foundation
 
 extension ExactApp {
-    /// A live design batch or snapshot from the dev stream, applied to
-    /// every booted session in place, no plan, no restart:
+    /// A live design batch or snapshot from the dev stream (LLP 1121 stage
+    /// 4), applied to every booted session in place, no plan, no restart:
     /// stale when a session does not run the batch's base (the connection
     /// then fetches the snapshot), else applied or why not. The build
-    /// channel hears of a refused colour and of a new design.
+    /// channel (LLP 1122 D4) hears of a refused colour and of a new design.
     func design(_ frame: String) -> String {
         var answer = "applied", refused = false, design: String?
         for session in sessions where session.state != .destroyed && session.booted {
@@ -30,7 +30,7 @@ extension ExactApp {
     /// own design: that design is the one reported until the server's
     /// snapshot says otherwise (`/__dev/design` answers 204 while the
     /// server's is the plan's), fetched again here; a pin held is set on
-    /// it, and the generation reported.
+    /// it, and the generation reported (LLP 1122 D4).
     func liveBooted(_ session: ExactSession) {
         if BuildChannel.enabled, let design = session.runtime.designDigest() { BuildChannel.design = design }
         connection?.syncDesign(); repinBooted()

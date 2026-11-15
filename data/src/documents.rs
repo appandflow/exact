@@ -1,4 +1,4 @@
-//! Documents the person chose: a `doc:/<n>/<name>` path
+//! Documents the person chose (LLP 1069.010 D1): a `doc:/<n>/<name>` path
 //! names a file or folder a host minted when the person picked it, opened
 //! it from the system, or typed it into the app's `open-file` field. The
 //! real location stays here, behind `<n>`; an app holds only the name and
@@ -142,7 +142,7 @@ pub(crate) fn mint_as(real: &Path, owner: u64, reuse: bool) -> Option<String> {
                     leaf,
                 },
             );
-            // A keeping app's counter outlives the launch: a number
+            // A keeping app's counter outlives the launch (D4): a number
             // it could not write down is not given.
             if let Some(app) = t.apps.get(&owner).cloned() {
                 drop(t);
@@ -195,7 +195,7 @@ pub(crate) fn join(owner: u64, app: &Arc<str>, last: u64) {
     t.last = t.last.max(last);
 }
 
-/// Restore a kept entry at its own `<n>`, or move it to where it is now,
+/// Restore a kept entry at its own `<n>` (D4), or move it to where it is now,
 /// for `owner`, a session of `app`: `real` is where the object is, `name`
 /// the name it had when chosen, `identity` the object recorded. Whether
 /// `<n>` resolves to it: the identity is read through the folder retained,
@@ -377,7 +377,7 @@ pub fn resolve(path: &str, owner: u64) -> std::io::Result<Resolved> {
     })
 }
 
-/// The topic an answer watches for a document: the
+/// The topic an answer watches for a document (LLP 1069.010.000 D1): the
 /// runner asks it again when the host announces this topic.
 pub fn watch_topic(path: &str, recursive: bool) -> String {
     format!("{}{path}", if recursive { WATCH_RECURSIVE } else { WATCH })

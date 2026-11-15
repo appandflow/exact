@@ -1,4 +1,4 @@
-//! The card stack (the second night demo): the northbound
+//! The card stack (LLP 1014 D5, the second night demo): the northbound
 //! departures as cards — each a direct child of the canvas, laid out by the
 //! kernel and captured by the host on its own — placed by the surface in
 //! depth: a deck when closed, a fan when open, the focused card forward.
@@ -107,7 +107,7 @@ pub struct StackSurface {
 
 struct Gpu {
     format: wgpu::TextureFormat,
-    /// The shader generation the pipeline was built at.
+    /// The shader generation the pipeline was built at (LLP 1030 D8).
     generation: u32,
     pipeline: wgpu::RenderPipeline,
     layout: wgpu::BindGroupLayout,

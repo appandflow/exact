@@ -1,5 +1,6 @@
 // `stopPropagation()` stops `pointerdown`, `pointerup` and `wheel` at the
-// handler that calls it, as the DOM does. The stop is that event's alone: a stopped down
+// handler that calls it, as the DOM does (decided under Charlie's
+// delegation, 2026-10-15). The stop is that event's alone: a stopped down
 // still sends its up to every node it passed, and the moves stay with the
 // node that holds them; a stopped wheel still scrolls. A focus handler run
 // inside a pointer handler stops its own event, never the pointer's.

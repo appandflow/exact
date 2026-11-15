@@ -1,20 +1,22 @@
+import { hostFixtureFile as readFileSync } from './glue-fixture.mjs';
 import {assetDelivery} from '../gpu-assets.js';
-import { inertAncestor } from '../navigation.js';
+import { inertAncestor } from '../navigation/layers.js';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+
 import { glueDeclarations, checkedGlueCall } from './glue-fixture.mjs';
 
 // Run the production lazy module and applyBatch with a deterministic GPU and
 // presenter. The runner's returned batch addresses the *final* outer tree.
 export async function fixture(options = {}) {
-  const views = new Map(), records = [], diagnostics = [], observers = [], sizeWrites = [];
+  const views = new Map(), records = [], metrics = [], reporting = [], diagnostics = [], observers = [], resizes = [], sizeWrites = [];
   let next = 0, hud = null, expectedView = null;
   const changed = new Map(), events = [], order = [], restored = new Set();
-  let mutations = Promise.resolve(), frame;
+  let mutations = Promise.resolve(), frame, timerId = -1;
+  const metricTimers = new Map();
   const window = new EventTarget();
   const document = { createElement: () => ({}), head: { append() {} }, activeElement:{}, hidden:false, baseURI:"http://fixture/", addEventListener() {} };
   const exact = { mutate: fn => { const p = mutations.then(fn); mutations = p.catch(() => {}); return p; }, views, root: { dataset: {} }, now: () => 0, devAssets: [],
-    writeIn: text => text, wasm: { exact_surface_record(text) {
+    writeIn: text => text, wasm: { exact_canvas_performance_requested: name => options.metricsName === name, exact_canvas_performance_record: text => { metrics.push(text); return {ops: []}; }, exact_surface_record(text) {
       records.push(text);
       return { ops: [() => {
         if (expectedView !== null) assert.ok(views.has(expectedView), 'recommit addressed a view before create');
@@ -32,6 +34,7 @@ export async function fixture(options = {}) {
   }, gpu_seekable() {}, gpu_shader_names: () => '[]', gpu_shaders_clear() {},
     gpu_create: () => ++next, gpu_bind_at(id) { if (options.initialBindFail === id) return false; changed.set(id, JSON.stringify({ value: id })); return true; },
     gpu_published(id) { const r = changed.get(id); changed.delete(id); return r; },
+    gpu_performance_reporting: (id, enabled) => reporting.push([id, enabled]), gpu_performance: id => options.snapshot?.(id),
     gpu_messages: () => undefined, gpu_wants_input: () => Boolean(options.input), gpu_destroy() { order.push("old destroy"); },
     gpu_carry: () => new Uint8Array([1]), gpu_restore(id) { if (options.refuse?.(id)) return false; restored.add(id); return true; },
     gpu_error: () => options.error ?? "fixture refusal", gpu_render: () => 0, gpu_flush: () => true, gpu_dirty: () => false,
@@ -41,7 +44,7 @@ export async function fixture(options = {}) {
     gpu_assets: () => '{"requests":[],"retired":[]}', gpu_asset: () => true, gpu_lifecycle: () => true, gpu_clock: () => true, gpu_period: () => {},
   };
   const glue = readFileSync(process.env.R8A_GLUE_SOURCE || new URL('../glue.js', import.meta.url), 'utf8');
-  const applySource = glueDeclarations(glue, ['applyBatch', 'wakeLock', 'holdWake', 'orientationLock', 'holdOrientation']);
+  const applySource = glueDeclarations(glue, ['heldLinks', 'heldOutputs', 'applyBatch', 'holdWake', 'holdOrientation']);
   const operationSource = glueDeclarations(glue, ['apply']);
   const applyOperations = new Function('exact', 'views', 'globalThis', `
     let timelinesMoved = false;
@@ -50,13 +53,16 @@ export async function fixture(options = {}) {
     const root = {}, log = () => {}, navigation = {project() {}}, inputReady = false, agentKeepsStore = false;
     const prepareContexts = () => {}, runFocusCommands = () => {}, inertAncestor = () => false, refreshSymbols = () => {}, focusAutofocus = () => {}, inputHandlers = null, positionContexts = () => {}, markScrollDocument = () => {};
     const viewFor = (_, id) => views.get(id), noteFit = () => {};
+    const host = { timelinesMoved, listSelection, inputReady, inputHandlers };
     ${operationSource}; return apply;
   `)(exact, views, {exact});
   const applyBatch = new Function('globalThis', 'apply', `
     let timelinesMoved = false, agentClock = 0, followOnSeek = true;
+    const navigation = { holdLink() { return null; }, withLink(_link, update) { return update(); } };
     const register = () => {}, seek = () => {}, root = {}, log = () => {};
     const loadAfterPaint = () => { throw new Error('surface fixture: unexpected lazy module load'); };
     const agentMode = false, frameSampler = null, textflow = null, page = null, clocks = {sync() {}}, presence = {hold: () => false}, letGo = () => {}, motion = {commit() {}, followTimelines() {}}, arrange = {commit() {}}, flowBatch = () => {}, refitTexts = () => {};
+    const host = { timelinesMoved, agentClock, followOnSeek, frameSampler, textflow, page };
     ${applySource}
     return (${checkedGlueCall})(applyBatch);
   `)({ exact }, batch => { for (const op of batch.ops) { if (typeof op === 'function') op(); else applyOperations({ops:[op]}); } });
@@ -106,16 +112,19 @@ export async function fixture(options = {}) {
     }
   }
   await new (Object.getPrototypeOf(async function() {}).constructor)(
-    'padPoller', 'inertAncestor', 'assetDelivery', 'globalThis', 'candidate', 'document', 'Element', 'devicePixelRatio', 'MutationObserver', 'ResizeObserver', 'requestAnimationFrame', 'cancelAnimationFrame', 'location', 'console', 'window', 'performance', 'setTimeout',
+    'padPoller', 'inertAncestor', 'assetDelivery', 'globalThis', 'candidate', 'document', 'Element', 'devicePixelRatio', 'MutationObserver', 'ResizeObserver', 'requestAnimationFrame', 'cancelAnimationFrame', 'location', 'console', 'window', 'performance', 'setTimeout', 'clearTimeout',
     source + `;exact.finishRestore = (view) => { const e = surfaces.get(view); e.pendingRestore = {bytes:new Uint8Array([7])}; finishRestore(e, gpu); };`
   )(options.padPoller ?? (() => {}), inertAncestor, settings => assetDelivery({...settings, ...options.delivery}), { exact }, async version => version ? nextGpu : gpu, document, Element, 3, class { constructor(fn) { observers.push(fn); } observe() {} disconnect() {} },
-    class { observe() {} disconnect() {} }, fn => { if (fn.name === "frame") frame = fn; return 1; }, () => {}, { search: '' }, { error: (...args) => diagnostics.push(args.join(' ')), info() {} }, window,
-    options.performance ?? globalThis.performance, options.setTimeout ?? globalThis.setTimeout);
+    class { constructor(fn) { resizes.push(fn); } observe() {} disconnect() {} }, fn => { if (fn.name === "frame") frame = fn; return 1; }, () => {}, { search: '' }, { error: (...args) => diagnostics.push(args.join(' ')), info() {} }, window,
+    options.performance ?? globalThis.performance, (fn, ms) => {
+      if (ms === 1000) { const id = timerId--; metricTimers.set(id, fn); return id; }
+      return (options.setTimeout ?? globalThis.setTimeout)(fn, ms);
+    }, id => { if (!metricTimers.delete(id)) clearTimeout(id); });
   function create(id, name = 'world') {
     const el = new Element("host"); el.canvas = new Element();
     views.set(id, el); exact.gpu.surface(id, name, []); return el;
   }
   function destroy(id) { views.delete(id); exact.gpu.destroy(id); }
-  return { window, document, exact, records, diagnostics, sizeWrites, create, destroy, applyBatch, events, order, gpu, nextGpu, Element, publish:(id,value)=>changed.set(id,JSON.stringify(value)), mutation: () => observers.forEach(fn => fn()),
+  return { metricTimers, pollMetrics: () => { const pending = [...metricTimers.values()]; metricTimers.clear(); for (const fn of pending) fn(); }, metrics, reporting, window, document, exact, records, diagnostics, sizeWrites, create, destroy, applyBatch, events, order, gpu, nextGpu, Element, publish:(id,value)=>changed.set(id,JSON.stringify(value)), mutation: () => observers.forEach(fn => fn()), resize: () => resizes.forEach(fn => fn()),
     frame: () => frame?.(0), expectView: id => { expectedView = id; }, stale: () => { hud = 'stale'; }, hud: () => hud };
 }

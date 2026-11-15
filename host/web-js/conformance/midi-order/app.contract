@@ -1,6 +1,6 @@
 // data: metronome
 // Synthetic conformance plan: one action that asks for MIDI and starts a
-// sequence, so `exactTransport()` and `exactMIDI()` are
+// sequence (LLP 1125 D3, D6), so `exactTransport()` and `exactMIDI()` are
 // both answered again at that commit's time, each by a commit of its own:
 // the transport's first, then MIDI's, on the wasm runner, the JS runtime
 // and the Linux host alike. A derive reads both answers, so the order shows

@@ -1,6 +1,6 @@
 // data: interaction-gallery
 // Synthetic conformance plan: the dynamic rows that are not one declaration
-// of their own: `box-shadow`, `font-family` (a stack),
+// of their own (LLP 1071 §7): `box-shadow`, `font-family` (a stack),
 // `line-clamp`, `font-variant-numeric`, `font-variant-ligatures`, `-exact-press-scale`, an `animation` and a
 // `transition` on a pressed node, an SVG `transform`, a marker and a paint
 // server named by `url(#…)`, resolved within the node's own instance.

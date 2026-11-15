@@ -6,7 +6,7 @@ import CryptoKit
 @testable import ExactSurfaces
 
 final class SurfaceRecordTests: XCTestCase {
-    override class func setUp() { super.setUp(); ExactSurfaces.install() }
+    override class func setUp() { super.setUp(); ExactSurfaces.install() } // LLP 1047.001 D4
     private func fixture(plan: ((Data) -> Void)? = nil) throws -> ExactSession {
         _ = NSApplication.shared
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)

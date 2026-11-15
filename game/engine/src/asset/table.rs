@@ -422,7 +422,7 @@ impl<G: crate::Game> crate::Sim<G> {
                 self.world
                     .insert_resource(TableValues(store.history.active.clone()));
             } else {
-                // TODO: use the shared clock-stamped admission contract.
+                // TODO(1127.004 D6): use the shared clock-stamped admission contract.
                 // Insert after equal ticks so replay and live admission preserve arrival order.
                 let tick = self.world.tick() + 1;
                 let at = store

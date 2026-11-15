@@ -3,7 +3,7 @@
 //! Leases on different rows coexist; one row takes any number of shared leases or a
 //! single exclusive one. Each live lease records its kind and the caller location
 //! that took it, nothing per row, so a refusal names both sides and iteration pays
-//! nothing.
+//! nothing. @ref llp/1046.003-game-engine-as-built.explainer.md#row-leases-2026-09-23
 use super::RawStorage;
 use std::cell::{Cell, UnsafeCell};
 use std::panic::Location;

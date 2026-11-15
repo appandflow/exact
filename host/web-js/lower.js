@@ -1,4 +1,4 @@
-// An enumerated style binding as a class (lower.rs). A lowered node's rows are
+// @ref LLP 1071.001 part B, B5 — an enumerated style binding as a class (lower.rs). A lowered node's rows are
 // one key (the enum's arm, by index) and, for each arm, the `S` statements `style_row` wrote (`recipe`) run on
 // that arm's literals (`values[k]`). The first time an arm is used at a site its declarations are built from
 // those statements, the same maps and `cssText`, with `css`'s refusal read-back (A8), into one rule of
@@ -55,7 +55,7 @@ export function Pc(e, key, statics, name, values, props, recipe) {
     }
     rule(`${name}-${k}`, recipe, values[k]);
     e.className = `${statics}${name}-${k}`;
-    // The renderer's inline rows go after the class is on, in the same task: no frame shows neither.
+    // The renderer's inline rows go after the class is on, in the same task: no frame shows neither (theme2 condition 9).
     if (rendered) for (const p of props) e.style.removeProperty(p);
     rendered = false;
   });

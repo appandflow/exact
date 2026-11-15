@@ -1,4 +1,4 @@
-// A pushed screen whose title is large arrives with it
+// LLP 1115.000 D11.1: a pushed screen whose title is large arrives with it
 // expanded, as UIKit shows a pushed controller whose item says `.always`
 // (PushedTitleIOSTests). Two tabs; Home's stack pushes
 //
@@ -14,7 +14,7 @@
 //   controller, and `seek`, a level-2 one whose search field says
 //   `autofocus`, which the bar's search field takes once the push settles;
 // - `swap`, a level-1 heading whose scroller is replaced in place, and a
-//   reason that comes between the two.
+//   reason that comes between the two (LLP 1116.005 D4).
 //
 // `edit` opens a focused field under the native Back control, with and without
 // document overflow in the Duo smoke.

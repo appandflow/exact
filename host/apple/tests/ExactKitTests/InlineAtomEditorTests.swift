@@ -1,9 +1,9 @@
-// Inline atoms in the Apple Markdown editor and reader, drawn as the
-// attachment's picture. The editor's rules through the text view's own
-// commands; the press, the accessibility element and the appearance a pill
-// draws for; the reader's atom run. No claim about a physical keyboard,
-// VoiceOver itself or a phone's gestures: the drive and the VoiceOver
-// acceptance are separate.
+// LLP 1045.000 stage 2: inline atoms in the Apple Markdown editor and
+// reader, drawn as the attachment's picture (§10 Q9). The editor's rules
+// (D5) through the text view's own commands; the press, the accessibility
+// element and the appearance a pill draws for (D7, D8, §5.1); the reader's
+// atom run. No claim about a physical keyboard, VoiceOver itself or a phone's
+// gestures: the drive and the VoiceOver acceptance are separate.
 import XCTest
 import CoreText
 @testable import ExactKit
@@ -20,7 +20,7 @@ private let a = 4, b = 4 + (cite as NSString).length
 private let wide = ##"[{"source":"[Quote](t3-citation:1)","label":"A quote","icon":"","title":"","color":"color(display-p3 1 0 0)","backgroundColor":"color(display-p3 0 1 0)"}]"##
 
 /// A face colour in Display P3 as a bound text colour's channels are
-/// (`textChannels`): the sRGB four, then the space (1) and
+/// (`textChannels`, LLP 1100 D2): the sRGB four, then the space (1) and
 /// `components`, which `TextEngine.color` draws in that space.
 private func assertDisplayP3(_ channels: [Double]?, _ components: [Double], file: StaticString = #filePath, line: UInt = #line) {
     guard let c = channels else { return XCTFail("no colour", file: file, line: line) }
@@ -49,7 +49,7 @@ private func iconFace(_ direction: String) -> String {
     ##"[{"source":"[Quote](t3-citation:1)","label":" ","icon":"symbol:sf/circle.fill","title":"","color":"#000000","backgroundColor":"#ffffff","direction":"\##(direction)"}]"##
 }
 
-/// A face whose accessible name is not its label (its `ariaLabel`), as
+/// A face whose accessible name is not its label (D2's `ariaLabel`), as
 /// T3 Code's image chip draws its upload's state and is read by its file.
 private let named = #"[{"source":"[Quote](t3-citation:1)","label":"A quote 40%","icon":"","title":"The quoted passage","ariaLabel":"Image attachment, quote"}]"#
 
@@ -127,7 +127,6 @@ final class InlineAtomEditorMacTests: XCTestCase {
         presenter.session = session
         let node = NodeView(id: 3, kind: "textarea", presenter: presenter)
         node.frame = NSRect(x: 0, y: 0, width: 500, height: 300)
-        node.makeTextArea()
         node.props["markup"] = "markdown"
         node.props["value"] = text
         node.props["atoms"] = kinds
@@ -171,7 +170,7 @@ final class InlineAtomEditorMacTests: XCTestCase {
         XCTAssertEqual(f.string, source)
         let pills = attachments(f)
         XCTAssertEqual(pills.map(\.atom.label), ["A quote"])
-        XCTAssertFalse(pills[0].allowsTextAttachmentView, "the picture draws it, not a view")
+        XCTAssertFalse(pills[0].allowsTextAttachmentView, "the picture draws it, not a view (§10 Q9)")
         let x = { (p: Int) in f.firstRect(forCharacterRange: NSRange(location: p, length: 0), actualRange: nil).minX }
         XCTAssertGreaterThan(x(b), x(a), "the pill has its label's width")
         XCTAssertEqual(x(a + 3), x(b), accuracy: 0.5, "an offset inside draws at its end")
@@ -244,18 +243,18 @@ final class InlineAtomEditorMacTests: XCTestCase {
         XCTAssertTrue(facts.contains(#""atom":"[Quote](t3-citation:1)""#), facts)
     }
 
-    /// The atoms follow the field in text order among its host's elements,
-    /// past every wrapper that holds the field alone (VoiceOver passes
-    /// through those, but reads a scroll area of several items only when
-    /// the person interacts with it), where VoiceOver's next-item command
-    /// reaches them. The text view and the field's own node list none, and
-    /// an atom's parent lists it.
+    /// D8 as ruled in §10 Q10 (2026-10-31): the atoms follow the field in
+    /// text order among its host's elements, past every wrapper that holds
+    /// the field alone (VoiceOver passes through those, but reads a scroll
+    /// area of several items only when the person interacts with it), where
+    /// VoiceOver's next-item command reaches them. The text view and the
+    /// field's own node list none, and an atom's parent lists it.
     func testTheAtomsFollowTheFieldInTextOrderPastItsWrappers() throws {
         let second = "[Other](t3-citation:2)"
         let (node, f, window) = editor(source + " and " + second)
         defer { window.close() }
         let page = NodeView(id: 1, kind: "view", presenter: presenter), wrapper = NodeView(id: 2, kind: "view", presenter: presenter)
-        let after = NodeView(id: 4, kind: "view", presenter: presenter)
+        let after = button(4, "After", 300)
         page.frame = NSRect(x: 0, y: 0, width: 500, height: 400)
         wrapper.frame = NSRect(x: 0, y: 0, width: 500, height: 300)
         after.frame = NSRect(x: 0, y: 300, width: 500, height: 100)
@@ -278,7 +277,7 @@ final class InlineAtomEditorMacTests: XCTestCase {
         XCTAssertTrue(f.atomElements[1].accessibilityPerformPress())
         XCTAssertEqual(f.selectedRange(), f.atomElements[1].range, "VO-Space presses the atom VoiceOver is on")
         // A second item beside the field in the wrapper: the wrapper hosts them.
-        let beside = NodeView(id: 5, kind: "view", presenter: presenter)
+        let beside = button(5, "Beside", 60)
         wrapper.addSubview(beside)
         XCTAssertTrue(node.atomHost === wrapper)
     }
@@ -287,7 +286,6 @@ final class InlineAtomEditorMacTests: XCTestCase {
     private func field(_ id: UInt32, _ text: String) -> (NodeView, TextArea) {
         let node = NodeView(id: id, kind: "textarea", presenter: presenter)
         node.frame = NSRect(x: 0, y: 0, width: 400, height: 60)
-        node.makeTextArea()
         node.props["markup"] = "markdown"
         node.props["value"] = text
         node.props["atoms"] = kinds
@@ -362,20 +360,151 @@ final class InlineAtomEditorMacTests: XCTestCase {
         sv.documentView = document
         scroller.addSubview(sv)
         scroller.scroll = sv
-        window.contentView = scroller
+        let page = NodeView(id: 5, kind: "view", presenter: presenter)
+        page.frame = scroller.frame
+        window.contentView = page
+        page.addSubview(scroller)
+        page.addSubview(button(6, "After", 370))
         node.removeFromSuperview()
-        document.addSubview(button(2, "Heading", 0))
         node.frame.origin.y = 40
         document.addSubview(node)
         document.addSubview(button(4, "Send", 350))
-        XCTAssertTrue(node.atomHost === scroller)
-        XCTAssertFalse((scroller.accessibilityChildren() ?? []).contains { $0 is AtomElement }, "not after the whole scroll area")
-        let children = sv.accessibilityChildren() ?? []
-        let text = try XCTUnwrap(children.lastIndex { ($0 as? NSView)?.isDescendant(of: node) == true }, "\(children)")
-        let send = try XCTUnwrap(children.firstIndex { ($0 as? NSButtonCell)?.title == "Send" || ($0 as? NSButton)?.title == "Send" }, "\(children)")
-        XCTAssertTrue(children[text + 1] as AnyObject === f.atomElements[0], "\(children)")
-        XCTAssertLessThan(text + 1, send)
-        XCTAssertTrue(f.atomElements[0].accessibilityParent() as AnyObject === sv)
+        for material in ["ultra-thin", "glass", ""] {
+            node.applyProps(set: material.isEmpty ? [:] : ["backgroundMaterial": material], clear: material.isEmpty ? ["backgroundMaterial"] : [])
+            XCTAssertTrue(node.atomHost === scroller, material)
+            XCTAssertTrue(node.atomParent as AnyObject === sv, material)
+            XCTAssertFalse((page.accessibilityChildren() ?? []).contains { $0 is AtomElement }, material)
+            XCTAssertFalse((scroller.accessibilityChildren() ?? []).contains { $0 is AtomElement }, "not after the whole scroll area")
+            let children = sv.accessibilityChildren() ?? []
+            let text = try XCTUnwrap(children.lastIndex { ($0 as? NSView)?.isDescendant(of: node) == true }, "\(children)")
+            let send = try XCTUnwrap(children.firstIndex { ($0 as? NSButtonCell)?.title == "Send" || ($0 as? NSButton)?.title == "Send" }, "\(children)")
+            XCTAssertTrue(children[text + 1] as AnyObject === f.atomElements[0], "\(children)")
+            XCTAssertEqual(text + 2, send)
+            XCTAssertTrue(f.atomElements[0].accessibilityParent() as AnyObject === sv)
+        }
+    }
+
+    func testHiddenFieldsDoNotExposeAtomsThroughAVisibleHost() throws {
+        for exclusion in ["display", "aria-hidden", "host-hidden"] {
+            for hideAncestor in [false, true] {
+                let (node, f, window) = editor()
+                defer { window.close(); session?.destroy(); session = nil }
+                let page = NodeView(id: 1, kind: "view", presenter: presenter)
+                page.frame = window.contentView!.frame
+                window.contentView = page
+                let scroller = NodeView(id: 2, kind: "view", presenter: presenter)
+                scroller.frame = page.bounds
+                let sv = ChainingScrollView(frame: scroller.bounds)
+                sv.pointerOwner = scroller
+                let document = FlippedView(frame: scroller.bounds)
+                sv.documentView = document
+                scroller.addSubview(sv)
+                scroller.scroll = sv
+                page.addSubview(scroller)
+                page.addSubview(button(4, "After", 310))
+                let wrapper = NodeView(id: 5, kind: "view", presenter: presenter)
+                wrapper.frame = document.bounds
+                document.addSubview(wrapper)
+                wrapper.addSubview(node)
+                document.addSubview(button(6, "Send", 310))
+                let hiddenNode = hideAncestor ? wrapper : node
+                let atom = try XCTUnwrap(f.atomElements.first)
+                let frame = atom.accessibilityFrame()
+                let point = NSPoint(x: frame.midX, y: frame.midY)
+                for hidden in [true, false, true] {
+                    if exclusion == "display" { hiddenNode.applyStyle(["display": .string(hidden ? "none" : "block")]) }
+                    else if exclusion == "aria-hidden" { hiddenNode.applyProps(set: ["accessibilityElementsHidden": hidden ? "true" : "false"], clear: []) }
+                    else { hiddenNode.setAccessibilityHidden(hidden) }
+                    let context = "\(exclusion), ancestor: \(hideAncestor), hidden: \(hidden)"
+                    XCTAssertEqual(atom.isAccessibilityElement(), !hidden, context)
+                    XCTAssertTrue(f.atomElement(atScreen: point) === (hidden ? nil : atom), context)
+                    XCTAssertFalse((page.accessibilityChildren() ?? []).contains { $0 is AtomElement }, context)
+                    let children = sv.accessibilityChildren() ?? []
+                    XCTAssertEqual(children.filter { $0 is AtomElement }.count, hidden ? 0 : 1, context)
+                    if !hidden {
+                        XCTAssertTrue(node.atomHost === scroller, context)
+                        XCTAssertTrue(node.atomParent as AnyObject === sv, context)
+                        XCTAssertTrue(atom.accessibilityParent() as AnyObject === sv, context)
+                        let text = try XCTUnwrap(children.lastIndex { ($0 as? NSView)?.isDescendant(of: node) == true }, context)
+                        XCTAssertTrue(children[text + 1] as AnyObject === atom, context)
+                        let send = try XCTUnwrap(children.firstIndex { ($0 as? NSButtonCell)?.title == "Send" || ($0 as? NSButton)?.title == "Send" }, context)
+                        XCTAssertEqual(text + 2, send, context)
+                    }
+                }
+            }
+        }
+    }
+
+    /// A sibling VoiceOver does not see leaves the scroll area one item: the
+    /// atoms go outside it, to the page or, when the scrolling node is the
+    /// outermost, beside its scroll view.
+    func testHiddenSiblingsDoNotMakeAScrollingAtomHost() throws {
+        for exclusion in ["display", "aria-hidden"] {
+            for (nested, paged) in [(false, true), (true, true), (false, false), (true, false)] {
+                let (node, f, window) = editor(source + " and [Other](t3-citation:2)")
+                defer { window.close(); session?.destroy(); session = nil }
+                let page = NodeView(id: 1, kind: "view", presenter: presenter)
+                page.frame = window.contentView!.frame
+                let scroller = NodeView(id: 2, kind: "view", presenter: presenter)
+                scroller.frame = page.bounds
+                let sv = ChainingScrollView(frame: scroller.bounds)
+                sv.pointerOwner = scroller
+                let document = FlippedView(frame: scroller.bounds)
+                sv.documentView = document
+                scroller.addSubview(sv)
+                scroller.scroll = sv
+                if paged {
+                    window.contentView = page
+                    page.addSubview(scroller)
+                } else { window.contentView = scroller }
+                // The outermost node, which lists the atoms when the sibling is hidden.
+                let outer = paged ? page : scroller
+                let wrapper = NodeView(id: 5, kind: "view", presenter: presenter)
+                wrapper.frame = document.bounds
+                document.addSubview(wrapper)
+                wrapper.addSubview(node)
+                let sibling = button(6, "Beside", 310)
+                if nested {
+                    let transparent = NodeView(id: 7, kind: "view", presenter: presenter)
+                    transparent.frame = document.bounds
+                    document.addSubview(transparent)
+                    transparent.addSubview(sibling)
+                } else { document.addSubview(sibling) }
+
+                for hidden in [true, false, true] {
+                    if exclusion == "display" { sibling.applyStyle(["display": .string(hidden ? "none" : "block")]) }
+                    else { sibling.applyProps(set: ["accessibilityElementsHidden": hidden ? "true" : "false"], clear: []) }
+                    let context = "\(exclusion), nested: \(nested), paged: \(paged), hidden: \(hidden)"
+                    XCTAssertTrue(node.atomHost === (hidden ? outer : scroller), context)
+                    let parent = hidden ? NSAccessibility.unignoredAncestor(of: outer) : sv
+                    XCTAssertTrue(node.atomParent as AnyObject === parent as AnyObject, context)
+                    let parentChildren = (parent as? NSView)?.accessibilityChildren() ?? (parent as? NSWindow)?.accessibilityChildren() ?? []
+                    let listed = hidden ? outer.accessibilityChildren() ?? [] : sv.accessibilityChildren() ?? []
+                    let text = try XCTUnwrap(listed.lastIndex { child in
+                        guard let view = child as? NSView else { return false }
+                        return view === sv || view.isDescendant(of: node)
+                    }, context)
+                    for (offset, atom) in f.atomElements.enumerated() {
+                        XCTAssertEqual(listed.firstIndex { $0 as AnyObject === atom }, text + offset + 1, context)
+                        XCTAssertTrue(atom.accessibilityParent() as AnyObject === parent as AnyObject, context)
+                        XCTAssertTrue(parentChildren.contains { $0 as AnyObject === atom }, context)
+                    }
+                    if hidden {
+                        XCTAssertEqual(listed.count, text + f.atomElements.count + 1, context)
+                    } else {
+                        let nextIndex = try XCTUnwrap(listed.firstIndex { child in
+                            let view = (child as? NSView) ?? (child as? NSCell)?.controlView
+                            return view?.isDescendant(of: sibling) == true
+                        }, context)
+                        XCTAssertEqual(nextIndex, text + f.atomElements.count + 1, context)
+                    }
+                    let innerAtoms = (sv.accessibilityChildren() ?? []).filter { $0 is AtomElement }
+                    XCTAssertEqual(innerAtoms.count, hidden ? 0 : 2, context)
+                    let outerAtoms = (outer.accessibilityChildren() ?? []).filter { $0 is AtomElement }
+                    XCTAssertEqual(outerAtoms.count, hidden ? 2 : 0, context)
+                }
+            }
+        }
     }
 
     /// A pill is its atom's element where assistive technology points: the
@@ -391,7 +520,7 @@ final class InlineAtomEditorMacTests: XCTestCase {
         XCTAssertFalse(beside is AtomElement, "\(String(describing: beside))")
     }
 
-    /// A face's `ariaLabel` names its element and stands for it in the
+    /// D8: a face's `ariaLabel` names its element and stands for it in the
     /// field's accessible text; the pill draws its label, and plain copy
     /// takes the label. A new name alone keeps the element.
     func testAFacesAriaLabelIsItsAccessibleName() throws {
@@ -444,7 +573,7 @@ final class InlineAtomEditorMacTests: XCTestCase {
         XCTAssertTrue(attachments(f).first?.atom.dark == false)
     }
 
-    /// A face that changes while its source stays, as an upload's
+    /// D2: a face that changes while its source stays, as an upload's
     /// percentage does, draws its pill again with no keystroke, edit or
     /// caret move. So does a new paint of its kind alone, and a kinds list
     /// that no longer names its kind leaves no pill.
@@ -471,7 +600,7 @@ final class InlineAtomEditorMacTests: XCTestCase {
         XCTAssertTrue(try picture(pill()) != drawn, "its picture changes")
         XCTAssertGreaterThan(end(), narrow, "its wider label moves the text after it")
         waitFor("the element is named by the new label") { f.atomElements.first?.accessibilityLabel() == "A quote 87%" }
-        XCTAssertTrue(f.atomElements.first === element, "the element VoiceOver may be on is kept")
+        XCTAssertTrue(f.atomElements.first === element, "the element VoiceOver may be on is kept (D8)")
         let kept = drawnAtom(f)
         node.applyProps(set: ["accessibilityLabel": "Prompt"], clear: [])
         XCTAssertTrue(drawnAtom(f) === kept, "a batch that changes none of them restyles nothing")
@@ -482,7 +611,7 @@ final class InlineAtomEditorMacTests: XCTestCase {
         XCTAssertEqual(f.string, source, "the source never changes")
     }
 
-    /// Nothing is restyled while text is marked, so a
+    /// LLP 1045 D1 and D2: nothing is restyled while text is marked, so a
     /// face that comes meanwhile is drawn when the composition ends:
     /// committed as it stands, or cancelled, which AppKit does not report as
     /// a change.
@@ -507,7 +636,7 @@ final class InlineAtomEditorMacTests: XCTestCase {
         XCTAssertEqual(label(), "A quote 100%", "cancelled")
     }
 
-    /// A face's paint is its pill's, over the platform's token, for the appearance it draws in.
+    /// A face's paint is its pill's, over the platform's token, for the appearance it draws in (D2, D4).
     func testAFacesPaintIsItsPillsInEachAppearance() throws {
         let painted = ##"[{"source":"[Quote](t3-citation:1)","label":"A quote","icon":"","title":"","color":"light-dark(#d52c36, #ff6762)","backgroundColor":"#1a85d4"}]"##
         let (_, f, window) = editor(faces: painted)
@@ -541,7 +670,7 @@ final class InlineAtomEditorMacTests: XCTestCase {
         }
     }
 
-    /// In a right-to-left line the pill lays out from the right, its
+    /// D4: in a right-to-left line the pill lays out from the right, its
     /// icon first, as the line does; a face's `direction` pins its own.
     func testAPillFollowsItsLinesDirectionUnlessItsFacePinsOne() throws {
         for (direction, right) in [("", true), ("ltr", false), ("rtl", true)] {
@@ -707,7 +836,7 @@ final class InlineAtomEditorMacTests: XCTestCase {
         }
         let plain = try lineHeight("Ask Quote now"), atom = try lineHeight(source)
         XCTAssertGreaterThan(plain, 0)
-        XCTAssertEqual(atom, plain, accuracy: 0.01, "the pill sits inside the font's ascender and descender")
+        XCTAssertEqual(atom, plain, accuracy: 0.01, "the pill sits inside the font's ascender and descender (§5.1)")
     }
 
     func testMarkupTurnedOffClearsTheAtoms() throws {
@@ -797,7 +926,7 @@ final class InlineAtomEditorIOSTests: XCTestCase {
         XCTAssertEqual(f.selectedRange, NSRange(location: a, length: b - a))
     }
 
-    /// A face's `ariaLabel` names its element and stands for it in the
+    /// D8: a face's `ariaLabel` names its element and stands for it in the
     /// field's value; the pill draws its label. A new name alone keeps the
     /// element.
     func testAFacesAriaLabelIsItsAccessibleName() throws {
@@ -840,7 +969,7 @@ final class InlineAtomEditorIOSTests: XCTestCase {
         return out
     }
 
-    /// On UIKit, a face that changes while its source stays draws its pill
+    /// D2 on UIKit: a face that changes while its source stays draws its pill
     /// again with no other edit. So does a new paint of its kind alone, and a
     /// kinds list that no longer names its kind leaves no pill.
     func testANewFaceAloneDrawsThePillAgain() throws {
@@ -871,7 +1000,7 @@ final class InlineAtomEditorIOSTests: XCTestCase {
         XCTAssertTrue(try picture(pill()) != drawn, "its picture changes")
         XCTAssertGreaterThan(end(), narrow, "its wider label moves the text after it")
         waitFor("the element is named by the new label") { first()?.accessibilityLabel == "A quote 87%" }
-        XCTAssertTrue(first() === before, "the element VoiceOver may be on is kept")
+        XCTAssertTrue(first() === before, "the element VoiceOver may be on is kept (D8)")
         let kept = drawnAtom()
         p.apply(wireBatch([["op": "props", "id": 2, "set": ["accessibilityLabel": "Prompt"]]]))
         XCTAssertTrue(drawnAtom() === kept, "a batch that changes none of them restyles nothing")
@@ -882,7 +1011,7 @@ final class InlineAtomEditorIOSTests: XCTestCase {
         XCTAssertEqual(f.text, source, "the source never changes")
     }
 
-    /// On UIKit, a face that comes while text is marked is
+    /// LLP 1045 D1 and D2 on UIKit: a face that comes while text is marked is
     /// drawn when the composition ends, committed as it stands or cancelled.
     func testAFaceThatComesWhileTextIsMarkedIsDrawnWhenTheCompositionEnds() throws {
         let (p, _, f) = field(faces: upload(0))
@@ -904,7 +1033,7 @@ final class InlineAtomEditorIOSTests: XCTestCase {
         XCTAssertEqual(label(), "A quote 100%", "cancelled")
     }
 
-    /// A face's paint is its pill's, over the platform's token, for the trait collection it draws in.
+    /// A face's paint is its pill's, over the platform's token, for the trait collection it draws in (D2, D4).
     func testAFacesPaintIsItsPillsInEachAppearance() throws {
         let painted = ##"[{"source":"[Quote](t3-citation:1)","label":"A quote","icon":"","title":"","color":"light-dark(#d52c36ff, #ff6762ff)","backgroundColor":"#1a85d4ff"}]"##
         let (_, _, f) = field(faces: painted)
@@ -919,7 +1048,7 @@ final class InlineAtomEditorIOSTests: XCTestCase {
     }
 
     /// A face's colour in a wide space keeps it on the pill, as a bound
-    /// text colour does, in the picture the renderer makes
+    /// text colour does (LLP 1100 D2), in the picture the renderer makes
     /// for the text view's traits.
     func testAWideFaceColourKeepsItsSpace() throws {
         let (_, _, f) = field(faces: wide)
@@ -952,7 +1081,7 @@ final class InlineAtomEditorIOSTests: XCTestCase {
         }
     }
 
-    /// In a right-to-left line the pill lays out from the right, its
+    /// D4: in a right-to-left line the pill lays out from the right, its
     /// icon first, as the line does; a face's `direction` pins its own.
     func testAPillFollowsItsLinesDirectionUnlessItsFacePinsOne() throws {
         for (direction, right) in [("", true), ("ltr", false), ("rtl", true)] {
@@ -1059,7 +1188,7 @@ final class InlineAtomReaderTests: XCTestCase {
     }
 
     /// A face's paint is drawn over its kind's, for the appearance drawn in;
-    /// an empty one keeps the kind's.
+    /// an empty one keeps the kind's (D2, D4).
     func testAFacesPaintWinsOverItsKinds() throws {
         let base = Run(text: "", size: 16, weight: 400, family: 0, italic: false, lineHeight: nil, letterSpacing: 0)
         // The kind's `color` and `background-color` rows, by the kernel's style bits (75 and 47).
@@ -1075,7 +1204,7 @@ final class InlineAtomReaderTests: XCTestCase {
         XCTAssertEqual(light.background, [4, 5, 6, 255], "an empty face colour keeps the kind's")
     }
 
-    /// The reader isolates a pill's label in the direction its face
+    /// D4: the reader isolates a pill's label in the direction its face
     /// pins, else in its lines' (its node's `direction`), as the web's box
     /// takes its `dir` or its line's.
     func testAReaderPillIsIsolatedInItsFacesDirectionElseItsLines() throws {
@@ -1092,7 +1221,7 @@ final class InlineAtomReaderTests: XCTestCase {
         XCTAssertEqual(label("rtl", false), rli, "pinned")
     }
 
-    /// Laid out in a right-to-left line, a reader's pill is one box,
+    /// D4: laid out in a right-to-left line, a reader's pill is one box,
     /// as the web's and the Apple editor's are: beside text of the other
     /// direction, `שלום hello @x כאן` draws `כאן [abc] hello שלום`, pinned or
     /// not; and a neutral at its label's start and end reads in the pill's
@@ -1129,7 +1258,7 @@ final class InlineAtomReaderTests: XCTestCase {
     }
 
     /// A face's colour in a wide space keeps it on its run and box, as a
-    /// bound text colour does.
+    /// bound text colour does (LLP 1100 D2).
     func testAWideFaceColourKeepsItsSpace() throws {
         let base = Run(text: "", size: 16, weight: 400, family: 0, italic: false, lineHeight: nil, letterSpacing: 0)
         let runs = MarkupRuns.expand(source, base: base, color: [0, 0, 0, 255], atoms: MarkdownAtoms(kinds: kinds, faces: wide))
@@ -1139,7 +1268,7 @@ final class InlineAtomReaderTests: XCTestCase {
     }
 }
 
-/// A Markdown reader's `rangeFrame`: an atom's source range answers its
+/// A Markdown reader's `rangeFrame` (D7): an atom's source range answers its
 /// pill, where an app anchors a popover to it.
 final class InlineAtomReaderRangeFrameTests: XCTestCase {
     private var session: ExactSession?
@@ -1201,7 +1330,7 @@ final class InlineAtomReaderRangeFrameTests: XCTestCase {
         // Where no pill is, unavailable.
         XCTAssertNil(p.rangeFrame(2, start: 0, end: 2))
         XCTAssertNil(p.rangeFrame(2, start: 1, end: 1))
-        // `visibility: hidden` answers nothing, as the web's.
+        // `visibility: hidden` answers nothing, as the web's (LLP 1114.007).
         p.apply(wireBatch([["op": "style", "id": 2, "style": ["visibility": "hidden"]]]))
         XCTAssertTrue(node.cssVisibilityHidden)
         XCTAssertNil(p.rangeFrame(2, start: UInt32(a), end: UInt32(b)), "a visibility: hidden text answers nothing")

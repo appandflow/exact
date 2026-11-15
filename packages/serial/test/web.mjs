@@ -1,4 +1,4 @@
-// @exact/serial's web conformance suite in Chromium, over a fake `navigator.serial`
+// @exact/serial's web conformance suite in Chromium (LLP 1133.037 §16 stage 1), over a fake `navigator.serial`
 // (`chromium.mjs`): the filters the chooser is asked with, `getPorts`, `open`'s options and a second open, one reader
 // that loses nothing with its backpressure (1 MB pushed while the reader is slow), a non-fatal error at its offset and
 // the next `readable` taken, writes in order, signals, an unplug ending the stream, and `forget`.
@@ -33,15 +33,25 @@ const fake = () => {
       this.options = options;
       this.streams();
     }
-    async close() { this.options = null; this.readable = null; this.writable = null; }
+    // Asked out of order, these fail: close while the readable is locked, as Web Serial's close() cancels the
+    // readable; forget while the port is open, which the implementation must close first.
+    async close() {
+      if (this.readable?.locked) throw new TypeError('the readable is locked');
+      this.options = null; this.readable = null; this.writable = null;
+    }
     async setSignals(s) { this.signals.push(s); }
     async getSignals() { return { dataCarrierDetect: true, clearToSend: false, ringIndicator: false, dataSetReady: true }; }
-    async forget() { this.forgotten = true; }
+    async forget() {
+      if (this.options) throw new DOMException('the port is open', 'InvalidStateError');
+      this.forgotten = true;
+    }
     /** The device sends `bytes`, in pieces the size of a read. */
     feed(bytes) {
       for (let i = 0; i < bytes.length; i += chunk) this.queue.push(bytes.slice(i, i + chunk));
       this.wake?.();
     }
+    /** The device sends `bytes` as one read, as a port whose `bufferSize` holds them gives them. */
+    feedWhole(bytes) { this.queue.push(bytes); this.wake?.(); }
     /** A non-fatal error: this readable errors and the port gives a new one (Web Serial's readable steps). */
     fail(name) { const old = this.controller; this.streams(); old.error(new DOMException(name, name)); }
     /** Unplugged: the stream errors fatally and the port disconnects. */
@@ -88,7 +98,7 @@ check('open answers a connection and the options with their defaults', opened.co
 check('a second open fails InvalidStateError', (await s.call('open', { port: port.id, baudRate: 9600 })).error === 'InvalidStateError');
 const connection = opened.connection;
 
-// A megabyte while the reader does not read. The implementation reads until the undelivered bytes reach the
+// D8: a megabyte while the reader does not read. The implementation reads until the undelivered bytes reach the
 // bound (two seconds at 115,200 baud: 23,040 bytes), then the rest waits in the stream.
 const total = 1 << 20;
 const data = Uint8Array.from({ length: total }, (_, i) => (i * 7) & 0xff);
@@ -104,7 +114,7 @@ for (let i = 0; i < 400 && got.length < total; i++) {
 }
 check('every byte arrives, in order', got.length === total && got.every((b, i) => b === data[i]), `${got.length} of ${total}`);
 
-// A break between two pieces is an entry at its offset, and reading goes on with the next readable.
+// D9: a break between two pieces is an entry at its offset, and reading goes on with the next readable.
 await s.eval(() => __ports[0].feed(new TextEncoder().encode('before')));
 await Bun.sleep(50);
 await s.eval(() => __ports[0].fail('BreakError'));
@@ -136,8 +146,45 @@ check('the next read fails InvalidStateError', (await s.call('serialInput', { co
 check('the connection reads not connected', (await s.call('serialConnection', { connection })).connected === false);
 
 const other = await s.call('requestPort', { filters: [{ usbVendorId: 0x0403 }] });
-await s.call('forget', { port: other.id });
-check('forget forgets the port', (await s.eval(() => __ports[1].forgotten)) === true && !(await s.call('getPorts')).some((p) => p.id === other.id));
+// A read as large as a big `bufferSize` gives (Web Serial's pull reads up to the stream's high-water mark) arrives
+// whole: appended with a spread, its bytes were one argument each, and past the engine's limit the read was dropped.
+const big = await s.call('open', { port: other.id, baudRate: 115200, bufferSize: 16777216 });
+await s.eval(() => { __ports[1].feedWhole(new Uint8Array(200_000).fill(0x41)); __ports[1].feedWhole(Uint8Array.of(0x42)); });
+await Bun.sleep(200);
+let large = 0, largeErrors = [];
+for (let i = 0; i < 20 && large < 200_001; i++) {
+  const r = await s.call('serialInput', { connection: big.connection });
+  large += bytesOf(r.data).length;
+  largeErrors.push(...(r.errors ?? []));
+  if (!r.data) await Bun.sleep(20);
+}
+check('a 200,000-byte read arrives whole, with no error', large === 200_001 && largeErrors.length === 0, JSON.stringify({ large, largeErrors }));
+await s.call('close', { connection: big.connection });
+
+// A closed handle controls nothing, though its `SerialPort` is opened again: the new connection is another's.
+const again = await s.call('open', { port: other.id, baudRate: 9600 });
+const stale = { connection: big.connection };
+const refused = [
+  await s.call('write', { ...stale, data: b64(Buffer.from('Q')) }),
+  await s.call('setSignals', { ...stale, dataTerminalReady: false }),
+  await s.call('getSignals', stale),
+  await s.call('close', stale),
+];
+check('a closed handle cannot write, set or read signals, or close the port opened again', refused.every((r) => r?.error === 'InvalidStateError') && (await s.eval(() => __ports[1].written.length + __ports[1].signals.length)) === 0 && (await s.call('serialConnection', { connection: again.connection })).open === true, JSON.stringify(refused));
+// Writes still waiting their turn when the connection closes are aborted, and reach neither it nor the next.
+const queued = await s.eval(async (connection) => {
+  const writes = [__impl.write({ connection, data: btoa('one') }), __impl.write({ connection, data: btoa('two') })];
+  const closing = __impl.close({ connection });
+  return [await Promise.all(writes), await closing];
+}, again.connection);
+const third = await s.call('open', { port: other.id, baudRate: 9600 });
+await s.call('write', { connection: third.connection, data: b64(Buffer.from('three')) });
+check('writes queued before close are aborted, and the next connection gets only its own', queued[0].every((r) => r?.error === 'AbortError') && queued[1] === null && Buffer.from(await s.eval(() => __ports[1].written)).toString() === 'three', JSON.stringify(queued));
+// Forgetting a port with an open connection closes the port first.
+const forgotten = await s.call('forget', { port: other.id });
+check('forget closes an open connection, then forgets the port', forgotten === null && (await s.eval(() => __ports[1].forgotten && __ports[1].options === null))
+  && (await s.call('serialConnection', { connection: third.connection })).open === false && !(await s.call('getPorts')).some((p) => p.id === other.id),
+  JSON.stringify(forgotten));
 check('the readers of the list were asked again', (await s.eval(() => __changed)).includes('serial.getPorts'));
 
 await s.close();

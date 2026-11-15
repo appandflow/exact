@@ -82,7 +82,8 @@ fn a_withdrawn_report_takes_its_kinds_shared_size_with_it() {
 }
 
 /// A withdrawn report takes back its kind's shared size only when no other
-/// mark of that kind still holds it as its own: with two equal reports, withdrawing one
+/// mark of that kind still holds it as its own (post-hoc review of
+/// 9960b11949, Astra and Grok): with two equal reports, withdrawing one
 /// leaves the size the other still reports, for the marks with none; and a
 /// switch that became a checkbox, withdrawing a size the checkboxes' happens
 /// to equal, leaves the checkboxes' alone while one of them reports it.
@@ -166,7 +167,7 @@ fn a_withdrawn_report_leaves_a_shared_size_another_mark_still_reports() {
 }
 
 /// A mark holds its kind's shared size by the kind it reported as, not the
-/// kind it is now: a radio's report of the checkboxes' size
+/// kind it is now (round 1, Astra): a radio's report of the checkboxes' size
 /// keeps no checkbox size once it becomes a checkbox, so the checkbox that
 /// reported it, withdrawing, takes the size back.
 #[test]
@@ -235,7 +236,7 @@ fn a_mark_holds_a_shared_size_by_the_kind_it_reported_as() {
         (13.0, 13.0),
         "the radio's report holds no checkbox size"
     );
-    // The same size reported again as a checkbox: now it holds
+    // The same size reported again as a checkbox (round 2, Astra): now it holds
     // the checkboxes' size, and a checkbox withdrawing leaves it.
     kernel.set_intrinsic_size(2, Some((22.0, 22.0))).unwrap();
     kernel.set_intrinsic_size(3, Some((22.0, 22.0))).unwrap();
@@ -249,6 +250,6 @@ fn a_mark_holds_a_shared_size_by_the_kind_it_reported_as() {
     assert_eq!(
         size(&kernel, 5),
         (13.0, 13.0),
-        "and is no radio's report any more"
+        "and is no radio's report any more (round 2's re-check, Grok)"
     );
 }

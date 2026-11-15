@@ -1,4 +1,4 @@
-//! A navigation root's tabs in the web's document: each
+//! A navigation root's tabs in the web's document (LLP 1075.003 §3.7): each
 //! tab's stack, as `navigation.js` shows it, linked when a plan binds
 //! `aria-controls`, so an app without tabs carries none of the walk.
 

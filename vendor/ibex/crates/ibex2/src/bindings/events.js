@@ -2,7 +2,7 @@
 (function (global) {
   "use strict";
 
-  // Trust and private state use bootstrap-captured intrinsics in unhardened borrowed runtimes.
+  // @ref LLP 0057.000#l3--events-abort-and-the-second-direction — trust and private state use bootstrap-captured intrinsics in unhardened borrowed runtimes
   var FunctionCall = Function.prototype.call;
   var FunctionBind = Function.prototype.bind;
   function uncurry(fn) { return FunctionCall.call(FunctionBind, FunctionCall, fn); }
@@ -33,7 +33,7 @@
     : null;
   var dateNow = Date.now;
 
-  // Private records have no prototype, so inherited setters never see them.
+  // @ref LLP 0057.000#l3--events-abort-and-the-second-direction — private records have no prototype, so inherited setters never see them
   function privateRecord(fields) {
     var record = objectCreate(null);
     var keys = objectKeys(fields);
@@ -308,7 +308,7 @@
         break;
       }
     }
-    // Keepalive follows the real EventTarget mutation, including signal and once removal.
+    // @ref LLP 0059.000#312-websocket--delegating-capability-bearing-author-required — keepalive follows the real EventTarget mutation, including signal and once removal
     functionCall(hook, target, type, present);
   }
 
@@ -355,7 +355,7 @@
         removeEntry(target, entry);
         throw new TypeError("AbortSignal hooks are unavailable");
       }
-      // Signal-bound listener removal is an abort algorithm, before abort event dispatch.
+      // @ref LLP 0057.000#l3--events-abort-and-the-second-direction — signal-bound listener removal is an abort algorithm, before abort event dispatch
       entry.abortRelease = abortSubscribe(signal, function () { removeEntry(target, entry); });
     }
     notifyListenerChange(target, type);
@@ -397,7 +397,7 @@
     }
   }
 
-  // Only the captured host path may assert event trust.
+  // @ref LLP 0057.000#l3--events-abort-and-the-second-direction — only the captured host path may assert event trust
   function dispatch(target, event, trusted) {
     targetState(target);
     var state = eventState(event);
@@ -412,7 +412,7 @@
     state.path = privateList([target]);
     try {
       invoke(target, event, true);
-      // At-target capture and bubble remain distinct propagation phases.
+      // @ref LLP 0057.000#l3--events-abort-and-the-second-direction — at-target capture and bubble remain distinct propagation phases
       if (!state.stop) invoke(target, event, false);
       return !state.canceled;
     } finally {
@@ -516,7 +516,7 @@
     });
   }
 
-  // Keep the engine global's prototype intact; only its private target record is new.
+  // @ref LLP 0057.000#l3--events-abort-and-the-second-direction — keep the engine global's prototype intact; only its private target record is new
   weakMapSet(targetStates, global, privateRecord({
     listeners: privateList(), listenerChange: null
   }));
@@ -566,7 +566,7 @@
       var event = new PromiseRejectionEvent("unhandledrejection", {
         cancelable: true, promise: promise, reason: reason
       });
-      // Stock Hermes exposes callable Promise tracker slots, so their events cannot authenticate host provenance.
+      // @ref LLP 0059.000#310-atob--btoa-structuredclone-blob--file--formdata-customevent--pure-ungated — stock Hermes exposes callable Promise tracker slots, so their events cannot authenticate host provenance
       if (dispatch(global, event, false)) nativeReport(errorText(reason));
     },
     onHandled: function (_, reason, promise) {

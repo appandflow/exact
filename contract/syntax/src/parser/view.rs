@@ -3,7 +3,7 @@
 use super::*;
 
 impl Parser {
-    /// `if cond`, with `else if` and `else` as an action's.
+    /// `if cond`, with `else if` and `else` as an action's (@ref LLP 1116.015 D1).
     #[inline(never)]
     pub(super) fn node_if(&mut self, span: Span) -> R<Node> {
         self.next();
@@ -34,7 +34,7 @@ impl Parser {
             span,
         })
     }
-    /// `for x in xs key=…`, or `for x, i in xs key=…`.
+    /// `for x in xs key=…`, or `for x, i in xs key=…` (@ref LLP 1116.015 D1).
     #[inline(never)]
     pub(super) fn node_for(&mut self, span: Span) -> R<Node> {
         self.next();
@@ -47,7 +47,7 @@ impl Parser {
         };
         self.expect_word("in")?;
         let list = self.expr()?;
-        // The edit, with the variable the author named. The
+        // @ref LLP 1116.014 D1 — the edit, with the variable the author named. The
         // parser knows no item type, so the field is described, not named.
         if !self.at_ident("key") {
             return self.err(
@@ -191,7 +191,7 @@ impl Parser {
         if matches!(self.peek_kind(), TokenKind::Indent) {
             self.next();
             // The attribute list may continue on deeper lines that
-            // begin with `name=`; a child never does.
+            // begin with `name=`; a child never does (LLP 1035.005 D1).
             // So may a part's block, `::placeholder` (parts.rs).
             // And a state part's, `:disabled` (states.rs).
             while self.at_continuation() || self.at_part() || self.at_state() {
@@ -208,7 +208,7 @@ impl Parser {
             }
             children = self.block_rest(|p| p.node())?;
         }
-        // A button's primary argument is its visible text
+        // LLP 1017.001's primary button argument is its visible text
         // child, not a prop on the pressable itself. Keeping it as a
         // real text node gives every host the same visible and
         // accessible subtree.
@@ -240,7 +240,7 @@ impl Parser {
     }
 }
 
-/// HTML's heading elements are headings, the level in the
+/// LLP 1116.017 D1: HTML's heading elements are headings, the level in the
 /// name; every host then sees the one form, `text role="heading"`. Apart from
 /// `node_element`, whose frame every nested view node costs.
 #[inline(never)]

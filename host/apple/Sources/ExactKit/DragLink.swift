@@ -1,4 +1,4 @@
-// Drags (height, transform and reorder handles) are a
+// @ref LLP 1047.001 D4 — drags (height, transform and reorder handles) are a
 // linked capability: their holds and gestures are the `ExactDrag` module,
 // which an app's composition links only when its plan has a drag, and
 // installs here. The core holds them through these protocols; without the

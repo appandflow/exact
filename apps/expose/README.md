@@ -4,6 +4,14 @@ A phone operating system's face, in Exact2: a lock screen, a home screen, a
 Messages app whose pinned thread is an assistant, a Reader with five articles,
 and Settings — all set in the three faces from the Expose type program.
 
+The lock screen is `/`, followed by `/home`, `/messages`, `/reader` and
+`/settings`. Conversations use `/messages/:thread`, articles `/reader/:article`,
+and the settings pages `/settings/intelligence`, `/settings/display` and
+`/settings/about`. Direct links and reload restore the screen with its declared
+parents. Reader and settings shortcuts include their declared parents. Other
+in-app transitions keep their caller, which the Back label names. Browser
+Forward revisits the screen left behind.
+
 - **Exciting** (Black, v18) speaks loudest: the clock, the marks on the app
   tiles, the Reader masthead. One word at a time, never a sentence.
 - **Exciting Lilt** (Semibold and Bold, v10) carries titles, names and actions,
@@ -24,7 +32,7 @@ you": an unread dot, the send button, the assistant's caret while it writes.
   from OpenRouter. On the web's page runtime the reply streams in (the module
   reads the events from the response body); on native hosts it arrives as one
   completion, because a host keeps only the newest undelivered stream message
-  and a token stream cannot afford a gap. It sees the thread
+  (LLP 1016.000 D4) and a token stream cannot afford a gap. It sees the thread
   and, when you press *Ask Expose* in Reader, the article. Leave the thread
   while it is writing and the answer arrives as a banner; on the lock screen it
   becomes a notification.
@@ -77,7 +85,7 @@ Drive it: `bun scripts/agent.mjs --app expose web --url <url> "tap lock-unlock"
 
 ## Layout
 
-- `app.contract` — the root component and the five screens.
+- `app.contract` — the routes, root component and screens.
 - `parts.contract` — shapes, named styles, keyframes, and the leaf components
   (status bar, tiles, notices, settings rows, bubbles, the home bar).
 - `app.ts` — the sources: clock strings, inbox and threads, the assistant,
@@ -85,4 +93,5 @@ Drive it: `bun scripts/agent.mjs --app expose web --url <url> "tap lock-unlock"
 - `assets/` — the fonts, copied from the Expose repository
   (`fonts/exciting/handoff/Exciting-Black.ttf`, `fonts/exciting-lilt/`,
   `fonts/exposure-sans/original-10/`); re-copy when a new build lands. Both
-  families are declared in the Contract and bound to these bytes, so an installed font of the same name is never consulted.
+  families are declared in the Contract and bound to these bytes (LLP 1019
+  D3), so an installed font of the same name is never consulted.

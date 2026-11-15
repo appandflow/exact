@@ -1,11 +1,11 @@
-//! An SVG file as an image on Apple: the file parsed and
+//! An SVG file as an image on Apple (LLP 1011.001 D4): the file parsed and
 //! resolved in Rust (`exact-svg-file`, the kernel's own SVG nodes and scene
 //! resolver), serialized as the `svg` op's JSON, which Swift renders as it
 //! renders an island (`SvgIsland.render`) into the raster loader's bitmap.
 //! The header read gives the natural size the loader's metadata carries.
 
 /// What the loader draws from: the scene's JSON and whether it has text,
-/// which Swift draws where the session's fonts are.
+/// which Swift draws on the main thread (D3).
 #[derive(Debug)]
 pub struct Picture {
     /// The scene, as the `svg` op carries one.
@@ -24,7 +24,14 @@ pub fn scene(text: &str, width: f32, height: f32) -> Result<Picture, String> {
         .kernel()
         .node(loaded.svg())
         .ok_or("the svg node is not in the kernel")?;
-    let json = crate::host::svg::image_scene(loaded.kernel(), &node, (0.0, 0.0, width, height))?;
+    let mut json =
+        crate::host::svg::image_scene(loaded.kernel(), &node, (0.0, 0.0, width, height))?;
+    json.pop();
+    json.push_str(",\"fonts\":");
+    json.push_str(
+        &serde_json::to_string(&loaded.document.fonts).expect("font names are JSON strings"),
+    );
+    json.push('}');
     Ok(Picture {
         json,
         text: loaded.document.text,
@@ -32,7 +39,7 @@ pub fn scene(text: &str, width: f32, height: f32) -> Result<Picture, String> {
     })
 }
 
-/// The natural size (CSS pixels) of the SVG `bytes` begin;
+/// The natural size (CSS pixels, LLP 1011.001 D1) of the SVG `bytes` begin;
 /// `None` when they are not an SVG or the root tag is past the prefix.
 pub fn header(bytes: &[u8]) -> Option<(f32, f32)> {
     exact_svg_file::natural(bytes).map(|n| n.size())
@@ -170,8 +177,25 @@ mod tests {
     }
 
     #[test]
+    fn a_picture_carries_its_font_stacks_with_its_runs() {
+        let picture = super::scene(r#"<svg><text font-family="Arial, sans-serif" font-weight="bold">A<tspan font-family="'serif', monospace">B</tspan></text></svg>"#, 200.0, 40.0).unwrap();
+        assert!(picture.warnings.is_empty(), "{:?}", picture.warnings);
+        let json: serde_json::Value = serde_json::from_str(&picture.json).unwrap();
+        assert_eq!(
+            json["fonts"],
+            serde_json::json!([
+                [[true, "Arial"], [false, "sans-serif"]],
+                [[true, "serif"], [false, "monospace"]],
+            ])
+        );
+        assert!(picture.json.contains("\"ff\":8"));
+        assert!(picture.json.contains("\"ff\":9"));
+        assert!(picture.json.contains("\"fw\":700"));
+    }
+
+    #[test]
     fn a_file_past_a_cost_limit_is_the_named_error() {
-        // Each level uses the one below twice.
+        // Each level uses the one below twice (LLP 1011.001 D2).
         let mut defs = String::from("<path id=\"l0\" d=\"M0 0");
         defs += &"l1 1l1 -1".repeat(15);
         defs += "\"/>";

@@ -1,15 +1,15 @@
 //! The C ABI the executor opens (`libexact_listen.dylib` on Apple), so the
-//! listener links into no binary that does not listen.
+//! listener links into no binary that does not listen (LLP 1133.005 D13).
 //! [`Module::here`] is the same table for a host that links the crate.
 //!
 //! The configuration is `address`, `path`, `takeover` (`0`/`1`), the first
 //! line's timeout in ms (`0` for none), `maxLineBytes` and `maxConnections`,
-//! joined by NUL (a path has none). Events reach `emit` as a kind, a
+//! joined by NUL (a path has none, D4). Events reach `emit` as a kind, a
 //! connection id and bytes: 0 `listening` (the address), 1 `connection`, 2
 //! one line, 3 `end` (the reason), 4 a standing word, 5 `error` (its kind,
 //! a NUL, its message). `emit` answers 0 queued, 1 gone, 2 full ([`Taken`]).
 //!
-//! The loopback receiver for `openAuthSession` is here too, so the auth
+//! The loopback receiver for `openAuthSession` (D9) is here too, so the auth
 //! arm needs no code of its own: its configuration is `host`, `port`,
 //! `path`, `state` and the app's name, joined by NUL.
 use crate::{Config, Event, Listener, Refused, Taken};
@@ -199,7 +199,7 @@ struct Sendable(*mut c_void);
 // until `exact_listen_loopback_close` returns.
 unsafe impl Send for Sendable {}
 
-/// Bind the loopback receiver and start answering; null when it could
+/// Bind the loopback receiver (D9) and start answering; null when it could
 /// not, with `*error` 1 for a port in use and 2 for anything else. `config`
 /// is the callback's host, port, path and `state`, the app's name and the
 /// page's sentence (empty for the host's own), separated by NULs. `done`

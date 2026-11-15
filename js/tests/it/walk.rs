@@ -1,4 +1,4 @@
-//! `scheduler.yield()`: a turn over the budget fails and
+//! `scheduler.yield()` (LLP 1141.001 D10): a turn over the budget fails and
 //! names the repair, and the same walk yielding every few thousand items goes
 //! on in new turns, each with a budget of its own, asked again with no work
 //! and no clock (`Dispatch::Again`): inline, on a worker, and through the

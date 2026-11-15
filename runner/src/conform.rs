@@ -1,4 +1,4 @@
-//! Type checks that follow what changed.
+//! Type checks that follow what changed (LLP 1053 §0 G8).
 //!
 //! A value that crosses the data seam, or a derive's result, is checked
 //! against its declared type ([`Value::conforms`]) every time. A live answer
@@ -82,8 +82,8 @@ impl Conformed {
 }
 
 /// Where a value that does not conform to `ty` first differs from it: a
-/// path from the value's root and what was there, the refusal's `why`.
-/// Only asked once a value is refused.
+/// path from the value's root and what was there, the refusal's `why`
+/// (LLP 1101.002 §0 P9). Only asked once a value is refused.
 pub(crate) fn mismatch(plan: &Plan, value: &Value, ty: TypesId) -> String {
     let mut path = String::from(plan.str(plan.type_(ty).name));
     let what = differs(plan, value, ty, &mut path).unwrap_or_else(|| "it conforms".into());

@@ -1,4 +1,4 @@
-//! The decorations record at the producer/host boundary.
+//! The decorations record at the producer/host boundary (LLP 1114.007).
 //! The kernel owns range reconciliation; this module only reads and writes
 //! the named JSON fields the hosts receive, and the declaration table.
 
@@ -154,7 +154,7 @@ pub fn from_value(value: &Value) -> Result<String, String> {
     Ok(encode(&decorations))
 }
 
-/// `AtomFace`'s fields in the compiler's order: the
+/// `AtomFace`'s fields in the compiler's order (LLP 1045.000 D2): the
 /// record [`atom_faces`] reads, each a text, by its JSON name. A plan that
 /// binds `atomFaces` puts this list in its compatibility id (`exact_bake`),
 /// so a binary that reads other fields is never given it; a test ties it,
@@ -172,7 +172,7 @@ pub const ATOM_FACE_FIELDS: [&str; 8] = [
 ];
 
 /// Convert the compiler's positional `AtomFace` list to the named JSON of
-/// the `atomFaces` prop, the colours as written; the plan
+/// the `atomFaces` prop (LLP 1045.000 D2), the colours as written; the plan
 /// reads them next (`bridge::atom_face_paint`).
 pub fn atom_faces(value: &Value) -> Result<String, String> {
     let Value::List(faces) = value else {
@@ -195,7 +195,7 @@ pub fn atom_faces(value: &Value) -> Result<String, String> {
     Ok(serde_json::Value::Array(rows).to_string())
 }
 
-/// A face's `color` or `backgroundColor` as a colour row
+/// A face's `color` or `backgroundColor` (LLP 1045.000 D2) as a colour row
 /// reads a text, with whatever theme is bound: `None` when empty, so its
 /// kind's paint stands, or when it is no colour. A host reads the wire's
 /// text the runner wrote (`bridge::atom_face_paint`).

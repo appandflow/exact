@@ -1,5 +1,5 @@
 //! `@exact/pedometer` and `@exact/altimeter` under the declared substitute
-//! One `motion-fitness` decision across the two
+//! (LLP 1133.026 §11): one `motion-fitness` decision across the two
 //! interfaces on an iOS target, the altimeter's permission absent on an
 //! Android one, a count's track and its `since`, a hidden stretch, and the
 //! origin rule. The packages are the repository's own, installed beside the
@@ -137,7 +137,7 @@ fn prefer(r: &mut Runner<Granted>, request: Json) {
     reply.unwrap_or_else(|e| panic!("{e}"));
 }
 
-/// On an iOS target the two interfaces' requests made
+/// D15, D19 item 2: on an iOS target the two interfaces' requests made
 /// together hold one `motion-fitness` ticket, and its allow settles both
 /// statuses; the readers then answer the defaults.
 #[test]
@@ -179,7 +179,7 @@ fn one_decision_settles_both_interfaces_on_ios() {
     assert_eq!(answer(&r, "climb")["relativeAltitude"], 0.0);
 }
 
-/// On an Android target the altimeter declares no
+/// D15, D19 item 2: on an Android target the altimeter declares no
 /// permission, so its status reads `granted` and its request answers at
 /// once, while the pedometer's still asks.
 #[test]
@@ -205,7 +205,7 @@ fn android_asks_only_the_pedometer() {
     assert_eq!(answer(&r, "height")["state"], "granted");
 }
 
-/// A count's track holds each step from its instant; `since` is the
+/// §11: a count's track holds each step from its instant; `since` is the
 /// reader's `start`, or the group's first ask, and a step's own `since`
 /// moves it; while the page is hidden the count still answers the track's
 /// value, and the altimeter's batch reads `interrupted`; a tool's call is
@@ -284,7 +284,7 @@ fn a_count_answers_its_track_and_since() {
     assert!(logs(&r).contains("person-required"), "{}", logs(&r));
 }
 
-/// A relative altitude's `since` is when its group's zero was taken,
+/// D13: a relative altitude's `since` is when its group's zero was taken,
 /// and a track gives the height directly.
 #[test]
 fn an_altitude_counts_from_its_group_s_zero() {
@@ -308,7 +308,7 @@ fn an_altitude_counts_from_its_group_s_zero() {
     assert!(barometer["altimeter"].is_object(), "{barometer}");
 }
 
-/// An app that uses a pedometer or altimeter name derives
+/// D15, D19 item 4: an app that uses a pedometer or altimeter name derives
 /// `NSMotionUsageDescription` under its motion line, and on Android the
 /// pedometer's `ACTIVITY_RECOGNITION`; the altimeter asks nothing there.
 #[test]

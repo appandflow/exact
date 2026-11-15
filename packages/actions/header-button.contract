@@ -1,6 +1,6 @@
 // A button of an app's OWN header (the clone's header slots, Bluesky's
 // Layout.Header): a round ghost button with its icon, an authored pressable
-// as PostButton is. The
+// as PostButton is (LLP 1139 D9's exception; theme2's 04:40 ruling). The
 // library never wraps the platform's header routes. Its `id` is its id
 // attribute too, so `id="back"` stays the root's navigationBack. Small, its
 // icon smaller in the secondary ink (an options button); lead, pulled to

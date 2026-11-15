@@ -1,9 +1,10 @@
-// The Mac's proof of the one thing the kernel learned for a split view and a
-// sheet: one session whose page has three of its subtrees in three native
-// views. Two are the panes of an `NSSplitView`, each reporting its size as
-// the divider moves; the third is a sheet (`beginSheet`) given a maximum and
-// sized from what layout returns. A fixture, in no app: the split and the
-// modal route's sheet are built on what this holds.
+// @ref LLP 1115.002 D8.3 — the Mac's proof of the one thing the kernel
+// learned for a split view and a sheet (D8.2): one session whose page has
+// three of its subtrees in three native views. Two are the panes of an
+// `NSSplitView`, each reporting its size as the divider moves; the third is
+// a sheet (`beginSheet`) given a maximum and sized from what layout returns.
+// A fixture, in no app: the split (stage 6b) and the modal route's sheet
+// (6c) are built on what this holds.
 #if os(macOS)
 import AppKit
 import XCTest

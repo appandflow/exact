@@ -1,4 +1,4 @@
-// `wakelock="screen"` on the web: the Screen Wake Lock
+// @ref LLP 1125 D11 — `wakelock="screen"` on the web: the Screen Wake Lock
 // API (https://w3c.github.io/screen-wake-lock/), held while any displayed
 // element under the app's root says so. Both web targets load it once an
 // element carries `data-exact-wakelock`: glue.js after each batch, the JS

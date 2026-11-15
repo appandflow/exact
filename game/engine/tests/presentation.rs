@@ -5,7 +5,7 @@ use exact_game::*;
 struct Crate {
     hp: u32,
 }
-// Bob and flash are visual only: a plant's sway, a gun's muzzle flash.
+// Bob and flash are visual only: Grow a Garden's sway, Rivals' muzzle flash.
 #[derive(Default, Presentation)]
 struct Bob {
     height: f32,

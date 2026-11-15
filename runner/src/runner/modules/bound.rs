@@ -1,16 +1,16 @@
-//! A host's own implementation of a module:
-//! outside the agent the host binds the extensions it carries, and
+//! A host's own implementation of a module (LLP 1133.001 D4, LLP 1133.002
+//! D5): outside the agent the host binds the extensions it carries, and
 //! their names go to the native slot as `{"extension", "source"|"send",
 //! "args"}`, which the host's composed module routes to the implementation.
 //! Under the agent the host binds those a drive names (`--bind`) as in
 //! production, and the rest told they run under the agent: those answer an
 //! interface that is its own substitute, behind the runner's tickets
-//! (`admit.rs`), and the declared substitute answers every other.
-//! The runner keeps each bound live source's readers, and tells the
+//! (`admit.rs`), and the declared substitute answers every other (LLP 1124
+//! D7). The runner keeps each bound live source's readers, and tells the
 //! module when the last one goes (`{"extension", "release": name}`), so its
 //! acquisition stops.
 //!
-//! A synchronous form (`geolocationStatusSync`) is a
+//! A synchronous form (`geolocationStatusSync`, LLP 1133.002 D14) is a
 //! `native.call` that data code makes inside an answer, which the runner
 //! cannot be asked during. So the runner keeps each one's answer in the
 //! native slot: none when bound as in production (the host's module
@@ -21,7 +21,7 @@ use super::super::{DataSource, Runner};
 use super::{Decision, Json, ModulesRow, Route};
 use crate::request::{Reply, Request};
 use serde_json::json;
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 impl<D: DataSource> Runner<D> {
     /// The host's implementations answer `real` as in production, and
@@ -46,6 +46,16 @@ impl<D: DataSource> Runner<D> {
         let answering: std::collections::BTreeSet<String> = (self.plan.modules.iter())
             .filter(|m| self.route(m) == Route::Agent)
             .map(|m| self.plan.str(m.extension).to_owned())
+            .chain(
+                self.plan
+                    .views
+                    .iter()
+                    .map(|v| self.plan.str(v.extension))
+                    .filter(|e| {
+                        self.extensions.agent.contains(*e) && !self.extensions.bound.contains(*e)
+                    })
+                    .map(str::to_owned),
+            )
             .collect();
         if !answering.is_empty() {
             let names: Vec<&str> = answering.iter().map(String::as_str).collect();
@@ -71,6 +81,28 @@ impl<D: DataSource> Runner<D> {
         }
     }
 
+    /// A provider reports its physical name; every active declaration of
+    /// that name watches its own qualified topic.
+    pub(in crate::runner) fn declaration_topics(&self, topics: Vec<String>) -> Vec<String> {
+        let mut out = topics.clone();
+        for topic in topics {
+            for row in &self.plan.modules {
+                if self.route(row) != Route::Substitute
+                    && self.substitute(row)["owner"].is_string()
+                    && topic
+                        == format!(
+                            "{}.{}",
+                            self.plan.str(row.extension),
+                            self.plan.str(row.declared)
+                        )
+                {
+                    out.push(self.key(row));
+                }
+            }
+        }
+        out
+    }
+
     /// Each synchronous form's answer, by `extension.syncName`, into the
     /// native slot.
     pub(in crate::runner) fn publish_sync(&self) {
@@ -81,8 +113,12 @@ impl<D: DataSource> Runner<D> {
             .iter()
             .filter(|m| !self.plan.str(m.sync).is_empty())
         {
+            let owner = self.substitute(row)["owner"]
+                .as_str()
+                .map(|s| format!("#{s}"))
+                .unwrap_or_default();
             let key = format!(
-                "{}.{}",
+                "{}.{}{owner}",
                 self.plan.str(row.extension),
                 self.plan.str(row.sync)
             );
@@ -118,9 +154,9 @@ impl<D: DataSource> Runner<D> {
 
     /// The body of a call of `row` for its implementation, `{"extension",
     /// "source"|"send", "args"}`; under the agent with the preferred value
-    /// the agent set for it, as `preferred`; with
+    /// the agent set for it, as `preferred` (LLP 1133.009 D10 item 11); with
     /// its `origin` when a tool or a wake made it, so an implementation that
-    /// starts a device on a read (a track's first lease) can refuse. A
+    /// starts a device on a read (a track's first lease, D6) can refuse. A
     /// live source's reader is counted, so its release can be said, and a
     /// Contract reader (`reader`, its resource) with its arguments, so each
     /// argument group's can.
@@ -131,11 +167,11 @@ impl<D: DataSource> Runner<D> {
         reader: Option<usize>,
     ) -> Vec<u8> {
         let verb = if row.send { "send" } else { "source" };
-        // An option the call omits is left out, so it stays the platform's.
+        // An option the call omits is left out, so it stays the platform's (D2).
         let mut args = args;
         written(&mut args);
         // The options its declaration names strings keys are sent as their
-        // text, which the platform shows (a sheet's reason).
+        // text, which the platform shows (a sheet's reason, LLP 1133.010 D1).
         let strings = self.substitute(row)["strings"].clone();
         for path in strings
             .as_array()
@@ -171,9 +207,17 @@ impl<D: DataSource> Runner<D> {
             }
         }
         let key = self.key(row);
-        let mut body = json!({ "extension": self.plan.str(row.extension), verb: self.plan.str(row.declared), "args": args });
-        if self.route(row) == Route::Agent {
-            if let Some(preferred) = self.extensions.preferred.get(&key) {
+        let member = self.member_forward(row, &args);
+        let (name, implementation) = member
+            .as_ref()
+            .map(|(option, member)| (option.as_str(), member))
+            .unwrap_or((self.plan.str(row.declared), row));
+        let mut body = json!({ "extension": self.plan.str(implementation.extension), verb: name, "args": args });
+        if let Some(owner) = self.substitute(implementation)["owner"].as_str() {
+            body["owner"] = json!(owner);
+        }
+        if self.route(implementation) == Route::Agent {
+            if let Some(preferred) = self.extensions.preferred.get(&self.key(implementation)) {
                 body["preferred"] = preferred.clone();
             }
         }
@@ -183,7 +227,7 @@ impl<D: DataSource> Runner<D> {
         };
         if origin != super::CallOrigin::App {
             body["origin"] = json!(origin.word());
-            // A call not the app's that would ask: the
+            // A call not the app's that would ask (LLP 1133.002 D12): the
             // host reads the status first and refuses it while `prompt`,
             // since only the implementation knows the platform's state.
             let sub = self.substitute(row);
@@ -198,7 +242,7 @@ impl<D: DataSource> Runner<D> {
                 });
             }
         }
-        // A send's number, which `cancel` names if it is let go.
+        // A send's number, which `cancel` names if it is let go (LLP 1133.016 D15 item 2).
         if row.send {
             self.extensions.requests += 1;
             body["request"] = json!(self.extensions.requests);
@@ -217,7 +261,7 @@ impl<D: DataSource> Runner<D> {
             }
             self.extensions.live.insert(key);
         }
-        // A sampled source's reader carries its cursor,
+        // A sampled source's reader carries its cursor (LLP 1133.013 D5),
         // outside the group its arguments make.
         if let Some(after) = self.cursor(row) {
             body["args"]["after"] = json!(after);
@@ -236,7 +280,11 @@ impl<D: DataSource> Runner<D> {
             v["send"].as_str(),
             v["request"].as_u64(),
         ) {
-            (self.extensions.sent).insert(ticket, (format!("{extension}.{send}"), n));
+            let owner = v["owner"]
+                .as_str()
+                .map(|s| format!("#{s}"))
+                .unwrap_or_default();
+            (self.extensions.sent).insert(ticket, (format!("{extension}.{send}{owner}"), n));
         }
     }
 
@@ -255,10 +303,10 @@ impl<D: DataSource> Runner<D> {
 
     /// Each send let go before its reply landed (superseded, its commit
     /// refused): its implementation is told `{"extension", "cancel": n}`,
-    /// so the work no one reads stops.
+    /// so the work no one reads stops (LLP 1133.016 D15 item 2).
     pub(in crate::runner) fn cancel_let_go(&mut self) {
-        // A call whose final handler runs is held until it answers:
-        // its cancel goes once that ends.
+        // A call whose final handler runs is held until it answers (LLP
+        // 1133.034 D16 item 1): its cancel goes once that ends.
         let gone: Vec<u64> = (self.extensions.sent.iter())
             .filter(|(t, (_, n))| {
                 !self.pending.iter().any(|p| p.ticket == **t) && !self.final_running(*n)
@@ -282,18 +330,31 @@ impl<D: DataSource> Runner<D> {
 
     /// The preferred values the agent set for `extension`'s names, for its
     /// implementation bound under the agent: given when it is bound and
-    /// whenever one changes, whether or not anything reads the name,
-    /// as `{"extension", "preferred": {name: value}}`.
+    /// whenever one changes, whether or not anything reads the name (LLP
+    /// 1133.008 D8 item 9), as `{"extension", "preferred": {name: value}}`.
     pub(in crate::runner) fn tell_preferred(&self, extension: &str) {
         let Some(handler) = self.native_slot().handler() else {
             return;
         };
         let prefix = format!("{extension}.");
         let values: serde_json::Map<String, Json> = (self.extensions.preferred.iter())
-            .filter_map(|(k, v)| Some((k.strip_prefix(&prefix)?.to_owned(), v.clone())))
+            .filter_map(|(k, v)| {
+                let name = k.strip_prefix(&prefix)?;
+                let name = if name.contains('#') {
+                    let row = self
+                        .plan
+                        .modules
+                        .iter()
+                        .find(|m| self.key(m) == *k && self.route(m) == Route::Agent)?;
+                    self.plan.str(row.declared)
+                } else {
+                    name
+                };
+                Some((name.to_owned(), v.clone()))
+            })
             .collect();
         // And the state of each permission it declares, which its answers
-        // follow (under `limited`, only the selection).
+        // follow (LLP 1133.019 §10: under `limited`, only the selection).
         let permissions: serde_json::Map<String, Json> = (self.plan.modules.iter())
             .filter(|m| self.plan.str(m.extension) == extension)
             .flat_map(|m| {
@@ -324,7 +385,7 @@ impl<D: DataSource> Runner<D> {
         if let Some(facts) = self.facts_of(extension) {
             values.insert("facts".into(), facts);
         }
-        // The app's catalogue, which a synthetic store sells.
+        // The app's catalogue, which a synthetic store sells (LLP 1133.015 §9).
         let catalog = (self.plan.modules.iter())
             .filter(|m| self.plan.str(m.extension) == extension)
             .map(|m| self.substitute(m)["catalog"].clone())
@@ -339,7 +400,7 @@ impl<D: DataSource> Runner<D> {
 
     /// The app went to the foreground or left it: each implementation that
     /// answers here is told, `{"extension", "foreground": bool}`, as the
-    /// fact admission reads. An implementation
+    /// fact admission reads (LLP 1133.009 D10 item 3). An implementation
     /// begins in the foreground.
     pub(in crate::runner) fn tell_foreground(&self) {
         let Some(handler) = self.native_slot().handler() else {
@@ -367,35 +428,68 @@ impl<D: DataSource> Runner<D> {
     /// Each bound live source no answer reads any longer: released, once
     /// (after a commit), `{"extension", "release": name}`. Before that, each
     /// argument group no Contract reader asks with any longer, `{"extension",
-    /// "release": name, "args"}`: only once no
+    /// "release": name, "args"}` (LLP 1133.009 D10 item 12): only once no
     /// request of the source is in flight, so the implementation has a
     /// reader's new arguments before it hears the old ones are gone. A
     /// group data code asks for is released only with the whole name.
     pub(in crate::runner) fn release_idle(&mut self) {
-        let live: Vec<String> = self.extensions.live.iter().cloned().collect();
+        let mut live: BTreeMap<String, Vec<String>> = BTreeMap::new();
+        for key in &self.extensions.live {
+            let row = self.plan.modules.iter().find(|m| self.key(m) == *key);
+            let provider = match row {
+                Some(row) if self.route(row) != Route::Substitute => {
+                    format!("bound:{}", key.split('#').next().unwrap_or(key))
+                }
+                _ => format!("substitute:{key}"),
+            };
+            live.entry(provider).or_default().push(key.clone());
+        }
         let mut released: Vec<Json> = Vec::new();
-        for key in live {
+        for keys in live.into_values() {
+            let key = &keys[0];
             let Some((extension, name)) = key.split_once('.') else {
                 continue;
             };
-            if !self.read_by_any(&key) {
-                self.extensions.live.remove(&key);
-                self.extensions.readers.remove(&key);
-                self.extensions.groups.remove(&key);
+            if !keys.iter().any(|key| self.read_by_any(key)) {
+                for key in &keys {
+                    self.extensions.live.remove(key);
+                    self.extensions.readers.remove(key);
+                    self.extensions.groups.remove(key);
+                }
                 self.log(format!("release {key}: no reader is left"));
                 released.push(json!({ "extension": extension, "release": name }));
                 continue;
             }
-            if self.asking(&key) {
+            if keys.iter().any(|key| self.asking(key)) {
                 continue;
             }
-            let resources = &self.resources;
-            let readers = self.extensions.readers.entry(key.clone()).or_default();
-            readers.retain(|i, _| resources.get(*i).is_some_and(Option::is_some));
-            let current: BTreeSet<String> = readers.values().cloned().collect();
-            let told = self.extensions.groups.entry(key.clone()).or_default();
+            let mut current = BTreeSet::new();
+            let mut told = BTreeSet::new();
+            for key in &keys {
+                let wanted = self.read_by_any(key);
+                let resources = &self.resources;
+                let readers = self.extensions.readers.entry(key.clone()).or_default();
+                readers.retain(|i, _| {
+                    wanted
+                        && (resources.get(*i))
+                            .is_some_and(|row| row.state.as_ref().is_some_and(|s| !s.asleep))
+                });
+                current.extend(readers.values().cloned());
+                told.extend(
+                    self.extensions
+                        .groups
+                        .get(key)
+                        .into_iter()
+                        .flatten()
+                        .cloned(),
+                );
+            }
             let gone: Vec<String> = told.difference(&current).cloned().collect();
-            told.retain(|g| current.contains(g));
+            for key in &keys {
+                if let Some(groups) = self.extensions.groups.get_mut(key) {
+                    groups.retain(|g| current.contains(g));
+                }
+            }
             for group in gone {
                 self.log(format!("release {key} {group}: no reader asks with it"));
                 let args: Json = serde_json::from_str(&group).unwrap_or_default();
@@ -403,7 +497,7 @@ impl<D: DataSource> Runner<D> {
             }
         }
         let handler = self.native_slot().handler();
-        for body in released {
+        for mut body in released {
             let key = format!(
                 "{}.{}",
                 body["extension"].as_str().unwrap_or_default(),
@@ -420,6 +514,14 @@ impl<D: DataSource> Runner<D> {
                 }
                 _ => {
                     if let Some(handler) = &handler {
+                        if let Some((name, owner)) = body["release"]
+                            .as_str()
+                            .and_then(|s| s.split_once('#'))
+                            .map(|(n, o)| (n.to_owned(), o.to_owned()))
+                        {
+                            body["release"] = json!(name);
+                            body["owner"] = json!(owner);
+                        }
                         handler(body.to_string().into_bytes(), Reply::new(|_| {}));
                     }
                 }
@@ -440,14 +542,19 @@ impl<D: DataSource> Runner<D> {
     /// Whether any resource reads `key`: its source's own reader, an answer
     /// whose data code read it, or one asked again that is reading it now.
     /// A fresh answer's topics replace the last one's before its module
-    /// request lands (`settlement.rs`), so that request is a reader too.
+    /// request lands (`settlement.rs`), so that request is a reader too. A
+    /// resource whose gate closed is idle and reads nothing; it keeps its
+    /// value, not its source (LLP 1161.002 D2).
     fn read_by_any(&self, key: &str) -> bool {
         let Some(row) = self.plan.modules.iter().find(|m| self.key(m) == key) else {
             return false;
         };
         let source = self.plan.sources[row.source.0 as usize].name;
-        (0..self.plan.resources.len()).any(|i| {
-            self.plan.resources[i].source == source || self.watching[i].iter().any(|t| t == key)
+        (0..self.resources.len()).any(|i| {
+            let asleep = (self.resources[i].state.as_ref()).is_some_and(|s| s.asleep);
+            !asleep
+                && (self.resource_row(i).source == source
+                    || self.resources[i].watching.iter().any(|t| t == key))
         }) || self.pending.iter().any(|p| {
             (p.keepable.as_ref())
                 .and_then(|r| self.module_topic(&r.body))
@@ -457,10 +564,39 @@ impl<D: DataSource> Runner<D> {
     }
 }
 
-/// `value` without its `null`s, at every depth: what the call wrote.
+/// `value` without its `null` fields, at every depth, records inside lists
+/// included: what the call wrote. A list's own `null` elements stay, since
+/// their places are meaningful.
 fn written(value: &mut Json) {
-    if let Json::Object(map) = value {
-        map.retain(|_, v| !v.is_null());
-        map.values_mut().for_each(written);
+    match value {
+        Json::Object(map) => {
+            map.retain(|_, v| !v.is_null());
+            map.values_mut().for_each(written);
+        }
+        Json::Array(items) => items.iter_mut().for_each(written),
+        _ => {}
+    }
+}
+
+#[cfg(test)]
+mod written_tests {
+    use super::written;
+    use serde_json::json;
+
+    /// A record inside a list loses its `null` fields as a top-level one does,
+    /// so a platform reads an option the call left out as absent: Android's
+    /// `optString` reads a `null` it is handed as the text "null".
+    #[test]
+    fn null_fields_are_dropped_inside_lists_and_null_elements_kept() {
+        let mut call = json!({
+            "shortcuts": [{ "name": "Open", "short_name": null, "icons": [{ "src": "a", "sizes": null }] }],
+            "records": [null, { "id": null }],
+            "limit": null,
+        });
+        written(&mut call);
+        assert_eq!(
+            call,
+            json!({ "shortcuts": [{ "name": "Open", "icons": [{ "src": "a" }] }], "records": [null, {}] })
+        );
     }
 }

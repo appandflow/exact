@@ -1,4 +1,4 @@
-//! The web's `selectionchange` on a `text`: its part of
+//! The web's `selectionchange` on a `text` (the reader diary): its part of
 //! the reader's selection reaches an action that takes a `Selection`, by the
 //! one rule for an event's record, or an action that takes nothing more.
 

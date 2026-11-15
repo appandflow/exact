@@ -67,7 +67,7 @@ assert!(!fresh.settle(), "a spawner on a schedule never reports rest");
 - Call `due` in a loop. A call that comes late (the game skipped it while a gate
   was shut) owes one spawn per interval that passed, up to `cap` (one unless set);
   the oldest beyond the cap are skipped and the grid is kept.
-- Declare `w.busy(reason)` each tick a spawn is still owed later:
+- Declare `w.busy(reason)` each tick a spawn is still owed later (LLP 1128 I2):
   quiescence observes changes, not a schedule, so without it `clock settle` and
   `sim.settle()` report rest between spawns. Stop declaring when nothing more is owed.
 - Serials count from zero and save with the resource, so a restore never repeats a

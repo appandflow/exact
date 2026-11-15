@@ -1,7 +1,7 @@
-//! Arrange's bounded browser presentation owner.
+//! Arrange's bounded browser presentation owner. @ref LLP 1041 §8.5.
 //! Wire v3: 176-byte header and <=4096 32-byte wrapper samples. All keys,
 //! runtime and serials are LE u64 / decimal JSON strings. See `Input`.
-//! A grouped list's session takes the same packets, its ops in
+//! A grouped list's session (LLP 1094) takes the same packets, its ops in
 //! `group_drag.rs`.
 use super::{Batch, Host, HostError};
 use exact_kernel::{motion::motion_node, CommitReceipt, NodeKey, ViewId};
@@ -21,7 +21,7 @@ struct Handle {
 struct Active {
     binding: ReorderBinding,
     token: ReorderToken,
-    /// A grouped session: no holds, a host-drawn ghost.
+    /// A grouped session (LLP 1094): no holds, a host-drawn ghost.
     grouped: bool,
     holds: BTreeMap<NodeKey, HoldToken>,
     terminal: bool,
@@ -37,7 +37,7 @@ pub(super) struct ReorderDrags {
 impl ReorderDrags {
     pub fn new() -> Result<Self, HostError> {
         let runtime = NEXT_RUNTIME
-            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |v| v.checked_add(1))
+            .try_update(Ordering::Relaxed, Ordering::Relaxed, |v| v.checked_add(1))
             .map_err(|_| HostError::RuntimeIdExhausted)?;
         Ok(Self {
             runtime,
@@ -64,7 +64,7 @@ struct Sample {
 struct Input {
     op: u32,
     /// The header's spare word: a grouped begin's kind (1 a ghost, 2 the
-    /// keys) or a step's direction; 0 otherwise.
+    /// keys) or a step's direction (LLP 1094 D5, D9); 0 otherwise.
     flags: u32,
     runtime: u64,
     binding: ReorderBinding,
@@ -107,8 +107,14 @@ impl Input {
             let scroll_sequence = r.u64()?;
             let count = r.u32()? as usize;
             let flags = r.u32()?;
-            // 21 is `reorder-preview-into` and 22 `reorder-step`.
-            if !(flags == 0 || op == 15 && flags <= 2 || op == 22 && (1..=4).contains(&flags))
+            // 21 is `reorder-preview-into` and 22 `reorder-step` (LLP 1094 D5).
+            // A step is one of four; a begin says whether the keys drive it.
+            let flags_ok = match op {
+                15 => flags <= 2,
+                22 => (1..=4).contains(&flags),
+                _ => flags == 0,
+            };
+            if !flags_ok
                 || count > MAX_WRAPPERS
                 || bytes.len() != 176 + count * 32
                 || !(15..=22).contains(&op)
@@ -158,7 +164,7 @@ impl Input {
             return Err("invalid reorder clock");
         }
         if self.velocity != Value::ZERO {
-            // Measured by the engine; the slots stay zero.
+            // Measured by the engine (LLP 1057.001 §3); the slots stay zero.
             return Err("reorder velocity is measured; its slots must be zero");
         }
         let pixel = |v: f64| v.is_finite() && v.abs() <= f32::MAX as f64;
@@ -435,7 +441,7 @@ impl<D: DataSource> Host<D> {
         a.terminal = true;
         a.captured = true;
         // The source row's release velocity is the engine's, over the values
-        // its hold was given, not the packet's.
+        // its hold was given (LLP 1057.001 §3), not the packet's.
         let measured = a
             .holds
             .get(&i.binding.wrapper)

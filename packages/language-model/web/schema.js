@@ -1,4 +1,4 @@
-// The JSON Schema subset, the one every platform's constrained decoding
+// D8's JSON Schema subset, the one every platform's constrained decoding
 // carries: `object` with `properties` and `required`, `string` with `enum`
 // or `pattern`, `number` and `integer` with `minimum` and `maximum`,
 // `boolean`, `array` with `items`, `minItems` and `maxItems`,
@@ -19,8 +19,8 @@ export function refusal(schema, root = schema, at = '') {
   if (!schema || typeof schema !== 'object' || Array.isArray(schema)) return `${at || 'the schema'} is not an object`;
   if (schema.$ref !== undefined) return resolve(schema.$ref, root) ? null : `${at}: \`${schema.$ref}\` names nothing in \`$defs\``;
   const keys = KEYS[schema.type];
-  if (!keys) return `${at || 'the schema'}: type \`${schema.type}\` is outside the supported subset`;
-  for (const k of Object.keys(schema)) if (!keys.includes(k) && !ANY.includes(k)) return `${at || 'the schema'}: \`${k}\` is outside the supported subset`;
+  if (!keys) return `${at || 'the schema'}: type \`${schema.type}\` is outside D8's subset`;
+  for (const k of Object.keys(schema)) if (!keys.includes(k) && !ANY.includes(k)) return `${at || 'the schema'}: \`${k}\` is outside D8's subset`;
   for (const [name, d] of Object.entries(schema.$defs ?? {})) { const why = refusal(d, root, `$defs.${name}`); if (why) return why; }
   if (schema.type === 'object') for (const [name, p] of Object.entries(schema.properties ?? {})) { const why = refusal(p, root, `${at}${at ? '.' : ''}${name}`); if (why) return why; }
   if (schema.type === 'array' && schema.items) return refusal(schema.items, root, `${at}[]`);
@@ -68,7 +68,7 @@ export function violation(schema, v, root = schema, at = '') {
   }
 }
 
-/** The agent model's first instance: each required property in order, a string's first `enum` value or `""`, a number's
+/** §9's first instance: each required property in order, a string's first `enum` value or `""`, a number's
  * `minimum` or 0, `false`, and an array of `minItems` first instances. */
 export function firstInstance(schema, root = schema) {
   if (schema.$ref !== undefined) return firstInstance(resolve(schema.$ref, root) ?? {}, root);

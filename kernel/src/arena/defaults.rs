@@ -1,16 +1,32 @@
-//! Live platform defaults below authored rows.
+//! Live platform defaults below authored rows. @ref LLP 1115.000 D2, D4.13, D17.
 use super::*;
 use crate::style::metrics::{self, Column};
 use std::borrow::Cow;
 
 static HEADER: std::sync::LazyLock<StyleProps> = std::sync::LazyLock::new(|| {
-    let mut style = StyleProps::default();
+    // Static defaults keep roles, independent of the initializing app's theme.
+    let role = |name| {
+        let metric = metrics::named(name).expect("schema header metric");
+        let crate::generated::MetricValue::Text(name) = metric.neutral else {
+            panic!("schema header role");
+        };
+        crate::ColorValue::Role(crate::style::roles::role(name).expect("schema header role"))
+    };
+    let mut style = StyleProps::default().with_rows(|rows| {
+        rows.background_color = Some(role("-exact-header-ground"));
+        rows.text_color = role("-exact-header-color");
+    });
+    style.border_color_bottom = Some(role("-exact-header-edge-color"));
+    for id in [
+        StyleId::BackgroundColor,
+        StyleId::TextColor,
+        StyleId::BorderColorBottom,
+    ] {
+        style.mask.set(id);
+    }
     for (id, name) in [
-        (StyleId::BackgroundColor, "-exact-header-ground"),
-        (StyleId::TextColor, "-exact-header-color"),
         (StyleId::BorderWidthBottom, "-exact-header-edge-width"),
         (StyleId::BorderStyleBottom, "-exact-header-edge-style"),
-        (StyleId::BorderColorBottom, "-exact-header-edge-color"),
         (StyleId::MinHeight, "-exact-header-min-height"),
         (StyleId::PaddingTop, "-exact-header-padding-block"),
         (StyleId::PaddingBottom, "-exact-header-padding-block"),
@@ -29,18 +45,17 @@ static HEADER: std::sync::LazyLock<StyleProps> = std::sync::LazyLock::new(|| {
 static TAB_BAR: std::sync::LazyLock<StyleProps> = std::sync::LazyLock::new(|| {
     let role =
         |name| crate::ColorValue::Role(crate::style::roles::role(name).expect("schema role"));
-    let mut style = StyleProps {
-        background_color: Some(role("-exact-background")),
-        border_width_top: metrics::length_in(
+    let mut style = StyleProps::default().with_rows(|rows| {
+        rows.background_color = Some(role("-exact-background"));
+        rows.border_width_top = metrics::length_in(
             crate::generated::metric::CONTROL_LINE,
             Column::Neutral,
             1.0,
             1.0,
         )
-        .expect("neutral separator width"),
-        border_style_top: crate::BorderStyle::Solid,
-        ..StyleProps::default()
-    };
+        .expect("neutral separator width");
+        rows.border_style_top = crate::BorderStyle::Solid;
+    });
     // Keep role identities: a static default must not capture one app's theme.
     style.border_color_top = Some(role("-exact-separator"));
     for id in [
@@ -54,6 +69,39 @@ static TAB_BAR: std::sync::LazyLock<StyleProps> = std::sync::LazyLock::new(|| {
     style
 });
 
+/// The neutral segmented control's track (`host/web/neutral.css`, "A
+/// segmented control"): a `radiogroup` of radios on a fill, round at the
+/// control's radius, its radios inside its padding ([`crate::segmented`]).
+static SEGMENTED: std::sync::LazyLock<StyleProps> = std::sync::LazyLock::new(|| {
+    let role =
+        |name| crate::ColorValue::Role(crate::style::roles::role(name).expect("schema role"));
+    let length = |index| {
+        let px = metrics::length_in(index, Column::Neutral, 1.0, 1.0).expect("neutral row");
+        crate::StyleValue::Number(px as f64)
+    };
+    let mut style = StyleProps::default().with_rows(|rows| {
+        rows.background_color = Some(role("-exact-tertiary-fill"));
+    });
+    style.mask.set(StyleId::BackgroundColor);
+    let padding = length(crate::generated::metric::SEGMENTED_PADDING);
+    let radius = length(crate::generated::metric::CONTROL_RADIUS);
+    for (id, value) in [
+        (StyleId::PaddingTop, &padding),
+        (StyleId::PaddingRight, &padding),
+        (StyleId::PaddingBottom, &padding),
+        (StyleId::PaddingLeft, &padding),
+        (StyleId::BorderRadiusTopLeft, &radius),
+        (StyleId::BorderRadiusTopRight, &radius),
+        (StyleId::BorderRadiusBottomRight, &radius),
+        (StyleId::BorderRadiusBottomLeft, &radius),
+    ] {
+        style
+            .set_dynamic(id, value)
+            .expect("schema segmented value");
+    }
+    style
+});
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) struct DefaultContext {
     pub alert: u8,
@@ -62,6 +110,7 @@ pub(crate) struct DefaultContext {
     pub tab_bar: bool,
     pub tab: bool,
     pub native_tab: bool,
+    pub segmented: bool,
     /// [`NodeArena::said_style_rows`].
     pub said_style: StyleMask,
     /// [`NodeArena::ink_said`]: a move can change it with the colour equal.
@@ -107,6 +156,100 @@ impl NodeArena {
         false
     }
 
+    /// The neutral sheet's large-title line belongs to level-1 text in
+    /// the route's first header, outside any dialog or popover.
+    pub(crate) fn neutral_header_title(&self, slot: u32) -> bool {
+        if metrics::column() != Column::Neutral
+            || self.node_type(slot) != NodeType::Text
+            || self.props(slot).str(PropId::AccessibilityRole) != Some("heading")
+            || self.props(slot).get(PropId::AccessibilityHeadingLevel) != Some(&PropValue::Int(1))
+        {
+            return false;
+        }
+        let mut at = Some(slot);
+        let mut header = None;
+        while let Some(s) = at {
+            let props = self.props(s);
+            if props.get(PropId::Popover).is_some()
+                || props.str(PropId::SemanticTag) == Some("dialog")
+            {
+                return false;
+            }
+            if header.is_none() && self.is_neutral_header(s) {
+                header = Some(s);
+            }
+            at = self.parent(s);
+        }
+        let Some(header) = header else { return false };
+        let style = self.style(header);
+        if style.appearance == crate::Appearance::None && style.written.has(StyleId::Appearance) {
+            return false;
+        }
+        // A site's navigation is authored chrome, as on the web
+        // (`host/web/src/document_bars.rs`, `site_header`).
+        fn site(arena: &NodeArena, slot: u32, menu: bool, links: &mut u32) -> bool {
+            arena.children(slot).iter().any(|&child| {
+                let props = arena.props(child);
+                let tag = props.str(PropId::SemanticTag);
+                let menu = menu || props.get(PropId::Popover).is_some() || tag == Some("dialog");
+                if !menu
+                    && (props.get(PropId::Href).is_some()
+                        || props.str(PropId::AccessibilityRole) == Some("link"))
+                {
+                    *links += 1;
+                }
+                tag == Some("nav") || *links > 1 || site(arena, child, menu, links)
+            })
+        }
+        if site(self, header, false, &mut 0) {
+            return false;
+        }
+        let route = self.parent(header).expect("route header");
+        if self.children(route).first() != Some(&header) {
+            return false;
+        }
+        let presented = |r| {
+            matches!(
+                self.props(r).str(PropId::NavigationPresentation),
+                Some("modal" | "fullscreen")
+            )
+        };
+        !presented(route)
+            && !self.parent(route).is_some_and(|stack| {
+                self.children(stack)
+                    .iter()
+                    .take_while(|&&r| r != route)
+                    .any(|&r| presented(r))
+            })
+    }
+
+    pub(crate) fn neutral_title_layout(
+        &self,
+        slot: u32,
+        line: f32,
+        style: &mut taffy::style::Style,
+    ) {
+        let own = self.style(slot).mask.union(self.style(slot).written);
+        // The web scales the 16px text-style row in rem. Its bar never
+        // collapses, but keeps iOS's large-title leading (neutral.css).
+        let large = crate::TEXT_STYLES
+            .iter()
+            .position(|s| s.name == "large-title")
+            .expect("large-title text style") as u8;
+        let large_line =
+            crate::style::relative::text_style_size(large, 16.) * self.root_font_size() / 16. * 1.2;
+        let margin = ((large_line - line) / 2.).max(0.);
+        if !own.has(StyleId::MinHeight) {
+            style.min_size.height = taffy::style::LengthPercentageAuto::length(line);
+        }
+        if !own.has(StyleId::MarginTop) {
+            style.margin.top = taffy::style::LengthPercentageAuto::length(margin);
+        }
+        if !own.has(StyleId::MarginBottom) {
+            style.margin.bottom = taffy::style::LengthPercentageAuto::length(margin);
+        }
+    }
+
     pub(crate) fn is_neutral_tab_bar(&self, slot: u32) -> bool {
         metrics::column() == Column::Neutral
             && self.props(slot).str(PropId::AccessibilityRole) == Some("tablist")
@@ -140,6 +283,7 @@ impl NodeArena {
             tab_bar: self.is_neutral_tab_bar(slot),
             tab: self.is_neutral_tab(slot),
             native_tab: self.neutral_tab_root(slot).is_some(),
+            segmented: self.is_neutral_segmented(slot),
             said_style: self.said_style_rows(slot),
             ink_said: self.ink_said(slot),
         }
@@ -153,12 +297,23 @@ impl NodeArena {
         TAB_BAR.mask
     }
 
+    pub(crate) fn segmented_rows() -> StyleMask {
+        SEGMENTED.mask
+    }
+
+    fn is_neutral_segmented(&self, slot: u32) -> bool {
+        metrics::column() == Column::Neutral
+            && self.segmented_radios(slot).is_some()
+            && !self.grouped_row(slot)
+    }
+
     fn structural_starts(&self, slot: u32) -> impl Iterator<Item = &StyleProps> {
         // A route header can also be a tablist. The later header rule wins
         // shared rows while the tab bar's top edge still accompanies its bottom.
         [
             self.is_neutral_header(slot).then(|| &*HEADER),
             self.is_neutral_tab_bar(slot).then(|| &*TAB_BAR),
+            self.is_neutral_segmented(slot).then(|| &*SEGMENTED),
         ]
         .into_iter()
         .flatten()
@@ -183,13 +338,14 @@ impl NodeArena {
                 out.to_mut().copy_rows(start, defaults);
             }
         }
+        self.bar_symbol_style(slot, &mut out);
         out
     }
 
     /// The slot whose own row supplies `id` for `slot`: the slot itself when
     /// it sets the row; for a row the schema marks inherited, the nearest
     /// logical ancestor that does; `None` when the initial value applies
-    /// (CSS inheritance).
+    /// (CSS inheritance, LLP 1035.000 D1).
     pub fn inherited_source(&self, slot: u32, id: StyleId) -> Option<u32> {
         let mut cur = Some(slot);
         while let Some(s) = cur {
@@ -230,8 +386,8 @@ impl NodeArena {
         out
     }
 
-    /// [`Self::computed_style`] as CSS computes it, before Bold Text: what a
-    /// cascade of its own (an SVG's) starts from.
+    /// [`Self::computed_style`] as CSS computes it, before Bold Text (LLP
+    /// 1115.000 D12.3): what a cascade of its own (an SVG's) starts from.
     pub(crate) fn computed_rows(&self, slot: u32, rows: StyleMask) -> StyleProps {
         let mut out = self.effective_style(slot).into_owned();
         self.copy_inherited(slot, rows, |from, mask| out.copy_rows(from, mask));
@@ -258,7 +414,8 @@ impl NodeArena {
             }
             cur = self.parents[s as usize];
         }
-        // A bare `font-size` style fills what nothing above says.
+        // A bare `font-size` style fills what nothing above says (LLP
+        // 1115.000 D12.2).
         if let Some((_, style)) = self.bare_text_style(slot, id) {
             return style;
         }
@@ -268,8 +425,8 @@ impl NodeArena {
         &self.styles[slot as usize]
     }
 
-    /// The slot whose text style supplies inherited row `id` for `slot`:
-    /// one that names it through the `font`
+    /// The slot whose text style supplies inherited row `id` for `slot`
+    /// (LLP 1115.000 D12.2): one that names it through the `font`
     /// shorthand, where nothing written stops the walk first, or the
     /// nearest bare `font-size` style when nothing above says the row.
     pub fn text_style_source(&self, slot: u32, id: StyleId) -> Option<u32> {
@@ -316,10 +473,9 @@ impl NodeArena {
         if self.bold_text {
             let weight = self.computed_source(slot, StyleId::FontWeight).font_weight;
             let family = self.computed_source(slot, StyleId::FontFamily).font_family;
-            let bold = StyleProps {
-                font_weight: self.emboldened(slot, weight, family),
-                ..StyleProps::default()
-            };
+            let bold = StyleProps::default().with_rows(|rows| {
+                rows.font_weight = self.emboldened(slot, weight, family);
+            });
             out.copy_rows(&bold, StyleMask::of(StyleId::FontWeight));
         }
         out
@@ -336,7 +492,7 @@ impl NodeArena {
             .minus(self.styles[slot as usize].mask);
         let mut cur = Some(slot);
         // Per row, the nearest bare `font-size` style on the way up whose
-        // node does not write the row: a style gives
+        // node does not write the row (LLP 1115.000 D12.2): a style gives
         // two rows, so two fills at most.
         let mut bare: [Option<(&StyleProps, StyleMask)>; 2] = [None, None];
         let mut claimed = StyleMask::default();

@@ -1,5 +1,5 @@
-//! The fixed record order of `textarea decorations=` and of
-//! a Markdown field's `atomFaces` and `atompress`.
+//! The fixed record order of `textarea decorations=` (LLP 1114.007) and of
+//! a Markdown field's `atomFaces` and `atompress` (LLP 1045.000 D2, D7).
 //! The producer bridge serializes `TextDecorations` and `AtomFace` as named
 //! JSON fields.
 
@@ -14,7 +14,7 @@ pub(crate) fn declare(shapes: &mut Shapes) {
             ("end".into(), Ty::Number),
         ],
     );
-    // A field is never defaulted: an empty `color` or
+    // A field is never defaulted (LLP 1035.005.000 D3): an empty `color` or
     // `backgroundColor` is the kind's paint, as an empty label is the default,
     // an empty `direction` follows the atom's line, and an empty `ariaLabel`
     // leaves the label as the accessible name.

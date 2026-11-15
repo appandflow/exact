@@ -34,7 +34,7 @@ export function simulatorConsole(spawn, hostLines, onProcess) {
 export const AWAY = 'the app left the foreground (a share extension or another app took the screen), so it is suspended and every op fails until it is back; `logs` has the host lines up to then';
 
 /** JSON lines over a duplex: each request is answered by the next line the app writes; unmatched lines are host output (`hostLines`). `fail` rejects every pending request (the app is gone).
- * A line the app pushes unasked (`{"pushed":"background"|"foreground"}`) answers nothing: leaving fails the
+ * A line the app pushes unasked (`{"pushed":"background"|"foreground"}`, LLP 1143 D1) answers nothing: leaving fails the
  * pending requests at once and every later one until the app is back, and the replies they were owed are dropped when
  * they come. */
 export function jsonLines(readable, writable, hostLines) {
@@ -77,7 +77,8 @@ export function jsonLines(readable, writable, hostLines) {
 /** Why a native app stopped answering, for the error that ends the run: its pid alive or gone, how it exited, any crash report since launch, and the last 20 lines it wrote — not all of them since the last `logs`. */
 export function hangup({ what, pid = null, exit = null, reports = [], hostLines = [] }) {
   const alive = pid == null ? null : (() => { try { process.kill(pid, 0); return true; } catch { return false; } })();
-  const status = exit ? (exit.signal ? `killed by ${exit.signal}` : `exit code ${exit.code}`) : alive == null ? 'no pid known' : `pid ${pid} ${alive ? 'still running' : 'gone'}`;
+  // simctl reports 0 for an app it launched that then crashed (EXC_BAD_ACCESS): an end no close asked for is said as one.
+  const status = exit ? (exit.signal ? `killed by ${exit.signal}` : exit.code === 0 ? 'it ended without a close being asked for; simctl reports exit 0, which a crash also gives' : `exit code ${exit.code}`) : alive == null ? 'no pid known' : `pid ${pid} ${alive ? 'still running' : 'gone'}`;
   return [`${what} (${status})`, ...reports.slice(0, 1).flatMap((f) => crashSummary(f)), ...reports.slice(1).map((f) => `crash report: ${f}`), ...hostLines.slice(-20)].join('\n');
 }
 

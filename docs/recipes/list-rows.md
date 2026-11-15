@@ -23,7 +23,7 @@ component Notes
   action aim(id: string)
     aimed = id
   view
-    main navigationKey=`${top(nav).id}` navigationBack="back" testId="app" width="100%" height="100%"
+    main navigationKey=`${top(nav).id}` testId="app" width="100%" height="100%"
       for e in stack(nav) key=e.id
         column navigationKey=`${e.id}` navigationScroll="notes-list" position="absolute" inset=0
           header display="flex" flex-wrap="wrap" align-items="center" gap=8 padding="8px 16px"
@@ -61,7 +61,7 @@ test "search, swipe to delete, delete from the menu"
 - The empty search field scrolls away on iOS, as UIKit's does; `position="sticky" top=0`
   on the `input` pins it. Querying a server: `contract vocab search`.
 - A filter: a `row role="radiogroup"` of `button role="radio"`
-  ([persisted-setting](persisted-setting.md)): a segmented control, unless you paint them.
+  ([a remembered setting](persisted-setting.md)): a segmented control, unless you paint them.
 - One long-press menu serves every row: the row notes which (`aim`); each item acts on
   `aimed` and hides it (iOS: a `UIMenu`).
 - The list runs under the bar and under a row of only controls pinned beside it (a

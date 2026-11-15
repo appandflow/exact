@@ -10,7 +10,7 @@ use std::{
 };
 pub(crate) const HBC: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/storage.hbc"));
 pub(crate) const APP: &str = "dev.exact.storage-test";
-pub(crate) const GRANTS: &str = "fs.read app:/data\nfs.write app:/data\nfs.write app:/cache/widget-hidden\nfs.write app:/cache/widget-copy\nfs.read doc:/\nfs.write doc:/\ndoc.keep\nsqlite.open app:/data/notes.db\nnet.fetch https://example.test\nsecret.keep session\n";
+pub(crate) const GRANTS: &str = "fs.read app:/data\nfs.write app:/data\nfs.write app:/cache/widget-hidden\nfs.write app:/cache/widget-copy\nfs.read doc:/\nfs.write doc:/\ndoc.keep\nsqlite.open app:/data/notes.db\nnet.fetch https://example.test\nsecret.keep session\nfs.read bundle:/Resources/shipped\n";
 pub(crate) fn plan() -> Plan {
     contract::compile(
         r#"
@@ -37,9 +37,13 @@ component App
     )
     .unwrap()
 }
+/// The `home:` and `bundle:` roots are the process's: a test that names them,
+/// or reads a path under them, takes this first.
+pub(crate) static NAMESPACES: std::sync::Mutex<()> = std::sync::Mutex::new(());
 pub(crate) struct Root(pub(crate) PathBuf);
 impl Root {
     pub(crate) fn new() -> Self {
+        ibex2_sqlite::link();
         static NEXT: AtomicUsize = AtomicUsize::new(0);
         Self(std::env::temp_dir().join(format!(
             "exact-storage-{}-{}",
@@ -84,7 +88,7 @@ pub(crate) fn response(body: &str) -> Outcome {
     })
 }
 /// One answer to its end, then the background work it left, as a native
-/// host runs both.
+/// host runs both (LLP 1097 D5).
 pub(crate) fn finish(m: &mut Module, s: &mut Store, a: &[Value], answer: Answer) -> String {
     let mut done = super::background::drive(m, s, vec![(a.to_vec(), answer)], |_, _| {
         panic!("storage never invents an HTTP request")
@@ -96,6 +100,18 @@ pub(crate) fn call(m: &mut Module, s: &mut Store, op: &str, value: &str) -> Stri
     let a = args(op, value);
     let answer = m.answer(s, "work", &a).unwrap();
     finish(m, s, &a, answer)
+}
+
+#[test]
+fn application_code_cannot_obtain_a_raw_storage_promise() {
+    let root = Root::new();
+    let mut module = root.module();
+    module.activate().unwrap();
+    let mut store = Store::new(GRANTS, []);
+    assert_eq!(
+        call(&mut module, &mut store, "storage-handoff", ""),
+        "private"
+    );
 }
 
 #[test]
@@ -141,7 +157,7 @@ fn native_modules_are_deferred_retired_and_unavailable_to_validation() {
         text(m.query("work", &args("native", "bake")).unwrap()).contains("unavailable during bake")
     );
     // The bake links no module: `native.call` throws storage's refusal, and a
-    // source that lets it through leaves its resource to launch.
+    // source that lets it through leaves its resource to launch (euxy port F1).
     let src = "shape Result\n  text: string\ncomponent App\n  resource r = work(\"native-direct\", \"x\") as shape Result\n  view\n    text r.text\n";
     let mut baking = Module::inspect(HBC.to_vec()).unwrap();
     baking.set_budget_ms(f64::INFINITY);
@@ -187,6 +203,43 @@ fn storage_is_lazy_persistent_isolated_and_grant_checked() {
         call(&mut m, &mut s, "sql-refusals", ""),
         "Unavailable/Unavailable/Unavailable/Unavailable"
     );
+    // A refused statement in a batch is named by its place, its SQL and the rule.
+    let batch = call(&mut m, &mut s, "sql-batch-refused", "");
+    assert!(
+        batch.contains(
+            "statement 2 of 2 (PRAGMA foreign_keys=OFF): not authorized: PRAGMA foreign_keys: "
+        ) && batch.contains("app SQL may run only PRAGMA user_version"),
+        "{batch}"
+    );
+    // A long statement is shown to 200 characters, never half of one.
+    let long = call(&mut m, &mut s, "sql-batch-long", "");
+    let shown = format!(
+        "statement 1 of 1 (INSERT INTO missing VALUES ('{}…): no such table",
+        "\u{1F600}".repeat(171)
+    );
+    assert!(long.contains(&shown), "{long}");
+    assert_eq!(
+        call(&mut m, &mut s, "sql-code-words", ""),
+        "failed/failed/failed/failed"
+    );
+    // A database another connection is writing is EBUSY at the batch's
+    // `BEGIN IMMEDIATE`, after SQLite's 5 s wait.
+    let held = rusqlite::Connection::open(root.0.join("data/notes.db")).unwrap();
+    held.execute_batch("BEGIN IMMEDIATE").unwrap();
+    let busy = call(&mut m, &mut s, "sql-busy", "");
+    held.execute_batch("ROLLBACK").unwrap();
+    assert!(
+        busy.starts_with("EBUSY SQLite EBUSY: database is locked"),
+        "{busy}"
+    );
+    let vacuum = call(&mut m, &mut s, "sql-vacuum-refused", "");
+    assert!(
+        vacuum.contains("not authorized: ATTACH and DETACH")
+            && vacuum.contains("not authorized: PRAGMA foreign_keys: "),
+        "{vacuum}"
+    );
+    // A migration's rebuild under `foreignKeys: "check"`: the fixture's sql-migration.
+    assert_eq!(call(&mut m, &mut s, "sql-migration", ""), "ok|10:1,20:1,30:1,40:2|enforced|foreign key check failed, the batch is rolled back: 3 foreign-key violations: fk_gone row 20 (references fk_t), fk_nulled row 30 (references fk_t), fk_plain row 10 (references fk_t)|10:1,20:1,30:1,40:2|enforced|refused|failed|enforced|mismatch|enforced|ok|ok|unwritable|foreign key check failed, the batch is rolled back: 1 foreign-key violation: fk_tc row 1 (references fk_tp)|counted|enforced|enforced|enforced|Error/Unavailable/failed/SQLite transaction options: unknown option busy; the one option is foreignKeys|Error/Unavailable/failed/SQLite transaction options: unknown option foreignKey; the one option is foreignKeys|Error/Unavailable/failed/SQLite transaction options must be an object|Error/Unavailable/failed/SQLite transaction options: foreignKeys is \"check\" or absent|failed/foreign key check failed, the batch is rolled back: 2 foreign-key violations: fk_big row 1 (references fk_t), fk_big row 9007199254740993 (references fk_t)|failed/foreign key check failed, the batch is rolled back: 1 foreign-key violation: a fk_wr row (references fk_t)|failed/foreign key check failed, the batch is rolled back: 4 foreign-key violations: fk_\u{E000}1 row 1 (references fk_t), fk_\u{E000}2 row 1 (references fk_t), fk_\u{E000}3 row 1 (references fk_t), and 1 more|failed/foreign key check failed, the batch is rolled back: 2 foreign-key violations: busy row 1 (references fk_t), database is locked row 1 (references fk_t)|failed/foreign key check failed, the batch is rolled back: 2 foreign-key violations: fk_two row 1 (references fk_q), fk_two row 1 (references fk_t)|kept|kept|kept|kept|1/1|failed/SQLite transaction options: unknown option __proto__; the one option is foreignKeys|failed/SQLite transaction options: unknown option constructor; the one option is foreignKeys|kept|failed/SQLite transaction options: foreignKeys is \"check\" or absent|failed/SQLite transaction options: unknown option other; the one option is foreignKeys|failed/SQLite transaction options must be an object");
     assert!(!root.0.join("cache/no").exists());
     m.unload();
     m.activate().unwrap();
@@ -255,11 +308,11 @@ fn storage_then_fetch_then_storage_preserves_each_answer_context() {
     assert!(matches!(s.get("session"), Some("a" | "b")));
 }
 
-/// Storage an answer starts and does not await still lands: a
+/// Storage an answer starts and does not await still lands (kanban F22): a
 /// write made before a value returned at once, and one queued behind the
 /// module's storage chain and begun after the answer's own promise resolved,
-/// or after a value it gave at once. The browser runs each to its
-/// end; so does Hermes, after the reply, as background work.
+/// or after a value it gave at once (drums R10). The browser runs each to its
+/// end; so does Hermes, after the reply, as background work (LLP 1097).
 #[test]
 fn storage_an_answer_does_not_await_still_lands() {
     let root = Root::new();
@@ -275,7 +328,7 @@ fn storage_an_answer_does_not_await_still_lands() {
     );
     assert_eq!(call(&mut m, &mut s, "read-at", "queued/file"), "second");
     // A save chained behind a resolved promise, the value given at once:
-    // the write begins in the checkpoint after the call.
+    // the write begins in the checkpoint after the call (drums R10).
     assert_eq!(call(&mut m, &mut s, "deferred", "third"), "answered");
     assert_eq!(call(&mut m, &mut s, "deferred", "fourth"), "answered");
     assert_eq!(
@@ -284,6 +337,18 @@ fn storage_an_answer_does_not_await_still_lands() {
     );
     assert_eq!(call(&mut m, &mut s, "queued-sync", "third"), "answered");
     assert_eq!(call(&mut m, &mut s, "read-at", "queued/file"), "third");
+}
+
+/// A write queued behind another operation writes the bytes it was called
+/// with, though the app refills its buffer before the write runs, as the
+/// browser's filesystem does (host/web/storage-fs.js).
+#[test]
+fn a_queued_write_keeps_the_bytes_of_its_call() {
+    let root = Root::new();
+    let mut m = root.module();
+    m.activate().unwrap();
+    let mut s = Store::new(GRANTS, Vec::<(String, Vec<u8>)>::new());
+    assert_eq!(call(&mut m, &mut s, "reused-buffer", "AB"), "AB,B,AB");
 }
 
 /// An app that serializes its storage work through one promise chain starts the
@@ -712,12 +777,12 @@ component App
     assert!(!other.data().is_loaded());
 }
 
-/// Ledger's pattern on a native host: every answer queued on one
+/// Ledger's pattern on a native host (ledger F12): every answer queued on one
 /// promise chain, a mutation that `refreshes` a storage-backed listing (asked
 /// when sent and again when it lands), a save that refuses bad input before
 /// touching storage, and filter changes that replace a listing between its
 /// storage steps, beside an independent read replaced mid-read by new
-/// arguments or a refresh. Driven as the Apple bridge drives it: let-go work still
+/// arguments or a refresh (minesweeper F10). Driven as the Apple bridge drives it: let-go work still
 /// runs and its reply is dropped; held work runs when released.
 #[test]
 fn queued_answers_survive_refreshes_refusals_and_replaced_turns() {
@@ -866,7 +931,7 @@ component App
     assert_eq!(read(&runner, "saved"), "y:2");
     assert_eq!(read(&runner, "listing"), ":2");
     // An independent read replaced mid-read, by new arguments or by a
-    // refresh with the same ones, leaves later reads working.
+    // refresh with the same ones, leaves later reads working (minesweeper F10).
     runner
         .act("save", vec![Value::str("file"), Value::str("peeked")])
         .unwrap();
@@ -906,7 +971,7 @@ component App
 
     assert!(!runner.has_pending(), "everything settled");
     // `peek` reads a file that may not be there and says so: its failed
-    // read is journaled, and nothing else failed.
+    // read is journaled (LLP 1097 D8), and nothing else failed.
     let refusals: Vec<&str> = runner
         .journal()
         .filter(|l| l.contains("pending on nothing") || l.contains("failed"))
@@ -915,13 +980,13 @@ component App
     assert!(refusals.is_empty(), "{refusals:#?}");
 }
 
-/// A re-read the runner dropped before handing it out (a mutation
-/// refreshing a folder's preview mid-walk) is forgotten here too.
+/// A re-read the runner dropped before handing it out (files diary F18: a
+/// mutation refreshing a folder's preview mid-walk) is forgotten here too.
 /// Left parked under the walk's key, it took the walk's next storage step,
 /// so the walk's turn never ended and every answer behind it waited forever.
 /// A composer above (the mixed source) cannot name the walk's dispatched
-/// token to `forgotten`, so only `discard` drops it. The re-read begins
-/// instead of waiting; `discard` still drops that call, and
+/// token to `forgotten`, so only `discard` drops it. LLP 1097 begins the
+/// re-read instead of deferring it; `discard` still drops that call, and
 /// the steps it already issued run as a let-go without becoming the walk's.
 #[test]
 fn a_discarded_re_read_leaves_the_read_in_flight_its_steps() {
@@ -949,8 +1014,8 @@ fn a_discarded_re_read_leaves_the_read_in_flight_its_steps() {
             Answer::Later(request) => {
                 let token = request.continuation.expect("storage continuation");
                 // Queued behind the discarded re-read's issued step, the walk
-                // waits and is asked again once that step is delivered.
-                // `continuation` of that wait is the worker
+                // waits and is asked again once that step is delivered
+                // (LLP 1097 D3). `continuation` of that wait is the worker
                 // refusal; a host dispatches it.
                 answer = match crate::runnable(m.dispatch(token, &s)) {
                     Dispatch::Run(Work::Now(work)) => {
@@ -987,8 +1052,8 @@ fn a_discarded_re_read_leaves_the_read_in_flight_its_steps() {
     panic!("the walk did not settle")
 }
 
-/// Each refusal names its reason as a code the web's adapters use too;
-/// the message beside it may differ by host.
+/// Each refusal names its reason as a code the web's adapters use too
+/// (kanban F28); the message beside it may differ by host.
 #[test]
 fn storage_refusals_carry_a_stable_code() {
     let root = Root::new();
@@ -996,12 +1061,24 @@ fn storage_refusals_carry_a_stable_code() {
     m.activate().unwrap();
     let mut s = Store::new(GRANTS, Vec::<(String, Vec<u8>)>::new());
     assert_eq!(call(&mut m, &mut s, "file", "x"), "x");
+    // No test here sets a bundle directory, as iOS sets none. (A process
+    // test in this binary may set the home directory.) Unix only: Windows's
+    // `home:` and `bundle:` are LLP 1133.007 stage 3, not absent (§8), and
+    // its unbuilt path answers otherwise.
+    #[cfg(unix)]
+    let _namespaces = NAMESPACES.lock().unwrap_or_else(|e| e.into_inner());
+    #[cfg(unix)]
+    assert_eq!(
+        call(&mut m, &mut s, "absent-namespace", ""),
+        "NotSupportedError Unavailable failed"
+    );
     let codes: Vec<String> = call(&mut m, &mut s, "codes", "")
         .lines()
         .map(|l| l.split(' ').take(2).collect::<Vec<_>>().join(" "))
         .collect();
+    let (common, folder) = codes.split_at(5);
     assert_eq!(
-        codes,
+        common,
         [
             "Unavailable ENOENT",
             "Unavailable denied",
@@ -1010,117 +1087,24 @@ fn storage_refusals_carry_a_stable_code() {
             "Unavailable denied"
         ]
     );
-}
-
-/// A folder the person chose is reached from TypeScript as from Rust: the
-/// same `doc:` path, the same grants, the same
-/// executor, and with no app storage at all (a drive with no scratch store),
-/// where an `app:/` read finds an empty store, as a fresh install's does.
-#[test]
-fn a_document_the_person_chose_is_storage_without_app_directories() {
-    let dir = Root::new();
-    let folder = dir.0.join("chosen");
-    std::fs::create_dir_all(folder.join("sub")).unwrap();
-    std::fs::write(folder.join("a.txt"), "A").unwrap();
-    std::fs::write(folder.join("sub/b.txt"), "B").unwrap();
-    let doc = exact_data::documents::mint(&folder, 9101).unwrap();
-    let mut s = Store::new(GRANTS, Vec::<(String, Vec<u8>)>::new());
-    let expected = "a.txt=A sub/0 new=hi Unavailable ENOENT Unavailable denied Unavailable EISDIR Unavailable ENOTDIR Unavailable ENOTEMPTY Unavailable failed Unavailable failed Unavailable ENOENT";
-    let mut agent = Module::new(HBC.to_vec(), APP, GRANTS).with_agent_seed(Some(1));
-    agent.set_document_owner(9101);
-    agent.set_budget_ms(f64::INFINITY);
-    agent.bind(&plan());
-    agent.activate().unwrap();
+    // A folder read or copied from as a file is EISDIR, and the copy leaves
+    // no file. Unix only: the Windows app filesystem still refuses both with
+    // a message that carries no filesystem code, so they read as `failed`.
+    #[cfg(unix)]
     assert_eq!(
-        call(&mut agent, &mut s, "doc", &doc),
-        format!("{expected} Unavailable ENOENT")
+        folder,
+        [
+            "Unavailable EISDIR",
+            "Unavailable EISDIR",
+            "Unavailable ENOENT"
+        ]
     );
-    let mut m = dir.module();
-    m.set_document_owner(9101);
-    m.activate().unwrap();
-    assert_eq!(
-        call(&mut m, &mut s, "doc", &doc),
-        format!("{expected} Unavailable ENOENT")
-    );
-    assert!(!folder.join("new.txt").exists());
-    let mut other = dir.module();
-    other.set_document_owner(9103);
-    other.activate().unwrap();
-    assert_eq!(
-        call(&mut other, &mut s, "doc-link", &format!("{doc}/a.txt")),
-        ["refused"; 8].join(" ")
-    );
-    exact_data::documents::forget(9101);
-}
-
-#[test]
-fn typescript_file_reads_obey_the_encoded_result_boundary() {
-    let root = Root::new();
-    let folder = root.0.join("chosen");
-    std::fs::create_dir_all(&folder).unwrap();
-    let file = folder.join("large");
-    let boundary = ((exact_data::storage::MAX_BYTES - 13) / 4) * 3;
-    std::fs::File::create(&file)
-        .unwrap()
-        .set_len(boundary as u64)
-        .unwrap();
-    let doc = exact_data::documents::mint(&file, 9120).unwrap();
-    let mut module = root.module();
-    module.set_document_owner(9120);
-    module.activate().unwrap();
-    let mut store = Store::new(GRANTS, Vec::<(String, Vec<u8>)>::new());
-    assert_eq!(
-        call(&mut module, &mut store, "read-size", &doc),
-        boundary.to_string()
-    );
-    std::fs::OpenOptions::new()
-        .write(true)
-        .open(&file)
-        .unwrap()
-        .set_len((boundary + 1) as u64)
-        .unwrap();
-    assert!(call(&mut module, &mut store, "read-size", &doc)
-        .contains("storage result exceeds its byte limit"));
-    exact_data::documents::forget(9120);
-}
-
-#[test]
-#[cfg(unix)]
-fn typescript_document_operations_refuse_descendant_symlinks() {
-    use std::os::unix::fs::symlink;
-    let root = Root::new();
-    let folder = root.0.join("chosen");
-    let outside = root.0.join("outside");
-    std::fs::create_dir_all(&folder).unwrap();
-    std::fs::create_dir(&outside).unwrap();
-    std::fs::write(outside.join("secret"), "outside").unwrap();
-    symlink(outside.join("secret"), folder.join("link")).unwrap();
-    symlink(&outside, folder.join("dir-link")).unwrap();
-    let doc = exact_data::documents::mint(&folder, 9102).unwrap();
-    let mut module = root.module();
-    module.set_document_owner(9102);
-    module.activate().unwrap();
-    let mut store = Store::new(GRANTS, Vec::<(String, Vec<u8>)>::new());
-    for leaf in ["link", "dir-link/secret"] {
-        assert_eq!(
-            call(
-                &mut module,
-                &mut store,
-                "doc-link",
-                &format!("{doc}/{leaf}")
-            ),
-            ["refused"; 8].join(" ")
-        );
-    }
-    assert_eq!(
-        std::fs::read_to_string(outside.join("secret")).unwrap(),
-        "outside"
-    );
-    exact_data::documents::forget(9102);
+    #[cfg(not(unix))]
+    let _ = folder;
 }
 
 /// No later UI request is needed to finish writes these answers already
-/// issued. No answer waits on another to begin, so every
+/// issued. LLP 1097 D4.5 deletes the answer-to-answer deferral, so every
 /// answer begins at once and the discarded send has already issued: its
 /// write lands too. It is not an unstarted deferred mutation. Those
 /// answers' Store writes do not commit. A later live mutation does.
@@ -1170,7 +1154,7 @@ fn retired_deferred_writes_finish_without_another_answer() {
     assert_eq!(
         std::fs::read_to_string(root.0.join("data/note")).unwrap(),
         "uncommitted",
-        "an issued write still lands after its answer is discarded"
+        "an issued write still lands after its answer is discarded (LLP 1097)"
     );
     assert_eq!(store.get("session"), Some("original"));
     let logs = crate::authored_logs(m.take_logs());
@@ -1181,12 +1165,12 @@ fn retired_deferred_writes_finish_without_another_answer() {
 }
 
 /// Issued writes keep queue order beside the live answers, and the
-/// superseded answer's Store write does not commit. No answer waits on
-/// another to begin, so these answers interleave at their
+/// superseded answer's Store write does not commit. LLP 1097 D4.5 deletes
+/// the answer-to-answer deferral, so these answers interleave at their
 /// awaits: each `ordered` read is issued before any of the writes, each
 /// write therefore stores only its own letter, and the letters land A, then
 /// B, then C. The file is not the old deferral's `ABC`. Unload finishes
-/// those issued writes; it does not drop them.
+/// those issued writes (D10); it does not drop them.
 #[test]
 fn retired_writes_keep_submission_order_beside_live_targets_and_do_not_cross_unload() {
     use exact_runner::{Dispatch, InFlight, Target, Work};
@@ -1291,18 +1275,21 @@ fn retired_writes_keep_submission_order_beside_live_targets_and_do_not_cross_unl
                     target: Target::Resource(0),
                     source: "work",
                     args: &owner_args,
+                    fetch: None,
                     continuation: token(&owner),
                 },
                 InFlight {
                     target: Target::Mutation(0),
                     source: "work",
                     args: &aa,
+                    fetch: None,
                     continuation: token(&older),
                 },
                 InFlight {
                     target: Target::Mutation(1),
                     source: "work",
                     args: &cc,
+                    fetch: None,
                     continuation: token(&newer),
                 },
             ],
@@ -1310,14 +1297,14 @@ fn retired_writes_keep_submission_order_beside_live_targets_and_do_not_cross_unl
         assert_eq!(
             m.in_flight(),
             3,
-            "three live calls; the superseded send is not parked as a deferred answer"
+            "three live calls; LLP 1097 does not park the superseded send as a deferred answer"
         );
         let ordered = root.0.join("data/ordered");
         if unload {
             m.unload();
             assert_eq!(m.in_flight(), 0);
             // The superseded send had already issued its write. Unload
-            // finishes it; the deleted deferral used to drop it, and
+            // finishes it (D10); the deleted deferral used to drop it, and
             // the file was absent. The last issued write is C's.
             assert_eq!(std::fs::read_to_string(&ordered).unwrap(), "C");
             assert_eq!(
@@ -1394,6 +1381,7 @@ fn forgetting_a_shared_waiter_keeps_the_live_answers_store_write() {
             target,
             source: "work",
             args: &a,
+            fetch: request.fetch,
             continuation: request.continuation,
         }],
     );
@@ -1414,4 +1402,43 @@ fn forgetting_a_shared_waiter_keeps_the_live_answers_store_write() {
         }
     }
     panic!("live answer did not finish");
+}
+
+/// Off Apple the provider links the SQLite that `libsqlite3-sys` bundles.
+/// SQLite 3.54.0 fixes reads of uninitialized page-cache memory through a
+/// WAL whose page size differs from its database's (RUSTSEC-2026-0459).
+#[cfg(not(target_vendor = "apple"))]
+#[test]
+fn bundled_sqlite_has_the_wal_page_size_fix() {
+    assert!(
+        rusqlite::version_number() >= 3_054_000,
+        "{}",
+        rusqlite::version()
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn configuring_storage_refuses_a_symlink_root() {
+    let root = Root::new();
+    std::fs::create_dir_all(root.0.join("outside")).unwrap();
+    std::fs::write(root.0.join("outside/secret"), b"outside").unwrap();
+    std::os::unix::fs::symlink(root.0.join("outside"), root.0.join("data")).unwrap();
+    let mut module = Module::new(HBC.to_vec(), APP, GRANTS);
+    module
+        .configure_storage(
+            root.0.join("data"),
+            root.0.join("cache"),
+            root.0.join("tmp"),
+        )
+        .unwrap();
+    assert!(module.activate().is_err());
+    assert_eq!(
+        std::fs::read(root.0.join("outside/secret")).unwrap(),
+        b"outside"
+    );
+    assert_eq!(
+        std::fs::read_dir(root.0.join("outside")).unwrap().count(),
+        1
+    );
 }

@@ -1,4 +1,4 @@
-// An image's pictures in the platform's picture-in-picture window: each
+// @ref LLP 1042 §9. An image's pictures in the platform's picture-in-picture window: each
 // picture its source names is decoded into a sample buffer for an AVSampleBufferDisplayLayer,
 // which AVPictureInPictureController floats as a live source (no seeking, never paused).
 import Foundation

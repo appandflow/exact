@@ -6,7 +6,7 @@
 //! mapping; observable JavaScript coercion and locale-list selection stay in
 //! the binding prelude.
 //!
-//! Rust owns standard-library semantics.
+//! @ref LLP 0057#3-the-boundary — Rust owns standard-library semantics
 
 use crate::boundary::{HostArg, HostError, HostValue};
 use crate::host_opcodes::intl_case::MAP as INTL_CASE;

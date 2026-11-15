@@ -1,5 +1,5 @@
-//! A navigation tab is built the first time it is selected:
-//! until then its panel is empty in the runner and `unopened` in the
+//! A navigation tab is built the first time it is selected (LLP 1075.003
+//! §3.7): until then its panel is empty in the runner and `unopened` in the
 //! agent's `tree`; once built it stays, with its state.
 use exact_kernel::Kernel;
 use exact_plan::Value;
@@ -131,6 +131,24 @@ fn a_tab_is_built_when_first_selected_and_keeps_its_state() {
     assert!(tree.contains("\"text\":\"b 1\""), "{tree}");
     assert!(!unopened(&tree, "a") && !unopened(&tree, "b") && unopened(&tree, "c"));
     assert_eq!(r.unopened_tabs().len(), 1);
+}
+
+#[test]
+fn panels_inside_the_tablist_are_built_when_selected() {
+    let source = source(ARIA)
+        .replace("      column\n", "      row role=\"tablist\"\n")
+        .replace(
+            "      row role=\"tablist\"\n        button",
+            "        button",
+        );
+    let mut r = boot(&source, "/");
+    let tree = agent::tree(&r);
+    assert!(!unopened(&tree, "a"));
+    assert!(unopened(&tree, "b") && unopened(&tree, "c"));
+    r.act("pick", vec![Value::str("b")]).unwrap();
+    let tree = agent::tree(&r);
+    assert!(!unopened(&tree, "b") && unopened(&tree, "c"));
+    assert!(has(&tree, "bump-b") && !has(&tree, "bump-c"));
 }
 
 #[test]
@@ -364,4 +382,176 @@ component Editor
     r.act("pick", vec![Value::str("b")]).unwrap();
     assert!(shows(&r, "b:hello"), "{}", agent::tree(&r));
     assert!(shows(&r, "a:"));
+}
+
+/// A tab needs a navigation controller when its panel can hold more than one
+/// route (a route in a `for`, or more than one route in its template) or its
+/// route can show a header, which the platform shows as its navigation bar;
+/// a header shown under a condition counts. One fixed route with no header
+/// needs none. Both are read from the plan, so a tab still waiting for its
+/// first selection answers too (LLP 1075.003 §3.7). Where the plan cannot
+/// tell, as for a panel whose `role` is computed, a tab needs one.
+#[test]
+fn a_tab_needs_navigation_for_a_stack_or_a_header() {
+    let source = "component App
+  state selected = \"a\"
+  state pages = [\"a\"]
+  action pick(name: string)
+    selected = name
+  view
+    main navigationKey=selected navigationBack=\"back\"
+      row role=\"tablist\"
+        button \"A\" role=\"tab\" aria-controls=\"panel-a\" aria-selected=(selected == \"a\") press=pick(\"a\") testId=\"tab-a\"
+        button \"B\" role=\"tab\" aria-controls=\"panel-b\" aria-selected=(selected == \"b\") press=pick(\"b\") testId=\"tab-b\"
+        button \"C\" role=\"tab\" aria-controls=\"panel-c\" aria-selected=(selected == \"c\") press=pick(\"c\") testId=\"tab-c\"
+        button \"D\" role=\"tab\" aria-controls=\"panel-d\" aria-selected=(selected == \"d\") press=pick(\"d\") testId=\"tab-d\"
+        button \"E\" role=\"tab\" aria-controls=\"panel-e\" aria-selected=(selected == \"e\") press=pick(\"e\") testId=\"tab-e\"
+      column role=\"tabpanel\" id=\"panel-a\" testId=\"panel-a\"
+        for p in pages key=p
+          column navigationKey=p
+            text p
+      column role=\"tabpanel\" id=\"panel-b\" testId=\"panel-b\"
+        column navigationKey=\"b\"
+          text \"b\"
+      column role=\"tabpanel\" id=\"panel-c\" testId=\"panel-c\"
+        column navigationKey=\"c\"
+          text \"c\"
+        column navigationKey=\"c-detail\"
+          text \"c detail\"
+      column role=\"tabpanel\" id=\"panel-d\" testId=\"panel-d\"
+        column navigationKey=\"d\"
+          if selected == \"d\"
+            header
+              text \"D\" role=\"heading\" aria-level=1
+          text \"d\"
+      column role=(selected == \"none\" ? \"region\" : \"tabpanel\") id=\"panel-e\" testId=\"panel-e\"
+        column navigationKey=\"e\"
+          text \"e\"
+";
+    let r = boot(source, "/");
+    let tree = agent::tree(&r);
+    assert!(!unopened(&tree, "a") && unopened(&tree, "b") && unopened(&tree, "c"));
+    let id = |name: &str| -> u32 {
+        panel(&tree, name)
+            .split(',')
+            .next()
+            .unwrap()
+            .parse()
+            .unwrap()
+    };
+    let panels = [id("a"), id("b"), id("c"), id("d"), id("e")];
+    assert_eq!(
+        r.panels_need_navigation(&panels),
+        [true, false, true, true, true]
+    );
+    let tab: u32 = nodes(&tree)
+        .into_iter()
+        .find(|n| n.contains("\"testId\":\"tab-a\""))
+        .and_then(|n| n.split(',').next()?.parse().ok())
+        .unwrap();
+    let root: u32 = nodes(&tree)[0].split(',').next().unwrap().parse().unwrap();
+    // A view the plan names no panel site for is one it cannot tell about.
+    assert_eq!(
+        r.panels_need_navigation(&[tab, root, panels[1]]),
+        [true, true, false]
+    );
+}
+
+/// A host builds a tab it lets a person pick before showing it (UIKit's More
+/// list): the panel is built and the selection stays where it was.
+#[test]
+fn a_host_builds_named_tabs_without_selecting_them() {
+    let mut r = boot(&source(ARIA), "/");
+    let tree = agent::tree(&r);
+    let id = |name: &str| -> u32 {
+        panel(&tree, name)
+            .split(',')
+            .next()
+            .unwrap()
+            .parse()
+            .unwrap()
+    };
+    let c = id("c");
+    // One template draws every tab's panel, so the panels share one plan site.
+    assert_eq!(
+        r.panels_need_navigation(&[id("a"), id("b"), c]),
+        [true, true, true]
+    );
+    r.build_tabs(&[c]).unwrap();
+    let tree = agent::tree(&r);
+    assert!(unopened(&tree, "b") && !unopened(&tree, "c"), "{tree}");
+    assert!(has(&tree, "bump-c"));
+    assert_eq!(r.unopened_tabs().len(), 1);
+    let state = agent::state(&r);
+    assert!(state.contains("\"nav\":{\"tab\":\"a\""), "{state}");
+    // A built panel, or a view that is no waiting panel, is left as it is.
+    r.build_tabs(&[c, 0]).unwrap();
+    assert_eq!(r.unopened_tabs().len(), 1);
+}
+
+#[test]
+fn selecting_a_tab_names_the_panel_when_its_initializer_traps() {
+    selected_panel_trap(
+        "Broken()",
+        "component Broken\n  state rows = range(65537)\n  view\n    text `${rows.length}`\n",
+        "state \"rows#1\" initializer",
+    );
+}
+
+#[test]
+fn selecting_a_tab_names_the_panel_when_its_direct_region_traps() {
+    selected_panel_trap(
+        "for n in range(65537) key=n\n          text `${n}`",
+        "",
+        "each subject",
+    );
+}
+
+fn selected_panel_trap(contents: &str, component: &str, evaluation: &str) {
+    let source = format!(
+        r#"component App
+  state selected = "a"
+  action pick
+    selected = "b"
+  view
+    column navigationKey=selected navigationBack="back"
+      row role="tablist"
+        button "A" role="tab" aria-controls="panel-a" aria-selected=(selected == "a")
+        button "B" role="tab" aria-controls="panel-b" aria-selected=(selected == "b") press=pick testId="tab-b"
+      column role="tabpanel" id="panel-a"
+        column navigationKey="a"
+          text "A"
+      column role="tabpanel" id="panel-b" testId="panel-b"
+        {contents}
+        column navigationKey="b"
+          text "B"
+{component}"#
+    );
+    let mut r = boot(&source, "/");
+    let tree = agent::tree(&r);
+    let id = |target: &str| -> u32 {
+        nodes(&tree)
+            .into_iter()
+            .find(|n| n.contains(&format!("\"testId\":\"{target}\"")))
+            .unwrap()
+            .split(',')
+            .next()
+            .unwrap()
+            .parse()
+            .unwrap()
+    };
+    let view = id("panel-b");
+    let button = id("tab-b");
+    let error = r.dispatch(button, Event::Press).unwrap_err();
+    let text = format!("{error:?}");
+    assert!(text.contains("Trap(IterationLimit { pc: "), "{text}");
+    assert!(text.contains(&format!(" in view {view} (site ")), "{text}");
+    assert!(
+        text.contains(&format!(
+            ") {evaluation}: past the 65,536 list steps one evaluation may take"
+        )),
+        "{text}"
+    );
+    assert!(r.is_poisoned(), "{text}");
+    assert!(r.journal().any(|line| line.contains(&text)), "{text}");
 }

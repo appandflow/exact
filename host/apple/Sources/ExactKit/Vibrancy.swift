@@ -1,4 +1,4 @@
-// UIKit's label, fill and separator colours (`-apple-system-*`)
+// LLP 1077 D13: UIKit's label, fill and separator colours (`-apple-system-*`)
 // drawn as Apple draws them over a material — vibrantly, blended with what
 // the material blurs — where elsewhere they are their light and dark pair.
 // The kernel keeps a system colour's identity (`ColorValue::System`), and

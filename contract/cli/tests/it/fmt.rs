@@ -1,4 +1,4 @@
-//! The formatter's three proofs over every corpus file and every app:
+//! LLP 1035.005 D1's three proofs over every corpus file and every app:
 //! `parse(fmt(src))` equals `parse(src)` up to spans and trivia,
 //! `fmt(fmt(src)) == fmt(src)`, and the compiled plans are byte-identical.
 //! No checked-in file is formatted: source snapshots use their original
@@ -187,6 +187,47 @@ fn fmt_check_diffs_and_exits_non_zero_only_on_a_difference() {
 }
 
 #[test]
+fn fmt_check_accepts_typed_states_in_components_and_members() {
+    let dir = std::env::temp_dir().join(format!("exact-fmt-typed-states-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let file = dir.join("a.contract");
+    let expected = r#"component App
+  state picked: option<string> = none
+  state nested: option<option<number[]>[]> = none
+  view
+    text "ready"
+members App
+  state other: option<string> = none
+  state rows: option<option<number[]>[]> = none
+"#;
+    std::fs::write(&file, expected.replace(": ", ":")).unwrap();
+    let out = Command::new(env!("CARGO_BIN_EXE_contract"))
+        .arg("fmt")
+        .arg(&file)
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert_eq!(std::fs::read_to_string(&file).unwrap(), expected);
+    let out = Command::new(env!("CARGO_BIN_EXE_contract"))
+        .args(["fmt", "--check"])
+        .arg(&file)
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(out.stdout.is_empty());
+    assert_eq!(std::fs::read_to_string(&file).unwrap(), expected);
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
 fn fmt_check_keeps_distant_edits_local_without_rewriting_source() {
     let dir = std::env::temp_dir().join(format!("exact-fmt-hunks-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
@@ -329,7 +370,7 @@ fn test_steps_keep_their_viewport_and_signed_offsets() {
     assert_eq!(format(src).unwrap(), src);
 }
 
-/// A part's block (`::placeholder`) is not on its element's
+/// LLP 1104 D3: a part's block (`::placeholder`) is not on its element's
 /// head, so a long head breaks around it and the block stays as written.
 #[test]
 fn a_part_block_formats_in_place() {

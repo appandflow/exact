@@ -1,5 +1,5 @@
 import { createWaitObserver } from './timer-waits-glue.js';
-// One clock owner and one advance
+// @ref LLP 1043.000 §3 D8, §6 ruling 5 — one clock owner and one advance
 // per frame; ordered catch-up (up to 4096 commits) belongs to the runner.
 // Loaded after first paint, also shared by the optional flow executor.
 export function timerWake(due, now, agent = false, tolerance = 0) {
@@ -8,7 +8,7 @@ export function timerWake(due, now, agent = false, tolerance = 0) {
   return ms <= 8 * 1000 / 60 && tolerance === 0 ? { kind: 'frame' } : { kind: 'timeout', ms: Math.min(ms, 2147483647) };
 }
 
-// While the batch says `frames`, every animation frame is
+// @ref LLP 1073 D5 — while the batch says `frames`, every animation frame is
 // `present(timestamp)` (timers, then frame tasks); timeouts still wake timers.
 export function createTimerScheduler({ now, advance, present = null, release = null, agentMode = false, paint = () => {}, scrollPending = () => false,
   raf = requestAnimationFrame, cancel = cancelAnimationFrame, delay = setTimeout, clearDelay = clearTimeout }) {

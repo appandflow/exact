@@ -1,4 +1,4 @@
-// A backdrop box's outer shadows on macOS.
+// A backdrop box's outer shadows on macOS (LLP 1053.000 §3, LLP 1064 D2).
 // AppKit filters a layer's backdrop only while the layer masks to its bounds
 // (`Backdrop.swift`), and that mask clipped the outer shadows, which CSS
 // draws past the border box, together with the caster at the bottom of the
@@ -150,42 +150,4 @@ extension NodeView {
     }
 }
 
-extension Capture {
-    /// A capture draws views, and the node's own drawing is clipped to its
-    /// box with its layer: for the capture, a view directly under each
-    /// standing node draws its shadow there, as the node would
-    /// (`drawCapturedShadow`). The closure returned takes them out.
-    static func standShadows(in root: NSView) -> () -> Void {
-        var shown: [NSView] = []
-        for node in ShadowStand.standing.allObjects where node.isDescendant(of: root) && !node.isHiddenOrHasHiddenAncestor {
-            guard let parent = node.superview, let caster = node.shadowCaster, caster.superlayer === node.shadowStand else { continue }
-            let reach = node.boxShadows.filter { !$0.inset }.map(\.reach).max() ?? 0
-            let view = CapturedShadow(node: node, reach: reach)
-            view.frame = node.frame.insetBy(dx: -reach, dy: -reach)
-            view.alphaValue = node.alphaValue
-            parent.addSubview(view, positioned: .below, relativeTo: node)
-            shown.append(view)
-        }
-        return { shown.forEach { $0.removeFromSuperview() } }
-    }
-}
-
-/// A standing node's shadow in a capture, its box `reach` in from each edge.
-private final class CapturedShadow: NSView {
-    weak var node: NodeView?
-    let reach: CGFloat
-    init(node: NodeView, reach: CGFloat) {
-        self.node = node
-        self.reach = reach
-        super.init(frame: .zero)
-    }
-    required init?(coder: NSCoder) { nil }
-    override var isFlipped: Bool { true }
-    override func hitTest(_ point: NSPoint) -> NSView? { nil }
-    override func draw(_ dirtyRect: NSRect) {
-        guard let node, let ctx = NSGraphicsContext.current?.cgContext else { return }
-        ctx.translateBy(x: reach, y: reach)
-        node.drawCapturedShadow(ctx)
-    }
-}
 #endif

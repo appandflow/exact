@@ -1,5 +1,5 @@
 //! Builder fixture for the VM seam, shared with the leaf crate's corpus runner.
-//! Mirrors exactly the shapes chunk (c) will declare.
+//! @ref LLP 1038 D3/D9 — mirrors exactly the shapes chunk (c) will declare.
 use exact_kernel::NodeType;
 use exact_plan::{asm::Asm, builder::PlanBuilder, Opcode, Plan, Stdlib, TypeKind};
 

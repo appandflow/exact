@@ -1,9 +1,9 @@
-//! An answer that names when it goes stale:
+//! An answer that names when it goes stale (LLP 1133.015 D7, D16 item 2):
 //! an implementation's reply to a live source may carry `"exact:stale"`, a
 //! Unix time in ms, beside its fields (a list answer as `{"exact:answer":
 //! [...], "exact:stale": t}`). The runner takes it off before anything
 //! reads the answer and, when the session's wall clock (`epochAtZero` plus
-//! the session clock) reaches it, asks the source's
+//! the session clock, LLP 1027.000.000) reaches it, asks the source's
 //! readers again, once: a subscription's end, which no store reports. Each
 //! answer names its own next time; one with none, or one already past,
 //! clears it. The ask runs beside the polls (`poll.rs`), outside the timer
@@ -31,13 +31,13 @@ impl<D: DataSource> Runner<D> {
             }
             return body;
         };
-        let session = at.as_f64().map(|unix| unix - self.time.epoch_at_zero);
-        match session.filter(|ms| *ms > self.now_ms) {
-            Some(ms) => {
-                if self.extensions.stale.get(key) != Some(&ms) {
-                    self.log(format!("{key}: stale at {ms} ms"));
+        let now = self.time.epoch_at_zero + self.now_ms;
+        match at.as_f64().filter(|unix| *unix > now) {
+            Some(unix) => {
+                if self.extensions.stale.get(key) != Some(&unix) {
+                    self.log(format!("{key}: stale at Unix {unix} ms"));
                 }
-                self.extensions.stale.insert(key.to_owned(), ms);
+                self.extensions.stale.insert(key.to_owned(), unix);
             }
             None => {
                 self.extensions.stale.remove(key);
@@ -50,19 +50,20 @@ impl<D: DataSource> Runner<D> {
         value.to_string().into_bytes()
     }
 
-    /// The earliest stale time not yet asked, for a host on the live clock.
+    /// The earliest stale time not yet asked, on the session clock for a live host.
     pub(super) fn stale_due_ms(&self) -> Option<f64> {
         (self.extensions.stale.iter())
-            .filter(|(key, ms)| ms.is_finite() && !self.asking(key))
-            .map(|(_, ms)| *ms)
+            .filter(|(key, unix)| unix.is_finite() && !self.asking(key))
+            .map(|(_, unix)| *unix - self.time.epoch_at_zero)
             .reduce(f64::min)
     }
 
     /// After an advance: each source whose stale time passed is asked again,
     /// once; it stays marked asked until its answer names its next time.
     pub(super) fn ask_stale(&mut self) -> Result<Vec<CommitReceipt>, RunnerError> {
+        let now = self.time.epoch_at_zero + self.now_ms;
         let due: Vec<String> = (self.extensions.stale.iter())
-            .filter(|(key, ms)| ms.is_finite() && **ms <= self.now_ms && !self.asking(key))
+            .filter(|(key, unix)| unix.is_finite() && **unix <= now && !self.asking(key))
             .map(|(key, _)| key.clone())
             .collect();
         let mut receipts = Vec::new();

@@ -7,7 +7,7 @@ import XCTest
 /// The iOS agent at a world's canvas, on `SurfaceControlTests`' fixture.
 /// UIKit, so a simulator runs it: bun host/apple/build.mjs --test --ios
 final class SurfaceControlIOSTests: XCTestCase {
-    override class func setUp() { super.setUp(); ExactSurfaces.install() }
+    override class func setUp() { super.setUp(); ExactSurfaces.install() } // LLP 1047.001 D4
 
     private final class CanvasTouch: UITouch {
         let target: UIView
@@ -102,6 +102,51 @@ final class SurfaceControlIOSTests: XCTestCase {
         child.touchesEnded([touch], with: nil)
         XCTAssertEqual(controlEvents.filter { $0["t"] as? String == "control" }.compactMap { $0["phase"] as? String }, ["down", "up"])
         XCTAssertTrue(field.isFirstResponder, "the surface control's release leaves editing as an in-bounds release does")
+        withExtendedLifetime(window) {}
+    }
+
+    private final class Key: UIKey {
+        override var characters: String { " " }
+        override var charactersIgnoringModifiers: String { " " }
+        override var keyCode: UIKeyboardHIDUsage { .keyboardSpacebar }
+        override var modifierFlags: UIKeyModifierFlags { [] }
+    }
+    private final class Press: UIPress {
+        let value = Key()
+        override var key: UIKey? { value }
+    }
+
+    /// A hardware Space at a focused canvas reaches its world as a down and
+    /// a release; at a surface control (Jump) it presses the control and the
+    /// world hears no key. Every release asks the controls first; one no
+    /// control holds still reaches the world.
+    func testSpaceAtACanvasIsReleasedAndAtAControlPressesIt() {
+        let (s, canvas, jump) = SurfaceControlTests().fixture(); defer { s.destroy() }
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 200, height: 200))
+        s.presenter.viewport.frame = window.bounds
+        s.presenter.root.frame = window.bounds
+        window.addSubview(s.presenter.viewport); window.makeKeyAndVisible()
+        XCTAssertTrue(canvas.becomeFirstResponder())
+        controlEvents = []
+        for _ in 0..<2 {
+            let press = Press()
+            canvas.pressesBegan([press], with: nil)
+            canvas.pressesEnded([press], with: nil)
+        }
+        let keys = controlEvents.filter { $0["t"] as? String == "key" }
+        XCTAssertEqual(keys.compactMap { $0["code"] as? String }, ["Space", "Space", "Space", "Space"])
+        XCTAssertEqual(keys.compactMap { $0["down"] as? Bool }, [true, false, true, false])
+        XCTAssertEqual(keys.compactMap { $0["repeat"] as? Bool }, [false, false, false, false])
+
+        XCTAssertTrue(jump.becomeFirstResponder())
+        controlEvents = []
+        let press = Press()
+        jump.pressesBegan([press], with: nil)
+        jump.pressesBegan([press], with: nil)
+        jump.pressesEnded([press], with: nil)
+        XCTAssertEqual(controlEvents.filter { $0["t"] as? String == "control" }.compactMap { $0["phase"] as? String }, ["down", "up"],
+                       "a second down while the control holds the key sends nothing")
+        XCTAssertFalse(controlEvents.contains { $0["t"] as? String == "key" }, "the control took the key")
         withExtendedLifetime(window) {}
     }
 

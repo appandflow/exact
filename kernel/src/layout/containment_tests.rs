@@ -1,4 +1,4 @@
-//! A virtualized list's window changes replay at the list:
+//! A virtualized list's window changes replay at the list (LLP 1044 §4.5):
 //! a flex column holds a header and a `flex: 1` clipping list of rows and
 //! spacers, as `list virtualized=true` lowers. Each case compares every frame
 //! and scroll extent, bit for bit, with a fresh engine.

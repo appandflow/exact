@@ -1,23 +1,23 @@
-// @exact/device on Apple: the battery from UIDevice
+// @exact/device on Apple (LLP 1133.031 D1–D5, D9): the battery from UIDevice
 // on iOS and the IOKit power sources on macOS, the network from one
 // `NWPathMonitor`, and the power state from `ProcessInfo`, in the
 // interface's shapes. The app's composed module calls it outside the agent;
 // under the agent the runner's substitute answers, unless the drive binds it
 // (`--bind device`).
 //
-// - One observer per source per process, kept by `DeviceHub`:
+// - One observer per source per process (D5 item 1), kept by `DeviceHub`:
 //   the first read in any session starts it, and it stops when no session
 //   reads the source (a release, or the session's end).
 // - A source announces its topic to each reading session only when an
-//   answered field changes: `level` is rounded to hundredths first, so
+//   answered field changes: `level` is rounded to hundredths first (D1), so
 //   a finer change announces nothing.
 // - The foreground reads every observed source again, since a suspended iOS
-//   app receives none of these notifications.
+//   app receives none of these notifications (D5 item 4).
 // - No battery to report (a Mac with no internal battery, an Apple TV, the
 //   simulator's unknown state) answers the specification's full battery,
-//   charging, with `apple.batteryState` `unknown`.
+//   charging, with `apple.batteryState` `unknown` (D1).
 // - `UIDevice.isBatteryMonitoringEnabled` is the process's: set at the first
-//   read and at each foreground, never cleared.
+//   read and at each foreground, never cleared (D1).
 import ExactPackage
 import Foundation
 import Network
@@ -30,10 +30,10 @@ import IOKit.ps
 /// The answers, from the platform's raw values. Pure, so the suite can feed
 /// it recorded readings.
 enum DeviceAnswers {
-    /// A level in hundredths.
+    /// A level in hundredths (D1's precision).
     static func hundredths(_ level: Double) -> Double { (level * 100).rounded() / 100 }
 
-    /// The specification's no-battery values.
+    /// The specification's no-battery values (D1).
     static let noBattery: [String: Any] = ["charging": true, "level": 1.0, "apple": ["batteryState": "unknown"]]
 
     /// `state` is `UIDevice.BatteryState`'s word; a level below zero is unknown.
@@ -126,7 +126,7 @@ final class DeviceHub {
         }
     }
 
-    /// Every observed source read again.
+    /// Every observed source read again (D5 item 4).
     func foreground() {
         platform.foreground()
         for source in readers.keys { if let answer = platform.read(source) { heard(source, answer) } }
@@ -142,7 +142,7 @@ final class DeviceHub {
         if !first { for changed in (readers[source] ?? [:]).values { changed("device.\(source)") } }
     }
 
-    /// A read still waiting after a second answers what the platform has not yet said: `unknown`.
+    /// A read still waiting after a second answers what the platform has not yet said: `unknown` (D2).
     private func settle(_ source: String) {
         guard let replies = waiting.removeValue(forKey: source), !replies.isEmpty else { return }
         let answer: [String: Any] = source == "connection" ? ["type": "unknown", "saveData": false] : ["error": "NotReadableError"]

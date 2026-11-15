@@ -1,10 +1,10 @@
-//! Native field chrome is engine geometry, never authored rows.
+//! Native field chrome is engine geometry, never authored rows. LLP 1104 D5.
 use super::*;
 use crate::{ControlFont, FieldChrome, FieldChromeRequest, FieldKind};
 
 impl LayoutTree {
     /// Local editor geometry from the engine that measured the field's chrome.
-    /// Shared by ordinary, shell and retained-region publication.
+    /// Shared by ordinary, shell and retained-region publication (LLP 1104 D5).
     pub(crate) fn field_content_rect(
         &self,
         arena: &NodeArena,
@@ -158,7 +158,7 @@ impl LayoutTree {
 }
 
 /// A leaf's text, measured. A text control's is its host's control's own
-/// where the host says so ([`TextMeasurer::field_text`]);
+/// where the host says so ([`TextMeasurer::field_text`], LLP 1115.001 D8);
 /// every other paragraph, and a control's on a host that paints it, is the
 /// paragraph engine's.
 pub(super) fn text(

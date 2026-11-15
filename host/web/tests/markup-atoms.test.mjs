@@ -1,15 +1,16 @@
-// Inline atoms in the web's Markdown
-// editor, driven by keys and the pointer in Chrome, Firefox and WebKit, and
-// in the reader.
+import { hostFixtureFile as readFileSync } from './glue-fixture.mjs';
+// @ref LLP 1045.000 §4, D4, D5, D7 — inline atoms in the web's Markdown
+// editor, driven by keys and the pointer in Chrome, Firefox and WebKit (the
+// go/no-go of LLP 1045 §1), and in the reader.
 import { afterAll, test, expect } from 'bun:test';
-import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { suiteBrowser } from '../../../scripts/agent-launch.mjs';
 import { buildEditor } from '../../web-js/module.mjs';
 import { browserMissing } from '../../../scripts/agent-playwright.mjs';
 import { need } from '../../../scripts/coverage.mjs';
+import { fileURLToPath } from 'node:url';
 
-const WEB = resolve(new URL('..', import.meta.url).pathname);
+const WEB = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const engines = ['chromium', 'firefox', 'webkit'];
 const missing = Object.fromEntries(await Promise.all(engines.map(async e => [e, await browserMissing(e)])));
 const engineTest = Object.fromEntries(engines.map(e => [e, need(e === 'chromium' ? 'chrome' : e, missing[e])]));
@@ -34,7 +35,7 @@ const attr = s => s.replace(/&/g, '&amp;').replace(/"/g, '&quot;');
 async function editor(engine, source, drive, { width = 500, faceList = [], styles = '{}', kinds = KINDS } = {}) {
   const server = Bun.serve({ port: 0, hostname: '127.0.0.1', fetch(request) {
     const path = new URL(request.url).pathname;
-    if (['/markup-editor.js', '/navigation.js', '/atoms.js', '/geometry-glue.js'].includes(path)) return new Response(Bun.file(resolve(WEB, path.slice(1))), { headers: { 'content-type': 'text/javascript' } });
+    if (['/markup-editor.js', '/navigation.js', '/atoms.js', '/geometry-glue.js'].includes(path)) return new Response(readFileSync(resolve(WEB, path.slice(1))), { headers: { 'content-type': 'text/javascript' } });
     if (path === '/markup-editor.wasm') return new Response(wasm, { headers: { 'content-type': 'application/wasm' } });
     return new Response(`<!doctype html><meta charset="utf-8"><style>body{font:16px/1.4 system-ui} img, video, svg { display: block; }</style>
       <textarea id="editor" markup="markdown" data-atoms="${attr(kinds)}" data-atom-faces="${attr(faces(faceList))}" data-atom-styles="${attr(styles)}" style="width:${width}px;height:200px"></textarea>
@@ -104,7 +105,7 @@ for (const engine of engines) {
     }, { faceList: [[CITE, 'A quote', 'The quote']] });
   }, 60000);
 
-  // A face's `ariaLabel` is the pill's accessible name, and the pill
+  // D2, D8: a face's `ariaLabel` is the pill's accessible name, and the pill
   // still draws its label, which `state.atoms` reports; a new name alone
   // renames it.
   engineTest[engine](`${engine}: a face's ariaLabel names its pill, which draws its label`, async () => {
@@ -284,13 +285,13 @@ for (const engine of engines) {
     });
   }, 60000);
 
-  // The reader's pill too follows its line's direction, its
+  // LLP 1045.000 D4: the reader's pill too follows its line's direction, its
   // icon first, unless its face pins one; a collapsed `rangeFrame` at a
-  // pill's start is the edge its line's direction puts first, pinned or not.
+  // pill's start is the edge its line's direction puts first, pinned or not (D7).
   engineTest[engine](`${engine}: in a right-to-left reader a pill's icon is on the right, unless its face pins left to right`, async () => {
     const server = Bun.serve({ port: 0, hostname: '127.0.0.1', fetch(request) {
       const path = new URL(request.url).pathname;
-      if (path.endsWith('.js')) return new Response(Bun.file(resolve(WEB, path.slice(1))), { headers: { 'content-type': 'text/javascript' } });
+      if (path.endsWith('.js')) return new Response(readFileSync(resolve(WEB, path.slice(1))), { headers: { 'content-type': 'text/javascript' } });
       // The host page's reset (index.html) makes an image a block.
       return new Response(`<!doctype html><meta charset="utf-8"><style>img, video, svg { display: block; }</style><p id="text" markup="markdown" data-exact-text style="direction:rtl"></p><script type="module">
         globalThis.exact = {};
@@ -327,7 +328,7 @@ for (const engine of engines) {
   engineTest[engine](`${engine}: the reader's atom is a button a press, Return or Space reports, and rangeFrame is its pill`, async () => {
     const server = Bun.serve({ port: 0, hostname: '127.0.0.1', fetch(request) {
       const path = new URL(request.url).pathname;
-      if (path.endsWith('.js')) return new Response(Bun.file(resolve(WEB, path.slice(1))), { headers: { 'content-type': 'text/javascript' } });
+      if (path.endsWith('.js')) return new Response(readFileSync(resolve(WEB, path.slice(1))), { headers: { 'content-type': 'text/javascript' } });
       return new Response(`<!doctype html><meta charset="utf-8"><div id="root"><p id="text" markup="markdown" data-exact-text data-atom-styles='{"citation":"color:rgb(1, 2, 3)"}'></p></div><script type="module">
         globalThis.exact = {};
         const { renderMarkup } = await import('./navigation.js');
@@ -412,7 +413,7 @@ for (const engine of engines) {
     });
   }, 60000);
 
-  // In a right-to-left line a pill lays out from the right,
+  // LLP 1045.000 D4: in a right-to-left line a pill lays out from the right,
   // its icon first, as the line does; a face's `direction` pins its own.
   engineTest[engine](`${engine}: in a right-to-left line a pill's icon is on the right, unless its face pins left to right`, async () => {
     for (const [direction, right] of [['', true], ['ltr', false], ['rtl', true]]) {
@@ -426,7 +427,7 @@ for (const engine of engines) {
     }
   }, 60000);
 
-  // A line `paragraphDirs` makes right to left is one for an atom's edges.
+  // @ref LLP 1045 D11 — a line `paragraphDirs` makes right to left is one for an atom's edges.
   engineTest[engine](`${engine}: in a line paragraphDirs makes right to left, an atom's start is its right edge`, async () => {
     await editor(engine, `שלום ${CITE} עולם`, async (page, field) => {
       await field.evaluate(el => { el.setAttribute('data-paragraph-dirs', 'rtl'); el.exactMarkup.sync(); });
@@ -440,7 +441,7 @@ for (const engine of engines) {
     });
   }, 60000);
 
-  // `auto` reads the letters a line draws as text, as Apple's MarkupEditor does.
+  // @ref LLP 1045 D11 — `auto` reads the letters a line draws as text, as Apple's MarkupEditor does.
   engineTest[engine](`${engine}: auto takes a line's first strong letter outside its syntax and atoms`, async () => {
     await editor(engine, '@src/a.ts اشرح هذا \n@x اكتب\n[1](https://example.test) مرحبا\n42', async (page, field) => {
       await field.evaluate(el => { el.setAttribute('data-paragraph-dirs', 'auto'); el.exactMarkup.sync(); });
@@ -503,10 +504,10 @@ for (const engine of engines) {
     }, { width: 400, faceList: [[long, long]] });
   }, 60000);
 
-  // On the JS target a face's colour is what this browser
+  // LLP 1045.000 D2: on the JS target a face's colour is what this browser
   // takes (`shape.js`), as a bound colour row's is. A cascade keyword or a
   // substitution anywhere is none, but for a role in its web form, which is
-  // the role (here a stand-in map's); so is a standard space's.
+  // the role (here a stand-in map's); so is a standard space's (LLP 1100 D1).
   engineTest[engine](`${engine}: a face's colour on the JS target is what the browser takes`, async () => {
     const server = Bun.serve({ port: 0, hostname: '127.0.0.1', fetch(request) {
       if (new URL(request.url).pathname === '/shape.js') return new Response(Bun.file(resolve(WEB, '../web-js/shape.js')), { headers: { 'content-type': 'text/javascript' } });

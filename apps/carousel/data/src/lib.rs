@@ -1,7 +1,7 @@
-//! Carousel's data: `cards(count)` is `count` cards whose widths
+//! Carousel's data (LLP 1070): `cards(count)` is `count` cards whose widths
 //! vary (so a strip's estimate is replaced by real measurements), in one of
 //! six colours, the same on every host. It ignores a second argument, which
-//! the evaluation budget's conformance plan passes, as it does
+//! the evaluation budget's conformance plan passes (LLP 1090 D7), as it does
 //! `long(n, c)`: `c` repeated `n` times.
 
 #![deny(missing_docs)]

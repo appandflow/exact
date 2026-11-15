@@ -1,4 +1,4 @@
-// Content under a fixed control: a scroller whose neighbours
+// Content under a fixed control (LLP 1131): a scroller whose neighbours
 // between it and its route's or page's edge are control bars (a segmented
 // switcher, a composer, a row of buttons) is drawn through them, inset by
 // them, and they draw over its content with UIKit's scroll edge effect, as a
@@ -43,7 +43,7 @@ final class ControlBars {
         return CATransform3DIsAffine(node.layer.transform) && zip([a.a, a.b, a.c, a.d, a.tx, a.ty], [b.a, b.b, b.c, b.d, b.tx, b.ty]).allSatisfy { abs($0 - $1) < 0.00001 }
     }
 
-    /// A shown, in-flow box with only its bar ride as a transform, with no
+    /// D1: a shown, in-flow box with only its bar ride as a transform, with no
     /// background of the author's, holding at least one control and nothing
     /// else but wrappers and captions. A control is taken whole; an image, a
     /// picture, a native view, a scroller or a painted wrapper outside one
@@ -98,7 +98,7 @@ final class ControlBars {
             || n.props["accessibilityRole"] == "tab"
     }
 
-    /// The control bars between `s` and `c`'s edge on one side: at each
+    /// The control bars between `s` and `c`'s edge on one side (D2): at each
     /// level from `s` up to `c`, the box's shown in-flow siblings on that
     /// side, every one a bar placed wholly beyond it, which spans its parent's
     /// width and fills what they leave; a box with none is at its parent's
@@ -109,10 +109,10 @@ final class ControlBars {
         while x !== c {
             var up = x.superview
             // Between nodes, a host view that clips (a clip box) or scrolls cuts the band off.
-            while let v = up, !(v is NodeView) { if v is UIScrollView || v.clipsToBounds || v.layer.mask != nil { return nil }; up = v.superview }
+            while let v = up, !(v is NodeView) { if v is UIScrollView || v.clipsToBounds || v.layer.boxMask != nil { return nil }; up = v.superview }
             // The container clipping to its own box cuts nothing off: no band reaches past it (a route
             // written `overflow="hidden"` at `inset=0`, which looks the same on the web).
-            guard let p = up as? NodeView, !p.isHidden, !p.clipsToBounds || p === c, p.clipPath == nil, p.layer.mask == nil, p.transform.isIdentity,
+            guard let p = up as? NodeView, !p.isHidden, !p.clipsToBounds || p === c, p.clipPath == nil, p.layer.boxMask == nil, p.transform.isIdentity,
                   p.scrollView == nil || p === c else { return nil }
             let k = children(of: p)
             guard let i = k.at[ObjectIdentifier(x)] else { return nil }
@@ -156,7 +156,7 @@ final class ControlBars {
     }
 
     /// Lift the bars above their scrollers' content and give each UIKit's edge
-    /// effect over its scroller; a bar no longer one, removed from
+    /// effect over its scroller (D3, D4); a bar no longer one, removed from
     /// the tree included, goes back.
     static func sync(_ wanted: [(bar: NodeView, scroller: NodeView, edge: UIRectEdge)], in presenter: Presenter) {
         guard let viewport = presenter.viewport as? Viewport else { return }

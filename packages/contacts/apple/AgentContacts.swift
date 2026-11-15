@@ -1,4 +1,4 @@
-// The agent's address book: what @exact/contacts reads
+// The agent's address book (LLP 1133.018 §10): what @exact/contacts reads
 // and picks from under the agent, where it asks the Contacts framework for
 // nothing. It is this checkout's `fixture/contacts.json` (a drive runs on
 // this Mac or its simulators), or another file there the agent's `store`

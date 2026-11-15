@@ -1,4 +1,4 @@
-//! A canvas's lists replayed into a vello scene, with the
+//! A canvas's lists (LLP 1056 D3) replayed into a vello scene, with the
 //! reference replayer's semantics (`host/apple/Sources/ExactKit/
 //! Canvas2D*.swift`): paths arrive in canvas coordinates, so a fill or clip
 //! draws them under the base scale; a stroke takes them back to user space
@@ -10,14 +10,14 @@
 
 use crate::paint::{Geom, Style};
 use exact_canvas::list::{self, text_at, Op, Record};
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use vello::kurbo::{Affine, BezPath, Cap, Join, Rect, Shape};
-use vello::peniko::{Fill, ImageData};
+use vello::peniko::{Color, Fill, ImageData};
 use vello::Scene;
 
 /// What a replay reads beyond its lists: the host's text and images.
 pub trait Host {
-    /// A text line's outlines (the ABI's `text_path`): line space, y up,
+    /// A text line's outlines (LLP 1056 ABI `text_path`): line space, y up,
     /// at the run's left end on its alphabetic baseline.
     fn text(&mut self, font: &[f64], text: &[u32], rtl: bool) -> Option<BezPath>;
     /// An image handle's pixels, premultiplied, or none when not decoded.
@@ -111,7 +111,54 @@ pub struct Frame {
     /// over them.
     pub keep: bool,
     pub shadows: Vec<ShadowJob>,
+    /// Clip masks for later replays (`Replayer::close`); each reads only
+    /// masks kept from earlier replays.
+    pub masks: Vec<MaskJob>,
 }
+
+/// A persistent clip's coverage, rendered once and reused across frames.
+pub struct MaskJob {
+    pub scene: Scene,
+    pub slot: u32,
+}
+
+enum Clip {
+    Path(BezPath, Fill),
+    /// `paths`: the keys (`clip_key`) of the last `MASK_PATHS` paths folded
+    /// in or clipped again, least recent first.
+    Mask {
+        slot: u32,
+        paths: VecDeque<Vec<u64>>,
+    },
+}
+
+impl Clip {
+    fn push(&self, scene: &mut Scene, base: Affine, whole: Rect) {
+        match self {
+            Self::Path(path, fill) => scene.push_clip_layer(*fill, base, path),
+            Self::Mask { slot, .. } => {
+                scene.push_clip_layer(Fill::NonZero, Affine::IDENTITY, &whole);
+                // Unlike a path clip, this layer must survive even in a
+                // tile wholly inside its rectangle: the buffer supplies
+                // the coverage. Coarse and fine recognize this marker.
+                let data = &mut scene.encoding_mut().draw_data;
+                let blend = data.len() - 2;
+                data[blend] = 0x20000;
+                data[blend + 1] = (*slot as f32).to_bits();
+            }
+        }
+    }
+
+    fn pop(&self, scene: &mut Scene) {
+        scene.pop_layer();
+    }
+}
+
+const CLIPS_PER_MASK: usize = 8;
+/// A path clipped again while a mask remembers it is skipped, and moves to
+/// the newest end; one the mask has forgotten intersects again, which keeps
+/// the region and only lowers the coverage along its antialiased edge.
+const MASK_PATHS: usize = 64;
 
 /// One canvas's replay state.
 pub struct Replayer {
@@ -127,9 +174,12 @@ pub struct Replayer {
     pub gradients: HashMap<u32, Gradient>,
     pub patterns: HashMap<u32, Pattern>,
     pub images: HashMap<u32, String>,
-    /// Every clip in force (canvas coordinates, rule), outermost first:
-    /// pushed again when a scene starts under them.
-    open: Vec<(BezPath, Fill)>,
+    /// Clips in force, outermost first; paths are in canvas coordinates,
+    /// masks in backing pixels. Each save level compacts independently.
+    open: Vec<Clip>,
+    /// The slot the next mask renders into: the masks kept from earlier
+    /// replays hold the slots below it.
+    next_mask: u32,
     /// What could not be drawn, by op name.
     pub unsupported: Vec<&'static str>,
 }
@@ -156,6 +206,7 @@ impl Replayer {
             patterns: HashMap::new(),
             images: HashMap::new(),
             open: Vec::new(),
+            next_mask: 0,
             unsupported: Vec::new(),
         }
     }
@@ -188,16 +239,34 @@ impl Replayer {
 
     /// Start a scene over the kept pixels: the clips in force pushed again.
     pub fn begin(&self, scene: &mut Scene) {
-        for (p, fill) in &self.open {
-            scene.push_clip_layer(*fill, self.base(), p);
+        for clip in &self.open {
+            clip.push(scene, self.base(), self.whole());
         }
     }
 
     /// Close the clip layers still open at the end of a scene.
     pub fn end(&self, scene: &mut Scene) {
-        for _ in &self.open {
-            scene.pop_layer();
+        for clip in self.open.iter().rev() {
+            clip.pop(scene);
         }
+    }
+
+    pub(crate) fn mask_count(&self) -> u32 {
+        self.next_mask
+    }
+
+    /// Densely number the retained masks; GPU coverage follows the same move.
+    pub(crate) fn finish_masks(&mut self) -> Vec<u32> {
+        let mut slots = Vec::new();
+        for clip in &mut self.open {
+            if let Clip::Mask { slot, .. } = clip {
+                let old = *slot;
+                *slot = slots.len() as u32;
+                slots.push(old);
+            }
+        }
+        self.next_mask = slots.len() as u32;
+        slots
     }
 
     /// Replay one list into `frame`; an unreadable list applies nothing.
@@ -224,9 +293,85 @@ impl Replayer {
 
     fn pop_clips(&mut self, scene: &mut Scene, n: usize) {
         for _ in 0..n.min(self.open.len()) {
+            self.open.pop().unwrap().pop(scene);
+        }
+    }
+
+    /// `clip()`: the region becomes its intersection with `path`. A path
+    /// already in force leaves it unchanged, and a rectangle over the
+    /// rectangle this save level opened last replaces that one with their
+    /// intersection. Other paths add a layer until `close` compacts them.
+    fn clip(&mut self, scene: &mut Scene, path: BezPath, fill: Fill) {
+        let key = self
+            .open
+            .iter()
+            .any(|clip| matches!(clip, Clip::Mask { .. }))
+            .then(|| clip_key(&path, fill));
+        for clip in &mut self.open {
+            match clip {
+                Clip::Path(p, f) if *p == path && *f == fill => return,
+                Clip::Path(..) => {}
+                Clip::Mask { paths, .. } => {
+                    let at = key.as_ref().and_then(|k| paths.iter().position(|p| p == k));
+                    if let Some(at) = at {
+                        let k = paths.remove(at).expect("a remembered path");
+                        paths.push_back(k);
+                        return;
+                    }
+                }
+            }
+        }
+        let last = if self.state.clips > 0 {
+            self.open.last()
+        } else {
+            None
+        };
+        let folded = match (last, rect_of(&path)) {
+            (Some(Clip::Path(last, _)), Some(r)) => rect_of(last).map(|l| l.intersect(r)),
+            _ => None,
+        };
+        if let Some(r) = folded {
             scene.pop_layer();
             self.open.pop();
+            self.state.clips -= 1;
+            let path = r.to_path(0.1);
+            scene.push_clip_layer(Fill::NonZero, self.base(), &path);
+            self.open.push(Clip::Path(path, Fill::NonZero));
+        } else {
+            scene.push_clip_layer(fill, self.base(), &path);
+            self.open.push(Clip::Path(path, fill));
         }
+        self.state.clips += 1;
+    }
+
+    /// End the replay's scene, then fold each save level holding more than
+    /// `CLIPS_PER_MASK` clips into one mask that later replays push instead.
+    /// This replay's scene keeps its own layers, so a mask is made only for
+    /// clips that outlive the replay, and at most one per save level: a
+    /// level that clips without `save` every frame keeps a bounded stack.
+    pub fn close(&mut self, frame: &mut Frame) {
+        self.end(&mut frame.scene);
+        let (base, whole) = (self.base(), self.whole());
+        let mut open = std::mem::take(&mut self.open).into_iter();
+        let levels = self
+            .stack
+            .iter_mut()
+            .map(|s| &mut s.clips)
+            .chain([&mut self.state.clips]);
+        for clips in levels {
+            let level: Vec<Clip> = open.by_ref().take(*clips).collect();
+            if level.len() <= CLIPS_PER_MASK {
+                self.open.extend(level);
+                continue;
+            }
+            let slot = self.next_mask;
+            self.next_mask += 1;
+            let (job, mask) = compact(level, slot, base, whole);
+            frame.masks.push(job);
+            self.open.push(mask);
+            *clips = 1;
+        }
+        debug_assert!(open.next().is_none(), "clip counts cover the open clips");
     }
 
     /// Whether a `fillRect` (or `clearRect`) of `r` now covers every pixel
@@ -407,11 +552,7 @@ impl Replayer {
                 } else {
                     std::mem::take(&mut self.scratch)
                 };
-                frame
-                    .scene
-                    .push_clip_layer(rule(r.at(0)), self.base(), &path);
-                self.open.push((path, rule(r.at(0))));
-                self.state.clips += 1;
+                self.clip(&mut frame.scene, path, rule(r.at(0)));
             }
             Op::FillRect => {
                 let rc = rect();
@@ -471,7 +612,8 @@ impl Replayer {
                 if r.op == Op::FillText {
                     let style = self.state.fill.clone();
                     self.paint(frame, host, Geom::Fill(&outline, Fill::NonZero, t), &style);
-                } else if let Some(stroke) = self.stroke_style() {
+                } else {
+                    let stroke = self.stroke_style();
                     let style = self.state.stroke.clone();
                     self.paint(frame, host, Geom::Stroke(&outline, stroke, t), &style);
                 }
@@ -483,9 +625,7 @@ impl Replayer {
 
     /// Stroke `user` (user space) with the stroke style under base ∘ author.
     fn stroke_user(&mut self, frame: &mut Frame, host: &mut dyn Host, user: &BezPath) {
-        let Some(stroke) = self.stroke_style() else {
-            return;
-        };
+        let stroke = self.stroke_style();
         let t = self.device();
         let style = self.state.stroke.clone();
         self.paint(frame, host, Geom::Stroke(user, stroke, t), &style);
@@ -541,9 +681,7 @@ impl Replayer {
             height: h,
         };
         let scene = &mut frame.scene;
-        for _ in &self.open {
-            scene.pop_layer();
-        }
+        self.end(scene);
         // Copy as a clear then a source-over draw: a `Compose::Copy` layer
         // cleared whole tiles around the rectangle (fx-pixels on dark).
         let at = Rect::new(x, y, x + f64::from(w), y + f64::from(h));
@@ -595,21 +733,17 @@ impl Replayer {
         );
     }
 
-    /// The stroke with the state's line style; none when the dash list is
-    /// all zeros (nothing is drawn).
-    pub fn stroke_style(&self) -> Option<vello::kurbo::Stroke> {
+    /// The stroke with the state's line style; an all-zero dash list is solid.
+    pub fn stroke_style(&self) -> vello::kurbo::Stroke {
         let s = &self.state;
         let mut stroke = vello::kurbo::Stroke::new(s.width)
             .with_caps(s.cap)
             .with_join(s.join)
             .with_miter_limit(s.miter);
-        if !s.dash.is_empty() {
-            if s.dash.iter().all(|v| *v == 0.0) {
-                return None;
-            }
+        if s.dash.iter().any(|v| *v != 0.0) {
             stroke = stroke.with_dashes(s.dash_offset, s.dash.iter().copied());
         }
-        Some(stroke)
+        stroke
     }
 }
 
@@ -630,8 +764,155 @@ fn ensure_start(p: &mut BezPath, at: (f64, f64)) {
     }
 }
 
+/// The axis-aligned rectangle `p` encloses, when it is one closed subpath
+/// of four corners (a trailing `moveTo`, as `rect()` leaves, draws nothing).
+fn rect_of(p: &BezPath) -> Option<Rect> {
+    use vello::kurbo::{PathEl, Point};
+    let mut pts: Vec<Point> = Vec::with_capacity(5);
+    let mut closed = false;
+    for el in p.elements() {
+        match (*el, closed) {
+            (PathEl::MoveTo(a), false) if pts.is_empty() => pts.push(a),
+            (PathEl::LineTo(a), false) if (1..5).contains(&pts.len()) => pts.push(a),
+            (PathEl::ClosePath, false) => closed = true,
+            (PathEl::MoveTo(_), true) => {}
+            _ => return None,
+        }
+    }
+    if pts.len() == 5 && pts[4] == pts[0] {
+        pts.pop();
+    }
+    if !closed || pts.len() != 4 {
+        return None;
+    }
+    // Edges alternately horizontal and vertical, none of zero length.
+    let across = |i: usize| {
+        let (a, b) = (pts[i], pts[(i + 1) % 4]);
+        a.y == b.y && a.x != b.x
+    };
+    let down = |i: usize| {
+        let (a, b) = (pts[i], pts[(i + 1) % 4]);
+        a.x == b.x && a.y != b.y
+    };
+    let rect = (across(0) && down(1) && across(2) && down(3))
+        || (down(0) && across(1) && down(2) && across(3));
+    rect.then(|| Rect::from_points(pts[0], pts[2]))
+}
+
 fn close(p: &mut BezPath) {
     if !p.elements().is_empty() {
         p.close_path();
+    }
+}
+
+/// The coverage of `clips` (one save level, outermost first) as a mask job
+/// rendering into `slot`, and the clip that stands for them.
+fn compact(clips: Vec<Clip>, slot: u32, base: Affine, whole: Rect) -> (MaskJob, Clip) {
+    let mut scene = Scene::new();
+    for clip in &clips {
+        clip.push(&mut scene, base, whole);
+    }
+    scene.fill(Fill::NonZero, Affine::IDENTITY, Color::WHITE, None, &whole);
+    for clip in clips.iter().rev() {
+        clip.pop(&mut scene);
+    }
+    // A level's mask is its first clip, so its paths are the oldest.
+    let mut paths = VecDeque::new();
+    for clip in clips {
+        match clip {
+            Clip::Path(path, fill) => paths.push_back(clip_key(&path, fill)),
+            Clip::Mask {
+                paths: previous, ..
+            } => paths.extend(previous),
+        }
+    }
+    paths.drain(..paths.len().saturating_sub(MASK_PATHS));
+    (MaskJob { scene, slot }, Clip::Mask { slot, paths })
+}
+
+/// Exact path identities survive rasterization so clipping a path twice is
+/// still idempotent. Normalize signed zero as `BezPath` equality does.
+fn clip_key(path: &BezPath, fill: Fill) -> Vec<u64> {
+    use vello::kurbo::PathEl;
+    let mut key = vec![u64::from(fill == Fill::EvenOdd)];
+    for element in path.elements() {
+        let origin = vello::kurbo::Point::ORIGIN;
+        let (tag, points, count) = match *element {
+            PathEl::MoveTo(p) => (0, [p, origin, origin], 1),
+            PathEl::LineTo(p) => (1, [p, origin, origin], 1),
+            PathEl::QuadTo(a, b) => (2, [a, b, origin], 2),
+            PathEl::CurveTo(a, b, c) => (3, [a, b, c], 3),
+            PathEl::ClosePath => (4, [origin; 3], 0),
+        };
+        key.push(tag);
+        for p in &points[..count] {
+            key.extend([p.x, p.y].map(|v| if v == 0.0 { 0 } else { v.to_bits() }));
+        }
+    }
+    key
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    struct NoHost;
+
+    impl Host for NoHost {
+        fn text(&mut self, _: &[f64], _: &[u32], _: bool) -> Option<BezPath> {
+            None
+        }
+        fn image(&mut self, _: &str) -> Option<ImageData> {
+            None
+        }
+    }
+
+    fn circle(ctx: &exact_canvas::Context2d, x: f64) {
+        ctx.begin_path();
+        ctx.arc(x, 50.0, 40.0, 0.0, std::f64::consts::TAU).unwrap();
+        ctx.clip();
+    }
+
+    /// A curve clipped every frame stays skipped however many different
+    /// curves are folded into the mask after it, and the mask remembers a
+    /// bounded number of paths.
+    #[test]
+    fn a_mask_remembers_a_bounded_number_of_paths_and_keeps_the_recurring_ones() {
+        let ctx = exact_canvas::Context2d::new();
+        let mut replayer = Replayer::new(200, 100, 1.0);
+        let mut recurring = None;
+        for i in 0..600 {
+            circle(&ctx, 100.0);
+            circle(&ctx, 70.0 + i as f64 / 100.0);
+            let mut frame = Frame {
+                scene: Scene::new(),
+                keep: true,
+                shadows: Vec::new(),
+                masks: Vec::new(),
+            };
+            replayer.begin(&mut frame.scene);
+            for list in ctx.take_lists() {
+                replayer.apply(&list, &mut frame, &mut NoHost).unwrap();
+            }
+            replayer.close(&mut frame);
+            let recurring = recurring.get_or_insert_with(|| match &replayer.open[0] {
+                Clip::Path(path, _) => path.clone(),
+                Clip::Mask { .. } => unreachable!("frame 0 clips paths"),
+            });
+            let again = replayer.open.iter().skip(1).any(|clip| match clip {
+                Clip::Path(path, _) => path == recurring,
+                Clip::Mask { .. } => false,
+            });
+            assert!(!again, "frame {i}: the recurring curve was clipped again");
+        }
+        let remembered: usize = replayer
+            .open
+            .iter()
+            .map(|clip| match clip {
+                Clip::Mask { paths, .. } => paths.len(),
+                Clip::Path(..) => 0,
+            })
+            .sum();
+        assert!(remembered <= 64, "the mask remembers {remembered} paths");
     }
 }

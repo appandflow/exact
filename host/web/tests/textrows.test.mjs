@@ -6,8 +6,9 @@ import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { suiteBrowser } from '../../../scripts/agent-launch.mjs';
+import { fileURLToPath } from 'node:url';
 
-const root = resolve(new URL('../../..', import.meta.url).pathname);
+const root = resolve(fileURLToPath(new URL('../../..', import.meta.url)));
 const dir = mkdtempSync(resolve(tmpdir(), 'exact-textrows-'));
 const dist = resolve(dir, 'dist');
 let server;

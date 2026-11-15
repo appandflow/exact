@@ -1,17 +1,20 @@
 //! The session's command-side calls on the bridge: a command that shows
-//! system UI about to run (`share`, `saveFile`), an auth session's arm
-//! and report, a host line into the runner's journal, a select's
-//! options for the menu the presenter builds, a radio's group (x2apps
-//! survey #2), a grouped list's sections, and whether a followed link
-//! names one of the app's routes, where the host's own Back goes, and a
-//! package's call of the app's handler.
+//! system UI about to run (`share`, LLP 1069.003; `saveFile`, LLP 1069.010),
+//! an auth session's arm and report (LLP 1069.006), a host line into the
+//! runner's journal, a select's options for the menu the presenter
+//! builds (LLP 1069.001 D5), a radio's group (x2apps survey #2), a
+//! painted group's keys (LLP 1166.000), a grouped list's sections (LLP 1084), and
+//! whether a followed link names one of the app's routes (LLP 1038 §7),
+//! a scroll that moves the timelines a scroller drives (LLP 1057.003 D5),
+//! where the host's own Back goes (LLP 1115 D5), and a package's call of
+//! the app's handler (LLP 1133.016 D15 item 1).
 use super::Bridge;
 use exact_runner::auth::{self, Arm, Browser};
 use exact_runner::DataSource;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 /// Whether a runner booted now counts its plan sites' work for `perf` from
-/// boot: until a release build says it counts from the first
+/// boot (LLP 1079 D1): until a release build says it counts from the first
 /// ask instead, and again once something has asked.
 static WORK_FROM_BOOT: AtomicBool = AtomicBool::new(true);
 
@@ -31,7 +34,7 @@ pub fn measure_at_boot<D: DataSource>(runner: &mut exact_runner::Runner<D>, comp
     }
 }
 
-/// The alert shape, the kernel's rule
+/// The alert shape (LLP 1115 D6), the kernel's rule
 /// (`exact_kernel::confirmation`), for the presenter's Swift
 /// (`ConfirmationShape.isAlert`): lowering, this host and the Linux one read one rule.
 pub fn confirmation_is_alert(texts: u32, actions: u32, cancels: u32) -> bool {
@@ -69,7 +72,7 @@ impl<D: DataSource> Bridge<D> {
     }
 
     /// `exact_route_matches`: whether the location in the input buffer names
-    /// a pattern the plan's route table declares — a link to
+    /// a pattern the plan's route table declares (LLP 1038 §7) — a link to
     /// it is followed in the app, as the web's same-document link is; any
     /// other path (a file beside a document) is the containing app's.
     pub fn route_matches(&self, len: usize) -> u32 {
@@ -78,6 +81,16 @@ impl<D: DataSource> Bridge<D> {
             self.host
                 .as_ref()
                 .is_some_and(|h| h.runner().route_matches(&location)),
+        )
+    }
+
+    /// `exact_route_one_location`: whether the plan's route table declares
+    /// one location besides `notfound` (LLP 1115.000 D5.1).
+    pub fn route_one_location(&self) -> u32 {
+        u32::from(
+            self.host
+                .as_ref()
+                .is_some_and(|h| h.runner().route_one_location()),
         )
     }
 
@@ -109,7 +122,7 @@ impl<D: DataSource> Bridge<D> {
     /// `exact_location_beneath`: the location of the visit beneath visit
     /// `id` on its stack, UTF-8 in the output buffer, empty when there is
     /// none — where the host's own Back goes for a route with no authored
-    /// Back control. Not a batch: nothing changes.
+    /// Back control (LLP 1115 D5). Not a batch: nothing changes.
     pub fn location_beneath(&mut self, id: u64) -> u32 {
         let location = self
             .host
@@ -121,7 +134,7 @@ impl<D: DataSource> Bridge<D> {
     }
 
     /// Where the platform's Back goes from the selected visit, UTF-8;
-    /// empty at the stack's root.
+    /// empty at the stack's root. @ref LLP 1115.000 D5.5
     pub fn location_behind(&mut self) -> u32 {
         self.output = self
             .host
@@ -133,6 +146,7 @@ impl<D: DataSource> Bridge<D> {
     }
 
     /// Where the platform's Forward goes, UTF-8; empty with nothing ahead.
+    /// @ref LLP 1115.000 D5.5
     pub fn location_ahead(&mut self) -> u32 {
         self.output = self
             .host
@@ -155,7 +169,7 @@ impl<D: DataSource> Bridge<D> {
     }
 
     /// `exact_scrolled`: a scroller the presenter shows, or the page, now
-    /// stands at `(left, top)` CSS px, for `frame`.
+    /// stands at `(left, top)` CSS px, for `frame` (LLP 1051.000 D1).
     pub fn scrolled(&mut self, page: bool, view: u32, left: f64, top: f64) {
         if let Some(h) = self.host.as_mut() {
             h.runner_mut().scrolled((!page).then_some(view), left, top);
@@ -167,15 +181,27 @@ impl<D: DataSource> Bridge<D> {
         }
     }
 
+    /// `exact_timeline_scrolled`: a scroller a scroll or view timeline reads
+    /// (the page's for `page`) now stands at `left`, `top` CSS px; its
+    /// consumers, presented in that scroll (LLP 1057.003 D5).
+    pub fn timeline_scrolled(&mut self, page: bool, view: u32, left: f64, top: f64) -> u32 {
+        let out = self.host.as_mut().map_or_else(super::not_booted, |h| {
+            h.timeline_scrolled((!page).then_some(view), left, top)
+        });
+        self.emit(out)
+    }
+
     /// `exact_top_layer`: the presenter's open top-layer boxes, and where
     /// the frontmost modal presentation begins among them.
     pub fn top_layer(
         &mut self,
         frames: &[exact_runner::geometry::TopLayerFrame],
         modal: Option<usize>,
+        backdrop: Option<exact_runner::geometry::TopLayerBackdrop>,
     ) {
         if let Some(h) = self.host.as_mut() {
             h.runner_mut().top_layer_frames(frames, modal);
+            h.runner_mut().top_layer_backdrop(backdrop);
         }
     }
 
@@ -186,8 +212,17 @@ impl<D: DataSource> Bridge<D> {
         }
     }
 
-    /// A host this bridge boots: inline geometry, Canvas 2D text measurement,
-    /// and where its draws run.
+    /// `exact_canvas_image_released`: the handle is the input buffer's first `len` bytes.
+    pub fn canvas_image_released(&mut self, len: usize) {
+        let src = String::from_utf8_lossy(&self.input[..len.min(self.input.len())]).into_owned();
+        if let Some(h) = self.host.as_mut() {
+            h.canvas_image_released(&src);
+        }
+    }
+
+    /// A host this bridge boots: inline geometry, Canvas 2D text measurement
+    /// (LLP 1056 D8), where its draws run (LLP 1072 §8.5), and where its
+    /// app's `console` lines go (LLP 1027.009).
     pub(super) fn presenter_hooks(&self, host: &mut crate::host::Host<D>, hooks: &super::Hooks) {
         host.runner_mut()
             .set_inline_geometry(self.inline_geometry.clone());
@@ -196,14 +231,16 @@ impl<D: DataSource> Bridge<D> {
         }
         host.set_canvas_deferred(self.canvas_deferred);
         host.runner_mut().use_native_timers(self.native_timers);
+        host.runner_mut().set_row_reuse(self.row_reuse);
         host.runner_mut()
             .hold_waits(exact_runner::WaitKinds::from_bits(self.wait_kinds));
         host.runner_mut()
             .set_live_clock(self.live_clock.map(super::preferences::sampler));
+        hooks.console_into(host.runner_mut());
     }
 
     /// Canvas draws in a turn of their own from now on, or in every turn
-    /// (`exact_canvas_defer`).
+    /// (`exact_canvas_defer`, LLP 1072 §8.5).
     pub fn canvas_defer(&mut self, deferred: bool) {
         self.canvas_deferred = deferred;
         if let Some(h) = self.host.as_mut() {
@@ -211,7 +248,7 @@ impl<D: DataSource> Bridge<D> {
         }
     }
 
-    /// The deferred canvas draws (`exact_canvas_draw`).
+    /// The deferred canvas draws (`exact_canvas_draw`, LLP 1072 §8.5).
     pub fn canvas_draw(&mut self) -> u32 {
         let out = self
             .host
@@ -230,6 +267,12 @@ impl<D: DataSource> Bridge<D> {
         })
     }
 
+    /// Whether the data source's activation evaluates a TypeScript module on
+    /// the owner (`exact_evaluates_from_draw`, `Host::evaluates_from_draw`).
+    pub fn evaluates_from_draw(&self) -> bool {
+        self.host.as_ref().is_some_and(|h| h.evaluates_from_draw())
+    }
+
     /// A command the session is about to run (`exact_command`).
     pub fn command(&mut self, len: usize) -> u32 {
         let request = String::from_utf8_lossy(&self.input[..len.min(self.input.len())]);
@@ -240,7 +283,7 @@ impl<D: DataSource> Bridge<D> {
         self.emit(out)
     }
 
-    /// An `exact-auth:` request: refused now (the
+    /// An `exact-auth:` request (LLP 1069.006 D3): refused now (the
     /// executor wakes to deliver it), or handed to the session to open an
     /// `ASWebAuthenticationSession` — which, under the agent, holds it
     /// instead (`exact_auth` `hold`).
@@ -258,7 +301,7 @@ impl<D: DataSource> Bridge<D> {
     }
 
     /// Sessions whose tickets the runner let go: the session cancels each
-    /// and drops its late completion.
+    /// and drops its late completion (D3).
     pub(super) fn auth_forgotten(
         h: &mut crate::host::Host<D>,
         presenter: &mut crate::batch::Batch,
@@ -298,8 +341,8 @@ impl<D: DataSource> Bridge<D> {
         0
     }
 
-    /// How a presence check the host made ended (`exact_presence`):
-    /// the value goes to the waiting call alone.
+    /// How a presence check the host made ended (`exact_presence`, LLP
+    /// 1133.010 D13): the value goes to the waiting call alone.
     pub fn presence(&mut self, len: usize) -> u32 {
         if let Some(h) = self.host.as_mut() {
             h.runner_mut()
@@ -311,12 +354,15 @@ impl<D: DataSource> Bridge<D> {
         0
     }
 
-    /// A button's face (`exact_press_face`), custom or native, as JSON in the output buffer:
-    /// `{"button","title","symbol","raster","leading","label","fits","style", "ios","iosBefore26","macos","known"}` — `button`
-    /// false (and the rest empty) for a node that is not a button, the symbol as the platform names it (an svg-only icon's "", its
-    /// `symbolPath` and `symbolViewBox` beside it, and `symbolIcon`, its token's name, for the agent), the style's row of the
-    /// `buttonStyles` table (`bordered` for a name not in it); with no `buttonStyle` written, `"style":null` and no platform column
-    /// (`button::face_json`). Not a batch: nothing changes.
+    /// A button's face (`exact_press_face`, LLP 1069.011.000 D1; LLP 1069.011
+    /// D2, D5), custom or native, as JSON in the output buffer:
+    /// `{"button","title","symbol","raster","leading","label","fits","style",
+    /// "ios","iosBefore26","macos","known"}` — `button` false (and the rest
+    /// empty) for a node that is not a button, the symbol as the platform
+    /// names it (an svg-only icon's "", its `symbolPath` and `symbolViewBox`
+    /// beside it, and `symbolIcon`, its token's name, for the agent), the style's row of the `buttonStyles` table (`bordered` for a
+    /// name not in it); with no `buttonStyle` written, `"style":null` and no
+    /// platform column (`button::face_json`). Not a batch: nothing changes.
     pub fn press_face(&mut self, view: u32) -> u32 {
         let json = self.host.as_ref().map_or_else(
             || "{\"button\":false}".into(),
@@ -399,16 +445,72 @@ impl<D: DataSource> Bridge<D> {
         self.output.len() as u32
     }
 
-    /// A navigation root's tabs (`exact_root_tabs`; `Kernel::root_tabs`),
-    /// as JSON in the output buffer: `{"tablist":view,
-    /// "tabs":[view...],"panels":[view...],"unsaid":bool,"covered":bool}`, the tabs that
-    /// name a panel and those panels in tab order, or `null` for a root with
-    /// one stack. `unsaid`: the app left the bar's placement unsaid, by the
-    /// web's rule for its own sidebar (`host/web/navigation.js` `unsaidBar`):
-    /// the tablist is a direct child of the root, not
-    /// vertical, in flow in the root's flex column, and itself a row. It is
-    /// read here because the layout rows it asks of never cross to the
-    /// presenter (`style::presenter_ignores`). `covered`: the tablist is
+    /// A member of a painted group (`exact_role_keys`, LLP 1166.000 D2), as
+    /// JSON in the output buffer: `{"stop":null|{"group":view,"role":name,
+    /// "held":bool,"order":[view...]},"step":null|{"group":view,"role":name,
+    /// "to":[view...],"press":bool}}`, or `null` when both parts are. `stop`
+    /// is `Kernel::role_tab_order`'s, null for a member of a group that sets
+    /// no stop (a menu) and for a view that is no member; `step` is
+    /// `role_step_order`'s for the key, which is the input buffer's first
+    /// `len` bytes (DOM's `key`; none when 0), null for none or a key that is
+    /// not the group's. `focused` is the view that has the focus, 0 for none.
+    /// The kernel cannot ask the host's views whether they can take the
+    /// focus, so it answers in order and the host takes the first it can
+    /// focus. Not a batch: nothing changes.
+    pub fn role_keys(&mut self, view: u32, focused: u32, len: usize) -> u32 {
+        let key = String::from_utf8_lossy(&self.input[..len.min(self.input.len())]).into_owned();
+        let list = |ids: &[u32]| ids.iter().map(u32::to_string).collect::<Vec<_>>().join(",");
+        let json = self.host.as_ref().and_then(|h| {
+            let kernel = h.runner().kernel();
+            let stop = kernel
+                .role_tab_order(view, (focused != 0).then_some(focused))
+                .map(|s| {
+                    format!(
+                        "{{\"group\":{},\"role\":\"{}\",\"held\":{},\"order\":[{}]}}",
+                        s.group,
+                        s.role,
+                        s.held,
+                        list(&s.order)
+                    )
+                });
+            let step = (!key.is_empty())
+                .then(|| kernel.role_step_order(view, &key, None))
+                .flatten()
+                .map(|s| {
+                    format!(
+                        "{{\"group\":{},\"role\":\"{}\",\"to\":[{}],\"press\":{}}}",
+                        s.group,
+                        s.role,
+                        list(&s.order),
+                        s.press
+                    )
+                });
+            (stop.is_some() || step.is_some()).then(|| {
+                let null = || "null".to_owned();
+                format!(
+                    "{{\"stop\":{},\"step\":{}}}",
+                    stop.unwrap_or_else(null),
+                    step.unwrap_or_else(null)
+                )
+            })
+        });
+        self.output = json.unwrap_or_else(|| "null".into()).into_bytes();
+        self.output.len() as u32
+    }
+
+    /// A navigation root's tabs (`exact_root_tabs`; `Kernel::root_tabs`, LLP
+    /// 1115.001 D11), as JSON in the output buffer: `{"tablist":view,
+    /// "tabs":[view...],"panels":[view...],"navigation":[bool...],
+    /// "unsaid":bool,"covered":bool}`, the tabs that name a panel and those
+    /// panels in tab order, or `null` for a root with one stack. `navigation`:
+    /// whether each panel's tab needs a navigation controller
+    /// (`Runner::panels_need_navigation`), read from the plan, so it is known
+    /// for a tab not built yet. `unsaid`: the app left the bar's placement
+    /// unsaid, by the web's rule for its own sidebar (`host/web/navigation.js`
+    /// `unsaidBar`, LLP 1116.004 D1.1): the tablist is a direct child of the
+    /// root, not vertical, in flow in the root's flex column, and itself a
+    /// row. It is read here because the layout rows it asks of never cross to
+    /// the presenter (`style::presenter_ignores`). `covered`: the tablist is
     /// covered whole, as the boot covers one a tab bar replaces
     /// (`closed.rs`). Not a batch: nothing changes.
     pub fn root_tabs(&mut self, view: u32) -> u32 {
@@ -431,8 +533,10 @@ impl<D: DataSource> Bridge<D> {
             let arena = kernel.arena();
             let covered = arena.slot_of(tabs.tablist).and_then(|s| arena.cover(s))
                 == Some(exact_kernel::HostCover::Whole);
+            let navigation = h.runner().panels_need_navigation(&tabs.panels);
+            let navigation = navigation.iter().map(bool::to_string).collect::<Vec<_>>().join(",");
             Some(format!(
-                "{{\"tablist\":{},\"tabs\":[{}],\"panels\":[{}],\"unsaid\":{unsaid},\"covered\":{covered}}}",
+                "{{\"tablist\":{},\"tabs\":[{}],\"panels\":[{}],\"navigation\":[{navigation}],\"unsaid\":{unsaid},\"covered\":{covered}}}",
                 tabs.tablist,
                 list(&tabs.tabs),
                 list(&tabs.panels)
@@ -443,7 +547,7 @@ impl<D: DataSource> Bridge<D> {
     }
 
     /// Whether the stack whose root route is `view` splits (`exact_stack_split`;
-    /// `Runner::stack_split`), as JSON in the output buffer:
+    /// `Runner::stack_split`, LLP 1115.002 D4), as JSON in the output buffer:
     /// `{"list":view|null,"width":number|null,"rows":[[route,row]...],
     /// "locations":[[route,url]...],"pressWrites":bool|null}`, the list whose
     /// row pushes, the list column's width where `navigationSplit` names one,
@@ -490,8 +594,8 @@ impl<D: DataSource> Bridge<D> {
         self.output.len() as u32
     }
 
-    /// A grouped list's sections and rows (`exact_grouped_list`),
-    /// as JSON in the output buffer: `{"style","sections":[{"view",
+    /// A grouped list's sections and rows (`exact_grouped_list`, LLP 1084
+    /// D4), as JSON in the output buffer: `{"style","sections":[{"view",
     /// "header","footer","headerLook","footerLook","card","spaceAbove","rows":[{"view","custom","symbol",("symbolPath","symbolViewBox": an
     /// svg-only icon's, `icon_path::push_json`),"title",
     /// "secondary","subtitle","accessory","target","pressable","action",
@@ -509,7 +613,7 @@ impl<D: DataSource> Bridge<D> {
             Some(t) => quote(t, json),
             None => json.push_str("null"),
         };
-        // How a text is set where its author said so: its
+        // How a text is set where its author said so (LLP 1116.003 D7): its
         // colour as a style row crosses, its font as its computed rows.
         let look = |key: &str, l: &exact_kernel::TextLook, json: &mut String| {
             json.push_str(key);
@@ -564,7 +668,10 @@ impl<D: DataSource> Bridge<D> {
                     opt(&s.footer, &mut json);
                     look(",\"headerLook\":", &s.header_look, &mut json);
                     look(",\"footerLook\":", &s.footer_look, &mut json);
-                    json.push_str(&format!(",\"card\":{}", s.card));
+                    json.push_str(&format!(
+                        ",\"card\":{},\"cardView\":{}",
+                        s.card, s.card_view
+                    ));
                     json.push_str(&format!(
                         ",\"spaceAbove\":{}",
                         s.space_above.map_or("null".into(), |v| v.to_string())
@@ -577,8 +684,11 @@ impl<D: DataSource> Bridge<D> {
                             r.view, r.custom
                         ));
                         opt(&r.symbol, &mut json);
-                        // An svg-only icon's path.
+                        // An svg-only icon's path (LLP 1121 D10, stage 9 A2).
                         crate::icon_path::push_json(r.icon.as_deref(), &mut json);
+                        if r.icon_multicolor {
+                            json.push_str(",\"symbolMulticolor\":true");
+                        }
                         json.push_str(",\"title\":");
                         opt(&r.title, &mut json);
                         json.push_str(",\"secondary\":");

@@ -27,7 +27,7 @@ pub(super) fn input_type(node: &Node) -> Option<String> {
 }
 
 /// Whether an `input` is a switch: a checkbox written with HTML's word
-/// `switch`, or `role="switch"`.
+/// `switch`, or `role="switch"` (LLP 1069.001 D1, D3).
 pub(super) fn switch(node: &Node) -> bool {
     input_type(node).as_deref() == Some("checkbox")
         && matches!(node, Node::Element { tag, positional, attrs, .. }

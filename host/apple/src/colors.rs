@@ -1,4 +1,4 @@
-//! Platform colours the kernel resolves itself.
+//! Platform colours the kernel resolves itself (LLP 1095 D1, D6).
 //!
 //! A row naming a role or a `-exact-platform-color()` crosses as its name, and the
 //! presenter resolves it per view (`SystemColor.swift`). What the kernel
@@ -41,11 +41,11 @@ fn filter_refers(list: &FilterList, text: ColorValue) -> bool {
 }
 
 impl<D: DataSource> Host<D> {
-    /// App modes (the agent's `prefer mode`): the window's
+    /// App modes (LLP 1121 D5, the agent's `prefer mode`): the window's
     /// slice set again in one commit, which paints; the batch says the
     /// window's modes after it.
     pub fn set_modes(&mut self, pins: &[(&str, &str)]) -> String {
-        let batch = match self.runner.set_modes(pins) {
+        let mut batch = match self.runner.set_modes(pins) {
             Ok(Some(receipt)) => self.commit(
                 &[exact_runner::Timed {
                     at_ms: self.now_ms,
@@ -56,8 +56,9 @@ impl<D: DataSource> Host<D> {
             Ok(None) => self.commit(&[], None),
             Err(e) => return self.refused(Some(format!("mode: {e:?}"))),
         };
-        // An object, as every batch is: the modes go first.
-        format!("{{\"modes\":{},{}", self.runner.modes_json(), &batch[1..])
+        batch.pop();
+        batch.push_str(&format!(",\"modes\":{}}}", self.runner.modes_json()));
+        batch
     }
 
     /// Whether [`Host::set_modes`] would take `pins`, changing nothing: the
@@ -72,7 +73,7 @@ impl<D: DataSource> Host<D> {
     /// Whether the root font size or the window's modes moved since a batch
     /// last said them, whatever moved them: the app's `setMode` (which
     /// reaches no host as a command) and `setRootFontSize` as well as a
-    /// host's. The build channel reports each move.
+    /// host's. The build channel reports each move (LLP 1122 D4).
     pub(super) fn facts_moved(&mut self) -> bool {
         let facts = (self.runner.root_font_size(), self.runner.modes());
         if self.facts_told.as_ref() == Some(&facts) {
@@ -83,7 +84,7 @@ impl<D: DataSource> Host<D> {
     }
 
     /// Whether a displayed element holds the wake lock, when that changed
-    /// since a batch last said it: the presenter takes the
+    /// since a batch last said it (LLP 1125 D11): the presenter takes the
     /// platform's lock while any session's batch last said `true`. A new host
     /// (a boot, a committed plan) says it at its first batch.
     pub(super) fn wakelock_moved(&mut self) -> Option<bool> {
@@ -92,7 +93,7 @@ impl<D: DataSource> Host<D> {
     }
 
     /// The session's orientation lock when it changed since a batch last
-    /// said it: the lock's JSON, or `{"types":0}` when
+    /// said it (LLP 1133.029 D3): the lock's JSON, or `{"types":0}` when
     /// none is held, a conflict among the types included, which the runner
     /// journals. A new host says it at its first batch.
     pub(super) fn orientation_moved(&mut self) -> Option<String> {
@@ -119,13 +120,13 @@ impl<D: DataSource> Host<D> {
         let mut batch = Batch::new();
         let _roles = self.runner.bind_roles();
         roles::set_reported(report);
-        // The reported table's and this session's roles'.
+        // The reported table's and this session's roles' (LLP 1121 stage 5).
         let mut generation = roles::generation();
         // What is recorded is the generation this session painted from: if
         // another session replaced the table while it painted, it paints
         // again (a few times at most; its next report catches up after).
         // The session's first report corrects what boot resolved, without
-        // motion, whatever the table held then.
+        // motion (LLP 1095 D6), whatever the table held then.
         for _ in 0..3 {
             if Some(generation) == self.colors_seen {
                 break;
@@ -143,7 +144,6 @@ impl<D: DataSource> Host<D> {
         self.repaint_colors(batch, first);
         self.svg.all_dirty();
         let kernel = self.runner.kernel();
-        let env = kernel.env();
         let views: Vec<ViewId> = self.keys.values().copied().collect();
         for view in views {
             let Some(node) = kernel.node(view) else {
@@ -163,6 +163,7 @@ impl<D: DataSource> Host<D> {
             });
             if resolved {
                 let shown = self.shown_paint(motion_node(node.key));
+                let env = kernel.env_of(view);
                 batch.style(view, &style::style_json_presented(&node, &env, &shown).0);
             }
         }
@@ -171,7 +172,7 @@ impl<D: DataSource> Host<D> {
 }
 
 impl<D: DataSource> Host<D> {
-    /// The session's role overrides moved (a live edit):
+    /// The session's role overrides moved (a live edit, LLP 1121 stage 5):
     /// the presenter's table again (its tint, its own surfaces), and what
     /// the kernel resolved from the old ones re-presented (each node's rows
     /// cross again: the runner's receipt touches every node).
@@ -183,7 +184,7 @@ impl<D: DataSource> Host<D> {
     }
 }
 
-/// The roles the plan's theme replaces, for the presenter's
+/// The roles the plan's theme replaces (LLP 1095 D4), for the presenter's
 /// own surfaces: a message at boot, and after a live edit moves them.
 pub(crate) fn emit_roles(batch: &mut Batch) {
     use exact_kernel::style::roles;

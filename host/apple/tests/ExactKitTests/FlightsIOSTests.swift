@@ -3,7 +3,7 @@ import UIKit
 import XCTest
 @testable import ExactKit
 
-/// On UIKit, a flying image moves in points from where its
+/// LLP 1013.000 D4 on UIKit: a flying image moves in points from where its
 /// leaver drew it to where it draws, the flight layer is above every ranked
 /// sibling of its presentation root, and a flight from an overlay above the
 /// routes into a route flies above that overlay.
@@ -73,7 +73,7 @@ final class FlightsIOSTests: XCTestCase {
             ["op": "present", "id": 4, "property": "flight", "x": 0.5, "y": 0.0]]))
         RunLoop.main.run(until: Date().addingTimeInterval(0.05))
         let arriver = try XCTUnwrap(p.views[4])
-        // Not an image: it flies scaled in its clip.
+        // Not an image: it flies scaled in its clip (D4.4 as amended).
         let layer = try XCTUnwrap((arriver.superview as? FlightClip)?.superview as? FlightLayer, "the arriver flies")
         let shown = arriver.convert(arriver.bounds, to: nil)
         XCTAssertEqual(shown.minY, 300, accuracy: 0.5, "halfway between 100 and 500")
@@ -116,7 +116,7 @@ final class FlightsIOSTests: XCTestCase {
     }
 
     /// The other way, from a route into the window's overlay: B's own
-    /// presentation is the outer one, unchanged.
+    /// presentation is the outer one, unchanged (D4 step 3).
     func testAFlightIntoTheOuterPresentationFliesInIt() throws {
         let p = presenter()
         let route = UIViewController()
