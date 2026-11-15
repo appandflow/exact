@@ -2404,6 +2404,7 @@ lists any literal colour, font size or weight an app's `.contract` files still w
 | a pushed route with no such `header` | a bar holding the system Back button alone (LLP 1115.000 D5.2) |
 | a route with `navigationBar="none"` | no navigation bar: a full-bleed screen that draws its own way back; the edge swipe still goes back |
 | a route with `navigationPresentation="modal"` | a sheet |
+| a route pushed after a sheet, with no `navigationPresentation` of its own | pushed inside the sheet, with the system Back (the web: in the sheet's frame) |
 
 A grouped list section's `box-shadow`, including class and state values, paints
 around its card, excluding the header and footer. A section without a card

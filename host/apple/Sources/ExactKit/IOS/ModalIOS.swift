@@ -490,7 +490,7 @@ final class ModalHost: NSObject, UIAdaptivePresentationControllerDelegate {
     }
     func dismissByBackdrop(_ id: UInt32) {
         guard canDismissByBackdrop(id), let route = layers.last?.route else { return }
-        presenter.navigation.invokeBack(from: route)
+        goBack(from: route)
     }
     /// The agent's `back` on the top sheet (LLP 1116.006 D4): its swipe
     /// down, refused as UIKit's is (`presentationControllerShouldDismiss`)
@@ -501,7 +501,7 @@ final class ModalHost: NSObject, UIAdaptivePresentationControllerDelegate {
         if inTransition { return "the sheet is still moving: `clock settle` first" }
         if NavigationRules.modalRefusesDismissal(closedby: route.props["closedby"]) { return "its closedby is \"none\"" }
         if refusesDismissal(of: route) { return presenter.navigation.backRefusal }
-        presenter.navigation.invokeBack(from: route)
+        goBack(from: route)
         return ""
     }
 
@@ -812,8 +812,17 @@ final class ModalHost: NSObject, UIAdaptivePresentationControllerDelegate {
     }
 
     private func refusesDismissal(of route: NodeView) -> Bool {
-        presenter.views[route.id] !== route || presenter.navigation.isInactiveRoute(containing: route) ||
-            NavigationRules.modalRefusesDismissal(closedby: route.props["closedby"]) || !presenter.navigation.canInvokeBack
+        if presenter.views[route.id] !== route || NavigationRules.modalRefusesDismissal(closedby: route.props["closedby"]) { return true }
+        // A route pushed inside the sheet leaves its own route inactive; the dismissal goes from the sheet's.
+        if presenter.navigation.isInactiveRoute(containing: route) { return presenter.navigation.sheetDismissal(route) == nil }
+        return !presenter.navigation.canInvokeBack
+    }
+
+    /// The sheet's route goes back as its dismissal ends: the whole sheet, with
+    /// whatever was pushed inside it.
+    private func goBack(from route: NodeView) {
+        if let dismissal = presenter.navigation.sheetDismissal(route) { dismissal() }
+        else { presenter.navigation.invokeBack(from: route) }
     }
 
     func presentationControllerShouldDismiss(_ presentationController: UIPresentationController) -> Bool {
@@ -850,8 +859,10 @@ final class ModalHost: NSObject, UIAdaptivePresentationControllerDelegate {
         // owner before dispatch, so an action may safely keep the same route.
         DispatchQueue.main.async { [weak self, layer] in
             guard let self, layers.last === layer else { return }
+            // Read while the sheet's navigation still holds what was pushed inside it.
+            let dismissal = presenter.navigation.sheetDismissal(layer.route)
             closeTop(animated: false, refit: false)
-            presenter.navigation.invokeBack(from: layer.route)
+            if let dismissal { dismissal() } else { presenter.navigation.invokeBack(from: layer.route) }
             presenter.navigation.modalDidDismiss()
             fit()
         }
@@ -882,6 +893,30 @@ extension ModalHost: UISheetPresentationControllerDelegate {
     func sheetPresentationControllerDidChangeSelectedDetentIdentifier(_ sheetPresentationController: UISheetPresentationController) {
         presenter.resolveStatusBar()
         layers.first { $0.controller.sheetPresentationController === sheetPresentationController }?.controller.paintSurface()
+    }
+}
+
+extension NavigationHost {
+    /// How a sheet's dismissal (its swipe down, a tap behind it, the agent's
+    /// `back`) goes back while a route pushed inside the sheet is selected:
+    /// from the sheet's own route, so the whole sheet goes, as on the Mac
+    /// (BackMac.swift `dismiss`). Its Back control is pressed, else the stack
+    /// goes back to the route beneath the sheet. nil when the selected route
+    /// is not pushed inside `sheet`, or when that way back is refused.
+    func sheetDismissal(_ sheet: NodeView) -> (() -> Void)? {
+        guard let root = container, let selected = selectedRoute, selected !== sheet,
+              let nav = controllers[sheet.id]?.navigationController, controllers[selected.id]?.navigationController === nav,
+              let key = selected.props["navigationKey"], let index = routeIDs.firstIndex(of: sheet.id), index > 0,
+              let beneath = presenter.views[routeIDs[index - 1]]?.props["navigationKey"] else { return nil }
+        let routes = routeIDs.compactMap { presenter.views[$0] }
+        let control = NavigationBack.control(named: root.props["navigationBack"], among: presenter.carrying("id"),
+                                             id: \.id, htmlID: { $0.props["id"] }, pressable: { $0.handlers.contains("press") }, disabled: \.disabled,
+                                             inActiveRoute: { $0 === sheet || $0.isDescendant(of: sheet) },
+                                             inAnyRoute: { control in routes.contains { control === $0 || control.isDescendant(of: $0) } })
+        let declared = presenter.carrying("id").contains { $0.props["id"] == root.props["navigationBack"] && ($0 === sheet || $0.isDescendant(of: sheet)) }
+        if let control { return { [weak self] in self?.presenter.press(control.id) } }
+        if declared { return nil }
+        return { [weak self] in self?.goBack(from: key, to: beneath) }
     }
 }
 #endif

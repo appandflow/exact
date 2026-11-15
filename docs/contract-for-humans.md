@@ -1474,8 +1474,8 @@ A route pushed while a sheet is on top is shown inside that sheet, which keeps t
 detents of the route that opened it, and Back returns to the route before it in
 the sheet. iOS and macOS show it in the sheet's own navigation stack, the web and
 Android lay it out in the sheet's box, and desktop Linux in the box the sheet's
-own route was laid out in. On Android a drag down or a tap on the scrim closes the
-sheet with what was pushed inside it. A route pushed over a `fullscreen` route is
+own route was laid out in. On iOS and Android a drag down or a tap on the scrim
+closes the sheet with what was pushed inside it. A route pushed over a `fullscreen` route is
 a page of its own.
 
 `path("item", value)` checks the route and encodes its parameters. Always build

@@ -74,7 +74,7 @@ extension NavigationHost {
                                            inAnyRoute: { control in routes.contains { control === $0 || control.isDescendant(of: $0) } })
     }
 
-    private var selectedRoute: NodeView? {
+    var selectedRoute: NodeView? {
         guard let key = selectedKey else { return nil }
         return routeIDs.compactMap({ presenter.views[$0] }).first(where: { $0.props["navigationKey"] == key })
     }
