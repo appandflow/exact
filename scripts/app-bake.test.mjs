@@ -1100,7 +1100,7 @@ impl Game for BuildInputs {
           packages: ['web', 'gpu'].map(kind => ({ id: kind, name: app.crate(kind), manifest_path: resolve(app.workspace, kind, 'Cargo.toml') })),
           resolve: { nodes: ['web', 'gpu'].map(id => ({ id, deps: [] })) } });
         return app;
-      }, buildBake(app, platform, target, { env }) {
+      }, buildBake(app, platform, target, { env, capture }) {
         const started = Date.now();
         const source = resolve(app.dir, 'app.contract');
         const header = Buffer.alloc(36);
@@ -1136,7 +1136,9 @@ impl Game for BuildInputs {
         }
         receipt.embedded.assets = serve.listAssets(app.dir);
         writeFileSync(resolve(env.EXACT_BAKE_OUTPUT, platform + '-' + target + '.json'), JSON.stringify(receipt));
-        return { started, binary: { sha256: 'fixture', inputs: [] } };
+        const built = { started, products: [], binary: { sha256: 'fixture', inputs: [] } };
+        capture?.(built);
+        return built;
       } }));
       process.argv = [process.execPath, ${JSON.stringify(resolve(import.meta.dir, '../host/web/build.mjs'))}, ${JSON.stringify(dir)}, '--bake'];
       await import(${JSON.stringify(resolve(import.meta.dir, '../host/web/build.mjs'))});

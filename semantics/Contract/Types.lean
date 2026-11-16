@@ -520,10 +520,10 @@ structure WellTyped (p : Program) : Prop where
   /-- A resource's `when` is well typed where its arguments are (the
   compiler's `type-when-not-bool`; LLP 1161.002 D1). -/
   resourceGates : ∀ r ∈ p.resources, ∀ g, r.gate = .some g → ∃ u, HasTy p (settleScope p) [] g u
-  /-- A mutation's `then` names an action that takes no parameters: the
-  clock runs it with none. -/
+  /-- A mutation's `then` names an action that takes as many parameters as
+  the clock passes it: none, or a child's captured props (`thenArgs`). -/
   thenActions : ∀ m ∈ p.mutations, ∀ a, m.andThen = .some a →
-    ∃ ad, p.actions.find? (·.name == a) = .some ad ∧ ad.params = []
+    ∃ ad, p.actions.find? (·.name == a) = .some ad ∧ ad.params.length = m.thenArgs.length
   view : NodesTy p (compScope p) [] p.view
 
 end Contract

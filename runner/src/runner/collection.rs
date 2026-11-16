@@ -372,7 +372,7 @@ impl EdgeState {
             rows: frames
                 .iter()
                 .filter_map(|f| f.row.as_ref())
-                .map(|row| (row.clone(), row.borrow().clone()))
+                .map(|row| (row.clone(), row.borrow().slots.clone()))
                 .collect(),
             pending: r.pending.iter().map(|p| (p.target, p.ticket)).collect(),
             ticket: r.next_ticket,
@@ -403,7 +403,7 @@ impl EdgeState {
                     _ => true,
                 })
             || self.rows.iter().any(|(row, old)| {
-                let now = row.borrow();
+                let now = &row.borrow().slots;
                 old.len() != now.len()
                     || old
                         .iter()

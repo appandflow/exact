@@ -275,6 +275,7 @@ fn start_indices(
                 cache.clock.clone(),
                 held.answered_at.as_ref().expect("pending exchange").clone(),
                 held.observer.clone().map(|o| (held.name.clone(), o)),
+                held.fixture.clone(),
             );
             if !held.prefetch {
                 cache.record_preload_fact(held.fact(Event::Sent));
@@ -282,13 +283,18 @@ fn start_indices(
             Some(start)
         })
         .flatten();
-        let Some((request, abort, grants, clock, answered_at, observed)) = start else {
+        let Some((request, abort, grants, clock, answered_at, observed, fixture)) = start else {
             continue;
         };
+        let fixture = fixture.map(|work| super::super::outcome::fixture_fetch(&grants, work));
         let grants = exact_data::storage::scope(&grants, request.grants.as_deref())
             .and_then(|s| ibex2::grant::GrantSet::parse(&exact_runner::io_grants(s)))
             .expect("checked grants");
-        let fetch = reach::gate_fetch(host().endow(grants).fetch, request.reach);
+        let fetch = match fixture {
+            Some(fetch) => fetch.with_grants(grants),
+            None => host().endow(grants).fetch,
+        };
+        let fetch = reach::gate_fetch(fetch, request.reach);
         let transport = Arc::new(fetch.blocking_adapter(workers.clone()));
         let visited = Mutex::new(vec![request.url.clone()]);
         let timeout = request.timeout_ms;

@@ -336,6 +336,13 @@ impl Backend for Ink {
         Ok(())
     }
     #[cfg(windows)]
+    fn present_statistics(&self) -> Option<exact_ink::device::d3d11::PresentStatistics> {
+        match &self.device {
+            Selected::D3d11(device) => device.present_statistics(),
+            _ => None,
+        }
+    }
+    #[cfg(windows)]
     fn displayed_process_ms(&self) -> std::result::Result<Option<f64>, String> {
         if let Selected::D3d11(device) = &self.device {
             return device

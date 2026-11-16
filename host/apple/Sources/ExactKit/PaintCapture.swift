@@ -244,7 +244,10 @@ extension Capture {
         redrawingBackingStore = true
         NSGraphicsContext.saveGraphicsState()
         NSGraphicsContext.current = NSGraphicsContext(cgContext: ctx, flipped: node.isFlipped)
-        node.draw(box)
+        // AppKit draws a view under its effective appearance; outside its
+        // display pass the current one is the app's, so a dynamic colour
+        // would resolve for the app rather than the window.
+        node.effectiveAppearance.performAsCurrentDrawingAppearance { node.draw(box) }
         NSGraphicsContext.restoreGraphicsState()
         redrawingBackingStore = redrawing
         bitmap.flushGraphics()

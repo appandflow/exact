@@ -8,6 +8,7 @@ import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { webCompiler } from './module.mjs';
 import { suiteBrowser } from '../../scripts/agent-launch.mjs';
+import { builtFile } from './content-names.mjs';
 
 const root = resolve(import.meta.dir, '../..');
 // The parser's validation refusal, the driver's fault table, a fetch option's refusal, the asset path's pattern and
@@ -39,7 +40,7 @@ export const answer: Answer = ${usesFetch ? `async () => {
     const build = (out, args) => {
       const result = spawnSync(process.execPath, ['host/web-js/build.mjs', 'empty-admission', '--out', out, '--render', usesFetch ? 'js' : 'none', ...args], { cwd: root, env: { ...process.env, EXACT_APP_DIR: dir }, encoding: 'utf8' });
       expect(result.status, result.stdout + result.stderr).toBe(0);
-      return { admission: readFileSync(resolve(out, '.gen/grant-admission.js'), 'utf8'), entry: readFileSync(resolve(out, 'app.js'), 'utf8'), module: () => import(pathToFileURL(resolve(out, '.gen/grant-admission.js')).href) };
+      return { admission: readFileSync(resolve(out, '.gen/grant-admission.js'), 'utf8'), entry: readFileSync(resolve(out, builtFile(out, 'app.js')), 'utf8'), module: () => import(pathToFileURL(resolve(out, '.gen/grant-admission.js')).href) };
     };
     app('');
     const production = build(resolve(dir, 'production'), ['--production']), development = build(resolve(dir, 'development'), []);
@@ -91,6 +92,117 @@ export const answer: Answer = ${usesFetch ? `async () => {
     await page.waitForFunction(() => document.querySelector('[data-testid=greeting]')?.textContent.includes('asset loaded'));
     expect(await page.getByTestId('greeting').textContent()).toBe("asset loaded 36: FetchError: outside the app's grants (net.fetch)");
     expect(ungranted).toBe(0);
+  } finally {
+    await browser?.close();
+    server?.stop(true);
+    rmSync(dir, { recursive: true, force: true });
+  }
+}, 120000);
+
+// A production page whose sources hold no `fs.read`, `fs.write` or `sqlite.open` grant keeps ts-data.js's storage
+// refusals and none of what a grant reaches: the adapters, the SQLite handles and the topics a write tells the app's
+// other tabs (build.mjs `storageGrants`). Each call refuses as a development page, which links everything, refuses it.
+test('a production page with no storage grant refuses storage as a development page does, without the granted paths', async () => {
+  if (webCompiler().cmd === 'cargo') throw new Error('build the compiler first: cargo build -p exact-web-js');
+  mkdirSync(resolve(root, 'target'), { recursive: true });
+  const dir = mkdtempSync(resolve(root, 'target/web-js-storage-refused-'));
+  const GRANTED = ['storage-fs.js', 'storage-sqlite.js', 'exact.topics.'], servers = [];
+  let browser;
+  try {
+    const app = (grants) => {
+      writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ name: 'Storage refused', id: 'test.storage-refused', app: { id: 'test.storage-refused', name: 'Storage refused' } }));
+      writeFileSync(resolve(dir, 'app.contract'), 'shape Report\n  text: string\ncomponent App\n  resource report = report() as shape Report\n  view\n    text report.text testId="report"\n');
+      writeFileSync(resolve(dir, 'app.ts'), `export const grants = ${JSON.stringify(grants)};
+export const answer = async (name: string, args: unknown[], store: unknown, storage: any) => {
+  const calls = [
+    () => storage.fs.readFile('app:/data/a.txt'), () => storage.fs.writeFile('app:/data/a.txt', 'x'),
+    () => storage.fs.readdir('app:/data'), () => storage.fs.rename('app:/data/a.txt', 'app:/data/b.txt'),
+    () => storage.fs.readFile('doc:/1/a.txt'), () => storage.fs.copyFile('doc:/1/a.txt', 'app:/data/a.txt'),
+    () => storage.fs.writeFile('app:/data/a.txt', 'x', { expect: {} }), () => storage.fs.writeFile('app:/data/a.txt', Symbol('body')),
+    () => storage.fs.compressImage('app:/a.png', 'app:/b.jpg', { maxDimension: 10, quality: 0.5 }),
+    () => storage.fs.compressImage('app:/a.png', 'app:/b.jpg', {}),
+    () => storage.fs.transformImage('app:/a.png', 'app:/b.png', { rotate: 90 }),
+    () => storage.fs.transformImage('app:/a.png', 'app:/b.png', { flip: 'up' }),
+    () => storage.sqlite.open('app:/data/notes.db'),
+    () => storage.fs.watch('app:/data/a.txt'),
+  ];
+  const said = [];
+  for (const call of calls) {
+    try { said.push('answered ' + JSON.stringify(await call())); }
+    catch (e: any) { said.push([e?.name, e?.kind, e?.code, e?.message].join(' | ')); }
+  }
+  return { text: said.join('\\n') };
+};
+`);
+    };
+    const build = (out, args) => {
+      const result = spawnSync(process.execPath, ['host/web-js/build.mjs', 'storage-refused', '--out', out, '--render', 'none', ...args], { cwd: root, env: { ...process.env, EXACT_APP_DIR: dir }, encoding: 'utf8' });
+      expect(result.status, result.stdout + result.stderr).toBe(0);
+      return readFileSync(resolve(out, builtFile(out, 'app.js')), 'utf8');
+    };
+    // `net.fetch` is no storage grant.
+    app('net.fetch https://api.example');
+    const production = build(resolve(dir, 'production'), ['--production']);
+    build(resolve(dir, 'development'), []);
+    for (const text of GRANTED) expect(production).not.toContain(text);
+    // Each build at its own origin's root, as a page is served.
+    const serve = build => Bun.serve({ hostname: '127.0.0.1', port: 0, fetch(req) {
+      const path = new URL(req.url).pathname;
+      return new Response(Bun.file(resolve(dir, build, path === '/' ? 'index.html' : path.slice(1))));
+    } });
+    browser = await suiteBrowser();
+    const report = async build => {
+      const at = serve(build);
+      servers.push(at);
+      const page = await browser.newPage();
+      await page.goto(at.url.href);
+      await page.waitForFunction(() => document.querySelector('[data-testid=report]')?.textContent.includes('\n'), null, { timeout: 30000 });
+      const text = await page.getByTestId('report').textContent();
+      await page.close();
+      return text.split('\n');
+    };
+    const refused = await report('production');
+    expect(refused).toEqual(await report('development'));
+    expect(refused).toHaveLength(14);
+    expect(refused[0]).toBe('Error | Unavailable | denied | denied: fs.readFile');
+    expect(refused[12]).toStartWith('Error | Unavailable | denied | denied: sqlite.open app:/data/notes.db: no grant covers it');
+    // A storage grant links them.
+    app('fs.read app:/data');
+    const granted = build(resolve(dir, 'granted'), ['--production']);
+    for (const text of GRANTED) expect(granted).toContain(text);
+  } finally {
+    await browser?.close();
+    for (const server of servers) server.stop(true);
+    rmSync(dir, { recursive: true, force: true });
+  }
+}, 180000);
+
+// A Rust data module is called only for a source the plan asks or a canvas it draws (build.mjs `rustLinked`):
+// `apps/hello`'s plan does neither, so its production page links neither the module nor the grant parser.
+test('a production page whose plan asks no Rust source links neither the module nor the grant parser', async () => {
+  if (webCompiler().cmd === 'cargo') throw new Error('build the compiler first: cargo build -p exact-web-js');
+  mkdirSync(resolve(root, 'target'), { recursive: true });
+  const dir = mkdtempSync(resolve(root, 'target/web-js-unasked-rust-'));
+  let browser, server;
+  try {
+    const out = resolve(dir, 'production');
+    const result = spawnSync(process.execPath, ['host/web-js/build.mjs', 'hello', '--out', out, '--render', 'none', '--production'], { cwd: root, encoding: 'utf8' });
+    expect(result.status, result.stdout + result.stderr).toBe(0);
+    const entry = readFileSync(resolve(out, builtFile(out, 'app.js')), 'utf8');
+    expect(readFileSync(resolve(out, '.gen/grant-admission.js'), 'utf8').startsWith('// Generated: the grant admission of a page that admits nothing')).toBe(true);
+    expect(entry).not.toContain(PARSER);
+    expect(entry).not.toContain('rust-data');
+    server = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch(req) {
+      const path = new URL(req.url).pathname;
+      return new Response(Bun.file(resolve(out, path === '/' ? 'index.html' : path.slice(1))));
+    } });
+    browser = await suiteBrowser();
+    const page = await browser.newPage(), errors = [];
+    page.on('pageerror', error => errors.push(error.message));
+    await page.goto(server.url.href);
+    await page.waitForFunction(() => document.getElementById('exact-root')?.textContent.includes('Hello world'));
+    expect(await page.evaluate(() => globalThis.exact.journal.filter(line => /Rust module/.test(line)))).toEqual([]);
+    expect(errors).toEqual([]);
   } finally {
     await browser?.close();
     server?.stop(true);

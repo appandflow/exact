@@ -1,0 +1,34 @@
+// RangeAdjustIOSTests: drawn sliders and a spin button, each stepped by its own key handler;
+// under a right-to-left column, one slider inherits `rtl` and one says `ltr`.
+component RangeAdjust
+  state level = 50
+  state floor = 3
+  state back = 50
+  state ahead = 50
+  action stepLevel(k: string)
+    if k == "ArrowRight"
+      level = level + 10
+    if k == "ArrowLeft"
+      level = level - 10
+  action stepFloor(k: string)
+    if k == "ArrowUp"
+      floor = floor + 1
+    if k == "ArrowDown"
+      floor = floor - 1
+  action stepBack(k: string)
+    if k == "ArrowLeft"
+      back = back + 10
+    if k == "ArrowRight"
+      back = back - 10
+  action stepAhead(k: string)
+    if k == "ArrowRight"
+      ahead = ahead + 10
+    if k == "ArrowLeft"
+      ahead = ahead - 10
+  view
+    column width="100%" height="100%"
+      box role="slider" tabindex=0 aria-label="Level" aria-valuenow=level aria-valuetext=`${level} percent` key=stepLevel testId="level" width=200 height=44
+      box role="spinbutton" tabindex=0 aria-label="Floor" aria-valuenow=floor key=stepFloor testId="floor" width=100 height=44
+      column direction="rtl"
+        box role="slider" tabindex=0 aria-label="Back" aria-valuenow=back key=stepBack testId="back" width=200 height=44
+        box role="slider" tabindex=0 aria-label="Ahead" aria-valuenow=ahead key=stepAhead direction="ltr" testId="ahead" width=200 height=44

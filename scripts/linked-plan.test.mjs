@@ -697,6 +697,26 @@ test('replacing a watched file with an old directory invalidates freshness', asy
   } finally { rmSync(dir, {recursive:true, force:true}); }
 });
 
+test.skipIf(process.platform === 'win32')('output exclusions are resolved once per collector and refreshed for the next collector', async () => {
+  const {buildInputCollector} = await import('./cargo-dep-info.mjs');
+  const dir = realpathSync(mkdtempSync(resolve(tmpdir(), 'collector-outputs-')));
+  try {
+    const first = resolve(dir, 'first'), second = resolve(dir, 'second'), output = resolve(dir, 'output');
+    for (const path of [first, second]) { mkdirSync(path); writeFileSync(resolve(path, 'source'), 'source'); }
+    const outputs = [];
+    const collect = () => buildInputCollector({outputs, nameOf:path=>path, hashes:{of:()=> 'digest'}, replaced:new Set()});
+    const collector = collect();
+    symlinkSync(first, output, 'dir'); outputs.push(output);
+    collector.add(dir);
+    expect([...collector.inputs.keys()]).toEqual([resolve(second, 'source')]);
+    rmSync(output); symlinkSync(second, output, 'dir');
+    collector.add(first);
+    expect(collector.inputs.has(resolve(first, 'source'))).toBe(false);
+    const next = collect(); next.add(dir);
+    expect([...next.inputs.keys()]).toEqual([resolve(first, 'source')]);
+  } finally { rmSync(dir, {recursive:true, force:true}); }
+});
+
 test.skipIf(process.platform === 'win32').each(['.exact', 'node_modules', '.git', '.build', '.gradle', 'target', 'dist'])(
   'a watch omits aliases into %s descendants but keeps explicitly named files', async tool => {
     const {buildInputCollector, packageDirectories, watchOutput} = await import('./cargo-dep-info.mjs');

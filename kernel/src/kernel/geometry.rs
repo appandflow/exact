@@ -233,8 +233,8 @@ impl Kernel {
             height: Dimension::auto(),
         };
         outer.min_size = taffy::geometry::Size {
-            width: LengthPercentageAuto::auto(),
-            height: LengthPercentageAuto::auto(),
+            width: Dimension::auto(),
+            height: Dimension::auto(),
         };
         outer.max_size = outer.min_size;
         outer.margin = taffy::geometry::Rect {
@@ -298,7 +298,12 @@ impl Kernel {
             });
         let env = self.arena.env_of(key.index);
         let mut minimum = style.min_width.at_basis(&env, basis).max(0.0);
-        if style.box_sizing == crate::generated::BoxSizing::ContentBox {
+        if matches!(style.min_width, crate::Dimension::Keyword(_)) {
+            // A keyword minimum has no points without measuring: the used
+            // width keeps the placement from narrowing below what layout
+            // gave it (LLP 1001.001 D5).
+            minimum = laid.size.width;
+        } else if style.box_sizing == crate::generated::BoxSizing::ContentBox {
             let (left, _, right, _) = self.resolved_padding(key).unwrap_or_default();
             let [_, br, _, bl] = style.border_widths_in(&env);
             minimum += left + right + bl + br;
@@ -346,6 +351,15 @@ impl Kernel {
     pub fn resolved_padding(&self, key: NodeKey) -> Option<(f32, f32, f32, f32)> {
         let [left, top, right, bottom] = self.arena.inset(self.arena.resolve(key)?)?.padding;
         Some((left, top, right, bottom))
+    }
+
+    /// Used margins from the last layout, including percentages resolved
+    /// against the containing block's content width (CSS 2.1 §8.3).
+    pub(crate) fn resolved_margins(&self, key: NodeKey) -> Option<[f32; 4]> {
+        let slot = self.arena.resolve(key)?;
+        let tree = self.layout.as_deref().and_then(LayoutMirror::tree_ref)?;
+        let margin = tree.layout(self.arena.taffy(slot)?).margin;
+        Some([margin.top, margin.right, margin.bottom, margin.left])
     }
 
     /// A node's margins as its layout reads them under the kernel's

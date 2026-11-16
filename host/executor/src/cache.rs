@@ -286,7 +286,9 @@ pub(super) fn replacing(
 pub(super) fn exchange(state: &State, job: &Job) -> Option<Exchange> {
     state.cache.as_ref()?;
     let request = &job.request;
-    (job.work.is_none() && eligible(request, job.class) && request.cache != CacheMode::NoStore)
+    (!super::reads::opaque(&job.work)
+        && eligible(request, job.class)
+        && request.cache != CacheMode::NoStore)
         .then(|| Exchange {
             key: Key::of(request),
             previous: None,
@@ -337,7 +339,8 @@ fn replacing_before(state: &State, ticket: u64, key: &Key) -> bool {
             && match pending {
                 reads::Pending::Running(r) => r.cache_replacing.as_ref() == Some(key),
                 reads::Pending::Queued(j) => {
-                    replacing(&j.request, j.class, j.forced, j.work.is_some()).as_ref() == Some(key)
+                    replacing(&j.request, j.class, j.forced, super::reads::opaque(&j.work)).as_ref()
+                        == Some(key)
                 }
             }
     })
@@ -413,7 +416,10 @@ pub(super) fn serve_ready(state: &mut State) {
             break;
         }
         let job = &state.jobs[0][index];
-        if job.class != RequestClass::Read || !job.request.is_plain_http() || job.work.is_some() {
+        if job.class != RequestClass::Read
+            || !job.request.is_plain_http()
+            || super::reads::opaque(&job.work)
+        {
             break;
         }
         if super::preload::waiting(state, job)

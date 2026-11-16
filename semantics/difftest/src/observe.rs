@@ -77,12 +77,20 @@ fn preorder(r: &Runner<Oracle>) -> Vec<ViewId> {
 }
 
 /// The elements an observation shows, in preorder: every live element but
-/// a virtualized list's descendants, which are the rows its window lays out
-/// (`Contract.Observe.viewLines` leaves them out too).
+/// its virtualized data rows. Fixed children remain observable
+/// (`Contract.Observe.viewLines` uses the same boundary).
 fn observed(r: &Runner<Oracle>) -> Vec<ViewId> {
-    fn walk(r: &Runner<Oracle>, windowed: &[ViewId], id: ViewId, out: &mut Vec<ViewId>) {
+    fn walk(
+        r: &Runner<Oracle>,
+        windowed: &[exact_runner::CollectionSnapshot],
+        id: ViewId,
+        out: &mut Vec<ViewId>,
+    ) {
         out.push(id);
-        if windowed.contains(&id) {
+        if let Some(collection) = windowed.iter().find(|c| c.view == id) {
+            for root in collection.fixed.iter().flat_map(|fixed| &fixed.roots) {
+                walk(r, windowed, *root, out);
+            }
             return;
         }
         if let Some(n) = r.kernel().node(id) {
@@ -91,7 +99,7 @@ fn observed(r: &Runner<Oracle>) -> Vec<ViewId> {
             }
         }
     }
-    let windowed: Vec<ViewId> = r.collections().iter().map(|c| c.view).collect();
+    let windowed = r.collections();
     let mut out = Vec::new();
     for root in r.roots() {
         walk(r, &windowed, root, &mut out);

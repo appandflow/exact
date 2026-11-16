@@ -140,7 +140,10 @@ test or drive to investigate; it does not add another blocking check.
   (`host/apple/xctest.mjs`) and iOS classes one per simulator clone, so a class
   cannot rely on an earlier class. Install what it uses in `class func setUp`
   (`ExactSurfaces.install()` for a canvas) and create what it reads
-  (`NSApplication.shared` before `NSApp`).
+  (`NSApplication.shared` before `NSApp`). `UserDefaults.standard` is one
+  domain for every macOS XCTest process (`com.apple.dt.xctest.tool`): a
+  test that sets a key the host also writes gives the host a suite of its
+  own (`DeclaredCategories.defaults`).
 - **Run the classes a change touches.** `bun host/apple/build.mjs --test --only
   FrameHealthMetricsTests,FrameHealthMacTests` builds as a full run does and runs
   only the classes named, on macOS; `--test --ios --only

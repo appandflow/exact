@@ -22,7 +22,7 @@ const STATE: &str = "exact.state";
 /// said at boot and again by the activation. Beside it, the kept answers
 /// past the read budget, by name, for the runner to forget what it would
 /// had it read them (`Runner::forget_unread_kept`).
-pub(super) fn store_read(app_id: &str, carried: bool) -> (Vec<(String, Vec<u8>)>, Vec<String>) {
+pub(crate) fn store_read(app_id: &str, carried: bool) -> (Vec<(String, Vec<u8>)>, Vec<String>) {
     // What an earlier host in this process committed is on disk before it is read back.
     super::store_writer::settle();
     if carried {

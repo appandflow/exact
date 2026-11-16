@@ -118,6 +118,7 @@ windows-sys = { version = "0.61", features = ["Win32_Storage_FileSystem", "Win32
 test-budget = []
 
 [dev-dependencies]
+exact-bake = { path = "../../bake" }
 exact-js = { path = "../../js" }
 messages-stress-data = { path = "../../apps/messages-stress/data" }
 exact-update = { path = "../../update" }

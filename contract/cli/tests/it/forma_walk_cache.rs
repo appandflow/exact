@@ -30,7 +30,7 @@ fn package_design(pin: &str, svg: &str) -> String {
 
 const CARD: &str = "component Card\n  view\n    column\n      text \"card\"\n";
 
-fn setup(tag: &str) -> PathBuf {
+fn setup(tag: &str) -> crate::scratch::Scratch {
     let dir = app(tag, &design("#111111", "200ms", "ink", "a.svg"));
     let svg = "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 1 1\"><path d=\"M0 0h1v1z\"/></svg>";
     std::fs::create_dir_all(dir.join("assets")).unwrap();

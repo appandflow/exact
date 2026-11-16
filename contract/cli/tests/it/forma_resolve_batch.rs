@@ -14,7 +14,7 @@ use serde_json::{json, Value};
 /// The app at `tag`: `brand`, `accent` from it, and `@acme/reading`'s
 /// `reading.card` set to it, whose `reading.edge` (the package's own line)
 /// derives from `reading.card`.
-fn reading(tag: &str) -> std::path::PathBuf {
+fn reading(tag: &str) -> crate::scratch::Scratch {
     let dir = app(
         tag,
         "forma t\n\ntheme\n  brand = #336699\n  accent = brand\n  reading.card = brand\n",

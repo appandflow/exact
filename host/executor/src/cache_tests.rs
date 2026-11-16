@@ -223,6 +223,7 @@ fn serve(mut socket: TcpStream, server: Arc<(Mutex<ServerState>, Condvar)>) {
 }
 pub(in super::super) fn job(ticket: u64, request: Request) -> RequestOut {
     RequestOut {
+        completion: None,
         ticket,
         target: "cache-test".into(),
         forced: false,

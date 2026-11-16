@@ -174,6 +174,7 @@ extension ExactSession {
         #if os(iOS)
         presenter.navigation.finishBootOwner()
         #endif
+        if clock == nil { followOffset() } // (the input reads the date: after a sleep, a press can come before any frame)
         var batch = input()
         batch.input = CACurrentMediaTime()
         apply(batch)

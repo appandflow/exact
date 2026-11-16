@@ -453,6 +453,7 @@ mod storage {
             && actual.text_wrap_style == expected.text_wrap_style
             && actual.atoms_len == expected.atoms_len
             && actual.faces_len == expected.faces_len
+            && actual.natural == expected.natural
             && same_run(&actual.strut, &expected.strut)
             && !actual.runs.is_null();
         if probe.exact {
@@ -659,6 +660,7 @@ mod storage {
                 atoms_len: 0,
                 faces: "".as_ptr(),
                 faces_len: 0,
+                natural: 0,
             },
             calls: 0,
             exact: true,

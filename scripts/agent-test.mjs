@@ -7,11 +7,12 @@ import { connect } from 'node:net';
 import { homedir } from 'node:os';
 import { basename, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { faultRequest as rawFaultRequest, PREFERENCES, preferGroups } from './agent-prefer.mjs';
+import { faultRequest as rawFaultRequest, preferGroups } from './agent-prefer.mjs';
 import { open } from './agent.mjs';
 import { duringOp } from './agent-drag.mjs';
 import { perfDelta } from './agent-inspect.mjs';
 import { driveStore, faultSpecOf, launchFacts } from './agent-launch.mjs';
+import { macSandboxed } from './agent-build.mjs';
 import { resolveApp, webDist as defaultWebDist } from './app.mjs';
 import { onThisMachine, serverUrl } from './app-server.mjs';
 import { backendOrigin, backendOriginSelection, literalBackendOrigin, staticFacts } from '../js/bake/src/typescript.mjs';
@@ -169,9 +170,10 @@ export const pickHint = (host) => host === 'web'
   : '; first tap a button whose action calls showPicker("<input id>"); the file input needs id as well as testId';
 
 /** Where a native host keeps a drive's scratch stores (host/apple and host/painted `configure_storage`), or
- * null where the driver cannot reach them: an iOS simulator's are in its app container and go with the app. */
-export function storeBase(appId, host, env = process.env, home = homedir()) {
-  if (host === 'macos' || host === 'mac') return resolve(home, 'Library/Caches/exact', appId, 'agent');
+ * null where the driver cannot reach them: an iOS simulator's are in its app container and go with the app; a
+ * sandboxed Mac build's (`sandboxed`: `mac --sandbox`, LLP 1030.005 D4) are in its container, whose HOME it takes. */
+export function storeBase(appId, host, env = process.env, home = homedir(), sandboxed = false) {
+  if (host === 'macos' || host === 'mac') return resolve(home, ...(sandboxed ? ['Library/Containers', appId, 'Data'] : []), 'Library/Caches/exact', appId, 'agent');
   if (host === 'linux') return resolve(env.XDG_CACHE_HOME?.startsWith('/') ? env.XDG_CACHE_HOME : resolve(home, '.cache'), 'exact', appId, 'agent');
   return null;
 }
@@ -311,7 +313,7 @@ export function sweepTestStores(base, storage) {
 export function backendFetchPrefixes(tests, origins) {
   const unique = [...new Set(origins.map(o => o.replace(/\/+$/, '')))];
   for (const t of tests) for (const step of t.steps) {
-    if (!['fail-fetch', 'pass-fetch'].includes(step.op)) continue;
+    if (!['fail-fetch', 'answer-fetch', 'pass-fetch'].includes(step.op)) continue;
     step.prefix = resolveFaultPrefix(step.prefix, unique);
   }
   return tests;
@@ -360,7 +362,7 @@ export async function failureMark(s) {
   return {
     failures: Object.fromEntries(Object.entries(state.failures ?? {}).map(([name, f]) => [name, f.count])),
     failed: state.failed ?? {}, mutations: state.mutationFailures ?? {},
-    faults: Object.fromEntries((state.faults ?? []).map((f) => [f.prefix, f.hits])), journal,
+    faults: Object.fromEntries((state.faults ?? []).map((f) => [f.prefix, f.failureHits ?? (f.response ? 0 : f.hits)])), journal,
   };
 }
 
@@ -676,7 +678,7 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
   // Where the host keeps its stores, as it will see its environment (a drive's env overrides the driver's).
   const launched = { ...process.env, ...(env ?? {}) };
   const id = selected.id, chrome = host === 'web' && (browser ?? launched.EXACT_WEB_BROWSER ?? 'chrome') === 'chrome';
-  const base = device ? null : chrome ? driveStore(selected, storage, env).base : host === 'web' ? null : storeBase(id, host, launched, launched.HOME || homedir());
+  const base = device ? null : chrome ? driveStore(selected, storage, env).base : host === 'web' ? null : storeBase(id, host, launched, launched.HOME || homedir(), (host === 'macos' || host === 'mac') && macSandboxed(selected));
   // A run's own names where the driver can remove them; a simulator's (one drive at a time: a launch ends the
   // last) reuse one store a test, emptied at launch, so they cannot pile up in its app container.
   // Android's stores are on the device, out of the driver's reach, but a run's names stay its own there too (LLP 1107).
@@ -715,6 +717,7 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
       if (st.op === 'before-data') beforeData = true;
       else if (st.op === 'fresh') reset = st;
       else if (st.op === 'fail-fetch') { early(st); facts.failFetch = [facts.failFetch, st.times == null ? st.prefix : `${st.prefix}\t${st.times}`].filter(Boolean).join('\n'); if (st.times != null) armed.set(st.prefix, st.line); }
+      else if (st.op === 'answer-fetch') facts.failFetch = [facts.failFetch, faultSpecOf([{prefix: st.prefix, hits: 0, armed: true, response: st.response}])].filter(Boolean).join('\n');
       else if (st.op === 'size') facts.size = [st.width, st.height];
       else if (st.op === 'at') opensAt = st.value;
       else if (st.op === 'prefer') preferences.push(st);
@@ -723,6 +726,7 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
       lines.push(st.line);
       leading++;
     }
+    if (host === 'web' && opensAt && /^https?:\/\//.test(url ?? '')) opensAt = new URL(opensAt, url).href;
     // Replay uses the already-resolved facts, including an authored `epoch now` (LLP 1116.007 D3.4).
     if (replayLaunch) Object.assign(facts, replayLaunch);
     // A size the carrier cannot give: run at another, the test would fail on what that size was to show.
@@ -769,15 +773,16 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
       continue;
     }
     const prefer = async (st) => {
-      const facts = { [st.name]: st.value };
-      const permission = preferGroups(facts).extension.permission != null; // The driver's diagnostic for a bad name or value.
-      if (!permission && !Object.hasOwn(PREFERENCES, st.name) && st.name !== 'root-font-size') throw new Error(`test prefer: expected a CSS media feature (${Object.keys(PREFERENCES).join(', ')}), root-font-size or a module's permission (permission.<name> granted|denied|prompt)`);
+      const name = st.name.toLowerCase().replace(/[^a-z]/g, '').replace(/^prefers?/, '');
+      if (['posture', 'segments', 'gap', 'mode', 'extension'].includes(name)) throw new Error(`test prefer: ${st.name} is drive-only for now; authored tests cannot set folds (posture, segments, gap), mode pins or extension substitutes`);
+      const parsed = preferGroups({ [st.name]: st.value });
+      if (Object.keys(parsed.midi).length) throw new Error('test prefer: use prefer midi inside a test for MIDI facts');
+      const facts = { ...parsed.media, ...parsed.page, ...Object.fromEntries(Object.entries(parsed.extension.permission ?? {}).map(([name, value]) => [`permission.${name}`, value])) };
       const r = await s.prefer(facts);
       if (r?.error) throw new Error(r.error);
-      if (permission) return void Object.assign(permissions, facts);
+      const retained = parsed.extension.permission ? permissions : media;
       // Preserve last-application order: pointer and hover emulation affect each other.
-      delete media[st.name];
-      Object.assign(media, facts);
+      for (const [name, value] of Object.entries(facts)) { delete retained[name]; retained[name] = value; }
     };
     const mutationClock = testMutationClock();
     // The app's data lands before the first step, as `clock data` lands it: activation and every request in flight,
@@ -906,6 +911,13 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
             const r = await s.op({ op: 'prefer', faults: { fail: st.prefix, ...(st.times != null ? { times: st.times } : {}) } });
             if (r?.error) throw new Error(r.error);
             if (st.times != null) armed.set(st.prefix, st.line);
+            break;
+          }
+          case 'answer-fetch': {
+            if (n < leading) break;
+            await unfired(st.prefix);
+            const r = await s.op({ op: 'prefer', faults: { answer: st.prefix, response: st.response } });
+            if (r?.error) throw new Error(r.error);
             break;
           }
           case 'pass-fetch': { const r = await s.op({ op: 'prefer', faults: { pass: st.prefix } }); if (r?.error) throw new Error(r.error); break; }
@@ -1103,7 +1115,10 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
             break;
           }
           case 'expect-perf': {
-            const f = perfExpectation(measured, st, Object.keys((await s.state()).resources ?? {}));
+            // A child's resources are listed under each instance (LLP 1035.005.004 D8).
+            const state = await s.state();
+            const names = [...Object.keys(state.resources ?? {}), ...(state.owned ?? [])];
+            const f = perfExpectation(measured, st, [...new Set(names)]);
             if (f) failures.push(`${at}: ${f}`);
             break;
           }

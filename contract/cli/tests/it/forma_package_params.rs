@@ -30,7 +30,7 @@ pub(crate) fn package(dir: &std::path::Path, ns: &str, contract: &str, design: &
 
 /// The app at `tag`: `@acme/reading`'s `Card` used once, its design
 /// declaring `component Map` with a param defaulting to a package token.
-pub(crate) fn reading(tag: &str) -> std::path::PathBuf {
+pub(crate) fn reading(tag: &str) -> crate::scratch::Scratch {
     let dir = app(tag, "forma t\n\ntheme\n  ink = #111111\n");
     package(
         &dir,

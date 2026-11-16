@@ -64,10 +64,7 @@ impl<D: DataSource> Presenter<D> {
         if !self.timers_hidden && self.needs_animation_frame() {
             self.tick(now);
         }
-        // A stopped reader presents no frame, a flight's included.
-        if live && !self.timers_hidden {
-            self.dirty |= self.host.present_reader_frame(now);
-        }
+        self.release_overdue();
         // Asked on every turn: a replaced reader ends flights with no tick after.
         self.focus_landed();
         date_error.or(error)
@@ -88,10 +85,13 @@ impl<D: DataSource> Presenter<D> {
     pub fn advance(&mut self, now_ms: f64) -> Option<String> {
         let (e, paint) = self.host.advance_effects(now_ms);
         self.dirty |= paint;
+        self.release_overdue();
         let after = self.finish_commit();
         self.hatch_timers(now_ms);
+        let held = self.release_held_tap(false);
         let ends = self.deliver_scroll_ends();
         e.or(after)
+            .or(held)
             .or(ends)
             .or(self.admit_timer_waits(now_ms, false))
     }
@@ -144,6 +144,9 @@ impl<D: DataSource> Presenter<D> {
     /// The display's clock owns time (`Some`), or a driver's seekable one
     /// does (`None`): the running runner and every one booted later take it.
     pub fn set_live_clock(&mut self, wall: Option<Wall>) {
+        if wall.is_none() && self.live_clock.is_some() {
+            self.driven_presented();
+        }
         self.live_clock = wall;
         self.give_clock();
     }
@@ -184,7 +187,11 @@ impl<D: DataSource> Presenter<D> {
     pub(super) fn give_clock(&mut self) {
         self.clock_generation = self.clock_generation.wrapping_add(1);
         self.host.flights.enabled = self.brush.backend() == "canvas";
-        self.host.reader_frame_clock(self.live_clock.is_some());
+        // Without a live clock the rule stays as the boot or a takeover left it.
+        if self.live_clock.is_some() {
+            self.dirty |= self.host.frame_clock(self.presents);
+        }
+        self.refresh_presentable();
         self.host.runner_mut().use_native_timers(self.native_timers);
         let wall = self.live_clock.clone();
         let sample = wall.map(|wall| Box::new(move || wall()) as Box<dyn FnMut() -> f64>);
@@ -199,7 +206,10 @@ impl<D: DataSource> Presenter<D> {
 
     /// Whether the carrier reports that this session presents no frames.
     pub fn timer_visibility(&mut self, hidden: bool) {
-        self.timers_hidden = hidden;
+        if self.timers_hidden != hidden {
+            self.timers_hidden = hidden;
+            self.refresh_presentable();
+        }
     }
 
     /// Latest reader report: scrolling, animation sampling, and unapplied publications.
@@ -320,8 +330,9 @@ impl<D: DataSource> Presenter<D> {
         // transition), and `after_commit` repaints only for a new epoch.
         self.dirty = true;
         let after = self.after_commit();
+        let held = self.release_held_tap(false);
         let ends = self.deliver_scroll_ends();
-        (landed, e.or(after).or(ends))
+        (landed, e.or(after).or(held).or(ends))
     }
 }
 

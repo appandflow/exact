@@ -10,7 +10,7 @@ use serde_json::{json, Value};
 /// An app using `Card` and `Badge` from a private library package
 /// `@acme/lib`: `Card` with parts, a slot, a variant prop and a param for
 /// each level; `Badge` with parts and no params. `design` is the app's.
-fn library(tag: &str, design: &str) -> std::path::PathBuf {
+fn library(tag: &str, design: &str) -> crate::scratch::Scratch {
     let dir = app(tag, design);
     let lib = dir.join("node_modules/@acme/lib");
     std::fs::create_dir_all(&lib).unwrap();

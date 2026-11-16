@@ -8,7 +8,7 @@ import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { HOST_EVENTS, PLIST_KEYS, appleMetadataProblem, hostEventKeys, modulePlist, packageEvents, packageKeys } from './plist.mjs';
 import { signsGrant } from './presence.mjs';
-import { entitlements, infoPlist, macInfoPlist } from './build.mjs';
+import { entitlements, infoPlist, macInfoPlist, writeUsageStrings } from './build.mjs';
 import { buildPainted } from '../apple-painted/build.mjs';
 
 const packages = resolve(import.meta.dir, '../../packages');
@@ -16,6 +16,37 @@ const purchases = JSON.parse(readFileSync(resolve(packages, 'purchases/apple/exa
 const impl = (plistKeys) => [{ extension: 'purchases', plistKeys }];
 const flat = (plist) => plist.replace(/>\s+</g, '><');
 const KEY = /<key>SKIncludeConsumableInAppPurchaseHistory<\/key><true\/>/;
+
+test('Bluetooth usage is localized on Apple and its background mode is iOS only', () => {
+  const app = { id: 'dev.exact.strap', displayName: 'Strap', name: 'strap', manifest: {} };
+  const reach = { base: 'en', locales: ['en', 'fr'], usage: {
+    NSBluetoothAlwaysUsageDescription: { en: 'Reads your heart rate.', fr: 'Lit votre fréquence cardiaque.' },
+  }, backgroundModes: ['bluetooth-central'] };
+  const ios = flat(infoPlist(app, false, { reach }));
+  const mac = flat(macInfoPlist(app, { reach }));
+  for (const plist of [ios, mac]) assert.match(plist, /<key>NSBluetoothAlwaysUsageDescription<\/key><string>Reads your heart rate\.<\/string>/);
+  assert.match(ios, /<key>UIBackgroundModes<\/key><array><string>bluetooth-central<\/string><\/array>/);
+  assert.doesNotMatch(mac, /UIBackgroundModes/);
+  assert.doesNotMatch(infoPlist(app, false, { reach, tv: true }), /bluetooth-central/);
+  assert.doesNotMatch(infoPlist(app, false, { reach: { ...reach, backgroundModes: [] } }), /UIBackgroundModes/);
+  assert.doesNotMatch(infoPlist(app), /NSBluetoothAlwaysUsageDescription|bluetooth-central/);
+  assert.throws(() => infoPlist({ ...app, manifest: { host: { ios: { backgroundModes: ['bluetooth-central'] } } } }), /device.bluetooth-background.*device.bluetooth purpose/);
+  for (const platform of ['ios', 'macos']) {
+    const path = `host.${platform}.infoPlist.NSBluetoothAlwaysUsageDescription`;
+    assert.equal(appleMetadataProblem(`${path}: not a known key`), `${path}: refused; write \`device.bluetooth purpose.<key>\``);
+  }
+  const dir = mkdtempSync(resolve(tmpdir(), 'exact-bluetooth-plist-'));
+  try {
+    writeFileSync(resolve(dir, 'ios.plist'), ios);
+    writeFileSync(resolve(dir, 'macos.plist'), mac);
+    writeUsageStrings(reach, dir);
+    assert.match(readFileSync(resolve(dir, 'fr.lproj/InfoPlist.strings'), 'utf8'), /<key>NSBluetoothAlwaysUsageDescription<\/key><string>Lit votre fréquence cardiaque\.<\/string>/);
+    for (const file of process.platform === 'darwin' ? ['ios.plist', 'macos.plist', 'fr.lproj/InfoPlist.strings'] : []) {
+      const lint = childProcess.spawnSync('plutil', ['-lint', resolve(dir, file)], { encoding: 'utf8' });
+      assert.equal(lint.status, 0, lint.stdout + lint.stderr);
+    }
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
 
 test('location metadata advice chooses one grant and keeps prerequisites beside it', () => {
   const key = 'NSLocationWhenInUseUsageDescription';

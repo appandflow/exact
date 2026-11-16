@@ -26,5 +26,5 @@
   "deploy": {
     "store": { "macos": "0", "ios": "0" }
   },
-  "rust": { "data": { "crate": "tamber-host-data", "type": "tamber_host_data::TamberHost", "source": "tamber_host_data::TamberHost" } }
+  "rust": { "data": { "crate": "forma-host-data", "type": "forma_host_data::FormaHost", "source": "forma_host_data::FormaHost" } }
 }

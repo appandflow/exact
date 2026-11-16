@@ -368,6 +368,20 @@ fn a_loop_variable_named_t_leaves_t_callable_in_a_child() {
     assert!(app.compile().is_ok(), "{:?}", app.refusals());
 }
 
+/// The root's action `t` is in the root's scope only (LLP 1089 D1): a
+/// child's `t("hi")` is still the strings call where the root inlines it.
+#[test]
+fn a_roots_action_named_t_leaves_t_callable_in_a_child() {
+    let app = AppDir::new(
+        "component App\n  state n = 0\n  action t(by: number)\n    n = n + by\n  view\n    column\n      button \"+\" press=t(1)\n      Greeting()\ncomponent Greeting\n  view\n    text t(\"hi\") testId=\"hi\"\n",
+        &[("strings/en.json", r#"{"hi": "Hello"}"#)],
+    );
+    let plan = app
+        .compile()
+        .unwrap_or_else(|_| panic!("{:?}", app.refusals()));
+    assert_eq!(text(&boot(plan), "hi"), "Hello");
+}
+
 #[test]
 fn the_default_agent_place_still_selects_its_table_when_the_base_differs() {
     let app = AppDir::new(
@@ -487,6 +501,48 @@ fn cldr_direction_follows_the_resolved_script_and_css_overrides_still_win() {
     );
     assert!(r.set_place("not a locale", "UTC", None).is_err());
     assert_eq!(r.resolved_locale(), "en");
+}
+
+#[test]
+fn a_launch_direction_replaces_the_tables_and_css_overrides_still_win() {
+    let app = AppDir::new("component App\n  view\n    column testId=\"root\"\n      text t(\"title\") testId=\"title\"\n      text \"CSS\" direction=\"rtl\" testId=\"override\"\n", &[
+        ("strings/en.json", EN), ("strings/ar.json", EN),
+    ]);
+    let plan = app.compile().unwrap();
+    for host in [exact_kernel::Direction::Ltr, exact_kernel::Direction::Rtl] {
+        let launch = exact_runner::time::Launch {
+            place: Some(exact_runner::time::Place {
+                locale: "ar".into(),
+                ..Default::default()
+            }),
+            direction: Some(host),
+            ..exact_runner::time::Launch::NONE
+        };
+        let r = exact_runner::time::launching_with(launch, || boot(plan.clone()));
+        assert_eq!(r.resolved_locale(), "ar");
+        assert_eq!(r.direction(), host.name());
+        for id in ["root", "title", "override"] {
+            let node = r
+                .kernel()
+                .node_by_key(r.kernel().find_by_test_id(id)[0])
+                .unwrap();
+            let want = if id == "override" {
+                exact_kernel::Direction::Rtl
+            } else {
+                host
+            };
+            assert_eq!(
+                node.computed_style(exact_kernel::StyleMask::INHERITED)
+                    .direction,
+                want,
+                "{}: {id}",
+                host.name()
+            );
+        }
+        let state = exact_runner::agent::state(&r);
+        let language = format!(r#""language":{{"lang":"ar","dir":"{}"}}"#, host.name());
+        assert!(state.contains(&language), "{state}");
+    }
 }
 
 #[test]

@@ -175,6 +175,7 @@ fn serve(mut socket: TcpStream, server: Arc<(Mutex<ServerState>, Condvar)>) {
 
 fn job(ticket: u64, request: Request, class: RequestClass) -> RequestOut {
     RequestOut {
+        completion: None,
         ticket,
         target: "test".into(),
         request,

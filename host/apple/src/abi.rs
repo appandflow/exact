@@ -872,6 +872,12 @@ impl<D: DataSource> Bridge<D> {
             return self.prepare_error("no prepared plan");
         };
         candidate.host.commit_boot();
+        if let Some(live) = &self.host {
+            candidate
+                .host
+                .runner_mut()
+                .share_faults(live.runner().faults());
+        }
         // The old executor lets go of everything, then says which uploads had
         // begun to go out; the rest never left (LLP 1016.000 D10).
         if let Some(old) = self.executor.as_deref() {
@@ -1227,6 +1233,20 @@ impl<D: DataSource> Bridge<D> {
         self.emit(out)
     }
 
+    /// `prefer presented`: 0 false, 1 true, else the host's own.
+    pub fn prefer_presented(&mut self, value: u32) -> u32 {
+        let preferred = match value {
+            0 => Some(false),
+            1 => Some(true),
+            _ => None,
+        };
+        let out = self
+            .host
+            .as_mut()
+            .map_or_else(not_booted, |h| h.prefer_presented(preferred));
+        self.emit(out)
+    }
+
     /// The locale and time zone, as `locale NUL timeZone` in the input buffer.
     pub fn set_place(&mut self, len: usize) -> u32 {
         // `locale NUL timeZone`, then `NUL seed` and `NUL formatLocale`.
@@ -1283,7 +1303,9 @@ impl<D: DataSource> Bridge<D> {
             self.refusal("intrinsics: truncated record")
         } else {
             let sizes: Vec<_> = bytes
-                .chunks_exact(12)
+                .as_chunks::<12>()
+                .0
+                .iter()
                 .map(|r| {
                     let word = |i: usize| [r[i], r[i + 1], r[i + 2], r[i + 3]];
                     let (w, h) = (f32::from_le_bytes(word(4)), f32::from_le_bytes(word(8)));
@@ -1362,6 +1384,9 @@ impl<D: DataSource> Bridge<D> {
     /// An agent request (the input buffer's first `len` bytes, JSON); the
     /// output is the reply, not a batch.
     pub fn agent(&mut self, len: usize) -> u32 {
+        if let Some(host) = self.host.as_mut() {
+            host.runner_mut().take_fault_logs();
+        }
         let request =
             String::from_utf8_lossy(&self.input[..len.min(self.input.len())]).into_owned();
         // `tap @t` / `type @t` answer a held device request (LLP 1069.007

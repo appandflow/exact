@@ -96,6 +96,7 @@ const TOKENS: std::ops::Range<u64> = 1 << 62..1 << 63;
 thread_local! {
     /// Tests: how many substitutes were parsed from the plan's text.
     pub(crate) static SUBSTITUTE_PARSES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    pub(crate) static POLL_SCANS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
 
 /// The runner's module state for this session (LLP 1124 D7: until cleared
@@ -156,6 +157,7 @@ pub(super) struct Extensions {
     arrived: handles::Arrived,
     /// Each polled source's last ask, on the session's clock (`poll.rs`).
     polls: BTreeMap<String, f64>,
+    polled: std::cell::RefCell<Option<poll::Polled>>,
     /// When each live source's last answer goes stale, as Unix milliseconds;
     /// infinite once asked (`stale.rs`).
     stale: BTreeMap<String, f64>,
@@ -361,7 +363,7 @@ impl<D: DataSource> Runner<D> {
         let m = target
             .mutation()
             .expect("a send's target names its mutation");
-        let ty = self.plan.mutations[m].ty;
+        let ty = self.mutation_row(m).ty;
         self.module_target(target, source, args, ty)
     }
 
@@ -422,7 +424,7 @@ impl<D: DataSource> Runner<D> {
         let what = match target {
             Target::Resource(i) => format!("query {}", self.plan.str(self.resource_row(i).name)),
             Target::Mutation(m) | Target::Sent(m, _) => {
-                format!("send {}", self.plan.str(self.plan.mutations[m].name))
+                format!("send {}", self.mutation_name(m))
             }
         };
         let reader = match target {
@@ -557,19 +559,6 @@ impl<D: DataSource> Runner<D> {
             .module_named(source)
             .expect("a module's name")
             .clone()
-    }
-
-    /// The declaration's qualified name, as `prefer` and the journal name it.
-    pub(super) fn key(&self, row: &ModulesRow) -> String {
-        let owner = self.substitute(row)["owner"]
-            .as_str()
-            .map(|s| format!("#{s}"))
-            .unwrap_or_default();
-        format!(
-            "{}.{}{owner}",
-            self.plan.str(row.extension),
-            self.plan.str(row.declared)
-        )
     }
 
     fn substitute(&self, row: &ModulesRow) -> std::sync::Arc<Json> {

@@ -29,6 +29,7 @@ import ExactPresence
 #endif
 public enum ExactComposition {
     public static let app: ExactApp = {
+        AgentLink.install()
         // The linked capabilities' Swift halves (LLP 1047.001 D4), before
         // any session is made.
         #if EXACT_LINK_GROUPED_LISTS

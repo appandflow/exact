@@ -54,6 +54,9 @@ def global (env : Env) (x : String) : Result Value :=
       (lookup x env.derives).elim (.error .pending) .ok
     else if env.prog.resources.any (·.name == x) then
       (lookup x env.resources).elim (.error .pending) .ok
+    else if env.prog.mutations.any (fun m => m.name == x && m.owner.isSome) then
+      -- A child's mutation is its instance's slot (LLP 1035.005.004 D6).
+      (lookup x env.rows).elim (.error (.refused s!"row slot `{x}` read outside its row")) .ok
     else if env.prog.mutations.any (·.name == x) then
       (lookup x env.slots).elim (.error (.unbound x)) .ok
     else .error (.unbound x)

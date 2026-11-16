@@ -28,6 +28,7 @@ impl<D: DataSource> Presenter<D> {
             scale,
             Assets::embedded(assets),
             PainterBoot::selected(choice),
+            TextEngine::shared_for_assets,
             None,
             "/",
             Some(region),
@@ -149,6 +150,7 @@ impl<D: DataSource> Presenter<D> {
         let mut dirty = self.host.take_row_dirty();
         // A ripple paints its node's row again every frame it shows.
         self.brush.ripples.keys().for_each(|key| dirty.node(key));
+        self.sync_media(&mut dirty);
         self.brush.numerals.now = self.host.now();
         self.brush.numerals.still = self.host.runner().viewport().preferences.reduced_motion;
         self.brush.rows_dirty(self.host.kernel(), dirty);
@@ -191,6 +193,7 @@ impl<D: DataSource> Presenter<D> {
             roots: &roots,
             presented: &presented,
             paths: &|id| host.presented_path(id),
+            filters: &|id| host.presented_filter(id),
             scroll: model_scroll.as_ref().unwrap_or(&self.scroll),
             page,
             images: &self.images.bitmaps,

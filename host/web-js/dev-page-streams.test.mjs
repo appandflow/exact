@@ -8,7 +8,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer, request } from 'node:http';
 import { connect, createServer as createSocketServer } from 'node:net';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { suiteBrowser } from '../../scripts/agent-launch.mjs';
 import { fileURLToPath } from 'node:url';
 
@@ -16,7 +16,7 @@ const ROOT = resolve(fileURLToPath(new URL('../..', import.meta.url)));
 afterEach(() => stopAll());
 
 test('a page that closes is no build of the loop any more, by 127.0.0.1 or by localhost', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'exact-page-streams-')), dist = mkdtempSync(join(tmpdir(), 'exact-page-streams-dist-'));
+  const dir = mkdtempSync(join(tmpdir(), 'exact-page-streams-')), dist = join(mkdtempSync(join(tmpdir(), 'exact-page-streams-dist-')), 'dist');
   writeFileSync(join(dir, 'app.json'), JSON.stringify({ name: 'Streams', app: { id: 'com.exact.streams', name: 'Streams' } }));
   writeFileSync(join(dir, 'app.contract'), 'component App\n  view\n    text "streams"\n');
   writeFileSync(join(dir, 'app.forma'), 'forma streams\n\ntheme\n  ink = #000000\n');
@@ -64,12 +64,12 @@ test('a page that closes is no build of the loop any more, by 127.0.0.1 or by lo
     await browser?.close();
     await dev.stop(30_000);
     rmSync(dir, { recursive: true, force: true });
-    rmSync(dist, { recursive: true, force: true });
+    rmSync(dirname(dist), { recursive: true, force: true });
   }
 }, 1_200_000);
 
 test('a page stream on a socket handed to the loop\'s server ends with its client, by the res close backstop alone', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'exact-page-hand-off-')), dist = mkdtempSync(join(tmpdir(), 'exact-page-hand-off-dist-'));
+  const dir = mkdtempSync(join(tmpdir(), 'exact-page-hand-off-')), dist = join(mkdtempSync(join(tmpdir(), 'exact-page-hand-off-dist-')), 'dist');
   writeFileSync(join(dir, 'app.json'), JSON.stringify({ name: 'Streams', app: { id: 'com.exact.streams', name: 'Streams' } }));
   writeFileSync(join(dir, 'app.contract'), 'component App\n  view\n    text "streams"\n');
   writeFileSync(join(dir, 'app.forma'), 'forma streams\n\ntheme\n  ink = #000000\n');
@@ -105,12 +105,12 @@ test('a page stream on a socket handed to the loop\'s server ends with its clien
     socket?.destroy();
     await dev.stop(30_000);
     rmSync(dir, { recursive: true, force: true });
-    rmSync(dist, { recursive: true, force: true });
+    rmSync(dirname(dist), { recursive: true, force: true });
   }
 }, 1_200_000);
 
 test('a page whose app replaces fetch still registers and inspects: the dev client keeps the page\'s own', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'exact-page-fetch-')), dist = mkdtempSync(join(tmpdir(), 'exact-page-fetch-dist-'));
+  const dir = mkdtempSync(join(tmpdir(), 'exact-page-fetch-')), dist = join(mkdtempSync(join(tmpdir(), 'exact-page-fetch-dist-')), 'dist');
   writeFileSync(join(dir, 'app.json'), JSON.stringify({ name: 'Fetched', app: { id: 'com.exact.fetched', name: 'Fetched' } }));
   writeFileSync(join(dir, 'app.contract'), 'component App\n  view\n    column gap=8\n      text "above"\n      text "fetched"\n');
   writeFileSync(join(dir, 'app.forma'), 'forma fetched\n\ntheme\n  ink = #000000\n');
@@ -168,6 +168,6 @@ test('a page whose app replaces fetch still registers and inspects: the dev clie
     await browser?.close();
     await dev.stop(30_000);
     rmSync(dir, { recursive: true, force: true });
-    rmSync(dist, { recursive: true, force: true });
+    rmSync(dirname(dist), { recursive: true, force: true });
   }
 }, 1_200_000);

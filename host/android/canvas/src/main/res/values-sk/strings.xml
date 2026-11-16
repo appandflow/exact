@@ -2,5 +2,4 @@
 <resources>
     <string name="exact_clear">Vymazať</string>
     <string name="exact_default_channel">Upozornenia</string>
-    <string name="exact_silent_channel">Tiché upozornenia</string>
 </resources>

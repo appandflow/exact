@@ -1,6 +1,7 @@
 //! LLP 1086 D3: `contract vocab` lists what the compiler admits, from its
 //! own lookups, and refuses a name as the compiler would.
 
+use crate::scratch::Scratch;
 use serde_json::Value;
 use std::process::{Command, Output};
 
@@ -889,8 +890,7 @@ fn every_content_part_ends_with_one_working_call() {
         .filter_map(|l| l.strip_prefix("component "))
         .collect();
     assert_eq!(parts.len(), 9, "{parts:?}");
-    let dir = std::env::temp_dir().join(format!("exact-parts-{}", std::process::id()));
-    std::fs::create_dir_all(&dir).unwrap();
+    let dir = Scratch::new(format!("exact-parts-{}", std::process::id()));
     let path = dir.join("app.contract");
     let mut failures = Vec::new();
     for part in &parts {
@@ -1053,8 +1053,7 @@ fn every_concepts_code_compiles_and_its_names_are_its_own() {
             names.push(n);
         }
     }
-    let dir = std::env::temp_dir().join(format!("exact-concepts-{}", std::process::id()));
-    std::fs::create_dir_all(&dir).unwrap();
+    let dir = Scratch::new(format!("exact-concepts-{}", std::process::id()));
     let path = dir.join("app.contract");
     let mut failures = Vec::new();
     for name in [
@@ -1085,6 +1084,8 @@ fn every_concepts_code_compiles_and_its_names_are_its_own() {
         "menu",
         "menubar",
         "::placeholder",
+        "::backdrop",
+        "view-transition",
         "glass",
         "titlebar",
         "haptics",
@@ -1125,14 +1126,24 @@ fn menu_bar_attributes_explain_the_fixed_removal_ids() {
     }
 }
 
-/// LLP 1104 D3: `::placeholder` answers with its block, and so does the
-/// name an author guesses for it; the part's declaration is no attribute.
+/// LLP 1104 D3, LLP 1035.001 D11: `::placeholder` and `::backdrop` answer
+/// with their blocks, and so do the names an author guesses for them; a
+/// part's declaration is no attribute.
 #[test]
-fn placeholder_answers_with_its_block() {
-    for name in ["::placeholder", "placeholder-color"] {
+fn parts_answer_with_their_blocks() {
+    let (colour, background) = ("admits `color` alone", "admits `background-color` alone");
+    for (name, part, admits) in [
+        ("::placeholder", "::placeholder", colour),
+        ("placeholder-color", "::placeholder", colour),
+        ("::backdrop", "::backdrop", background),
+        ("scrim", "::backdrop", background),
+    ] {
         let out = stdout(&vocab(&[name]));
-        assert!(out.contains("::placeholder (a concept)"), "{name}: {out}");
-        assert!(out.contains("admits `color` alone"), "{name}: {out}");
+        assert!(
+            out.contains(&format!("{part} (a concept)")),
+            "{name}: {out}"
+        );
+        assert!(out.contains(admits), "{name}: {out}");
         assert!(!out.contains("native module"), "{name}: {out}");
     }
     let all: Value = serde_json::from_str(&stdout(&vocab(&["--json"]))).unwrap();

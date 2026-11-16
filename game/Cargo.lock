@@ -234,10 +234,10 @@ dependencies = [
  "contract-lower",
  "contract-syntax",
  "contract-types",
+ "exact-forma",
  "exact-kernel",
  "exact-plan",
  "exact-runner",
- "exact-forma",
  "libc",
  "serde_json",
  "sha2",
@@ -245,6 +245,15 @@ dependencies = [
 
 [[package]]
 name = "contract-analyze"
+version = "0.1.0"
+dependencies = [
+ "contract-checking",
+ "contract-syntax",
+ "contract-types",
+]
+
+[[package]]
+name = "contract-checking"
 version = "0.1.0"
 dependencies = [
  "contract-syntax",
@@ -256,16 +265,17 @@ name = "contract-lower"
 version = "0.1.0"
 dependencies = [
  "contract-analyze",
+ "contract-checking",
  "contract-syntax",
  "contract-types",
  "exact-color",
+ "exact-forma",
  "exact-kernel",
  "exact-motion",
  "exact-num",
  "exact-plan",
  "exact-route",
  "exact-svg-file",
- "exact-forma",
  "icu_locale",
  "serde_json",
  "sha2",
@@ -569,6 +579,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "exact-forma"
+version = "0.1.0"
+dependencies = [
+ "exact-color",
+ "exact-motion",
+ "exact-num",
+ "exact-plan",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "exact-game"
 version = "0.1.0"
 dependencies = [
@@ -785,18 +807,6 @@ name = "exact-svg-filter"
 version = "0.1.0"
 
 [[package]]
-name = "exact-forma"
-version = "0.1.0"
-dependencies = [
- "exact-color",
- "exact-motion",
- "exact-num",
- "exact-plan",
- "serde",
- "serde_json",
-]
-
-[[package]]
 name = "exact-textflow"
 version = "0.1.0"
 dependencies = [
@@ -809,8 +819,24 @@ name = "exact-update"
 version = "0.1.0"
 dependencies = [
  "ed25519-dalek",
+ "libc",
  "serde_json",
  "sha2",
+]
+
+[[package]]
+name = "exact-ureq"
+version = "3.4.0"
+dependencies = [
+ "base64 0.23.1",
+ "log",
+ "percent-encoding",
+ "rustls",
+ "rustls-pki-types",
+ "rustls-platform-verifier",
+ "ureq-proto",
+ "utf8-zero",
+ "webpki-roots",
 ]
 
 [[package]]
@@ -1087,6 +1113,7 @@ version = "0.1.0"
 dependencies = [
  "base64 0.22.1",
  "cc",
+ "exact-ureq",
  "form_urlencoded",
  "getrandom 0.2.17",
  "jni",
@@ -1098,7 +1125,6 @@ dependencies = [
  "serde_json",
  "sha2",
  "socket2",
- "ureq",
  "url",
  "webpki-roots",
  "windows-sys 0.61.2",
@@ -2524,23 +2550,6 @@ name = "untrusted"
 version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8ecb6da28b8a351d773b68d5825ac39017e680750f980f3a1a85cd8dd28a47c1"
-
-[[package]]
-name = "ureq"
-version = "3.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "972d7902c8735f2695410b8aed7df6ed12a47394aa1c8d7af49f0497b731a94d"
-dependencies = [
- "base64 0.23.1",
- "log",
- "percent-encoding",
- "rustls",
- "rustls-pki-types",
- "rustls-platform-verifier",
- "ureq-proto",
- "utf8-zero",
- "webpki-roots",
-]
 
 [[package]]
 name = "ureq-proto"

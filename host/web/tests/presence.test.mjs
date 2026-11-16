@@ -47,7 +47,8 @@ const page = `<style>
 <script type="module">
   import { presenceLoader, animationClock, settleValue } from './navigation.js';
   window.exact = {};
-  await import('./presence-glue.js');
+  const { shownClip } = await import('./presence-glue.js');
+  window.shownClip = shownClip;
   const root = document.getElementById('exact-root'), views = new Map();
   const presence = presenceLoader(async () => exact.presence, root, batch => applyBatch(batch), () => {});
   presence.hold({ ops:[{ op:'style', css:'--exact-layout-transition:1000 0 linear' }] });
@@ -452,5 +453,52 @@ check('JS commits keep ghost containment and restore the latest paint decision a
     expect(await evaluate('!!jsHolder.$ghostIsolation')).toBe(false);
     expect(await evaluate('jsHolder.style.isolation')).toBe(required ? 'isolate' : '');
     await evaluate('jsIsolation(false); jsShown(true)');
+  }
+});
+
+check('basic clips follow the shown size on the content and stand-in', async () => {
+  for (const clip of ['inset(25%)', 'inset(10% 20% round 30% / 20%)', 'polygon(0% 0%,100% 0%,50% 100%)',
+    'circle()', 'ellipse()', 'circle(40% at right bottom)', 'circle(40% at center)', 'circle(40% at top)',
+    'ellipse(30% 40% at bottom left)', 'ellipse(30% 40% at right)', 'circle(40% at 40% 60%)', 'ellipse(closest-side farthest-side at 30% 40%)', "path('M25 25H75V75H25Z')"]) {
+    for (const [grow, border] of [[true, 0], [false, 0], [true, 8], [false, 8]]) {
+      const overflow = border ? 'hidden' : 'visible';
+      const from = grow ? 100 : 200, to = grow ? 200 : 100;
+      const css = n => `width:${n}px;height:${n}px;background:red;box-sizing:border-box;overflow:${overflow};border:${border}px solid red;border-radius:20% / 30%;clip-path:${clip};--exact-layout-transition:1000 0 linear`;
+      await fixture(`<div id="card" style="${css(from)}"><div style="width:200px;height:200px"></div></div>`);
+      await style(css(to));
+      for (const time of [250, 500, 750]) {
+        await evaluate(`seek(${time})`);
+        const shown = from + (to-from)*time/1000;
+        const result = await evaluate(`(() => {
+          const el = document.getElementById('card'), sf = surface(), r = el.getBoundingClientRect();
+          const oracle = document.createElement('div');
+          oracle.style.cssText = 'position:absolute;left:250px;top:20px;width:${shown}px;height:${shown}px;clip-path:${clip.replaceAll("'", '\"')};background:red;box-sizing:border-box;overflow:${overflow};border:${border}px solid red;border-radius:20% / 30%';
+          const child = document.createElement('div');
+          child.style.cssText = 'width:200px;height:200px'; oracle.append(child);
+          document.body.append(oracle);
+          const points = [];
+          for (let y=7; y<200; y+=17) for (let x=7; x<200; x+=17) points.push([x,y]);
+          const expectedContent = points.map(([x,y]) => document.elementFromPoint(250+x,20+y) === child);
+          const content = points.map(([x,y]) => el.firstElementChild === document.elementFromPoint(r.left+x,r.top+y));
+          el.style.visibility = 'hidden';
+          sf.parentElement.inert = false; sf.parentElement.style.pointerEvents = 'auto'; sf.parentElement.style.zIndex = '1';
+          child.remove();
+          const expectedBackground = points.map(([x,y]) => document.elementFromPoint(250+x,20+y) === oracle);
+          const background = points.map(([x,y]) => document.elementFromPoint(r.left+x,r.top+y) === sf);
+          el.style.visibility = ''; sf.parentElement.inert = true; sf.parentElement.style.pointerEvents = 'none'; sf.parentElement.style.zIndex = '-1';
+          const raw = shownClip(${JSON.stringify(clip)}, ${shown}, ${shown});
+          const valid = CSS.supports('clip-path', raw);
+          oracle.style.clipPath = 'none';
+          oracle.style.clipPath = raw;
+          const resolved = points.map(([x,y]) => document.elementFromPoint(250+x,20+y) === oracle);
+          oracle.remove();
+          return { expectedBackground, expectedContent, content, background, resolved, valid };
+        })()`);
+        expect(result.content, `${clip} content ${grow} ${border} ${time}`).toEqual(result.expectedContent);
+        expect(result.background, `${clip} surface ${grow} ${time}`).toEqual(result.expectedBackground);
+        expect(result.valid, `${clip} resolves to valid CSS`).toBe(true);
+        expect(result.resolved, `${clip} raw position ${shown}`).toEqual(result.expectedBackground);
+      }
+    }
   }
 });

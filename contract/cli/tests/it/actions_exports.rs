@@ -9,6 +9,7 @@
 //! the pill and in the round, icon-only form.
 #![cfg(unix)]
 
+use crate::scratch::Scratch;
 use exact_kernel::{Kernel, PropId};
 use exact_runner::{DataError, DataSource, Event, Runner, Value};
 use std::path::{Path, PathBuf};
@@ -51,11 +52,11 @@ component App
 "#;
 
 /// A consumer app in a fresh directory, `@exact/actions` the repository's.
-fn consumer(tag: &str, source: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!(
+fn consumer(tag: &str, source: &str) -> Scratch {
+    let dir = Scratch::adopt(std::env::temp_dir().join(format!(
         "exact2-actions-exports-{tag}-{}",
         std::process::id()
-    ));
+    )));
     let _ = std::fs::remove_dir_all(&dir);
     copy(
         &repo().join("packages/actions"),

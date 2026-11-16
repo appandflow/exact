@@ -80,10 +80,12 @@ test('a relocated warm proof refreshes roots and digests together', async () => 
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
-test.each(['rust', 'markdown', 'motion', 'editor', 'flow', 'plain', 'gpu', 'gpu-ready', 'gpu-broken'])('JS prerequisites follow the %s artifacts', mode => {
+// Whether a leaf is built and fresh is the test's to say, not the checkout's: a markdown leaf another command
+// built would otherwise excuse the toolchain this asks for.
+test.each(['rust', 'markdown', 'markdown-taken', 'motion', 'editor', 'flow', 'plain', 'gpu', 'gpu-ready', 'gpu-broken'])('JS prerequisites follow the %s artifacts', mode => {
   const dir = mkdtempSync(resolve(root, 'target/web-prerequisites-'));
   try {
-    write(dir, 'app.json', JSON.stringify({ name: 'fixture', rust: mode === 'rust' ? { module: { package: 'fixture-data' } } : false }));
+    write(dir, 'app.json', JSON.stringify({ app: { id: 'com.exact.fixture', name: 'Fixture' }, name: 'fixture', rust: mode === 'rust' ? { module: { package: 'fixture-data' } } : false }));
     write(dir, 'app.contract', 'component App\n  text "ready"\n');
     if (mode.startsWith('gpu')) write(dir, 'gpu/src/lib.rs', '');
     const script = `
@@ -102,19 +104,20 @@ test.each(['rust', 'markdown', 'motion', 'editor', 'flow', 'plain', 'gpu', 'gpu-
         if (args.includes('js')) {
           const gen = args[args.indexOf('-o') + 1]; mkdirSync(gen, { recursive: true });
           writeFileSync(resolve(gen, 'app.js'), 'export const sources={};export const wait=0;');
-          if (${JSON.stringify(mode)} !== 'plain' && ${JSON.stringify(mode)} !== 'rust') writeFileSync(resolve(gen, ${JSON.stringify(mode + '.flag')}), '');
+          if (${JSON.stringify(mode)} !== 'plain' && ${JSON.stringify(mode)} !== 'rust') writeFileSync(resolve(gen, ${JSON.stringify(mode.replace('-taken', '') + '.flag')}), '');
           return { status: 0 };
         }
         return processes.spawnSync(command, args, options);
       } }));
       const modulePath = ${JSON.stringify(resolve(root, 'host/web-js/module.mjs'))};
       const modules = await import(modulePath);
-      mock.module(modulePath, () => ({ ...modules, webCompiler() { return { cmd: 'fixture-compiler', pre: [], done() {} }; } }));
+      mock.module(modulePath, () => ({ ...modules, webCompiler() { return { cmd: 'fixture-compiler', pre: [], done() {} }; },
+        leafTaken: () => ${JSON.stringify(mode.endsWith('-taken'))} }));
       process.argv = [process.execPath, ${JSON.stringify(resolve(root, 'host/web-js/build.mjs'))}, 'fixture', '--prerequisites', '--out', ${JSON.stringify(resolve(dir, 'out'))}];
       await import(${JSON.stringify(resolve(root, 'host/web-js/build.mjs'))});
     `;
     const checked = spawnSync(process.execPath, ['-e', script], { encoding: 'utf8', timeout: 30000, env: { ...process.env, EXACT_APP_DIR: dir } });
-    if (['plain', 'gpu-ready'].includes(mode)) expect(checked.status, checked.stderr).toBe(0);
+    if (['plain', 'gpu-ready', 'markdown-taken'].includes(mode)) expect(checked.status, checked.stderr).toBe(0);
     else { expect(checked.status).not.toBe(0); expect(checked.stderr).toContain(mode.startsWith('gpu') ? 'wasm-bindgen' : 'missing test rust-src'); }
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });

@@ -6,6 +6,7 @@
 #![cfg(unix)]
 
 use super::forma_serve::{app, Serve};
+use crate::scratch::Scratch;
 use serde_json::json;
 
 /// The app at `dir` uses `@acme/reading`, whose design is `design`.
@@ -494,10 +495,10 @@ fn an_undo_of_a_file_that_has_become_a_packages_is_refused() {
 #[test]
 fn a_hoisted_package_link_keeps_its_file_read_only_without_its_manifest() {
     // ws/node_modules/@acme/reading links to ws/demo/vendor/reading; demo's design names that file.
-    let ws = std::env::temp_dir().join(format!(
+    let ws = Scratch::adopt(std::env::temp_dir().join(format!(
         "exact2-forma-serve-pkg-hoisted-{}",
         std::process::id()
-    ));
+    )));
     let _ = std::fs::remove_dir_all(&ws);
     let dir = ws.join("demo");
     std::fs::create_dir_all(dir.join("vendor/reading")).unwrap();
@@ -880,7 +881,7 @@ fn no_answer_names_the_machines_directories() {
     let canonical = dir.canonicalize().unwrap();
     for (request, answer, events) in &answers {
         let text = format!("{answer} {events:?}");
-        for d in [&dir, &canonical] {
+        for d in [&dir.to_path_buf(), &canonical] {
             assert!(!text.contains(&*d.to_string_lossy()), "{request}: {text}");
         }
     }
@@ -941,10 +942,7 @@ fn a_package_linked_from_outside_keeps_its_motion_sites_and_its_defaults() {
         "pkg-linked-outside",
         "forma t\n\ntheme\n  duration.fade: duration = 200ms\n",
     );
-    let outside =
-        std::env::temp_dir().join(format!("exact2-linked-outside-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&outside);
-    std::fs::create_dir_all(&outside).unwrap();
+    let outside = Scratch::new(format!("exact2-linked-outside-{}", std::process::id()));
     std::fs::write(
         outside.join("package.json"),
         r#"{"name":"@acme/linked","version":"1.0.0","exports":{".":"./index.contract"}}"#,
@@ -975,7 +973,7 @@ fn a_package_linked_from_outside_keeps_its_motion_sites_and_its_defaults() {
         "{explained}"
     );
     let text = format!("{uses} {explained}");
-    for d in [outside.clone(), outside.canonicalize().unwrap()] {
+    for d in [outside.to_path_buf(), outside.canonicalize().unwrap()] {
         assert!(!text.contains(&*d.to_string_lossy()), "{text}");
     }
     drop(s);

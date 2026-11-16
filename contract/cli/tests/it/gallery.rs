@@ -6,7 +6,8 @@
 //! gallery's; nothing of the app's own build or describe changes.
 #![cfg(unix)]
 
-use std::path::{Path, PathBuf};
+use crate::scratch::Scratch;
+use std::path::Path;
 
 const LIB: &str = r#"shape Info
   title: string
@@ -61,8 +62,10 @@ component App
 /// An app using a private library package's `Card` (an enum and a bool
 /// variant, a prop of every other kind, a slot) and `Needs` (an inject the
 /// gallery can't provide).
-fn fixture(tag: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("exact2-gallery-{tag}-{}", std::process::id()));
+fn fixture(tag: &str) -> Scratch {
+    let dir = Scratch::adopt(
+        std::env::temp_dir().join(format!("exact2-gallery-{tag}-{}", std::process::id())),
+    );
     let _ = std::fs::remove_dir_all(&dir);
     let lib = dir.join("node_modules/@acme/lib");
     std::fs::create_dir_all(&lib).unwrap();
@@ -253,7 +256,7 @@ fn the_gallery_never_writes_over_the_apps_sources_nor_where_another_install_is_r
     let app = dir.join("app.contract");
     // The app's own directory, a directory among its sources, a file this didn't write.
     for (out, why) in [
-        (dir.clone(), "the app's own directory"),
+        (dir.to_path_buf(), "the app's own directory"),
         (dir.join("src"), "never among sources"),
     ] {
         let e = contract::gallery::generate(&app, &out).unwrap_err();
@@ -288,7 +291,9 @@ fn the_gallery_never_writes_over_the_apps_sources_nor_where_another_install_is_r
     );
     // Outside the app, a directory among sources (no node_modules or target in its path); and a cache no
     // node_modules of the app's reaches.
-    let away = std::env::temp_dir().join(format!("exact2-gallery-away-{}", std::process::id()));
+    let away = Scratch::adopt(
+        std::env::temp_dir().join(format!("exact2-gallery-away-{}", std::process::id())),
+    );
     let _ = std::fs::remove_dir_all(&away);
     let e = contract::gallery::generate(&app, &away.join("docs")).unwrap_err();
     assert!(e.contains("never among sources"), "{e}");
@@ -300,7 +305,9 @@ fn the_gallery_never_writes_over_the_apps_sources_nor_where_another_install_is_r
 
 #[test]
 fn each_component_is_the_declaration_the_apps_use_reaches_spelled_as_the_app_spells_it() {
-    let dir = std::env::temp_dir().join(format!("exact2-gallery-names-{}", std::process::id()));
+    let dir = Scratch::adopt(
+        std::env::temp_dir().join(format!("exact2-gallery-names-{}", std::process::id())),
+    );
     let _ = std::fs::remove_dir_all(&dir);
     let card = "component Card\n  props\n    tone: enum<\"plain\", \"quiet\">\n  parts\n    face: paint\n  view\n    text tone part=\"face\" opacity=(tone == \"quiet\" ? 0.5 : 1)\n";
     write(
@@ -449,7 +456,9 @@ fn the_design_reads_the_apps_assets_and_a_shape_is_brought_by_the_name_the_packa
 /// package by its name: the app's own `use`s, by the loader's record.
 #[test]
 fn an_app_inside_its_library_package_is_the_apps_own_and_a_compiler_record_has_a_placeholder() {
-    let root = std::env::temp_dir().join(format!("exact2-gallery-holding-{}", std::process::id()));
+    let root = Scratch::adopt(
+        std::env::temp_dir().join(format!("exact2-gallery-holding-{}", std::process::id())),
+    );
     let _ = std::fs::remove_dir_all(&root);
     let pkg = root.join("pkg");
     write(
@@ -516,7 +525,9 @@ fn the_cli_reports_when_git_closes_its_input_pipe() {
 
 #[test]
 fn a_checkout_under_a_target_directory_and_a_cache_git_does_not_ignore_are_refused() {
-    let base = std::env::temp_dir().join(format!("exact2-gallery-git-{}", std::process::id()));
+    let base = Scratch::adopt(
+        std::env::temp_dir().join(format!("exact2-gallery-git-{}", std::process::id())),
+    );
     let _ = std::fs::remove_dir_all(&base);
     // A repository whose checkout sits under a directory named `target`: its app's `src` is still sources.
     let repo = base.join("target/repo");
@@ -642,7 +653,9 @@ fn a_refused_probe_leaves_no_manifest_so_the_next_run_proceeds_and_git_must_igno
     let dir = fixture("retry");
     let app = dir.join("app.contract");
     // A cache no node_modules reaches: refused, and nothing of the gallery's left there.
-    let other = std::env::temp_dir().join(format!("exact2-gallery-other-{}", std::process::id()));
+    let other = Scratch::adopt(
+        std::env::temp_dir().join(format!("exact2-gallery-other-{}", std::process::id())),
+    );
     let _ = std::fs::remove_dir_all(&other);
     let out = other.join("target/g");
     let e = contract::gallery::generate(&app, &out).unwrap_err();

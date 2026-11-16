@@ -11,6 +11,11 @@ private var placedIndices: Set<UInt32> = []
 private var hiddenIndices: Set<UInt32> = []
 private let placedShift: Float = 100
 private var capturedChildPixels: [[UInt8]]?
+private var childTextureDirty: UInt32?
+/// Fake surfaces read back the child texture they most recently received.
+private var nestedTextures: [UInt32: [UInt8]]?
+private var nestedDirty: Set<UInt32> = []
+private var nestedFrames: [UInt32: [[UInt8]]] = [:]
 
 /// A canvas child its surface places (LLP 1014 D5) is drawn by the surface,
 /// so UIKit must not draw it at its own box; that is done without alpha 0,
@@ -21,7 +26,7 @@ private var capturedChildPixels: [[UInt8]]?
 ///   bun host/apple/build.mjs --test --ios --only CanvasPlacedDrawingIOSTests
 final class CanvasPlacedDrawingIOSTests: XCTestCase {
     override class func setUp() { super.setUp(); ExactSurfaces.install() } // LLP 1047.001 D4
-    override func setUp() { placedIndices = []; hiddenIndices = []; capturedChildPixels = nil }
+    override func setUp() { placedIndices = []; hiddenIndices = []; capturedChildPixels = nil; childTextureDirty = nil; nestedTextures = nil; nestedDirty = []; nestedFrames = [:] }
 
     private struct Deck {
         let session: ExactSession, host: CanvasesHost, canvas: NodeView, overlay: PlainView, window: UIWindow
@@ -30,11 +35,33 @@ final class CanvasPlacedDrawingIOSTests: XCTestCase {
 
     private func deck(_ label: String) throws -> Deck {
         let s = ExactApp.shared.makeSession(label: label)
-        let m = GpuModule(create: { _, _, _, _, _ in 7 }, bind: { _, _, _ in 0 },
-            render: { _, _, _, _, _ in 0 }, dirty: { _ in 0 }, destroy: { _ in },
+        let m = GpuModule(create: { name, _, _, _, _ in
+            guard nestedTextures != nil else { return 7 }
+            let id = UInt32(name![0]); nestedDirty.insert(id); return id
+        }, bind: { _, _, _ in 0 },
+            render: { id, _, _, _, _ in
+                if let textures = nestedTextures { nestedFrames[id, default: []].append(textures[id] ?? [0, 0, 0, 255]); nestedDirty.remove(id) }
+                if childTextureDirty != nil { childTextureDirty = 0 }
+                return 0
+            }, dirty: { id in nestedTextures == nil ? childTextureDirty ?? 0 : (nestedDirty.contains(id) ? 1 : 0) }, destroy: { _ in },
             texture: { _, _, _, _, _ in 0 }, textureMetal: nil, sync: nil,
-            childrenMode: { _ in 3 }, readback: { _, _, _, _, _, _, _ in 0 },
-            child: { _, _, _, _, _, _, _, _, w, h, bytes, _ in
+            childrenMode: { _ in 3 }, readback: { id, _, _, _, _, bytes, len in
+                if let textures = nestedTextures, let bytes {
+                    let pixel = textures[id] ?? [0, 0, 0, 255]
+                    nestedDirty.remove(id)
+                    for at in stride(from: 0, to: len, by: 4) {
+                        for channel in 0..<4 { bytes[at + channel] = pixel[channel] }
+                    }
+                }
+                return 0
+            },
+            child: { id, _, _, _, _, _, _, _, w, h, bytes, _ in
+                if childTextureDirty != nil { childTextureDirty = 1 }
+                if nestedTextures != nil, let bytes, w > 0, h > 0 {
+                    nestedDirty.insert(id)
+                    let at = Int((h / 2 * w + w / 2) * 4)
+                    nestedTextures?[id] = Array(UnsafeBufferPointer(start: bytes + at, count: 4))
+                }
                 if capturedChildPixels != nil, let bytes, w > 0, h > 0 {
                     let at = Int((h / 2 * w + w / 2) * 4)
                     capturedChildPixels?.append(Array(UnsafeBufferPointer(start: bytes + at, count: 4)))
@@ -397,6 +424,105 @@ final class CanvasPlacedDrawingIOSTests: XCTestCase {
         let shadow: [Double] = sub + [1, 6, -1, -3] + sub + [0, 2, 2, 0, 0, 0, 0, 0, 1]
         try restyle(101, ["p": shadow], alpha: 1)
         XCTAssertTrue(child.boxFilter?.casts == true)
+    }
+
+    func testSurfaceCreationAndFollowingLayoutCaptureOnlyTheFinalChildren() throws {
+        let d = try deck("canvas-presentation-capture")
+        defer { d.session.destroy() }
+        let child = node(101, d.session.presenter, CGRect(x: 0, y: 0, width: 100, height: 100), in: d.overlay)
+        let fill = UIView(frame: child.bounds)
+        fill.backgroundColor = .red
+        child.addSubview(fill)
+        d.host.entries.removeValue(forKey: d.canvas.id)
+        capturedChildPixels = []
+
+        d.session.apply(wireBatch([["op": "surface", "id": 100, "name": "deck", "values": []]]))
+        XCTAssertTrue(capturedChildPixels?.isEmpty == true, "creation must not capture an unfinished presentation")
+        fill.backgroundColor = .blue
+        d.session.apply(wireBatch([["op": "frame", "id": 101, "x": 0, "y": 10, "w": 100, "h": 100]]))
+        XCTAssertTrue(capturedChildPixels?.isEmpty == true, "following layout joins the pending capture")
+        waitForMainQueue()
+
+        let captured = try XCTUnwrap(capturedChildPixels)
+        XCTAssertEqual(captured.count, 1, "one texture after creation and layout")
+        let final = try XCTUnwrap(captured.last)
+        XCTAssertEqual(final, [0, 0, 255, 255], "the surface receives the final blue child")
+        XCTAssertFalse(d.canvas.needsCapture)
+        XCTAssertEqual(d.host.captures, 1)
+    }
+
+    func testANestedCanvasHasItsChildrenInTheAncestorsFirstFrame() throws {
+        for captureBeforeTick in [true, false] {
+            let d = try deck("canvas-nested-first-frame")
+            defer { d.session.destroy() }
+            let p = d.session.presenter
+            let second = NodeView(id: 102, kind: "canvas", presenter: p)
+            second.frame = d.canvas.bounds
+            p.viewport.addSubview(second); p.views[102] = second
+            try XCTUnwrap(second.overlay).frame = second.bounds
+            try XCTUnwrap(second.canvasMetal).frame = second.bounds
+            d.host.entries.removeAll()
+            nestedTextures = [:]; nestedFrames = [:]
+            d.session.apply(wireBatch([
+                ["op": "surface", "id": 100, "name": "a", "values": []],
+                ["op": "surface", "id": 102, "name": "b", "values": []],
+            ]))
+            XCTAssertTrue(nestedTextures?.isEmpty == true, "both surfaces defer capture in one presentation")
+
+            // Finish UIKit's layout on this turn with the ancestor first in
+            // dictionary order, so the regression does not depend on hashing.
+            let entries = Array(d.host.entries.values)
+            let outer = try XCTUnwrap(entries.first), inner = entries[1]
+            let outerOverlay = try XCTUnwrap(outer.view.overlay)
+            outerOverlay.addSubview(inner.view)
+            inner.view.frame = outerOverlay.bounds
+            let innerOverlay = try XCTUnwrap(inner.view.overlay)
+            innerOverlay.frame = inner.view.bounds
+            // Only the surface paints these children into its ancestor.
+            innerOverlay.alpha = 0
+            let child = node(103, p, innerOverlay.bounds, in: innerOverlay)
+            paint(.blue, into: child)
+            outer.view.needsCapture = true; inner.view.needsCapture = true
+            XCTAssertTrue(inner.view.canvasAbove === outer.view)
+
+            if captureBeforeTick { d.host.captureIfNeeded() }
+            _ = d.host.tick(now: 0)
+            let first = try XCTUnwrap(nestedFrames[outer.id]?.first)
+            XCTAssertEqual(first, [0, 0, 255, 255], "the first presented ancestor frame contains the nested child; queued capture: \(captureBeforeTick)")
+            nestedTextures = nil
+        }
+    }
+
+    func testADeferredChildOnlyUpdateWakesARestingCanvas() throws {
+        let d = try deck("canvas-resting-capture")
+        defer { d.session.destroy() }
+        d.session.firstDrawMs = 0
+        d.session.clock = nil
+        childTextureDirty = 0
+        d.host.entries[d.canvas.id]?.through = true
+        let child = node(101, d.session.presenter, CGRect(x: 0, y: 0, width: 100, height: 100), in: d.overlay)
+        paint(.red, into: child)
+        _ = d.host.tick(now: 0)
+        waitForMainQueue()
+        d.session.frames.run(false)
+        XCTAssertFalse(d.host.wantsFrames)
+        XCTAssertNil(d.session.frames.link)
+        let rendered = d.host.rendered
+        capturedChildPixels = []
+
+        d.session.apply(wireBatch([["op": "style", "id": 101, "style": ["opacity": 0.5]]]))
+        XCTAssertTrue(capturedChildPixels?.isEmpty == true, "the child update defers its capture")
+        XCTAssertNil(d.session.frames.link, "the surface is still clean when the batch schedules its clock")
+        waitForMainQueue()
+
+        XCTAssertEqual(capturedChildPixels?.count, 1)
+        let woke = d.session.frames.link != nil || d.host.rendered > rendered
+        XCTAssertTrue(woke, "the deferred upload must request a frame without another input or settle")
+        if woke {
+            waitFor("the updated canvas renders and rests") {
+                d.host.rendered > rendered && !d.host.wantsFrames && d.session.frames.link == nil
+            }
+        }
     }
 
     func testUnchangedLayerFilterClipsDoNotRecaptureCanvasTextures() throws {

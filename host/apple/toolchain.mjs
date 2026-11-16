@@ -1,8 +1,8 @@
 // Apple compiler invocations on Linux use xtool's installed Darwin Swift SDK.
 import { spawn as systemSpawn, spawnSync as systemSpawnSync } from 'node:child_process';
-import { chmodSync, existsSync, mkdirSync, readFileSync, readlinkSync, renameSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
-import { homedir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import { basename, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { plistCommand } from './plist.mjs';
@@ -230,16 +230,51 @@ export function appleCommand(command, args, { macDevelopmentSign, ...options } =
   return [command, args, options];
 }
 
-export const spawnSync = (command, args, options) => {
+/** The Swift tool a command runs, `swift` or `swiftc`, directly or under `xcrun`; else null. */
+function swiftTool(command, args) {
+  if (command === 'swift' || command === 'swiftc') return command;
+  const tool = command === 'xcrun' ? args[['--sdk', '-sdk'].includes(args[0]) ? 2 : 0] : null;
+  return tool === 'swift' || tool === 'swiftc' ? tool : null;
+}
+
+/** The TMPDIR a Swift tool runs with on a Mac, and what to do once it exits. This Xcode's Swift driver
+ * leaves a `TemporaryDirectory.*` in TMPDIR each time it hands a run to the frontend (`swift --version`,
+ * `-print-target-info`, five or more in each `swift build`). A driver run gets a TMPDIR of its own, removed
+ * when it exits. SwiftPM keeps its locks in TMPDIR (the scratch path's, `~/.swiftpm`'s, the manifest
+ * cache's), so every SwiftPM run shares one, `exact-swiftpm` in the caller's, and the driver's leavings an
+ * hour old are removed from it at each run: no SwiftPM run lasts that long. */
+function swiftTemp(command, args, options = {}) {
+  const none = { options, done() {} };
+  if (process.platform !== 'darwin' || !swiftTool(command, args)) return none;
+  const env = options.env ?? process.env, base = env.TMPDIR || tmpdir();
+  if (command === 'swift' && ['build', 'test', 'run', 'package'].includes(args[0])) {
+    const shared = resolve(base, 'exact-swiftpm'), stale = Date.now() - 3600_000;
+    mkdirSync(shared, { recursive: true });
+    for (const name of readdirSync(shared).filter(name => name.startsWith('TemporaryDirectory.'))) {
+      try { if (statSync(resolve(shared, name)).mtimeMs < stale) rmSync(resolve(shared, name), { recursive: true, force: true }); } catch {}
+    }
+    return { options: { ...options, env: { ...env, TMPDIR: shared } }, done() {} };
+  }
+  const own = mkdtempSync(resolve(base, 'exact-swift-'));
+  return { options: { ...options, env: { ...env, TMPDIR: own } }, done: () => rmSync(own, { recursive: true, force: true }) };
+}
+
+export const spawnSync = (command, args, given) => {
+  const temp = swiftTemp(command, args, given), options = temp.options;
   const invocation = appleCommand(command, args, options);
   const signing = process.platform === 'darwin' && command === 'codesign' && args.includes('--sign') && args.includes('--timestamp=none') && valueAfter(args, '--sign') !== '-';
   const identity = signing ? valueAfter(args, '--sign') : null;
   if (signing) console.error(`host/apple: signing ${args.at(-1)} with ${identity} (keychain access; ${invocation[2].timeout / 1000}s limit)`);
-  const result = systemSpawnSync(...invocation);
+  let result;
+  try { result = systemSpawnSync(...invocation); } finally { temp.done(); }
   if (signing && result.status !== 0) console.error(`host/apple: codesign with ${identity} ${result.error?.code === 'ETIMEDOUT' ? 'timed out' : 'failed'}. Check that the signing keychain is unlocked and codesign can use its private key.${options?.macDevelopmentSign ? ' For a local macOS build without certificate signing, retry with EXACT_IDENTITY=- (ad hoc; drops extensions and makes stored login-keychain items prompt after rebuilds).' : ''}`);
   return result;
 };
-export const spawn = (command, args, options) => systemSpawn(...appleCommand(command, args, options));
+export const spawn = (command, args, options) => {
+  const temp = swiftTemp(command, args, options), child = systemSpawn(...appleCommand(command, args, temp.options));
+  child.once('error', temp.done).once('close', temp.done);
+  return child;
+};
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const result = spawnSync('xcrun', process.argv.slice(2), { stdio: 'inherit' });

@@ -7,6 +7,7 @@
 //   exact install <app>          a real .app in ~/Applications, plus a shim
 //   exact uninstall <app>        take both away again
 //   exact release <app>          sign for distribution, notarise, staple, package
+//   exact appstore <app>         the Mac App Store's .pkg (--ad-hoc: its configuration, to open here)
 //   exact list                   the apps this repo has, and what is installed
 //   exact new <path> [--update]  an app outside this repo, ready to run
 //   exact new <path> --game      a game outside this repo, ready to run
@@ -36,6 +37,10 @@ import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statfsSync, symlinkSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { createHash } from 'node:crypto';
+// see: removable (LLP 1172.021)
+if (import.meta.main && process.argv[2] === 'see') {
+  process.exit(spawnSync(process.execPath, [fileURLToPath(new URL('./see/main.mjs', import.meta.url)), ...process.argv.slice(3)], {stdio: 'inherit'}).status ?? 2);
+}
 if (import.meta.main && process.argv[2] === 'status' && !process.argv.includes('--help')) {
   const {readStatus, formatStatus} = await import('../game/status.mjs');
   const {resolve} = await import('node:path');
@@ -50,7 +55,7 @@ import { grantAdvice } from './grant-advice.mjs';
 import { installIn } from './package-manager.mjs';
 import { builtContract, contractTool, launch, toolEnv } from './tools.mjs';
 export { grantAdvice, grantLines } from './grant-advice.mjs';
-const { cargoEnvironment, appleExecutableName, HERMES_INSTALLER, hermesBundle, hermesTarget, pathFrom, resolveApp, WEB_TOOLCHAIN, webToolchainEnv } = await import('./app.mjs');
+const { cargoEnvironment, appleExecutableName, HERMES_INSTALLER, hermesBundle, hermesTarget, pathFrom, readManifest, resolveApp, WEB_TOOLCHAIN, webToolchainEnv } = await import('./app.mjs');
 const { applyPattern, createApp, createGame, patternList, rustApp, UNCACHED_CRATES, wireSnapback } = await import('../game/new.mjs');
 const { gameDefaults, sdkFetch } = await import('../game/app/shells.mjs');
 const { HOST_SDKS, appleSdkName, developerDir, xcodeRefusal } = await import('../host/apple/devices.mjs');
@@ -153,12 +158,12 @@ function refuseForeignBundle(app, bundle) {
   assertAppleIdentity(app, executableIn(bundle, app));
 }
 /** Build the app's macOS bundle. Cargo and SwiftPM decide what is stale; this always asks them. */
-function build(app, { quiet = false, distribution = false, identity = null } = {}) {
-  const r = spawnSync(process.execPath, [resolve(ROOT, 'host/apple/build.mjs'), app.crate('apple'), '--bundle', ...(distribution ? ['--distribution'] : [])], {
+function build(app, { quiet = false, distribution = false, identity = null, appstore = null } = {}) {
+  const r = spawnSync(process.execPath, [resolve(ROOT, 'host/apple/build.mjs'), app.crate('apple'), '--bundle', ...(appstore ? ['--appstore', ...(appstore.adHoc ? ['--ad-hoc'] : [])] : distribution ? ['--distribution'] : [])], {
     cwd: ROOT,
     stdio: quiet ? ['inherit', 'ignore', 'inherit'] : 'inherit',
     // What is distributed bakes production trust (host/apple/build.mjs); a local build, development.
-    env: { ...(distribution ? {} : { EXACT_UPDATE_TRUST: 'development' }), ...process.env, ...(identity ? { EXACT_DEVELOPER_ID: identity, EXACT_RUST_SIGN_IDENTITY: identity } : {}) },
+    env: { ...(distribution || appstore ? {} : { EXACT_UPDATE_TRUST: 'development' }), ...process.env, ...(identity ? { [appstore ? 'EXACT_APPSTORE_ID' : 'EXACT_DEVELOPER_ID']: identity, EXACT_RUST_SIGN_IDENTITY: identity } : {}) },
   });
   if (r.status !== 0) process.exit(r.status ?? 1);
   const bundle = bundleOf(app);
@@ -166,18 +171,10 @@ function build(app, { quiet = false, distribution = false, identity = null } = {
   refuseForeignBundle(app, bundle);
   return bundle;
 }
-/** The dev loop's plan, when the one on disk is *this* app's.
- *
- * `host/web/dev.mjs` writes every rebuild to one shared `host/web/dist`, so
- * the plan sitting there belongs to whichever app the dev server is running.
- * Pointing a client at another app's plan does not live-reload it — the
- * runner refuses the boot outright (`AppMismatch`) and you get no window.
- * The dist marker says whose it is, so this asks rather than assumes: a
- * match is live reload, anything else is the baked plan and a printed line
- * saying so. `EXACT_DEV_PLAN` in the environment always wins. */
-async function devPlan(app) {
+/** The loop's plan, checked against the app's identity before native launch. */
+export async function devPlan(app) {
   if (process.env.EXACT_DEV_PLAN) return { path: process.env.EXACT_DEV_PLAN, why: 'EXACT_DEV_PLAN' };
-  const dist = resolve(ROOT, 'host/web/dist');
+  const dist = process.env.EXACT_WEB_DIST ?? (await import('./web-build.mjs')).loopWebDist(app, 'wasm');
   const plan = resolve(dist, 'app.plan');
   if (!existsSync(plan)) return { path: null, why: `no dev server has built into ${dist.replace(ROOT + '/', '')}` };
   if (!await builtAppMatches(dist, app).finally(closeFilesystemReader)) return { path: null, why: `${dist.replace(ROOT + '/', '')} holds another app's build` };
@@ -253,13 +250,10 @@ function release(app) {
   const symbols = resolve(out, `${app.displayName}.dSYM`);
   sh('/usr/bin/ditto', [`${appleArtifacts(app, { trust: 'production' }).binary}.dSYM`, symbols]);
   console.log(`symbols: ${symbols}`);
-
-  // Sign inside out, with the hardened runtime and a timestamp. Both are
-  // notarisation's requirements, not preferences: a build without them is
-  // rejected at submission rather than at launch. The entitlements come from
-  // the bake receipt inside the bundle: the app carries those its `device.*`
-  // and `runtime.* app` grants derive (LLP 1069.008 D4, D9), a helper a
-  // `runtime.* <path>` grant names carries its own, and other nested code none.
+  // Sign inside out, with the hardened runtime and a timestamp, which notarisation
+  // requires: a build without them is rejected at submission rather than at launch.
+  // The entitlements come from the bake receipt inside the bundle (`signRelease`:
+  // the app's grants derive its own, LLP 1069.008 D4, D9; an extension keeps its own).
   const built = JSON.parse(readFileSync(resolve(bundle, 'Contents/Resources/receipt.json'), 'utf8'));
   signRelease(staged, { compat: built.build?.compat, manifest: app.manifest, identity, id: app.id, scratch: out });
   sh('codesign', ['--verify', '--deep', '--strict', '--verbose=1', staged]);
@@ -778,7 +772,7 @@ async function newApp(path, {update = false, without = null, with: platforms = [
   if (update) {
     console.log(createApp(path, {update, without, with: platforms}));
     const manifest = resolve(path, 'app.json');
-    if (existsSync(manifest) && Object.values(JSON.parse(readFileSync(manifest, 'utf8')).typescript?.sources ?? {}).some(p => /(?:^|\/)snapback4\/ts\/?$/.test(p)))
+    if (existsSync(manifest) && Object.values(readManifest(resolve(path), basename(resolve(path))).typescript?.sources ?? {}).some(p => /(?:^|\/)snapback4\/ts\/?$/.test(p)))
       console.log(wireSnapback(path, {artifactOnly:true}));
     // A file names what it uses (LLP 1091 D1): an app written before module
     // scope gets the `use` lines its files lack, as `contract fmt --uses` writes them.
@@ -834,6 +828,7 @@ const USAGE = `exact — run an Exact app from the command line (macOS)
   exact run <app> [file …]     build and launch it here; ^C ends it
   exact install <app>          put it in ~/Applications and its name on PATH
   exact release <app>          sign with a Developer ID, notarise, staple, package
+  exact appstore <app>         the Mac App Store's .pkg; --ad-hoc: signed ad hoc, to open here
   exact uninstall <app>        take both away
   exact setup [--check [--platform <host> [--device]]]
                               install pinned Rust, wasm-bindgen, Binaryen and
@@ -924,7 +919,7 @@ export function hatch(args, say = console.log) {
   const names = args.filter(a => !a.startsWith('--')), word = scope === 'element' ? names.shift() : null;
   if (scope === 'element' && !/^[a-z][a-z0-9]*(-[a-z][a-z0-9]*)*$/.test(word ?? '')) throw new Error('hatch: name a word, lowercase letters and digits joined by "-" (exact hatch avatar), or --app, or --window');
   const app = resolveApp(names[0]), dir = app.dir, manifestPath = resolve(dir, 'app.json');
-  const manifest = existsSync(manifestPath) ? JSON.parse(readFileSync(manifestPath, 'utf8')) : {};
+  const manifest = existsSync(manifestPath) ? app.manifest : {};
   const title = manifest.app?.name ?? manifest.name ?? app.name;
   const camel = (word ?? scope).replace(/-([a-z0-9])/g, (_, c) => c.toUpperCase()), Camel = camel[0].toUpperCase() + camel.slice(1);
   const wrote = [], todo = [];
@@ -1240,6 +1235,7 @@ export function pattern(args, say = console.log) {
   const dir = process.env.EXACT_APP_DIR ?? process.cwd();
   // A pattern is a view and its app.ts: beside a Rust data crate it would make the app mixed and drop the view's shapes.
   if (rustApp(dir)) throw new Error('exact pattern: a pattern writes app.ts, and this app\'s data is Rust (data/); read a pattern with `bun exact.mjs pattern` and port its sources to data/src/lib.rs');
+  say(`App: ${resolve(dir)}`);
   const { said, next } = applyPattern(dir, name, { force: args.includes('--force') });
   say(said);
   refreshTypes(dir);
@@ -1455,22 +1451,22 @@ async function main(argv) {
     if (!name) { console.error('exact snapback: name the app\'s directory (its exact.mjs passes it: bun exact.mjs snapback)'); process.exit(2); }
     if (argv.includes('--artifact-only') && !argv.includes('--rebuild')) throw new Error('exact snapback: --artifact-only requires --rebuild');
     const args = guardFlags('snapback', argv.slice(1)), port = args.indexOf('--port');
-    const dir = resolve(args[0]), app = { dir, manifest: JSON.parse(readFileSync(resolve(dir, 'app.json'), 'utf8')) };
+    const dir = resolve(args[0]), app = { dir, manifest: readManifest(dir, basename(dir)) };
     // Always ask Cargo to validate its inputs; cached or unstamped bytes never block repair.
     console.log(wireSnapback(dir, { port: port < 0 ? null : args[port + 1] ?? '', online: args.includes('--online') ? true : null, artifactOnly: args.includes('--artifact-only'), rebuild: args.includes('--rebuild') }));
-    app.manifest = JSON.parse(readFileSync(resolve(dir, 'app.json'), 'utf8'));
+    app.manifest = readManifest(dir, basename(dir));
     const updated = readFileSync(resolve(dir, 'app.ts'), 'utf8');
     const nextOrigin = backendOrigin(dir) ?? literalBackendOrigin(updated, (await import('rolldown/utils')).parseSync);
     await snapbackDevice.devicePreflight(app, nextOrigin ? [nextOrigin] : []);
     return;
   }
-  if (!['run', 'install', 'uninstall', 'release'].includes(verb)) { console.error(`exact: no verb ${verb}\n\n${USAGE}`); process.exit(2); }
+  if (!['run', 'install', 'uninstall', 'release', 'appstore'].includes(verb)) { console.error(`exact: no verb ${verb}\n\n${USAGE}`); process.exit(2); }
   if (!name) { console.error(`exact ${verb}: name an app (exact list)`); process.exit(2); }
   // An app outside the repository (EXACT_APP_DIR, or a path): a bare `run` of one that names no native platform runs
   // its web loop, on any OS; otherwise the Mac is named the first time (LLP 1153 D1.2).
   const outsideDir = process.env.EXACT_APP_DIR ? resolve(process.env.EXACT_APP_DIR) : /[\\/]|^\.\.?$/.test(name) ? resolve(name) : null;
   const outsideApp = verb !== 'uninstall' && outsideDir && existsSync(resolve(outsideDir, 'app.contract')) && !gameDefaults(outsideDir);
-  const outsideManifest = outsideApp && existsSync(resolve(outsideDir, 'app.json')) ? JSON.parse(readFileSync(resolve(outsideDir, 'app.json'), 'utf8')) : {};
+  const outsideManifest = outsideApp && existsSync(resolve(outsideDir, 'app.json')) ? readManifest(outsideDir, basename(outsideDir)) : {};
   if (outsideApp && verb === 'run' && !Object.keys(outsideManifest.host ?? {}).some(p => ['ios', 'macos', 'tvos', 'linux', 'android', 'windows'].includes(p))) {
     console.error(`${basename(outsideDir)} names no native platform (app.json host): running its web loop; bun exact.mjs mac --run names the Mac and builds it`);
     const web = spawnSync(process.execPath, [resolve(ROOT, 'host/web/dev.mjs'), '--app', outsideDir, ...rest], { stdio: 'inherit', env: { ...process.env, EXACT_APP_DIR: outsideDir } });
@@ -1486,10 +1482,11 @@ async function main(argv) {
     for (const line of brought.lines) console.error(line);
     process.env.EXACT_APP_DIR = outsideDir;
   }
-  const app = resolveApp(name);
+  const app = (await import('./variants.mjs')).withoutVariant(verb, resolveApp(name), rest);
   if (verb === 'run') return run(app, rest);
   // `--release` on `install` is the same path, since that is what it is for.
   if (verb === 'release' || (verb === 'install' && rest.includes('--release'))) return release(app);
+  if (verb === 'appstore') return (await import('../host/apple/appstore.mjs')).appstore(app, { adHoc: rest.includes('--ad-hoc'), out: resolve(app.target, 'dist', `${app.name}-appstore`), build: (app, { adHoc, identity }) => build(app, { appstore: { adHoc }, identity }) });
   if (verb === 'install') return install(app, build(app));
   return uninstall(app);
 }

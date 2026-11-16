@@ -3,6 +3,10 @@
 use exact_kernel::{Kernel, PropId, StyleId};
 use exact_runner::{DataError, DataSource, Event, Runner, Value};
 use serde_json::{json, Value as Json};
+#[path = "it/scratch.rs"]
+#[allow(dead_code)]
+mod scratch;
+use scratch::Scratch;
 
 struct NoData;
 impl DataSource for NoData {
@@ -141,9 +145,7 @@ const MODES: &str = "forma t\n\naxes\n  dark-style = black | dim  under scheme=d
 
 /// An app beside its design, booted from its baked plan.
 fn designed(name: &str, contract: &str) -> Runner<NoData> {
-    let dir = std::env::temp_dir().join(format!("exact2-atoms-{name}-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).unwrap();
+    let dir = Scratch::new(format!("exact2-atoms-{name}-{}", std::process::id()));
     std::fs::write(dir.join("app.forma"), MODES).unwrap();
     std::fs::write(dir.join("app.contract"), contract).unwrap();
     let plan = contract::bake(

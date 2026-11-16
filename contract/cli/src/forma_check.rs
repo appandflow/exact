@@ -408,13 +408,12 @@ impl Checker {
 #[cfg(test)]
 mod tests {
     use super::{fingerprint, Checker, Job};
+    use crate::scratch::Scratch;
     use std::path::{Path, PathBuf};
 
     /// An app whose whole build fails after its design (`broken`) or not.
-    fn app(tag: &str, broken: bool) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("exact2-check-{tag}-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
+    fn app(tag: &str, broken: bool) -> Scratch {
+        let dir = Scratch::new(format!("exact2-check-{tag}-{}", std::process::id()));
         std::fs::write(
             dir.join("app.contract"),
             "component App\n  view\n    button \"Go\" -exact-press-scale=\"scale\"\n",

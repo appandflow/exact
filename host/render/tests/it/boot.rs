@@ -126,7 +126,7 @@ fn a_boot_document_goes_before_the_answers_and_the_settled_page_replaces_it() {
     let dir = dist("boot");
     std::fs::write(dir.join("shell.html"), JS_SHELL).unwrap();
     let serve = Serve {
-        dist: dir,
+        dist: dir.to_path_buf(),
         port: 0,
         name: "Cards".into(),
         origin: None,

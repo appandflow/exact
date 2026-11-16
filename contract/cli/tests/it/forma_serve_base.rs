@@ -246,7 +246,10 @@ fn each_targets_column_is_the_one_its_host_reads() {
     assert_eq!(scale::column_for("windows"), Some("neutral"));
     has("host/linux/src/lib.rs", "show_neutral_look();");
     assert_eq!(scale::column_for("linux"), Some("neutral"));
-    has("host/painted/src/canvas/jni.rs", "show_material_look();");
+    has(
+        "host/painted/src/canvas/jni_start.rs",
+        "show_material_look();",
+    );
     assert_eq!(scale::column_for("android"), Some("material"));
     // And a column the map names is one the table has.
     for target in ["ios", "macos", "web", "linux", "android", "terminal"] {

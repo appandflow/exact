@@ -230,11 +230,11 @@ extension NodeView {
     /// `draw(_:)` paints the gradient there instead, in the same place —
     /// unless it is `background-attachment: fixed` (`gradientLayered`).
     func applyGradientLayer() {
-        applyGradientTiles()
+        applyGradientPattern()
         let fixed = gradientLayered
         guard !cssVisibilityHidden, !drawsPaint || fixed, surface == nil, let gradient = Gradient(style["background_image"], tint: gradientTint), !gradient.needsDrawing else {
             boxGradient?.removeFromSuperlayer(); boxGradient = nil
-            presenter?.fixedGradients.remove(self)
+            presenter?.noteFixedGradient(self, fixed: false)
             return
         }
         CATransaction.begin(); CATransaction.setDisableActions(true)
@@ -260,7 +260,41 @@ extension NodeView {
         }
         gradient.apply(g, bounds: layer.bounds, box: gradientBox, dark: drawsDark, limit: style["dynamic_range_limit"]?.string)
         aimedGradient = nil
-        if fixed { presenter?.fixedGradients.add(self) } else { presenter?.fixedGradients.remove(self) }
+        presenter?.noteFixedGradient(self, fixed: fixed)
+    }
+
+    /// Repeating linear gradients as patterns Core Animation tiles
+    /// (`GradientPatternLayer`, #661), where the gradient layer goes and
+    /// clipped as it is. When `draw(_:)` paints the box, it paints them
+    /// instead.
+    func applyGradientPattern() {
+        let layers = Gradient.layers(style["background_image"], tint: gradientTint)
+        guard !cssVisibilityHidden, !drawsPaint, surface == nil, gradientPatterned(layers) else {
+            boxPattern?.removeFromSuperlayer(); boxPattern = nil
+            return
+        }
+        let p = boxPattern ?? GradientPatternLayer()
+        let mounted = p.superlayer === layer
+        CATransaction.begin()
+        CATransaction.setDisableActions(!mounted || CATransaction.disableActions())
+        defer { CATransaction.commit() }
+        if !mounted { boxPattern = p; insertBoxSublayer(p) }
+        if layer.cornerRadius == 0 && cornerRadii(in: bounds).contains(where: { $0 > 0 }) {
+            let outline = (p.mask as? CAShapeLayer) ?? CAShapeLayer()
+            let path = roundedPath(in: bounds).cgPath
+            if outline.path != path { outline.path = path }
+            if p.mask !== outline { p.mask = outline }
+            if p.cornerRadius != 0 { p.cornerRadius = 0 }
+            if p.masksToBounds { p.masksToBounds = false }
+        } else {
+            if p.mask != nil { p.mask = nil }
+            if p.cornerRadius != layer.cornerRadius { p.cornerRadius = layer.cornerRadius }
+            if p.maskedCorners != layer.maskedCorners { p.maskedCorners = layer.maskedCorners }
+            if p.cornerCurve != layer.cornerCurve { p.cornerCurve = layer.cornerCurve }
+            // Each gradient's layer is turned and overhangs the box.
+            if !p.masksToBounds { p.masksToBounds = true }
+        }
+        p.show(layers, bounds: layer.bounds, box: gradientBox, dark: drawsDark, scale: window?.screen.scale ?? contentScaleFactor)
     }
 
     /// `background-attachment: fixed` (LLP 1066 D7) on iOS is always the
@@ -356,7 +390,7 @@ extension NodeView {
         // content painted there, or it covers the image or text.
         let paintsContent = (kind == "image" && symbolView == nil && raster != nil) || (isParagraph && !canRasterText)
             || (Capture.capturing && (kind == "canvas" || Capture.web[id] != nil))
-        boxDrawn = !away && ((shapedRadii && paintsContent) || patterned || !((oneBorder || edges) && (oneRadius || shapedRadii) && (shape == nil || continuous)) || (gradientDraws && !gradientTiled) || backgroundClip != "border-box") && (fill != nil || gradient || widths.contains { $0 > 0 })
+        boxDrawn = !away && ((shapedRadii && paintsContent) || patterned || !((oneBorder || edges) && (oneRadius || shapedRadii) && (shape == nil || continuous)) || gradientDraws || backgroundClip != "border-box") && (fill != nil || gradient || widths.contains { $0 > 0 })
         let onLayer = !boxDrawn
         var corners: CACornerMask = []
         let masks: [CACornerMask] = [.layerMinXMinYCorner, .layerMaxXMinYCorner, .layerMaxXMaxYCorner, .layerMinXMaxYCorner]
@@ -437,10 +471,10 @@ extension NodeView {
 }
 extension NodeView {
     /// The box's sublayers keep CSS's paint order, all under the children:
-    /// shadow, gradient, its tiles, inset shadow, image, border, text — whichever of
+    /// shadow, gradient, inset shadow, image, border, text — whichever of
     /// them joins first (as `Mac/BoxLayerMac.swift`).
     func insertBoxSublayer(_ l: CALayer) {
-        let order: [CALayer?] = [shadowCaster, boxFill, boxGradient, gradientTiles?.layer, insetCaster, imageLayer, boxBorder, textBoxLayer]
+        let order: [CALayer?] = [shadowCaster, boxFill, boxGradient, boxPattern, insetCaster, imageLayer, boxBorder, textBoxLayer]
         guard let rank = order.firstIndex(where: { $0 === l }) else { return }
         if let below = order[..<rank].reversed().compactMap({ $0 }).first(where: { $0.superlayer === layer }) {
             layer.insertSublayer(l, above: below)

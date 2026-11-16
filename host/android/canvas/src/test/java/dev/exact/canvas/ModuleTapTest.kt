@@ -56,7 +56,7 @@ class ModuleTapTest {
         val activity = Robolectric.buildActivity(Activity::class.java).setup().get()
         activity.intent.putExtra("warm", "0")
         view = ExactView(activity, false) {}
-        val natives = Natives(activity, activity.filesDir, mapOf("test-button" to Button().also { button = it }))
+        val natives = Natives(activity, { activity.filesDir }, mapOf("test-button" to Button().also { button = it }))
         activity.setContentView(FrameLayout(activity).also {
             it.addView(natives)
             it.addView(view, FrameLayout.LayoutParams(400, 800))

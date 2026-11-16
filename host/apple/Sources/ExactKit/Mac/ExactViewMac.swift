@@ -141,7 +141,9 @@ public final class ExactView: NSView {
         // Under the agent its light is the app's before this view reads an
         // appearance, which a windowless view keeps: the control text is
         // primed from it before the first layout (LLP 1104 D4).
+        #if EXACT_AGENT
         _ = Agent.systemAppearance
+        #endif
         self.session = session
         super.init(frame: .zero)
         let viewport = session.presenter.viewport

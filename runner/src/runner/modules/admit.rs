@@ -195,6 +195,8 @@ impl<D: DataSource> Runner<D> {
     ) -> Result<CommitReceipt, RunnerError> {
         let before = std::mem::replace(&mut self.extensions.origins.now, origin);
         let out = self.act(name, args);
+        // Its data calls' reports keep its origin (LLP 1175 D3).
+        self.take_reports();
         self.extensions.origins.now = before;
         out
     }
@@ -352,6 +354,8 @@ impl<D: DataSource> Runner<D> {
         let before = std::mem::replace(&mut o.now, origin);
         let caused = std::mem::replace(&mut o.causes, causes);
         let out = f(self);
+        // The reports its data calls made take its authority (LLP 1175 D3).
+        self.take_reports();
         let o = &mut self.extensions.origins;
         o.now = before;
         o.causes = caused;

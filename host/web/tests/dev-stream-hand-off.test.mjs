@@ -5,7 +5,7 @@ import { afterEach, expect, test } from 'bun:test';
 import { connect, createServer } from 'node:net';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { spawnOwned, stopAll } from '../../../scripts/test-children.mjs';
 
 const ROOT = resolve(import.meta.dir, '../../..');
@@ -13,7 +13,8 @@ afterEach(() => stopAll());
 const free = () => new Promise(ok => { const s = createServer(); s.listen(0, '127.0.0.1', () => { const { port } = s.address(); s.close(() => ok(port)); }); });
 
 test('a wasm page stream on a socket handed to the loop\'s server ends with its client, by the res close backstop alone', async () => {
-  const dist = mkdtempSync(join(tmpdir(), 'exact-wasm-hand-off-dist-'));
+  // The build's lock and kept generations go beside its dist (serve.mjs `replaceBuild`): the dist sits in a directory of its own.
+  const dist = join(mkdtempSync(join(tmpdir(), 'exact-wasm-hand-off-dist-')), 'dist');
   const port = await free(), handOff = await free();
   const dev = spawnOwned(process.execPath, ['--preload', resolve(ROOT, 'host/web-js/hand-off.preload.mjs'), resolve(ROOT, 'host/web/dev.mjs'), '--app', 'theme-fixture', '--wasm', '--port', String(port)], { cwd: ROOT, env: { ...process.env, EXACT_WEB_DIST: dist, EXACT_TEST_HAND_OFF: `${port}:${handOff}` }, stdio: ['ignore', 'pipe', 'pipe'] });
   let said = '', socket, heard = false;
@@ -45,6 +46,6 @@ test('a wasm page stream on a socket handed to the loop\'s server ends with its 
   } finally {
     socket?.destroy();
     await dev.stop(30_000);
-    rmSync(dist, { recursive: true, force: true });
+    rmSync(dirname(dist), { recursive: true, force: true });
   }
 }, 1_200_000);

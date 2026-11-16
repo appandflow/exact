@@ -224,7 +224,9 @@ mod kept_tests {
     #[cfg(unix)]
     #[test]
     fn kept_reads_the_newest_and_never_through_a_link() {
-        let root = std::env::temp_dir().join(format!("exact-kept-{}", std::process::id()));
+        let root = crate::scratch::Scratch::adopt(
+            std::env::temp_dir().join(format!("exact-kept-{}", std::process::id())),
+        );
         let _ = std::fs::remove_dir_all(&root);
         let (app, elsewhere) = (root.join("app"), root.join("elsewhere"));
         std::fs::create_dir_all(&app).unwrap();
@@ -257,7 +259,9 @@ mod kept_tests {
     /// Read up to a total only, a file that is not text charged too.
     #[test]
     fn kept_stops_at_its_total() {
-        let root = std::env::temp_dir().join(format!("exact-kept-cap-{}", std::process::id()));
+        let root = crate::scratch::Scratch::adopt(
+            std::env::temp_dir().join(format!("exact-kept-cap-{}", std::process::id())),
+        );
         let _ = std::fs::remove_dir_all(&root);
         let design = root.join("app.forma");
         let dir = baselines(&design);

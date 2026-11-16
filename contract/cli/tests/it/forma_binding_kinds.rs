@@ -4,6 +4,7 @@
 //! style's weight where it writes none, Bold Text's step on a system
 //! family).
 
+use crate::scratch::Scratch;
 use exact_kernel::Kernel;
 use exact_plan::{Plan, Value};
 use exact_runner::forma::{Length, Number, Token, Type};
@@ -21,9 +22,7 @@ const DESIGN: &str = "forma t\n\naxes\n  density = regular | compact\n\ntheme\n 
 const VIEW: &str = "component App\n  view\n    column padding=\"space.row\" opacity=\"opacity.faded\" margin=\"space.rem\"\n      text \"a\" testId=\"outer\" font=\"type.body\"\n      text \"s\" font=\"type.sys\"\n      text \"e\" font=\"type.em\"\n      column testId=\"card\" -exact-mode=\"density=compact\" padding=\"space.row\"\n        text \"b\" testId=\"inner\" font=\"type.body\"\n";
 
 fn plan() -> Plan {
-    let dir = std::env::temp_dir().join(format!("exact2-binding-kinds-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).unwrap();
+    let dir = Scratch::new(format!("exact2-binding-kinds-{}", std::process::id()));
     std::fs::write(dir.join("app.forma"), DESIGN).unwrap();
     std::fs::write(dir.join("app.contract"), VIEW).unwrap();
     let plan =

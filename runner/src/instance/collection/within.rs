@@ -3,6 +3,35 @@
 use super::*;
 
 impl Collection {
+    /// The travel path needs no action frames. Try it before walking the
+    /// instance tree; a pin transfer still takes the ordered full walk.
+    pub(super) fn feedback_within(
+        &mut self,
+        u: &mut Update<'_>,
+        feedback: &CollectionFeedback,
+        by_view: &BTreeMap<ViewId, usize>,
+        fill: CollectionFill,
+    ) -> Result<Option<Option<CollectionEdges>>, InstanceError> {
+        if self.fixed.is_some()
+            || feedback.padding != self.padding()
+            || self.animating != fill.animating
+            || self.view_offset != fill.view_offset
+            || self.port_unknown
+        {
+            return Ok(None);
+        }
+        let mut feedback = feedback.clone();
+        for m in &mut feedback.measurements {
+            m.size += self.gap_after(by_view.get(&m.view).map(|&i| &self.mounted[i]));
+        }
+        let Some(edge) = self.travel_within(u, &feedback, by_view, fill)? else {
+            return Ok(None);
+        };
+        self.scrolling = fill.scrolling;
+        self.reveal_shown(u);
+        Ok(Some(edge))
+    }
+
     /// Travel inside the realized window, which is most reports while a list
     /// moves: the same port and pins, nothing owed, no correction before or
     /// after, no height that changes, and every row of the window it leads
@@ -48,10 +77,9 @@ impl Collection {
         {
             return Ok(None);
         }
-        // A host reports every mounted row's height each time; one the
-        // index already holds, measured, changes nothing (`feedback`'s own
-        // loop would set it again). One it holds as an estimate is a first
-        // measurement: recorded below when it is that estimate, else realize.
+        // Repeating a measured height changes nothing (`feedback` would set
+        // it again). A first nonzero measurement equal to the estimate can
+        // also be recorded without realizing the window.
         let mut first = Vec::new();
         for (i, m) in feedback.measurements.iter().enumerate() {
             let row = &self.mounted[by_view[&m.view]];

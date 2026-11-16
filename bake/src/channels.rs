@@ -61,8 +61,6 @@ pub(crate) fn derive(app_dir: &Path, manifest: &Value, compat: &mut Compat) -> R
                 .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_');
         if !resource {
             errors.push(format!("android-channel: {at}'s id \"{id}\" is not an Android resource name (a lowercase letter, then lowercase letters, digits and `_`): its sound is named by it"));
-        } else if id == "silent" {
-            errors.push(format!("android-channel: {at}'s id \"silent\" is the quiet channel a silent post takes below Android 12: name another"));
         } else if ids.contains(&id) {
             errors.push(format!("android-channel: {at} declares \"{id}\" again"));
         }
@@ -202,6 +200,7 @@ mod tests {
             channel: String::new(),
             origin: None,
             activate: "next-launch".into(),
+            check_interval: None,
             target: "aarch64-linux-android".into(),
             embedded: Value::Null,
             reach: Value::Null,
@@ -312,13 +311,14 @@ mod tests {
             "strings/en.json has no \"channel.missing\"",
             "\"Loud-1\" is not an Android resource name",
             "is not an .ogg, .mp3 or .wav file",
-            "\"silent\" is the quiet channel",
             "\"assets/none.wav\" is not a file",
             "declares \"urgent\" again",
             "importance \"max\" is not one of",
         ] {
             assert!(error.contains(want), "{want}: {error}");
         }
+        // `silent` is an id like any other: a silent post keeps its channel (LLP 1133.004.000 D2).
+        assert!(!error.contains("id \"silent\""), "{error}");
         assert!(
             error.lines().all(|l| l.starts_with("android-channel: ")),
             "{error}"

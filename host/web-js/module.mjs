@@ -13,8 +13,8 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 // Also for its PATH: the pinned binaryen (and Cargo) as every web build has
 // them, so a prebuild optimizes and keeps what an app's build would.
-import { WEB_STD, WEB_SIZE, WEB_TOOLCHAIN, injectedProfiles, resolveApp, wasmRemapFlags, webToolchainEnv } from '../../scripts/app.mjs';
-import { rustDataOf } from '../../scripts/app-shells.mjs';
+import { awaitBuildOutput, WEB_STD, WEB_SIZE, WEB_TOOLCHAIN, injectedProfiles, resolveApp, wasmRemapFlags, webToolchainEnv } from '../../scripts/app.mjs';
+import { rustDataOf, undeclaredDataCrate } from '../../scripts/app-shells.mjs';
 import { appCrates } from '../../scripts/cargo-check.mjs';
 import { withHostDeployment } from '../../scripts/filesystem.mjs';
 import { replaceBuild } from '../web/serve.mjs';
@@ -171,11 +171,14 @@ function lockFrom(crate) {
 function module(manifest, name, out, label) {
   const wasm = resolve(TARGET, 'wasm32-unknown-unknown/release', `${name}.wasm`), done = resolve(out, 'app.module.wasm');
   mkdirSync(out, { recursive: true });
+  const release = awaitBuildOutput({ id: label, dir: dirname(manifest) }, resolve(TARGET, '.claims', `${name}.lock`));
   moduleDepInfo.set(done, wasm.replace(/\.wasm$/, '.d'));
-  if (fresh(done, wasm.replace(/\.wasm$/, '.d'), [manifest])) return done;
-  if (cargoWasm(manifest).status !== 0) throw new Error(`${label} did not build`);
-  replace(done, (temp) => optimize(wasm, temp, 'module'));
-  return done;
+  try {
+    if (fresh(done, wasm.replace(/\.wasm$/, '.d'), [manifest])) return done;
+    if (cargoWasm(manifest).status !== 0) throw new Error(`${label} did not build`);
+    replace(done, (temp) => optimize(wasm, temp, 'module'));
+    return done;
+  } finally { release(); }
 }
 
 export function buildModule(app, out = resolve(MODULES, app), draw = false, dir = resolve(root, 'apps', app)) {
@@ -192,17 +195,21 @@ export function buildModule(app, out = resolve(MODULES, app), draw = false, dir 
   // built --locked against the app's resolution, so a data crate's dependencies resolve once.
   if (resolved.generated) {
     const workspace = resolved.rust(), crate = resolve(workspace, 'module');
-    keep(resolve(crate, 'src/lib.rs'), lib);
     const manifestPath = resolve(crate, 'Cargo.toml'), name = Bun.TOML.parse(readFileSync(manifestPath, 'utf8')).package.name;
     const wasm = resolve(resolved.target, 'wasm32-unknown-unknown/web', `${name.replaceAll('-', '_')}.wasm`), done = resolve(out, 'app.module.wasm');
     mkdirSync(out, { recursive: true });
     moduleDepInfo.set(done, wasm.replace(/\.wasm$/, '.d'));
-    if (fresh(done, wasm.replace(/\.wasm$/, '.d'), [manifestPath])) return done;
-    const args = [`+${WEB}`, 'build', '--locked', '--offline', '--profile', 'web', '--target', 'wasm32-unknown-unknown', '--manifest-path', manifestPath, ...injectedProfiles({ manifest }, workspace), ...LINK_FLAGS()];
-    if (spawnSync('cargo', args, { stdio: ['ignore', 'inherit', 'inherit'], env: { ...process.env, CARGO_TARGET_DIR: resolved.target } }).status !== 0) throw new Error(`${app}: the module did not build`);
-    replace(done, (temp) => optimize(wasm, temp, 'module'));
-    return done;
+    const release = awaitBuildOutput(resolved, resolve(resolved.target, '.claims', `${name}.lock`));
+    try {
+      keep(resolve(crate, 'src/lib.rs'), lib);
+      if (fresh(done, wasm.replace(/\.wasm$/, '.d'), [manifestPath, resolve(crate, 'src/lib.rs')])) return done;
+      const args = [`+${WEB}`, 'build', '--locked', '--offline', '--profile', 'web', '--target', 'wasm32-unknown-unknown', '--manifest-path', manifestPath, ...injectedProfiles({ manifest }, workspace), ...LINK_FLAGS()];
+      if (spawnSync('cargo', args, { stdio: ['ignore', 'inherit', 'inherit'], env: { ...process.env, CARGO_TARGET_DIR: resolved.target } }).status !== 0) throw new Error(`${app}: the module did not build`);
+      replace(done, (temp) => optimize(wasm, temp, 'module'));
+      return done;
+    } finally { release(); }
   }
+
   const dataCrate = appCrates(dir).find(crate => crate.name === data.krate)?.dir;
   if (!dataCrate) throw new Error(`${app}: app.json's rust.data.crate is ${data.krate}, which is not a crate beside app.json`);
   const crate = resolve(out, 'crate');
@@ -232,6 +239,28 @@ ${patch}
   keep(resolve(crate, 'src/lib.rs'), lib);
   lockFrom(crate);
   return module(resolve(crate, 'Cargo.toml'), `exact_js_module_${app.replaceAll('-', '_')}`, out, `${app}: the module`);
+}
+
+/** The refusal of an app at `dir` whose web crate bakes a Rust source while `manifest` names neither `rust.data` nor
+ * `rust.module.package`, or null. The JS target runs only the module the manifest names (LLP 1153.003 D2), so the
+ * page would ship none and no request the source owns would be answered. The web crate bakes one when
+ * `web/Cargo.toml` links a crate beside app.json, or when `web/build.rs` composes one with app.ts, which a source
+ * defined in the build script itself does without linking any. */
+export function undeclaredRustData(app, dir, manifest) {
+  if (manifest.rust?.module?.package || manifest.rust?.data !== undefined) return null;
+  let web;
+  try { web = Bun.TOML.parse(readFileSync(resolve(dir, 'web/Cargo.toml'), 'utf8')); } catch { return null; }
+  const tables = [web.dependencies, ...Object.values(web.target ?? {}).map(target => target?.dependencies)].filter(Boolean);
+  const linked = new Set(tables.flatMap(Object.values).map(dep => dep?.path).filter(path => typeof path === 'string').map(path => resolve(dir, 'web', path)));
+  const crates = appCrates(dir), crate = crates.find(crate => crate.name && linked.has(crate.dir));
+  const consequence = 'the web build runs only the Rust source rust.data names, so this page would answer none of the app\'s requests';
+  if (crate) return undeclaredDataCrate(`${app}: web/Cargo.toml links ${crate.name}, a crate beside app.json`, consequence, [crate], manifest);
+  let script = '';
+  try { script = readFileSync(resolve(dir, 'web/build.rs'), 'utf8'); } catch {}
+  const composer = /\bexact_js_bake::(build_mixed(?:_with)?|build_beside)\s*\(/.exec(script)?.[1];
+  return composer ? undeclaredDataCrate(`${app}: web/build.rs composes a Rust source with app.ts (exact_js_bake::${composer})`,
+    `${consequence} the Rust source owns. A source that is not in a crate of its own beside app.json cannot be named: move it into one`,
+    crates.filter(crate => crate.name && crate.dir !== resolve(dir, 'web')), manifest) : null;
 }
 
 /** The app's explicit logic module (`rust.module.package`, LLP 1029.000):

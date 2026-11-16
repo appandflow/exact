@@ -7,17 +7,15 @@
 //! numbers is refused. A shadow over a base name is stage 12 B3's
 //! (`forma_base_shadow.rs`).
 
+use crate::scratch::Scratch;
 use exact_kernel::style::scale;
-use std::path::PathBuf;
 
-fn app(name: &str, files: &[(&str, &str)]) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("exact2-base-expr-{name}-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).unwrap();
+fn app(name: &str, files: &[(&str, &str)]) -> Scratch {
+    let dir = Scratch::new(format!("exact2-base-expr-{name}-{}", std::process::id()));
     for (file, text) in files {
         std::fs::write(dir.join(file), text).unwrap();
     }
-    dir.join("app.contract")
+    dir.at("app.contract")
 }
 
 /// A view with one column a token, each its padding.

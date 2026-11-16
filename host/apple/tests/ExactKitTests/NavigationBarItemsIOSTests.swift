@@ -49,9 +49,9 @@ extension NavigationBarIOSTests {
         XCTAssertEqual(trailingSets, [true, true], "the readout-only bar's changes animate too")
     }
 
-    /// The bar hands a touch on none of its controls to the authored title
-    /// beneath it, and keeps every other touch.
-    func testTheBarLeavesATouchOnAnAuthoredTitleToIt() throws {
+    /// The bar leaves a touch on none of its own controls to an authored
+    /// title that lies under it, and keeps every other touch.
+    func testTheBarLeavesATouchOnAnAuthoredTitleUnderItToTheTitle() throws {
         let session = try fixture("authored-title-touch", module: false)
         let p = session.presenter
         p.press(try node(session, "chat").id)
@@ -60,12 +60,20 @@ extension NavigationBarIOSTests {
         let bar = try XCTUnwrap(nav.navigationBar as? RouteNavigationBar)
         let tap = try node(session, "title-group")
         p.apply(wireBatch([["op": "style", "id": Int(tap.id), "style": ["appearance": "none", "written": ["appearance"]]]]))
-        tap.superview?.layoutIfNeeded()
-        let onTitle = bar.convert(CGPoint(x: tap.bounds.midX, y: tap.bounds.midY), from: tap)
-        XCTAssertTrue(bar.authoredControl(at: onTitle) === tap)
-        XCTAssertNil(bar.authoredControl(at: bar.convert(CGPoint(x: tap.bounds.maxX + 40, y: tap.bounds.midY), from: tap)))
+        nav.view.layoutIfNeeded()
+        // Where a route drawn under its bar would place it: across the bar's middle, which shows no title now.
+        let middle = CGPoint(x: bar.bounds.midX, y: bar.bounds.midY)
+        tap.frame = try XCTUnwrap(tap.superview).convert(CGRect(x: middle.x - 40, y: middle.y - 10, width: 80, height: 20), from: bar)
+        XCTAssertTrue(bar.authoredControl(at: middle) === tap)
+        XCTAssertNil(bar.hitTest(middle, with: nil), "the touch goes on to the title")
+        let beside = CGPoint(x: middle.x + 80, y: middle.y)
+        XCTAssertNil(bar.authoredControl(at: beside))
+        XCTAssertNotNil(bar.hitTest(beside, with: nil), "the bar keeps its empty areas")
+        tap.isHidden = true
+        XCTAssertNil(bar.authoredControl(at: middle), "a hidden control takes no touch")
+        tap.isHidden = false
         p.apply(wireBatch([["op": "style", "id": Int(tap.id), "style": ["appearance": "auto", "written": ["appearance"]]]]))
-        XCTAssertNil(bar.authoredControl(at: onTitle), "a projected title is the bar's own")
+        XCTAssertNil(bar.authoredControl(at: middle), "a projected title is the bar's own")
     }
 
     /// A header control the navigation bar draws as its item is hidden in

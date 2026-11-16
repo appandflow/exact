@@ -79,7 +79,9 @@ section binds (`rules/RULES.md`, "Agents").
   Rolldown remains the app bundler. Node and npm are not required.
 - The web artifacts (`app.wasm`, the Markdown editor, text flow) build with a pinned
   nightly (`WEB_TOOLCHAIN` in `scripts/app.mjs`) that builds std for size; everything
-  else is `rust-toolchain.toml`'s stable, which the gate and hourly lane use. `build.mjs`
+  else is `rust-toolchain.toml`'s stable, which the gate and hourly lane use. That
+  stable moves to each Rust release within two weeks, with the lints the release
+  adds fixed or allowed in the same commit (LLP 1153.003 D6.1). `build.mjs`
   names the install commands when the nightly or its `rust-src` is missing.
 
 - `kernel/tables/schema.json` is the one declaration authority; `kernel/build.rs`

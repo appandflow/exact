@@ -128,8 +128,8 @@ final class ModalStackIOSTests: XCTestCase {
         XCTAssertEqual(p.navigation.observation()["nativeBack"] as? String, backgroundBack)
     }
 
-    /// A sheet dismissed while a route is pushed inside it goes as a whole, back
-    /// to the route beneath the sheet, as its swipe down does.
+    /// A sheet dismissed while a route is pushed inside it goes whole, back to
+    /// the route beneath it, as its swipe down and a tap behind it do.
     func testDismissingASheetFromARoutePushedInsideItLeavesTheWholeSheet() throws {
         guard UIApplication.shared.connectedScenes.contains(where: { $0 is UIWindowScene }) else {
             throw missing("scene", "the secondary navigation stack uses UIKit's presented sheet")
@@ -175,7 +175,7 @@ final class ModalStackIOSTests: XCTestCase {
         let answers = lines.filter { $0.contains(" shouldDismiss true ") }
         XCTAssertEqual(answers.count, 2, "a line only when what the answer read changes: \(answers)")
         XCTAssertTrue(answers.first?.contains("inactive=false") == true)
-        XCTAssertTrue(answers.last?.contains("inactive=true sheetDismissal=true") == true, "the push inside the sheet: \(answers)")
+        XCTAssertTrue(answers.last?.contains("inactive=true sheetBack=true") == true, "the push inside the sheet: \(answers)")
     }
 
     func testBackHistoryUsesTheChosenDestinationInThePrimaryStack() throws {

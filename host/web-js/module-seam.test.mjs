@@ -514,6 +514,8 @@ test.each(['send', 'extension', 'key', 'frame'])('an app list is current where %
       await page.evaluate(() => schedule('key'));
       expect(await page.evaluate(async () => {
         const { on, onKey } = await import('/host/web-js/events.js');
+        const { preventDefault, stopPropagation } = await import('/host/web-js/commands.js');
+        rt.useCommands({ preventDefault, stopPropagation });
         const input = document.createElement('input'); document.body.append(input);
         const seen = [], announced = [];
         exact.announceModule = key => { if (key === 'first.read') announced.push(exact.extensions.declared().alarms[0].delivered); };

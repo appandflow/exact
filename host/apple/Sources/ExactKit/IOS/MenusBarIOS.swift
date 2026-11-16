@@ -31,7 +31,7 @@ extension MenuHost {
         let open = isOpen(invocation.target)
         if open, invocation.action == .show { return true }
         lightDismiss(node)
-        if open { drop(name) } else { agentShow(invocation.target, named: name, from: node.id) }
+        if open { drop(name) } else { agentShow(invocation.target, named: name, from: node.id, invoked: true) }
         return true
     }
     /// Under the agent's painted popovers and UIKit's bars (`--chrome
@@ -52,7 +52,7 @@ extension MenuHost {
         }
         guard let name = target.props["id"] else { return false }
         lightDismiss(node)
-        if !isOpen(target) { agentShow(target, named: name, from: node.id) } else { drop(name) }
+        if !isOpen(target) { agentShow(target, named: name, from: node.id, invoked: true) } else { drop(name) }
         return true
     }
 }

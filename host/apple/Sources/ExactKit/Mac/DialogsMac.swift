@@ -36,7 +36,6 @@ final class DialogHost {
         }
     }
     private(set) var entries: [Entry] = []
-    var onCancel: ((UInt32) -> Void)?
     /// Painted in the page, not AppKit's sheet: the driver's own chrome
     /// (`--chrome agent`), as it paints the header and the tablist. A test
     /// of the painted presentation says so.
@@ -143,6 +142,7 @@ final class DialogHost {
         entries.append(entry)
         if painted, !entry.route {
             entry.backdrop.host = self
+            entry.backdrop.dialog = dialog
             entry.backdrop.autoresizingMask = [.width, .height]
             presenter.viewport.addSubview(entry.backdrop)
             entry.backdrop.addSubview(dialog)
@@ -248,6 +248,11 @@ final class DialogHost {
                 close(entry.dialog, notify: false)
             }
         }
+        // A `::backdrop` colour that changed while it is open.
+        for entry in entries where !entry.route {
+            if let sheet = entry.sheet, sheet.begun { sheet.paintDim(entry.dialog.backdropColor, shown: true) }
+            else { entry.backdrop.needsDisplay = true }
+        }
         var changed = false
         for dialog in presenter.carrying("tag:dialog") where dialog.props["popover"] == nil {
             let hidden = !owns(dialog) || dialog.style["display"]?.string == "none"
@@ -351,16 +356,20 @@ final class DialogHost {
             isARepeat: event.isARepeat, keyCode: event.keyCode) ?? event
     }
 
+    /// Escape, and Command-period, which AppKit gives a sheet's Cancel too:
+    /// the Mac's close request.
+    static func isCloseRequest(_ event: NSEvent) -> Bool {
+        event.keyCode == 53 || event.type == .keyDown && event.characters == "."
+            && event.modifierFlags.intersection([.command, .control, .option, .shift]) == .command
+    }
+
     /// Shared by real key delivery and the agent's direct NSWindow delivery.
     func key(_ event: NSEvent) -> Bool {
         guard let dialog = active, event.window === dialog.window else { return false }
         if let window = dialog.window, !ownsFocus(window) { return false }
         // Composition owns Escape and Tab until the input method commits it.
         if (dialog.window?.firstResponder as? NSTextInputClient)?.hasMarkedText() == true { return false }
-        // Escape, and Command-period, which AppKit gives a sheet's Cancel too.
-        let period = event.type == .keyDown && event.characters == "."
-            && event.modifierFlags.intersection([.command, .control, .option, .shift]) == .command
-        if event.keyCode == 53 || period {
+        if Self.isCloseRequest(event) {
             if event.type == .keyDown, !event.isARepeat, dismissalOwner(of: dialog).props["closedby"] != "none" { dismiss(dialog) }
             return true
         }
@@ -407,10 +416,7 @@ final class DialogHost {
     private func dismiss(_ dialog: NodeView) {
         guard entry(ofRoute: dialog) != nil else {
             close(dialog)
-            if live(dialog), dialog.handlers.contains("cancel") {
-                if let onCancel { onCancel(dialog.id) }
-                else if let session = presenter?.session { session.apply(session.runtime.pickerCancel(dialog.id, now: session.now())) }
-            }
+            if live(dialog), dialog.handlers.contains("cancel") { presenter?.onCancel?(dialog.id) }
             return
         }
         if let refused = presenter?.navigation.dismiss(dialog) { presenter?.session?.log("modal dismissal refused: \(refused)") }
@@ -425,9 +431,11 @@ final class DialogHost {
 
 final class DialogBackdrop: NSView {
     weak var host: DialogHost?
+    /// The dialog over it, whose `::backdrop` colour it draws (LLP 1035.001 D11).
+    weak var dialog: NodeView?
     private var downOutside = false
     override var isFlipped: Bool { true }
-    override func draw(_ dirtyRect: NSRect) { NSColor.black.withAlphaComponent(0.18).setFill(); dirtyRect.fill() }
+    override func draw(_ dirtyRect: NSRect) { (dialog?.backdropColor ?? NSColor.black.withAlphaComponent(0.18)).setFill(); dirtyRect.fill() }
     /// A backdrop is not a control: the click that activates its window does
     /// not also dismiss the dialog (LLP 1115.000 D7.9). The agent's does.
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { NodeView.everyClickCounts }

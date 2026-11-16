@@ -385,6 +385,12 @@ macro_rules! host {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.host_go(len, now_ms), |n| n)
         }
 
+        /// A route's entrance or exit, posed for its box, JSON. @ref LLP 1013.001 D1
+        #[no_mangle]
+        pub extern "C" fn exact_route_part(rt: u32, view: u32, exit: u32, width: f64, height: f64) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.route_part(view, exit, width, height), |n| n)
+        }
+
         /// Deliver native Forward at the navigation root, a batch.
         #[no_mangle]
         pub extern "C" fn exact_host_forward(rt: u32, root: u32, now_ms: f64) -> u32 {
@@ -610,7 +616,7 @@ macro_rules! host {
                 // SAFETY: the caller keeps four doubles per id live for this call.
                 unsafe { std::slice::from_raw_parts(clips, count as usize * 4) }
             };
-            let frames: Vec<_> = ids.iter().zip(rects.chunks_exact(4)).enumerate()
+            let frames: Vec<_> = ids.iter().zip(rects.as_chunks::<4>().0).enumerate()
                 .map(|(i, (&id, r))| {
                     let clip = clips.get(i * 4..i * 4 + 4).filter(|c| !c[0].is_nan())
                         .map(|c| [c[0], c[1], c[2], c[3]]);
@@ -644,6 +650,11 @@ macro_rules! host {
             owner: *mut ::std::ffi::c_void, release: $crate::content_region::RegionRelease) -> u32 {
             let retained = ::std::rc::Rc::new($crate::content_region::NativeRegionOwner::new(owner, release));
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.region_complete(id, metrics, retained), |n| n)
+        }
+        /// Return only a current worker request to native layout.
+        #[no_mangle]
+        pub extern "C" fn exact_region_fallback(rt: u32, id: u64) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.region_fallback(id), |n| n)
         }
 
         /// Process one frozen paired transform packet from exact_in.
@@ -793,6 +804,12 @@ macro_rules! host {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| { b.set_row_reuse(on != 0); 0 }, |n| n)
         }
 
+        /// Nonzero: subsequent boots omit layout-only boxes inside quiet collection rows (LLP 1171 D4).
+        #[no_mangle]
+        pub extern "C" fn exact_flat_nodes(rt: u32, on: u32) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| { b.set_flat_nodes(on != 0); 0 }, |n| n)
+        }
+
         /// Deliver one native timer instance without draining other native timers.
         #[no_mangle]
         pub extern "C" fn exact_fire_native_timer(rt: u32, index: u32, generation: u64, now: f64) -> u32 {
@@ -883,6 +900,18 @@ macro_rules! host {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| { b.set_launch_window(len, rooted != 0); 0 }, |n| n)
         }
 
+        /// The platform's layout direction for every boot from here: 0 ltr, 1 rtl, else the strings table's.
+        #[no_mangle]
+        pub extern "C" fn exact_set_launch_direction(rt: u32, direction: u32) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| { b.set_launch_direction(direction); 0 }, |n| n)
+        }
+
+        /// Whether unsaid text takes each paragraph's base from its first strong character, for every boot from here. @ref LLP 1060.000 D3
+        #[no_mangle]
+        pub extern "C" fn exact_set_natural_text(rt: u32, on: u32) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| { b.set_launch_natural_text(on != 0); 0 }, |n| n)
+        }
+
         /// Where the viewer is (`locale NUL timeZone NUL seed` input) for the next boot or candidate, before it.
         #[no_mangle]
         pub extern "C" fn exact_set_launch_place(rt: u32, len: usize) -> u32 {
@@ -922,6 +951,13 @@ macro_rules! host {
         #[no_mangle]
         pub extern "C" fn exact_set_page(rt: u32, bits: u32) -> u32 {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.set_page(bits), |n| n)
+        }
+
+        /// `prefer presented` (LLP 1069.000 D6): 0 holds `exactPage().presented`
+        /// false, 1 true, any other value gives it back to the host.
+        #[no_mangle]
+        pub extern "C" fn exact_prefer_presented(rt: u32, value: u32) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.prefer_presented(value), |n| n)
         }
 
         /// 1 when the running plan reads `onLine`, and before boot: only
@@ -1058,6 +1094,12 @@ macro_rules! host {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.list_index(view, len as usize), |_| u32::MAX)
         }
 
+        /// Fixed sibling extents in layout coordinates; NaN when absent.
+        #[no_mangle]
+        pub extern "C" fn exact_collection_fixed_size(rt: u32, view: u32, lead: u32, trail: u32, side: u32) -> f64 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.collection_fixed_size(view, lead, trail, side), |_| f64::NAN)
+        }
+
         /// Nearest logical collection snap position, or NaN when absent.
         #[no_mangle]
         pub extern "C" fn exact_collection_snap(rt: u32, view: u32, proposed: f64, port: f64, minimum: f64, maximum: f64, distance: f64) -> f64 {
@@ -1072,10 +1114,10 @@ macro_rules! host {
         }
 
         /// Copy logical text without materializing native views. Input is
-        /// two concatenated UTF-8 row keys; first_len == 0 means all text.
+        /// two concatenated UTF-8 row keys, or fixed lead/trail endpoints.
         #[no_mangle]
-        pub extern "C" fn exact_list_text(rt: u32, view: u32, first_len: u32, len: u32, first_paragraph: u32, first_offset: u32, last_paragraph: u32, last_offset: u32) -> u32 {
-            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.list_text(view, first_len as usize, len as usize, first_paragraph as usize, first_offset as usize, last_paragraph as usize, last_offset as usize), |_| 0)
+        pub extern "C" fn exact_list_text(rt: u32, view: u32, first_len: u32, len: u32, first_paragraph: u32, first_offset: u32, last_paragraph: u32, last_offset: u32, first_fixed: u32, last_fixed: u32) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.list_text(view, first_len as usize, len as usize, first_paragraph as usize, first_offset as usize, last_paragraph as usize, last_offset as usize, first_fixed, last_fixed), |_| 0)
         }
 
         /// The safe-area insets changed; returns the batch's length.

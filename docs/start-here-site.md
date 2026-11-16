@@ -37,7 +37,8 @@ bun exact.mjs pattern site   # a tested website: start from it
 The pattern writes `app.contract` (the pages), `app.ts` (the data module), `app.test.contract`
 (its tests), `server.ts` (a stand-in for its API) and `.env` (the API's origin). Its comments
 say why each line is so: keep its shape, replace its content. Read
-[a website](recipes/website.md) next: when a page is made, serving it, the markup.
+[a website](recipes/website.md) next: when a page is made, serving it, the markup,
+and [hosting below a path](recipes/website-hosting.md) such as `/app/`.
 
 |`bun exact.mjs …`|What it does|
 |---|---|

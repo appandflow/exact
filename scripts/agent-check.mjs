@@ -290,7 +290,15 @@ export async function checkOp(s, args = [], { shots, accept = [] } = {}) {
       let obs = first;
       if (scheme !== first.scheme || preferred) { await s.prefer({ 'prefers-color-scheme': scheme }); preferred = scheme; obs = await s.op({ op: 'check' }); }
       const path = shots?.(obs.viewport, scheme) ?? resolve(dir, `${scheme}.png`);
-      const taken = await s.carrier.screenshot(path, obs.capture?.window === true); // iOS observes in the window's points: a sheet is not in the viewport's picture
+      // Keep UIKit's menu substitutes hidden through the carrier's display composition.
+      const held = s.host !== 'web';
+      let taken;
+      try {
+        if (held) obs = await s.op({ op: 'check', capture: true });
+        taken = await s.carrier.screenshot(path, obs.capture?.window === true);
+      } finally {
+        if (held) await s.op({ op: 'check', release: true });
+      }
       const png = decodePng(readFileSync(path));
       // The tree as this scheme shows it: a view only one scheme shows is named, and accepted, by its own testId.
       const nodes = new Map(((await s.op({ op: 'tree' })).nodes ?? []).map((n) => [n.id, n]));

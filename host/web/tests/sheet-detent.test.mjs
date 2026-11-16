@@ -216,3 +216,34 @@ check('each presented route is drawn above every route beneath it, sheet or full
     expect([width, await at(width / 2, height - 100)]).toEqual([width, 'top']);
   }
 }), 60000);
+
+check('a content-high wide sheet keeps its heading and actions visible while its list scrolls', () => inChrome(async (evaluate, size) => {
+  await evaluate(`{
+    const sheet = document.getElementById('sheet');
+    sheet.innerHTML = '<header style="display:flex;align-items:center;justify-content:space-between;padding:8px 16px"><button id="cancel" aria-label="Cancel">Cancel</button><h2>Form</h2><button id="save" aria-label="Save">Save</button></header><div id="form" data-liststyle="inset-grouped" style="flex:1;min-height:0;overflow:auto"><section><div>' + Array.from({ length: 20 }, (_, i) => '<div style="height:54px">Field ' + (i + 1) + '</div>').join('') + '</div></section></div>';
+    for (const button of sheet.querySelectorAll('button')) button.onclick = () => select('1');
+  }`);
+  for (const [width, height] of [[980, 545], [899, 400], [900, 400], [1200, 300], [1200, 1000], [650, 400]]) {
+    await size(width, height);
+    await open(evaluate, null);
+    const geometry = await evaluate(`{
+      box('sheet');
+      const sheet = document.getElementById('sheet'), list = document.getElementById('form');
+      const b = sheet.getBoundingClientRect();
+      const visible = e => {
+        const r = e.getBoundingClientRect();
+        return r.top >= Math.max(0, b.top) && r.bottom <= Math.min(innerHeight, b.bottom) && r.left >= Math.max(0, b.left) && r.right <= Math.min(innerWidth, b.right);
+      };
+      list.scrollTop = list.scrollHeight;
+      [b.y, b.height, list.scrollHeight > list.clientHeight, list.scrollTop > 0,
+        [...sheet.querySelectorAll('h2, button')].every(visible),
+        getComputedStyle(sheet).maxHeight];
+    }`);
+    const wide = width >= 900, sheetHeight = wide ? Math.min(720, height - 64) : height - 12;
+    const top = wide ? (height - sheetHeight) / 2 : 12;
+    expect([width, height, geometry]).toEqual([width, height,
+      [top, sheetHeight, true, true, true, wide ? sheetHeight + 'px' : 'none']]);
+    await evaluate(`document.getElementById('save').click()`);
+    expect(await evaluate(`shown('home') && !shown('sheet')`)).toBe(true);
+  }
+}), 60000);

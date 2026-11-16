@@ -1,6 +1,11 @@
 //! Selection and dependencies in the ordered sequence (LLP 1162 D1).
 use super::*;
 
+/// A response substitute retains HTTP scheduling and cancellation.
+pub(super) fn opaque(work: &Option<OwnedWork>) -> bool {
+    matches!(work, Some(OwnedWork::Now(_) | OwnedWork::Later(_)))
+}
+
 pub(super) enum Pending<'a> {
     Running(&'a Running),
     Queued(&'a Job),
@@ -175,11 +180,11 @@ fn take_job(state: &mut State, lane: usize, index: usize) -> Option<(Job, AbortC
         charge: job.charge,
         limit: job.limit,
         abort: safe_to_forget(&job.request, job.class).then(|| abort.clone()),
-        exchange: (job.work.is_none() && !job.request.stream).then(|| abort.clone()),
+        exchange: (!opaque(&job.work) && !job.request.stream).then(|| abort.clone()),
         forgotten: job.forgotten,
         stream: job.request.stream,
         waiting: false,
-        read: lane == 0 && safe_read(&job.request, job.work.is_some(), job.class),
+        read: lane == 0 && safe_read(&job.request, opaque(&job.work), job.class),
         overlap: job.overlap,
         class: job.class,
         terminal: false,
@@ -190,10 +195,15 @@ fn take_job(state: &mut State, lane: usize, index: usize) -> Option<(Job, AbortC
         claim: asynch::Claim::None,
         cached: false,
         cache_exchange: cache::exchange(state, &job),
-        cache_replacing: cache::replacing(&job.request, job.class, job.forced, job.work.is_some()),
+        cache_replacing: cache::replacing(
+            &job.request,
+            job.class,
+            job.forced,
+            super::reads::opaque(&job.work),
+        ),
         refresh: preload::Refresh::of(&job.request, job.class, job.forced),
-        cache_barrier: cache::barrier(&job.request, job.class, job.work.is_some()),
-        invalidates: cache::invalidates(&job.request, job.work.is_some()),
+        cache_barrier: cache::barrier(&job.request, job.class, super::reads::opaque(&job.work)),
+        invalidates: cache::invalidates(&job.request, super::reads::opaque(&job.work)),
     });
     Some((job, abort))
 }

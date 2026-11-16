@@ -796,3 +796,26 @@ test('into keyboard requires iOS platform touches and never falls back to scroll
   await expect(run({ opts: { dx: 201 } })).rejects.toThrow('bottom safe area');
   await expect(run({ opts: { path: [{ dx: 0, dy: 5, hold: 0 }] } })).rejects.toThrow('path waypoint');
 });
+
+test('a layout-only box supports drag-to and a held contact without a native view', async () => {
+  const d = heldDrive(), boxes = { 7: { x: 10, y: 10, w: 40, h: 20 }, 8: { x: 10, y: 90, w: 40, h: 20 } };
+  d.s.host = 'ios';
+  d.s.layout = async id => id === undefined
+    ? { nodes: [], viewport: { w: 400, h: 800 } }
+    : { node: { space: { viewport: boxes[id] }, native: { layoutOnly: true } } };
+  d.s.find = async () => ({ id: 8 });
+  d.s.op = async () => ({ lines: [], next: 0 });
+  d.s.landed = async r => r;
+  const result = await dragTap({ s: d.s, carrier: { touches: true, input: async (_id, _phase, opts) => ({ drag: opts.drag }) },
+    node: { id: 7 }, target: '7', host: 'ios', timing: 'agent' }, { to: '8', over: 250 });
+  expect(result.drag.dx).toBe(0);
+  expect(result.drag.dy).toBe(80);
+  await heldDown(d.s, { id: 7 });
+  expect([d.s.contact.x, d.s.contact.y]).toEqual([30, 20]);
+  await heldPhase(d.s, d.carrier, 'up', {});
+  expect(d.asked).toHaveLength(1);
+  await heldDown(d.s, { id: 7 });
+  boxes[7].y = 50;
+  await expect(heldPhase(d.s, d.carrier, 'up', {})).rejects.toThrow('moved off');
+  expect(d.asked).toHaveLength(1);
+});

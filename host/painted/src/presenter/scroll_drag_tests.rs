@@ -234,7 +234,9 @@ const REFRESH: &str = r#"component App
 fn flags(p: &mut Presenter<()>, list: ViewId) -> i32 {
     let words = p.reader_under(200., 100., 1.);
     words[3..]
-        .chunks_exact(11)
+        .as_chunks::<11>()
+        .0
+        .iter()
         .find(|e| e[0] == list as i32)
         .unwrap()[1]
 }

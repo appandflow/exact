@@ -292,6 +292,22 @@ impl Harness {
         root.collection().unwrap()
     }
 }
+/// LLP 1168.000 D1.2: only a list that opens at its end keeps what its
+/// start asked; no other list's anchor reads it.
+#[test]
+fn only_a_list_that_opens_at_its_end_keeps_what_its_start_asked() {
+    let mut h = Harness::new(100, false, false);
+    let Child::Node(root) = &mut h.tree.children[0] else {
+        panic!()
+    };
+    let c = root.collection_mut().unwrap();
+    assert!(!c.opens_at_end);
+    c.disarm_edge(0);
+    assert!(!c.start_asked, "a list that opens at its start");
+    c.opens_at_end = true;
+    c.disarm_edge(0);
+    assert!(c.start_asked, "a list that opens at its end");
+}
 #[test]
 fn bounded_bootstrap_twenty_traversals_release_row_slots_and_kernel_views() {
     for n in [1_000, 25_000] {
@@ -499,7 +515,7 @@ fn focus_and_interaction_pins_are_disjoint_and_wrappers_have_no_sites() {
     assert!(matches!(path[0], InstanceStep::Row { .. }));
     let (_, frames) = h.tree.find(first.root, parent, &mut 0).unwrap();
     let row = frames[0].row.clone().unwrap();
-    row.borrow_mut().insert(4, Value::Number(7.0));
+    row.borrow_mut().slots.insert(4, Value::Number(7.0));
     let mut written = crate::instance::RowWrites::default();
     written.record(&frames, &row, 4);
     h.update_with(written).unwrap();
@@ -595,8 +611,7 @@ fn binary_feedback_roundtrips_and_rejects_malformed_reports() {
     for length in 0..bytes.len() {
         assert!(CollectionFeedback::decode(&bytes[..length]).is_err());
     }
-    let mut trailing = bytes.clone();
-    trailing.push(0);
+    let trailing = [&bytes[..], &[0]].concat();
     assert!(CollectionFeedback::decode(&trailing).is_err());
     let mut bad = bytes.clone();
     bad[92..96].copy_from_slice(&u32::MAX.to_le_bytes());
@@ -612,6 +627,7 @@ fn binary_feedback_roundtrips_and_rejects_malformed_reports() {
 #[test]
 fn snapshot_json_preserves_u64_metadata_as_decimal_strings() {
     let snapshot = CollectionSnapshot {
+        fixed: Vec::new(),
         view: 1,
         axis: ListAxis::Vertical,
         parent: None,

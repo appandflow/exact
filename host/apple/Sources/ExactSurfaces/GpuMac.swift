@@ -457,7 +457,7 @@ final class CanvasesHost {
     var visible: Bool {
         guard let viewport = session?.presenter.viewport else { return false }
         // An unmounted view wants no frames (LLP 1031 D3).
-        return !NSApplication.shared.isHidden && (viewport.window?.occlusionState.contains(.visible) ?? false)
+        return !NSApplication.shared.isHidden && (viewport.window?.screenOcclusionState.contains(.visible) ?? false)
     }
 
     /// Whether any surface has something to render — or an edit is under a

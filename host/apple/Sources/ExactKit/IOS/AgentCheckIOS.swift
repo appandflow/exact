@@ -16,10 +16,15 @@ import UIKit
 
 extension Agent {
     func check(_ req: [String: Any]) -> [String: Any] {
-        _ = settleForPicture()
-        settleMotion()
+        finishCheckPicture()
+        if req["release"] as? Bool == true { return [:] }
+        let holding = req["capture"] as? Bool == true
+        if holding { checkPicture = preparePicture(req) }
+        else { _ = settleForPicture(); settleMotion() }
+        presenter.menus.beginCheck()
+        defer { if !holding { finishCheckPicture() } }
         let vp = presenter.viewport
-        guard let win = vp.window else { return ["error": "check: the app has no window yet"] }
+        guard let win = vp.window else { finishCheckPicture(); return ["error": "check: the app has no window yet"] }
         // What lies over a view is what a finger at its middle lands on, not the cell's widening of its field's
         // target: a touch a grouped row leaves to no control falls to the row's field, which covers nothing the
         // row draws (LLP 1116.009 D5).

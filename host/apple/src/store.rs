@@ -955,8 +955,10 @@ mod tests {
 
     #[test]
     fn a_launch_reads_no_more_kept_answers_than_the_runner_keeps_together() {
-        let dir = std::env::temp_dir().join(format!("exact-kept-total-{}", std::process::id()));
-        let kv = ibex2::kv::FileStore::new(&dir);
+        let dir = crate::TempDir(
+            std::env::temp_dir().join(format!("exact-kept-total-{}", std::process::id())),
+        );
+        let kv = ibex2::kv::FileStore::new(&*dir);
         let third = Store::KEPT_TOTAL_BYTES / 3 + 1;
         for key in ["a", "b", "c"] {
             ibex2::kv::KvStore::set(&kv, KEPT, key, &vec![0; third]).unwrap();
@@ -964,7 +966,7 @@ mod tests {
         ibex2::kv::KvStore::set(&kv, KEPT, "d", &[1]).unwrap();
         let host = Host::new()
             .with_secret_store(Box::new(ibex2::secrets::MemoryStore::new()))
-            .with_kv_store(Box::new(ibex2::kv::FileStore::new(&dir)));
+            .with_kv_store(Box::new(ibex2::kv::FileStore::new(&*dir)));
         let snapshot = snapshot_of(Some(&endow_in(host, "").unwrap()));
         let kept: usize = snapshot
             .iter()
@@ -985,11 +987,12 @@ mod tests {
 
     #[test]
     fn kept_answers_outlive_the_launch_beside_the_apps_secrets() {
-        let dir = std::env::temp_dir().join(format!("exact-kept-{}", std::process::id()));
+        let dir =
+            crate::TempDir(std::env::temp_dir().join(format!("exact-kept-{}", std::process::id())));
         let launch = || {
             let host = Host::new()
                 .with_secret_store(Box::new(ibex2::secrets::MemoryStore::new()))
-                .with_kv_store(Box::new(ibex2::kv::FileStore::new(&dir)));
+                .with_kv_store(Box::new(ibex2::kv::FileStore::new(&*dir)));
             endow_in(host, "secret.keep app.token").unwrap()
         };
         let write = |name: &str, value: Option<&str>| StoreWrite {
@@ -1019,11 +1022,13 @@ mod tests {
 
     #[test]
     fn a_persisted_state_is_a_preference_never_a_secret() {
-        let dir = std::env::temp_dir().join(format!("exact-prefs-{}", std::process::id()));
+        let dir = crate::TempDir(
+            std::env::temp_dir().join(format!("exact-prefs-{}", std::process::id())),
+        );
         let launch = || {
             let host = Host::new()
                 .with_secret_store(Box::new(ibex2::secrets::MemoryStore::new()))
-                .with_kv_store(Box::new(ibex2::kv::FileStore::new(&dir)));
+                .with_kv_store(Box::new(ibex2::kv::FileStore::new(&*dir)));
             endow_in(host, "secret.keep app.token").unwrap()
         };
         // In a test, as in agent mode, persisted states are the kv store's.
@@ -1275,6 +1280,7 @@ mod tests {
         let root =
             std::env::temp_dir().join(format!("exact-widget-counter-{}", std::process::id()));
         std::fs::create_dir_all(&root).unwrap();
+        let _remove = crate::TempDir(root.clone());
         let counter = root.join("widget-store-generation");
         // Account B's answer is kept while the disk is shut.
         platform
@@ -1321,8 +1327,9 @@ mod tests {
     fn named_agent_storage_keeps_a_secret_across_a_relaunch() {
         const CHILD: &str = "EXACT_APPLE_SECRET_KEEP_TEST";
         if std::env::var_os(CHILD).is_none() {
-            let home =
-                std::env::temp_dir().join(format!("exact-apple-secrets-{}", std::process::id()));
+            let home = crate::TempDir(
+                std::env::temp_dir().join(format!("exact-apple-secrets-{}", std::process::id())),
+            );
             let _ = std::fs::remove_dir_all(&home);
             std::fs::create_dir_all(&home).unwrap();
             let output = std::process::Command::new(std::env::current_exe().unwrap())
@@ -1331,7 +1338,7 @@ mod tests {
                     "store::tests::named_agent_storage_keeps_a_secret_across_a_relaunch",
                 ])
                 .env(CHILD, "1")
-                .env("HOME", &home)
+                .env("HOME", &*home)
                 .env("EXACT_AGENT", "1")
                 .env("EXACT_AGENT_STORAGE", "s1")
                 .env_remove("EXACT_AGENT_STORAGE_FRESH")

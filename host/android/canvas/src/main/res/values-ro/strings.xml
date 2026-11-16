@@ -2,5 +2,4 @@
 <resources>
     <string name="exact_clear">Ștergeți</string>
     <string name="exact_default_channel">Notificări</string>
-    <string name="exact_silent_channel">Notificări silențioase</string>
 </resources>

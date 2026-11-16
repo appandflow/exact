@@ -787,6 +787,10 @@ impl Store {
         std::mem::take(&mut self.announced.borrow_mut())
     }
 
+    pub(crate) fn has_announced(&self) -> bool {
+        !self.announced.borrow().is_empty()
+    }
+
     /// How many device-state observations so far, including secret reads.
     pub fn reads(&self) -> usize {
         self.reads.get()

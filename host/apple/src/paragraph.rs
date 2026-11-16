@@ -147,6 +147,8 @@ impl<D: DataSource> Host<D> {
         if self.mirror.remove(&id).is_some() {
             batch.destroy(id);
         }
+        // A view made for it again is ranked as a new one.
+        self.ranks.remove(&id);
         self.create(id, &events, batch);
         self.emit_children(id, batch);
         true
@@ -278,13 +280,27 @@ impl<D: DataSource> Host<D> {
                     );
                 }
                 // How far its padding box stands out from its text: what its
-                // background covers beside its glyphs.
+                // background covers beside its glyphs, and above and below
+                // them ("start end above below").
                 let reach = run.inline_background_reach();
-                if !reach.is_empty() {
+                let (over, under) = run.inline_background_block_reach();
+                if !reach.is_empty() || over != 0.0 || under != 0.0 {
                     props.insert(
                         "inlinePad",
-                        format!("{} {}", style::num(reach.start), style::num(reach.end)),
+                        format!(
+                            "{} {} {} {}",
+                            style::num(reach.start),
+                            style::num(reach.end),
+                            style::num(over),
+                            style::num(under)
+                        ),
                     );
+                }
+                // Its border's widths as its line counts them ("top right
+                // bottom left"); its style rows carry the colours and styles.
+                let border = run.inline_border_widths();
+                if border.iter().any(|w| *w > 0.0) {
+                    props.insert("inlineBorder", border.map(style::num).join(" "));
                 }
                 // A run painting an inherited `color` that moves (LLP 1062 D5).
                 let mut shown = style::Shown::default();
@@ -396,6 +412,10 @@ impl<D: DataSource> Host<D> {
             return;
         }
         let node = self.runner.kernel().node(id).expect("live");
+        if self.flat.nodes.contains(&id) {
+            self.keys.insert(node.key, id);
+            return;
+        }
         let key = node.key;
         // @ref LLP 1056 D10 — a 2D canvas is a plain view: its bitmap is a
         // layer's contents under ordinary children, with no Metal or overlay.
@@ -447,6 +467,9 @@ impl<D: DataSource> Host<D> {
             return;
         }
         self.queue_layout(id);
+        if self.flat.nodes.contains(&id) {
+            return;
+        }
         if self.reconcile_projection(id, batch) {
             return;
         }
@@ -506,6 +529,12 @@ impl<D: DataSource> Host<D> {
     }
 
     pub(super) fn emit_children(&mut self, id: ViewId, batch: &mut Batch) {
+        if self.flat.nodes.contains(&id) {
+            if let Some(parent) = self.presented_parent(id) {
+                self.emit_children(parent, batch);
+            }
+            return;
+        }
         // An `svg`'s and a `g`'s children are its scene's (LLP 1055 D4).
         let node_type = self.runner.kernel().node(id).expect("live").node_type;
         if node_type == NodeType::Svg || node_type.is_svg_element() {
@@ -567,6 +596,7 @@ impl<D: DataSource> Host<D> {
                 !self.native_protected_id(*child) || self.native_selected_id(*child)
             });
         }
+        let children = self.flat_children(children);
         let m = self.mirror.entry(id).or_default();
         if *children != *m.children {
             batch.children(id, &children);

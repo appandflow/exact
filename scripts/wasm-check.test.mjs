@@ -1,5 +1,5 @@
 // The hourly wasm graph, compilation commands and complete diagnostics.
-import { test, expect } from 'bun:test';
+import { afterAll, test, expect } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -7,6 +7,7 @@ import { report, wasmCheck, wasmCrates } from './wasm-check.mjs';
 
 const ROOT = resolve(import.meta.dir, '..');
 const TARGET = mkdtempSync(join(tmpdir(), 'wasm-check-')); // a cold target directory, never compiled into
+afterAll(() => rmSync(TARGET, { recursive: true, force: true }));
 const FOUND = { crates: ['contract', 'exact-kernel', 'exact-web'], bins: [['exact-textflow', 'textflow-web']], dirs: ['contract/cli/', 'kernel/', 'host/web/', 'textflow/'], target: TARGET };
 
 test('the crates checked are the libraries the web apps link for wasm32, the apps and vendored crates aside', () => {

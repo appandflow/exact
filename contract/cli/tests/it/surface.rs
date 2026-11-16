@@ -1,3 +1,4 @@
+use crate::scratch::Scratch;
 use exact_kernel::Kernel;
 use exact_runner::{DataError, DataSource, Runner, Value};
 struct NoData;
@@ -288,7 +289,9 @@ fn r13_colon_call_refuses_with_equals_hint() {
 /// game's Rust is newer, and never stops `contract rust`.
 #[test]
 fn a_stale_surface_declaration_warns_and_hides_nothing() {
-    let dir = std::env::temp_dir().join(format!("contract-stale-surfaces-{}", std::process::id()));
+    let dir = Scratch::adopt(
+        std::env::temp_dir().join(format!("contract-stale-surfaces-{}", std::process::id())),
+    );
     std::fs::create_dir_all(dir.join(".shells")).unwrap();
     std::fs::create_dir_all(dir.join("logic/src")).unwrap();
     let declaration = dir.join(".shells/surfaces.json");
@@ -390,7 +393,9 @@ fn a_stale_surface_declaration_warns_and_hides_nothing() {
 
 #[test]
 fn file_compilation_checks_surface_arguments_at_the_source() {
-    let dir = std::env::temp_dir().join(format!("contract-surfaces-{}", std::process::id()));
+    let dir = Scratch::adopt(
+        std::env::temp_dir().join(format!("contract-surfaces-{}", std::process::id())),
+    );
     std::fs::create_dir_all(dir.join(".shells")).unwrap();
     let declaration = dir.join(".shells/surfaces.json");
     std::fs::write(
@@ -538,7 +543,9 @@ component App
 /// key no action binds, or a game without the declaration, says nothing.
 #[test]
 fn a_shortcut_on_a_key_the_game_binds_warns() {
-    let dir = std::env::temp_dir().join(format!("contract-shortcut-keys-{}", std::process::id()));
+    let dir = Scratch::adopt(
+        std::env::temp_dir().join(format!("contract-shortcut-keys-{}", std::process::id())),
+    );
     std::fs::create_dir_all(dir.join(".shells")).unwrap();
     let path = dir.join("app.contract");
     std::fs::write(

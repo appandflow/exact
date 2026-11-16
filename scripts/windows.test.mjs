@@ -1,4 +1,4 @@
-import { bakeSourceInputs, inputHashes } from './cargo-dep-info.mjs';
+import { bakeSourceInputs, inputHashes, watchedDigest } from './cargo-dep-info.mjs';
 import {test, expect, spyOn} from 'bun:test';
 import * as crypto from 'node:crypto';
 import assert from 'node:assert/strict';
@@ -903,6 +903,23 @@ test('rebuilt receipt inputs refresh their digest after an equal-size equal-mtim
     assert.deepEqual(pendingBuildInputs(rebuilt), [], 'the new receipt records the current bytes');
     assert.deepEqual(receipt(), rebuilt);
   } finally { rmSync(root, {recursive:true,force:true}); }
+});
+
+test('ancestor source watches include ordinary native source changes', () => {
+  const root = mkdtempSync(resolve(tmpdir(), 'exact-source-inventory-notification-'));
+  const appDir = resolve(root, 'app'), service = resolve(appDir, 'modules/apple/notification-service');
+  try {
+    mkdirSync(service, { recursive: true });
+    const swift = resolve(service, 'NotificationService.swift'), json = resolve(service, 'helper.json');
+    writeFileSync(swift, 'class NotificationService {}\n');
+    const app = { dir: appDir, manifest: {} }, recorded = bakeSourceInputs(app, [], []).inventory.sha256;
+    const watched = watchedDigest([resolve(appDir, 'modules')], []);
+    writeFileSync(swift, 'class NotificationService { let changed = true }\n');
+    expect(watchedDigest([resolve(appDir, 'modules')], [])).not.toBe(watched);
+    expect(bakeSourceInputs(app, [], []).inventory.sha256).toBe(recorded);
+    writeFileSync(json, '{}');
+    expect(bakeSourceInputs(app, [], []).inventory.sha256).not.toBe(recorded);
+  } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
 test('packaged native freshness rejects changed source and copied binary bytes', () => {

@@ -440,13 +440,14 @@ def taskGate (p : Program) (t : TaskDecl) : Bool :=
     | .none => true)
 def checkTask (p : Program) (t : TaskDecl) : Bool :=
   inferLe p (compScope p) [] t.ms .number && taskAction p t && (t.ms matches .num _) && taskGate p t
-/-- A mutation's `then`, if any, names an action of no parameters. -/
+/-- A mutation's `then`, if any, names an action of as many parameters as
+its `then` arguments. -/
 def thenAction (p : Program) (m : MutationDecl) : Bool :=
   match m.andThen with
   | .none => true
   | .some a =>
     match p.actions.find? (·.name == a) with
-    | .some ad => ad.params.isEmpty
+    | .some ad => ad.params.length == m.thenArgs.length
     | .none => false
 
 /-- The checker: every part well typed. -/

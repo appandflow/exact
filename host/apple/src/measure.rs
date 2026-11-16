@@ -154,6 +154,10 @@ pub struct CRequest {
     pub faces: *const u8,
     /// Its length in bytes.
     pub faces_len: usize,
+    /// 1 for natural text (LLP 1060.000 D3): each paragraph's base is its
+    /// first strong character's (`exact_text_paragraph_bases`), `direction`
+    /// where it has none; `direction` still resolves alignment.
+    pub natural: u8,
 }
 
 /// What the callback returns.
@@ -577,6 +581,7 @@ impl CallbackMeasurer {
             atoms_len: request.atoms.kinds.len(),
             faces: request.atoms.faces.as_ptr(),
             faces_len: request.atoms.faces.len(),
+            natural: u8::from(request.paragraph.natural),
         };
         // The one foreign call: the app's function, with the structs above
         // alive for its duration and read-only.
@@ -727,7 +732,7 @@ impl TextMeasurer for CallbackMeasurer {
         });
         out.truncate(count.min(out.len()));
         // A non-finite pair is a box on no line, which the kernel hides.
-        origins.extend(out.chunks_exact(2).map(|p| (p[0], p[1])));
+        origins.extend(out.as_chunks::<2>().0.iter().map(|p| (p[0], p[1])));
     }
 
     /// @ref LLP 1093 D6 — the paragraph's line boxes, from the app's hook.

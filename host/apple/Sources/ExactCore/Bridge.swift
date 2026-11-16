@@ -133,6 +133,7 @@ package typealias TopLayerGeometry = (frames: [TopLayerFrame], modal: Int?, back
 package final class Runtime {
     package let rt: ExactRuntime
     private(set) package var destroyed = false
+    package let completions = RuntimeDoor()
     package var topLayer: (() -> TopLayerGeometry)?
     package var inlineFrame: ((UInt32) -> CGRect?)?
     package var rangeFrame: ((UInt32, UInt32, UInt32) -> CGRect?)?
@@ -174,6 +175,7 @@ package final class Runtime {
     package func destroy() {
         guard !destroyed else { return }
         destroyed = true
+        completions.close()
         let rt = rt
         // From a callback the owner waits on (a native module's `call` that
         // ends its session), after the owner's current job (LLP 1072 T5, §8.4).
@@ -274,6 +276,9 @@ package final class Runtime {
     package func useRowReuse(_ on: Bool) {
         self.on { () -> Void in _ = exact_row_reuse(rt, on ? 1 : 0) }
     }
+    package func useFlatNodes(_ enabled: Bool) {
+        on { () -> Void in _ = exact_flat_nodes(rt, enabled ? 1 : 0) }
+    }
     /// The wake for a request's reply (LLP 1016 D2), on the executor's thread.
     package func setWake(_ wake: ExactWakeFn?, ctx: UnsafeMutableRawPointer?) {
         let ctx = UInt(bitPattern: ctx)
@@ -328,7 +333,7 @@ package final class Runtime {
     package func canvasHeld(_ view: UInt32, _ held: Bool) { on { exact_canvas_held(rt, view, held ? 1 : 0) } }
     /// The Canvas 2D text measurer (LLP 1056 D8), with the measurer's context.
     package func setCanvasText(_ measure: ExactCanvasTextFn?) { on { exact_set_canvas_text(rt, measure) } }
-    package func boot(width: CGFloat, height: CGFloat) -> Batch { islands(on { read(exact_boot(rt, Float(width), Float(height))) }) }
+    package func boot(width: CGFloat, height: CGFloat) -> Batch { islands(on { replaced(read(exact_boot(rt, Float(width), Float(height)))) }) }
     /// Whether the data source's activation evaluates a TypeScript module on
     /// the owner, which the presenter then posts from the first draw's own
     /// callback (`exact_evaluates_from_draw`, LLP 1027.008 D1). Read after
@@ -352,7 +357,7 @@ package final class Runtime {
     package func bootPlan(_ bytes: Data, width: CGFloat, height: CGFloat) -> Batch {
         let batch = on { () -> Batch in
             let n = write(bytes)
-            return read(exact_boot_plan(rt, n, Float(width), Float(height)))
+            return replaced(read(exact_boot_plan(rt, n, Float(width), Float(height))))
         }
         return islands(batch)
     }
@@ -363,7 +368,7 @@ package final class Runtime {
             let name = Data(kind.utf8)
             var payload = bytes; payload.append(name); payload.append(props ?? Data()); payload.append(configuration ?? Data())
             _ = write(payload)
-            return read(exact_boot_entry(rt, bytes.count, name.count, props?.count ?? 0, configuration?.count ?? 0, Float(width), Float(height)))
+            return replaced(read(exact_boot_entry(rt, bytes.count, name.count, props?.count ?? 0, configuration?.count ?? 0, Float(width), Float(height))))
         }
         return islands(batch)
     }
@@ -389,7 +394,7 @@ package final class Runtime {
             return read(exact_prepare_plan(rt, token, n, Float(width), Float(height)))
         }
     }
-    package func commitPlan() -> Batch { islands(on { read(exact_commit_plan(rt)) }) }
+    package func commitPlan() -> Batch { islands(on { replaced(read(exact_commit_plan(rt))) }) }
     /// The owner excludes replies between the final freshness check and every
     /// commit. The durable callback runs on main through the usual T5 door.
     package static func commitTogether(_ runtimes: [Runtime], commit: () -> Bool) -> (batches: [Batch]?, pending: Bool, requests: Bool) {
@@ -399,7 +404,7 @@ package final class Runtime {
                 return (nil, checks.contains { $0.pending || $0.requests }, checks.contains { $0.requests })
             }
             guard Owner.shared.callMain(commit) else { return (nil, false, false) }
-            return (runtimes.map { $0.read(exact_commit_plan($0.rt)) }, false, false)
+            return (runtimes.map { $0.replaced($0.read(exact_commit_plan($0.rt))) }, false, false)
         }, busy: (nil, false, false))
         guard let batches = result.batches else { return result }
         return (zip(runtimes, batches).map { $0.islands($1) }, false, false)
@@ -424,13 +429,11 @@ package final class Runtime {
     /// Every queued reply into the runner: the batch of their commits.
     package func pump(now: Double) -> Batch { on { read(exact_pump(rt, now)) } }
     /// Capture native presentation on the caller before parsing replies on the owner.
-    package func pumpAsync(now: Double, done: @escaping (Batch?) -> Void) {
-        if enter() { Owner.shared.post { done(nil) }; return } // (held: answered on the owner as a cancelled reply, `held`)
-        let (open, modal, backdrop) = topLayer?() ?? ([], nil, nil)
-        Owner.shared.post { [self] in
-            guard !destroyed else { done(nil); return }
-            installTopLayer(open, modal: modal, backdrop: backdrop)
-            done(read(exact_pump(rt, now)))
+    package func pumpAsync(now: Double, done: @escaping (RuntimeCompletion) -> Void) {
+        var presentation: TopLayerGeometry = ([], nil, nil)
+        post(prepare: { presentation = topLayer?() ?? ([], nil, nil) }, done: done) { [self] _ in
+            installTopLayer(presentation.frames, modal: presentation.modal, backdrop: presentation.backdrop)
+            return read(exact_pump(rt, now))
         }
     }
     package func requestActive(_ ticket: UInt64) -> Bool { on(busy: false) { exact_request_active(rt, ticket) != 0 } }
@@ -581,12 +584,10 @@ package final class Runtime {
     }
     /// A build-only report on the owner, not waited for (LLP 1072 §3):
     /// `done` runs on the owner with the decoded batch.
-    package func collectionFeedbackAsync(_ bytes: Data, now: Double, done: @escaping (Batch) -> Void) {
-        if enter() { Owner.shared.post { done(Runtime.heldBatch) }; return } // (held: answered on the owner, so what waits on it ends)
-        Owner.shared.post { [self] in
-            guard !destroyed else { return }
+    package func collectionFeedbackAsync(_ bytes: Data, now: Double, done: @escaping (RuntimeCompletion) -> Void) {
+        post(done: done) { [self] _ in
             let n = write(bytes)
-            done(read(exact_collection_feedback(rt, n, now)))
+            return read(exact_collection_feedback(rt, n, now))
         }
     }
     /// Count each plan site's work for `perf` from now, if not yet (LLP 1079 D1).
@@ -594,36 +595,24 @@ package final class Runtime {
     /// Canvas draws in a turn of their own (LLP 1072 §8.5).
     package func canvasDefer(_ deferred: Bool) { on { exact_canvas_defer(rt, deferred ? 1 : 0) } }
     /// The owed canvas draws on the owner, not waited for (LLP 1072 §8.5).
-    package func canvasDrawAsync(done: @escaping (Batch) -> Void) {
-        if enter() { Owner.shared.post { done(Runtime.heldBatch) }; return }
-        Owner.shared.post { [self] in
-            guard !destroyed else { return }
-            done(read(exact_canvas_draw(rt)))
-        }
+    package func canvasDrawAsync(done: @escaping (RuntimeCompletion) -> Void) {
+        post(done: done) { [self] _ in read(exact_canvas_draw(rt)) }
+    }
+    /// `calls`, in order, on the owner and not waited for: each batch goes to
+    /// `done` there (LLP 1027.007 P1).
+    package func later(_ calls: [(Runtime) -> Batch], done: @escaping (RuntimeCompletion) -> Void) {
+        post(count: calls.count, done: done) { [self] index in calls[index](self) }
     }
     /// A frame's tick on the owner, not waited for (LLP 1072 §7.1); `frame`
     /// is the display frame it is for (LLP 1003.001 D5).
-    /// `calls`, in order, on the owner and not waited for: each batch goes to
-    /// `done` there (LLP 1027.007 P1).
-    package func later(_ calls: [(Runtime) -> Batch], done: @escaping (Batch) -> Void) {
-        if enter() { Owner.shared.post { for _ in calls { done(Runtime.heldBatch) } }; return }
-        Owner.shared.post { [self] in
-            for call in calls {
-                guard !destroyed else { return }
-                done(call(self))
-            }
-        }
-    }
-    package func tickAsync(now: Double, frame: Double? = nil, capture: UInt64 = 0, measureFrame: Bool = false, done: @escaping (Batch) -> Void) {
-        if enter() { Owner.shared.post { done(Runtime.heldBatch) }; return }
+    package func tickAsync(now: Double, frame: Double? = nil, capture: UInt64 = 0, measureFrame: Bool = false, done: @escaping (RuntimeCompletion) -> Void) {
         let queued = capture == 0 ? 0 : hostMediaTime()
-        Owner.shared.post { [self] in
-            guard !destroyed else { return }
+        post(done: done) { [self] _ in
             let began = capture == 0 ? 0 : hostMediaTime()
             var batch = read(frame.map { exact_tick_at(rt, now, $0) } ?? exact_tick(rt, now))
             if measureFrame || capture != 0 { batch.frameWorkTiming = FrameWorkTiming(capture: capture, frame: frame,
                 queued: queued, began: began, finished: capture == 0 ? 0 : hostMediaTime()) }
-            done(batch)
+            return batch
         }
     }
     /// Actual viewport/row observations using the runner's versioned LE wire.
@@ -715,7 +704,8 @@ package final class Runtime {
     package func dialogClose(_ view: UInt32, now: Double) -> Batch {
         on { read(exact_dispatch(rt, view, 49, write(""), now)) }
     }
-    /// A file input's picker was dismissed: HTML's `cancel` (LLP 1069.002 D2).
+    /// HTML's `cancel`: a file input's picker was dismissed (LLP 1069.002
+    /// D2), or a person's close request closed a dialog.
     package func pickerCancel(_ view: UInt32, now: Double) -> Batch {
         return on {
             let n = write("")
@@ -798,6 +788,9 @@ package final class Runtime {
     }
     package func launch(_ location: String) { on { () -> Void in let n = write(location); _ = exact_set_launch_location(rt, n) } }
     package func launchWindow(_ name: String, rooted: Bool) { on { () -> Void in let n = write(name); _ = exact_set_launch_window(rt, n, rooted ? 1 : 0) } }
+    /// `rtl` nil: the strings table's direction.
+    package func launchDirection(rtl: Bool?) { on { () -> Void in _ = exact_set_launch_direction(rt, rtl.map { $0 ? 1 : 0 } ?? 2) } }
+    package func naturalText(_ natural: Bool) { on { () -> Void in _ = exact_set_natural_text(rt, natural ? 1 : 0) } }
     package func navigate(_ view: UInt32, _ location: String, now: Double) -> Batch {
         return on {
             let n = write(location)
@@ -840,22 +833,14 @@ package final class Runtime {
     package func timerWaits(kinds: UInt32, cutoff: Double, mode: UInt32 = 1) -> Batch {
         on { read(exact_timer_waits(rt, kinds, cutoff, mode)) }
     }
-    package func timerWaitsAsync(kinds: UInt32, cutoff: Double, done: @escaping (Batch) -> Void) {
-        if enter() { Owner.shared.post { done(Runtime.heldBatch) }; return }
-        Owner.shared.post { [self] in
-            guard !destroyed else { return }
-            done(read(exact_timer_waits(rt, kinds, cutoff, 1)))
-        }
+    package func timerWaitsAsync(kinds: UInt32, cutoff: Double, done: @escaping (RuntimeCompletion) -> Void) {
+        post(done: done) { [self] _ in read(exact_timer_waits(rt, kinds, cutoff, 1)) }
     }
     package func fireNativeTimer(_ timer: NativeTimerWake, now: Double) -> Batch {
         on { read(exact_fire_native_timer(rt, timer.index, timer.generation, now)) }
     }
-    package func fireNativeTimerAsync(_ timer: NativeTimerWake, now: Double, done: @escaping (Batch) -> Void) {
-        if enter() { Owner.shared.post { done(Runtime.heldBatch) }; return }
-        Owner.shared.post { [self] in
-            guard !destroyed else { return }
-            done(read(exact_fire_native_timer(rt, timer.index, timer.generation, now)))
-        }
+    package func fireNativeTimerAsync(_ timer: NativeTimerWake, now: Double, done: @escaping (RuntimeCompletion) -> Void) {
+        post(done: done) { [self] _ in read(exact_fire_native_timer(rt, timer.index, timer.generation, now)) }
     }
     package func advance(now: Double, untilRequest: Bool = false) -> Batch { on { read(exact_advance(rt, now, untilRequest ? 1 : 0)) } }
     /// The `then`s an agent's input settled, the clock unmoved (LLP 1012 §2).
@@ -864,16 +849,14 @@ package final class Runtime {
     package func landThenFirst() -> Batch { on { read(exact_advance(rt, 0, 3)) } }
     /// A timer advance on the owner, not waited for (LLP 1072.000): what is
     /// due by `now`, or with `frame` that display frame's (`frame(now:wall:)`).
-    package func advanceAsync(now: Double, frame: Double? = nil, admitted: Bool = false, capture: UInt64 = 0, measureFrame: Bool = false, done: @escaping (Batch) -> Void) {
-        if enter() { Owner.shared.post { done(Runtime.heldBatch) }; return }
+    package func advanceAsync(now: Double, frame: Double? = nil, admitted: Bool = false, capture: UInt64 = 0, measureFrame: Bool = false, done: @escaping (RuntimeCompletion) -> Void) {
         let queued = capture == 0 ? 0 : hostMediaTime()
-        Owner.shared.post { [self] in
-            guard !destroyed else { return }
+        post(done: done) { [self] _ in
             let began = capture == 0 ? 0 : hostMediaTime()
             var batch = read(frame.map { admitted ? exact_admitted_frame(rt, $0, now) : exact_frame_at(rt, $0, now) } ?? exact_advance(rt, now, 0))
             if measureFrame || capture != 0 { batch.frameWorkTiming = FrameWorkTiming(capture: capture, frame: frame,
                 queued: queued, began: began, finished: capture == 0 ? 0 : hostMediaTime()) }
-            done(batch)
+            return batch
         }
     }
     package func frame(now: Double, wall: Double? = nil, admitted: Bool = false) -> Batch { on { read(admitted ? exact_admitted_frame(rt, now, wall ?? now) : wall.map { exact_frame_at(rt, now, $0) } ?? exact_frame(rt, now)) } }
@@ -902,6 +885,8 @@ package final class Runtime {
     } }
     package func setPreferences(_ bits: UInt32) -> Batch { on(layout: true) { read(exact_set_preferences(rt, bits)) } }
     package func setPage(_ bits: UInt32) -> Batch { on(layout: true) { read(exact_set_page(rt, bits)) } }
+    /// `prefer presented` (LLP 1069.000 D6): held at a value, or nil for the host's own.
+    package func preferPresented(_ value: Bool?) -> Batch { on(layout: true) { read(exact_prefer_presented(rt, value.map { $0 ? 1 : 0 } ?? 2)) } }
     /// Whether the running plan reads `onLine`; true when the owner is busy.
     package func readsOnLine() -> Bool { on(busy: true) { exact_reads_on_line(rt) != 0 } }
     package func setRootFontSize(_ px: Double) -> Batch { on(layout: true) { read(exact_set_root_font_size(rt, px)) } }
@@ -949,11 +934,11 @@ package final class Runtime {
             return index == UInt32.max ? nil : Int(index)
         }
     }
-    package func listText(_ view: UInt32, first: (String, Int, Int)?, last: (String, Int, Int)?) -> String {
+    package func listText(_ view: UInt32, first: (String, Int, Int, Bool?)?, last: (String, Int, Int, Bool?)?) -> String {
         return on(busy: "") {
             let a = first?.0 ?? "", b = last?.0 ?? ""
             let n = write(a + b)
-            let len = exact_list_text(rt, view, UInt32(a.utf8.count), UInt32(n), UInt32(first?.1 ?? 0), UInt32(first?.2 ?? 0), UInt32(last?.1 ?? 0), UInt32(last?.2 ?? 0))
+            let len = exact_list_text(rt, view, UInt32(a.utf8.count), UInt32(n), UInt32(first?.1 ?? 0), UInt32(first?.2 ?? 0), UInt32(last?.1 ?? 0), UInt32(last?.2 ?? 0), first?.3.map { $0 ? 1 : 0 } ?? UInt32.max, last?.3.map { $0 ? 1 : 0 } ?? UInt32.max)
             return String(decoding: Data(bytes: exact_out(rt), count: Int(len)), as: UTF8.self)
         }
     }

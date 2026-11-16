@@ -651,7 +651,7 @@ impl<D: DataSource> Presenter<D> {
                 .boxes
                 .iter()
                 .find(|b| b.id == id)
-                .copied()
+                .cloned()
                 .or_else(|| self.inline_box(id)),
         }
     }

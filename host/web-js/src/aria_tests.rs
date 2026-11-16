@@ -72,6 +72,27 @@ fn a_tablist_and_a_menu_load_the_input_piece() {
     assert!(!plain.contains("pressFeedback()"), "{plain}");
 }
 
+/// LLP 1172.011 E1: generic element construction carries no input loader;
+/// the plan links it for state looks and literal or bound shortcuts.
+#[test]
+fn looks_and_shortcuts_link_the_input_piece() {
+    for view in [
+        "column aria-keyshortcuts=\"Control+K\"\n      text \"Page\"",
+        "column aria-keyshortcuts=chord\n      text \"Page\"",
+        "column\n      :hover\n        opacity = 0.5\n      text \"Page\"",
+    ] {
+        let plan = contract::compile(&format!(
+            "component App\n  state chord = \"Control+K\"\n  view\n    {view}\n"
+        ))
+        .unwrap();
+        let js = crate::emit::emit(&plan, false, false).unwrap().js;
+        assert!(js.contains("pressFeedback()"), "{view}: {js}");
+    }
+    let plan = contract::compile("component App\n  view\n    text \"Hello\"\n").unwrap();
+    let js = crate::emit::emit(&plan, false, false).unwrap().js;
+    assert!(!js.contains("pressFeedback"), "{js}");
+}
+
 #[test]
 fn aria_disabled_is_an_attribute_for_static_and_bound_values() {
     let plan = contract::compile(

@@ -44,6 +44,8 @@ mod timers;
 mod tooltip;
 #[cfg(any(windows, test))]
 mod touch;
+#[cfg(any(windows, test))]
+mod tray;
 #[cfg(windows)]
 mod url;
 #[cfg(any(windows, test))]

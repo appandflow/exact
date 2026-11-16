@@ -904,8 +904,11 @@ const AUTOCAPITALIZE: &str = "`words` for a person's name, `none` for a username
 /// `anywhere` broke their words.
 const OVERFLOW_WRAP: &str = "text wraps between words by default; at a large text size give the row room (flex-wrap=\"wrap\" with a flex-basis in rem) rather than breaking words. `break-word` breaks only a word wider than its line (a pasted link); `anywhere` breaks inside any word (\"Octo/ber\"), which verify names on prose: it is for a URL or a token on a `link` or in a monospace face. `word-break` is not admitted";
 
+const TRANSLATE: &str = "one or two lengths, x then y, and an optional z in px, as CSS's `translate`: each of x and y px, a percentage of the box's own border box, or a `calc()` of the two (`translate=\"calc(50% - 12px) 0\"`); transitions and keyframes interpolate the px and the percentage separately, as CSS does a `calc()`. A `rem`, viewport or `env()` length is refused";
 /// Charlie, 2026-11-10 (issues/20261021-scroll-drag-events-and-hit-slop.md).
 const HIT_SLOP: &str = "not CSS: how far past its box a pointer still reaches the node, one to four nonnegative lengths as `padding` takes them (React Native's `hitSlop`): `-exact-hit-slop=\"8px\"` on a 28px icon button takes a tap 8px outside it. Layout, paint and accessibility never see it, and `tap <target>` still aims at the box's middle. Where boxes overlap the front one takes the pointer, slop and all; an `overflow` other than `visible` on the node or an ancestor clips it. On the web a positioned pseudo-element is the slop: it reaches from the padding edge, so a border's width comes off it, and a node that says no `position` becomes `position: relative`. An `image`, `input` or other replaced element refuses it (`lower-hit-slop`): give the slop to the box or button that holds it";
+/// LLP 1057.001.000 D1–D4.
+const ZOOM: &str = "not CSS (`@viewport`'s `min-zoom` and `max-zoom`, on an element): on a scroll container that scrolls both ways and holds one element, the range a pinch zooms that child through, a number or percentage above 0, each 1 by default; `-exact-max-zoom=4` alone zooms from the laid-out size to four times it. The child keeps its layout and is drawn scaled, the extent grows with it, and it is centred while smaller than the port, so rows that align it are refused (`lower-zoom-align`). The pinch, the bounce and the double tap are the platform's (`touch-action=\"manipulation\"` turns the double tap off). `scrollZoom` on the scroll is the zoom, written as `scrollTop` is and read as `ScrollEvent.scrollZoom`";
 const REACH_MARGIN: &str = "reach-margin on a `list virtualized=true`: how far ahead of an edge `reachstart` and `reachend` fire, a literal one or two nonnegative px or % lengths (before, after; a % is of the list's port along its axis), default one port, \"100%\". \"200%\" fires `reachend` when the last row is two ports away (LLP 1145 D4). While the list scrolls toward an end, that end's margin grows by the lead the list's window takes for the scroll, a quarter second of travel up to two ports, so a fling's edge fires as the window loads ahead for it";
 /// What VoiceOver needs to move from a transcript's first message to its last.
 const KEEP_MOUNTED: &str = "keep-mounted on a `list virtualized=true`: the keys of rows it keeps mounted wherever its window is, a list of up to 64 keys as the `for`'s `key=` gives them (an `option` of one too, `none` naming no row): `keep-mounted=[first(ids), ids.at(-1)]` keeps a transcript's first and last message in the accessibility tree, so VoiceOver moves from one to the other; a playing row keeps its player. A key the list does not hold is passed over; another value keeps none and says so in the journal (LLP 1010 §6.11)";
@@ -915,6 +918,8 @@ const TRANSCRIPT_END: &str = "on a `list virtualized=true` (a grouped list never
 /// the euxy port's warm deep link to another tab's route opened over the
 /// tab it was on.
 const NAVIGATE: &str = "on the navigation root: a location from outside the running app (a link, a protocol handler's or a notification's URL, the web's Back and Forward), whose action chooses the verb (LLP 1038 D8). `go` pops to the location when the selected stack holds it, selects the tab whose top it is, and otherwise pushes it on the selected tab, whatever tab declares its route. `open(nav, url)` lands in the route's declared tab, that tab's stack its declared chain. A cold launch's location is no event: it opens there, as `open` does";
+
+const PLAYING: &str = "on video or audio, with no payload: playback is ready to start after a pause or delay for media data (WHATWG: https://html.spec.whatwg.org/multipage/media.html#event-media-playing). The web forwards the browser's event. Apple waits until the item's timebase advances, then reports once per start or resumption; calling play alone does not fire it. Use playing to hand over a feed's volume; timeupdate remains a periodic position report (250 ms on Apple). This is not a guarantee that a speaker has produced sound. Android and the painted hosts do not currently deliver this event (LLP 1042).";
 
 /// What `metadata=` takes (LLP 1098 D1): the Media Session's record.
 const METADATA: &str = "MediaMetadata(title=, artist=, album=, artwork=), each a string";
@@ -1065,6 +1070,9 @@ fn attr_json(name: &str, a: &AttrTarget) -> Value {
             if name == "navigate" {
                 doc["note"] = NAVIGATE.into();
             }
+            if name == "playing" {
+                doc["note"] = PLAYING.into();
+            }
         }
         AttrTarget::Surface => {}
         AttrTarget::MediaMetadata => {
@@ -1128,6 +1136,9 @@ fn attr_json(name: &str, a: &AttrTarget) -> Value {
     }
     if name == "transform" {
         doc["note"] = vocab::BOX_TRANSFORM_REFUSAL.into();
+    }
+    if name == "translate" {
+        doc["note"] = TRANSLATE.into();
     }
     if matches!(name, "reachstart" | "reachend") {
         doc["note"] = vocab::collection_edge_refusal(name).into();
@@ -1265,6 +1276,9 @@ fn attr_detail(name: &str, a: &AttrTarget) -> Vec<String> {
             if matches!(name, "grid-template-columns" | "grid-template-rows") {
                 lines.push(GRID_TRACKS.into());
             }
+            if name == "mix-blend-mode" {
+                lines.push("SVG elements blend with the backdrop inside the same svg on iOS/tvOS (Core Graphics) and Android (tiny-skia before the reader). Include the background shapes in that svg. macOS uses its public Core Animation layer blend, including the backdrop outside the SVG. Canvas 2D globalCompositeOperation, including multiply, also draws on iOS and Android; draw both inks into one canvas. On iOS and Android neither route blends with boxes or another surface outside it".into());
+            }
             if name == "font-family" {
                 lines.push("CSS family list: literal lists and literal choices work on every host; a string from state or data names installed or generic families on web, macOS, iOS and Linux. Invalid lists leave the row unset. Bundled faces use a `font` declaration".into());
             }
@@ -1283,8 +1297,14 @@ fn attr_detail(name: &str, a: &AttrTarget) -> Vec<String> {
             if name.starts_with("-exact-hit-slop") {
                 lines.push(HIT_SLOP.into());
             }
+            if matches!(name, "-exact-min-zoom" | "-exact-max-zoom") {
+                lines.push(ZOOM.into());
+            }
             if name == "transform" {
                 lines.push(vocab::BOX_TRANSFORM_REFUSAL.into());
+            }
+            if name == "translate" {
+                lines.push(TRANSLATE.into());
             }
             lines
         }
@@ -1327,6 +1347,9 @@ fn attr_detail(name: &str, a: &AttrTarget) -> Vec<String> {
         }
         AttrTarget::Handler(event) if name == "navigate" => {
             vec![format!("event {event}"), NAVIGATE.into()]
+        }
+        AttrTarget::Handler(event) if name == "playing" => {
+            vec![format!("event {event}"), PLAYING.into()]
         }
         // The action's signature first: the scroll port guessed one
         // `ScrollEvent` parameter, and `moved(x, y)` was a later bullet.

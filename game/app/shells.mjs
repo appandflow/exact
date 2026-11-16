@@ -151,6 +151,12 @@ export function gameShells(dir, game, workspace, {env = process.env, updateLock 
   if (app.game.presentation !== undefined) {
     throw new Error('game.presentation is now game.render: rename the key, move presentation/ to render/, name the crate <name>-render and rename its "type" to "hooks" (LLP 1046.008, amendment of 2026-10-04)');
   }
+  // The shells below link no update store on any platform, so a game baked with a store level other than "0" would
+  // build and then refuse to boot (each native host checks the level against its linked delivery, LLP 1030 D4).
+  const stores = Object.entries(app.deploy?.store ?? {}).filter(([, level]) => level !== '0');
+  if (stores.length) {
+    throw new Error(`${resolve(dir, 'app.json')}: ${stores.map(([platform, level]) => `deploy.store.${platform} is ${JSON.stringify(level)}`).join(', ')}, but games take no over-the-air updates today: their hosts link no update store, and every change ships as a new binary. Set ${stores.length === 1 ? 'it' : 'each'} to "0" or remove ${stores.length === 1 ? 'it' : 'them'}.`);
+  }
   const renderDir = renderDeclaration(dir, render);
   const root = resolve(dir, '.shells');
   const source = existsSync(resolve(workspace, 'Cargo.toml')) ? workspace : gameRoot;

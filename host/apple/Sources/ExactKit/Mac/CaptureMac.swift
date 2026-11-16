@@ -3,6 +3,20 @@
 #if os(macOS)
 import AppKit
 
+package enum CapturePresentationError: Error, Equatable {
+    case windowServerUnavailable(Int)
+    case viewportOutsidePicture
+
+    var message: String {
+        switch self {
+        case let .windowServerUnavailable(number):
+            return "the window server gave no picture of window \(number); the screen is locked or the display is asleep"
+        case .viewportOutsidePicture:
+            return "the window server picture does not contain the viewport"
+        }
+    }
+}
+
 /// A view's subtree as pixels (LLP 1014 D3).
 package enum Capture {
     /// A capture is drawing: its draws are not repaints (D4 b).
@@ -12,7 +26,6 @@ package enum Capture {
     /// sessions' ids can be the same); the remote platform views are hidden
     /// while their owning nodes draw these (@ref LLP 1020 D4/D6, `withGuests`).
     nonisolated(unsafe) static var web: [ObjectIdentifier: ExactWebImage] = [:]
-
     /// The subtree painted at `scale`: premultiplied RGBA, rows top-down,
     /// `pixelsWide * 4` bytes per row, transparent where nothing painted.
     package static func bitmap(of view: NSView, scale: CGFloat, prepared: Bool = false) -> NSBitmapImageRep? {
@@ -41,6 +54,54 @@ package enum Capture {
 }
 
 extension Capture {
+    static func hasGlass(in view: NSView) -> Bool {
+        guard #available(macOS 26.0, *) else { return false }
+        guard !view.isHiddenOrHasHiddenAncestor else { return false }
+        func containsGlass(_ candidate: NSView) -> Bool {
+            guard !candidate.isHidden else { return false }
+            if candidate is NSGlassEffectView { return true }
+            return candidate.subviews.contains(where: containsGlass)
+        }
+        return containsGlass(view)
+    }
+
+    nonisolated(unsafe) static var windowImageOverride: ((Int) -> CGImage?)?
+
+    private static func serverImage(_ number: Int) -> CGImage? {
+        if let windowImageOverride { return windowImageOverride(number) }
+        return WindowServerPicture.ownWindow(number)
+    }
+
+    /// AppKit's glass has no CPU representation. Use the compositor's exact
+    /// pixels for a subtree containing it, without changing the live views.
+    static func windowServerPictureResult(of view: NSView) -> Result<NSBitmapImageRep, CapturePresentationError> {
+        guard let window = view.window else { return .failure(.windowServerUnavailable(0)) }
+        window.layoutIfNeeded()
+        window.displayIfNeeded()
+        CATransaction.flush()
+        let refresh = 1 / Double(max(30, window.screen?.maximumFramesPerSecond ?? 60))
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 2 * refresh + 0.004))
+        guard let image = serverImage(window.windowNumber) else {
+            return .failure(.windowServerUnavailable(window.windowNumber))
+        }
+        let frame = view.convert(view.bounds, to: nil)
+        let x = CGFloat(image.width) / window.frame.width
+        let y = CGFloat(image.height) / window.frame.height
+        let pixels = CGRect(x: frame.minX * x, y: (window.frame.height - frame.maxY) * y,
+                            width: frame.width * x, height: frame.height * y).integral
+        guard let crop = image.cropping(to: pixels),
+              let rep = NSBitmapImageRep(cgImage: crop).converting(to: .sRGB, renderingIntent: .default) else {
+            return .failure(.viewportOutsidePicture)
+        }
+        rep.size = view.bounds.size
+        return .success(rep)
+    }
+
+    static func windowServerPicture(of view: NSView) -> NSBitmapImageRep? {
+        guard case let .success(picture) = windowServerPictureResult(of: view) else { return nil }
+        return picture
+    }
+
     /// AppKit attaches new backing layers at the window display boundary.
     /// Do this once per upload, before Capture.bitmap changes visibility.
     package static func prepareBackingLayers(of view: NSView) {
@@ -94,7 +155,8 @@ extension Capture {
               let ctx = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8,
                                   bytesPerRow: width * 4, space: CGColorSpace(name: CGColorSpace.sRGB)!,
                                   bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
-        // CA renders the root in bottom-up Quartz space.
+        // CA renders the root in bottom-up Quartz space; the bitmap's first
+        // row follows AppKit's top-down view coordinates.
         ctx.translateBy(x: 0, y: CGFloat(height))
         ctx.scaleBy(x: scale, y: -scale)
         tree.render(in: ctx)
@@ -187,6 +249,7 @@ extension Capture {
     }
 }
 
+#if EXACT_AGENT
 extension Agent {
     /// Let the window server composite readbacks at the Metal layers' places.
     /// A CPU capture of the whole content loses backdrop filters and materials.
@@ -238,6 +301,41 @@ extension Agent {
                                              width: child.width * scale, height: child.height * scale))
         }
         return context.makeImage() ?? image
+    }
+}
+#endif
+/// The window server's pictures of this process's own windows, which a production build's captures use as the agent's do.
+enum WindowServerPicture {
+    /// `CGWindowListCreateImage` of one window of this process, without its
+    /// frame's shadow, at the backing resolution. The SDK marks the call
+    /// unavailable (ScreenCaptureKit replaces it, and asks for Screen
+    /// Recording even for the caller's own windows), so it is looked up at
+    /// run time; the window server still answers it for the caller's own.
+    static func ownWindow(_ number: Int) -> CGImage? {
+        typealias Create = @convention(c) (CGRect, UInt32, UInt32, UInt32) -> Unmanaged<CGImage>?
+        guard let symbol = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "CGWindowListCreateImage") else { return nil } // RTLD_DEFAULT
+        let create = unsafeBitCast(symbol, to: Create.self)
+        // kCGWindowListOptionIncludingWindow; kCGWindowImageBoundsIgnoreFraming | kCGWindowImageBestResolution
+        guard let image = create(.null, 1 << 3, UInt32(number), 1 << 0 | 1 << 3)?.takeRetainedValue(), !isEmpty(image) else { return nil }
+        return image
+    }
+
+    /// Whether the window server's picture holds nothing. A locked screen or
+    /// sleeping display still answers with a transparent picture
+    /// a pixel or two short of the window: no picture, not a wrong one. It
+    /// is read at sixteen places across it, not one: a sheet's corners are
+    /// transparent, and scaled to a single pixel a 460 by 226 sheet read as
+    /// empty and was left out of its window's picture (LLP 1115.002 D7.2).
+    static func isEmpty(_ image: CGImage) -> Bool {
+        let side = 4
+        var pixels = [UInt8](repeating: 0, count: side * side * 4)
+        let drawn = pixels.withUnsafeMutableBytes { bytes -> Bool in
+            guard let few = CGContext(data: bytes.baseAddress, width: side, height: side, bitsPerComponent: 8, bytesPerRow: side * 4,
+                                      space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return false }
+            few.draw(image, in: CGRect(x: 0, y: 0, width: side, height: side))
+            return true
+        }
+        return !drawn || stride(from: 3, to: pixels.count, by: 4).allSatisfy { pixels[$0] == 0 }
     }
 }
 #endif

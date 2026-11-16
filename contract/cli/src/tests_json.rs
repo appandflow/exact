@@ -218,6 +218,14 @@ fn step_json(step: &Step, s: &mut String) {
                 None => s.push_str(",\"times\":null"),
             }
         }
+        Step::AnswerFetch {
+            prefix, response, ..
+        } => {
+            s.push_str("{\"op\":\"answer-fetch\",\"prefix\":");
+            q(prefix, s);
+            s.push_str(",\"response\":");
+            s.push_str(response);
+        }
         Step::PassFetch { prefix, .. } => {
             s.push_str("{\"op\":\"pass-fetch\",\"prefix\":");
             q(prefix, s);

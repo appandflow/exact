@@ -15,7 +15,7 @@ const CARD: &str = "@acme/reading/index.contract#Card";
 /// to `reading.gap` (a base name), and the design's `Map`, whose params
 /// default to a package colour, a chain through it, a role, and an
 /// expression; with `design` the app's.
-fn reading(tag: &str, design: &str) -> std::path::PathBuf {
+fn reading(tag: &str, design: &str) -> crate::scratch::Scratch {
     let dir = app(tag, design);
     let at = dir.join("node_modules/@acme/reading");
     std::fs::create_dir_all(&at).unwrap();

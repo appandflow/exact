@@ -711,7 +711,7 @@ final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         guard let refusal else {
             serving = true
             browser?.cancelRecovery()
-            webView.load(URLRequest(url: src.flatMap(GuestURL.web) ?? URL(string: "about:blank")!))
+            webView.load(GuestURL.request(src.flatMap(GuestURL.web) ?? URL(string: "about:blank")!))
             return
         }
         FileHandle.standardError.write(Data("exact: iframe \(id): \(refusal)\n".utf8))
@@ -869,7 +869,7 @@ final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         }
         expectedOrigin = guestOrigin(remote: remote, local: local != nil)
         if let web, local == nil {
-            webView.load(URLRequest(url: web))
+            webView.load(GuestURL.request(web))
             return
         }
         if let assetPage {

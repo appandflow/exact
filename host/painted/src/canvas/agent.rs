@@ -151,6 +151,15 @@ pub fn waiting() -> bool {
 }
 
 impl<D: DataSource + Default> CanvasHost<D> {
+    /// The reader's handler cannot run while the agent holds this thread.
+    /// Service only its request handoff and answers until the operation returns.
+    pub fn agent_with_reader(&mut self, line: &str, turn: crate::presenter::AgentTurn) -> String {
+        let previous = self.p.set_agent_turn(Some(turn));
+        let reply = self.agent(line);
+        self.p.set_agent_turn(previous);
+        reply
+    }
+
     /// One request of the agent API, answered: a JSON line in, a JSON line
     /// out. `{"op":"ready"}` is the line the stdio carrier writes first.
     pub fn agent(&mut self, line: &str) -> String {

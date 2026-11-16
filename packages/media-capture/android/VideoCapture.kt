@@ -200,30 +200,45 @@ internal class VideoTracks(private val context: ExtensionContext, private val ne
     override fun subscribe(id: String, consumer: TrackConsumer, start: Boolean, origin: String): () -> Unit {
         val t = tracks[id] ?: throw TrackError("NotFoundError")
         if (t.readyState == "ended") { consumer.ended(); return {} }
-        t.consumers[consumer] = origin
-        when {
-            t.leased -> {
-                consumer.liveVideo(if (context.agent) null else CameraCapture)
-                if (t.muted) consumer.muted(t.muteReason ?: "idle")
-            }
-            origin == "app" && t.enabled && context.foreground -> {
-                say("${t.id}: a consumer takes the lease ($origin origin)")
-                lease(t, origin)
-                if (!t.leased) consumer.muted(t.muteReason ?: "idle")
-            }
-            else -> {
-                say("${t.id}: a consumer takes no lease ($origin origin)")
-                consumer.muted(t.muteReason ?: "idle")
-            }
-        }
-        disclose()
-        return {
+        val leave = {
             if (t.consumers.remove(consumer) != null && t.consumers.isEmpty()) {
                 t.waiting = null
                 if (t.leased) { release(t); mute(t, "idle") }
             }
             disclose()
         }
+        val leased = t.leased
+        t.consumers[consumer] = origin
+        try {
+            when {
+                t.leased -> {
+                    consumer.liveVideo(if (context.agent) null else CameraCapture)
+                    if (t.muted) consumer.muted(t.muteReason ?: "idle")
+                }
+                origin == "app" && t.enabled && context.foreground -> {
+                    say("${t.id}: a consumer takes the lease ($origin origin)")
+                    lease(t, origin)
+                    if (!t.leased) consumer.muted(t.muteReason ?: "idle")
+                }
+                else -> {
+                    say("${t.id}: a consumer takes no lease ($origin origin)")
+                    consumer.muted(t.muteReason ?: "idle")
+                }
+            }
+            disclose()
+        } catch (e: Throwable) {
+            if (!leased && t.leased) {
+                t.consumers.remove(consumer)
+                release(t)
+                val idle = t.muted && t.muteReason == "idle"
+                mute(t, "idle")
+                // Leasing can fail before settle changes idle, but live callbacks already ran.
+                if (idle) each(t) { it.muted("idle") }
+                disclose()
+            } else leave()
+            throw e
+        }
+        return leave
     }
 
     override fun observe(id: String, observer: TrackConsumer): () -> Unit {

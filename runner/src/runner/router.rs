@@ -900,6 +900,9 @@ impl<D: DataSource> Runner<D> {
         carried: Option<&Carried>,
         launch: &str,
     ) -> Result<(), RunnerError> {
+        // A launch fact the kernel keeps for every commit (LLP 1060.000 D3).
+        self.kernel
+            .set_natural_text(crate::time::launch_natural_text());
         self.slots = vec![Value::Unit; self.plan.slots.len()];
         // The router may be a later slot: fill it before *any* initializer.
         if let Some(context) = &self.router {

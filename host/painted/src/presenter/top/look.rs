@@ -927,7 +927,7 @@ mod tests {
 
     #[test]
     fn alert_message_joins_adjacent_texts_with_the_same_direction() {
-        let mut engine = TextEngine::new();
+        let mut engine = crate::text::fixtures::engine();
         let inputs = Inputs {
             dark: false,
             direction: Direction::Rtl,
@@ -1016,7 +1016,7 @@ mod tests {
         option "بداية هذا النص العربي الطويل الذي يستمر حتى نهاية العبارة" value="two"
         option "Beginning of a very long English option ending here" direction="ltr" value="one"
 "#;
-        let (p, error) = crate::presenter::Presenter::boot_with(
+        let (p, error) = crate::presenter::Presenter::boot_with_fixture_fonts(
             &crate::test_plan(source),
             (),
             (300., 600.),
@@ -1197,7 +1197,7 @@ mod tests {
 
     #[test]
     fn rtl_select_menu_keeps_labels_and_symbols_at_its_widened_start() {
-        let mut engine = TextEngine::new();
+        let mut engine = crate::text::fixtures::engine();
         let entries = vec![
             Entry::Header("Pick".into(), 1, Direction::Rtl),
             Entry::Item(Row {
@@ -1308,7 +1308,7 @@ mod tests {
             Entry::Header("Section".into(), 1, Direction::Ltr),
             Entry::Item(row),
         ]);
-        let mut engine = TextEngine::new();
+        let mut engine = crate::text::fixtures::engine();
         for bold_text in [false, true, false] {
             let inputs = Inputs {
                 direction: Direction::Ltr,

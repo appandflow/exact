@@ -141,14 +141,14 @@ component App
     expect(page('')[0]).toBe('prompt');
   }, {
     'strings/en.json': '{"purpose.midi":"Plays the pattern on your instruments."}',
-    'web/build.rs': 'fn main() { contract::bake(plan, render_grants_data::Reader); }',
+    // The data crate app.json's `rust.data` names, a member of the workspace exact2 generates (LLP 1153.003 D2).
     'data/Cargo.toml': `[package]
 name = "render-grants-data"
-version = "0.1.0"
-edition = "2021"
+version.workspace = true
+edition.workspace = true
+workspace = "../.exact/shells"
 [dependencies]
-exact-runner = { path = "${ROOT}/runner" }
-[workspace]
+exact-runner.workspace = true
 `,
     'data/src/lib.rs': `use exact_runner::{DataError, DataSource, Value};
 pub struct Reader;
@@ -160,5 +160,5 @@ impl DataSource for Reader {
     }
 }
 `,
-  });
+  }, { rust: { data: { crate: 'render-grants-data', type: 'render_grants_data::Reader', source: 'render_grants_data::Reader' } } });
 }, 180_000);

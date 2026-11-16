@@ -13,6 +13,7 @@
 // - `exactSurface` (LLP 1047 D3; runner/src/surface_record.rs): a GPU
 //   surface's published record, decoded against each reader's shape.
 import { data, Resources, commit, R, Refusal, Kept, say, Sounds } from "./rt.js";
+import * as rt from "./rt.js";
 import { environment, keyboardInset, onKeyboard, displayMode, preferences, UPDATES, updateCode, onPreferences, pageReporter, fold, foldEnv, onFold, preferFold } from "./navigation.js";
 
 const again = (source, why) => () => commit(() => { for (const r of Resources) if (r.source === source) R(r); }, why);
@@ -63,15 +64,15 @@ const AGENT_ADMITTED = true;
 // One reporter per session for both sources (`exactViewport().gpuTier` is a
 // page fact), and the agent's `prefer` page group (LLP 1069.000 D6) sets it,
 // whichever of them the plan reads.
-let pageFacts, pageReaders = {}, pageSequences = false, pageWatching = false, viewportChanged = () => {}, pageChanged = () => {};
-const reporter = () => pageFacts !== undefined ? pageFacts : (pageFacts = typeof document === "object" && document.createElement
-  ? pageReporter(AGENT_ADMITTED && typeof location === "object" && new URLSearchParams(location.search).has("agent")) : null);
+let pageFacts, pageReaders = {}, pageFreezes = false, pageWatching = false, viewportChanged = () => {}, pageChanged = () => {};
+const reporter = () => pageFacts !== undefined ? pageFacts : typeof document === "object" && document.createElement
+  ? (pageFacts = pageReporter(AGENT_ADMITTED && typeof location === "object" && new URLSearchParams(location.search).has("agent"))) : null;
 function shareReporter() {
   const facts = reporter();
   if (!facts) return;
   (globalThis.exact ??= {}).page = { prefer: p => { facts.prefer(p); pageChanged(); if (p?.["gpu-tier"]) viewportChanged(); return facts.read(); }, read: () => facts.read() };
 }
-const pageFields = f => ({ visibilityState: f["visibility-state"], frozen: f.frozen, onLine: f.online, canShare: f["can-share"], canShareFiles: f["can-share-files"], canSharePictures: f["can-share-pictures"], canOpenFiles: f["can-open-files"], hasFocus: f["has-focus"], navigationType: f["navigation-type"], persisted: f.persisted, restores: f.restores, iframePartition: f["iframe-partition"] === true, name: windowName() });
+const pageFields = f => ({ visibilityState: f["visibility-state"], frozen: f.frozen, onLine: f.online, canShare: f["can-share"], canShareFiles: f["can-share-files"], canSharePictures: f["can-share-pictures"], canOpenFiles: f["can-open-files"], hasFocus: f["has-focus"], navigationType: f["navigation-type"], persisted: f.persisted, restores: f.restores, iframePartition: f["iframe-partition"] === true, name: windowName(), presented: f.presented === true });
 // `window.name`, an empty one set to `main` the first time it is read, so the tab the person opened is `main` and one a
 // link's `target` opened keeps its name (LLP 1030.004 D2). A render has no window: `main`.
 const windowName = () => typeof window === "object" && typeof window.name === "string" ? (window.name ||= "main") : "main";
@@ -80,16 +81,24 @@ export function page(readers) {
   const facts = reporter();
   (data.reserved ??= {}).exactPage = (_, a, name) => {
     // A render has no page: the bake's answer (runner/src/page.rs `Page::default`).
-    const f = facts ? facts.read() : { "visibility-state": "visible", online: true, "can-share": false, "can-share-files": false, "can-share-pictures": false, "can-open-files": false, "has-focus": true, "navigation-type": "", frozen: false, persisted: false, restores: 0, "iframe-partition": false };
+    const f = facts ? facts.read() : { "visibility-state": "visible", online: true, "can-share": false, "can-share-files": false, "can-share-pictures": false, "can-open-files": false, "has-focus": true, "navigation-type": "", frozen: false, persisted: false, restores: 0, "iframe-partition": false, presented: false };
     return byName(readers, name, pageFields(f));
   };
   if (!facts) return;
   watchPage();
+  // `presented` (LLP 1069.000 D2 r7): true from the first animation frame after the first commit, at which the
+  // browser presents its picture; under the agent from the first commit (the reporter's).
+  let asked = false;
+  if (!facts.agent && typeof requestAnimationFrame === "function") rt.After?.push(() => {
+    if (asked) return;
+    asked = true;
+    requestAnimationFrame(() => { if (facts.presentedNow()) pageChanged(); });
+  });
 }
 
-// A sequence needs the freeze edge even if the plan reads no page fields.
-export function watchPage(sequences = false) {
-  pageSequences ||= sequences;
+// Physical output and a sequence need the freeze edge even if the plan reads no page fields.
+export function watchPage(freezes = false) {
+  pageFreezes ||= freezes;
   const facts = reporter();
   if (!facts || pageWatching) return;
   pageWatching = true;
@@ -99,7 +108,7 @@ export function watchPage(sequences = false) {
     const next = facts.read();
     const before = pageFields(previous), after = pageFields(next);
     const readers = Resources.filter(r => r.source === "exactPage" && pageReaders[r.name]?.[0].some(k => before[k] !== after[k]));
-    if (!readers.length && !(pageSequences && previous.frozen !== next.frozen)) { previous = next; return; }
+    if (!readers.length && !(pageFreezes && previous.frozen !== next.frozen)) { previous = next; return; }
     // Transport consumes the edge in the readers' commit (LLP 1125 D4).
     if (commit(() => {
       Sounds.frozen = next.frozen;

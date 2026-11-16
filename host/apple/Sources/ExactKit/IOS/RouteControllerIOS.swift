@@ -88,9 +88,6 @@ final class RouteController: UIViewController, UIScrollViewDelegate {
     }
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
-        // Stand in for the transition's end on a stack whose delegate the app replaced, which sends Exact no call of
-        // its own: UIKit shows this route as a pop or push ends (`NavigationHost.routeAppeared`)
-        host?.routeAppeared()
         appeared?()
     }
     required init?(coder: NSCoder) { nil }
@@ -334,6 +331,9 @@ final class RouteController: UIViewController, UIScrollViewDelegate {
     /// UIKit still shows it (`NavigationHost.prepare`), until UIKit takes the
     /// route's view out of the window.
     var retiringRoot: NodeView?
+    /// The exit it declares, kept while it is its stack's top: it has left
+    /// the tree when UIKit asks for its pop's animator (RouteTransitionIOS).
+    var exitPart: RoutePart?
     override func viewDidDisappear(_ animated: Bool) {
         super.viewDidDisappear(animated)
         retiringRoot?.removeFromSuperview()

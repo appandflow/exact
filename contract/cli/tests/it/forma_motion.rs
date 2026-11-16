@@ -2,16 +2,14 @@
 //! into a `transition` or `animation` value at build, so the plan holds the
 //! values, a `when` on one is refused, and an edit to one rebuilds.
 
-use std::path::PathBuf;
+use crate::scratch::Scratch;
 
-fn app(name: &str, files: &[(&str, &str)]) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("exact2-motion-{name}-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).unwrap();
+fn app(name: &str, files: &[(&str, &str)]) -> Scratch {
+    let dir = Scratch::new(format!("exact2-motion-{name}-{}", std::process::id()));
     for (file, text) in files {
         std::fs::write(dir.join(file), text).unwrap();
     }
-    dir.join("app.contract")
+    dir.at("app.contract")
 }
 
 const DESIGN: &str =

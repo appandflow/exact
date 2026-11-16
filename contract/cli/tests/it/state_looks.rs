@@ -2,6 +2,7 @@
 //! looks reach the kernel resolved, as a static row is, and a token's live
 //! edit resolves them again; `:active` is the node's press paint.
 
+use crate::scratch::Scratch;
 use exact_kernel::{Kernel, LOOK_HOVER};
 use exact_plan::{Plan, Value};
 use exact_runner::{DataError, DataSource, Runner};
@@ -13,16 +14,13 @@ impl DataSource for NoData {
         Err(DataError::UnknownSource(source.into()))
     }
 }
-use std::path::PathBuf;
 
-fn app(name: &str, files: &[(&str, &str)]) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("exact2-looks-{name}-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).unwrap();
+fn app(name: &str, files: &[(&str, &str)]) -> Scratch {
+    let dir = Scratch::new(format!("exact2-looks-{name}-{}", std::process::id()));
     for (file, text) in files {
         std::fs::write(dir.join(file), text).unwrap();
     }
-    dir.join("app.contract")
+    dir.at("app.contract")
 }
 
 fn booted(plan: Plan) -> Runner<NoData> {

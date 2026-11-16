@@ -36,15 +36,60 @@ pub(super) fn sweep(dir: &Path) {
     }
 }
 
+/// Take `file`'s advisory lock without waiting, exclusive or shared;
+/// `Ok(false)` when another holder has it. std's `File::try_lock` is
+/// unsupported on Android, so there it is `flock(2)`, as std's is on Linux.
+pub(super) fn try_lock(file: &std::fs::File, exclusive: bool) -> std::io::Result<bool> {
+    #[cfg(target_os = "android")]
+    {
+        use std::os::fd::AsRawFd as _;
+        let kind = if exclusive {
+            libc::LOCK_EX
+        } else {
+            libc::LOCK_SH
+        };
+        // SAFETY: `flock` reads only the descriptor, which `file` owns.
+        #[allow(unsafe_code)]
+        let done = unsafe { libc::flock(file.as_raw_fd(), kind | libc::LOCK_NB) };
+        if done == 0 {
+            return Ok(true);
+        }
+        let error = std::io::Error::last_os_error();
+        if error.kind() == std::io::ErrorKind::WouldBlock {
+            Ok(false)
+        } else {
+            Err(error)
+        }
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        let taken = if exclusive {
+            file.try_lock()
+        } else {
+            file.try_lock_shared()
+        };
+        match taken {
+            Ok(()) => Ok(true),
+            Err(std::fs::TryLockError::WouldBlock) => Ok(false),
+            Err(std::fs::TryLockError::Error(e)) => Err(e),
+        }
+    }
+}
+
 /// A shared lock on an entry's `exact.json`, for a process that runs the
 /// entry without owning the store. [`remove_entry`] keeps an entry so held.
 pub(super) fn hold_entry(entry: &Path) -> Result<std::fs::File, String> {
     let path = entry.join("exact.json");
     let file =
         std::fs::File::open(&path).map_err(|e| format!("cannot open {}: {e}", path.display()))?;
-    file.try_lock_shared()
-        .map_err(|e| format!("cannot hold {}: {e}", path.display()))?;
-    Ok(file)
+    match try_lock(&file, false) {
+        Ok(true) => Ok(file),
+        Ok(false) => Err(format!(
+            "cannot hold {}: it is being removed",
+            path.display()
+        )),
+        Err(e) => Err(format!("cannot hold {}: {e}", path.display())),
+    }
 }
 
 /// Remove an entry unless a reader holds it ([`hold_entry`]); `false` when
@@ -53,7 +98,7 @@ pub(super) fn hold_entry(entry: &Path) -> Result<std::fs::File, String> {
 pub(super) fn remove_entry(entry: &Path) -> bool {
     let lock = std::fs::File::open(entry.join("exact.json"));
     if let Ok(file) = &lock {
-        if matches!(file.try_lock(), Err(std::fs::TryLockError::WouldBlock)) {
+        if matches!(try_lock(file, true), Ok(false)) {
             return false;
         }
     }

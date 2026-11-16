@@ -239,6 +239,92 @@ fn overflow_is_journaled_after_pixel_once_until_the_route_fits_again() {
     assert_eq!(warnings(&mut host), 2, "fitting resets the suppression key");
 }
 
+/// A layout that changes every frame (a scroll, a ticker) wakes a pump for the
+/// check at most once every 100 ms: one settled within that window is owed,
+/// and the batch asks for a call when it is due, so it is journaled even when
+/// nothing else would call (no timer, or a timer cancelled meanwhile).
+#[test]
+fn a_dirty_layout_wakes_once_per_100_ms_and_the_owed_check_runs_at_its_deadline() {
+    use std::sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    };
+    let (mut host, _) = boot("        view height=(tall ? 500 : 100)");
+    let wakes = Arc::new(AtomicUsize::new(0));
+    let heard = wakes.clone();
+    host.listen(Arc::new(move || {
+        heard.fetch_add(1, Ordering::Relaxed);
+    }));
+    host.set_screen(Some((400., 400.)));
+    host.activate_data();
+    assert_eq!(warnings(&mut host), 1);
+    let woken = wakes.load(Ordering::Relaxed);
+    let toggle = view(&host, "toggle");
+    // A layout within 100 ms of the last wake: it fits now. Owed, not woken; the batch asks for a call at 100.
+    let owed = host.dispatch(toggle, Event::Press);
+    assert_eq!(
+        wakes.load(Ordering::Relaxed),
+        woken,
+        "no second wake within 100 ms"
+    );
+    assert!(
+        owed.contains("\"timer_due_ms\":100"),
+        "the batch asks for a call at the deadline: {owed}"
+    );
+    assert_eq!(
+        host.agent(r#"{"op":"settle"}"#),
+        r#"{"settle":100}"#,
+        "an agent's frozen clock goes to it too"
+    );
+    // That call, with no timer of the app's: the check is woken, and its pump finds the route fits.
+    host.advance(100.);
+    assert_eq!(
+        wakes.load(Ordering::Relaxed),
+        woken + 1,
+        "woken at the deadline"
+    );
+    assert_eq!(warnings(&mut host), 1, "fits: nothing new");
+    // It overflows again within 100 ms of that wake: owed again, then journaled at its deadline.
+    host.dispatch(toggle, Event::Press);
+    assert_eq!(wakes.load(Ordering::Relaxed), woken + 1);
+    host.advance(200.);
+    assert_eq!(wakes.load(Ordering::Relaxed), woken + 2);
+    assert_eq!(
+        warnings(&mut host),
+        2,
+        "the overflow that came back is journaled"
+    );
+}
+
+/// The owed check's deadline wakes it exactly at that time, a fractional one
+/// too: eligibility uses the deadline's own arithmetic.
+#[test]
+fn an_owed_check_wakes_at_a_fractional_deadline() {
+    use std::sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    };
+    let (mut host, _) = boot("        view height=(tall ? 500 : 100)");
+    let wakes = Arc::new(AtomicUsize::new(0));
+    let heard = wakes.clone();
+    host.listen(Arc::new(move || {
+        heard.fetch_add(1, Ordering::Relaxed);
+    }));
+    host.advance(123.45);
+    host.set_screen(Some((400., 400.)));
+    host.activate_data();
+    assert_eq!(warnings(&mut host), 1);
+    let woken = wakes.load(Ordering::Relaxed);
+    let owed = host.dispatch(view(&host, "toggle"), Event::Press);
+    assert!(owed.contains("\"timer_due_ms\":223.45"), "{owed}");
+    host.advance(223.45);
+    assert_eq!(
+        wakes.load(Ordering::Relaxed),
+        woken + 1,
+        "woken at its deadline"
+    );
+}
+
 #[test]
 fn a_resize_handler_can_fit_the_route_before_its_layout_is_journaled() {
     let (mut host, _) = boot("        view height=(tall ? 500 : 100) resize=fit");

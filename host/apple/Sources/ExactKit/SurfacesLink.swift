@@ -103,8 +103,10 @@ package protocol Canvases: AnyObject {
     func restoreReply(_ reply: [String: Any]) -> [String: Any]
     func releaseContact(_ request: [String: Any]) -> [String: Any]?
     func clock(settle: Bool) -> WorldClock
+    #if EXACT_AGENT
     func world(_ agent: Agent, _ request: [String: Any]) -> [String: Any]
     func type(_ agent: Agent, _ view: NodeView, _ request: [String: Any]) -> [String: Any]
+    #endif
     #if os(macOS)
     func occlusionChanged()
     func readback(view: NodeView) -> NSBitmapImageRep?
@@ -239,8 +241,10 @@ final class NoCanvases: Canvases {
     func restoreReply(_ reply: [String: Any]) -> [String: Any] { reply }
     func releaseContact(_ request: [String: Any]) -> [String: Any]? { nil }
     func clock(settle: Bool) -> WorldClock { WorldClock() }
+    #if EXACT_AGENT
     func world(_ agent: Agent, _ request: [String: Any]) -> [String: Any] { ["error": "view \(request["id"] ?? "undefined") has no world"] }
     func type(_ agent: Agent, _ view: NodeView, _ request: [String: Any]) -> [String: Any] { ["error": "view \(view.id) has no world"] }
+    #endif
     #if os(macOS)
     func occlusionChanged() {}
     func readback(view: NodeView) -> NSBitmapImageRep? { nil }

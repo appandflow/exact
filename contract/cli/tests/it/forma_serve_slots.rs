@@ -7,13 +7,16 @@
 #![cfg(unix)]
 
 use crate::forma_serve::{digest, Serve};
+use crate::scratch::Scratch;
 use serde_json::{json, Value};
 
 /// An app using `Card` from a private library package `@acme/lib` whose
 /// slot chain reads `lib.op` (opacity) and `lib.w` (width, an alias of
 /// `space.md`, a cell or more in every column), with `app` as its design.
-fn app(tag: &str, design: &str) -> std::path::PathBuf {
-    let dir = std::env::temp_dir().join(format!("exact2-serve-slots-{tag}-{}", std::process::id()));
+fn app(tag: &str, design: &str) -> Scratch {
+    let dir = Scratch::adopt(
+        std::env::temp_dir().join(format!("exact2-serve-slots-{tag}-{}", std::process::id())),
+    );
     let _ = std::fs::remove_dir_all(&dir);
     let lib = dir.join("node_modules/@acme/lib");
     std::fs::create_dir_all(&lib).unwrap();

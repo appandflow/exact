@@ -7,7 +7,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { connect } from 'node:net';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
-import { openTouches, realTap, springboard, withAccessibilityRuntime } from '../host/apple/touches.mjs';
+import { openTouches, realDoubleTap, realPinch, realTap, springboard, withAccessibilityRuntime } from '../host/apple/touches.mjs';
 import { nativeKey } from './agent-keys.mjs';
 import { jsonLines, hangup, waitAtMost, bootRefusal, simulatorConsole, REPLY_MS } from './agent-wire.mjs';
 import { bundleId, install } from '../host/apple/build.mjs';
@@ -331,9 +331,15 @@ async function openIOSOwned({ a, bundle, id, dev, plan, size, extra, session, ho
             );
           return realTap({ ask, touches, id, rel: opts.at, abandon: why => lines.fail(why) });
         }
+        // A real double tap (LLP 1057.001.000 §6).
+        if (touch === 'platform' && kind === 'dblclick' && opts.touch)
+          return realDoubleTap({ ask, touches, id, at: opts.at, abandon: why => lines.fail(why) });
+        // Two real fingers, which UIKit's recognizers read (LLP 1057.001.000 §6).
+        if (touch === 'platform' && kind === 'pinch')
+          return realPinch({ ask, touches, id, at: opts.at, scale: opts.pinch, abandon: why => lines.fail(why) });
         const r =
           kind === 'contextmenu' || kind === 'dblclick'
-            ? await ask({ op: 'tap', id, [kind]: true, ...(opts.at ? { at: opts.at } : {}) })
+            ? await ask({ op: 'tap', id, [kind]: true, ...(opts.touch ? { touch: true } : {}), ...(opts.at ? { at: opts.at } : {}) })
             : kind === 'pinch'
               ? await ask({ op: 'tap', id, pinch: opts.pinch, at: opts.at })
               : kind === 'wheel'

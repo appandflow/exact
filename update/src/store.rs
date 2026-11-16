@@ -190,6 +190,22 @@ impl AssetSet {
         self.cards.keys().cloned().collect()
     }
 
+    /// The directory the names resolve under (`entries/<entry>/assets`).
+    pub fn root(&self) -> &Path {
+        &self.root
+    }
+
+    /// Read every asset and check it against its signed card, for a reader
+    /// that opens files by path rather than through [`AssetSet::resolve`].
+    /// The first mismatch is the error; no bytes are kept.
+    pub fn verify(&self) -> Result<(), String> {
+        for (name, card) in self.cards.iter() {
+            safe_name(name)?;
+            read_card(&self.root.join(name), card)?;
+        }
+        Ok(())
+    }
+
     /// Resolve one name. `Ok(None)` means the complete roster omits it;
     /// `Err` means the signed card exists but the stored bytes no longer match.
     /// A result, including a refusal, is cached across clones after one read.
@@ -377,13 +393,8 @@ impl Store {
             .write(true)
             .open(dir.join("owner.lock"))
             .map_err(|e| format!("cannot open update store lock {}: {e}", dir.display()))?;
-        let reader = match owner.try_lock() {
-            Ok(()) => false,
-            Err(std::fs::TryLockError::WouldBlock) => true,
-            Err(std::fs::TryLockError::Error(e)) => {
-                return Err(format!("cannot lock update store {}: {e}", dir.display()))
-            }
-        };
+        let reader = !disk::try_lock(&owner, true)
+            .map_err(|e| format!("cannot lock update store {}: {e}", dir.display()))?;
         let entries = dir.join("entries");
         std::fs::create_dir_all(&entries)
             .map_err(|e| format!("cannot make {}: {e}", entries.display()))?;

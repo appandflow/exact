@@ -90,7 +90,7 @@ class MapsLifecycleTest {
             override fun lifecycle(view: View, event: ViewLifecycle, state: Bundle?) = module.viewLifecycle(view, event, state)
             override fun destroy(view: View) = module.destroyView(view)
         }
-        fun host(state: Bundle? = null) = Natives(activity, File("."), mapOf("map" to adapter)).also {
+        fun host(state: Bundle? = null) = Natives(activity, { File(".") }, mapOf("map" to adapter)).also {
             it.lifecycle.restore(state)
             it.lifecycle.event(ViewLifecycle.START); it.lifecycle.event(ViewLifecycle.RESUME)
         }

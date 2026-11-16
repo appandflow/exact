@@ -60,6 +60,7 @@ fn surface_work_scope_is_refused_before_presenter_effects() {
     let request = |ticket, mut request: exact_runner::Request| {
         request.grants = Some("surface.read other".into());
         RequestOut {
+            completion: None,
             class: exact_runner::RequestClass::Ordered,
             ticket,
             target: "save".into(),
@@ -88,6 +89,7 @@ fn surface_work_scope_is_refused_before_presenter_effects() {
     allowed.grants = Some("surface.read world".into());
     surfaces.enqueue(
         RequestOut {
+            completion: None,
             class: exact_runner::RequestClass::Ordered,
             ticket: 8,
             target: "save".into(),
@@ -143,7 +145,29 @@ fn deferred_restore_keeps_bytes_until_commit_and_late_refusal_is_once() {
         assert!(!c.restore_input);
     }
 }
-pub(super) fn fixture() -> (PathBuf, Value) {
+/// A compiled probe module, its directory removed when dropped.
+pub(super) struct Probe(PathBuf);
+
+impl Drop for Probe {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(self.0.parent().unwrap());
+    }
+}
+
+impl std::ops::Deref for Probe {
+    type Target = PathBuf;
+    fn deref(&self) -> &PathBuf {
+        &self.0
+    }
+}
+
+impl AsRef<std::path::Path> for Probe {
+    fn as_ref(&self) -> &std::path::Path {
+        &self.0
+    }
+}
+
+pub(super) fn fixture() -> (Probe, Value) {
     let dir = std::env::temp_dir().join(format!(
         "exact-gpu-loader-{}-{:?}",
         std::process::id(),
@@ -256,7 +280,7 @@ const unsigned char* gpu_out_ptr(void) { return (const unsigned char*)(output ? 
     let compat = json!({"id":"cohort", "inputs":{"app":"test.app"}, "embedded":{"gpu":{
             "name":path.file_name().unwrap().to_str().unwrap(),"sha256":digest,
             "app":"test.app","cohort":"cohort","trust":"production"}}});
-    (path, compat)
+    (Probe(path), compat)
 }
 #[test]
 fn module_identity_refuses_stale_foreign_and_missing_bakes_before_loading() {

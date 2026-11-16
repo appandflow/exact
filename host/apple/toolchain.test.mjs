@@ -1,5 +1,5 @@
 import { test, expect, spyOn } from 'bun:test';
-import { chmodSync, copyFileSync, existsSync, mkdtempSync, mkdirSync, readFileSync, readlinkSync, realpathSync, writeFileSync, rmSync, symlinkSync } from 'node:fs';
+import { chmodSync, copyFileSync, existsSync, mkdtempSync, mkdirSync, readdirSync, readFileSync, readlinkSync, realpathSync, utimesSync, writeFileSync, rmSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { relative, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -93,6 +93,29 @@ test.skipIf(process.platform !== 'darwin')('timestamped release signing has no d
     expect(said.mock.calls.flat().join('\n')).not.toContain('EXACT_IDENTITY=-');
     expect(said.mock.calls.flat().join('\n')).not.toContain('keychain access;');
   } finally { said.mockRestore(); rmSync(dir, { recursive: true, force: true }); }
+});
+
+test.skipIf(process.platform !== 'darwin')('a Swift driver run leaves nothing in TMPDIR, and SwiftPM runs share one that keeps an hour of leavings', () => {
+  const dir = mkdtempSync(resolve(tmpdir(), 'exact-swift-temp-')), bin = resolve(dir, 'bin'), base = resolve(dir, 'tmp');
+  try {
+    mkdirSync(bin); mkdirSync(base);
+    // Each stand-in leaves what this Xcode's driver leaves, and says the TMPDIR it was given.
+    for (const tool of ['swift', 'swiftc']) {
+      writeFileSync(resolve(bin, tool), '#!/bin/sh\nmkdir "$(mktemp -d "$TMPDIR/TemporaryDirectory.XXXXXX")/.keep-directory"\nprintf %s "$TMPDIR"\n');
+      chmodSync(resolve(bin, tool), 0o755);
+    }
+    const options = { env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, TMPDIR: base }, encoding: 'utf8' };
+    const driver = appleSpawnSync('swiftc', ['--version'], options);
+    expect(driver.stdout.startsWith(`${base}/exact-swift-`)).toBe(true);
+    expect(readdirSync(base)).toEqual([]);
+    const shared = resolve(base, 'exact-swiftpm'), old = resolve(shared, 'TemporaryDirectory.old');
+    mkdirSync(old, { recursive: true });
+    utimesSync(old, new Date(Date.now() - 2 * 3600_000), new Date(Date.now() - 2 * 3600_000));
+    expect(appleSpawnSync('swift', ['build', '--scratch-path', resolve(dir, 'scratch')], options).stdout).toBe(shared);
+    const left = readdirSync(shared);
+    expect(left.length).toBe(1);
+    expect(left[0]).not.toBe('TemporaryDirectory.old');
+  } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
 test('Windows Metal preserves deployment targets and path operands through Wine, while native hosts keep xcrun', () => {
@@ -423,6 +446,8 @@ async function iosRunsFixture(body) {
     opening?.mockRestore();
     process.env.PATH = savedPath;
     rmSync(record, { force: true });
+    // A body that fails while it holds the touch lock (touches.mjs `lock`) leaves the lock behind.
+    rmSync(resolve(tmpdir(), `exact-touches-${udid}.lock`), { force: true });
     rmSync(root, { recursive: true, force: true });
   }
 }

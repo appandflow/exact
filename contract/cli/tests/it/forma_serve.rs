@@ -5,16 +5,15 @@
 //! Linux only.
 #![cfg(unix)]
 
+use crate::scratch::Scratch;
 use serde_json::{json, Value};
 use std::io::{BufRead, BufReader, Write};
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
 
 const CLONE: &str = include_str!("../../../../forma/tests/fmt/bluesky-clone.forma");
 
-pub(crate) fn app(tag: &str, design: &str) -> std::path::PathBuf {
-    let dir = std::env::temp_dir().join(format!("exact2-forma-serve-{tag}-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).unwrap();
+pub(crate) fn app(tag: &str, design: &str) -> Scratch {
+    let dir = Scratch::new(format!("exact2-forma-serve-{tag}-{}", std::process::id()));
     std::fs::write(
         dir.join("app.contract"),
         "component App\n  view\n    text \"a\"\n",

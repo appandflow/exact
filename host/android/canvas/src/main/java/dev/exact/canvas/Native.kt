@@ -11,11 +11,12 @@ object Native {
     /** Boot the app's host on the calling thread, in a window of this size in pixels ([window] told its insets);
      * whether it booted. Where a host already runs on this thread (the activity was made again in this process,
      * LLP 1115.001 D15.1) nothing boots: that host is adopted in this window, and paints everything again for the
-     * reader that calls, which has none of the last one's rows, faces or pictures. */
-    @JvmStatic external fun start(width: Int, height: Int, scale: Float, dir: String, live: Boolean): Boolean
+     * reader that calls, which has none of the last one's rows, faces or pictures. `dir` is the app's files
+     * directory; `store` its no-backup directory, where a library with an update store keeps it (LLP 1030.006 D3). */
+    @JvmStatic external fun start(width: Int, height: Int, scale: Float, dir: String, store: String, live: Boolean): Boolean
     /** [start] on a thread of its own; [adopt] takes the host. Where a host already runs in this process nothing
      * boots, and [adopt] adopts that one as [start] does. */
-    @JvmStatic external fun startAsync(width: Int, height: Int, scale: Float, dir: String, live: Boolean)
+    @JvmStatic external fun startAsync(width: Int, height: Int, scale: Float, dir: String, store: String, live: Boolean)
     /** Wait for [startAsync]'s host and run it on this thread from now on; whether it booted. */
     @JvmStatic external fun adopt(): Boolean
     /** The device's settings, whole ([Device], LLP 1115.001 D3.1): before [start], from any thread, so the host boots
@@ -71,6 +72,13 @@ object Native {
      * leading toward `velocity` px/s. Bit 0: a paint is wanted; bit 1: rows are left for another slice. */
     @JvmStatic external fun refine(limit: Int, velocity: Float): Int
     @JvmStatic external fun nextDue(): Double
+    /** The token of the picture the last [frame] painted, to report with its present ([Presents]); 0 when exact2 asks
+     * for none. */
+    @JvmStatic external fun presentToken(): Long
+    /** The picture [token] reached the screen at [at] (`System.nanoTime`): whether a turn is now wanted. */
+    @JvmStatic external fun picturePresented(token: Long, at: Long): Boolean
+    /** The wake descriptors, -1 where absent: executor replies, decoded images, the GPU module's acquired images
+     * ([Wakes.ACQUIRED]) and the update store's finished checks. */
     @JvmStatic external fun fds(): IntArray
     /** A driver from outside scrolls the feed by [dy] px ([ExactActivity.drive]). A finger's scroll is the
      * calls below. */
@@ -128,6 +136,9 @@ object Native {
     @JvmStatic external fun fieldAction(id: Int, generation: Int, action: Int)
     /** A module event, checked against the session and allocation carried by its painted view. */
     @JvmStatic external fun moduleEvent(id: Int, slot: Int, generation: Int, session: Long, kind: String, payload: String)
+    /** A media element's event ([event] by HTML's name, [payload] its value), or with an empty [event] its observed
+     * [state] for `state.media` (LLP 1042.001 D7); checked as a module event is. */
+    @JvmStatic external fun media(id: Int, slot: Int, generation: Int, session: Long, event: String, payload: String, state: String)
     /** The reader moved scroller [id] by ([dx], [dy]) px, knowing revision [rev] of it. exact2 clamps the move to
      * the scroller's travel, and drops one sent under a revision the app's own scroll has moved on from. */
     @JvmStatic external fun scrolled(id: Int, dx: Float, dy: Float, rev: Int)
@@ -140,6 +151,14 @@ object Native {
     @JvmStatic external fun refresh(id: Int)
     /** The fling a drag of scroller [id] threw stopped: at rest, caught by a finger, or ended by the app's scroll. */
     @JvmStatic external fun flingEnded(id: Int)
+    /** A pinch of zoomable scroller [id] (LLP 1057.001.000 §5; [Zooming]): [phase] 0 it began, 1 it scaled by
+     * [factor] while its focal point moved from ([x0], [y0]) to ([x1], [y1]) px, 2 it ended. */
+    @JvmStatic external fun zoom(id: Int, phase: Int, factor: Float, x0: Float, y0: Float, x1: Float, y1: Float)
+    /** A double tap at ([x], [y]) px: [phase] 0 its second tap came down (the first tap's press, held for it, never
+     * comes), 1 it lifted, which zooms the scroller under it (D5). */
+    @JvmStatic external fun zoomTap(phase: Int, x: Float, y: Float)
+    /** A wheel turned [dy] points toward the end with `ctrl` held at ([x], [y]) px: a zoom about the pointer. */
+    @JvmStatic external fun zoomWheel(x: Float, y: Float, dy: Float)
     /** What exact2 tells the reader of the scrollers it knows, when that is not what this last returned (else
      * null): nine numbers each: its id, flags (as [under]'s, for any drag), its revision, then as float bits where
      * it is (x, y), the offset its rows were last painted at (x, y) and its farthest offset (x, y). The revision
@@ -261,6 +280,9 @@ object Native {
     @JvmStatic external fun pictureChanged(source: String, revoked: Boolean)
     /** Activity visibility and the process's execution eligibility. On the host's thread. */
     @JvmStatic external fun hidden(hidden: Boolean, eligible: Boolean)
+    /** The reader drew a frame of the running generation, which makes its boot good (LLP 1030.006 D5); whether to say
+     * so again after the next. On the exact thread. */
+    @JvmStatic external fun drew(): Boolean
     /** Waits up to [ms] for the store's writes, which exact2 makes on a thread of its own: whether every commit handed
      * over was written (a write that failed is tried once more; failing again, it stays pending). Any thread. */
     @JvmStatic external fun storeDrain(ms: Int): Boolean
@@ -273,6 +295,8 @@ object Native {
 
     /** The file an `app:/data|cache|tmp/…` path names, or null (`ExtensionContext.file`). */
     @JvmStatic external fun appFile(path: String): String?
+    /** The running generation's asset directory when a signed update's is running, else null ([AssetRoot]). */
+    @JvmStatic external fun assetRoot(): String?
     /** The app's directory [index] names: 0 `data`, 1 `cache`, 2 `tmp` ([ExtensionContext.data]). */
     @JvmStatic external fun appRoot(index: Int): String?
     /** Whether extension [name] is told it runs under the agent ([ExtensionContext.agent]). Any thread. */

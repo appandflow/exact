@@ -179,6 +179,8 @@ package final class ChainingScrollView: NSScrollView {
     static weak var driverOwner: ChainingScrollView?
     /// Which axes scroll (the node's effective `overflow_x`/`overflow_y`).
     var collectionWillScroll: (() -> Void)?
+    /// A zoomable scroller's zoom (`ScrollZoomMac.swift`).
+    var zoom: ScrollZoomMac?
     var scrollsX = true
     var scrollsY = true
     /// `overscroll-behavior` per axis: what happens to a gesture this view
@@ -429,11 +431,13 @@ package final class ChainingScrollView: NSScrollView {
 }
 
 extension NodeView {
-    /// Kernel frames include the gutter; the document starts at the clip.
+    /// Kernel frames include the gutter; the document starts at the clip. A
+    /// zoomable scroller's child is its document's box (`ScrollZoomMac.swift`).
     func frameInScrollDocument(_ frame: NSRect) -> NSRect {
         guard let clip = superview?.superview as? NSClipView,
               let scroll = clip.superview as? ChainingScrollView,
               scroll.documentView === superview else { return frame }
+        if scroll.zoom?.child === self { return NSRect(origin: .zero, size: frame.size) }
         let origin = scroll.kernelDocumentOrigin
         return frame.offsetBy(dx: -origin.x, dy: -origin.y)
     }

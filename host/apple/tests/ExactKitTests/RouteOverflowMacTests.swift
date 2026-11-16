@@ -40,11 +40,16 @@ final class RouteOverflowMacTests: XCTestCase {
         waitFor("clipped route overflow journals") { warnings() == 1 }
         XCTAssertEqual(p.root.frame.height, p.viewportSize.height, accuracy: 0.5)
         XCTAssertEqual(session.screenSize, session.presenter.viewportSize)
+        let pumps = session.replyPumpsForTests
         try press("toggle-home")
         waitForMainQueue()
         window.setContentSize(NSSize(width: 500, height: 500))
         view.layoutSubtreeIfNeeded()
         waitFor("the window offer follows AppKit") { session.screenSize == session.presenter.viewportSize && session.screenSize?.width == 500 }
+        // The check is woken at most once every 100 ms (a layout that changes every frame would wake it every frame),
+        // so a fit shorter than that is not observed: it coalesces with the overflow after it. Let the check see the
+        // fit (a reply pump lands after it) before the route overflows again.
+        waitFor("the check sees the fit") { session.replyPumpsForTests > pumps && session.repliesInFlight == 0 }
         try press("toggle-home")
         waitFor("fitting rearms the journal after resize") { warnings() == 2 }
     }

@@ -37,44 +37,6 @@ pub(crate) struct Flights {
 }
 
 impl<D: DataSource> Host<D> {
-    /// The live reader starts motion at its first produced frame (LLP 1003.001).
-    /// A deterministic driver instead starts pending curves at its takeover time.
-    pub(crate) fn reader_frame_clock(&mut self, live: bool) {
-        let live = live && self.flights.enabled;
-        if self.engine.starts_on_frame() == live {
-            return;
-        }
-        let at = (self.now_ms / 1000.0).max(self.engine.now());
-        let started = self
-            .engine
-            .set_start_on_frame(live, at)
-            .expect("finite host clock");
-        self.reader_started(&started);
-        self.present();
-    }
-
-    #[cfg(any(target_os = "android", test))]
-    pub(crate) fn present_reader_frame(&mut self, now: f64) -> bool {
-        if !self.engine.starts_on_frame() {
-            return false;
-        }
-        let started = self
-            .engine
-            .present_frame(now / 1000.0)
-            .expect("finite frame clock");
-        self.reader_started(&started);
-        self.present()
-    }
-
-    fn reader_started(&mut self, nodes: &[u64]) {
-        if !nodes.is_empty() {
-            self.lowered_epoch += 1;
-            for node in nodes {
-                self.lowered_changed.insert(*node, self.lowered_epoch);
-            }
-        }
-    }
-
     pub(crate) fn start_flights(&mut self, receipt: &CommitReceipt) {
         if !self.flights.enabled {
             return;
@@ -516,8 +478,9 @@ component App
     }
 
     #[test]
-    fn a_delayed_first_reader_frame_starts_at_the_source_and_takeover_settles() {
+    fn a_delayed_first_reader_frame_starts_at_its_present_and_takeover_settles() {
         let mut p = presenter(APP);
+        p.presents_pictures(true);
         p.set_live_clock(Some(std::rc::Rc::new(|| 0.)));
         let toggle = id(p.host(), "toggle");
         p.host_mut().dispatch_at(toggle, Event::Press, 100.0);
@@ -525,7 +488,14 @@ component App
         assert_eq!(p.host().flight_frames()[0].progress, 0.0);
         p.reader_clock(250.0, true);
         p.frame();
-        assert_eq!(p.host().flight_frames()[0].progress, 0.0);
+        let carried = p.picture_carried();
+        p.reader_clock(260.0, true);
+        assert_eq!(
+            p.host().flight_frames()[0].progress,
+            0.0,
+            "held until its present"
+        );
+        p.picture_presented(carried, 250.0);
         p.reader_clock(266.0, true);
         assert!((p.host().flight_frames()[0].progress - 0.016).abs() < 1e-5);
         p.host_mut().dispatch_at(toggle, Event::Press, 300.0);
@@ -662,6 +632,7 @@ component App
             for end in ["driven", "live", "replaced"] {
                 let mut p = presenter(app);
                 if end != "driven" {
+                    p.presents_pictures(true);
                     p.set_live_clock(Some(std::rc::Rc::new(|| 0.)));
                 }
                 let toggle = id(p.host(), "toggle");
@@ -670,6 +641,8 @@ component App
                 p.run_commands(|| ());
                 p.reader_clock(116.0, end != "driven");
                 p.frame();
+                let carried = p.picture_carried();
+                p.picture_presented(carried, 116.0);
                 let field = id(p.host(), "inside");
                 assert!(p.host().flying(field), "{how} {end}");
                 assert_ne!(p.focus(), Some(field), "a flying field took the focus");
@@ -757,6 +730,50 @@ component App
             p.reader_clock(1301.0, false);
             assert!(!p.host().flying(field));
             assert_eq!(p.focus(), Some(kept), "{how}");
+        }
+    }
+
+    #[test]
+    fn a_blur_supersedes_a_focus_waiting_for_landing() {
+        let app = APP
+            .replace(
+                "            button \"Inside\" press=toggle testId=\"inside\"\n",
+                "            input id=\"field\" testId=\"inside\"\n",
+            )
+            .replace(
+                "    open = not open\n",
+                "    open = not open\n    focus(\"field\")\n",
+            )
+            .replace(
+                "      if not gone\n",
+                "      input id=\"other\" testId=\"other\"\n      if not gone\n",
+            );
+        // On the web the `focus()` has already moved the focus to the field,
+        // so blurring the field (or the focus) leaves none, and blurring the
+        // node the focus left, or any other, changes nothing.
+        for (blurred, landed) in [
+            (None, false),
+            (Some("field"), false),
+            (Some("other"), true),
+            (Some("nobody"), true),
+        ] {
+            let mut p = presenter(&app);
+            let other = id(p.host(), "other");
+            assert!(p.set_focus(Some(other), 50.0).is_none());
+            let toggle = id(p.host(), "toggle");
+            p.host_mut().dispatch_at(toggle, Event::Press, 100.0);
+            p.after_commit();
+            p.run_commands(|| ());
+            p.frame();
+            let field = id(p.host(), "inside");
+            assert!(p.host().flying(field));
+            let args: Vec<_> = blurred.into_iter().map(exact_plan::Value::str).collect();
+            p.blur_command(&args);
+            p.tick(1301.0);
+            p.reader_clock(1301.0, false);
+            assert!(!p.host().flying(field));
+            let expected = if landed { Some(field) } else { None };
+            assert_eq!(p.focus(), expected, "blur({blurred:?})");
         }
     }
 

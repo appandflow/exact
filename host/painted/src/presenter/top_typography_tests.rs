@@ -108,7 +108,7 @@ fn material_surfaces_refresh_when_bold_text_changes_in_both_directions() {
 
 #[test]
 fn the_dialog_and_the_menu_keep_materials_metrics() {
-    let engine = crate::text::TextEngine::shared();
+    let engine = crate::text::fixtures::shared();
     let inputs = |width: f32| Inputs {
         direction: exact_kernel::Direction::Ltr,
         contrast: None,
@@ -239,7 +239,7 @@ fn alert_horizontal_keys_follow_visual_order_without_changing_tab_order() {
                 "dialog id=\"three\"",
                 &format!("dialog direction=\"{direction}\" id=\"three\""),
             );
-            let (mut p, error) = Presenter::boot_with(
+            let (mut p, error) = Presenter::boot_with_fixture_fonts(
                 &crate::test_plan(&source),
                 (),
                 (400., 800.),
@@ -290,7 +290,7 @@ fn an_alerts_accessible_message_spans_all_directed_paragraphs() {
         "text \"It cannot be undone.\"",
         "text \"It cannot be undone.\" direction=\"ltr\"\n        text \"رسالة أخرى\" direction=\"rtl\"",
     );
-    let (mut p, error) = Presenter::boot_with(
+    let (mut p, error) = Presenter::boot_with_fixture_fonts(
         &crate::test_plan(&source),
         (),
         (400., 800.),
@@ -325,7 +325,7 @@ fn short_rtl_alert_texts_have_accessibility_bounds_at_the_right() {
             "text \"It cannot be undone.\"",
             "text \"نعم\"\n        text \"لا\"",
         );
-    let (mut p, error) = Presenter::boot_with(
+    let (mut p, error) = Presenter::boot_with_fixture_fonts(
         &crate::test_plan(&source),
         (),
         (400., 800.),

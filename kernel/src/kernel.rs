@@ -31,9 +31,11 @@ mod history;
 use history::RetainedReceipt;
 mod intrinsic;
 pub(crate) mod owner;
+pub(crate) mod readers;
 pub(crate) use intrinsic::apply_projection;
 mod row_memo;
 mod sticky;
+mod table;
 mod trim;
 mod wide;
 
@@ -46,6 +48,7 @@ pub(crate) use cover::{
 };
 pub use cover::{credited_edges, HostCover};
 pub use sticky::StickyConstraint;
+pub use table::TablePlace;
 
 /// How many receipts the kernel retains for late readers.
 pub const RECEIPT_RING: usize = 64;
@@ -209,6 +212,11 @@ impl<'a> NodeRef<'a> {
     /// copying unrelated style rows.
     pub fn paragraph(&self) -> crate::text::Paragraph {
         self.arena.paragraph(self.slot)
+    }
+
+    /// [`crate::text::Paragraph::natural`] alone, without the paragraph.
+    pub fn is_natural_text(&self) -> bool {
+        crate::text::natural::is_natural(self.arena, self.slot)
     }
 
     /// The nearest explicit HTML spelling-check hint in the logical tree.

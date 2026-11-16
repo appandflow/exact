@@ -63,6 +63,48 @@ final class AccessibilityTreeMacTests: XCTestCase {
     }
     private func elements(_ ax: [String: Any]) -> [[String: Any]] { ax["elements"] as? [[String: Any]] ?? [] }
 
+    /// A tablist's tabs are hidden by the host while a segmented control draws their words: what the
+    /// tablist labels, and a live region that holds it beside a grouped list, read the same once the
+    /// control is adopted.
+    func testATablistASegmentedControlDrawsStillNamesAndSpeaks() throws {
+        let p = try fixture()
+        p.apply(wireBatch([
+            ["op": "create", "id": 29, "kind": "view", "props": ["accessibilityLive": "polite"]],
+            ["op": "create", "id": 30, "kind": "view", "props": ["id": "views"]],
+            ["op": "create", "id": 31, "kind": "button", "handlers": ["press"], "props": ["accessibilityRole": "tab"]],
+            ["op": "create", "id": 32, "kind": "button", "handlers": ["press"], "props": ["accessibilityRole": "tab"]],
+            ["op": "create", "id": 33, "kind": "text", "props": ["text": "One"]],
+            ["op": "create", "id": 34, "kind": "text", "props": ["text": "Two"]],
+            ["op": "create", "id": 35, "kind": "control", "props": ["type": "checkbox", "accessibilityLabelledBy": "views"], "handlers": ["change"]],
+            ["op": "create", "id": 36, "kind": "list", "props": ["listStyle": "inset-grouped"]],
+            ["op": "create", "id": 37, "kind": "view", "props": ["semanticTag": "section"]],
+            ["op": "create", "id": 38, "kind": "view"],
+            ["op": "create", "id": 39, "kind": "text", "props": ["text": "Name"]],
+            ["op": "children", "id": 31, "ids": [33]], ["op": "children", "id": 32, "ids": [34]],
+            ["op": "children", "id": 30, "ids": [31, 32]],
+            ["op": "children", "id": 38, "ids": [39]], ["op": "children", "id": 37, "ids": [38]], ["op": "children", "id": 36, "ids": [37]],
+            ["op": "children", "id": 29, "ids": [30, 36]],
+            ["op": "children", "id": 1, "ids": [2, 3, 29, 35]],
+            ["op": "frame", "id": 29, "x": 0.0, "y": 100.0, "w": 400.0, "h": 120.0],
+            ["op": "frame", "id": 30, "x": 0.0, "y": 0.0, "w": 400.0, "h": 40.0],
+            ["op": "frame", "id": 36, "x": 0.0, "y": 50.0, "w": 400.0, "h": 60.0],
+            ["op": "frame", "id": 35, "x": 0.0, "y": 230.0, "w": 22.0, "h": 22.0],
+        ]))
+        let live = try XCTUnwrap(p.views[29]), tab = try XCTUnwrap(p.views[31]), control = try XCTUnwrap(p.controls.controls[35])
+        func reads(_ when: String) {
+            p.syncAccessibility()
+            XCTAssertEqual(control.accessibilityLabel(), "One Two", when)
+            XCTAssertEqual(live.liveText, "One Two Name", when)
+        }
+        XCTAssertNil(p.segments.control(of: 30))
+        XCTAssertFalse(tab.isHidden)
+        reads("as authored")
+        p.apply(wireBatch([["op": "props", "id": 30, "set": ["accessibilityRole": "tablist"]]]))
+        XCTAssertNotNil(p.segments.control(of: 30))
+        XCTAssertTrue(tab.isHidden)
+        reads("drawn by the segmented control")
+    }
+
     /// A native control is named by `aria-labelledby` as by `aria-label`
     /// (accname), and follows the text it names.
     func testANativeCheckboxIsNamedByTheTextItsLabelledbyNames() throws {

@@ -35,9 +35,10 @@ beforeAll(async () => {
   globalThis.location = { hostname: 'public.example', href: 'https://public.example/', origin: 'https://public.example' };
   // The browser's transports, each use recorded; a request is answered at once, a socket never opens.
   globalThis.fetch = async (url, init) => {
-    sent.push([String(url), init?.redirect]);
+    const request = new Request(url, init);
+    sent.push([request.url, request.redirect]);
     const response = new Response('sent');
-    Object.defineProperty(response, 'url', { value: String(url) });
+    Object.defineProperty(response, 'url', { value: request.url });
     return response;
   };
   globalThis.WebSocket = class { constructor(url) { opened.push(String(url)); throw new Error('no socket here'); } };

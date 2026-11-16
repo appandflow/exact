@@ -2,5 +2,4 @@
 <resources>
     <string name="exact_clear">ניקוי</string>
     <string name="exact_default_channel">התראות</string>
-    <string name="exact_silent_channel">התראות שקטות</string>
 </resources>

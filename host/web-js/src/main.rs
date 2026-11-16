@@ -38,6 +38,8 @@ mod modes;
 mod modes_tests;
 #[cfg(test)]
 mod module_tests;
+#[cfg(test)]
+mod owned_tests;
 mod paint;
 #[cfg(test)]
 mod paint_tests;
@@ -54,6 +56,35 @@ mod symbols;
 mod timelines;
 
 use std::process::ExitCode;
+
+/// An empty directory `<name>-<pid>` under the temp dir, removed when dropped.
+#[cfg(test)]
+struct TestDir(std::path::PathBuf);
+
+#[cfg(test)]
+impl TestDir {
+    fn new(name: &str) -> TestDir {
+        let dir = std::env::temp_dir().join(format!("{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        TestDir(dir)
+    }
+}
+
+#[cfg(test)]
+impl Drop for TestDir {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
+
+#[cfg(test)]
+impl std::ops::Deref for TestDir {
+    type Target = std::path::Path;
+    fn deref(&self) -> &std::path::Path {
+        &self.0
+    }
+}
 
 const USAGE: &str =
     "usage: exact-web-js js <app.contract | app.plan> -o <dir> [--dump] [--sites] [--dev-reload] [--app <dir>]\n       exact-web-js normalize-grants <file>\n       exact-web-js design <app.contract> <design text file, or - for stdin>\n       exact-web-js design-serve <app.contract>\n       exact-web-js inspect-table <app.plan> <out.json>";

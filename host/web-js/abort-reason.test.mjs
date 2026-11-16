@@ -123,7 +123,7 @@ test('preload and prefetch validate options and leave web requests as written', 
   const dir = mkdtempSync(resolve(tmpdir(), 'exact-preload-option-'));
   const sent = [], before = globalThis.fetch;
   // Its response names the URL it came from, as the browser's does; admission refuses one that names none.
-  globalThis.fetch = async (url, init) => { sent.push([url, init]); return Object.defineProperty(new Response('reply'), 'url', { value: String(url) }); };
+  globalThis.fetch = async (url, init) => { const request = new Request(url, init); sent.push([request.url, request]); return Object.defineProperty(new Response('reply'), 'url', { value: request.url }); };
   try {
     writeFileSync(resolve(dir, 'admission.js'), readFileSync(resolve(ROOT, 'host/web-js/admission.js'), 'utf8').replace(/'\.\.\/web\/([a-z-]+\.js)'/g, "'./$1'"));
     for (const name of ['grant-admission.js', 'faults.js', 'navigation.js', 'address-space.js']) writeFileSync(resolve(dir, name), hostFixtureFile(resolve(ROOT, 'host/web', name)));
@@ -142,7 +142,7 @@ test('preload and prefetch validate options and leave web requests as written', 
       expect(await (await appFetch('https://api.example/feed', options)).text()).toBe('reply');
       expect(reads).toBe(1);
       const [url, init] = sent.at(-1);
-      expect([url, init.method, init.headers, init.body, init.exactPreload]).toEqual(['https://api.example/feed', 'POST', { 'X-Trace': 'new' }, 'new', undefined]);
+      expect([url, init.method, init.headers.get('x-trace'), await init.text(), init.exactPreload]).toEqual(['https://api.example/feed', 'POST', 'new', 'new', undefined]);
     }
     for (const name of ['', 'Feed', '2feed', 'feed_name', 'feed.name', 'feed\n', 'fée', 7, null]) {
       await expect(appFetch('https://api.example/feed', { exactPreload: name })).rejects.toThrow('exactPreload must match');

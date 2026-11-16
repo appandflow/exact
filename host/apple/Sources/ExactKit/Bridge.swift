@@ -3,6 +3,13 @@ import CExact
 import Foundation
 
 extension Runtime {
+    func collectionFixedSizes(_ view: UInt32, lead: Int, trail: Int) -> [Double]? {
+        on(busy: nil) {
+            let sizes = (0..<2).map { exact_collection_fixed_size(rt, view, UInt32(lead), UInt32(trail), UInt32($0)) }
+            return sizes.allSatisfy { $0.isFinite && $0 >= 0 } ? sizes : nil
+        }
+    }
+
     func collectionSnap(_ view: UInt32, proposed: Double, port: Double, minimum: Double = 0, maximum: Double, distance: Double = .infinity) -> Double? {
         on(busy: nil) {
             let value = exact_collection_snap(rt, view, proposed, port, minimum, maximum, distance)
@@ -146,7 +153,7 @@ extension Runtime {
     /// What native containers cover of boxes (LLP 1075.003 §3.5), under one
     /// layout: `edges` add to a box's padding; `whole` lays it out as
     /// `display: none`; nil clears.
-    func covers(_ covers: [(UInt32, HostCover?)]) -> Batch {
+    package func covers(_ covers: [(UInt32, HostCover?)]) -> Batch {
         return on(layout: true) {
             var bytes = Data(capacity: covers.count * 24)
             for (view, cover) in covers {
@@ -230,5 +237,8 @@ extension Runtime {
                     if let pointer { Unmanaged<RegionArtifact>.fromOpaque(pointer).release() }
                 }))
         }
+    }
+    func regionFallback(_ request: UInt64) -> Batch {
+        on { read(exact_region_fallback(rt, request)) }
     }
 }

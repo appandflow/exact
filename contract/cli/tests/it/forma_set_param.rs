@@ -6,6 +6,7 @@
 //! `resolve`, `explain`, `uses` and `describe` by the param's full name.
 #![cfg(unix)]
 
+use crate::scratch::Scratch;
 use serde_json::{json, Value};
 use std::io::{BufRead, BufReader, Write};
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
@@ -26,10 +27,8 @@ component App
       PostButton()
 "##;
 
-fn app(tag: &str) -> std::path::PathBuf {
-    let dir = std::env::temp_dir().join(format!("exact2-set-param-{tag}-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).unwrap();
+fn app(tag: &str) -> Scratch {
+    let dir = Scratch::new(format!("exact2-set-param-{tag}-{}", std::process::id()));
     let root = "use PostButton from \"./post.contract\"\n\n".to_string()
         + VIEW
             .split("component App")
@@ -441,7 +440,9 @@ fn every_write_keeps_a_param_in_range_at_the_line_that_breaks_it() {
 
 #[test]
 fn reads_by_an_ambiguous_name_are_refused_and_an_icon_alias_follows_its_set() {
-    let dir = std::env::temp_dir().join(format!("exact2-set-param-icons-{}", std::process::id()));
+    let dir = Scratch::adopt(
+        std::env::temp_dir().join(format!("exact2-set-param-icons-{}", std::process::id())),
+    );
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(dir.join("b")).unwrap();
     let card = |extra: &str| {
@@ -556,7 +557,9 @@ fn round_two_a_dominated_token_an_ambiguous_line_branch_pins_and_an_icon_file() 
     drop(s);
     // A short line grown ambiguous: another write is refused until it is
     // removed, which its own spelling may always do.
-    let amb = std::env::temp_dir().join(format!("exact2-set-param-amb-{}", std::process::id()));
+    let amb = Scratch::adopt(
+        std::env::temp_dir().join(format!("exact2-set-param-amb-{}", std::process::id())),
+    );
     let _ = std::fs::remove_dir_all(&amb);
     std::fs::create_dir_all(amb.join("b")).unwrap();
     std::fs::write(amb.join("a.contract"), "component Card\n  params\n    inset: length = \"4px\"\n  view\n    column padding=\"param.inset\"\n      text \"a\"\n").unwrap();
@@ -588,9 +591,7 @@ fn round_two_a_dominated_token_an_ambiguous_line_branch_pins_and_an_icon_file() 
     assert!(repair["ok"].is_object(), "{repair}");
     drop(s);
     // An icon param set to an SVG the app lacks is refused.
-    let icons = std::env::temp_dir().join(format!("exact2-set-param-svg-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&icons);
-    std::fs::create_dir_all(&icons).unwrap();
+    let icons = Scratch::new(format!("exact2-set-param-svg-{}", std::process::id()));
     std::fs::write(
         icons.join("app.contract"),
         "component App\n  params\n    glyph: icon = \"icon(sf \\\"star\\\")\"\n  view\n    column\n      image \"symbol:param.glyph\"\n",
@@ -668,7 +669,9 @@ fn a_contract_edit_is_read_again_by_the_next_request() {
 /// package's, and a root that comes after the server started.
 #[test]
 fn the_walk_follows_the_design_a_manifest_and_a_late_root() {
-    let dir = std::env::temp_dir().join(format!("exact2-walk-inputs-{}", std::process::id()));
+    let dir = Scratch::adopt(
+        std::env::temp_dir().join(format!("exact2-walk-inputs-{}", std::process::id())),
+    );
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(dir.join("vendor/p")).unwrap();
     let card = |inset: &str| {

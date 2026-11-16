@@ -13,10 +13,10 @@ extension NodeView {
         guard (handlers.contains("scrollend") || presenter?.session?.timerAdmissions.enabled == true), hasScrollLayoutBox else { return }
         let end = scrollEnd ?? ScrollEnd()
         scrollEnd = end
-        guard end.moved(to: [sv.contentOffset.x, sv.contentOffset.y, scrollTopInset(sv)]) else { return }
+        guard end.moved(to: [sv.contentOffset.x, sv.contentOffset.y, scrollTopInset(sv), sv.zoomScale]) else { return }
         // A drag and its deceleration report their end; a touch that only
         // tracks reports none, so the quiet check asks until it lifts.
-        if end.live || sv.isDragging || sv.isDecelerating { end.hold() } else { settleScrollEnd() }
+        if end.live || sv.isDragging || sv.isDecelerating || sv.isZooming || sv.isZoomBouncing { end.hold() } else { settleScrollEnd() }
     }
 
     /// Once still: ended, unless a touch, an agent drag, a smooth correction
@@ -26,7 +26,7 @@ extension NodeView {
     private func settleScrollEnd() {
         scrollEnd?.settle { [weak self, token = incarnation] in
             guard let self, self.incarnation == token, let sv = self.scrollView else { return }
-            if self.scrollEnd?.live == true || sv.isTracking || sv.isDragging || sv.isDecelerating || self.authorOwnsScroll(sv) { self.settleScrollEnd() } else { self.endScroll() }
+            if self.scrollEnd?.live == true || self.zoomHeld(sv) || self.authorOwnsScroll(sv) { self.settleScrollEnd() } else { self.endScroll() }
         }
     }
 
@@ -36,7 +36,7 @@ extension NodeView {
     /// `scrollIntoView` stops ends with that scroll, where it rests, not
     /// where the fling stopped (LLP 1070.000 §15).
     func scrollMayHaveEnded(_ sv: UIScrollView) {
-        if scrollEnd?.live == true || sv.isTracking || sv.isDragging || authorOwnsScroll(sv) { settleScrollEnd() } else { endScroll() }
+        if scrollEnd?.live == true || sv.isTracking || sv.isDragging || sv.isZooming || sv.isZoomBouncing || authorOwnsScroll(sv) { settleScrollEnd() } else { endScroll() }
     }
 
     /// The app's scroll owns the port until it settles (LLP 1070.000 §15):

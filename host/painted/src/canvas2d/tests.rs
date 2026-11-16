@@ -36,6 +36,25 @@ fn at(p: &Pixmap, x: u32, y: u32) -> [u8; 4] {
 }
 
 #[test]
+fn multiply_overprint_draws_with_canvas_2d() {
+    let p = replay(200, 120, 1.0, |c| {
+        c.set_fill_style_str("#f6f2e9");
+        c.fill_rect(0., 0., 200., 120.);
+        c.set_fill_style_str("#34f1ec");
+        c.fill_rect(20., 40., 160., 16.);
+        c.set_global_composite_operation("multiply").unwrap();
+        c.set_fill_style_str("#fd2f7c");
+        c.fill_rect(52., 0., 16., 120.);
+    });
+    // tiny-skia's integer compositing can round a channel one byte from Chrome.
+    for (y, expected) in [(48, [52, 44, 115, 255]), (20, [244, 45, 113, 255])] {
+        for (actual, expected) in at(&p, 60, y).into_iter().zip(expected) {
+            assert!(actual.abs_diff(expected) <= 1, "{actual} versus {expected}");
+        }
+    }
+}
+
+#[test]
 fn zero_dash_lists_stroke_solid_paths_and_rectangles() {
     let ink = |p: &Pixmap| p.pixels().iter().filter(|p| p.alpha() != 0).count();
     for rectangle in [false, true] {

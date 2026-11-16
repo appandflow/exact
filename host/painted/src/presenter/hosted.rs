@@ -187,6 +187,11 @@ fn keyboard(kind: &str, mode: Option<&str>) -> i32 {
 }
 
 impl<D: DataSource> Presenter<D> {
+    /// Whether a field the shell hosts is composing.
+    pub(super) fn hosted_composing(&self) -> bool {
+        !self.hosted.composing.is_empty()
+    }
+
     /// The live text fields the shell hosts, in tree order.
     fn hosted_ids(&self) -> Vec<ViewId> {
         let kernel = self.host.kernel();
@@ -312,7 +317,7 @@ impl<D: DataSource> Presenter<D> {
             .filter(|_| !hidden && self.display.allows(kernel, id))
             .zip(self.brush.field_content.get(&id).copied())
             .map(|(at, within)| {
-                let b = self.boxes[at];
+                let b = &self.boxes[at];
                 let groups = self.brush.row_groups();
                 let group = groups.iter().find(|g| g.1 <= at && at < g.2);
                 (b, within, group.map_or(0, |g| g.0))
@@ -324,7 +329,7 @@ impl<D: DataSource> Presenter<D> {
         if inert || disabled || self.host.flying(id) {
             flags |= INERT;
         }
-        let group = place.map_or(0, |p| p.2);
+        let group = place.as_ref().map_or(0, |p| p.2);
         out.extend([id as i32, known.generation as i32, flags, group as i32]);
         let (rect, clip) = match place {
             Some((b, within, _)) => (
@@ -520,6 +525,9 @@ impl<D: DataSource> Presenter<D> {
     /// key that counts as keyboard modality. A hold of the field lets go.
     pub fn reader_field_input(&mut self, id: ViewId, generation: u32, kind: i32) {
         if self.hosted_live(id, generation) {
+            // A person's input is later than a `focus()` waiting for its
+            // node to land, and supersedes it as a later `focus()` would.
+            self.host.flights.focus = None;
             self.hold_input(Some(id));
             match kind {
                 1 => self.touched(),

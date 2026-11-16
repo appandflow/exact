@@ -404,8 +404,14 @@ fn an_inline_read_property_keeps_its_effects() {
             "transform-origin",
         ),
     ] {
-        let _ = prop;
-        refused(&format!("{node}\n        text \"x\""), Refusal::GlueWritten);
+        refused(
+            &format!("{node}\n        text \"x\""),
+            if prop == "transition" {
+                Refusal::SidePath
+            } else {
+                Refusal::GlueWritten
+            },
+        );
     }
     // The rest no contract attribute here binds (mask-size, overflow-anchor,
     // view-transition-name: the compiler refuses the attribute), or only a

@@ -1,9 +1,40 @@
 import { test } from 'bun:test';
+import { createHash } from 'node:crypto';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, resolve } from 'node:path';
+import { appManifestDigest, publicFileCards } from '../host/web/serve.mjs';
+import { loopWebDist } from './web-build.mjs';
+
+test('native live reload finds the wasm loop and honors explicit plan and dist paths', async () => {
+  const { devPlan } = await import('./exact.mjs');
+  const dir = mkdtempSync(resolve(tmpdir(), 'exact-live-plan-'));
+  const app = { dir, target: resolve(dir, 'target'), id: 'test.live', displayName: 'Live', manifest: {} };
+  const previous = { EXACT_WEB_DIST: process.env.EXACT_WEB_DIST, EXACT_DEV_PLAN: process.env.EXACT_DEV_PLAN };
+  try {
+    delete process.env.EXACT_WEB_DIST; delete process.env.EXACT_DEV_PLAN;
+    const dist = loopWebDist(app, 'wasm'), plan = Buffer.alloc(36 + app.id.length);
+    plan.write('EXPL'); plan.writeUInt32LE(app.id.length, 32); plan.write(app.id, 36);
+    mkdirSync(dist, { recursive: true });
+    for (const file of ['app.wasm', 'glue.js', 'navigation.js', 'index.html', 'manifest.json']) writeFileSync(resolve(dist, file), 'fixture');
+    writeFileSync(resolve(dist, 'app.plan'), plan);
+    writeFileSync(resolve(dist, 'exact.json'), JSON.stringify({ exact: 1, app: { id: app.id, name: app.displayName }, plan: { url: './app.plan', bytes: plan.length, sha256: createHash('sha256').update(plan).digest('hex') } }));
+    writeFileSync(resolve(dist, '.exact-build.json'), JSON.stringify({ exactBuild: 1, app: { id: app.id, name: app.displayName }, manifestSha256: appManifestDigest(app), files: await publicFileCards(dist) }));
+    assert.equal((await devPlan(app)).path, resolve(dist, 'app.plan'));
+    process.env.EXACT_WEB_DIST = resolve(dir, 'explicit-dist');
+    assert.equal((await devPlan(app)).path, null);
+    assert.match((await devPlan(app)).why, /explicit-dist/);
+    process.env.EXACT_WEB_DIST = dist;
+    assert.equal((await devPlan(app)).path, resolve(dist, 'app.plan'));
+    process.env.EXACT_DEV_PLAN = resolve(dir, 'explicit.plan');
+    assert.equal((await devPlan(app)).path, process.env.EXACT_DEV_PLAN);
+  } finally {
+    for (const [name, value] of Object.entries(previous)) { if (value === undefined) delete process.env[name]; else process.env[name] = value; }
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
 
 function inDir(body) {
   const dir = mkdtempSync(resolve(tmpdir(), 'exact-types-'));

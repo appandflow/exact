@@ -28,7 +28,7 @@ class NativesFrameRateTest {
         @Implementation fun setFrameRate(fps: Float, compatibility: Int) { votes.add(fps to compatibility) }
     }
 
-    private fun natives() = Natives(RuntimeEnvironment.getApplication(), File("."), emptyMap()).apply {
+    private fun natives() = Natives(RuntimeEnvironment.getApplication(), { File(".") }, emptyMap()).apply {
         ensure(7, 3, 0, 0, "{}", 0)
     }
 

@@ -26,6 +26,10 @@ AppCompat or Material library.
 An `iframe` with `sandbox`, including `sandbox=""`, is refused before a WebView is created or navigated. The log
 names `iframe <id>: sandbox is unsupported on Android`. Adding `sandbox` destroys the frame's existing WebView.
 
+A frame whose renderer ends, by a crash or because Android reclaimed it, keeps the app running: its WebView is
+destroyed and a new one loads its `src`, with no event, as Apple's hosts re-serve a frame whose content process ended
+(LLP 1020 D2). The log names `iframe <id>: the page's renderer crashed; loading its src again`.
+
 ## Where it came from
 
 The benchmark lane wrote it outside this repository. These are the files of
@@ -87,8 +91,8 @@ The build:
    `app/build/<app>/icons/res/`: from a square `maskable` PNG an adaptive icon, with a `monochrome` glyph as its
    themed layer; without one, a legacy icon from a square `any` PNG; and a banner from a 16:9 `any` PNG. A file its
    slot refuses (smaller than the slot, or a glyph with no transparent pixels) fails the build here, before anything
-   compiles; and the launch theme in its `background_color`, where it names one, under `app/build/<app>/launch/res/`
-   ([the launch window](#the-devices-colours-llp-1115001-d4));
+   compiles; and the launch theme in its `background_color` and with its `host.android.launchImage`, where it names
+   either, under `app/build/<app>/launch/res/` ([the launch window](#the-devices-colours-llp-1115001-d4));
 2. builds the app's `android/` crate for `aarch64-linux-android` at `host-dev` (`--release`: at `release` with fat
    LTO, as a production build links, for measuring). The crate is a cdylib whose source is `exact_painted::canvas_jni!(<the data source>, hatches =
    crate::exact_hatches())`, with a build script that bakes the plan and calls `contract::native::android_entry`,
@@ -111,7 +115,13 @@ The build:
    uses name `dates` (a date or time control), which links Compose Material 3 for its pickers; and with the Kotlin
    in the app's `modules/android`, its hatches and module roster, compiled in,
 
-and prints the APK's path. Each build has its own Gradle output and locks: the
+and prints the APK's path, `outputs/apk/release/app-release.apk` under the shell's build directory.
+A development-trust APK at `host-dev` passes `-PdevelopmentApk=1`: R8 shrinks with the existing keep rules,
+without optimization or obfuscation, and lint vital is omitted. It keeps the release build type and its
+upload-or-debug signing configuration, with debugging disabled. `--release`, production trust and bundles
+retain full R8 and release lint.
+
+Each build has its own Gradle output and locks: the
 shell's build directory (`-PappBuildDir`), the reader's (`-PcanvasBuildDir`), Gradle's project cache
 (`--project-cache-dir`) and Kotlin's session files, under `app/build/<app>`, `canvas/build/<app>`, `.gradle/apps/<app>`
 and `.kotlin/apps/<app>` for an app of this repository and under the app's own `target/android/` for one outside it, so
@@ -119,9 +129,11 @@ builds of two apps at once do not wait on each other or mix outputs. The library
 with (`-PndkPath`). Beside the APK, `exact-build.json` records when the build began, the library and the Kotlin it
 compiled: a drive refuses an APK older than its sources by it. `--install` then installs the APK on the device a drive
 would use (`--run`: and launches it). The package id and the label are the app's
-`app.json` (`host.android.id`, defaulting to `app.id` with `-` as `_`; `app.name`).
-`ORG_GRADLE_PROJECT_idSuffix=.dev` in the environment builds a side-by-side package
-(`<Android package>.dev`). `./gradlew :canvas:assembleRelease` builds the reader alone.
+`app.json` (`host.android.id`, defaulting to `app.id` with `-` as `_`; `app.name`), which the build passes to
+Gradle as `-PapplicationId` and `-PappName`; the app module requires both. `--variant <name>` builds
+app.json's `variants.<name>` instead, a package beside the plain one with its own label, icons and settings,
+into its own build directories (`app/build/<app>.<name>`, an outside app's `target/android.<name>/`; LLP
+1030.008). `./gradlew :canvas:assembleRelease` builds the reader alone.
 
 A component fixture may compile the real app's Kotlin with
 `ORG_GRADLE_PROJECT_modulesDir=<absolute path to the app's modules/android>`. The default
@@ -222,9 +234,9 @@ journal to logcat as the host comes to hold each line, with the milliseconds sin
 above were read (`adb logcat -v time`, from ActivityManager's "Start proc" line). Like every launch extra, only a
 development build reads it.
 
-A development build always writes the data module's `console` lines to logcat under the tag `exact-app` (`adb logcat
--s exact-app`), each at its method's priority (`console.debug` at debug, `console.log` and `console.info` at info,
-`console.warn` at warn, `console.error` at error); a release build does not.
+Every build writes the data module's `console` lines to logcat, tagged with the app's package name (`adb logcat -s
+com.example.app`), each at its method's priority (`console.debug` at debug, `console.log` and `console.info` at info,
+`console.warn` at warn, `console.error` at error).
 
 The published v5 Hermes bundle has ICU Unicode support but no `Intl` (LLP 1107 §4.1).
 An Intl-enabled bundle with receipt-bound English ICU data enables Ibex's
@@ -250,7 +262,14 @@ Not there: a picture from a URL (below, "Not done").
 drives the app the reader shows, on a phone over adb, by the Linux host's own protocol: no second one. `--reader`
 takes the APK `agent-android.mjs build <app> --apk` made (`EXACT_ANDROID_BIN=<apk>` names another), installs it,
 launches it under a driver and speaks the agent API's JSON lines to it. `ANDROID_SERIAL` picks the phone, and
-`ORG_GRADLE_PROJECT_idSuffix` says the package's suffix, as it did to the build.
+`--variant <name>` the variant's package, as it did to the build; an APK built as another package is refused.
+
+Before launch the driver reports a focused Android permission dialog on stderr, leaving JSON stdout unchanged.
+It reads only window focus lines on Android 10 and later, and reports a dialog even if the read fails after
+returning its focus line. If the read fails without a dialog or omits focus, it logs the error and continues
+launching. State replies pass through unchanged.
+The carrier clears the app's task, but a permission dialog in another task can survive. If it covers the app,
+dismiss it on the device and retry. The drive does not grant or revoke permissions or stop the permission controller.
 
 **How a line crosses.** The shell's activity attaches an `AgentDrive` at the reader's driver seam (below) when its
 launch says `agent=<name>`: a socket of that name in the abstract namespace, served only to adb's own user (shell
@@ -542,6 +561,16 @@ iOS launch screen and its web page's first paint do: the build writes a theme ov
 behind the window and on Android 12's starting window, and the bars' icons dark over a light colour
 (`agent-android.mjs` `androidLaunch`).
 
+From Android 12 the starting window shows the launcher icon on that colour, as the platform has it; before 12 the
+window has no icon. `host.android.launchImage` replaces the icon with a picture, as iOS's launch screen has one: from
+Android 12 it is the starting window's icon (`windowSplashScreenAnimatedIcon`), a layer list with the picture at
+108/192 of its `width`, because the platform lays the drawable out as an adaptive icon's 108 dp layer and shows that
+layer 192 dp wide, cut to a circle that wide on stock Android (measured on Android 16 and 17 emulators and an Android 14
+phone, whose HyperOS does not cut it; the documented "288 dp within a 192 dp circle" draws it at two thirds of its
+width). Before 12 the picture, at its `width`, is a layer of the window's background. `false` makes the icon
+transparent. The starting window still goes when the first frame is drawn (`ExactActivity` `Splash`): on a phone
+(Android 14) no frame of the colour alone came between the picture and the first frame.
+
 ## The channel out (LLP 1115.001 D5)
 
 Every other call here goes from the reader into exact2. What an app asks of the platform goes the other way, and all
@@ -582,6 +611,7 @@ capability has a call of its own.
 | 17 | open an auth session | three strings: the granted authorization URL, callback endpoint and state | opens the default browser, with a Custom Tab when supported; keeps a ten-minute wait across activity recreation | `opened` acknowledges the wait without settling; `unavailable` (501), `failed` (502), or `cancelled` (499 on return after a stop without a callback, at the bound, or with no attached activity); a callback with a matching state arrives through `Native.open` and the runner checks it; a stale callback consumes the return without ending the wait |
 | 18 | a file input's `showPicker` (LLP 1069.002) | the input node, `multiple` (1 or 0), the count of `accept` types, then each type as a string | the system photo picker when its filters fit and it is available, otherwise `ACTION_OPEN_DOCUMENT`; offers HEIC/HEIF for conversion as below and copies the selected URIs into the app's cache off the UI thread (`FilePicker`) | a JSON array of `{path, name, type, extension, extensions, converted, name_type}` records: staging path, display name, nullable MIME type and storage extension, the chooser's mapping of extension tokens to MIME types, whether conversion occurred, and Android's MIME for the display-name suffix. Null or an empty array cancels; other text is a refusal reason. The presenter copies into `app:/tmp/picked/`, removes the reader's copies, and fires `change` or journals the refusal and fires `cancel` |
 | 19 | end an auth wait | one word: the request id from kind 17 | removes the wait; the browser owns its tab | none |
+| 20 | a signed update activated with its own assets (LLP 1030.006 D1, D5) | the generation's asset directory as a string, empty for the APK's | opens every video and page again, and the next sound batch its files, under `Native.assetRoot()` (`AssetRoot`); calls `Native.drew()` after its next drawing, which makes the new generation's boot good | none |
 
 Kinds 5, 6, 7, 8, 13 and 14 are statements of the app's state, told when it changes and anew to a reader made again; exact2
 reads them as the queue is taken (`Presenter::tell_shell`), Back, the wake lock and the orientation lock only after a
@@ -1593,10 +1623,11 @@ The cut was the smallest one. Left in the reader:
 
 ## Not done
 
-- **`mix-blend-mode`.** The stream has no blend, so a blended SVG element draws over what is below it; the recorder
-  says so once on the log and the schema's row records it (LLP 1159.000). The pictures the paint walk rasterises itself
-  (SVG filters, `text-shadow`, `-webkit-text-stroke`, `background-clip: text`) are placed as a canvas's is: seen on an
-  emulator, and what an animated one costs is not measured (`QUEUE.md`, "Android's island pictures").
+- **Blending outside one SVG.** Put the ink and its backdrop inside the same `svg`: the shared CPU painter
+  composites them before the Android stream records one picture. A blend cannot read a box or another surface
+  outside that SVG. If its picture cannot be composited, the SVG draws unblended with a `style-undrawn` note.
+  Canvas 2D's `globalCompositeOperation = "multiply"` also blends within its own surface. Animated island
+  costs on an Android device remain unmeasured (`QUEUE.md`, "Android's island pictures").
 - **Most of LLP 1115.001.** The controls have the desktop painter's shapes, and a sheet or a chooser is refused.
   What is built of it:
   - *The reader answers accessibility services* (D13): the section above, with what was and was not seen of
@@ -1686,10 +1717,13 @@ The cut was the smallest one. Left in the reader:
 - **A GPU canvas over children**: a `Composite` surface (Caltrain's sky, `glass`, which refracts the content inside
   it) is given its children's picture (`gpu_texture`) and the page no longer paints them over it; built and unit
   tested on a Mac, not seen on a device.
-- **No update store** and no replaced Rust module: the Canvas host has neither. An app's compatibility record is
-  computed as its Linux crate's is, but with no store (`store.L` is `0`, and `deploy.store.android` can only be
-  `"0"`; absent, it is `"0"`). Its `rustMode` is `off` in every trust (LLP 1030.006 D1): the library links no Rust
-  executor, so no generation's Rust pair is admitted.
+- **An update store only at `"A"`, and no replaced Rust module.** `deploy.store.android` is `"0"` when absent, and
+  the library then links no store. At `"A"` it links `exact-painted-update` (`canvas_jni!`'s `updates =`), whose
+  store is under the reader's `noBackupFilesDir`, and takes signed plans, assets and TypeScript pairs (LLP 1030.006).
+  An app's compatibility record is computed as its Linux crate's is, with platform `android`, and also records what
+  the APK linked (`androidLinked`) and its Hermes bytecode version: a generation needing more is refused. Its
+  `rustMode` is `off` in every trust (D1): the library links no Rust executor, so no generation's Rust pair is
+  admitted.
 - **No picture from a URL.** The Linux host's pictures are files under the asset root (`host/painted/src/image`), on
   every shell it has: Shelf's covers, which Open Library serves, are the grey box behind them in Discover and a gap on
   a book's page. Nothing of this host's is missing for it; the loader has no door for a remote source.

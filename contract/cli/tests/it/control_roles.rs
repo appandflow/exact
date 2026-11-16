@@ -4,12 +4,10 @@
 //! control and parameter, in one line for each override; `best-effort` says
 //! nothing; a node's own row wins over the role.
 
-use std::path::PathBuf;
+use crate::scratch::Scratch;
 
-fn app(name: &str, targets: &str, design: &str, view: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("exact2-controls-{name}-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).unwrap();
+fn app(name: &str, targets: &str, design: &str, view: &str) -> Scratch {
+    let dir = Scratch::new(format!("exact2-controls-{name}-{}", std::process::id()));
     std::fs::write(dir.join("app.json"), format!("{{\"app\": {{\"id\": \"dev.test.controls\", \"name\": \"Controls\"}}, \"host\": {{{targets}}}}}")).unwrap();
     std::fs::write(
         dir.join("app.forma"),
@@ -17,7 +15,7 @@ fn app(name: &str, targets: &str, design: &str, view: &str) -> PathBuf {
     )
     .unwrap();
     std::fs::write(dir.join("app.contract"), view).unwrap();
-    dir.join("app.contract")
+    dir.at("app.contract")
 }
 
 /// The `forma-unreachable` messages, sorted.

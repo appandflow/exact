@@ -70,8 +70,13 @@ import UIKit
 /// What a native container covers of a box (LLP 1075.003 §3.5): bars over
 /// its edges, added to its padding, or the whole box, which a native bar
 /// replaces (`display: none`).
-enum HostCover: Equatable {
-    struct Edges: Equatable { var top: CGFloat, right: CGFloat, bottom: CGFloat, left: CGFloat }
+package enum HostCover: Equatable {
+    package struct Edges: Equatable {
+        var top: CGFloat, right: CGFloat, bottom: CGFloat, left: CGFloat
+        package init(top: CGFloat, right: CGFloat, bottom: CGFloat, left: CGFloat) {
+            self.top = top; self.right = right; self.bottom = bottom; self.left = left
+        }
+    }
     case edges(Edges)
     case whole
     /// A scroller UIKit insets (a route's collapsing or bottom-edge

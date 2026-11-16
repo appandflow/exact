@@ -4,11 +4,11 @@
 //! definition wins and must be a length, and a base name is never an app
 //! axis's inherited-row refusal.
 
+use crate::scratch::Scratch;
 use exact_kernel::style::{metrics::Column, scale};
 use exact_kernel::{Kernel, StyleId};
 use exact_plan::{Plan, Value};
 use exact_runner::{DataError, DataSource, Runner};
-use std::path::PathBuf;
 
 struct NoData;
 
@@ -18,14 +18,12 @@ impl DataSource for NoData {
     }
 }
 
-fn app(name: &str, files: &[(&str, &str)]) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("exact2-base-scale-{name}-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).unwrap();
+fn app(name: &str, files: &[(&str, &str)]) -> Scratch {
+    let dir = Scratch::new(format!("exact2-base-scale-{name}-{}", std::process::id()));
     for (file, text) in files {
         std::fs::write(dir.join(file), text).unwrap();
     }
-    dir.join("app.contract")
+    dir.at("app.contract")
 }
 
 fn booted(plan: Plan) -> Runner<NoData> {

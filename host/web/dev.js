@@ -587,6 +587,7 @@ if (es) {
     // An app whose manifest fixes `userInterfaceStyle` ignores the system's, as on iOS; a copy still shows its pin.
     const scheme = p?.scheme && (copy || !["light", "dark"].includes(document.querySelector('meta[name="color-scheme"]')?.content)) ? p.scheme : null;
     sheet.textContent = scheme ? `:root{color-scheme:${scheme}${copy ? "!important" : ""}}` : "";
+    if (copy) x.asked?.scheme?.apply();
     if ((x.systemScheme ?? null) !== scheme) { x.systemScheme = scheme; dispatchEvent(new Event("resize")); }
     // The root font size as `prefer` sets it (navigation.js): the size an
     // app's percentage is of, too.

@@ -274,7 +274,7 @@ pub fn tags() -> Vec<(&'static str, Tag)> {
 /// earlier are [`COMPILE_ATTRS`].
 pub fn attrs() -> Vec<(&'static str, AttrTarget)> {
     // A part's declaration (`::placeholder color`) is no attribute to write:
-    // `contract vocab ::placeholder` describes the block. Nor is lowering's
+    // `contract vocab ::placeholder` and `::backdrop` describe the blocks. Nor is lowering's
     // own row for `:active`'s `opacity` (LLP 1121 D8).
     let styles: Vec<&'static str> = crate::style_names::STYLE_NAMES
         .iter()
@@ -309,14 +309,21 @@ pub fn shorthand_rows(name: &str) -> &'static [StyleId] {
     crate::shorthands::rows(name)
 }
 
-/// An enum row's keywords an author may write: the schema's, less its
-/// `refused` (LLP 1043.000 §3 D1).
+/// A row's keywords an author may write: an enum row's, less its `refused`
+/// (LLP 1043.000 §3 D1), or the size keywords a dimension row takes
+/// (LLP 1001.001 D2).
 pub fn authored_names(row: StyleId) -> Vec<&'static str> {
     let refused = row.refused_enum_names();
     row.enum_names()
         .iter()
         .copied()
         .filter(|n| !refused.contains(n))
+        .chain(
+            exact_kernel::SizeKeyword::ALL
+                .into_iter()
+                .filter(|k| row.admits_size_keyword(*k))
+                .map(exact_kernel::SizeKeyword::css),
+        )
         .collect()
 }
 
@@ -332,15 +339,15 @@ pub fn codec(row: StyleId) -> String {
 }
 
 /// What a `transition` names (`transition-property`, LLP 1002): `all`,
-/// `border-color`, and each property the engine moves, a path's `d` among
-/// them (LLP 1055.000 D15).
+/// `border-color`, and each property the engine moves, a path's `d` and
+/// `filter` among them (LLP 1055.000 D15, LLP 1003.002).
 pub fn transition_properties() -> Vec<&'static str> {
     use exact_motion::Property;
     let mut names = vec!["all", "border-color"];
     names.extend(
         Property::ALL
             .into_iter()
-            .chain([Property::D])
+            .chain(Property::TRANSITION_ONLY)
             .filter(|p| *p != Property::ShadowColor)
             .map(|p| p.name()),
     );

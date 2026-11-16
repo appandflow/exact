@@ -11,6 +11,13 @@ mod activities;
 pub use activities::Activity;
 mod watch;
 pub use watch::{WatchEntry, WATCH_KIND};
+mod variant;
+
+/// The unsuffixed id of the selected variant whose id is `id` (LLP 1030.008
+/// D2), for a check that admits a data source naming its product.
+pub fn selected_base(id: &str) -> Option<String> {
+    variant::base_of(id)
+}
 
 /// The app manifest (`app.json`, LLP 1030 D2; 1030.000 D7) as the bake
 /// reads it — the JSON, and the identity every platform derives from it.
@@ -28,6 +35,12 @@ pub struct Manifest {
 }
 
 impl Manifest {
+    /// The unsuffixed `app.id` when a variant is selected (LLP 1030.008 D2).
+    pub fn variant_base(&self) -> Option<&str> {
+        self.json
+            .pointer("/variant/base")
+            .and_then(serde_json::Value::as_str)
+    }
     /// Resolve the replacement executor baked into a platform/environment.
     /// Matches `scripts/app.mjs::rustPolicy` (LLP 1029.000 §2): global,
     /// environment, platform, then platform environment; true means auto.
@@ -126,6 +139,11 @@ impl Manifest {
     /// `app.json` in `app_dir`, or the derived defaults: `com.exact.<name>`
     /// and the directory's name capitalized.
     pub fn read(app_dir: &Path) -> Result<Manifest, String> {
+        let selected = variant::selected(app_dir)?;
+        Self::read_selected(app_dir, selected.as_deref())
+    }
+
+    fn read_selected(app_dir: &Path, selected: Option<&str>) -> Result<Manifest, String> {
         let name = app_dir
             .canonicalize()
             .ok()
@@ -151,6 +169,9 @@ impl Manifest {
             app_dir.join("app.json")
         };
         if !path.exists() {
+            if let Some(name) = selected {
+                variant::resolve(&mut serde_json::json!({}), name)?;
+            }
             return Ok(Manifest {
                 json: serde_json::json!({}),
                 id: format!("com.exact.{name}"),
@@ -160,8 +181,17 @@ impl Manifest {
         }
         let text =
             std::fs::read_to_string(&path).map_err(|e| format!("{}: {e}", path.display()))?;
-        let json: serde_json::Value =
+        let mut json: serde_json::Value =
             serde_json::from_str(&text).map_err(|e| format!("{}: {e}", path.display()))?;
+        if let Some(name) = selected {
+            variant::resolve(&mut json, name).map_err(|e| format!("{}: {e}", path.display()))?;
+        }
+        canonicalize_document_handlers(&mut json).map_err(|problem| {
+            format!(
+                "{} does not conform to scripts/app.schema.json:\n  {problem}",
+                path.display()
+            )
+        })?;
         let app = json.get("app").and_then(|a| a.as_object());
         let id = app
             .and_then(|a| a.get("id"))
@@ -681,6 +711,77 @@ fn validate_placement_policy(value: &serde_json::Value) -> Result<(), String> {
     Ok(())
 }
 
+fn canonicalize_document_handlers(json: &mut serde_json::Value) -> Result<(), String> {
+    let Some(declared) = json.get_mut("file_handlers") else {
+        return Ok(());
+    };
+    if !declared.is_array() {
+        return Err(format!("file_handlers: {declared} is not an array"));
+    }
+    let handlers = declared.as_array_mut().unwrap();
+    for (handler_index, handler) in handlers.iter_mut().enumerate() {
+        if !handler.is_object() {
+            return Err(format!(
+                "file_handlers[{handler_index}]: {handler} is not an object"
+            ));
+        }
+        let handler = handler.as_object_mut().unwrap();
+        if let Some(name) = handler.get("name") {
+            let name = name.as_str().ok_or_else(|| {
+                format!("file_handlers[{handler_index}].name: {name} is not a string")
+            })?;
+            if name.is_empty() || name.chars().any(char::is_control) {
+                return Err(format!(
+                    "file_handlers[{handler_index}].name: {} is not a label: use a non-empty string with no control character",
+                    serde_json::to_string(name).unwrap_or_default()
+                ));
+            }
+        }
+        let accept = handler
+            .get_mut("accept")
+            .ok_or_else(|| format!("file_handlers[{handler_index}].accept: is required"))?;
+        if !accept.is_object() {
+            return Err(format!(
+                "file_handlers[{handler_index}].accept: {accept} is not an object"
+            ));
+        }
+        let accept = accept.as_object_mut().unwrap();
+        for (mime, extensions) in accept {
+            if !extensions.is_array() {
+                return Err(format!(
+                    "file_handlers[{handler_index}].accept.{mime}: {extensions} is not an array"
+                ));
+            }
+            let extensions = extensions.as_array_mut().unwrap();
+            for (extension_index, extension) in extensions.iter_mut().enumerate() {
+                let written = extension.as_str().map(str::to_owned).ok_or_else(|| {
+                    format!(
+                        "file_handlers[{handler_index}].accept.{mime}[{extension_index}]: {extension} is not a string"
+                    )
+                })?;
+                let canonical = format!(
+                    "{}{}",
+                    if written.starts_with('.') { "" } else { "." },
+                    written.to_ascii_lowercase()
+                );
+                let valid = canonical.len() <= 16
+                    && !canonical.ends_with('.')
+                    && canonical
+                        .bytes()
+                        .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'+' | b'.'));
+                if !valid {
+                    return Err(format!(
+                        "file_handlers[{handler_index}].accept.{mime}[{extension_index}]: {} is not a file suffix: use at most 16 ASCII alphanumeric, \"+\" or \".\" code points, with an optional leading dot and no trailing dot",
+                        serde_json::to_string(&written).unwrap_or_default()
+                    ));
+                }
+                *extension = serde_json::Value::String(canonical);
+            }
+        }
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod placement_tests {
     use super::Manifest;
@@ -717,6 +818,89 @@ mod placement_tests {
             m.placement("typescript", "ios"),
             Err("invalid typescript policy key: aliases".into())
         );
+    }
+}
+
+#[cfg(test)]
+mod document_extension_tests {
+    use super::Manifest;
+
+    #[test]
+    fn rust_and_javascript_share_document_suffix_cases() {
+        let cases: serde_json::Value = serde_json::from_str(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../scripts/fixtures/document-suffixes.json"
+        )))
+        .unwrap();
+        let dir = std::env::temp_dir().join(format!(
+            "exact-manifest-document-suffixes-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let result = std::panic::catch_unwind(|| {
+            for case in cases.as_array().unwrap() {
+                let declaration = case["declaration"].as_str().unwrap();
+                std::fs::write(
+                    dir.join("app.json"),
+                    serde_json::json!({
+                        "name": "Suffixes",
+                        "app": {"id": "test.suffixes", "name": "Suffixes"},
+                        "file_handlers": [{"action": "/", "accept": {"text/markdown": [declaration]}}]
+                    })
+                    .to_string(),
+                )
+                .unwrap();
+                match case.get("canonical").and_then(serde_json::Value::as_str) {
+                    Some(canonical) => assert_eq!(
+                        Manifest::read(&dir).unwrap().json["file_handlers"][0]["accept"]
+                            ["text/markdown"][0],
+                        canonical,
+                        "{declaration:?}"
+                    ),
+                    None => {
+                        let error = Manifest::read(&dir).unwrap_err();
+                        assert!(error.contains(case["error"].as_str().unwrap()), "{error}");
+                    }
+                }
+            }
+        });
+        std::fs::remove_dir_all(&dir).unwrap();
+        if let Err(error) = result {
+            std::panic::resume_unwind(error);
+        }
+    }
+
+    #[test]
+    fn a_selected_variant_has_canonical_document_handlers() {
+        let dir = std::env::temp_dir().join(format!(
+            "exact-manifest-variant-document-suffixes-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let result = std::panic::catch_unwind(|| {
+            std::fs::write(
+                dir.join("app.json"),
+                serde_json::json!({
+                    "name": "Reader",
+                    "app": {"id": "test.reader", "name": "Reader"},
+                    "variants": {"dev": {"idSuffix": ".dev", "name": "Reader Dev"}},
+                    "file_handlers": [{"action": "/", "accept": {"text/markdown": ["MD"]}}]
+                })
+                .to_string(),
+            )
+            .unwrap();
+            let manifest = Manifest::read_selected(&dir, Some("dev")).unwrap();
+            assert_eq!(manifest.id, "test.reader.dev");
+            assert_eq!(manifest.variant_base(), Some("test.reader"));
+            assert_eq!(
+                manifest.json["file_handlers"][0]["accept"]["text/markdown"][0],
+                ".md"
+            );
+        });
+        std::fs::remove_dir_all(&dir).unwrap();
+        if let Err(error) = result {
+            std::panic::resume_unwind(error);
+        }
     }
 }
 

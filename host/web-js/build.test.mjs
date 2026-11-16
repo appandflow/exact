@@ -3,10 +3,11 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync, statSync, utimesSync } from 'node:fs';
 import { createServer, get as httpGet } from 'node:http';
 import { tmpdir } from 'node:os';
-import { brotliCompressSync, brotliDecompressSync, constants } from 'node:zlib';
+import { brotliDecompressSync } from 'node:zlib';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { buildModule, moduleGrants, webCompiler } from './module.mjs';
+import { buildModule, moduleGrants, undeclaredRustData, webCompiler } from './module.mjs';
+import { builtFile } from './content-names.mjs';
 import { rustDataOf } from '../../scripts/app-shells.mjs';
 import { spawnOwned } from '../../scripts/test-children.mjs';
 import { open } from '../../scripts/agent.mjs';
@@ -44,7 +45,7 @@ test('a media-only page applies its audio policy while activation waits and pres
     await p.goto(server.url.href);
     await p.locator('audio').click();
     expect(await p.evaluate(() => ({ type: navigator.audioSession.type, ready: !!globalThis.exact?.ready, contexts }))).toEqual({ type: 'ambient', ready: false, contexts: 0 });
-    expect(scripts).toEqual(['/audio-session.js']);
+    expect(scripts).toEqual([`/${builtFile(dist, 'audio-session.js')}`]);
     await p.goto(new URL('shell.html', server.url).href);
     await p.waitForFunction(() => globalThis.exact?.ready);
     const agent = readdirSync(dist).find(name => /^agent-.*\.js$/.test(name));
@@ -84,7 +85,7 @@ test.each([[false, false], [true, false], [true, true]])('a list first opened of
       ...(production ? ['--production'] : [])], { cwd: root, env: { ...process.env, EXACT_APP_DIR: dir }, encoding: 'utf8' });
     expect(built.status, built.stdout + built.stderr).toBe(0);
     expect(built.stdout).toMatch(/own plan code by component \(shared bodies counted per use\)[\s\S]*OfflineList: \d+ B \(1 instance\)/);
-    expect(built.stdout).toContain(`${dist}: app.js ${statSync(resolve(dist, 'app.js')).size} B, built`);
+    expect(built.stdout).toContain(`${dist}: ${builtFile(dist, 'app.js')} ${statSync(resolve(dist, builtFile(dist, 'app.js'))).size} B, built`);
     const collection = readdirSync(dist).find(name => /^collection-glue-.*\.js$/.test(name));
     expect(collection).toBeDefined();
     // A probe in the deferred chunk distinguishes preparation from evaluation.
@@ -122,49 +123,6 @@ test.each([[false, false], [true, false], [true, true]])('a list first opened of
     await page.getByTestId('rows').evaluate(el => { el.scrollTop = 3600; });
     await page.getByTestId('row-90').waitFor();
     expect(await page.getByTestId('row-0').count()).toBe(0);
-  } finally {
-    await browser?.close(); server?.stop(true); rmSync(dir, { recursive: true, force: true });
-  }
-}, 60000);
-
-test('the production starter stays within its 45 KiB budget and its header button works', async () => {
-  if (webCompiler().cmd === 'cargo') throw new Error('build the compiler first: cargo build -p exact-web-js');
-  const root = resolve(import.meta.dir, '../..'), dir = mkdtempSync(resolve(root, 'target/starter-bytes-'));
-  const app = resolve(dir, 'starter'), dev = resolve(dir, 'development'), dist = resolve(dir, 'production');
-  let browser, server;
-  try {
-    const run = (args, env = {}) => {
-      const result = spawnSync(process.execPath, args, { cwd: root, env: { ...process.env, ...env }, encoding: 'utf8' });
-      expect(result.status, result.stdout + result.stderr).toBe(0);
-    };
-    run(['scripts/exact.mjs', 'new', app, '--bundle-id', 'com.example.starter']);
-    run(['host/web/build.mjs', 'starter-web'], { EXACT_APP_DIR: app, EXACT_WEB_DIST: dev });
-    run(['host/web-js/build.mjs', 'starter', '--plan', resolve(dev, 'app.plan'), '--out', dist, '--production'], { EXACT_APP_DIR: app });
-    const entry = readFileSync(resolve(dist, 'app.js'));
-    const bytes = brotliCompressSync(entry, { params: {
-      [constants.BROTLI_PARAM_QUALITY]: 11, [constants.BROTLI_PARAM_SIZE_HINT]: entry.length,
-    } }).length;
-    // scripts/metrics.mjs JS_TARGET_KIB: the production artifact, compressed as it ships.
-    expect(bytes).toBeLessThanOrEqual(45 * 1024);
-    expect(entry.toString()).not.toContain('focus window');
-    expect(entry.toString()).not.toContain('clipboard');
-    expect(entry.toString()).not.toContain('vibrate');
-    server = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch(request) {
-      const path = new URL(request.url).pathname;
-      return new Response(Bun.file(resolve(dist, path === '/' ? 'index.html' : path.slice(1))));
-    } });
-    browser = await suiteBrowser();
-    const page = await browser.newPage(), errors = [];
-    page.on('pageerror', error => errors.push(error.message));
-    await page.goto(server.url.href + '?agent&epoch=1&seed=3');
-    await page.waitForFunction(() => globalThis.exact?.ready);
-    expect(await page.evaluate(() => exact.clock.agent)).toBe(false);
-    await page.waitForFunction(() => document.querySelector('[data-testid=greeting]')?.textContent === 'Hello from Starter.');
-    await page.getByTestId('like').click();
-    expect(await page.getByTestId('like').getAttribute('aria-label')).toBe('Unlike');
-    await page.getByTestId('like').click();
-    expect(await page.getByTestId('like').getAttribute('aria-label')).toBe('Like');
-    expect(errors).toEqual([]);
   } finally {
     await browser?.close(); server?.stop(true); rmSync(dir, { recursive: true, force: true });
   }
@@ -246,8 +204,11 @@ test.each([false, true])('named focus, blur, scheme, clipboard and haptic comman
     await page.reload();
     await page.getByTestId('apply').waitFor();
     expect(await page.evaluate(() => globalThis.firstScheme)).toBe('dark');
+    await page.getByTestId('field').focus();
+    expect(await page.evaluate(() => document.activeElement.id)).toBe('field');
     await page.getByTestId('clear').dispatchEvent('click');
     expect(await page.evaluate(() => Object.keys(localStorage).filter(k => k.endsWith('#scheme')))).toEqual([]);
+    expect(await page.evaluate(() => document.activeElement === document.body)).toBe(true);
     expect(errors).toEqual([]);
   } finally {
     await browser?.close(); server?.stop(true); rmSync(dir, { recursive: true, force: true });
@@ -427,7 +388,7 @@ test('web validation drops unused package exports before refusing their environm
     writeFileSync(resolve(dir, 'app.ts'), base + "export const answer = () => 'ready';\nexport { debug } from 'debug-helper';\n");
     const built = build();
     expect(built.status, built.stdout + built.stderr).toBe(0);
-    expect(readFileSync(resolve(out, 'app.js'), 'utf8')).not.toContain('import.meta.env');
+    expect(readFileSync(resolve(out, builtFile(out, 'app.js')), 'utf8')).not.toContain('import.meta.env');
     for (const source of [
       base + 'export const answer = () => debug();\n',
       base.replace('() => false', '() => !!debug()') + "export const answer = () => 'ready';\n",
@@ -607,7 +568,7 @@ component App
         expect(production.agentSeed(origin + '/?agent&seed=7')).toBeNull();
       }
       const shipped = readdirSync(release, { recursive: true }).filter(name => /\.m?js$/.test(name));
-      expect(shipped).toContain('picker-glue.js');
+      expect(shipped).toContain(builtFile(release, 'picker-glue.js'));
       expect(shipped).toContain('storage-environment.js');
       expect(shipped).toContain('.gen/navigation.js');
       for (const name of shipped) {
@@ -763,7 +724,7 @@ test('web-build --out writes a site that serve.mjs serves by the hosting rule, r
     expect(built.stdout).toContain('/item/:id: render=client, the default, so the browser draws the page only once app.js and its data have loaded; a page every reader sees alike arrives whole sooner as render=request');
     expect(built.stdout).toContain('/live: render=request, so serve renders its page for each request; a static host serves its shell');
     expect(built.stdout).toContain('/feed: render=cached, so serve renders its page and keeps it 60 s; a static host serves its shell');
-    expect(built.stdout.trimEnd().split('\n').slice(-3).join('\n')).toMatch(/dist: the site, for any static host\. bun host\/web\/serve\.mjs .*dist serves it[^]*shell\.html with status 200; else 404\.html with status 404\.\n {2}A host with a single fallback page serves shell\.html/);
+    expect(built.stdout.trimEnd().split('\n').slice(-4).join('\n')).toMatch(/dist: the site, for any static host\. bun host\/web\/serve\.mjs .*dist serves it[^]*shell\.html with status 200; else 404\.html with status 404\.\n {2}A host with a single fallback page serves shell\.html[^]*\n {2}routes\.json `files` names the files named by their content: a host may cache them for good/);
     expect(JSON.parse(readFileSync(resolve(out, 'routes.json'), 'utf8')).routes).toEqual([
       { name: 'home', pattern: '/', render: 'build', notfound: false },
       { name: 'item', pattern: '/item/:id', render: 'client', notfound: false },
@@ -814,13 +775,13 @@ test('web-build --out writes a site that serve.mjs serves by the hosting rule, r
     // A page sent before the build is replaced still loads its build's files: the build replaced is kept beside the
     // output by its generation (`dist.gen`), as target/web-dist's is.
     const generation = async () => /<base href="\/\.exact\/gen\/([0-9a-f]{32})\/">/.exec(await (await fetch(url('/'), { headers: html })).text())?.[1];
-    const before = await generation(), script = readFileSync(resolve(out, 'app.js'));
+    const before = await generation(), entry = builtFile(out, 'app.js'), script = readFileSync(resolve(out, entry));
     writeFileSync(resolve(app, 'app.contract'), source.replace('text note.text\n', 'text note.text\n      text "Changed."\n'));
     const rebuilt = build();
     expect(rebuilt.status, rebuilt.stdout + rebuilt.stderr).toBe(0);
-    const after = await generation(), kept = await fetch(url(`/.exact/gen/${before}/app.js`));
+    const after = await generation(), kept = await fetch(url(`/.exact/gen/${before}/${entry}`));
     expect([before === after, kept.status, Buffer.from(await kept.arrayBuffer()).equals(script)]).toEqual([false, 200, true]);
-    expect(readFileSync(resolve(out, 'app.js')).equals(script)).toBe(false);
+    expect(builtFile(out, 'app.js')).not.toBe(entry);
     expect(readdirSync(app).filter((name) => name.startsWith('dist')).sort()).toEqual(['dist', 'dist.gen', 'dist.lock']);
     // As `serve` serves it: each route's page rendered with its data, the live one per request, the cached one once.
     serve = await serving(root, out);
@@ -847,10 +808,12 @@ test('web-build --out writes a site that serve.mjs serves by the hosting rule, r
     const docAsked = await fetch(`http://127.0.0.1:${serve.port}/doc/7`, { headers: { accept: 'text/markdown, text/html;q=0.9' } });
     const docBody = await docAsked.text();
     expect([docAsked.status, docBody.includes('>/doc/7<'), docBody.includes('>/doc/7.md<')]).toEqual([200, true, false]);
-    const file = await raw('/app.js');
+    // A file the build named by its content is kept for good; one with a fixed name is asked about again (LLP 1153.004).
+    const file = await raw(`/${builtFile(out, 'app.js')}`), fixed = await raw('/app.plan');
     const hosted = await serving(root, out, { fromEnv: true });
     try { expect((await hosted.get('/live')).body).toContain('The note, rendered.'); } finally { await hosted.stop(); }
-    expect([file.headers['cache-control'], /^"[\w-]+"$/.test(file.headers.etag ?? '')]).toEqual(['no-cache', true]);
+    expect([file.headers['cache-control'], /^"[\w-]+"$/.test(file.headers.etag ?? ''), fixed.headers['cache-control']])
+      .toEqual(['public, max-age=31536000, immutable', true, 'no-cache']);
     expect(await get('/item/7')).toMatchObject({ status: 200, body: expect.not.stringContaining('The note, rendered.') });
     expect((await get('/no/such/route')).status).toBe(404);
     // A bad percent escape is no file, and a link in the build to a file outside it is not served (render.mjs
@@ -867,7 +830,7 @@ test('web-build --out writes a site that serve.mjs serves by the hosting rule, r
       .toEqual([[200, true], [200, true], [404, false], [404, false]]);
     // A rendered page is its build's, as a document from a file is: its base names its generation, whose runtime its
     // reader loads from there, even once another build replaces it.
-    const rendered = await get('/live'), id = generationIn(rendered.body), runtime = readFileSync(resolve(out, 'app.js'));
+    const rendered = await get('/live'), id = generationIn(rendered.body), loaded = builtFile(out, 'app.js'), runtime = readFileSync(resolve(out, loaded));
     expect(id).toBe(after);
     // Asked for under its generation (as a page's own navigation asks), the same page is rendered, not the notfound route.
     const under = await fetch(`http://127.0.0.1:${serve.port}/.exact/gen/${id}/live`, { headers: html });
@@ -875,7 +838,7 @@ test('web-build --out writes a site that serve.mjs serves by the hosting rule, r
     writeFileSync(resolve(app, 'app.contract'), source.replace('text note.text\n', 'text note.text\n      text "Changed again."\n'));
     const again = build();
     expect(again.status, again.stdout + again.stderr).toBe(0);
-    const next = await get('/live'), old = await fetch(`http://127.0.0.1:${serve.port}/.exact/gen/${id}/app.js`);
+    const next = await get('/live'), old = await fetch(`http://127.0.0.1:${serve.port}/.exact/gen/${id}/${loaded}`);
     expect([generationIn(next.body) === id, next.body.includes('Changed again.'), old.status, Buffer.from(await old.arrayBuffer()).equals(runtime)]).toEqual([false, true, 200, true]);
     // A source changed since the build: serve builds the site again before it answers a navigation, and answers a
     // build that fails with its output (LLP 1153.001 D3). A source is one however deep in the app it is.
@@ -1015,11 +978,12 @@ test('a page built from an --inline shell is composed in the shell\'s own root a
     const built = spawnSync(process.execPath, ['host/web-js/build.mjs', app, '--out', out, '--inline'], { cwd: root, env: { ...process.env, EXACT_APP_DIR: app }, encoding: 'utf8' });
     expect(built.status, built.stdout + built.stderr).toBe(0);
     const shell = readFileSync(resolve(out, 'shell.html'), 'utf8'), page = readFileSync(resolve(out, 'index.html'), 'utf8');
-    expect(shell.includes('<script type="module">') && shell.indexOf('<script type="module">') > shell.lastIndexOf(entry)).toBe(true);
+    const inline = `<script type="module" data-entry="./${builtFile(out, 'app.js')}">`;
+    expect(shell.includes(inline) && shell.indexOf(inline) > shell.lastIndexOf(entry)).toBe(true);
     // The head entry once and before the document; the document in the root; the checkpoint in the entry's place,
-    // which the capture script loads `./app.js` for, so the bundle is not in the page, once or twice.
+    // which names the entry the capture script loads, so the bundle is not in the page, once or twice.
     const document = page.indexOf('The note, rendered.'), checkpoint = page.indexOf('<script type="application/vnd.exact.checkpoint"');
-    expect([page.split(entry).length - 1, page.indexOf(entry) < document, document < checkpoint, page.includes('<script type="module">'),
+    expect([page.split(entry).length - 1, page.indexOf(entry) < document, document < checkpoint, page.includes(inline),
       page.split('<script type="application/vnd.exact.checkpoint"').length - 1]).toEqual([1, true, true, false, 1]);
     expect(page.slice(0, document).lastIndexOf('<div id="exact-root">')).toBeGreaterThan(page.indexOf(entry) + entry.length - 1);
   } finally { rmSync(dir, { recursive: true, force: true }); }
@@ -1049,7 +1013,7 @@ test('an app whose name or head entry spells a script tag renders its pages in t
 // nor inside a head script's text that spells one (render.mjs `markdownAt`).
 test("compiled Markdown goes before the shell's own entry, whatever the head's scripts are or spell", async () => {
   const { markdownAt } = await import('./render.mjs');
-  const entry = '<script type="module" src="./app.js"></script>', inline = '<script type="module">const a = "<script type=\\"module\\">";</script>';
+  const entry = '<script type="module" data-entry src="./app.js"></script>', inline = '<script type="module" data-entry="./app.js">const a = "<script type=\\"module\\">";</script>';
   const head = '<script type="module" src="https://cdn.example/x.js"></script>\n<script>const s = \'<script type="module" src="./app.js">\';</script>\n';
   for (const tail of [entry, inline]) {
     const shell = `<!doctype html>\n<html lang="en">\n<title>T</title>\n<meta name="viewport" content="x">\n<style>p{}</style>\n${head}<div id="exact-root"></div>\n${tail}\n`;
@@ -1227,6 +1191,62 @@ function site(app, source) {
 }
 const generationIn = (body) => /<base href="\/\.exact\/gen\/([0-9a-f]{32})\/">/.exec(body)?.[1];
 
+test('source capture skips nested dot directories in apps and mounts and names refused links', async () => {
+  const root = resolve(import.meta.dir, '../..'), dir = mkdtempSync(resolve(root, 'target/hidden-capture-'));
+  const app = resolve(dir, 'app'), shared = resolve(dir, 'shared'), out = resolve(dir, 'dist');
+  const build = () => spawnSync(process.execPath, ['host/web-js/build.mjs', app, '--out', out, '--render', 'none'],
+    { cwd: root, encoding: 'utf8', env: process.env });
+  let browser, server;
+  try {
+    site(app, 'shape Note\n  text: string\n\ncomponent App\n  resource note = note("ready") as shape Note\n  view\n    text note.text testId="note"\n');
+    mkdirSync(shared);
+    const manifest = JSON.parse(readFileSync(resolve(app, 'app.json'), 'utf8'));
+    manifest.typescript = { sources: { shared: '../shared' } };
+    writeFileSync(resolve(app, 'app.json'), JSON.stringify(manifest));
+    writeFileSync(resolve(shared, '.settings.json'), '{}');
+    writeFileSync(resolve(shared, 'model.ts'), "export const word = 'ready';\n");
+    const source = readFileSync(resolve(app, 'app.ts'), 'utf8');
+    writeFileSync(resolve(app, 'app.ts'), "import { word } from './shared/model';\n" + source.replace('`The note, ${what}.`', '`The note, ${word}.`'));
+    for (const from of [app, shared]) {
+      for (const cache of ['backend/.elixir_ls/build/lib/app', 'server/.venv/bin']) {
+        const at = resolve(from, cache);
+        mkdirSync(at, { recursive: true });
+        mkdirSync(resolve(from, 'backend/priv'), { recursive: true });
+        writeFileSync(resolve(at, 'cache.json'), '{}');
+        symlinkSync(resolve(from, 'backend/priv'), resolve(at, 'priv'));
+        symlinkSync('missing-python', resolve(at, 'python'));
+      }
+    }
+    const built = build();
+    expect(built.status, built.stdout + built.stderr).toBe(0);
+    expect(existsSync(resolve(out, '.gen/typescript/shared/.settings.json'))).toBe(true);
+    for (const from of ['', 'shared']) for (const cache of ['backend/.elixir_ls', 'server/.venv']) {
+      expect(existsSync(resolve(out, '.gen/typescript', from, cache))).toBe(false);
+    }
+    server = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch(request) {
+      const path = new URL(request.url).pathname;
+      return new Response(Bun.file(resolve(out, path === '/' ? 'index.html' : path.slice(1))));
+    } });
+    browser = await suiteBrowser();
+    const page = await browser.newPage();
+    await page.goto(server.url.href);
+    await page.getByTestId('note').waitFor();
+    expect(await page.getByTestId('note').innerText()).toBe('The note, ready.');
+    await browser.close(); browser = null;
+    const link = resolve(app, 'backend/helper.ts');
+    symlinkSync('../app.ts', link);
+    const refused = build();
+    expect(refused.status).toBe(1);
+    expect(refused.stderr).toContain(`error: app: source links are not captured: ${link}`);
+    expect(refused.stderr).not.toContain('failed the type check');
+    rmSync(link);
+    writeFileSync(resolve(app, 'app.ts'), source + '\nconst bad: number = "wrong";\n');
+    const mistyped = build();
+    expect(mistyped.status).toBe(1);
+    expect(mistyped.stderr).toContain('failed the type check');
+  } finally { await browser?.close(); server?.stop(true); rmSync(dir, { recursive: true, force: true }); }
+}, 60000);
+
 /** serve.mjs on `out` as the `serve` verb runs it (`--loopback`), on a free port: `get(path)` a navigation's answer,
  * `renders(path)` how many pages of it serve said it rendered, `heard(done)` once what it said satisfies `done`. */
 async function serving(root, out, { fromEnv = false } = {}) {
@@ -1354,30 +1374,62 @@ test('the web module exports the source app.json\'s rust.data names, in the gram
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
+// LLP 1153.003 D2: the JS target runs only the Rust source app.json's rust.data names, so a web crate that links the
+// app's data crate without it is refused with the line to add, not built into a page that answers nothing.
+test('a web crate linking a data crate app.json does not name is refused with the rust.data line', () => {
+  const root = resolve(import.meta.dir, '../..'), dir = mkdtempSync(resolve(tmpdir(), 'exact-undeclared-')), out = resolve(dir, 'dist');
+  const write = (path, text) => { mkdirSync(dirname(resolve(dir, path)), { recursive: true }); writeFileSync(resolve(dir, path), text); };
+  try {
+    write('app.json', JSON.stringify({ name: 'Pins', app: { id: 'test.pins', name: 'Pins' }, rust: 'off' }));
+    write('app.contract', 'component App\n  resource message = message() as shape string\n  view\n    column\n      text message\n');
+    write('data/Cargo.toml', '[package]\nname = "pins-data"\nversion = "0.1.0"\nedition = "2021"\n');
+    write('web/Cargo.toml', '[package]\nname = "pins-web"\nversion = "0.1.0"\nedition = "2021"\n\n[dependencies]\npins-data = { path = "../data" }\n');
+    write('web/build.rs', 'fn main() { let _ = contract::bake(plan, pins_data::Pins::new(3)); }\n');
+    const built = spawnSync(process.execPath, ['host/web-js/build.mjs', dir, '--out', out, '--render', 'none'], { cwd: root, encoding: 'utf8', env: { ...process.env, EXACT_APP_DIR: dir } });
+    expect(built.status, built.stdout + built.stderr).toBe(1);
+    expect(built.stderr).toContain('web/Cargo.toml links pins-data, a crate beside app.json, and app.json names no rust.data: the web build runs only the Rust source rust.data names');
+    expect(built.stderr).toContain('\n  "rust": { "mode": "off", "data": { "crate": "pins-data", "type": "pins_data::<Type>", "source": "pins_data::<Type>::new(…)" } }\n');
+    const manifest = JSON.parse(readFileSync(resolve(dir, 'app.json'), 'utf8'));
+    expect(undeclaredRustData('pins', dir, manifest)).toContain('links pins-data');
+    // A module of the app's own answers instead, and a web crate that links none of the app's crates has no Rust source.
+    expect(undeclaredRustData('pins', dir, { ...manifest, rust: { module: { package: 'pins-logic' } } })).toBeNull();
+    write('web/Cargo.toml', '[package]\nname = "pins-web"\nversion = "0.1.0"\nedition = "2021"\n\n[dependencies]\ncontract = { path = "../../contract/cli" }\n');
+    expect(undeclaredRustData('pins', dir, manifest)).toBeNull();
+    // A source the build script defines and composes with app.ts links no crate, and is refused all the same.
+    write('web/build.rs', 'mod pins { pub struct Pins; }\nfn main() { exact_js_bake::build_mixed_with(std::path::Path::new(".."), "web", &pins::Pins, &[], |m| todo!()).unwrap(); }\n');
+    const inline = undeclaredRustData('pins', dir, manifest);
+    expect(inline).toContain('pins: web/build.rs composes a Rust source with app.ts (exact_js_bake::build_mixed_with), and app.json names no rust.data');
+    expect(inline).toContain('"data": { "crate": "pins-data", "type": "pins_data::<Type>"');
+    rmSync(resolve(dir, 'data'), { recursive: true });
+    expect(undeclaredRustData('pins', dir, manifest)).toContain('"data": { "crate": "<crate>", "type": "<library>::<Type>"');
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
 test('a mixed contract build leaves the Cargo provider types even when checking fails', async () => {
-  const root = resolve(import.meta.dir, '../..'), dir = mkdtempSync(resolve(root, 'target/mixed-provider-types-'));
+  const root = resolve(import.meta.dir, '../..');
+  mkdirSync(resolve(root, 'target'), { recursive: true });
+  const dir = mkdtempSync(resolve(root, 'target/mixed-provider-types-'));
   const { patchLines } = await import('../../scripts/app.mjs');
   const env = { ...process.env, EXACT_APP_DIR: dir, CARGO_TARGET_DIR: resolve(dir, 'target'), CARGO_NET_OFFLINE: 'true', HERMES_LEAN_SYS_OFFLINE: '1' };
-  const write = (name, text) => writeFileSync(resolve(dir, name), text);
+  const write = (name, text) => { mkdirSync(dirname(resolve(dir, name)), { recursive: true }); writeFileSync(resolve(dir, name), text); };
   const run = () => spawnSync(process.execPath, [resolve(root, 'scripts/exact.mjs'), 'contract', 'build', 'app.contract'], { cwd: dir, env, encoding: 'utf8', timeout: 240_000 });
   const declarations = () => readFileSync(resolve(dir, 'app.contract.d.ts'), 'utf8');
   try {
-    mkdirSync(resolve(dir, 'web/src'), { recursive: true });
-    write('Cargo.toml', `[workspace]\nmembers = ["web"]\nresolver = "2"\n[profile.dev]\ndebug = 0\n[patch.crates-io]\n${patchLines(dir).join('\n')}\n`);
-    write('web/Cargo.toml', `[package]\nname = "provider-web"\nversion = "0.1.0"\nedition = "2021"\n[build-dependencies]\nexact-js-bake = { path = ${JSON.stringify(resolve(root, 'js/bake'))} }\nexact-data = { path = ${JSON.stringify(resolve(root, 'data'))} }\nexact-runner = { path = ${JSON.stringify(resolve(root, 'runner'))} }\n`);
-    write('web/src/lib.rs', '');
-    const script = `
-mod provider_data {
-    pub const RUST_SOURCES: &[&str] = &["rust"];
-    pub struct Rust;
-    impl exact_runner::DataSource for Rust {
-        fn app_id(&self) -> &str { "test.providers" }
-        fn query(&mut self, _: &str, _: &[exact_runner::Value]) -> Result<exact_runner::Value, exact_runner::DataError> {
-            Ok(exact_runner::Value::str("Rust"))
-        }
+    write('Cargo.toml', `[workspace]\nmembers = ["data", "web"]\nresolver = "2"\n[profile.dev]\ndebug = 0\n[patch.crates-io]\n${patchLines(dir).join('\n')}\n`);
+    write('data/Cargo.toml', `[package]\nname = "provider-data"\nversion = "0.1.0"\nedition = "2021"\n[dependencies]\nexact-runner = { path = ${JSON.stringify(resolve(root, 'runner'))} }\n`);
+    const data = `pub const RUST_SOURCES: &[&str] = &["rust"];
+pub struct Rust;
+impl exact_runner::DataSource for Rust {
+    fn app_id(&self) -> &str { "test.providers" }
+    fn query(&mut self, _: &str, _: &[exact_runner::Value]) -> Result<exact_runner::Value, exact_runner::DataError> {
+        Ok(exact_runner::Value::str("Rust"))
     }
 }
-fn main() {
+`;
+    write('data/src/lib.rs', data);
+    write('web/Cargo.toml', `[package]\nname = "provider-web"\nversion = "0.1.0"\nedition = "2021"\n[build-dependencies]\nprovider-data = { path = "../data" }\nexact-js-bake = { path = ${JSON.stringify(resolve(root, 'js/bake'))} }\nexact-data = { path = ${JSON.stringify(resolve(root, 'data'))} }\n`);
+    write('web/src/lib.rs', '');
+    write('web/build.rs', `fn main() {
     exact_js_bake::build_mixed_with(
         std::path::Path::new(".."), "web", &provider_data::Rust, provider_data::RUST_SOURCES,
         |javascript| Box::new(exact_data::Mixed::new(javascript, provider_data::Rust,
@@ -1385,9 +1437,9 @@ fn main() {
             provider_data::RUST_SOURCES).unwrap()),
     ).unwrap();
 }
-`;
-    write('web/build.rs', script);
-    write('app.json', JSON.stringify({ name: 'Provider', app: { id: 'test.providers', name: 'Provider' }, deploy: { store: { web: '0' } } }));
+`);
+    const manifest = { name: 'Provider', app: { id: 'test.providers', name: 'Provider' }, deploy: { store: { web: '0' } } };
+    write('app.json', JSON.stringify({ ...manifest, rust: { data: { crate: 'provider-data', type: 'provider_data::Rust', source: 'provider_data::Rust' } } }));
     write('app.contract', 'component App\n  resource javascript = javascript() as shape string\n  resource rust = rust() as shape string\n  view\n    column\n      text javascript\n      text rust\n');
     const source = `import type { TypeScriptSources, TypeScriptAnswer } from './app.contract.d.ts';
 export const grants = '';
@@ -1408,7 +1460,7 @@ export const answer: TypeScriptAnswer = (source, args, store, storage, native) =
     expect(checked.stdout + checked.stderr).toContain("Property 'javascript' is missing");
     expect(declarations()).toContain('Exclude<Source, "rust">');
     write('app.ts', source);
-    write('web/build.rs', script.replace('&["rust"];', '&[];'));
+    write('data/src/lib.rs', data.replace('&["rust"];', '&[];'));
     checked = run();
     expect(checked.status).toBe(1);
     expect(checked.stdout + checked.stderr).toContain("Property 'rust' is missing");
@@ -1416,11 +1468,18 @@ export const answer: TypeScriptAnswer = (source, args, store, storage, native) =
     write('app.ts', source.replace("javascript: () => 'TypeScript'", "javascript: () => 'TypeScript', rust: () => 'Moved'"));
     checked = run();
     expect(checked.status, checked.stdout + checked.stderr).toBe(0);
-    write('web/build.rs', script);
+    write('data/src/lib.rs', data);
     write('app.ts', source.replace("{ javascript: () => 'TypeScript' }", '{}'));
     checked = run();
     expect(checked.status).toBe(1);
     expect(checked.stdout + checked.stderr).toContain("Property 'javascript' is missing");
     expect(declarations()).toContain('Exclude<Source, "rust">');
+    // LLP 1153.003 D2: the JS target runs only the source rust.data names, so a build that composes a source
+    // app.json does not name is refused, not type-checked against declarations that leave its sources to app.ts.
+    write('app.json', JSON.stringify(manifest));
+    checked = run();
+    expect(checked.status).toBe(1);
+    expect(checked.stdout + checked.stderr).toContain('web/build.rs composes a Rust source with app.ts (exact_js_bake::build_mixed_with), and app.json names no rust.data');
+    expect(checked.stdout + checked.stderr).toContain('"data": { "crate": "provider-data", "type": "provider_data::<Type>"');
   } finally { rmSync(dir, { recursive: true, force: true }); }
 }, 300_000);

@@ -71,6 +71,7 @@ impl Painter {
         // A scroller's rows are its children; a scroller holding one
         // container (a column of settings) keeps that container's children
         // apart instead, so one of them changing records only itself.
+        let ts = self.zoom_children(walk.scene.kernel, node, ts, child_offset);
         let rows = self.has_rows(walk, node);
         let group = rows && !self.rows_wrapper(node.key);
         let wrap = group && self.wraps_rows(walk, &children);

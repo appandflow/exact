@@ -28,7 +28,7 @@ pub(super) fn keep(ops: Option<Vec<u32>>) {
 pub(super) fn reader_replaced() {
     FINISHED.with(|f| *f.borrow_mut() = None);
     streams().clear();
-    pending().clear();
+    with_pending(|p| p.clear());
 }
 
 pub(super) fn next_stream() -> Option<Vec<u32>> {
@@ -296,7 +296,7 @@ mod tests {
             text "Second line"
 "##;
         for scale in [1., 2.625] {
-            let (mut p, error) = Presenter::boot_with(
+            let (mut p, error) = Presenter::boot_with_fixture_fonts(
                 &crate::test_plan(source),
                 (),
                 (411., 500.),
@@ -376,7 +376,7 @@ mod tests {
             let source = format!(
                 "component App\n  view\n    iframe src=\"https://example.com/\" width=100 height=100{attribute}\n"
             );
-            let (mut p, error) = Presenter::boot_with(
+            let (mut p, error) = Presenter::boot_with_fixture_fonts(
                 &crate::test_plan(&source),
                 (),
                 (200., 200.),
@@ -435,7 +435,7 @@ component App
               button id="back" press=back width=100 height=40
                 text "Back"
 "##;
-        let (mut p, error) = Presenter::boot_with(
+        let (mut p, error) = Presenter::boot_with_fixture_fonts(
             &crate::test_plan(source),
             (),
             (400., 500.),
@@ -508,7 +508,7 @@ component App
     fn a_hosted_hit_names_the_native_contents_painted_origin() {
         use crate::presenter::{PainterChoice, Presenter};
         for scale in [1., 2., 2.75] {
-            let (mut p, error) = Presenter::boot_with(
+            let (mut p, error) = Presenter::boot_with_fixture_fonts(
                 &crate::test_plan(r##"component App
   view
     view margin=10.25 padding=12 width=350 height=350
@@ -549,7 +549,7 @@ component App
     #[test]
     fn turned_boxes_record_shapes_without_cpu_pictures() {
         use crate::presenter::{PainterChoice, Presenter};
-        let (mut p, error) = Presenter::boot_with(
+        let (mut p, error) = Presenter::boot_with_fixture_fonts(
             &crate::test_plan("component App\n  view\n    view perspective=600 width=200 height=100 margin=100\n      view rotate=\"y 40deg\" width=200 height=100 background-color=\"#ff0000\"\n        text \"Turned card\" font-size=18 color=\"white\" margin=12\n"),
             (), (400., 400.), 3., std::path::PathBuf::new(), PainterChoice::Canvas,
         ).unwrap();
@@ -596,7 +596,7 @@ component App
             (recorded, drawn)
         }
 
-        let (mut p, error) = Presenter::boot_with(
+        let (mut p, error) = Presenter::boot_with_fixture_fonts(
             &crate::test_plan(
                 r##"component App
   state shown = false
@@ -858,11 +858,11 @@ component App
         recorder.ops = vec![IMAGE, 1, 0, 0, 1, 1];
         recorder.finish_stream().unwrap();
         assert!(waiting());
-        assert!(pending().contains_key(&1));
+        assert!(with_pending(|p| p.contains_key(&1)));
         reader_replaced();
         assert!(!waiting());
         assert!(FINISHED.with(|f| f.borrow().is_none()));
-        assert!(pending().is_empty());
+        assert!(with_pending(|p| p.is_empty()));
 
         let new = Picture::Canvas(Arc::new(Pixmap::new(2, 1).unwrap()));
         let mut recorder = Recorder::new();
@@ -870,7 +870,7 @@ component App
         recorder.finish_stream().unwrap();
         let newest = FINISHED.with(|f| f.borrow_mut().take());
         assert_eq!(after_turn(newest), Some(vec![IMAGE_DEF, 1, 2, 1]));
-        assert_eq!(pending().remove(&1).unwrap().key(), new.key());
+        assert_eq!(with_pending(|p| p.remove(&1)).unwrap().key(), new.key());
         assert!(next_stream().is_none());
     }
 }

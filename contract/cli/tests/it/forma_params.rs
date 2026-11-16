@@ -4,20 +4,18 @@
 //! it, folded with the design, checked (kind, reach, range, controls),
 //! retained as any token, and listed in the IR's `components` block.
 
+use crate::scratch::Scratch;
 use exact_plan::Plan;
-use std::path::PathBuf;
 
 /// An app in a fresh directory: its files, `app.contract` first.
-fn app(name: &str, files: &[(&str, &str)]) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("exact2-params-{name}-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).unwrap();
+fn app(name: &str, files: &[(&str, &str)]) -> Scratch {
+    let dir = Scratch::new(format!("exact2-params-{name}-{}", std::process::id()));
     for (file, text) in files {
         let path = dir.join(file);
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         std::fs::write(path, text).unwrap();
     }
-    dir.join("app.contract")
+    dir.at("app.contract")
 }
 
 fn theme(plan: &Plan) -> Vec<(String, String)> {

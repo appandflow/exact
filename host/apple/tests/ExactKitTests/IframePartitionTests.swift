@@ -145,6 +145,31 @@ final class IframePartitionTests: XCTestCase {
 
     private func events(_ seen: Seen) -> [String] { seen.records.map(\.event) }
 
+    /// A frame's page is asked for with the `Referer` a browser sends for an
+    /// `iframe` under its default policy, `strict-origin-when-cross-origin`:
+    /// the origin of the page that embeds it, the host's frame page at
+    /// `exact.invalid`. The frame page around a sandboxed guest sends it from
+    /// WebKit; a guest loaded as the web view's own page is given the same.
+    func testAFramesPageArrivesWithTheOriginOfThePageThatEmbedsIt() throws {
+        let arm = try arm(), seen = Seen(), pages = try XCTUnwrap(Self.server)
+        func referer(_ path: String, configuration: [String: Any] = [:], sandbox: String? = nil) -> String? {
+            let (handle, _) = mount(arm, seen, configuration: configuration, src: "\(baseURL)\(path)", sandbox: sandbox)
+            defer { arm.destroy(handle) }
+            spin { pages.referers[path] != nil }
+            return pages.referers[path]
+        }
+        XCTAssertEqual(referer("/c?wrapped", sandbox: "allow-scripts"), "http://exact.invalid/", "from the frame page around it")
+        XCTAssertEqual(referer("/c?direct"), "http://exact.invalid/")
+        let browsing = Seen(), (handle, _) = mount(arm, browsing, configuration: ["partition": "memory-referrer"], src: "\(baseURL)/c?partitioned")
+        defer { arm.destroy(handle) }
+        spin { pages.referers["/c?partitioned"] != nil }
+        XCTAssertEqual(pages.referers["/c?partitioned"], "http://exact.invalid/", "a partitioned frame's source")
+        assertLoaded(browsing, ["navigate", "currententrychange", "navigatesuccess"])
+        json(["op": "navigate", "url": "\(baseURL)/c?navigated"], arm.command, handle)
+        spin { pages.referers["/c?navigated"] != nil }
+        XCTAssertEqual(pages.referers["/c?navigated"], "http://exact.invalid/", "and the page's `navigate`")
+    }
+
     func testNavigationEventsCommandsAndTheirRecords() throws {
         let arm = try arm(), seen = Seen()
         let (handle, web) = mount(arm, seen, configuration: ["partition": "memory-a"], src: "\(baseURL)/a")
@@ -622,11 +647,14 @@ func loopbackListener(port: UInt16 = 0, _ serve: @escaping (NWConnection) -> Voi
     throw NSError(domain: "loopbackListener", code: 1, userInfo: [NSLocalizedDescriptionKey: "no listener on 127.0.0.1:\(port == 0 ? "any port" : "\(port)"): \(state)"])
 }
 
-/// Fixed pages on a loopback port: `/a` (a title and an icon), `/b`,
-/// `/redirect` (302 to `/b`) and `/slow`, which never answers.
+/// Fixed pages on a loopback port: `/a` (a title and an icon), `/b`, `/c`,
+/// `/redirect` (302 to `/b`) and `/slow`, which never answers, each under
+/// any query.
 final class FramePages {
     private var listener: NWListener!
     private var held: [NWConnection] = []
+    /// The `Referer` each request arrived with ("" for none), by its path and query.
+    private(set) var referers: [String: String] = [:]
 
     var port: UInt16 { listener.port!.rawValue }
 
@@ -635,10 +663,13 @@ final class FramePages {
     private func serve(_ connection: NWConnection) {
         connection.start(queue: .main)
         connection.receive(minimumIncompleteLength: 1, maximumLength: 65536) { [weak self] data, _, _, _ in
-            guard let self, let data, let line = String(decoding: data, as: UTF8.self).split(separator: "\r\n").first else { return connection.cancel() }
-            let path = line.split(separator: " ").dropFirst().first.map(String.init) ?? "/"
+            let lines = data.map { String(decoding: $0, as: UTF8.self).components(separatedBy: "\r\n\r\n")[0].components(separatedBy: "\r\n") } ?? []
+            guard let self, let line = lines.first else { return connection.cancel() }
+            let target = line.split(separator: " ").dropFirst().first.map(String.init) ?? "/"
+            self.referers[target] = lines.dropFirst().first { $0.lowercased().hasPrefix("referer:") }
+                .map { $0.dropFirst("referer:".count).trimmingCharacters(in: .whitespaces) } ?? ""
             let response: String
-            switch path {
+            switch target.split(separator: "?", maxSplits: 1).first.map(String.init) ?? target {
             case "/a": response = Self.page("Page A", head: "<link rel=icon href=/a.png>")
             case "/b": response = Self.page("Page B")
             case "/c": response = Self.page("Page C")

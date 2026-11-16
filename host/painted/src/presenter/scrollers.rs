@@ -62,7 +62,8 @@ pub struct Scroller {
 pub struct Under {
     /// The scrollers there, innermost first. Each one's `axes` are those it
     /// takes part on for a drag from this point: an `overscroll-behavior`
-    /// other than `auto` ends the chain on its axis.
+    /// other than `auto` ends the chain on its axis. A zoomable container
+    /// is there with no axes while it has no travel.
     pub chain: Vec<Scroller>,
     /// The axes (sideways; up and down) a gesture of the presenter's own
     /// there would take.
@@ -108,6 +109,11 @@ const DISMISS_INTERACTIVE: i32 = 128;
 /// reader's pull to refresh (`scroll_drag.rs`).
 const REFRESH: i32 = 16;
 const REFRESHING: i32 = 32;
+/// Bit 8: a zoomable container, whose pinch and pan are the reader's
+/// (LLP 1057.001.000 §5); bit 9, in a touch's answer only: a double tap
+/// there zooms it (D5).
+const ZOOM: i32 = 256;
+const DOUBLE_TAP: i32 = 512;
 
 fn scrolls(o: Overflow) -> bool {
     matches!(o, Overflow::Scroll | Overflow::Auto)
@@ -222,6 +228,9 @@ impl<D: DataSource> Presenter<D> {
                 contained(node.style.overscroll_behavior_x),
                 contained(node.style.overscroll_behavior_y),
             );
+            // A zoomable container is under the touch with no travel too:
+            // its pinch and double tap are the reader's (LLP 1057.001.000 §5).
+            let zooms = crate::paint::zoom::range(&node).is_some();
             let parent = self.scroll_parent(id).or_else(|| {
                 node.node_type
                     .is_svg_element()
@@ -232,7 +241,7 @@ impl<D: DataSource> Presenter<D> {
                 s.axes.1 |= self.pulls_to_refresh(id, &limits);
                 s.axes = (s.axes.0 && open.0, s.axes.1 && open.1);
                 open = (open.0 && !cut.0, open.1 && !cut.1);
-                if s.axes.0 || s.axes.1 {
+                if s.axes.0 || s.axes.1 || zooms {
                     if let Some(b) = self.box_of(id) {
                         s.port = shown(b.rect, b.clip);
                     }
@@ -556,7 +565,8 @@ impl<D: DataSource> Presenter<D> {
     /// from here, bit 1 one up or down, bit 2 it has rows the reader can
     /// move, bit 3 no scrollbar, bit 4 it hears `refresh`, bit 5 its
     /// `refreshing` is true, bit 6 a drag of it puts the keyboard away and
-    /// bit 7 the keyboard follows that drag), revision, then as float bits its offset
+    /// bit 7 the keyboard follows that drag, bit 8 it zooms, bit 9 a double
+    /// tap from here zooms it), revision, then as float bits its offset
     /// (x, y), its farthest offset (x, y) and its port (x, y, width, height). The reader is told
     /// of each from now on ([`Presenter::reader_scrollers`]).
     pub fn reader_under(&mut self, x: f32, y: f32, scale: f32) -> Vec<i32> {
@@ -567,9 +577,12 @@ impl<D: DataSource> Presenter<D> {
             under.chain.len() as i32,
             under.field.unwrap_or(0) as i32,
         ];
+        let tapped =
+            (self.hit(x / scale, y / scale)).and_then(|hit| self.double_tap_container(hit));
         for s in &under.chain {
             let rev = self.reader_revision(s);
-            out.extend([s.id as i32, self.reader_flags(s), rev as i32]);
+            let tap = if tapped == Some(s.id) { DOUBLE_TAP } else { 0 };
+            out.extend([s.id as i32, self.reader_flags(s) | tap, rev as i32]);
             let px = [s.offset.0, s.offset.1, s.max.0, s.max.1];
             out.extend(px.iter().chain(&s.port).map(|v| bits(v * scale)));
         }
@@ -653,9 +666,14 @@ impl<D: DataSource> Presenter<D> {
         } else {
             REFRESH
         };
+        let zoom = node
+            .as_ref()
+            .filter(|_| s.id != PAGE)
+            .is_some_and(|n| crate::paint::zoom::range(n).is_some());
         (if s.axes.0 { X } else { 0 })
             | (if s.axes.1 { Y } else { 0 })
             | (if s.node { NODE } else { 0 })
+            | (if zoom { ZOOM } else { 0 })
             | (if barless { BARLESS } else { 0 })
             | dismiss
             | refresh
@@ -686,13 +704,16 @@ impl<D: DataSource> Presenter<D> {
     #[cfg(any(target_os = "android", test))]
     pub(crate) fn reader_module(&mut self, x: f32, y: f32, scale: f32) -> [i32; 13] {
         let module = self.hit(x / scale, y / scale).filter(|id| {
+            // A video with `controls` takes its gestures as a module's view does (LLP 1042.001 D4).
             self.host.kernel().node(*id).is_some_and(|node| {
-                node.node_type == NodeType::NativeView
+                (node.node_type == NodeType::NativeView
+                    || (node.node_type == NodeType::Video
+                        && node.props.bool(PropId::Controls) == Some(true)))
                     && self.host.retained_action_eligible(node.key)
             })
         });
         let painted = module.and_then(|id| self.box_of(id));
-        let rect = painted.map(|b| b.rect).unwrap_or_default();
+        let rect = painted.as_ref().map(|b| b.rect).unwrap_or_default();
         let node = module.and_then(|id| self.host.kernel().node(id));
         let content = painted
             .zip(node.as_ref())

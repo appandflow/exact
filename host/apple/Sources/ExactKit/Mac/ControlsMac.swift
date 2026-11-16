@@ -295,10 +295,10 @@ final class ControlHost: NSObject {
         guard let control = controls[node.id] else { return nil }
         if let b = control as? NativeButtonMac { return nativeObservation(b) }
         if let value = valueObservation(control) {
-            return value.merging(["size": [Agent.r2(control.frame.width), Agent.r2(control.frame.height)]]) { a, _ in a }
+            return value.merging(["size": [InspectionValue.r2(control.frame.width), InspectionValue.r2(control.frame.height)]]) { a, _ in a }
         }
         return ["view": control is NSSwitch ? "NSSwitch" : control is RadioButtonMac ? "NSButton(radio)" : "NSButton(checkbox)", "on": isOn(control),
-                "size": [Agent.r2(control.frame.width), Agent.r2(control.frame.height)]]
+                "size": [InspectionValue.r2(control.frame.width), InspectionValue.r2(control.frame.height)]]
     }
 
     func reset() {

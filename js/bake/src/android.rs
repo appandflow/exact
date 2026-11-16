@@ -40,3 +40,12 @@ pub(crate) fn android(
     contract::native::android_entry(&app, &manifest, &plan, &out)
         .map_err(|e| BakeError(format!("android: {e}")))
 }
+
+/// The Android permissions the app's use of module names derives (`saveEvent`:
+/// `WRITE_CALENDAR`), which an installed APK cannot see in its source: an
+/// update's module receipt carries them signed, to compare with the APK's
+/// (LLP 1030.006 D4a).
+pub(crate) fn module_permissions(plan: &exact_plan::Plan, grants: &str, app: &Path) -> Vec<String> {
+    let text = contract::native::app_text(app);
+    contract::native::android_permissions(plan, Some(grants), &text)
+}

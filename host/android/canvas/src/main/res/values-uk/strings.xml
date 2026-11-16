@@ -2,5 +2,4 @@
 <resources>
     <string name="exact_clear">Очистити</string>
     <string name="exact_default_channel">Сповіщення</string>
-    <string name="exact_silent_channel">Беззвучні сповіщення</string>
 </resources>

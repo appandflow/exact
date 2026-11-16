@@ -154,6 +154,9 @@ mod access;
 #[cfg(target_os = "android")]
 #[path = "canvas/agent.rs"]
 pub mod agent;
+#[cfg(target_os = "android")]
+#[path = "canvas/boot.rs"]
+mod boot;
 #[path = "canvas/clip.rs"]
 mod clip;
 #[cfg(target_os = "android")]
@@ -186,6 +189,9 @@ mod plane;
 #[cfg(target_os = "android")]
 #[path = "canvas/presence.rs"]
 pub mod presence;
+#[cfg(any(target_os = "android", test))]
+#[path = "canvas/present.rs"]
+mod present;
 #[cfg(target_os = "android")]
 #[path = "canvas/time.rs"]
 pub mod time;
@@ -260,11 +266,25 @@ thread_local! {
 /// Pictures the reader has not fetched yet, by id: one map for the process,
 /// as a reader may fetch them on its own thread while the host runs on
 /// another (LLP 1072 on Android).
+#[cfg(not(test))]
 static PENDING: std::sync::Mutex<std::collections::BTreeMap<u32, Picture>> =
     std::sync::Mutex::new(std::collections::BTreeMap::new());
 
-fn pending() -> std::sync::MutexGuard<'static, std::collections::BTreeMap<u32, Picture>> {
-    PENDING.lock().unwrap_or_else(|e| e.into_inner())
+#[cfg(test)]
+thread_local! {
+    // Each test has its own reader, whose image ids start at one.
+    static PENDING: RefCell<std::collections::BTreeMap<u32, Picture>> = const { RefCell::new(std::collections::BTreeMap::new()) };
+}
+
+fn with_pending<T>(f: impl FnOnce(&mut std::collections::BTreeMap<u32, Picture>) -> T) -> T {
+    #[cfg(not(test))]
+    {
+        f(&mut PENDING.lock().unwrap_or_else(|e| e.into_inner()))
+    }
+    #[cfg(test)]
+    {
+        PENDING.with(|p| f(&mut p.borrow_mut()))
+    }
 }
 
 /// The recording backend.
@@ -523,7 +543,7 @@ impl Backend for Recorder {
         for (k, id) in dead {
             self.images.remove(&k);
             self.ops.extend([IMAGE_FREE, id]);
-            pending().remove(&id);
+            with_pending(|p| p.remove(&id));
         }
     }
 
@@ -685,9 +705,13 @@ impl Backend for Recorder {
         true
     }
 
+    fn supports_blend(&self) -> bool {
+        false
+    }
+
     fn island_image(&mut self, pixels: Arc<Pixmap>, dst: Rect4, ts: Transform, mode: u8) {
         if mode != 0 {
-            undrawn("`mix-blend-mode`");
+            undrawn("`mix-blend-mode` with a backdrop outside its SVG; put the backdrop inside the same SVG or Canvas 2D surface");
         }
         self.canvas(&pixels, dst, &[], ts);
     }
@@ -1031,6 +1055,8 @@ pub struct CanvasHost<D: DataSource> {
     tracks_epoch: u64,
     /// The reader's window and what it was last told to draw around the page.
     shell: device::Shell,
+    /// Pictures the reader will report presented (LLP 1003.001 D9), by token.
+    presents: present::Pictures,
 }
 
 #[cfg(target_os = "android")]
@@ -1051,129 +1077,6 @@ const MOVES_MOUNTED: u32 = 6;
 
 #[cfg(target_os = "android")]
 impl<D: DataSource + Default> CanvasHost<D> {
-    /// Boot `D`'s app in a window of `size` pixels at `scale` pixels per
-    /// point, with the insets the reader told for it (`device.rs`). Assets
-    /// use the Linux environment; the carrier directly selects its Canvas
-    /// recorder and enables the reader's native motion lowering.
-    pub fn boot(
-        plan: &'static [u8],
-        compat: &'static str,
-        size: (u32, u32),
-        scale: f32,
-        hatches: Option<crate::hatches::Install>,
-    ) -> Result<CanvasHost<D>, String> {
-        let started = std::time::Instant::now();
-        let origin_ns = monotonic_ns();
-        // Eleven viewports of decoded pictures: the reader's copy is a GPU
-        // buffer (no heap copy, no upload), a picture decoded again costs
-        // more than the memory it holds, and pictures are kept at the size
-        // they show at (`image::png_decode::DecodePlan`). Twelve until they
-        // were asked for at mount (below): heavy then ended 10 MB higher.
-        if std::env::var_os("EXACT_IMAGE_VIEWPORTS").is_none() {
-            std::env::set_var("EXACT_IMAGE_VIEWPORTS", "11");
-        }
-        // A picture is asked for when its row is built (`presenter::images`).
-        if std::env::var_os("EXACT_PICTURES_AT_MOUNT").is_none() {
-            std::env::set_var("EXACT_PICTURES_AT_MOUNT", "1");
-        }
-        std::env::set_var("EXACT_SCALE", scale.to_string());
-        let told = device::windowed(size, scale);
-        let whole = (size.0 as f32 / scale, size.1 as f32 / scale);
-        let viewport = told.map_or(whole, |told| told.inside());
-        // The first frame realizes only the rows that show; the window's lead
-        // follows once it is out ([`CanvasHost::frame`]).
-        exact_runner::set_lead_scale(0.0);
-        // A new list builds the rows the view can show before its first
-        // layout, not in a second commit after it.
-        exact_runner::set_bootstrap_extent(size.1.max(size.0) as f64 / scale as f64);
-        // A retiring row is rebound to the next item instead of a row built
-        // for it (LLP 1078), unless `EXACT_ROW_REUSE=0`.
-        crate::app::row_reuse_from_env(true);
-        crate::surfaces::prepare_gpu(compat);
-        // The device's colours, before anything is resolved by a role (D4).
-        let palette = colors::palette();
-        if let Some(palette) = &palette {
-            palette.tell();
-        }
-        let mut config = crate::app::Config::from_env_static(plan, compat);
-        let painter = crate::presenter::PainterBoot::canvas(
-            crate::presenter::PainterChoice::from_baked(compat),
-        )?;
-        // Motion lowering reads this after the requested painter has been checked.
-        std::env::set_var("EXACT_PAINTER", "canvas");
-        (config.scale, config.hatches, config.clock_started) = (scale, hatches, Some(started));
-        let (mut p, error) =
-            crate::app::boot_presenter_with_painter::<D>(&mut config, viewport, painter)?;
-        if let Some(e) = error {
-            eprintln!("exact: {e}");
-        }
-        agent::own_time(&mut p, started);
-        crate::surfaces::acquire_fd();
-        // What the reader read of the device, before the first frame (D3.1).
-        if let Some(e) = device::configured().and_then(|d| p.set_device(&d)) {
-            eprintln!("exact: device: {e}");
-        }
-        // The reader takes what the presenter asks of the platform (D5),
-        // and makes the top layer's windows (D10) and the bars (D11).
-        p.serve_requests();
-        surface::serve(&mut p);
-        if let Some(palette) = &palette {
-            p.set_palette(palette);
-        }
-        eprintln!(
-            "exact: canvas {}x{} px, scale {scale}, boot {:.1} ms",
-            size.0,
-            size.1,
-            started.elapsed().as_secs_f64() * 1000.0
-        );
-        let mut host = CanvasHost {
-            p,
-            started,
-            scale,
-            viewport,
-            painted: None,
-            moved: 0,
-            moved_at: 0.0,
-            scrolled_at: 0.0,
-            waiting: false,
-            leftover: false,
-            led: false,
-            settling: false,
-            force: false,
-            scrolled: false,
-            prefetching: false,
-            quiet: None,
-            travel: crate::travel::Travel::default(),
-            rows_before: Vec::new(),
-            rows_after: Vec::new(),
-            paint_by: None,
-            move_tracks: std::env::var("EXACT_MOVE_TRACKS").is_ok_and(|v| v == "1"),
-            sliced: false,
-            moves: std::env::var("EXACT_MOVES")
-                .ok()
-                .and_then(|v| v.parse().ok())
-                .unwrap_or(MOVES),
-            surfaces: false,
-            borrowed: false,
-            owed_surfaces: false,
-            origin_ns,
-            clock_sent: false,
-            tracks: HashMap::new(),
-            feed: None,
-            tracks_epoch: 0,
-            lead: false,
-            painted_once: false,
-            gpu_waiting: false,
-            responding: false,
-            shell: Default::default(),
-        };
-        // The page's place in the window, once its root is known (D3.3).
-        if let Some(told) = told {
-            host.set_window(told);
-        }
-        Ok(host)
-    }
-
     fn now(&self) -> f64 {
         agent::clock(&self.p)
             .unwrap_or_else(|| self.started.elapsed().as_secs_f64() * 1000.0 - agent::offset())
@@ -1281,9 +1184,12 @@ impl<D: DataSource + Default> CanvasHost<D> {
             p.display_frame()
         }?;
         p.display_complete(&frame);
+        let wanted = p.present_wanted();
+        self.presents.painted(frame.carried(), wanted);
         if p.module_pending() {
             p.first_pixel();
         }
+        p.update_launched();
         self.painted_once = true;
         self.painted = p.still().map(|still| Painted {
             still,
@@ -1353,13 +1259,17 @@ impl<D: DataSource + Default> CanvasHost<D> {
         }
     }
 
-    /// Drain the wakes (executor replies, decoded images) without painting;
-    /// whether a frame is now wanted.
+    /// Drain the wakes (executor replies, decoded images, the update store's
+    /// line) without painting; whether a frame is now wanted.
     pub fn poll(&mut self) -> bool {
         let now = self.now();
         if let Some(e) = self.p.pump(now) {
             eprintln!("exact: {e}");
         }
+        // Read on an idle screen too, or its level-triggered descriptor
+        // wakes the looper forever (LLP 1030.006 D5); a line asks for a
+        // turn, which applies an `immediate` activation it staged.
+        let updated = self.p.poll_update();
         self.p.poll_development(D::default);
         self.p.run_commands(D::default);
         self.p.poll_images();
@@ -1367,7 +1277,7 @@ impl<D: DataSource + Default> CanvasHost<D> {
         if self.p.module_pending() {
             self.p.first_pixel();
         }
-        self.animating()
+        updated || self.animating()
     }
     /// Whether another display frame is wanted.
     pub fn animating(&self) -> bool {
@@ -1453,6 +1363,8 @@ impl<D: DataSource + Default> CanvasHost<D> {
     pub fn roles_here(&mut self, here: bool) {
         let runner = self.p.host_mut().runner_mut();
         if here {
+            // A reload on this thread boots a runner that awaits its present too.
+            present::await_present();
             runner.install_roles();
         } else {
             runner.uninstall_roles();
@@ -1479,6 +1391,12 @@ impl<D: DataSource + Default> CanvasHost<D> {
         [self.p.executor_fd(), self.p.image_fd()]
     }
 
+    /// The update store's completion descriptor, or -1 with no store: last
+    /// in `Native.fds`, after the acquire descriptor (LLP 1030.006 D5).
+    pub fn update_fd(&self) -> i32 {
+        self.p.update_fd().unwrap_or(-1)
+    }
+
     /// A picture announced by `IMAGE_DEF`, once (premultiplied RGBA rows).
     pub fn image(id: u32) -> Option<Picture> {
         image(id)
@@ -1487,14 +1405,15 @@ impl<D: DataSource + Default> CanvasHost<D> {
 
 /// The pictures announced and not yet fetched: id, width, height.
 pub fn pending_pictures() -> Vec<[u32; 3]> {
-    pending()
-        .iter()
-        .map(|(id, p)| [*id, p.width(), p.height()])
-        .collect()
+    with_pending(|p| {
+        p.iter()
+            .map(|(id, p)| [*id, p.width(), p.height()])
+            .collect()
+    })
 }
 
 /// A picture announced by `IMAGE_DEF`, once (premultiplied RGBA rows).
 #[cfg(target_os = "android")]
 fn image(id: u32) -> Option<Picture> {
-    pending().remove(&id)
+    with_pending(|p| p.remove(&id))
 }
