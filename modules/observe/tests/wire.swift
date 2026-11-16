@@ -70,6 +70,7 @@ enum WireHarness {
         out["retry"] = try retryState(fixture, config: config, root: root.appendingPathComponent("retry"))
         out["crash"] = try crashState(fixture, config: config, root: root.appendingPathComponent("crash"))
         out["panic"] = try panicState(fixture, config: config, root: root.appendingPathComponent("panic"))
+        out["metricKit"] = try metricKitState(fixture, config: config, root: root.appendingPathComponent("metrickit"))
         FileHandle.standardOutput.write(try JSONSerialization.data(withJSONObject: out))
     }
 
@@ -109,6 +110,34 @@ enum WireHarness {
         }
         let left = try FileManager.default.contentsOfDirectory(atPath: root.path).filter { $0.hasPrefix("exact-observe-") }
         return ["attributes": attributes, "left": left]
+    }
+
+    /// A MetricKit crash and hang, each delivered twice, from an earlier session.
+    private static func metricKitState(_ fixture: [String: Any], config: [String: Any], root: URL) throws -> [String: Any] {
+        let tree = Data("""
+            {"callStackPerThread": true, "callStacks": [
+              {"threadAttributed": false, "callStackRootFrames": [{"binaryName": "Other", "binaryUUID": "U3", "offsetIntoBinaryTextSegment": 9, "address": 9}]},
+              {"threadAttributed": true, "callStackRootFrames": [{"binaryName": "App", "binaryUUID": "U1", "offsetIntoBinaryTextSegment": 123, "address": 4096,
+                "subFrames": [{"binaryName": "libsystem_kernel.dylib", "binaryUUID": "U2", "offsetIntoBinaryTextSegment": 456, "address": 8192}, {"address": 255}]}]}]}
+            """.utf8)
+        let window = (begin: Date(timeIntervalSince1970: 1_000), end: Date(timeIntervalSince1970: 2_000))
+        let crash = ObserveDiagnostic(kind: .crash, begin: window.begin, end: window.end, exceptionType: 1, exceptionCode: 2, signal: 11,
+                                      terminationReason: "Namespace SIGNAL, Code 11", virtualMemoryRegion: nil, callStackTree: tree)
+        let hang = ObserveDiagnostic(kind: .hang, begin: window.begin, end: window.end, hangSeconds: 2.5, callStackTree: tree)
+        // A hang leaves its process running, so the session it happened in can receive it.
+        let current = ObserveDiagnostic(kind: .hang, begin: window.begin, end: Date(timeIntervalSince1970: 1_700_000_100), hangSeconds: 1, callStackTree: tree)
+        let service = ObserveService(config: config, handoff: Data(), root: root, clientId: UUID(uuidString: fixture["clientId"] as! String)!)
+        return service.queue.sync {
+            service.store?.saveSession("earlier", start: 1_500, metadata: [:])
+            service.store?.saveSession("later", start: 2_500, metadata: [:])
+            service.ingest([crash, hang])
+            service.ingest([crash, hang, current])
+            let rows = service.store?.rows("SELECT session, time, severity, name, attributes FROM logs ORDER BY id", []) ?? []
+            return ["rows": rows.map { r -> [String: Any] in
+                ["session": r[0] ?? "", "time": r[1] ?? 0, "severity": r[2] ?? "", "name": r[3] ?? "",
+                 "attributes": (r[4] as? String).flatMap { try? JSONSerialization.jsonObject(with: Data($0.utf8)) } ?? [:]]
+            }]
+        }
     }
 
     private static func retryState(_ fixture: [String: Any], config: [String: Any], root: URL) throws -> [String: Any] {
