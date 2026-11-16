@@ -212,10 +212,13 @@ final class ObserveService {
     }
 
     /// Turns each pending ObserveCrash record into a `native.exception` log for the crashed session.
-    /// A record is the only copy of its crash, so it is removed only once its row is stored.
+    /// A SIGABRT whose session also left a Rust panic record (`ExactLaunchContext.recordPanics`)
+    /// carries the panic's message, location and thread. A record is the only copy of its crash,
+    /// so it is removed only once its row is stored.
     func ingestCrashes() {
         guard let store, let dir = crashDirectory,
               let files = try? FileManager.default.contentsOfDirectory(atPath: dir) else { return }
+        let panicPath = { (session: String) in "\(dir)/exact-observe-panic-\(session).json" }
         for f in files where f.hasPrefix("exact-observe-pending-") && !f.contains(session) {
             let path = "\(dir)/\(f)"
             guard let data = FileManager.default.contents(atPath: path),
@@ -228,13 +231,28 @@ final class ObserveService {
             let start = o["sessionStart"] as? Double ?? 0
             store.saveSession(crashed, start: start, metadata: metadata)
             let names = [6: "SIGABRT", 11: "SIGSEGV", 10: "SIGBUS", 4: "SIGILL", 8: "SIGFPE", 5: "SIGTRAP"]
-            let attrs: [String: Any] = ["exception.type": names[signal] ?? "SIG\(signal)", "exception.message": "fatal signal \(signal)",
+            var attrs: [String: Any] = ["exception.type": names[signal] ?? "SIG\(signal)", "exception.message": "fatal signal \(signal)",
                                         "expo.error.source": "nativeCrash", "expo.error.is_fatal": true, "expo.crash.signal_number": signal]
+            if signal == SIGABRT, let data = FileManager.default.contents(atPath: panicPath(crashed)),
+               let panic = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] {
+                attrs["exception.type"] = "panic"
+                attrs["exception.message"] = panic["message"] as? String ?? ""
+                if let at = panic["location"] as? String { attrs["exception.stacktrace"] = "at \(at)" }
+                if let thread = panic["thread"] as? String { attrs["thread.name"] = thread }
+            }
             let modified = (try? FileManager.default.attributesOfItem(atPath: path)[.modificationDate] as? Date)?.timeIntervalSince1970 ?? start
             if store.addLog(session: crashed, time: modified, severity: "fatal", name: "native.exception", body: nil, attributes: attrs, dropped: 0) {
                 try? FileManager.default.removeItem(atPath: path)
+                try? FileManager.default.removeItem(atPath: panicPath(crashed))
             } else {
                 fputs("observe: a pending crash record could not be stored and is kept for the next launch\n", stderr)
+            }
+        }
+        // A panic that unwound and was caught (development builds) leaves a record and no crash.
+        for f in files where f.hasPrefix("exact-observe-panic-") && !f.contains(session) {
+            let crashed = String(f.dropFirst("exact-observe-panic-".count).dropLast(".json".count))
+            if !FileManager.default.fileExists(atPath: "\(dir)/exact-observe-pending-\(crashed).json") {
+                try? FileManager.default.removeItem(atPath: "\(dir)/\(f)")
             }
         }
     }

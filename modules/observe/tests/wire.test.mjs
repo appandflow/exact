@@ -330,5 +330,12 @@ test.skipIf(process.platform !== 'darwin')('the Apple service sends wire.json\'s
     expect(out.acknowledged.metrics.filter(metric => metric.sent === true).length).toBe(1);
     // A crash record whose row the store refused stays for the next launch, which stores it once.
     expect(out.crash).toEqual({ refusedRows: 0, keptAfterRefusal: true, storedRows: 1, keptAfterStore: false });
+    // A SIGABRT after a Rust panic carries the panic's message, location and thread; both records go once
+    // stored, and a panic record with no crash (a caught panic) is removed.
+    expect(out.panic.attributes).toEqual([{
+      'exception.type': 'panic', 'exception.message': 'index out of bounds', 'exception.stacktrace': 'at data/src/lib.rs:42',
+      'thread.name': 'main', 'expo.error.source': 'nativeCrash', 'expo.error.is_fatal': true, 'expo.crash.signal_number': 6,
+    }]);
+    expect(out.panic.left).toEqual([]);
   } finally { rmSync(work, { recursive: true, force: true }); }
 }, 120_000);

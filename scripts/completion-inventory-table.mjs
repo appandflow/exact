@@ -334,6 +334,7 @@ export const classifications = [
       "exact_frame_health_applied exact_frame_health_capture exact_frame_health_context exact_frame_health_create exact_frame_health_destroy " +
       "exact_frame_health_distribution exact_frame_health_history_status exact_frame_health_hitch exact_frame_health_record exact_frame_health_requested_period " +
       "exact_frame_health_reset exact_frame_health_snapshot exact_frame_health_stop exact_frame_health_take_maxima exact_frame_health_worked"],
+    ["apple:host/apple/src/panic_record.rs", "exact_panic_record"],
     ["painted:host/painted/src/agent/held.rs", "held_named name_pending"],
     ["painted:host/painted/src/agent/sensors.rs", "framed"],
     ["painted:host/painted/src/bars.rs", "Host::authored_visibility"],

@@ -25,6 +25,7 @@ public enum ObserveLaunch: ExactLaunchPart {
         config["sessionStart"] = Date().timeIntervalSince1970
         for (k, v) in context.facts { config["fact." + k] = v }
         ObserveCrash.install(directory: context.crashDirectory, session: session)
+        context.recordPanics(to: ObserveCrash.panicPath(directory: context.crashDirectory, session: session))
         startDeviceCaches()
         context.subscribe { event in
             // Record the device and network state as of the startup event's time.
