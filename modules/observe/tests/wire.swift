@@ -122,16 +122,22 @@ enum WireHarness {
             """.utf8)
         let window = (begin: Date(timeIntervalSince1970: 1_000), end: Date(timeIntervalSince1970: 2_000))
         let crash = ObserveDiagnostic(kind: .crash, begin: window.begin, end: window.end, exceptionType: 1, exceptionCode: 2, signal: 11,
-                                      terminationReason: "Namespace SIGNAL, Code 11", virtualMemoryRegion: nil, callStackTree: tree)
+                                      terminationReason: "Namespace SIGNAL, Code 11", virtualMemoryRegion: nil, callStackTree: tree,
+                                      appVersion: "1.2", appBuild: "7")
         let hang = ObserveDiagnostic(kind: .hang, begin: window.begin, end: window.end, hangSeconds: 2.5, callStackTree: tree)
+        // A second hang like it in the same payload is its own occurrence.
+        var again = hang
+        again.occurrence = 1
         // A hang leaves its process running, so the session it happened in can receive it.
         let current = ObserveDiagnostic(kind: .hang, begin: window.begin, end: Date(timeIntervalSince1970: 1_700_000_100), hangSeconds: 1, callStackTree: tree)
+        // A crash with no earlier session to attribute it to is dropped, never put on this running one.
+        let orphan = ObserveDiagnostic(kind: .crash, begin: Date(timeIntervalSince1970: 0), end: Date(timeIntervalSince1970: 1_000), signal: 6, callStackTree: tree)
         let service = ObserveService(config: config, handoff: Data(), root: root, clientId: UUID(uuidString: fixture["clientId"] as! String)!)
         return service.queue.sync {
             service.store?.saveSession("earlier", start: 1_500, metadata: [:])
             service.store?.saveSession("later", start: 2_500, metadata: [:])
             service.ingest([crash, hang])
-            service.ingest([crash, hang, current])
+            service.ingest([crash, hang, current, orphan, again])
             let rows = service.store?.rows("SELECT session, time, severity, name, attributes FROM logs ORDER BY id", []) ?? []
             return ["rows": rows.map { r -> [String: Any] in
                 ["session": r[0] ?? "", "time": r[1] ?? 0, "severity": r[2] ?? "", "name": r[3] ?? "",

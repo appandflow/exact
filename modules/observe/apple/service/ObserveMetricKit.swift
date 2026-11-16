@@ -24,6 +24,12 @@ struct ObserveDiagnostic {
     var hangSeconds: Double?
     /// `MXCallStackTree.jsonRepresentation()`.
     var callStackTree: Data
+    /// The app's version and build that produced it, which can differ from the session's
+    /// when the payload spans an update.
+    var appVersion: String?
+    var appBuild: String?
+    /// Its position among its payload's diagnostics, so two alike in one payload stay two.
+    var occurrence = 0
 
     static let maxFrames = 50
     static let maxText = 65_536
@@ -52,9 +58,12 @@ struct ObserveDiagnostic {
         let json = String(decoding: callStackTree, as: UTF8.self)
         let fullTree = json.utf8.count <= Self.maxText && !json.isEmpty ? json : nil
 
+        var common: [String: Any] = [:]
+        common["exact.diagnostic.app_version"] = appVersion
+        common["exact.diagnostic.app_build"] = appBuild
         switch kind {
         case .hang:
-            var a: [String: Any] = [:]
+            var a = common
             a["exact.hang.duration"] = hangSeconds
             a["exact.hang.stacktrace"] = trace
             a["exact.hang.call_stack_tree"] = fullTree
@@ -62,13 +71,14 @@ struct ObserveDiagnostic {
             return ("native.hang", "warn", a)
         case .crash:
             let message = [terminationReason, objcException?.message].compactMap { $0?.isEmpty == false ? $0 : nil }
-            var a: [String: Any] = [
+            let crashAttributes: [String: Any] = [
                 "exception.type": objcException?.name ?? exceptionType.map(Self.exceptionName) ?? signal.map(Self.signalName) ?? "NativeCrash",
                 "exception.message": message.isEmpty ? signal.map(Self.signalName) ?? exceptionType.map(Self.exceptionName) ?? "Native crash" : message.joined(separator: "\n"),
                 "expo.error.source": "nativeCrash",
                 "expo.error.is_fatal": true,
                 "exact.crash.origin": "metrickit",
             ]
+            var a = common.merging(crashAttributes) { $1 }
             a["exception.stacktrace"] = trace
             if let exceptionType {
                 a["expo.crash.exception_type"] = Self.exceptionName(exceptionType)
@@ -119,23 +129,30 @@ struct ObserveDiagnostic {
     /// Identifies a diagnostic across launches: MetricKit hands past payloads to each launch again.
     var key: String {
         var d = Data()
-        d.append(contentsOf: Array("\(kind)|\(begin.timeIntervalSince1970)|\(end.timeIntervalSince1970)|\(signal ?? -1)|\(exceptionType ?? -1)|\(hangSeconds ?? -1)|".utf8))
-        d.append(callStackTree)
+        d.append(contentsOf: Array("\(kind)|\(begin.timeIntervalSince1970)|\(end.timeIntervalSince1970)|\(signal ?? -1)|\(exceptionType ?? -1)|\(hangSeconds ?? -1)|\(occurrence)|".utf8))
+        // The tree re-encoded with sorted keys: MetricKit does not promise the same bytes on each delivery.
+        let tree = (try? JSONSerialization.jsonObject(with: callStackTree)).flatMap { try? JSONSerialization.data(withJSONObject: $0, options: [.sortedKeys]) }
+        d.append(tree ?? callStackTree)
         return SHA256.hash(data: d).map { String(format: "%02x", $0) }.joined()
     }
 }
 
 extension ObserveService {
     /// Stores each diagnostic not stored before, attributed to the latest session that started
-    /// by the end of its window: an earlier one for a crash, which ended its process, and
-    /// this one when none did. Runs on `queue`.
+    /// by the end of its window: an earlier one for a crash, which ended its process. A hang
+    /// with none goes to this session; a crash with none is dropped, as expo-observe drops it.
+    /// Runs on `queue`.
     func ingest(_ diagnostics: [ObserveDiagnostic]) {
         guard let store else { return }
         for d in diagnostics {
             let key = d.key
             if !store.rows("SELECT 1 FROM diagnostics WHERE key = ?", [key]).isEmpty { continue }
-            let crashed = store.rows("SELECT id FROM sessions WHERE id != ? AND start <= ? ORDER BY start DESC LIMIT 1",
-                                     [d.kind == .crash ? session : "", d.end.timeIntervalSince1970]).first?.first as? String ?? session
+            let found = store.rows("SELECT id FROM sessions WHERE id != ? AND start <= ? ORDER BY start DESC LIMIT 1",
+                                   [d.kind == .crash ? session : "", d.end.timeIntervalSince1970]).first?.first as? String
+            guard let crashed = found ?? (d.kind == .hang ? session : nil) else {
+                store.run("INSERT INTO diagnostics (key, time) VALUES (?, ?)", [key, Date().timeIntervalSince1970])
+                continue
+            }
             let row = d.row()
             if store.addLog(session: crashed, time: d.end.timeIntervalSince1970, severity: row.severity, name: row.name, body: nil, attributes: row.attributes, dropped: 0) {
                 store.run("INSERT INTO diagnostics (key, time) VALUES (?, ?)", [key, Date().timeIntervalSince1970])
@@ -152,7 +169,8 @@ extension ObserveDiagnostic {
     init(crash d: MXCrashDiagnostic, payload: MXDiagnosticPayload) {
         self.init(kind: .crash, begin: payload.timeStampBegin, end: payload.timeStampEnd, exceptionType: d.exceptionType?.intValue,
                   exceptionCode: d.exceptionCode?.intValue, signal: d.signal?.intValue, terminationReason: d.terminationReason,
-                  virtualMemoryRegion: d.virtualMemoryRegionInfo, callStackTree: d.callStackTree.jsonRepresentation())
+                  virtualMemoryRegion: d.virtualMemoryRegionInfo, callStackTree: d.callStackTree.jsonRepresentation(),
+                  appVersion: d.applicationVersion, appBuild: d.metaData.applicationBuildVersion)
         if #available(iOS 17.0, macOS 14.0, *), let reason = d.exceptionReason {
             objcException = (reason.exceptionName, reason.exceptionType, reason.composedMessage)
         }
@@ -160,12 +178,14 @@ extension ObserveDiagnostic {
 
     init(hang d: MXHangDiagnostic, payload: MXDiagnosticPayload) {
         self.init(kind: .hang, begin: payload.timeStampBegin, end: payload.timeStampEnd,
-                  hangSeconds: d.hangDuration.converted(to: .seconds).value, callStackTree: d.callStackTree.jsonRepresentation())
+                  hangSeconds: d.hangDuration.converted(to: .seconds).value, callStackTree: d.callStackTree.jsonRepresentation(),
+                  appVersion: d.applicationVersion, appBuild: d.metaData.applicationBuildVersion)
     }
 
     static func all(_ payloads: [MXDiagnosticPayload]) -> [ObserveDiagnostic] {
         payloads.flatMap { p in
-            (p.crashDiagnostics ?? []).map { ObserveDiagnostic(crash: $0, payload: p) } + (p.hangDiagnostics ?? []).map { ObserveDiagnostic(hang: $0, payload: p) }
+            let all = (p.crashDiagnostics ?? []).map { ObserveDiagnostic(crash: $0, payload: p) } + (p.hangDiagnostics ?? []).map { ObserveDiagnostic(hang: $0, payload: p) }
+            return all.enumerated().map { i, d in var d = d; d.occurrence = i; return d }
         }
     }
 }
