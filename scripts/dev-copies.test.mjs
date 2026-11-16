@@ -13,7 +13,7 @@ import { afterEach, expect, test } from 'bun:test';
 import { cpSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { chromium } from './agent-launch.mjs';
 import { spawnOwned, stopAll } from './test-children.mjs';
 import { fileURLToPath } from 'node:url';
@@ -72,7 +72,8 @@ async function copies(wasm) {
     for (const f of ['app.forma', 'app.json']) cpSync(resolve(ROOT, 'apps/theme-fixture', f), join(app, f));
     writeFileSync(join(app, 'app.contract'), APP);
   }
-  const dist = mkdtempSync(join(tmpdir(), 'exact-dev-copies-dist-'));
+  // The build's lock and kept generations go beside its dist (serve.mjs `replaceBuild`): the dist sits in a directory of its own.
+  const dist = join(mkdtempSync(join(tmpdir(), 'exact-dev-copies-dist-')), 'dist');
   const port = await free(), base = `http://127.0.0.1:${port}`;
   // The page framing the copies (as the design tool: the origin the dev
   // loop's frame-ancestors names, EXACT_TOOL_PORT): another origin, three named frames; each
@@ -203,7 +204,7 @@ async function copies(wasm) {
     parent.close();
     await dev.stop(15_000);
     if (!wasm) rmSync(app, { recursive: true, force: true });
-    rmSync(dist, { recursive: true, force: true });
+    rmSync(dirname(dist), { recursive: true, force: true });
   }
 }
 

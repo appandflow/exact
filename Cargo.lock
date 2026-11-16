@@ -948,8 +948,18 @@ dependencies = [
 name = "contract-analyze"
 version = "0.1.0"
 dependencies = [
+ "contract-checking",
  "contract-syntax",
  "contract-types",
+]
+
+[[package]]
+name = "contract-checking"
+version = "0.1.0"
+dependencies = [
+ "contract-syntax",
+ "contract-types",
+ "syn 2.0.119",
 ]
 
 [[package]]
@@ -973,6 +983,7 @@ name = "contract-lower"
 version = "0.1.0"
 dependencies = [
  "contract-analyze",
+ "contract-checking",
  "contract-syntax",
  "contract-types",
  "exact-color",
@@ -1852,15 +1863,15 @@ dependencies = [
 name = "exact-linux-update"
 version = "0.1.0"
 dependencies = [
- "caltrain",
- "caltrain-data",
  "contract",
- "exact-kernel",
+ "exact-js",
+ "exact-js-bake",
  "exact-linux",
+ "exact-logic",
  "exact-painted",
+ "exact-painted-update",
  "exact-runner",
  "exact-update",
- "ibex2",
  "serde_json",
 ]
 
@@ -1928,6 +1939,7 @@ dependencies = [
 name = "exact-logic"
 version = "0.1.0"
 dependencies = [
+ "exact-data",
  "exact-logic-abi",
  "exact-plan",
  "exact-runner",
@@ -1996,6 +2008,7 @@ dependencies = [
  "chrono",
  "chrono-tz",
  "contract",
+ "exact-bake",
  "exact-canvas",
  "exact-color",
  "exact-data",
@@ -2044,6 +2057,20 @@ dependencies = [
  "wgpu 29.0.4",
  "windows",
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "exact-painted-update"
+version = "0.1.0"
+dependencies = [
+ "caltrain",
+ "caltrain-data",
+ "exact-kernel",
+ "exact-painted",
+ "exact-runner",
+ "exact-update",
+ "ibex2",
+ "serde_json",
 ]
 
 [[package]]
@@ -2176,8 +2203,24 @@ name = "exact-update"
 version = "0.1.0"
 dependencies = [
  "ed25519-dalek",
+ "libc",
  "serde_json",
  "sha2 0.10.9",
+]
+
+[[package]]
+name = "exact-ureq"
+version = "3.4.0"
+dependencies = [
+ "base64 0.23.1",
+ "log",
+ "percent-encoding",
+ "rustls",
+ "rustls-pki-types",
+ "rustls-platform-verifier",
+ "ureq-proto",
+ "utf8-zero",
+ "webpki-roots",
 ]
 
 [[package]]
@@ -2825,12 +2868,12 @@ dependencies = [
  "exact-plan",
  "exact-runner",
  "exact-terminal",
+ "exact-ureq",
  "markdown-parse",
  "png",
  "rustix 1.1.4",
  "serde_json",
  "unicode-width 0.2.2",
- "ureq",
 ]
 
 [[package]]
@@ -2993,6 +3036,7 @@ version = "0.1.0"
 dependencies = [
  "base64 0.22.1",
  "cc",
+ "exact-ureq",
  "form_urlencoded",
  "getrandom 0.2.17",
  "hermes-lean-sys",
@@ -3005,7 +3049,6 @@ dependencies = [
  "serde_json",
  "sha2 0.10.9",
  "socket2",
- "ureq",
  "url",
  "webpki-roots",
  "windows-sys 0.61.2",
@@ -3207,6 +3250,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "879f10e63c20629ecabbb64a8010319738c66a5cd0c29b02d63d272b03751d01"
 dependencies = [
  "generic-array",
+]
+
+[[package]]
+name = "interaction-gallery-android"
+version = "0.1.0"
+dependencies = [
+ "contract",
+ "exact-bake",
+ "exact-painted",
+ "interaction-gallery-data",
 ]
 
 [[package]]
@@ -5599,6 +5652,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "shared-elements-android"
+version = "0.1.0"
+dependencies = [
+ "contract",
+ "exact-bake",
+ "exact-painted",
+ "shared-elements-data",
+]
+
+[[package]]
 name = "shared-elements-apple"
 version = "0.1.0"
 dependencies = [
@@ -6578,7 +6641,6 @@ dependencies = [
  "percent-encoding",
  "rustls",
  "rustls-pki-types",
- "rustls-platform-verifier",
  "ureq-proto",
  "utf8-zero",
  "webpki-roots",
@@ -6736,6 +6798,16 @@ name = "version_check"
 version = "0.9.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
+
+[[package]]
+name = "video-player-android"
+version = "0.1.0"
+dependencies = [
+ "contract",
+ "exact-bake",
+ "exact-painted",
+ "video-player-data",
+]
 
 [[package]]
 name = "video-player-apple"

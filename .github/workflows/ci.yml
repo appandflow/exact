@@ -9,8 +9,8 @@ on:
 
 # A run on main is never stopped by a newer push. While one runs, the newest
 # push waits and takes the place of any push that was waiting before it, so
-# pushes do not pile up behind the org's few macOS runners. A pull request's
-# newer push replaces the run of the one before it.
+# pushes do not pile up. A pull request's newer push replaces the run of the
+# one before it.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -63,7 +63,9 @@ jobs:
         run: bun scripts/gate.mjs
 
   macos:
-    runs-on: macos-26
+    # A Blacksmith runner, as in expo/expo: GitHub's hosted macOS runners are
+    # shared by every repository in the org.
+    runs-on: blacksmith-6vcpu-macos-26
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4

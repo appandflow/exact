@@ -2,18 +2,21 @@
 //! param: by its full name, at its declaration, and folded with the design
 //! wherever the design is read.
 
-use std::path::{Path, PathBuf};
+use crate::scratch::Scratch;
+use std::path::Path;
 use std::process::Command;
 
-fn app(name: &str, files: &[(&str, &str)]) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("exact2-tools-{name}-{}", std::process::id()));
+fn app(name: &str, files: &[(&str, &str)]) -> Scratch {
+    let dir = Scratch::adopt(
+        std::env::temp_dir().join(format!("exact2-tools-{name}-{}", std::process::id())),
+    );
     let _ = std::fs::remove_dir_all(&dir);
     for (file, text) in files {
         let at = dir.join(file);
         std::fs::create_dir_all(at.parent().unwrap()).unwrap();
         std::fs::write(at, text).unwrap();
     }
-    dir.join("app.contract")
+    dir.at("app.contract")
 }
 
 fn forma(args: &[&str], app: &Path) -> (bool, String, String) {
@@ -407,7 +410,9 @@ fn linked(root: &std::path::Path, dir: &str, manifest: &str) -> std::path::PathB
 #[cfg(unix)]
 #[test]
 fn an_unnamed_package_outside_the_app_is_refused_even_inside_a_named_directory() {
-    let root = std::env::temp_dir().join(format!("exact2-tools-unnamed-{}", std::process::id()));
+    let root = Scratch::adopt(
+        std::env::temp_dir().join(format!("exact2-tools-unnamed-{}", std::process::id())),
+    );
     for outer in [None, Some(r#"{"name": "outer"}"#)] {
         let path = linked(&root, "libs", r#"{"exports": {".": "./index.contract"}}"#);
         if let Some(outer) = outer {
@@ -459,7 +464,9 @@ fn an_unnamed_package_outside_the_app_is_refused_even_inside_a_named_directory()
 #[cfg(unix)]
 #[test]
 fn a_package_holding_its_own_test_app_names_its_files_by_its_name() {
-    let root = std::env::temp_dir().join(format!("exact2-tools-holding-{}", std::process::id()));
+    let root = Scratch::adopt(
+        std::env::temp_dir().join(format!("exact2-tools-holding-{}", std::process::id())),
+    );
     let _ = std::fs::remove_dir_all(&root);
     let pkg = root.join("pkg");
     std::fs::create_dir_all(pkg.join("test/fixture/node_modules/@x")).unwrap();
@@ -489,7 +496,9 @@ fn a_package_holding_its_own_test_app_names_its_files_by_its_name() {
 #[cfg(unix)]
 #[test]
 fn a_file_linked_into_the_app_is_the_apps_own_named_where_it_sits() {
-    let root = std::env::temp_dir().join(format!("exact2-tools-linked-{}", std::process::id()));
+    let root = Scratch::adopt(
+        std::env::temp_dir().join(format!("exact2-tools-linked-{}", std::process::id())),
+    );
     let _ = std::fs::remove_dir_all(&root);
     std::fs::create_dir_all(root.join("corpus")).unwrap();
     std::fs::create_dir_all(root.join("app")).unwrap();

@@ -3,7 +3,7 @@
 import { expect, onTestFinished, test } from 'bun:test';
 import { cpSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { spawnOwned } from './test-children.mjs';
 import { DRIVEN, HEARTBEAT_RACE, ROOT, TOOL_ORIGIN, edit, lines, signals, stop, timed, toolTurns } from './design-tool-harness.mjs';
 
@@ -36,7 +36,8 @@ test('T2: a scrub chosen on a token previews on the frame\'s build with no reloa
   await new Promise(ok => listener.listen(0, '127.0.0.1', ok));
   const port = listener.address().port;
   await new Promise(ok => listener.close(ok));
-  const dist = mkdtempSync(join(tmpdir(), 'exact-design-tool-scrub-dist-'));
+  // The build's lock and kept generations go beside its dist (serve.mjs `replaceBuild`): the dist sits in a directory of its own.
+  const dist = join(mkdtempSync(join(tmpdir(), 'exact-design-tool-scrub-dist-')), 'dist');
   const dev = spawnOwned(process.execPath, [resolve(ROOT, 'host/web/dev.mjs'), '--port', String(port)], { cwd: ROOT, env: { ...timed({ POLL: 3_000 }), EXACT_APP_DIR: app, EXACT_WEB_DIST: dist }, stdio: ['ignore', 'pipe', 'pipe'] });
   let tool;
   try {
@@ -156,6 +157,6 @@ test('T2: a scrub chosen on a token previews on the frame\'s build with no reloa
     if (tool) await stop(tool);
     await stop(dev);
     rmSync(app, { recursive: true, force: true });
-    rmSync(dist, { recursive: true, force: true });
+    rmSync(dirname(dist), { recursive: true, force: true });
   }
 }, 900_000);

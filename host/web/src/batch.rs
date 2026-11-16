@@ -16,6 +16,8 @@ pub struct Batch {
     /// A data module's timer continuation an advance released is still out
     /// (`Runner::data_timer_landing`): the agent's jump waits for its reply.
     landing: bool,
+    /// This batch is the page's transition into `frozen`.
+    freeze: bool,
 }
 
 /// Validate before token translation or storage/continuation serialization.
@@ -441,6 +443,27 @@ impl Batch {
         );
     }
 
+    /// A held spring's frames (LLP 1003.001 D9, "The web"): as
+    /// [`Batch::animate`] writes them, with `"held":true` and no `at`, so the
+    /// page lets the browser start the animation at its ready time and
+    /// reports it, and `"due":ms`, when the engine releases it at its commit
+    /// if no ready time came.
+    pub fn held_spring(
+        &mut self,
+        id: u32,
+        property: &str,
+        timing: (f64, f64),
+        values: &[[f64; 4]],
+        due_ms: f64,
+    ) {
+        let pair = property == "translate";
+        self.animate_op(None, id, property, timing, values, pair);
+        if let Some(op) = self.ops.last_mut() {
+            op.pop();
+            push_text!(op, ",\"held\":true,\"due\":{}}}", Shortest(due_ms));
+        }
+    }
+
     fn animate_op(
         &mut self,
         at_ms: Option<f64>,
@@ -467,7 +490,7 @@ impl Batch {
                 s.push(',');
             }
             let (x, y) = (Shortest(*x), Shortest(*y));
-            if pair && (*px != 0.0 || *py != 0.0) {
+            if property == "rotate" || pair && (*px != 0.0 || *py != 0.0) {
                 push_text!(&mut s, "[{},{},{},{}]", x, y, Shortest(*px), Shortest(*py));
             } else if pair {
                 push_text!(&mut s, "[{},{}]", x, y);
@@ -1057,6 +1080,12 @@ impl Batch {
         self
     }
 
+    /// With `"freeze":true` on the page's transition into `frozen`.
+    pub(crate) fn freeze(mut self, freeze: bool) -> Batch {
+        self.freeze = freeze;
+        self
+    }
+
     /// @ref LLP 1043.000 §3 D8 — carry the runner deadline, not a poll interval.
     /// The batch as one JSON document:
     /// `{"ops":[…],"timers":bool,"clock":ms,"error":null|"…"}` — `clock` is
@@ -1100,6 +1129,9 @@ impl Batch {
         }
         if self.landing {
             s.push_str(",\"landing\":true");
+        }
+        if self.freeze {
+            s.push_str(",\"freeze\":true");
         }
         if let Some((first, last)) = self.seq {
             push_text!(&mut s, ",\"seq\":[{},{}]", first, last);

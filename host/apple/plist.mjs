@@ -92,7 +92,8 @@ export const transportSecurity = (section, keys = {}, { web = true } = {}) => {
 export const localNetworking = (section, reach) => (section?.localNetworking || reach?.localNetworking ? { NSAllowsLocalNetworking: true } : {});
 
 /** The app's declared origin (`app.origin`), which a link's Copy Link and Share put a path in the app on. */
-export const declaredOrigin = ({ origin }) => (origin ? { ExactOrigin: new URL(origin).origin } : {});
+export const declaredOrigin = ({ origin, manifest }) => (origin ? { ExactOrigin: new URL(origin).origin,
+  ...(manifest?.host?.web?.base && manifest.host.web.base !== '/' ? { ExactWebMount: { origin: new URL(origin).origin, base: manifest.host.web.base } } : {}) } : {});
 
 /** A launch no link started opens at the manifest's `start_url`, as an installed web app does (W3C App Manifest): resolved
  * against the manifest's URL, on the app's declared origin when it has one, and baked when it is a place in the app (on
@@ -170,6 +171,7 @@ export const updateActivation = (app) => ({ ...(app.manifest.deploy?.activate ? 
  * manifest's modes alone, for tvOS, whose refresh is later (D17), and an App Clip, which has no background tasks. */
 export function backgroundKeys(ios, reach, id, only) {
   const declared = ios.backgroundModes ?? [];
+  if (declared.includes('bluetooth-central')) throw new Error('host.ios.backgroundModes: bluetooth-central comes from `device.bluetooth-background` beside `device.bluetooth purpose.<key>`, not the manifest');
   const derived = declared.filter((mode) => mode === 'fetch' || mode === 'processing');
   if (derived.length) throw new Error(`host.ios.backgroundModes: ${derived.join(' and ')} comes from a grant line (device.background-sync, device.periodic-background-sync; LLP 1133.017 D14), not the manifest`);
   const modes = [...new Set([...declared, ...(only ? [] : reach?.backgroundModes ?? [])])];
@@ -188,6 +190,12 @@ export function nfcKeys(ios, tv) {
     ...(nfc.felicaSystemCodes?.length ? { 'com.apple.developer.nfc.readersession.felica.systemcodes': nfc.felicaSystemCodes } : {}),
   };
 }
+
+/** The other names Siri and App Shortcuts' `${applicationName}` answer to, from `host.ios.alternativeNames` or
+ * `host.macos.alternativeNames`: `INAlternativeAppNames`, each name with its optional "sounds like" hint (Apple,
+ * "Specifying synonyms for your app name"). A watch app inherits none of them, so it copies the iPhone app's. */
+export const alternativeNames = (host) => host?.alternativeNames?.length ? { INAlternativeAppNames: host.alternativeNames.map(({ name, pronunciationHint }) =>
+  ({ INAlternativeAppName: name, ...(pronunciationHint ? { INAlternativeAppNamePronunciationHint: pronunciationHint } : {}) })) } : {};
 
 /** The Info.plist keys a package's Apple implementation may declare in its `exact.json` `"plistKeys"`, by name, with
  * the one value each may take and the platforms whose plist takes it, as Android's `METADATA`
@@ -331,6 +339,7 @@ export function appleMetadataOwners() {
     [['macos'], ['ExactUserInterfaceStyle']],
     [['ios', 'macos'], ['NSAppTransportSecurity']],
     [['ios'], ['LSApplicationQueriesSchemes']],
+    [['ios', 'macos'], ['INAlternativeAppNames']],
     [['ios'], ['com.apple.developer.nfc.readersession.iso7816.select-identifiers']],
     [['ios'], ['com.apple.developer.nfc.readersession.felica.systemcodes']],
     [['ios'], ['UIBackgroundModes']],
@@ -342,7 +351,7 @@ export function appleMetadataOwners() {
     [['ios', 'macos'], ['CFBundleURLTypes']],
     [['ios', 'macos'], ['ExactOpenURLSchemes']],
     [['ios', 'macos'], ['ExactDevelopmentURLScheme', 'ExactDevelopmentOrigins', 'ExactDevelopmentToken']],
-    [['ios', 'macos'], ['ExactOrigin']],
+    [['ios', 'macos'], ['ExactOrigin', 'ExactWebMount']],
     [['ios', 'macos'], ['ExactStartURL']],
     [['macos'], ['ExactLaunchMode']],
     [['ios', 'macos'], ['ExactUpdateActivate']],

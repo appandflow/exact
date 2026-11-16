@@ -1,10 +1,11 @@
 //! `contract forma gen` (LLP 1121 D12, stage 5, commit 4): every language's
 //! generated names over the one table, from the design's IR.
 
+use crate::scratch::Scratch;
 use exact_kernel::{ColorValue, Kernel};
 use exact_plan::Value;
 use exact_runner::{DataError, DataSource, Place, Runner};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::Command;
 
 /// What `contract forma gen rust` writes for [`DESIGN`], kept as the test's
@@ -23,10 +24,8 @@ impl DataSource for NoData {
     }
 }
 
-fn app(name: &str, design: &str, view: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("exact2-gen-{name}-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).unwrap();
+fn app(name: &str, design: &str, view: &str) -> Scratch {
+    let dir = Scratch::new(format!("exact2-gen-{name}-{}", std::process::id()));
     std::fs::write(dir.join("app.forma"), design).unwrap();
     std::fs::write(dir.join("app.contract"), view).unwrap();
     dir

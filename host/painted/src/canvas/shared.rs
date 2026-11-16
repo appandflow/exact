@@ -196,6 +196,7 @@ mod tests {
                     out.extend(sets(&ops[parents + 1 + ops[parents] as usize * 2..end]));
                 }
                 ROW_BEGIN => out.extend(sets(&ops[at + 6..end - 1])),
+                layer::LAYER_SET => out.extend(sets(&ops[at + 19..end])),
                 _ => (),
             }
             at = end;
@@ -321,6 +322,7 @@ mod tests {
 
     #[test]
     fn rotated_shared_images_use_the_live_subtree() {
+        let png = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
         let diagonal = (80. + 60.) * std::f32::consts::FRAC_1_SQRT_2;
         for (parent, own, fit, size) in [
             ("", "", 3, (80., 60.)),
@@ -329,7 +331,104 @@ mod tests {
             ("rotate=\"45deg\"", "", 0, (diagonal, diagonal)),
             ("", "scale=-1", 0, (80., 60.)),
         ] {
-            let app = format!("component App\n  view\n    column padding=100 {parent}\n      image \"\" sharedElement=\"photo\" object-fit=\"cover\" width=80 height=60 {own}\n");
+            let app = format!("component App\n  view\n    column padding=100 {parent}\n      image \"{png}\" sharedElement=\"photo\" object-fit=\"cover\" width=80 height=60 {own}\n");
+            let (mut p, error) = Presenter::boot_with(
+                &crate::test_plan(&app),
+                (),
+                (400., 800.),
+                1.,
+                std::path::PathBuf::new(),
+                PainterChoice::Canvas,
+            )
+            .unwrap();
+            assert!(error.is_none(), "{error:?}");
+            assert!(p.wait_images(std::time::Duration::from_secs(30)));
+            p.frame();
+            let ops = take();
+            let defs = sets(&ops);
+            assert_eq!(defs.len(), 1);
+            let def = defs[0];
+            assert_eq!(
+                def[17], fit,
+                "an upright raster cannot show the transform: {parent} {own}"
+            );
+            // The box is the transformed image's bounding box either way.
+            let (w, h) = (f32::from_bits(def[9]), f32::from_bits(def[10]));
+            assert!(
+                (w - size.0).abs() < 0.01 && (h - size.1).abs() < 0.01,
+                "{parent} {own}: {w}x{h}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_lowered_rotation_keeps_the_live_subtree() {
+        // A lowered transform animates on the reader, absent from the paint
+        // walk's transform: a shared element whose ancestor turns stays live,
+        // so the reader's layer carries the rotation. A lowered translate
+        // stays a raster — it moves with the box. The engine presents the
+        // played transition's target (rotate=45 here).
+        let png = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+        for (style, lowered, fit) in [
+            ("rotate=`${angle}deg`", exact_motion::Property::Rotate, 0),
+            (
+                "translate=`${x}px 0px`",
+                exact_motion::Property::Translate,
+                3,
+            ),
+        ] {
+            let app = format!(
+                r#"component App
+  state angle = 0
+  state x = 0
+  action spin
+    angle = 45
+    x = 60
+  view
+    box padding=50
+      box {style} transition="1s linear" width=200 height=200 testId="spinner"
+        image "{png}" sharedElement="photo" testId="photo" object-fit="cover" width=80 height=60
+      button "Spin" press=spin testId="spin"
+"#
+            );
+            let (mut p, error) = Presenter::boot_with(
+                &crate::test_plan(&app),
+                (),
+                (400., 800.),
+                1.,
+                std::path::PathBuf::new(),
+                PainterChoice::Canvas,
+            )
+            .unwrap();
+            assert!(error.is_none(), "{error:?}");
+            p.host_mut().lowering = true;
+            p.host_mut().engine.set_lowered_properties(&[lowered]);
+            assert!(p.wait_images(std::time::Duration::from_secs(30)));
+            p.frame();
+            take();
+            let spin = p.host().kernel().find_by_test_id("spin")[0];
+            let spin = p.host().kernel().node_by_key(spin).unwrap().id;
+            p.host_mut()
+                .dispatch_at(spin, exact_runner::Event::Press, 100.0);
+            p.after_commit();
+            p.frame();
+            let ops = take();
+            let defs = sets(&ops);
+            assert_eq!(defs.len(), 1, "{style}");
+            assert_eq!(defs[0][17], fit, "a lowered {lowered:?} on {style}");
+        }
+    }
+
+    #[test]
+    fn a_pending_shared_image_falls_back_to_the_raster() {
+        // A rotated image has no live drawing while its bitmap is pending;
+        // the raster keeps the source's thumbnail in flight.
+        let diagonal = (80. + 60.) * std::f32::consts::FRAC_1_SQRT_2;
+        for (own, fit, size) in [
+            ("", 3, (80., 60.)),
+            ("rotate=\"45deg\"", 3, (diagonal, diagonal)),
+        ] {
+            let app = format!("component App\n  view\n    column padding=100\n      image \"\" sharedElement=\"photo\" object-fit=\"cover\" width=80 height=60 {own}\n");
             let (mut p, error) = Presenter::boot_with(
                 &crate::test_plan(&app),
                 (),
@@ -345,15 +444,11 @@ mod tests {
             let defs = sets(&ops);
             assert_eq!(defs.len(), 1);
             let def = defs[0];
-            assert_eq!(
-                def[17], fit,
-                "an upright raster cannot show the transform: {parent} {own}"
-            );
-            // The box is the transformed image's bounding box either way.
+            assert_eq!(def[17], fit, "{own}");
             let (w, h) = (f32::from_bits(def[9]), f32::from_bits(def[10]));
             assert!(
                 (w - size.0).abs() < 0.01 && (h - size.1).abs() < 0.01,
-                "{parent} {own}: {w}x{h}"
+                "{own}: {w}x{h}"
             );
         }
     }
@@ -539,7 +634,9 @@ component App
                 state = (
                     ops[3],
                     ops[names..names + ops[names - 1] as usize * 2]
-                        .chunks_exact(2)
+                        .as_chunks::<2>()
+                        .0
+                        .iter()
                         .map(|k| u64::from(k[0]) | u64::from(k[1]) << 32)
                         .collect(),
                 );
@@ -652,7 +749,9 @@ component App
             let ops = take();
             assert_eq!(ops[0], STATE);
             let names: Vec<_> = ops[5..9]
-                .chunks_exact(2)
+                .as_chunks::<2>()
+                .0
+                .iter()
                 .map(|k| u64::from(k[0]) | u64::from(k[1]) << 32)
                 .collect();
             assert_eq!(names, expected);

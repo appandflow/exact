@@ -26,7 +26,6 @@ object Channels {
     /** The preferences that keep the ids this host made. */
     private const val KEPT = "exact.channels"
     const val DEFAULT = "default"
-    const val QUIET = "silent"
 
     class Declared(val id: String, val importance: Int, val name: CharSequence, val description: CharSequence?, val sound: Uri?)
 
@@ -85,19 +84,6 @@ object Channels {
         val ids = declared.map { it.id }.toSet()
         for (gone in prefs.getStringSet("made", emptySet()).orEmpty() - ids) manager.deleteNotificationChannel(gone)
         prefs.edit().putStringSet("made", ids).apply()
-    }
-
-    /** The quiet channel a silent post takes below Android 12, where a post cannot be silenced alone (LLP
-     * 1133.004.000 D2): low importance, no sound or vibration, made at its first use. Its id. */
-    fun quiet(context: Context): String {
-        val manager = context.getSystemService(NotificationManager::class.java)
-        if (manager.getNotificationChannel(QUIET) == null) {
-            manager.createNotificationChannel(NotificationChannel(QUIET, context.getText(R.string.exact_silent_channel), NotificationManager.IMPORTANCE_LOW).apply {
-                setSound(null, null)
-                enableVibration(false)
-            })
-        }
-        return QUIET
     }
 
     /** The first frame of this process, or a locale change: the channels are made on a thread of their own. */

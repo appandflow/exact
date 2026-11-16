@@ -59,7 +59,6 @@ function scratchApp(name) {
   const write = (path, text = '') => { mkdirSync(dirname(resolve(dir, path)), { recursive: true }); writeFileSync(resolve(dir, path), text); };
   write('app.contract', 'component App\n  view\n    text "hello"\n');
   write('app.json', JSON.stringify({ name, app: { id: `com.exact.${name}`, name } }));
-  for (const kind of ['apple', 'web']) write(`${kind}/Cargo.toml`, `[package]\nname="${name}-${kind}"\nversion="0.1.0"\n`);
   write('exact.mjs', "// …\nconst built = await run(['scripts/agent-build.mjs', host]);\n");
   return { dir, write };
 }
@@ -505,7 +504,7 @@ test('a missing or stale build is built first, said in one line; a fresh one run
     delete process.env.EXACT_MAC_BIN;
     const app = resolveApp('field-log');
     const built = new Date(Date.now() + 10_000), edited = new Date(+built + 10_000), before = new Date(Date.now() - 60_000);
-    for (const file of ['app.contract', 'app.json', 'exact.mjs', 'apple/Cargo.toml', 'web/Cargo.toml']) utimesSync(resolve(dir, file), before, before);
+    for (const file of ['app.contract', 'app.json', 'exact.mjs']) utimesSync(resolve(dir, file), before, before);
     const said = [], builds = [];
     const drive = (host, { code = 0, output = '' } = {}) => buildFirst(host, app, {
       say: line => said.push(line), wait: () => {}, build: async (args, log) => (builds.push({ args, log }), { code, output }),
@@ -595,7 +594,7 @@ test('a source edited while the build ran is stale; a build claimed meanwhile is
     delete process.env.EXACT_MAC_BIN;
     const app = resolveApp('race-log');
     const at = seconds => new Date(Date.now() + seconds * 1000), stamp = (file, seconds) => utimesSync(resolve(dir, file), at(seconds), at(seconds));
-    for (const file of ['app.contract', 'app.json', 'exact.mjs', 'apple/Cargo.toml', 'web/Cargo.toml']) stamp(file, -60);
+    for (const file of ['app.contract', 'app.json', 'exact.mjs']) stamp(file, -60);
     const bundle = appleArtifacts(app, { destination: 'ios-simulator' }).bundle, receipt = resolve(bundle, 'receipt.json');
     mkdirSync(bundle, { recursive: true });
     // Built from t-20 s to t+10 s; the contract edited at t-5 s, while it ran.
@@ -643,7 +642,7 @@ test('a product the build wrote and then read is judged by its recorded bytes; a
     delete process.env.EXACT_MAC_BIN; delete process.env.CARGO_TARGET_DIR;
     const app = resolveApp('gpu-log');
     const at = seconds => new Date(Date.now() + seconds * 1000), stamp = (file, seconds) => utimesSync(file, at(seconds), at(seconds));
-    for (const file of ['app.contract', 'app.json', 'exact.mjs', 'apple/Cargo.toml', 'web/Cargo.toml']) stamp(resolve(dir, file), -120);
+    for (const file of ['app.contract', 'app.json', 'exact.mjs']) stamp(resolve(dir, file), -120);
     const bundle = appleArtifacts(app, { destination: 'ios-simulator' }).bundle, receipt = resolve(bundle, 'receipt.json');
     mkdirSync(bundle, { recursive: true });
     const profile = resolve(app.target, 'aarch64-apple-ios-sim', 'host-dev'), dylib = resolve(profile, 'signed/libgpu_log_gpu.dylib');
@@ -728,7 +727,7 @@ test('generated shell outputs a cold game build records are judged by their byte
     write('logic/src/lib.rs', 'pub struct Game;');
     write('.shells/apple/src/extra.rs', 'pub const EXTRA: u32 = 1;');
     for (const path of outputs) write(path, path.endsWith('.json') ? '{}' : '// generated shell');
-    for (const path of ['app.json', 'app.contract', 'exact.mjs', 'apple/Cargo.toml', 'web/Cargo.toml', '.shells/Cargo.toml', 'logic/src/lib.rs', '.shells/apple/src/extra.rs']) stamp(path, before);
+    for (const path of ['app.json', 'app.contract', 'exact.mjs', '.shells/Cargo.toml', 'logic/src/lib.rs', '.shells/apple/src/extra.rs']) stamp(path, before);
     for (const path of outputs) stamp(path, generated);
     const sources = [...outputs, 'app.contract', 'logic/src/lib.rs', '.shells/apple/src/extra.rs'];
     write('target/aarch64-apple-ios-sim/host-dev/libshell_output_apple.d', `archive: ${sources.map(path => resolve(dir, path)).join(' ')}\n`);
@@ -801,7 +800,7 @@ test('a plan-only edit runs its bake on the existing build; any other edit, or a
     write('server/index.ts', "import { Database } from 'bun:sqlite';\nimport { routes } from './routes';\n");
     write('server/routes.ts', 'export const routes = {};\n');
     write('server/fixtures.json', '{}\n');
-    for (const file of ['app.contract', 'app.ts', 'types.ts', 'lib/model.ts', 'lib/seed.json', 'lib/format.mjs', 'lib/digits.mjs', 'scripts/export.mjs', 'server/index.ts', 'server/routes.ts', 'server/fixtures.json', 'app.json', 'exact.mjs', 'apple/Cargo.toml', 'web/Cargo.toml']) stamp(file, -60);
+    for (const file of ['app.contract', 'app.ts', 'types.ts', 'lib/model.ts', 'lib/seed.json', 'lib/format.mjs', 'lib/digits.mjs', 'scripts/export.mjs', 'server/index.ts', 'server/routes.ts', 'server/fixtures.json', 'app.json', 'exact.mjs']) stamp(file, -60);
     // The build: its receipt names the plan its build script baked, beside which is the module receipt it paired.
     const target = 'aarch64-apple-ios-sim', out = resolve(app.target, target, 'host-dev/build/plan-log-apple-0123/out');
     const module = { version: 1, appId: 'com.exact.plan-log', grants: '', abi: 1, surfaces: {}, bytecodeVersion: 96 };

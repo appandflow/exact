@@ -336,8 +336,9 @@ function diffPng(a, b, sideBySide, masks = []) {
   }
   return share;
 }
-// The document's head too: the active head's fields, as every runner reports them (runner/src/head.rs).
-const STATE_KEYS = ['slots', 'derives', 'resources', 'writes', 'head', 'reorder', 'sounds', 'transport', 'midi', 'sessionCore', 'background'];
+// The document's head too: the active head's fields, as every runner reports them (runner/src/head.rs). A child's
+// resources by instance path (`owned`, `instances`; LLP 1035.005.004 D8) too.
+const STATE_KEYS = ['slots', 'derives', 'resources', 'owned', 'instances', 'writes', 'head', 'reorder', 'sounds', 'transport', 'midi', 'sessionCore', 'background'];
 // The media session (LLP 1098 D10) by testId (each target numbers its views its own way) and the artwork's path (each
 // page has its own port): what every host records (`sessionCore`, Linux's too), and what the pages publish (`session`).
 const addSession = s => {
@@ -812,14 +813,16 @@ async function drive(t, report, targetFail, dir, ws, js) {
   // The app's own tests on each executor.
   const tests = resolve(root, 'apps', t.app, 'app.test.contract');
   if (!t.contract && !t.urls && existsSync(tests)) {
-    const run = (url, browser = 'chrome', host = 'web') => new Promise(ok => {
-      const child = spawn('bun', ['scripts/agent.mjs', host, ...(host === 'web' ? ['--browser', browser, '--url', url] : []), '--app', t.app, '--test', tests], { cwd: root, stdio: ['ignore', 'pipe', 'pipe'] });
+    const run = (url, browser = 'chrome', host = 'web', dist = t.dist) => new Promise(ok => {
+      const child = spawn('bun', ['scripts/agent.mjs', host, ...(host === 'web' ? ['--browser', browser, '--url', url] : []), '--app', t.app, '--test', tests], {
+        cwd: root, stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, ...(host === 'web' ? { EXACT_WEB_DIST: dist } : {}) },
+      });
       let output = ''; child.stdout.on('data', d => { output += d; }); child.stderr.on('data', d => { output += d; });
       child.on('error', error => ok({ output: output + error.message, status: 127 })); child.on('exit', status => ok({ output, status: status ?? 128 }));
     });
     const [w2, j2] = await Promise.all([serve(crossBrowser ? t.dist : t.wasm), serve(t.dist)]);
     const browsers = crossBrowser ? readyBrowsers : ['chrome'];
-    const [rw, ...results] = await Promise.all([run(w2.url), ...browsers.map(browser => run(j2.url, browser))]);
+    const [rw, ...results] = await Promise.all([run(w2.url, 'chrome', 'web', crossBrowser ? t.dist : t.wasm), ...browsers.map(browser => run(j2.url, browser))]);
     w2.close(); j2.close();
     const lines = s => s.split('\n').filter(l => l.startsWith('test '));
     const lw = lines(rw.output);
@@ -857,14 +860,14 @@ async function activation(t, report, fail, url, browser) {
   const step = `${crossBrowser ? `${browser} ` : ''}activation ${url}`;
   let S, early = null;
   try {
-    S = await open({ host: 'web', browser, app: t.app, url });
+    S = await open({ host: 'web', browser, app: t.app, webDist: t.dist, url });
     const ev = S.carrier.evaluate, page = new URL(url);
     page.searchParams.delete('agent');
     await ev(`location.href = ${JSON.stringify(page.href)}`).catch(() => {});
     const read = () => ev(`(() => { const c = document.querySelector('script[type="application/vnd.exact.checkpoint"]'), r = document.getElementById('exact-root');
       return c && document.readyState === 'complete' && !/[?&]agent=/.test(location.search) ? { policy: c.dataset.activate, boot: r?.dataset.bootMs == null ? null : Number(r.dataset.bootMs),
         paint: performance.getEntriesByType('paint')[0]?.startTime ?? null, load: performance.getEntriesByType('navigation')[0]?.loadEventStart ?? null,
-        modules: document.querySelectorAll('script[type=module]').length, preload: !!document.head.querySelector('link[rel=modulepreload][href="./app.js"]'),
+        modules: document.querySelectorAll('script[type=module]').length, preload: !!document.head.querySelector('link[rel=modulepreload][href="' + c.dataset.entry + '"]'),
         fetched: performance.getEntriesByType('resource').filter(e => e.initiatorType !== 'fetch' && e.name.endsWith('.js')).length,
         adopted: (globalThis.exact?.journal ?? []).some(l => l.endsWith('adopted the document')) } : null; })()`).catch(() => null);
     const until = async (ok, ms) => { const end = Date.now() + ms; let r; while (!(r = await read()) || !ok(r)) { if (Date.now() > end) return r; await new Promise(z => setTimeout(z, 50)); } return r; };
@@ -886,7 +889,7 @@ async function activation(t, report, fail, url, browser) {
         w.value = 'early'; for (const k of ['input', 'change']) w.dispatchEvent(new Event(k, { bubbles: true }));
         p.value = 'two'; for (const k of ['input', 'change']) p.dispatchEvent(new Event(k, { bubbles: true }));
         return 'on on early two'; })()`);
-    } else if (!r.preload) out.push(`${r.policy}: the head does not preload ./app.js`);
+    } else if (!r.preload) out.push(`${r.policy}: the head does not preload the entry`);
     r = await until(x => x.boot != null, 10000);
     if (r.boot == null) out.push(`${r.policy}: the runtime never came up${r.policy === 'interaction' ? ' after a press' : ' without input'}`);
     else {
@@ -955,7 +958,7 @@ async function bootPress(t, report, fail, dist, browser) {
     });
     const port = await new Promise(ok => proxy.listen(0, '127.0.0.1', () => ok(proxy.address().port)));
     const url = `http://127.0.0.1:${port}/`;
-    S = await open({ host: 'web', browser, app: t.app, url });
+    S = await open({ host: 'web', browser, app: t.app, webDist: dist, url });
     const ev = S.carrier.evaluate;
     const q = id => `document.querySelector('#exact-root[data-boot] [data-testid="${id}"]')`;
     // Twice: the field edited without focus (the page's focus on <body>),

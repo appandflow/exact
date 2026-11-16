@@ -1,10 +1,11 @@
 // The settings an app reads at build (LLP 1153 D4): `import.meta.env.NAME` in a top-level const of app.ts, each name
-// declared in app.json's `env`, its value from the environment, then `.env.local`, then `.env` beside app.json, else
-// the const's `??` default. The value is inlined into the captured copy, so every host runs the same module; a name
+// declared in app.json's `env`, its value from the environment, then the selected variant's `env` (LLP 1030.008 D6),
+// then `.env.local`, then `.env` beside app.json, else the const's `??` default. The value is inlined into the
+// captured copy, so every host runs the same module; a name
 // marked `"launch": true` keeps the build's value as the one a launch's replaces (LLP 1153.002). The
 // native bake writes this file into its stage beside `__exact_config.mjs`, which imports it
 // (js/bake/src/resident.rs `ENV`); the web build and the scripts import it from here.
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { dirname, resolve } from 'node:path';
 import { parseEnv } from 'node:util';
@@ -22,6 +23,14 @@ const manifestOf = app => {
   let manifest = {};
   try { manifest = JSON.parse(readFileSync(resolve(app, existsSync(resolve(app, '.shells/app.json')) ? '.shells/app.json' : 'app.json'), 'utf8')); } catch { /* no manifest: none declared */ }
   return manifest;
+};
+
+// The `env` of the variant selected for the app in `app` (scripts/variants.mjs `selectedVariant`; this module stays
+// self-contained, since the native bake copies it alone), with its name, or null.
+const variantEnv = (app, env) => {
+  const real = path => { try { return realpathSync(path); } catch { return path; } };
+  if (!env.EXACT_VARIANT || !env.EXACT_VARIANT_APP || real(env.EXACT_VARIANT_APP) !== real(app)) return null;
+  return { name: env.EXACT_VARIANT, values: manifestOf(app).variants?.[env.EXACT_VARIANT]?.env ?? {} };
 };
 
 const manifestEnv = app => { const manifest = manifestOf(app); return Array.isArray(manifest?.env) ? manifest.env : []; };
@@ -96,11 +105,13 @@ export function noteBunLoaded() {
   process.env.EXACT_BUN_LOADED = [...bunNames(process.env)].sort().join(',');
 }
 
-/** Each of `names` with its value and source (`environment`, `.env.local` or `.env`), or null where none sets it. */
+/** Each of `names` with its value and source (`environment`, `variants.<name>`, `.env.local` or `.env`), or null
+ * where none sets it. */
 export function settingValues(app, names, env = process.env) {
-  const files = Object.fromEntries(ENV_FILES.map(file => [file, assignments(app, file)])), bun = bunNames(env);
+  const files = Object.fromEntries(ENV_FILES.map(file => [file, assignments(app, file)])), bun = bunNames(env), variant = variantEnv(app, env);
   return Object.fromEntries(names.map(name => {
     if (env[name] !== undefined && !bun.has(name)) return [name, { value: env[name], source: 'environment' }];
+    if (variant && Object.hasOwn(variant.values, name)) return [name, { value: variant.values[name], source: `variants.${variant.name}` }];
     const file = ENV_FILES.find(f => Object.hasOwn(files[f], name));
     return [name, file ? { value: files[file][name], source: file } : null];
   }));

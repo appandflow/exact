@@ -7,18 +7,15 @@
 //! A literal shadow row stays px: a word in one that names a length or no
 //! token says so (QUEUE's two items).
 
+use crate::scratch::Scratch;
 use exact_kernel::style::scale;
-use std::path::PathBuf;
 
-fn app(name: &str, files: &[(&str, &str)]) -> PathBuf {
-    let dir =
-        std::env::temp_dir().join(format!("exact2-base-shadow-{name}-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).unwrap();
+fn app(name: &str, files: &[(&str, &str)]) -> Scratch {
+    let dir = Scratch::new(format!("exact2-base-shadow-{name}-{}", std::process::id()));
     for (file, text) in files {
         std::fs::write(dir.join(file), text).unwrap();
     }
-    dir.join("app.contract")
+    dir.at("app.contract")
 }
 
 /// A view whose one column's `box-shadow` names `card.shadow`.

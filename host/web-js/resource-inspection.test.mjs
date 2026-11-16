@@ -679,7 +679,7 @@ test("refresh carries a Rust request's forced cache mode through runtime dispatc
     const observed = await page.evaluate(async () => {
       globalThis.__exactRender = true;
       const sent = [];
-      globalThis.fetch = async (_input, init) => { sent.push(init.cache); return new Response('reply'); };
+      globalThis.fetch = async (input, init) => { sent.push(new Request(input, init).cache); return new Response('reply'); };
       const rt = await import('/host/web-js/rt.js');
       const { createRequestExecutor, setAppGrantSet, appGrantSet } = await import('/host/web-js/admission.js');
       setAppGrantSet();
@@ -710,7 +710,7 @@ test("the ask made when the source becomes ready is not a refresh, and a refresh
     const observed = await page.evaluate(async () => {
       globalThis.__exactRender = true;
       const sent = [], callbacks = [];
-      globalThis.fetch = async (_input, init) => { sent.push(init.cache ?? 'default'); return new Response('reply'); };
+      globalThis.fetch = async (input, init) => { sent.push(new Request(input, init).cache ?? 'default'); return new Response('reply'); };
       const rt = await import('/host/web-js/rt.js');
       const { createRequestExecutor, setAppGrantSet, appGrantSet } = await import('/host/web-js/admission.js');
       setAppGrantSet();
@@ -746,7 +746,7 @@ test("a refused refresh while waiting leaves the launch's ask ordinary, and a fa
     const observed = await page.evaluate(async () => {
       globalThis.__exactRender = true;
       const sent = [], callbacks = [];
-      globalThis.fetch = async (_input, init) => { sent.push(init.cache ?? 'default'); return new Response('reply'); };
+      globalThis.fetch = async (input, init) => { sent.push(new Request(input, init).cache ?? 'default'); return new Response('reply'); };
       const rt = await import('/host/web-js/rt.js');
       const { createRequestExecutor, setAppGrantSet, appGrantSet } = await import('/host/web-js/admission.js');
       setAppGrantSet();
@@ -788,7 +788,7 @@ test("a refresh of a resource that slept through its source becoming ready is a 
     const observed = await page.evaluate(async () => {
       globalThis.__exactRender = true;
       const sent = [], callbacks = [];
-      globalThis.fetch = async (_input, init) => { sent.push(init.cache ?? 'default'); return new Response('reply'); };
+      globalThis.fetch = async (input, init) => { sent.push(new Request(input, init).cache ?? 'default'); return new Response('reply'); };
       const rt = await import('/host/web-js/rt.js');
       const { createRequestExecutor, setAppGrantSet, appGrantSet } = await import('/host/web-js/admission.js');
       setAppGrantSet();

@@ -1,4 +1,5 @@
-//! Layout transition on Linux, and its refusal of exit animation (LLP 1063).
+//! Layout transition on the painted hosts (Linux, Windows and Android's
+//! reader), and their refusal of exit animation (LLP 1063).
 //!
 //! A node with a `-exact-layout-transition` has its laid-out box in its parent
 //! (`Kernel::layout_box`) observed as `Property::Layout` after every layout;
@@ -45,14 +46,14 @@ impl<D: DataSource> Host<D> {
         for t in receipts {
             if !t.receipt.exits.is_empty() && !self.presence.refused {
                 self.presence.refused = true;
-                self.log("-exact-exit-animation: refused on Linux (LLP 1063): the painter reads the live tree, so a removed node leaves at once");
+                self.log(&format!("-exact-exit-animation: refused on {} (LLP 1063): the painter reads the live tree, so a removed node leaves at once; keep it mounted and fade it on a leaving state instead", crate::agent::HOST_NAME));
             }
             if !t.receipt.handoffs.is_empty()
                 && !self.flights.enabled
                 && !self.presence.refused_flights
             {
                 self.presence.refused_flights = true;
-                self.log("shared element: flights are not drawn on Linux (LLP 1013.000); an arriver appears in place");
+                self.log(&format!("shared element: flights are not drawn on {} (LLP 1013.000); an arriver appears in place", crate::agent::HOST_NAME));
             }
             let retired =
                 self.presence

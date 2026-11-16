@@ -806,26 +806,15 @@ test('an App Clip is its parent\'s app under a second identity: NSAppClip, the p
   assert.match(parent, /<key>com.apple.developer.associated-domains<\/key><array><string>applinks:exact.test<\/string><string>webcredentials:exact.test<\/string><string>appclips:exact.test<\/string><\/array>/);
   assert.doesNotMatch(parent, /parent-application-identifiers/);
   assert.doesNotMatch(flat(entitlements(base, 'TEAM', true)), /appclips:/);
-  // The declared origin's applinks: becomes the clip's appclips: too; a tvOS build of the app has neither.
-  const origin = { ...app, origin: 'https://exact.test', manifest: { host: { ios: { associatedDomains: true, appClip: {} } } } };
+  // handle_links' applinks: becomes the clip's appclips: too; a tvOS build of the app has neither, and a wildcard
+  // gives no appclips: (LLP 1038 D8).
+  const origin = { ...app, origin: 'https://exact.test', manifest: { handle_links: 'preferred', app: { id: app.id, origin: 'https://exact.test' }, host: { ios: { appClip: {} } } } };
+  assert.match(flat(entitlements(origin, 'TEAM', true)), /<array><string>applinks:exact.test<\/string><string>appclips:exact.test<\/string><\/array>/);
   assert.match(flat(entitlements({ ...origin, id: clip.id, clipParent: app.id }, 'TEAM', true)), /<array><string>appclips:exact.test<\/string><\/array>/);
-  assert.doesNotMatch(entitlements({ ...origin, widgetTV: true }, 'TEAM', true), /appclips:/);
-  // The origin's association file names the clip under `appclips`, beside the app's `applinks` (LLP 1030).
-  const { appleAssociation } = await import('../host/web/association.mjs');
-  const team = (a) => ({ ...a, manifest: { host: { ios: { ...a.manifest.host.ios, team: 'TEAM' } } } });
-  assert.deepEqual(appleAssociation(team(origin)), {
-    applinks: { details: [{ appIDs: ['TEAM.com.exact.test'], components: [{ '/': '*' }] }] },
-    appclips: { apps: ['TEAM.com.exact.test.Clip'] },
-  });
-  assert.deepEqual(Object.keys(appleAssociation({ ...team(base), origin: 'https://exact.test' }, { webcredentials: true })), ['applinks', 'webcredentials']);
-  assert.equal(appleAssociation(origin), null, 'no team, no file');
-  // It claims the app only where the entitlements claim this origin's host as applinks:.
-  const listed = (associatedDomains) => team({ ...origin, manifest: { host: { ios: { associatedDomains, appClip: {} } } } });
-  assert.equal(appleAssociation(listed(['applinks:other.example'])), null);
-  assert.equal(appleAssociation(listed([])), null);
-  assert.deepEqual(Object.keys(appleAssociation(listed(['applinks:exact.test?mode=developer']))), ['applinks', 'appclips']);
-  assert.deepEqual([['applinks:*.exact.test'], ['applinks:*.test'], ['applinks:*.xexact.test']].map((l) => !!appleAssociation(listed(l))), [true, true, false]);
-  assert.equal(appleAssociation({ ...team(origin), origin: undefined }), null, 'no origin, no host to claim');
+  assert.doesNotMatch(entitlements({ ...origin, widgetTV: true }, 'TEAM', true), /applinks:|appclips:/);
+  const wildcard = { ...app, manifest: { host: { ios: { associatedDomains: ['applinks:*.exact.test'], appClip: {} } } } };
+  assert.match(flat(entitlements(wildcard, 'TEAM', true)), /<array><string>applinks:\*.exact.test<\/string><\/array>/);
+  // The origin's association files: scripts/links.test.mjs.
   // With widgets, the clip shares the parent's App Group and Keychain group, and takes no push environment.
   const entries = { ...app, manifest: { ...app.manifest, live_activities: [{ kind: 'departure', push: true }] } };
   const grouped = flat(entitlements({ ...entries, id: clip.id, clipParent: app.id }, 'TEAM', true, null, { prefix: 'PREFIX' }));
@@ -1374,7 +1363,7 @@ for (const [moduleDirectory, staleDirectory] of [['', null], ['Modules', null], 
   if (process.platform !== 'darwin') return;
   const { sharedWidgetCore } = await import('../host/apple/widgets.mjs');
   const dir = mkdtempSync(resolve(tmpdir(), 'exact-core-recopy-'));
-  const run = (command, args) => { const r = spawnSync(command, args, { encoding: 'utf8' }); assert.equal(r.status, 0, r.stderr); return r; };
+  const run = (command, args) => { const r = spawnSync(command, args, { encoding: 'utf8', env: { ...process.env, TMPDIR: dir } }); assert.equal(r.status, 0, r.stderr); return r; }; // swiftc leaves a TemporaryDirectory.* in its TMPDIR
   try {
     const bin = resolve(dir, 'bin'), base = resolve(dir, 'core'); mkdirSync(bin);
     const triple = moduleTripleFor({ manifest: {} }, false);

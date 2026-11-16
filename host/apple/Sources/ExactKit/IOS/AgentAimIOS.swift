@@ -19,28 +19,6 @@ extension NavigationHost {
         return nil
     }
 
-    /// Under `--chrome platform`, the navigation bar a header button's item
-    /// sits in and the item's box in it: where a finger aims, and where its
-    /// pull-down opens. Nil for any other node; a refusal for an item UIKit
-    /// has not placed.
-    func barItem(_ node: NodeView) -> Result<(bar: UIView, item: CGRect), BarItemMissing>? {
-        #if os(iOS)
-        guard !ExactEnv.authoredChrome else { return nil }
-        let testId = node.props["testId"]
-        for c in controllers.values {
-            guard let controller = c.navigationController, controller.topViewController === c, barShows(controller),
-                  c.viewIfLoaded?.window != nil else { continue }
-            let items = (c.navigationItem.leftBarButtonItems ?? []) + (c.navigationItem.rightBarButtonItems ?? [])
-            // A pull-down's item has no target: its test id names it.
-            guard let item = items.first(where: { ($0.target as? BarPress)?.id == node.id })
-                    ?? items.first(where: { $0.target == nil && testId != nil && $0.accessibilityIdentifier == testId }) else { continue }
-            let bar = controller.navigationBar
-            guard let frame = item.frame(in: bar), frame.width > 0, frame.height > 0 else { return .failure(BarItemMissing()) }
-            return .success((bar, frame))
-        }
-        #endif
-        return nil
-    }
 }
 
 extension Agent {
@@ -208,5 +186,4 @@ extension Agent {
 }
 
 /// A header button's bar item that UIKit has not placed in its bar.
-struct BarItemMissing: Error {}
 #endif

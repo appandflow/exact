@@ -258,6 +258,8 @@ impl super::Painter {
             || node.props.str(PropId::Href).is_some()
             || self.unringed(node)
             || node.props.bool(PropId::Disabled) == Some(true)
+            // Its player marks the focus on its controller's own button.
+            || self.media.focused == Some(node.key)
         {
             return;
         }

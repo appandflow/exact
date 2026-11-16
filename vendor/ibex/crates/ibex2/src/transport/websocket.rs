@@ -868,7 +868,7 @@ impl TcpSender {
     fn queue(&self, state: &mut SendState, command: Command) -> Result<(), CommandQueueError> {
         if self
             .command_count
-            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |count| {
+            .try_update(Ordering::AcqRel, Ordering::Acquire, |count| {
                 (count < MAX_OUTBOUND_COMMANDS).then_some(count + 1)
             })
             .is_err()
@@ -1022,7 +1022,7 @@ impl MessageSender for TcpSender {
 }
 
 fn saturating_add(amount: &AtomicUsize, bytes: usize) {
-    let _ = amount.fetch_update(Ordering::AcqRel, Ordering::Acquire, |current| {
+    let _ = amount.try_update(Ordering::AcqRel, Ordering::Acquire, |current| {
         Some(current.saturating_add(bytes))
     });
 }

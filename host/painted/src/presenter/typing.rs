@@ -17,9 +17,16 @@ impl<D: DataSource> Presenter<D> {
             if node.props.bool(PropId::Disabled) == Some(true) {
                 return Err(format!("view {id} is disabled"));
             }
-            let error =
-                self.host
-                    .dispatch_at(id, Event::Navigate(text.to_owned()), self.host.now());
+            // A path as written; a URL with a scheme as the platform delivers
+            // one from outside, as Apple's `typedLocation`.
+            let location = if has_scheme(text) {
+                crate::app::incoming_location_at(text, self.host.web_mount.as_ref())
+            } else {
+                text.to_owned()
+            };
+            let error = self
+                .host
+                .dispatch_at(id, Event::Navigate(location), self.host.now());
             let after = self.after_commit();
             if let Some(error) = error.or(after) {
                 return Err(error);
@@ -807,6 +814,10 @@ impl<D: DataSource> Presenter<D> {
         if self.key_click(id, name, now_ms) {
             return;
         }
+        // Before Space presses: during a menu's type-ahead it is one more letter.
+        if self.type_ahead_key(id, name, now_ms) {
+            return;
+        }
         let Some(node) = self.host.kernel().node(id) else {
             return;
         };
@@ -941,6 +952,15 @@ impl<D: DataSource> Presenter<D> {
             self.chosen.remove(&id);
         }
     }
+}
+
+/// Whether `text` begins with a URL scheme (RFC 3986 §3.1) and its colon.
+fn has_scheme(text: &str) -> bool {
+    text.split_once(':').is_some_and(|(scheme, _)| {
+        let mut chars = scheme.chars();
+        chars.next().is_some_and(|c| c.is_ascii_alphabetic())
+            && chars.all(|c| c.is_ascii_alphanumeric() || matches!(c, '+' | '-' | '.'))
+    })
 }
 
 #[cfg(test)]

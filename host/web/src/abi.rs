@@ -18,6 +18,11 @@ use crate::host::Host;
 use exact_runner::{DataSource, Event};
 use std::cell::RefCell;
 
+/// Whether the baked plan calls `setScheme`, for the shell's before-paint restore.
+pub fn chooses_scheme(plan: &[u8]) -> bool {
+    exact_plan::Plan::decode(plan).is_ok_and(|plan| exact_runner::uses::chooses_scheme(&plan))
+}
+
 /// The buffers and the host behind the exports.
 pub struct Bridge<D: DataSource> {
     host: Option<Host<D>>,
@@ -488,11 +493,13 @@ impl<D: DataSource> Bridge<D> {
         let last = String::from_utf8_lossy(&bytes[first_len..]);
         let range = (first_len != 0).then_some((
             exact_runner::ListTextPosition {
+                fixed: None,
                 key: &first,
                 paragraph: first_paragraph,
                 offset: first_offset,
             },
             exact_runner::ListTextPosition {
+                fixed: None,
                 key: &last,
                 paragraph: last_paragraph,
                 offset: last_offset,
@@ -915,7 +922,10 @@ impl<D: DataSource> Bridge<D> {
                     None => Ok("{\"accepted\":false}".into()),
                 };
             }
+            // A held spring's ready time (x), and the deadline's release (LLP 1003.001 D9).
             let batch = match op {
+                15 => Ok(Property::ALL.get(property as usize).and_then(|p| host.present_curve(view, *p, value.x, now))),
+                16 => Ok(Some(host.release_overdue(now))),
                 1 => host.update_hold(serial, value, now),
                 2 => host.end_hold(serial, HoldEnd::Release { velocity: value }, now),
                 3 => host.end_hold(serial, HoldEnd::Cancel, now),
@@ -1089,6 +1099,12 @@ macro_rules! host {
         #[no_mangle]
         pub extern "C" fn exact_checkpoint(len: u32) {
             EXACT_BRIDGE.with(|b| b.borrow_mut().checkpoint(len as usize))
+        }
+
+        /// Whether the shell can restore a stored scheme before paint.
+        #[no_mangle]
+        pub extern "C" fn exact_chooses_scheme() -> u32 {
+            u32::from($crate::abi::chooses_scheme($plan))
         }
 
         /// The locations the baked plan renders at build (LLP 1048.000 D7),

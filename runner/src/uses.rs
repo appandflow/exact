@@ -316,6 +316,20 @@ impl fmt::Display for Uses {
 /// The capabilities `plan` uses (LLP 1047 D2).
 pub fn uses(plan: &Plan) -> Uses {
     let mut uses = Uses::NONE;
+    if plan.tools.iter().any(|t| {
+        serde_json::from_str::<serde_json::Value>(plan.str(t.face)).is_ok_and(|face| {
+            face["doors"]
+                .as_array()
+                .is_some_and(|doors| doors.iter().any(|d| d == "apple"))
+                && face["parameters"].as_object().is_some_and(|params| {
+                    params
+                        .values()
+                        .any(|p| p.get("type").is_some_and(|t| t == "file"))
+                })
+        })
+    }) {
+        uses = uses.with(Capability::Picker);
+    }
     if !plan.keyframes.is_empty() {
         uses = uses.with(Capability::Animations);
     }
@@ -441,7 +455,12 @@ pub fn uses(plan: &Plan) -> Uses {
                 }
                 if matches!(
                     StyleId::from_bit(u32::from(binding.id)),
-                    Some(StyleId::Animation | StyleId::ExitAnimation)
+                    Some(
+                        StyleId::Animation
+                            | StyleId::ExitAnimation
+                            | StyleId::ViewTransitionNew
+                            | StyleId::ViewTransitionOld
+                    )
                 ) {
                     uses = uses.with(Capability::Animations);
                 }
@@ -567,6 +586,28 @@ fn shows_media_picker(plan: &Plan) -> bool {
     })
 }
 
+/// Whether node `node` is a zoomable scroller (LLP 1057.001.000 D1): either
+/// range row written, literal or bound. The web loads its zoom module, and the
+/// wasm host names its absence, only for a plan with one.
+pub fn zoomable(plan: &Plan, node: exact_plan::NodesId) -> bool {
+    plan.node(node)
+        .bindings
+        .iter()
+        .map(|b| plan.binding(b))
+        .any(|b| {
+            b.kind == BindingKind::Style
+                && matches!(
+                    StyleId::from_bit(b.id as u32),
+                    Some(StyleId::MinZoom | StyleId::MaxZoom)
+                )
+        })
+}
+
+/// Whether `plan` has a zoomable scroller.
+pub fn zooms(plan: &Plan) -> bool {
+    (0..plan.nodes.len()).any(|i| zoomable(plan, exact_plan::NodesId(i as u32)))
+}
+
 /// Whether `plan` can show an SVG island (LLP 1055.000 D10, D14): a `mask`
 /// or `filter` element, or `filter` bound on an SVG element (its functions
 /// need no element). A host whose island module is loaded on demand (LLP
@@ -675,6 +716,22 @@ pub fn uses_midi(plan: &Plan) -> bool {
 /// which the video arm carries on Apple.
 pub fn uses_picture_in_picture(plan: &Plan) -> bool {
     runs_command(plan, &["requestPictureInPicture"])
+}
+
+/// Whether an image's, a media element's or a frame's source can be remote:
+/// an `http:` or `https:` literal, or one computed at run time, which this
+/// cannot read. The Mac App Store sandbox loads such a source only with
+/// `network.client` (LLP 1030.005 D2).
+pub fn sources_can_be_remote(plan: &Plan) -> bool {
+    plan.bindings.iter().any(|binding| {
+        binding.kind == BindingKind::Prop
+            && matches!(
+                PropId::from_wire(binding.id),
+                Some(PropId::Src | PropId::ImageSource)
+            )
+            && constant_str(plan, plan.code(binding.expr))
+                .is_none_or(|src| src.starts_with("http:") || src.starts_with("https:"))
+    })
 }
 
 /// Whether the runner keeps a MIDI queue the agent shows (`state.midi`):

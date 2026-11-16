@@ -2,5 +2,4 @@
 <resources>
     <string name="exact_clear">Hapus</string>
     <string name="exact_default_channel">Notifikasi</string>
-    <string name="exact_silent_channel">Notifikasi senyap</string>
 </resources>

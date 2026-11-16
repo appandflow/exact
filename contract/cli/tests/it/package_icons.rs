@@ -11,7 +11,7 @@
 use super::forma_package_params::package;
 use super::forma_serve::{app, Serve};
 use serde_json::json;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 /// One shape, its path `d`: a template every host draws.
 fn shape(d: &str) -> String {
@@ -29,7 +29,7 @@ const APP_STAR: &str = "M9 9h1v1H9Z";
 /// whose view draws `symbol:<symbol>`; the package's design declares
 /// `icons` (its lines) and its `assets/star.svg` is [`PACKAGE_STAR`], the
 /// app's own `assets/star.svg` [`APP_STAR`]. It ships iOS and the web.
-fn reading(tag: &str, design: &str, symbol: &str, icons: &str) -> PathBuf {
+fn reading(tag: &str, design: &str, symbol: &str, icons: &str) -> crate::scratch::Scratch {
     let dir = app(tag, design);
     package(
         &dir,

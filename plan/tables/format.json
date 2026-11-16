@@ -260,6 +260,16 @@
           "name": "gate",
           "codec": "range:args",
           "_comment": "@ref LLP 1161.002 D1: empty for a resource asked whenever its arguments are ready; for `resource r = source(args) when cond as shape S`, one entry, `cond`, read as a derive is. While it is false the resource is idle: nothing is asked, a request in flight is let go (an upload's goes on), `pending` and `failed` are false, the value it showed stays and is not current. When it turns true the resource is asked, forced."
+        },
+        {
+          "name": "owner",
+          "codec": "opt:arms",
+          "_comment": "@ref LLP 1035.005.004 D1, D2: a child's resource, owned by the arm whose instance holds its state: a router's row, an `if` or `match` arm, a tab panel. Each instance has its own request, value, `pending`, ticket and refresh, made with the instance and let go with it. Its gate and arguments are read in the instance's frames when the render makes or visits it, and its asks go out after that render; an answer lands in a later commit. None: the root's, or a `late` resource."
+        },
+        {
+          "name": "late",
+          "codec": "bool",
+          "_comment": "@ref LLP 1035.005.004 D2: the resource of a child used outside every region, whose one instance lives as long as the root's: settled with the root's resources, from the first settlement after its `late` slots are initialized at boot. Always false when owner is set."
         }
       ]
     },
@@ -292,6 +302,16 @@
           "name": "mode",
           "codec": "enum:MutationMode",
           "_comment": "How its sends overlap. `newest`: a send forgets the one in flight (LLP 1016 §4). `queue` (@ref LLP 1092 D1, D2): one send in flight; a later send waits, with its send-time arguments, until the one before it is answered or let go and its `then` has run. `parallel` (@ref LLP 1161.000 D2-D4): every send is asked when it is made, each its own target at the data seam, and its reply lands whatever else is out."
+        },
+        {
+          "name": "owner",
+          "codec": "opt:arms",
+          "_comment": "@ref LLP 1035.005.004 D6: a child's mutation, owned by the arm whose instance holds its slot (`slot`'s owner is the same arm). Each instance sends on its own: its own `pending`, failure, ticket, queue, written-through overlay and `then`, which runs in the instance's frames. Destroying the instance forgets its sends: a send already made stays made, its reply changes nothing, its `then` does not run, and its waiting sends are dropped. None: the root's, or a child's used outside every region, whose slot is `late`."
+        },
+        {
+          "name": "then_args",
+          "codec": "range:args",
+          "_comment": "@ref LLP 1035.005.004 D6: the arguments `then` takes, read in the frames of the instance whose send answered (the root's for a mutation without `owner`): a child's lifted action takes its captured props, as a handler passes them. Empty for the root's own mutation."
         }
       ]
     },

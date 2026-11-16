@@ -140,7 +140,7 @@ class HostedTouchTest {
             }
             override fun update(view: View, props: JSONObject) {}
         }
-        val natives = Natives(activity, File("."), mapOf("test-map" to native))
+        val natives = Natives(activity, { File(".") }, mapOf("test-map" to native))
         val view = ExactView(activity, false) {}.also { it.started = true; it.natives = natives }
         val parent = FrameLayout(activity).also { it.addView(natives); it.addView(view) }
         init {

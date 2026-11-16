@@ -6,6 +6,7 @@
 //! length and a type token. The server runs on macOS and Linux only.
 #![cfg(unix)]
 
+use crate::scratch::Scratch;
 use serde_json::{json, Value};
 use std::io::{BufRead, BufReader, Write};
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
@@ -38,10 +39,8 @@ const CONTRACT: &str = "component App
       text \"c\" color=\"accent.faded\"
 ";
 
-fn app() -> std::path::PathBuf {
-    let dir = std::env::temp_dir().join(format!("exact2-scrub-fold-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).unwrap();
+fn app() -> Scratch {
+    let dir = Scratch::new(format!("exact2-scrub-fold-{}", std::process::id()));
     std::fs::write(dir.join("app.contract"), CONTRACT).unwrap();
     std::fs::write(dir.join("app.forma"), exact_forma::format(DESIGN).unwrap()).unwrap();
     dir
@@ -235,9 +234,7 @@ fn a_frame_patched_from_its_fold_is_its_full_compile() {
 /// old keyframe. A token only a row names stays live.
 #[test]
 fn a_keyframes_token_folds_as_a_rebuild() {
-    let dir = std::env::temp_dir().join(format!("exact2-scrub-keyframe-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).unwrap();
+    let dir = Scratch::new(format!("exact2-scrub-keyframe-{}", std::process::id()));
     std::fs::write(
         dir.join("app.contract"),
         "keyframes relight\n  from background-color=\"chip\"\n  to background-color=\"transparent\"\ncomponent App\n  view\n    column background-color=\"chip\"\n      text \"a\" color=\"ink\" animation=\"relight 1s\"\n",

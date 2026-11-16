@@ -115,7 +115,8 @@ style         = "style" IDENT block(style-line | part) ;
 decoration    = "decoration" IDENT ( style-line | block(style-line) ) ;
 atom          = "atom" IDENT style-line [ block(style-line | state) ] ;
 style-line    = { FIELD "=" style-literal } NL ;
-part          = "::" "placeholder" NL block(style-line) ;
+part          = "::" ( "placeholder" | "backdrop" | "view-transition-new"
+                     | "view-transition-old" ) NL block(style-line) ;
 style-literal = STRING | NUMBER | "-" NUMBER | "true" | "false" ;
 keyframes     = "keyframes" IDENT block(keyframe-line) ;
 keyframe-line = selector { "," selector } { FIELD "=" frame-value } NL ;
@@ -149,16 +150,33 @@ or event props. In a conditional class, each prop must be set in both styles or
 neither, unless the node supplies its own value. Each arm's literal is checked
 as a direct attribute would be.
 
-A part is CSS's pseudo-element as a block: `::placeholder`, then its
-declarations indented beneath it, in a `style` (literal) or under an `input` or
-`textarea` before its children (where a value may compute, as the element's own
-attributes do). It admits `color` alone (CSS `::placeholder { color }`, LLP 1104
-D3), its alpha its own; the field's own block wins over its class's, and without
-one the placeholder keeps the platform's colour. Another property in it is
-`lower-unknown-attr`; on another element `lower-attr-tag`; `::before` and
-`::after` are `syntax-part` (Contract has no generated box: write a child), as
-is any other part. `placeholder-color` and `-exact-placeholder-color` are
-refused with the block to write.
+A part is CSS's pseudo-element as a block: `::placeholder`, `::backdrop`,
+`::view-transition-new` or `::view-transition-old`, then its declarations
+indented beneath it, in a `style` (literal) or under its element before its
+children (where a value may compute, as the element's own attributes do).
+`::placeholder`, under an `input` or `textarea`, admits `color` alone (CSS
+`::placeholder { color }`, LLP 1104 D3); `::backdrop`, under a `dialog`, admits
+`background-color` alone (CSS `::backdrop { background-color }`, LLP 1035.001
+D11: what lies over the page beneath the modal dialog, fading in and out with
+it). Each colour's alpha is its own; the element's own block wins over its
+class's, and without one the platform's colour or dim stays. Another property
+in either is `lower-unknown-attr`; on another element `lower-attr-tag`.
+
+On a route (an element with `navigationKey`), `::view-transition-new` is its
+entrance, when a push or a full-screen presentation adds it, and
+`::view-transition-old` its exit, when a pop or the dismissal removes it (CSS
+View Transitions' pseudo-elements, LLP 1013.001 D1). Each admits the
+`animation` shorthand alone, naming keyframes that move only `opacity`,
+`translate`, `scale` and `rotate`; it must end (not `infinite` or `paused`),
+and each arm of a computed value is a literal. `none` cuts, and a part left
+unset keeps the platform's transition. A sheet's route, a route with a literal
+`navigationSource`, and an element that is no route refuse them
+(`lower-route-part`); the other `::view-transition-*` parts have nothing to
+style.
+
+`::before` and `::after` are `syntax-part` (Contract has no generated box:
+write a child), as is any other part. `placeholder-color` and
+`-exact-placeholder-color` are refused with the block to write.
 
 A state part is a block of one state's rows (LLP 1121 D8): `:active`, `:hover`,
 `:focus-visible`, `:disabled` or `:checked` alone on its line, then rows indented
@@ -168,10 +186,12 @@ combined (`syntax-state`). `:disabled` and `:checked` (when `checked`,
 `aria-checked`, `aria-selected` or `aria-pressed` is true) take
 `background-color`, `color`, `border-color` (each side), `opacity`, `box-shadow`
 and `-exact-tint-color`, and fold into the node's own rows, `:checked` under
-`:disabled`; `:active` takes `background-color`, `color`, `opacity` and
+`:disabled`; `:active` takes `background-color`, `color`, `opacity`, `translate` and
 `-exact-press-scale` and lowers to the press paint (LLP 1061 D7: its `opacity` an
-absolute target), `:hover` and `:focus-visible` take `background-color`,
-`color`, `border-color`, `opacity`, `box-shadow` and `scale` (which stands in for the
+absolute target, its `translate` a 2D offset added to the node’s own translation
+without changing layout; the web hit area moves with the paint, while native
+hosts keep the unpressed hit area). `:hover` and `:focus-visible`
+take `background-color`, `color`, `border-color`, `opacity`, `box-shadow` and `scale` (which stands in for the
 node's and moves on its `transition`). Active targets may compute or clear
 with `none`; hover and focus targets are literals (`lower-state-literal`; a
 token's name is one). Another row is `lower-state-row`;
@@ -365,13 +385,25 @@ calls (a shape, a `fn`, a component) comes from its own `use` lines or is
 declared in it, beside the block; another file, the root among them, names
 such a declaration on a `use` line. The
 component's rules hold for its members wherever they are written: a child's
-members file declares no resource.
+members file declares no mutation or task.
 
 There is one `props`, `inject`, `provide`, `slot`, and `view` section at most in
-a component. Only the root may own resources, mutations, and tasks, except that
-any component may read the device's facts, `exactViewport()` and `exactPage()`
-with no arguments (`EmptyState` reads `accessibilityTextSize`): they open no
-request, and every instance reads the root's one answer. A task's
+a component. Only the root may own tasks. Any component may own resources and
+mutations (LLP 1035.005.004): each instance of a child asks for its own
+resources, after the render that makes it, and lets go when the render destroys
+it. Each instance sends its own mutations: its own `pending`, failure, queue and
+answer, and its `then` runs in that instance, where it may call an action prop.
+A child's `refreshes` names its own resources. A send in flight when the render
+destroys the instance stays sent, but its answer changes nothing and its `then`
+does not run, and its waiting sends are dropped. A child's resource is not a
+resource over a list, and a child that owns requests is used where its instances
+are bounded: outside every region, under `if` and `match`, or in a row of
+`stack(nav)`, `t.stack` or `nav.tabs`, never under another `for` or in a
+virtualized list (`type-child-resource`). Its state initializers do not read its
+own resources (`type-state-reads-request`). The device's facts,
+`exactViewport()` and `exactPage()` with no arguments (`EmptyState` reads
+`accessibilityTextSize`), open no request: every instance reads the root's one
+answer. A task's
 body has exactly one schedule. A gated task (`when cond`, LLP 1092) has its
 timer only while `cond` holds, armed from the commit that made it true; `key=`
 re-arms it from the commit that changed the key (compared as a `for` key),
@@ -741,7 +773,7 @@ launch        = "size" NUMBER "x" NUMBER NL          (* written 1200x800 *)
               | "fresh" [ STRING ] NL                (* the Snapback dev server emptied first, seeded from the file *)
               | "before" "data" NL                   (* the first step does not wait for data *)
               | "prefer" IDENT { "." IDENT } ( IDENT | STRING ) NL
-                                                     (* media feature, root-font-size, or permission.<module>; before observations *)
+                                                     (* media feature, page fact, or permission.<module>; before observations *)
               | "fail" "fetch" STRING [ "times" NUMBER ] NL ; (* armed before the first data load *)
 step          = "tap" "midi" STRING ( HEX { HEX } | "clock" NUMBER NUMBER ) NL
                                                      (* bytes into an input; or clock ticks: bpm, ms *)
@@ -767,7 +799,8 @@ step          = "tap" "midi" STRING ( HEX { HEX } | "clock" NUMBER NUMBER ) NL
               | "clock" "until" "state" IDENT { "." ( IDENT | NUMBER ) } "==" scalar "within" NUMBER NL
                                                      (* real time, the clock frozen, until it holds *)
               | "resize" NUMBER "x" NUMBER NL        (* the window, mid-test: 800x600 *)
-              | "prefer" IDENT { "." IDENT } IDENT NL (* change a media preference or a module's permission now *)
+              | "prefer" IDENT { "." IDENT } ( IDENT | STRING ) NL
+                                                     (* change a media preference, page fact or module permission now *)
               | "prefer" midi-fact { midi-fact } NL  (* each fact at most once *)
               | "reload" NL
               | "fail" "fetch" STRING [ "times" NUMBER ] NL (* later fetches whose URL starts with it fail *)
@@ -924,9 +957,12 @@ as `--url` with a path does. Written at the top of the file they apply to every 
 name its own; either way they override the drive's flags. Media preferences
 (`prefer prefers-color-scheme dark`), text size (`prefer root-font-size "24"`) and
 a module's permission (`prefer permission.notifications granted`, `denied` or
-`prompt`) also lead a test or the file, and may change between steps. Defaults
-merge by name; duplicate names among
-leading lines are errors. A bad name or value fails that test at its line.
+`prompt`) also lead a test or the file, and may change between steps. Other
+single-value page facts, such as `prefer online false`, use the drive's parser
+and aliases; quote numeric values. Folds (`posture`, `segments`, `gap`), mode
+pins and extension substitutes are drive-only for now. Defaults
+merge by resolved fact name, so aliases override each other; duplicate leading
+lines for one fact are errors. A bad name or value fails that test at its line.
 The latest values survive `reload` and verify's relaunch. A file whose
 assertions depend on the date says so in the file. `epoch now` is the machine's
 clock, read once as each test launches, for a test whose app talks to a live
@@ -952,8 +988,41 @@ be armed; the longest matching prefix decides, and arming a prefix again
 replaces it. A file's line applies to every test that does not arm the same
 prefix itself. A counted fault that matched no fetch by the test's end (or
 before it is armed again) fails the test at the line that armed it, and
-`reload` relaunches with the table as it is then. A stream (`exactStream`, a
-WebSocket) is not matched. `request POST "/polls/1/votes" {"option": 2} as bob`
+`reload` relaunches with the table as it is then. Each HTTP attempt of a long
+poll (`exactStream` with `exactLongPoll`) takes a matching fault and retries as
+a network failure. Event streams, byte streams and WebSockets are not matched.
+`answer fetch "<prefix>" with <status> [header "<name>" "<value>"]… [<body>]`
+supplies an immediate HTTP response, with no request to the service. It may lead
+a test or the file, like `fail fetch`, so the first resource load receives it.
+A later line replaces the current answer or failure at that prefix. A test's
+leading answer or failure overrides the file's entry for the same prefix.
+JSON bodies are sent as `application/json`; a quoted string is sent as
+`text/plain; charset=utf-8`, and an omitted body is empty. An explicit
+`content-type` header overrides that default. The status is 200 through 599,
+excluding redirects 301, 302, 303, 307 and 308. Statuses 204, 205 and 304
+require an empty body. A response has at most 1,024 headers and a body of at most
+64 KiB; the complete encoded fixture table must also fit 64 KiB, including headers
+and URL prefixes. An answer that exceeds a limit is refused before arming. `set-cookie` and `set-cookie2` headers are
+refused because browsers hide them. Request validation, grants, file-body
+preparation, aborts, deadlines and response-size limits still apply. A refused fixture records no hit
+or answered journal line.
+
+Answers use the same longest-live-prefix rule as failures. `fail fetch` replaces
+an answer, and `pass fetch` clears either at that prefix; a shorter live prefix
+may then match. Long polls ignore answer entries when choosing a failure, so
+a longer answer prefix does not hide a shorter failure. Otherwise the request
+goes to the network. Each test starts with its own table; `reload` keeps the
+current answers and cleared entries. On the web, only the top-level document on
+the original app origin receives the table; child frames and other origins do not.
+Development render servers apply the table before fetching request-time data.
+A web launch revalidates only matching checkpoint answers through the real source;
+unrelated rendered answers stay settled.
+The real source parses the response, so an HTTP error status is a response,
+where `fail fetch` is a rejected connection. These fixtures cover buffered HTTP
+requests, including a worker's; streams, long polls, redirects, `exactBodyTo`,
+delays and response files are not supported.
+
+`request POST "/polls/1/votes" {"option": 2} as bob`
 (LLP 1116.006 D8) is the driver, not the app, writing through the app's server as
 another person: a method, a path in quotes under the server URL app.ts calls (its
 first local one, `http://127.0.0.1:8787`; or a whole `http://` URL), an optional JSON
@@ -990,7 +1059,20 @@ is down, after the move and before the hold. `press` and `hold` advance the
 virtual clock by those milliseconds (a game's ticks), except under
 `--timing platform`, where the platform's own clock owns the gesture.
 `tap "id" pinch <scale> [at x y]` is the driver's pinch: `scale` greater than 0,
-about the node's middle or about `at` in its box.
+about the node's middle or about `at` in its box. A canvas that takes raw input
+receives it as a real pinch arrives there: two touch contacts on the web and iOS,
+a Control-held wheel on macOS. A zoomable scroll (`-exact-max-zoom`, LLP
+1057.001.000) is left zoomed as the platform's pinch leaves it at rest, its
+`scrollZoom` times `scale` within its range; the iOS agent's `--touch platform`
+plays it as two real fingers, which UIKit's own recognizer reads. On Android and
+Windows it is the pinch the reader's recognizer or the second contact tells the
+presenter, in steps about the point; Linux answers it unsupported. The agent's
+`tap <t> dblclick touch` is a finger's double tap rather than a mouse's: on iOS,
+the web, Android and Windows it zooms a zoomable scroll where no `dblclick`
+handler takes it (two real taps under `--touch platform`, two touch points in
+Chrome, two touch contacts on Android and Windows), and macOS and Linux answer it
+unsupported. On the web, Android, Windows and Linux, `tap <t> wheel 0 <dy>
+modifiers Control` is a trackpad's pinch, as the platform delivers one.
 `tap "id" wheel <dx> <dy>` is the driver's wheel (the agent's `tap <t> wheel
 dx dy`) at the node's middle, in points (CSS pixels on the web): a positive `dy`
 scrolls on toward the content's end, so its offset grows, and a negative one back
@@ -1177,7 +1259,7 @@ says. Every roster function has a row and an example, and each example written
 | `params(router, parameterName)` | `string[]`: that parameter's non-empty values over the selected stack, bottom first, duplicates kept (one entry's own value is `entry.params.<name>`, `""` where its route does not bind it; the name must be a parameter of some route) | `params(push(nav, "/item/7"), "id")` is `["7"]` |
 | `searchParam(entry, name)` | String | `searchParam(top(push(nav, "/item/7?tab=notes")), "tab")` is `"notes"` |
 | `fragment(entry)` | String: what the entry's location had after `#`, fragment-encoded as the browser's `hash` is, `""` when none. It is no part of the screen: `/item/7#moves` is the visit to `/item/7`, and a `push`, `replace` or `go` that changes only the fragment changes it on that visit. Written as `path("item", id) + "#moves"`, or `href="#moves"` on a `link` to the screen shown. Once the route's content has arrived, each host scrolls to the element with that `id` in the entry's route, as a browser scrolls to a fragment (`top`, or no such element: the route's top) (LLP 1153 D5) | `fragment(top(push(nav, "/item/7#moves")))` is `"moves"` |
-| `sharedFiles(entry, name)` | `SharedFiles`: `{files: Picked[], dropped, pending}`, the files a received share carried, by the token in the entry's `name` parameter; `pending` counts those still being copied, and a token the host did not set this launch answers no files (LLP 1133.024 D3) | `sharedFiles(top(nav), "files").files.length` is the count of shared files that have landed |
+| `sharedFiles(entry, name)` | `SharedFiles`: `{files: Picked[], dropped, pending}`, the files a received share carried, by the token in the entry's `name` parameter; `pending` counts those still being copied, and a token the host did not set this launch answers no files (LLP 1133.024 D3; [`share_target`](reference.md#shares-from-other-apps-share_target)) | `sharedFiles(top(nav), "files").files.length` is the count of shared files that have landed |
 | `t("key", name=value, …)` | Localized string; validates tables/placeholders | `t("greeting", name=user.name)` is the `greeting` string of the app's locale with `{name}` filled |
 | `frame(id)` | `Geometry`, actions only; last layout where the viewer sees it, as `getBoundingClientRect`: in the viewport, every scroll offset and transform applied | `frame("card").height`, in an action, is the card's height as drawn |
 | `rangeFrame(id, start, end)` | `Geometry`, actions only; a textarea's UTF-16 range as `Range.getBoundingClientRect()` (on a `text markup="markdown"`, the union of the atom pills the range meets, [inline atoms](#inline-atoms-atom-atoms-atomfaces-atompress)): collapsed, the caret's rectangle; unavailable past the text, while composing, or with no host reader ([decorations](#plain-textarea-decorations), LLP 1114.007) | `rangeFrame("composer", caret, caret)`, in an action, is where a mention popover goes |
@@ -1445,12 +1527,13 @@ list's cell in a poll. Elsewhere it does nothing. A grouped row's edge or backgr
 image its author wrote otherwise stays the author's on every host, iOS's carried row
 included.
 
-An `image` takes no `loading` attribute: Exact decides when its picture is fetched
+Unless it says otherwise, Exact decides when an `image`'s picture is fetched
 (LLP 1048.007 D5). On the web a lone image loads with the page, and the page's first
 one is preloaded at high priority. An image a `for` repeats is written `loading="lazy"`, the first
 screen's rows included: the browser fetches those at the page's first layout, not
-while it parses the document, and the rest as they come near. Native hosts fetch the
-picture of every image that is mounted.
+while it parses the document, and the rest as they come near. HTML's `loading`
+(`lazy` or `eager`, written or bound) on an image wins over that choice on the web.
+Native hosts ignore it and fetch the picture of every image that is mounted.
 
 A `button` is the platform's own control by default (LLP
 1104 D1). Your bare box
@@ -1936,7 +2019,8 @@ recently started playing owns the session (else the latest mounted).
 `scroll` appends left then top offsets, and to an action that takes one more
 parameter a `ScrollEvent`: the scroller's own `scrollLeft`, `scrollTop`,
 `scrollWidth`, `scrollHeight`, `clientWidth` and `clientHeight` as the event
-fires, what a web handler reads off `event.target`. "At the end" is the web's
+fires, what a web handler reads off `event.target`, and `scrollZoom`, a
+zoomable scroller's zoom (1 on any other; LLP 1057.001.000). "At the end" is the web's
 arithmetic, on every host and on a virtualized list too (chat F4, a
 jump-to-latest pill); a native host's `scrollHeight` is its port plus the range
 it clamps to:
@@ -2818,25 +2902,26 @@ the virtual clock).
   fails `lower-menu-status`) and presents the button as the app's
   `NSStatusItem` on macOS, taking its place in the page; its `popovertarget`
   menu is the item's menu. A click opens the menu when there is one and runs
-  `press` when there is none. Windows' notification-area icon is accepted and
-  not built (LLP 1133.025 §14): there, as on every other host, the button
-  stays an ordinary button in the window. With
+  `press` when there is none. On Windows the button is a notification-area
+  icon and likewise leaves the page: a left click or a keyboard
+  selection runs `press`, or opens the menu when there is none, and a right
+  click opens the menu, which ends with Exit unless `status-quit` is removed.
+  Every other host keeps the button an ordinary button in the window. With
   `host.macos.activationPolicy: "accessory"` the app has no Dock tile and
   opens no window at launch. Bare `focus()` is the window's, as the web's
   `window.focus()`: on macOS and Windows it shows the session's window if
   hidden, brings it forward and activates the app; Linux brings no window
   forward and logs it as unsupported. `focus(id)` stays an element's.
   `hideWindow()` puts the session's window away as the person's close does
-  while a status item is placed or under `keepRunning`, and the app keeps
-  running; the next `focus()` shows it.
+  under `keepRunning`, or on macOS while a status item is placed, and the
+  app keeps running; the next `focus()` shows it.
   On Windows `host.windows.window.keepRunning: true` makes closing the window
   hide it, as on the Mac, and a login item registered `hidden` opens no
   window at that launch. A Windows app is one process: launching it again
   shows the window it has, and a location on that command line (a
-  jump-list task) opens in it. Windows' notification-area icon is not built
-  (LLP 1133.025 §14), so an app that keeps running there gives the person
-  its own way back (a global shortcut whose action calls `focus()`) and its
-  own way out (a button whose action calls `close()`).
+  jump-list task) opens in it. A placed status item does not make the close
+  hide the window there, as Windows' guidelines advise; it is a way back to a
+  window `keepRunning` hid, and its menu's Exit a way out.
 
   `@exact/global-shortcuts` on Windows accepts `PrintScreen` and modified
   chords such as `Control+PrintScreen`. Bare `PrintScreen` answers
@@ -2974,6 +3059,7 @@ argument validation. Use the working implementation when selecting arguments:
 | `showOpenFilePicker(id[, multiple])` | [file-picker corpus](../contract/corpus/file-pickers.contract) |
 | `showDirectoryPicker(id)` | Same corpus |
 | `showSaveFilePicker(id, suggestedName)` | Same corpus |
+| `startIn=` on the three pickers and `saveFile`: where the panel opens, the File System Access API's option. A well-known folder, `"desktop"`, `"documents"`, `"downloads"`, `"music"`, `"pictures"`, `"videos"` or `"screenshots"`, or a `doc:/` path the person chose earlier (its folder, or a chosen file's folder). A literal outside the names fails the build (`type-file-picker-argument`, `type-save-file-argument`); at run time a value that is neither, or a handle the session does not hold, is journalled (`<command>: startIn: refused: …`) and the panel opens where it would. macOS opens the folder each time, Linux's portal and Chromium likewise (Chromium's `screenshots` is `pictures`), and iOS opens a handle's folder and ignores a name (LLP 1173 D2) | Same corpus, [picker tests](../contract/cli/tests/it/picker.rs) |
 | `requestPermission(id, path, mode)`: a kept document's access asked for again, `mode` `"read"` or `"readwrite"`, from a press (the web asks the browser under its activation; a native host answers `granted` for a document that resolves); `change` at `id` hears `granted` or `denied` ([documents kept across launches](reference.md#documents-the-person-chose-doc)) | No app fixture; [the web's kept documents test](../host/web/documents-kept.test.mjs) |
 | `scrollIntoView(id, block=, inline=, behavior=)`: `Element.scrollIntoView()` on any element by its `id` (a string, dynamic as `focus`'s): every scroll container above it, innermost first, then the page, align it by the web's `ScrollIntoViewOptions` (`block` default `start`, `inline` `nearest`). `scrollIntoView("list-id", key, …, row=, offset=)`: a virtualized list's row by key, built and measured first (LLP 1070.000). macOS, iOS and tvOS animate the element form with the platform's scroll animation unless `behavior="instant"` (LLP 1115.000 D8.4), landing immediately under reduced motion; `scrollend` comes once the animation ends. Linux and Android glide the element form the same way while the display owns the clock, and land it at once under the agent's (LLP 1070.000 §14). Either form owns its scrollers until it settles: `scrollFollowEnd` moves nothing meanwhile, and follows afterwards only where it rests at the end (LLP 1070.000 §15) | [collection tests](../contract/cli/tests/it/collection_into_view.rs) |
 | `scrollBy(id, x, y)`: `Element.scrollBy(x, y)` on a scroll container by its `id`, in pixels (a terminal's row is 16, its column 8), clamped to its travel; an element that does not scroll does not move. A reader's `j` and `k`. The terminal, Linux and the web's JS target take it; Apple and the wasm web host do not yet | [the LLP terminal reader](../apps/llp/terminal.contract), [`reading.rs`](../host/terminal/tests/it/reading.rs) |
@@ -3069,9 +3155,9 @@ Syntax is only the first layer. In particular:
   called `name(x)`, as it is declared) but not take a declared shape's constructor name.
 - Action reads see the starting snapshot. Writes land together. Locals are
   immutable and cannot shadow visible names or escape their block.
-- Resources/mutations/tasks are root-owned, but a child may read the device's
-  facts (`exactViewport()`, `exactPage()`, no arguments). A child may own
-  ordinary state, derives, and actions. An action writes only its own admitted slots.
+- Tasks are root-owned. A child may own ordinary state, derives, actions,
+  resources and mutations, each instance its own, where its instances are
+  bounded (`type-child-resource`). An action writes only its own admitted slots.
 - A `then` handler takes no parameters and must not send its own mutation.
 - A state's initializer reads only props, injects and the states above it; a
   resource, derive, mutation, action or later state it names is

@@ -197,6 +197,24 @@ test('a marked name the environment the app is started with sets is the launch\'
   } finally { rmSync(dir,{recursive:true,force:true}); }
 });
 
+test('a variant\'s settings come after the environment and before the files, over what Bun loaded from them', async () => {
+  // From the #651 reporter's tested diff, with the selection scoped to the app (LLP 1030.008 D2, D6).
+  const {settingValues} = await import('../src/__exact_env.mjs');
+  const dir=mkdtempSync(resolve(tmpdir(),'exact-variant-env-'));
+  try {
+    writeFileSync(resolve(dir,'app.json'),JSON.stringify({app:{id:'com.example.v',name:'V'},env:['A','B'],variants:{dev:{idSuffix:'.dev',name:'V Dev',env:{A:'a-dev'}}}}));
+    writeFileSync(resolve(dir,'.env'),'A=a-file\nB=b-file\n');
+    const file={A:{value:'a-file',source:'.env'},B:{value:'b-file',source:'.env'}}, dev={EXACT_VARIANT:'dev',EXACT_VARIANT_APP:dir};
+    expect(settingValues(dir,['A','B'],{})).toEqual(file);
+    expect(settingValues(dir,['A','B'],dev)).toEqual({...file,A:{value:'a-dev',source:'variants.dev'}});
+    // A value Bun loaded from `.env` is the file's, which the variant's replaces; the environment's replaces both.
+    expect(settingValues(dir,['A'],{...dev,A:'a-file',EXACT_BUN_LOADED:'A'})).toEqual({A:{value:'a-dev',source:'variants.dev'}});
+    expect(settingValues(dir,['A'],{...dev,A:'a-shell'})).toEqual({A:{value:'a-shell',source:'environment'}});
+    // A variant selected for another app is not this one's.
+    expect(settingValues(dir,['A'],{EXACT_VARIANT:'dev',EXACT_VARIANT_APP:tmpdir()})).toEqual({A:{value:'a-file',source:'.env'}});
+  } finally { rmSync(dir,{recursive:true,force:true}); }
+});
+
 test('a grant refusal at a launch value\'s origin names the setting, origins compared as the URL standard has them', () => {
   // js/src/launch.js in a realm of its own, its door answering the launch's values.
   const values={DEFAULT_PORT:'https://api.example:443/v1',UPPER:'https://UPPER.Example/v1',CREDENTIALS:'https://user:secret@credentials.example/v1',OTHER_PORT:'https://port.example:8443'};

@@ -20,6 +20,7 @@ impl<D: DataSource> Presenter<D> {
 
     /// A candidate has a new runner, but belongs to the same launch.
     pub(super) fn restore_time(&self, host: &mut Host<D>) -> Result<(), HostError> {
+        host.web_mount = self.host.web_mount.clone();
         host.set_scheme(self.dark());
         // The same launch keeps what the device said about itself.
         let runner = self.host.runner();
@@ -101,6 +102,8 @@ impl<D: DataSource> Presenter<D> {
     /// `hasFocus`, as `exactPage()` answers them: re-answered in one commit.
     pub fn set_page(&mut self, page: exact_runner::Page) -> Option<String> {
         let error = self.host.set_page(page);
+        // Hidden or frozen, nothing presents what a commit begins (LLP 1003.001 D9).
+        self.refresh_presentable();
         if error.is_some() {
             return error;
         }
@@ -123,6 +126,7 @@ impl<D: DataSource> Presenter<D> {
         }) {
             eprintln!("exact: page: {error}");
         }
+        self.update_foreground(!hidden);
         true
     }
 

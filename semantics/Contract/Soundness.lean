@@ -1323,8 +1323,10 @@ theorem isSlot_cases {p : Program} {x : String} (h : isSlot p x = true) :
   rcases h with ⟨s, hs, rfl⟩ | ⟨m, hm, rfl⟩
   · cases ho : s.owner with
     | none => exact .inl (.inl ⟨s, hs, rfl, by simp [ho]⟩)
-    | some o => exact .inr ⟨s, hs, rfl, by simp [ho]⟩
-  · exact .inl (.inr ⟨m, hm, rfl⟩)
+    | some o => exact .inr (.inl ⟨s, hs, rfl, by simp [ho]⟩)
+  · cases ho : m.owner with
+    | none => exact .inl (.inr ⟨m, hm, rfl, by simp [ho]⟩)
+    | some o => exact .inr (.inr ⟨m, hm, rfl, by simp [ho]⟩)
 
 /-- Values pairwise at most types are as many as the types. -/
 theorem ValTyL.length_le {p : Program} : ∀ {vs : List Value} {ts us : List Ty},

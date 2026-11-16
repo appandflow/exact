@@ -231,6 +231,16 @@ macro_rules! canvas_jni_extensions {
             with(|h| h.page_hidden(hidden == JNI_TRUE, eligible == JNI_TRUE));
         }
 
+        /// The reader drew a frame of the running generation, on the exact
+        /// thread: whether to say so again after the next (LLP 1030.006 D5).
+        #[no_mangle]
+        pub unsafe extern "system" fn Java_dev_exact_canvas_Native_drew(
+            _env: *mut JNIEnv,
+            _class: jclass,
+        ) -> jboolean {
+            flag(with(|h| h.drew()).unwrap_or(true))
+        }
+
         /// Waits up to `ms` for the store's writes, which the store's own
         /// thread makes (`host/store_writer.rs`): whether every commit handed
         /// over was written. The activity going to the background. Any thread.

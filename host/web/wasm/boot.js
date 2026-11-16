@@ -243,7 +243,10 @@ async function bootNow(bytes, assets = host.devAssets, current = () => true, mod
     len = host.wasm.exact_boot_plan(bytes.length, innerWidth, innerHeight, launch.length, preferences() | foldBits());
   } else {
     if (host.page?.checkpoint) {
-      host.wasm.exact_checkpoint(writeIn(agentMode ? host.page.checkpoint.replace("\n", " driven\n") : host.page.checkpoint));
+      const checkpoint = agentMode
+        ? (await loadAfterPaint("./faults.js", "drivenCheckpoint"))(host.page.checkpoint)
+        : host.page.checkpoint;
+      host.wasm.exact_checkpoint(writeIn(checkpoint));
     }
     ptr = host.wasm.exact_in(launch.length);
     // a drive's clock starts at zero (page.rs)
@@ -358,7 +361,10 @@ async function bootNow(bytes, assets = host.devAssets, current = () => true, mod
   document.getElementById("exact-looks")?.remove();
   // a held state goes unsaid (dev.js holds it again); the last plan's theme (LLP 1095 D4) and state looks (LLP 1121 D8): this boot's batch sets its own
   commitFonts(preparedFonts);
-  focus.restart(kept, () => applyBatch(batch), () => ask({ op: "tree" }), (id) => views.get(id));
+  focus.restart(kept, () => {
+    host.restoringScheme = fresh;
+    try { applyBatch(batch); } finally { host.restoringScheme = false; }
+  }, () => ask({ op: "tree" }), (id) => views.get(id));
   host.toldOffset = null;
   followOffset(now());
   // @ref LLP 1027.000.000 — the date, as the clock the runner already reads
@@ -367,6 +373,16 @@ async function bootNow(bytes, assets = host.devAssets, current = () => true, mod
   }
   if (host.wasm.exact_set_page) {
     applyBatch(JSON.parse(readOut(host.wasm.exact_set_page(pageFacts.bits()))));
+  }
+  // @ref LLP 1069.000 D2 r7 — the present of this runner's first picture: the first animation frame after its first
+  // commit (under the agent, each frame is presented at its commit, and the runner says so at its boot)
+  if (host.wasm.exact_page_presented && !agentMode) {
+    const incarnation = host.incarnation;
+    requestAnimationFrame(() => {
+      if (host.incarnation === incarnation) {
+        applyBatch(JSON.parse(readOut(host.wasm.exact_page_presented())));
+      }
+    });
   }
   appRootFontSize("medium");
   if (host.wasm.exact_set_root_font_size) {

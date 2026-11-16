@@ -24,8 +24,8 @@ internal object Later {
 
     /** The broadcast [record]'s alarm sends: explicit, so it reaches only [PostReceiver]. */
     private fun fire(app: Context, identifier: String, flags: Int): PendingIntent? =
-        PendingIntent.getBroadcast(app, NotificationsModule.code(identifier, 1),
-            Intent(app, PostReceiver::class.java).putExtra("identifier", identifier), flags or PendingIntent.FLAG_IMMUTABLE)
+        PendingIntent.getBroadcast(app, 1, NotificationsModule.distinct(Intent(app, PostReceiver::class.java).putExtra("identifier", identifier), identifier, 1),
+            flags or PendingIntent.FLAG_IMMUTABLE)
 
     /** Keeps [record] and arms its alarm at [at], epoch milliseconds; a tag's earlier one is replaced. */
     fun schedule(app: Context, record: JSONObject, at: Long) {

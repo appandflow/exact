@@ -13,7 +13,7 @@ import { spawnSync } from 'node:child_process';
 import { cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer, request } from 'node:http';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { galleryCache } from './dev-gallery.mjs';
 import { FRAME_ANCESTORS } from '../../scripts/forma-server.mjs';
 import { fileURLToPath } from 'node:url';
@@ -21,7 +21,7 @@ import { fileURLToPath } from 'node:url';
 const ROOT = resolve(fileURLToPath(new URL('../..', import.meta.url)));
 afterEach(() => stopAll());
 
-/** A copy of library-gate with id `id`, under the repo's target. */
+/** A copy of library-gate's contract and design with id `id`, under the repo's target. */
 function copy(id) {
   const dir = resolve(ROOT, 'target', `dev-gallery-test-${process.pid}`, 'app');
   rmSync(dir, { recursive: true, force: true });
@@ -31,6 +31,8 @@ function copy(id) {
   writeFileSync(join(dir, 'assets', 'note.txt'), 'the app\'s asset\n');
   const manifest = JSON.parse(readFileSync(resolve(ROOT, 'apps/library-gate/app.json'), 'utf8'));
   manifest.app.id = id; manifest.id = id;
+  // The copy has no data crate (its contract asks for no data), so its manifest names none (LLP 1153.003 D2).
+  delete manifest.rust;
   writeFileSync(join(dir, 'app.json'), JSON.stringify(manifest, null, 2));
   return dir;
 }
@@ -40,7 +42,8 @@ async function devLoop(dir, env = {}) {
   await new Promise((ok) => listener.listen(0, '127.0.0.1', ok));
   const port = listener.address().port;
   await new Promise((ok) => listener.close(ok));
-  const dist = mkdtempSync(join(tmpdir(), 'exact-dev-gallery-'));
+  // The build's lock and kept generations go beside its dist (serve.mjs `replaceBuild`): the dist sits in a directory of its own.
+  const dist = join(mkdtempSync(join(tmpdir(), 'exact-dev-gallery-')), 'dist');
   const dev = spawnOwned(process.execPath, [resolve(ROOT, 'host/web/dev.mjs'), '--app', dir, '--port', String(port)], { cwd: ROOT, env: { ...process.env, EXACT_WEB_DIST: dist, ...env }, stdio: ['ignore', 'pipe', 'pipe'] });
   let out = '';
   dev.stderr.on('data', (d) => { out = (out + d).slice(-20000); });
@@ -48,7 +51,7 @@ async function devLoop(dir, env = {}) {
     dev.stdout.on('data', (d) => { out = (out + d).slice(-20000); if (out.includes('plan ready') && out.includes(`127.0.0.1:${port}/`)) ok(); });
     dev.on('exit', (code) => fail(new Error(`the dev loop exited ${code}: ${out}`)));
   });
-  return { base: `http://127.0.0.1:${port}`, port, dev, said: () => out, stop: async () => { await dev.stop(30_000); rmSync(dist, { recursive: true, force: true }); } };
+  return { base: `http://127.0.0.1:${port}`, port, dev, said: () => out, stop: async () => { await dev.stop(30_000); rmSync(dirname(dist), { recursive: true, force: true }); } };
 }
 
 /** An SSE stream's frames, as they come; `close` ends it. */

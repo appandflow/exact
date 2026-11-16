@@ -105,13 +105,14 @@
   // that awaits only its timers parks on the earliest (`wait`), and the
   // runner asks it again once its clock is there (`fire`): one callback a
   // turn, so the microtasks each queues run before the next, as a browser
-  // runs them between tasks. An answer that gives its value or is let go
+  // runs them between tasks. A callback's throw is reported (`raise`, with
+  // its journal line), as a browser reports it. An answer that gives its value or is let go
   // clears the rest (`drop`): their callbacks never run. `setInterval`, the
   // frame callbacks and the clock reads stay refused. Hermes's rejection
-  // tracker schedules its report with `setTimeout` too: that one runs alone,
-  // at the prelude's next `checkpoint`, which is when a browser fires
-  // `unhandledrejection`.
-  function timers(owner, clock, journal, report, sources) {
+  // tracker schedules its report with `setTimeout` too: `report(callback)`
+  // gives what runs that one, alone, at the prelude's next `checkpoint`, which
+  // is when a browser fires `unhandledrejection`.
+  function timers(owner, clock, report, raise, sources) {
     var armed = new Map(),
       reports = [],
       signals = new WeakMap(),
@@ -135,8 +136,9 @@
       return id;
     }
     fixed("setTimeout", function setTimeout(callback, delay) {
-      if (typeof callback === "function" && report(callback)) {
-        reports.push({ id: next, run: callback });
+      var reporting = typeof callback === "function" ? report(callback) : undefined;
+      if (reporting) {
+        reports.push({ id: next, run: reporting });
         return next++;
       }
       if (typeof callback !== "function")
@@ -226,7 +228,7 @@
         try {
           t[1].run.apply(undefined, t[1].args);
         } catch (e) {
-          journal("data: a timer's callback threw: " + (e && e.message !== undefined ? e.message : String(e)));
+          raise(e, "data: a timer's callback threw: " + (e && e.message !== undefined ? e.message : String(e)));
         }
       },
       drop: function (call) {

@@ -92,7 +92,7 @@
   #exact-root :is(button, a[data-view][href], [data-exact-on~="press"])[data-pressed]:not(
     :disabled,
     [data-button-style], [data-native], input, select, textarea, [data-action],
-    [style*="--exact-press:"], [style*="--exact-press-opacity:"], [style*="--exact-press-opacity-to:"], [style*="--exact-press-background-color:"], [style*="--exact-press-color:"],
+    [style*="--exact-press:"], [style*="--exact-press-translate:"], [style*="--exact-press-opacity:"], [style*="--exact-press-opacity-to:"], [style*="--exact-press-background-color:"], [style*="--exact-press-color:"],
     [data-exact-on~="pointerdown"], [data-exact-on~="pointerup"],
     [data-exact-surface],
     [data-listrows] *, :is([data-liststyle], [data-liststyle] > :where([data-exact-list-item])) > section > * > *) { opacity: .65; }
@@ -393,6 +393,18 @@
   /* LLP 1061: a press multiplies the scale row's current number, including
      during a CSS transition. Keep it local to the node, as `scale` is. */
   @property --exact-press-factor { syntax: "<number>"; inherits: false; initial-value: 1; }
+  @property --exact-rotate-axis { syntax: "*"; inherits: false; initial-value: z; }
+  @property --exact-translate-composes { syntax: "<number>"; inherits: false; initial-value: 0; }
+  @property --exact-translate-x { syntax: "<length-percentage>"; inherits: false; initial-value: 0px; }
+  @property --exact-translate-y { syntax: "<length-percentage>"; inherits: false; initial-value: 0px; }
+  @property --exact-translate-z { syntax: "<length>"; inherits: false; initial-value: 0px; }
+  /* The browser owns translated hit geometry and click targeting. */
+  #exact-root :is([style*="--exact-press-translate:"], [style*="--exact-base-translated:"]) {
+    translate: calc(var(--exact-translate-x) + var(--exact-press-x) * var(--exact-pressed)) calc(var(--exact-translate-y) + var(--exact-press-y) * var(--exact-pressed)) var(--exact-translate-z) !important;
+  }
+  @property --exact-pressed { syntax: "<number>"; inherits: false; initial-value: 0; }
+  @property --exact-press-x { syntax: "<length-percentage>"; inherits: false; initial-value: 0px; }
+  @property --exact-press-y { syntax: "<length-percentage>"; inherits: false; initial-value: 0px; }
   @property --exact-scale { syntax: "<number>"; inherits: false; initial-value: 1; }
   /* LLP 1061 D7: the pressed paint. The input glue writes each painting node an important rule of its own (a
      background layer, a mask; the text colour) and eases its progress, `--exact-press-paint`, 0 to 1. It reads the

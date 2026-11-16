@@ -226,7 +226,7 @@ fn app(fractional: bool) -> String {
 fn fixture(plan: &[u8], region: bool) -> Presenter<()> {
     let assets = PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../apps/caltrain"));
     let (mut p, error) = if region {
-        Presenter::boot_with_content_region(
+        Presenter::boot_region_with_fixture_fonts(
             plan,
             (),
             (400., 600.),
@@ -241,7 +241,7 @@ fn fixture(plan: &[u8], region: bool) -> Presenter<()> {
             },
         )
     } else {
-        Presenter::boot_with(plan, (), (400., 600.), 1., assets, PainterChoice::Cpu)
+        Presenter::boot_with_fixture_fonts(plan, (), (400., 600.), 1., assets, PainterChoice::Cpu)
     }
     .unwrap();
     assert!(error.is_none(), "{error:?}");

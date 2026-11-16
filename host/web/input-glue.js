@@ -104,6 +104,27 @@ function roveArrow(root, event) {
   if (next !== el) { if (!menu) rove(all, next); next.focus(); }
   return true;
 }
+/** A printable key in a menu moves the focus to the next of its items whose label starts with what was typed in the
+ * last half second, as the WAI-ARIA menu pattern's type-ahead and the platform's menus give it: the same letter again
+ * goes on to the next item it starts, wrapping, past disabled ones. The items are the menu's `menuitem`s, whether the
+ * author or the host (menu-rows.js) gave the role. Space starts no search (it presses), and a field in the menu keeps
+ * its keys. Whether it moved the focus. */
+let typed = "", typedAt = -Infinity;
+function typeAhead(root, event) {
+  const el = event.target, menu = el?.closest?.('[role="menu"]'), key = event.key;
+  if (!menu || !root.contains(menu) || [...key].length !== 1 || el.matches("input, textarea, select, [contenteditable]") || event.timeStamp - typedAt > 500 && key === " ") return false;
+  typed = (event.timeStamp - typedAt > 500 ? "" : typed) + key.toLocaleLowerCase();
+  typedAt = event.timeStamp;
+  const items = [...menu.querySelectorAll('[role^="menuitem"]')].filter(item => item.closest('[role="menu"]') === menu && (item === el || radioUsable(item)));
+  // One letter, or the same one again, steps on from the focused item; more letters refine the match from it.
+  const again = [...typed].every(c => c === typed[0]), prefix = again ? typed[0] : typed, at = items.indexOf(el) + (again ? 1 : 0);
+  const label = item => (item.getAttribute("aria-label") ?? item.textContent).trim().toLocaleLowerCase();
+  const next = [...items.slice(at), ...items.slice(0, at)].find(item => !(again && item === el) && label(item).startsWith(prefix));
+  if (!next) return false;
+  event.preventDefault();
+  next.focus();
+  return true;
+}
 export function createInputHandlers({ root, views, retiredViews, ready, inertAncestor, editMenu, dispatch, release: dispatchRelease = () => {}, velocity = {}, agentMode = false, log = () => {}, documents = null, pick = null }) {
   // A press stops bubbling at its nearest handler; otherwise the click reaches the root.
   // Append the default there so the handler's updates and showPicker run first.
@@ -215,7 +236,7 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
   document.addEventListener("keydown", (event) => {
     const el = event.target;
     if (event.defaultPrevented || event.isComposing || event.keyCode === 229 || event.key === "Process" || event.metaKey || event.ctrlKey || event.altKey || !ready()) return;
-    if (radioArrow(root, event) || roveArrow(root, event) || event.repeat) return;
+    if (radioArrow(root, event) || roveArrow(root, event) || typeAhead(root, event) || event.repeat) return;
     // @ref LLP 1115.000 D4.14 — Space holds a `<button>` down until its keyup,
     // when the browser clicks it. Its press shows meanwhile, as under a pointer:
     // the unsaid dim, a native button's highlight, a `-exact-press-scale`, a pressed paint.
@@ -287,13 +308,9 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
   // (`paintRule`) paints its pressed values `--exact-press-paint` of the way
   // (which this piece eases) over its look beneath, read again whenever the
   // node's style or class changes, the scheme flips, or the press turns. It
-  // paints on images (a background layer, a mask), which no transition
-  // animates, so the node's authored transitions run as authored, beneath
-  // the paint. (An earlier form wrote the paint into opacity, background-
-  // color and color through custom properties only its animation supplied,
-  // which the style a transition is computed from lacks: every press started
-  // the node's transitions toward the properties' initial values.) Its
-  // `color` reaches the subtree as CSS's does.
+  // writes no property in a way that starts one of the node's authored
+  // transitions (`paintRule`), so they run as authored. Its `color` reaches
+  // the subtree as CSS's does.
   // `:active`'s opacity is the press's absolute target (`--exact-press-opacity-to`,
   // LLP 1121 D8), eased from what shows at the press, a hover look's included.
   const PAINT = ["--exact-press-opacity", "--exact-press-opacity-to", "--exact-press-background-color", "--exact-press-color"];
@@ -341,7 +358,7 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
     return on;
   };
   // An authored transition running (or paused, as the agent's clock pauses it) on `property`.
-  const PAINTED_KEY = { opacity: "opacity", color: "color" };
+  const PAINTED_KEY = { opacity: "opacity", color: "color", "background-color": "backgroundColor" };
   const running = (el, property) => el.getAnimations().find(a => a.transitionProperty === property && (a.playState === "running" || a.playState === "paused"));
   // A layered list (a background's, a mask's) with the paint's own layer first: each of the node's lists cycled out
   // to its images' count, as CSS matches them, then `first` before it.
@@ -366,16 +383,18 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
     return out.join("; ");
   };
   // The node's important paint (LLP 1061 D7), its own pressed values `--exact-press-paint` of the way over its look
-  // beneath: the pressed colour as a background-image layer over the node's own background-color (its own images
-  // beneath; a colour at alpha p over another, which is CSS's premultiplied mix for an opaque pressed colour),
-  // images changing discretely, so starting no transition; the pressed opacity as the property where the engine
-  // hands its own number (computedStyleMap; a float, exact) and elsewhere (Firefox) a uniform mask, which
-  // multiplies as opacity does (WebKit clips a mask to the border box, a shadow with it, so it takes the number);
-  // the pressed text colour as the property. Where the node declares a transition on a property the rule writes,
+  // beneath: the pressed colours as the properties, mixed from the look beneath as CSS mixes colours (premultiplied,
+  // so a pressed colour stands in for the node's own, translucent too, and one equal to it changes nothing); the
+  // pressed opacity as the property where the engine hands its own number (computedStyleMap; a float, exact) and
+  // elsewhere (Firefox) a uniform mask, which multiplies as opacity does (WebKit clips a mask to the border box, a
+  // shadow with it, so it takes the number). Where the node declares a transition on a property the rule writes,
   // the rule is exactly the look beneath at 0 (else a transition starts and, above every declaration, hides the
-  // paint), written only from a look whose numbers round-trip (an opaque rgb(), the engine's opacity), left out
+  // paint), written only from a look whose numbers round-trip (an rgb() colour, the engine's opacity), left out
   // while a transition of the property runs (added when it ends), and, once written, kept as it is for the press:
   // re-read with the paint on, so the paint's turn starts nothing (Firefox's transition styles see the animation).
+  // An opaque pressed background colour that can't be written so (over another space's look, or while its
+  // transition runs) is for the press a background-image layer over the node's background-color instead, which
+  // is the same mix (images change discretely, starting no transition).
   const paintRule = (el, state) => {
     if (!el.closest("#exact-root")) return "";
     // What is kept holds only while the node's own inputs (its inline style: its opacity and colour, its pressed
@@ -397,10 +416,35 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
     const number = (name, copy) => { if (!own(name)) return null; const v = parseFloat(cs.getPropertyValue(copy)); return Number.isFinite(v) ? Math.min(1, Math.max(0, v)) : null; };
     const settle = () => { if (paints.get(el) === state) repaint(el); };
     const later = property => { const a = running(el, property); if (a && !state.waits?.has(a)) { (state.waits ??= new Set()).add(a); a.finished.then(settle, settle); } return !!a; };
-    if (own("--exact-press-background-color")) {
-      const bg = layer(cs, "background", `linear-gradient(color-mix(in srgb, var(--exact-press-background-color) calc(${p} * 100%), transparent) 0 0)`);
-      if (bg) out.push(bg);
-      state.background = !!bg;
+    // `name` `p` of the way from the look beneath to the pressed colour (`inSrgb`, its `color(srgb …)`),
+    // premultiplied. From an rgb() look (b at alpha β; every colour of the app's has an 8-bit alpha, which written
+    // as k / 255 computes exactly as it does) to v at alpha a, the alpha is β + (a − β)·p and each channel
+    // b + (v − b)·a·p / (β + (a − β)·p): exactly the look at 0 (the divisor held off 0, where both are clear). From
+    // another look, color-mix, where the node declares no transition of `name`. Null where neither applies:
+    // another space doesn't compute as it reads.
+    const mixed = (name, look, pressed, inSrgb) => {
+      const m = /^rgba?\((\d+), (\d+), (\d+)(?:, ([\d.]+))?\)$/.exec(look), x = /^color\(srgb ([-\d.e]+) ([-\d.e]+) ([-\d.e]+)(?: \/ ([\d.]+))?\)$/.exec(cs.getPropertyValue(inSrgb).trim());
+      if (m && x) {
+        const b = m.slice(1, 4).map(Number), v = x.slice(1, 4).map(Number), a = x[4] == null ? 1 : Number(x[4]);
+        const k = m[4] == null ? 255 : Math.round(Number(m[4]) * 255), beneath = k === 255 ? "1" : `${k} / 255`, opaque = k === 255 && a === 1;
+        const alpha = `${beneath} + ${a - k / 255} * ${p}`, w = opaque ? p : `${a} * ${p} / max(${alpha}, 0.000001)`;
+        return `${name}: rgb(${b.map((bi, i) => `calc(${bi} + ${v[i] * 255 - bi} * ${w})`).join(" ")}${opaque ? "" : ` / calc(${alpha})`}) !important`;
+      }
+      return transitioned(cs, name) ? null : `${name}: color-mix(in srgb, var(${pressed}) calc(${p} * 100%), ${look}) !important`;
+    };
+    state.background = false;
+    if (kept["background-color"]) next["background-color"] = kept["background-color"];
+    else if (own("--exact-press-background-color")) {
+      const declared = transitioned(cs, "background-color"), opaque = !cs.getPropertyValue("--exact-press-background-in-srgb").includes("/");
+      const d = !state.layered && !(declared && running(el, "background-color")) && mixed("background-color", cs.backgroundColor, "--exact-press-background-color", "--exact-press-background-in-srgb");
+      if (d) { if (declared) next["background-color"] = d; else out.push(d); }
+      else if (state.layered || opaque) {
+        // Once layered, layered for the press: the property written later would start the node's transition.
+        state.layered = true;
+        const bg = layer(cs, "background", `linear-gradient(color-mix(in srgb, var(--exact-press-background-color) calc(${p} * 100%), transparent) 0 0)`);
+        if (bg) out.push(bg);
+        state.background = !!bg;
+      } else later("background-color");
     }
     const to = number("--exact-press-opacity-to", "--exact-press-opacity-to-number"), share = number("--exact-press-opacity", "--exact-press-opacity-number");
     const held = el.computedStyleMap?.().get("opacity")?.value, base = Number.isFinite(held) ? held : Number(cs.opacity);
@@ -418,16 +462,8 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
     }
     if (kept.color) next.color = kept.color;
     else if (own("--exact-press-color") && !later("color")) {
-      const m = /^rgba?\((\d+), (\d+), (\d+)\)$/.exec(cs.color), x = /^color\(srgb ([-\d.e]+) ([-\d.e]+) ([-\d.e]+)(?: \/ ([\d.]+))?\)$/.exec(cs.getPropertyValue("--exact-press-color-in-srgb").trim());
-      if (m && x) {
-        const b = m.slice(1, 4).map(Number), v = x.slice(1, 4).map(Number), a = x[4] == null ? 1 : Number(x[4]);
-        // Opaque beneath: premultiplied over it is (b + (v·a − b)·p) / (1 + (a − 1)·p), exactly b at 0 (a pressed
-        // colour fully transparent at 1: no colour to divide, held off 0).
-        const alpha = `max(1 + ${a - 1} * ${p}, 0.000001)`;
-        const c = b.map((bi, i) => a === 1 ? `calc(${bi} + ${v[i] * 255 - bi} * ${p})` : `calc((${bi} + ${v[i] * 255 * a - bi} * ${p}) / ${alpha})`);
-        const d = `color: rgb(${c.join(" ")}${a === 1 ? "" : ` / calc(1 + ${a - 1} * ${p})`}) !important`;
-        if (transitioned(cs, "color")) next.color = d; else out.push(d);
-      } else if (!transitioned(cs, "color")) out.push(`color: color-mix(in srgb, var(--exact-press-color) calc(${p} * 100%), ${cs.color}) !important`);
+      const d = mixed("color", cs.color, "--exact-press-color", "--exact-press-color-in-srgb");
+      if (d && transitioned(cs, "color")) next.color = d; else if (d) out.push(d);
     }
     // A boundary below that writes again the colour this node gives it takes the press's colour too, as this node's
     // own colour paints it, on this node's progress, inherited (`hold`).
@@ -437,12 +473,13 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
     state.kept = next;
     // The look each kept declaration was written from: carried with it while it is kept (a re-read with it on sees
     // the painted look, not that one), read now only where it was written now.
-    state.keptBase = { opacity: next.opacity ? (kept.opacity ? state.keptBase?.opacity : String(held ?? base)) : undefined, color: next.color ? (kept.color ? state.keptBase?.color : cs.color) : undefined };
+    const look = { opacity: String(held ?? base), color: cs.color, "background-color": cs.backgroundColor };
+    state.keptBase = Object.fromEntries(Object.keys(next).map(name => [name, kept[name] ? state.keptBase?.[name] : look[name]]));
     return [...out, ...Object.values(next)].join("; ");
   };
-  // What a painting node shows, as the page can't read it from the node's computed style (the paint is on images):
-  // its opacity times the mask, its background-color with the pressed colour over it (as pixels, 8-bit; its own
-  // images and masks aren't in it), its colour. Without OffscreenCanvas, the background-color beneath.
+  // What a painting node shows, where the page can't read it from the node's computed style (a paint on images):
+  // its opacity times the mask, its background-color with a layered pressed colour over it (as pixels, 8-bit; its
+  // own images and masks aren't in it), its colour. Without OffscreenCanvas, the background-color beneath.
   // The agent's node detail reports it (scripts/agent-inspect.mjs), and the press tests read it.
   (globalThis.exact ??= {}).pressShown = el => {
     const state = paints.get(el);
@@ -555,17 +592,30 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
     // is the token's (LLP 1121 D7).
     const press = el.style.getPropertyValue("--exact-press");
     const to = down ? Number((press.includes("var(") ? getComputedStyle(el).getPropertyValue("--exact-press") : press) || 1) : 1;
-    const old = feedback.get(el);
-    if (old?.to === to || !old && to === 1) return;
+    const old = feedback.get(el), shift = !!el.style.getPropertyValue("--exact-press-translate");
+    const pressed = down && shift ? 1 : 0;
+    if (old?.to === to && old.pressed === pressed) { old.release = false; return; }
+    if (!old && to === 1 && !pressed) return;
     const progress = old?.animation.effect.getComputedTiming().progress ?? 0;
+    // A translating quick tap shows its ease-in before returning, on the same curve as scale.
+    if (!down && old?.pressed && progress < 1 && !now && pressDuration(el, EASE.duration)) {
+      old.release = true;
+      return;
+    }
     const from = old ? old.from + (old.to - old.from) * progress : 1;
+    const offset = old ? old.offset + (old.pressed - old.offset) * progress : 0;
     old?.animation.cancel();
     const ms = pressDuration(el, EASE.duration);
-    const animation = el.animate([{ "--exact-press-factor": from }, { "--exact-press-factor": to }], { ...EASE, duration: ms });
-    const state = { animation, from, to };
+    const animation = el.animate([
+      { "--exact-press-factor": from, "--exact-pressed": offset },
+      { "--exact-press-factor": to, "--exact-pressed": pressed },
+    ], { ...EASE, duration: ms });
+    const state = { animation, from, to, offset, pressed };
     feedback.set(el, state);
     animation.onfinish = () => {
-      if (to === 1 && feedback.get(el) === state) { animation.cancel(); feedback.delete(el); }
+      if (feedback.get(el) !== state) return;
+      if (state.release) showScale(el, false);
+      else if (to === 1 && !pressed) { animation.cancel(); feedback.delete(el); }
     };
     if (ms === 0 || now) animation.finish();
   };
@@ -598,7 +648,7 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
   const unpressedBox = el => {
     const effect = feedback.get(el)?.animation.effect;
     const frames = effect?.getKeyframes();
-    effect?.setKeyframes([{ "--exact-press-factor": 1 }]);
+    effect?.setKeyframes(frames.map(frame => ({ ...frame, "--exact-press-factor": 1 })));
     const box = el.getBoundingClientRect();
     if (effect) effect.setKeyframes(frames);
     return box;
@@ -652,7 +702,7 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
   // state and the rows that state shows, by their
   // wire names: a press's paint rows (`:active` lowered to them), else the state look's rows in the looks sheet
   // (its `[data-exact-held~=…]` rule). The rows' places are the server's to join, from the source map.
-  const WIRE = { "--exact-press": "press_scale", "--exact-press-background-color": "press_background_color", "--exact-press-color": "press_color", "--exact-press-opacity": "press_opacity", "--exact-press-opacity-to": "press_opacity_to" };
+  const WIRE = { "--exact-press-translate": "press_translate", "--exact-press": "press_scale", "--exact-press-background-color": "press_background_color", "--exact-press-color": "press_color", "--exact-press-opacity": "press_opacity", "--exact-press-opacity-to": "press_opacity_to" };
   // `ask`: the runner's agent (the wasm page): the rows as `layout` says the press's own (its D7 rows, `:active`
   // lowered to them) or its look's, each with the token it read (LLP 1121 D8, stage 9 E). Without one (the JS
   // target) they are the CSS the page holds, a varying token named where modes.js knows it. Either names the node

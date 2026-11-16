@@ -109,6 +109,19 @@ impl Painter {
         offset: (f32, f32),
         clip: Option<Rect4>,
     ) {
+        let hit_space = walk.hit_space;
+        self.node_at_inner(walk, id, ts, offset, clip);
+        walk.hit_space = hit_space;
+    }
+
+    fn node_at_inner(
+        &mut self,
+        walk: &mut Walk<'_, '_>,
+        id: ViewId,
+        ts: Transform,
+        offset: (f32, f32),
+        clip: Option<Rect4>,
+    ) {
         let named = self.backend.name() == "canvas"
             && self.shared.epoch.is_some()
             && walk.dialog.is_none()
@@ -150,10 +163,26 @@ impl Painter {
         // The reader draws that rectangle upright, so an image rotated, skewed or
         // scaled by a negative factor (by its own transform or an ancestor's)
         // keeps its live drawing, which carries the transform; the raster would
-        // fly upright in the bounding box and turn at landing.
-        let upright =
-            transform.kx == 0.0 && transform.ky == 0.0 && transform.sx > 0.0 && transform.sy > 0.0;
-        let plain_image = upright
+        // fly upright in the bounding box and turn at landing. A transform the
+        // reader plays (a lowered one) is absent from `ts`, so this node's and
+        // its ancestors' presented rotation and scale count too. An image still
+        // loading has no live drawing, so it takes the raster whatever its
+        // transform: the reader draws the leaver's image there until this
+        // one's arrives (LLP 1013.000 D4 item 4).
+        let turned_by_reader = |id| {
+            let p = (walk.scene.presented)(id);
+            p.lowered & crate::host::lower::LOWER_TRANSFORM != 0
+                && (p.rotate != 0.0 || p.scale * p.press <= 0.0)
+        };
+        let upright = transform.kx == 0.0
+            && transform.ky == 0.0
+            && transform.sx > 0.0
+            && transform.sy > 0.0
+            && !std::iter::successors(Some(id), |&id| {
+                walk.scene.kernel.node(id).and_then(|n| n.parent)
+            })
+            .any(turned_by_reader);
+        let plain_image = (upright || image.is_none())
             && painted
             && node.node_type == NodeType::Image
             && !node
@@ -166,7 +195,7 @@ impl Painter {
             && node.computed_row(StyleId::ImageRendering, |s| s.image_rendering)
                 == exact_kernel::ImageRendering::Auto
             && node.style.rare.mask_image.gradient().is_none()
-            && node.style.rare.clip_path.commands().is_empty()
+            && !node.style.rare.clip_path.has_path()
             && paint.background[3] == 0
             && paint.gradients.is_empty()
             && paint.widths.iter().all(|w| *w == 0.0)

@@ -296,7 +296,7 @@ final class SidebarHost {
     var summary: [String: Any] {
         guard let controller, let shown, projected != nil else { return ["installed": false, "wanted": wanted] }
         return ["installed": true, "tablist": Int(shown.tablist.id), "collapsed": controller.collapsed, "hiddenByApp": shown.hidden,
-                "width": Agent.r2(controller.sidebarWidth), "selected": shown.selected ?? NSNull(),
+                "width": InspectionValue.r2(controller.sidebarWidth), "selected": shown.selected ?? NSNull(),
                 "rows": shown.rows.map { row -> [String: Any] in
                     ["tab": Int(row.tab), "testId": row.testId ?? NSNull(), "title": row.face.title, "symbol": FaceSymbol.observed(row.face.base, icon: row.face.icon) ?? NSNull(),
                      "badge": row.face.badge ?? NSNull(), "enabled": !row.face.disabled]

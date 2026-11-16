@@ -6,6 +6,7 @@
 
 use super::forma_package_params::reading;
 use super::forma_serve::{digest, Serve};
+use crate::scratch::Scratch;
 use serde_json::{json, Value};
 use std::path::Path;
 
@@ -48,8 +49,8 @@ pub(super) fn same_words(dir: &Path, design: &str, contract: &str, op: Value, wr
 /// under a build not yet verified, writes after under one known to pass.
 pub(super) fn held(dir: &Path) -> (Serve, impl Fn(&mut Serve, Value)) {
     let name = dir.file_name().unwrap().to_string_lossy().to_string();
-    let gate = std::env::temp_dir().join(format!("{name}.gate"));
-    let log = std::env::temp_dir().join(format!("{name}.log"));
+    let gate = Scratch::adopt(std::env::temp_dir().join(format!("{name}.gate")));
+    let log = Scratch::adopt(std::env::temp_dir().join(format!("{name}.log")));
     let _ = std::fs::remove_file(&gate);
     let _ = std::fs::remove_file(&log);
     let s = Serve::start(
@@ -482,7 +483,7 @@ fn a_worst_case_write_is_checked_within_the_budget() {
 /// `reading(tag)` with the fonts fixture's two files in its assets, and the
 /// contract's declarations of them: one family with a bold face, one
 /// without.
-fn with_fonts(tag: &str) -> std::path::PathBuf {
+fn with_fonts(tag: &str) -> Scratch {
     let dir = reading(tag);
     std::fs::create_dir_all(dir.join("assets")).unwrap();
     let fixtures =
@@ -1076,7 +1077,7 @@ fn a_write_fixing_the_failing_row_is_accepted_before_and_after_the_verdict() {
         assert!(contract::compile_path(&dir.join("app.contract")).is_err());
         // Before the verdict for certain: the background build held at its
         // gate until the fixing write is answered.
-        let gate = std::path::PathBuf::from(format!("{}.gate", dir.display()));
+        let gate = Scratch::adopt(std::path::PathBuf::from(format!("{}.gate", dir.display())));
         let _ = std::fs::remove_file(&gate);
         let env: Vec<(&str, &str)> = match wait {
             false => vec![("EXACT_FORMA_CHECK_GATE", gate.to_str().unwrap())],

@@ -128,6 +128,16 @@ pub struct Launch {
     /// The router launches rooted: the launch location's screen alone, as a
     /// window opened at a route shows it (LLP 1030.004 D2).
     pub rooted: bool,
+    /// The platform's layout direction, on a host where it is fixed for the
+    /// process and governs a direction the author left unsaid (AppKit's
+    /// `NSApp.userInterfaceLayoutDirection` on the Mac): the document's
+    /// direction in place of the strings table's. `None`: the table's.
+    pub direction: Option<exact_kernel::Direction>,
+    /// Text whose direction is unsaid takes each paragraph's base direction
+    /// from its first strong character, as the platform's own text does
+    /// (LLP 1060.000 D3; the Mac). Told on its own, not implied by
+    /// `direction`.
+    pub natural_text: bool,
 }
 
 impl Launch {
@@ -140,6 +150,8 @@ impl Launch {
         claims: None,
         window_name: None,
         rooted: false,
+        direction: None,
+        natural_text: false,
     };
 }
 
@@ -180,6 +192,8 @@ pub fn launching_with<T>(launch: Launch, boot: impl FnOnce() -> T) -> T {
         claims: launch.claims,
         window_name: launch.window_name,
         rooted: launch.rooted,
+        direction: launch.direction,
+        natural_text: launch.natural_text,
     };
     let _restore = Restore(Some(LAUNCH.with(|l| l.replace(launch))));
     boot()
@@ -229,6 +243,16 @@ pub(crate) fn launch_window_name() -> String {
 /// Whether a boot under [`launching_with`] launches its router rooted.
 pub(crate) fn launch_rooted() -> bool {
     LAUNCH.with(|l| l.borrow().rooted)
+}
+
+/// The platform's layout direction, when a boot under [`launching_with`] was told.
+pub(crate) fn launch_direction() -> Option<exact_kernel::Direction> {
+    LAUNCH.with(|l| l.borrow().direction)
+}
+
+/// Whether a boot under [`launching_with`] was told its unsaid text is natural.
+pub(crate) fn launch_natural_text() -> bool {
+    LAUNCH.with(|l| l.borrow().natural_text)
 }
 
 /// Where the viewer is, when a boot under [`launching_with`] was told.

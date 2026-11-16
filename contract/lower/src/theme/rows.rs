@@ -573,18 +573,14 @@ fn shape(
 /// [`kept`]'s rows, whatever the value.
 fn style_row(a: &Attr) -> bool {
     let n = a.name.as_str();
-    if n.contains("transition")
+    !(n.contains("transition")
         || n.contains("animation")
         || crate::tags::rows(a).is_empty()
         || (n != "font"
             && matches!(
                 crate::tags::attr_valued(n, &a.value),
                 Some(crate::tags::AttrTarget::Shorthand | crate::tags::AttrTarget::Flex)
-            ))
-    {
-        return false;
-    }
-    true
+            )))
 }
 
 /// Each literal `v` writes as written, into `out`: a string or number, or
@@ -1177,6 +1173,7 @@ mod tests {
     #[test]
     fn a_changed_font_file_leaves_font_rows_to_the_build() {
         let file = std::env::temp_dir().join(format!("exact-rows-font-{}", std::process::id()));
+        let _cleanup = crate::TestPath(file.clone());
         std::fs::write(&file, b"static").unwrap();
         let m = std::fs::metadata(&file).unwrap();
         let fonts = [(
@@ -1242,6 +1239,7 @@ mod tests {
     #[test]
     fn a_retargeted_font_link_leaves_font_rows_to_the_build() {
         let dir = std::env::temp_dir().join(format!("exact-rows-link-{}", std::process::id()));
+        let _cleanup = crate::TestPath(dir.clone());
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let (old, new, link) = (

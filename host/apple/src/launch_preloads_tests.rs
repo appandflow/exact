@@ -17,6 +17,7 @@ fn request_ticket_order_keeps_ties_and_all_ticket_bits() {
         let tickets = [0, 1, 1 << 63, u64::MAX];
         let mut requests: Vec<_> = (0..n)
             .map(|i| exact_runner::RequestOut {
+                completion: None,
                 ticket: tickets[(i * 17 + i / 5) % tickets.len()],
                 target: i.to_string(),
                 request: exact_runner::Request::get("https://example.invalid/"),
@@ -1430,6 +1431,7 @@ fn manifest_settings_leave_at_launch_and_equal_reads_take_the_reply() {
     let mut request = exact_runner::Request::get(&format!("{value}/feed"));
     request.headers = vec![("X-Note".into(), "built".into())];
     let out = exact_runner::RequestOut {
+        completion: None,
         ticket: 1,
         target: "feed".into(),
         request,

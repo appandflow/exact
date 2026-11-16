@@ -205,10 +205,14 @@ final class ElementScrollTests: XCTestCase {
             p.onScrollend = { _ in ended += 1 }
 
             p.scrollElementIntoView(["target", "start", "nearest"])
-            XCTAssertNotNil(p.views[1]?.scrollEnd?.elementAnimation, "the ordinary reveal is in flight")
+            let reveal = p.views[1]?.scrollEnd?.elementAnimation
+            XCTAssertNotNil(reveal, "the ordinary reveal is in flight")
             p.apply(wireBatch([["op": "props", "id": 1, "set": ["scrollTop": "120"]]]))
 
-            XCTAssertNil(p.views[1]?.scrollEnd?.elementAnimation, "the authored offset invalidates the reveal token")
+            // A smooth write owns the scroller with a token of its own until it lands (81bf0161d, "A scroll the app
+            // asks for owns a followed scroller until it settles"); an auto one lands at once and holds none.
+            XCTAssertNotEqual(p.views[1]?.scrollEnd?.elementAnimation, reveal, "the authored offset invalidates the reveal token")
+            if behavior == "auto" { XCTAssertNil(p.views[1]?.scrollEnd?.elementAnimation) }
             if behavior == "auto" {
                 XCTAssertEqual(scroll.contentView.bounds.minY, 120, accuracy: 0.5, "an auto offset write lands immediately")
             }

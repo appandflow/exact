@@ -1,6 +1,7 @@
 //! The binding core (LLP 1121 D12, stage 5, commit 3): a token by its name,
 //! resolved in one session for a place, and what tells its observers.
 
+use crate::scratch::Scratch;
 use exact_kernel::{ColorValue, Kernel};
 use exact_plan::{Plan, Value};
 use exact_runner::{design, DataError, DataSource, Place, Runner};
@@ -17,9 +18,7 @@ const DESIGN: &str = "forma t\n\naxes\n  dark-style = black | dim  under scheme=
 const VIEW: &str = "component App\n  view\n    column color=\"ink\"\n      text \"a\" testId=\"outer\"\n      column testId=\"card\" -exact-mode=\"dark-style=dim\" color=\"ink\"\n        text \"b\" testId=\"inner\"\n";
 
 fn plan(name: &str, design: &str) -> Plan {
-    let dir = std::env::temp_dir().join(format!("exact2-binding-{name}-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).unwrap();
+    let dir = Scratch::new(format!("exact2-binding-{name}-{}", std::process::id()));
     std::fs::write(dir.join("app.forma"), design).unwrap();
     std::fs::write(dir.join("app.contract"), VIEW).unwrap();
     let plan = contract::compile_path(&dir.join("app.contract")).unwrap();
@@ -201,9 +200,7 @@ fn a_refused_scrub_frame_is_not_recorded_as_shown() {
 /// inputs and what it resolves.
 #[test]
 fn a_pin_above_moves_the_places_inputs() {
-    let dir = std::env::temp_dir().join(format!("exact2-binding-pin-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).unwrap();
+    let dir = Scratch::new(format!("exact2-binding-pin-{}", std::process::id()));
     std::fs::write(dir.join("app.forma"), DESIGN).unwrap();
     std::fs::write(dir.join("app.contract"), "component App\n  state dim = false\n  action flip\n    dim = not dim\n  view\n    column\n      button press=flip testId=\"flip\"\n        text \"flip\"\n      column -exact-mode=(dim ? \"dark-style=dim\" : \"\") color=\"ink\"\n        text \"b\" testId=\"inner\"\n").unwrap();
     let mut r = booted(contract::compile_path(&dir.join("app.contract")).unwrap());
@@ -259,9 +256,7 @@ fn two_sessions_answer_from_their_own_designs() {
 /// moves the place's inputs, though the window's scheme did not move.
 #[test]
 fn a_scheme_above_moves_the_places_inputs() {
-    let dir = std::env::temp_dir().join(format!("exact2-binding-scheme-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).unwrap();
+    let dir = Scratch::new(format!("exact2-binding-scheme-{}", std::process::id()));
     std::fs::write(dir.join("app.forma"), DESIGN).unwrap();
     std::fs::write(dir.join("app.contract"), "component App\n  state dark = false\n  action flip\n    dark = not dark\n  view\n    column\n      button press=flip testId=\"flip\"\n        text \"flip\"\n      column color-scheme=(dark ? \"dark\" : \"light\")\n        text \"b\" testId=\"inner\"\n").unwrap();
     let mut r = booted(contract::compile_path(&dir.join("app.contract")).unwrap());
@@ -280,9 +275,7 @@ fn a_scheme_above_moves_the_places_inputs() {
 }
 
 fn plan_of(name: &str, design: &str, view: &str) -> Plan {
-    let dir = std::env::temp_dir().join(format!("exact2-binding-{name}-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).unwrap();
+    let dir = Scratch::new(format!("exact2-binding-{name}-{}", std::process::id()));
     // A native module the views show is one the app declares.
     if view.contains("map-view") {
         std::fs::write(
@@ -363,10 +356,7 @@ fn exports_bound_what_the_bindings_may_name() {
 fn the_retention_test_reads_what_is_beside_the_app() {
     let view = "component App\n  view\n    column\n      text \"a\" color=\"brand\"\n";
     let with = |name: &str, file: &str, text: &str| {
-        let dir =
-            std::env::temp_dir().join(format!("exact2-binding-{name}-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
+        let dir = Scratch::new(format!("exact2-binding-{name}-{}", std::process::id()));
         std::fs::write(dir.join("app.forma"), KEPT).unwrap();
         std::fs::write(dir.join("app.contract"), view).unwrap();
         std::fs::write(dir.join(file), text).unwrap();
@@ -405,9 +395,7 @@ fn the_retention_test_reads_what_is_beside_the_app() {
 fn the_token_union_follows_exports() {
     let design =
         "forma t\n\nexports\n  badge.ink\n\ntheme\n  brand = #c8102e\n  badge.ink = #123456\n";
-    let dir = std::env::temp_dir().join(format!("exact2-binding-union-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).unwrap();
+    let dir = Scratch::new(format!("exact2-binding-union-{}", std::process::id()));
     std::fs::write(dir.join("app.forma"), design).unwrap();
     std::fs::write(dir.join("app.ts"), "export const answer = () => null;\n").unwrap();
     std::fs::write(

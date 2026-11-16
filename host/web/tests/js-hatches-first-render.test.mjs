@@ -2,19 +2,22 @@
 // passes, theme2's 18:11 ruling): a word app.json gives only other platforms is shown and never called from the very
 // first render, and an app with no page module (`modules/web/`) asks for no module artifact, so its page has no
 // `modules/index.js` 404. An app with a page module still loads it and calls its word.
-import { expect, test } from 'bun:test';
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { afterAll, expect, test } from 'bun:test';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { suiteBrowser } from '../../../scripts/agent-launch.mjs';
 
 const ROOT = resolve(import.meta.dir, '../../..');
+const apps = [];
+afterAll(() => { for (const app of apps) rmSync(app, { recursive: true, force: true }); });
 
 /** A tiny app with one hatched node, its word for `platforms`, a page module that calls it when `module`; built for
  * the JS target, served, opened: its journal's hatch lines and the requests for a module artifact. */
 async function run(name, platforms, module) {
   const app = mkdtempSync(join(tmpdir(), `exact-hatch-first-${name}-`)), dist = join(app, 'dist');
+  apps.push(app);
   writeFileSync(join(app, 'app.json'), JSON.stringify({ name, app: { id: `com.exact.hatch-first-${name}`, name }, hatches: { tick: platforms } }));
   writeFileSync(join(app, 'app.contract'), 'component App\n  view\n    column padding=16\n      text "hatched" hatch="tick" testId="hatched"\n');
   if (module) {

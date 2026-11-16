@@ -7,10 +7,14 @@
 // frames and exits — what `scripts/metrics.mjs` reads. EXACT_AGENT=1 is the
 // agent API (LLP 1012, `Agent.swift`): the driver owns the clock and drives
 // the app over stdio; `scripts/smoke.mjs` is a script of its operations.
+// EXACT_AGENT=live (`--live`) is the same carrier on an ordinary launch: the
+// wall clock and normal scheduling, input and reads but no clock.
 import AppKit
 import ExactKit
 import ExactComposition
 import ExactLaunchParts
+
+AgentLink.install()
 
 ProcessRelaunch.waitIfRequested()
 // The app's preloads leave before AppKit starts (LLP 1162.000 D4).
@@ -31,9 +35,8 @@ let execToMainMs = processStart().map { (mainAt - $0) * 1000 }
 
 let smoke = ExactEnv.smoke
 let agentMode = ExactEnv.agentMode
-let agentReadable = agentMode || ExactEnv.environment["EXACT_AGENT"] == "live"
 setvbuf(stdout, nil, _IOLBF, 0)
-if agentReadable { Agent.prepareStdio() }
+if ExactEnv.agentCarried { AgentLink.prepareStdio() }
 // Nothing restores this app: a session boots its plan, and the window below is
 // not restorable. AppKit still saves the application's own state some fifteen
 // seconds after launch, and to do that it asks the window server for the order
@@ -211,7 +214,7 @@ func footprint() -> UInt64 {
 /// `--window-size` is, whatever the screen: AppKit would shorten an 860-point
 /// window to fit a 720-point display, and a node the script reads at y 630
 /// would then be below the viewport's edge, where no tap reaches it.
-final class ExactWindow: NSWindow {
+final class ExactWindow: ExactDrivenWindow {
     override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect {
         agentMode ? frameRect : super.constrainFrameRect(frameRect, to: screen)
     }
@@ -270,7 +273,7 @@ final class DocumentWindow: NSObject, NSWindowDelegate {
         if first { ExactEnv.stamp("Presenter (NSScrollView)") }
         window = ExactWindow(contentRect: NSRect(origin: .zero, size: size), styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
         // Below the normal level, which alone would make it float across Spaces, out of ⌘`'s cycle.
-        if Agent.windowsBehind { window.level = .agentBehind; window.collectionBehavior.formUnion([.managed, .participatesInCycle]) }
+        if AgentLink.windowsBehind { window.level = .agentBehind; window.collectionBehavior.formUnion([.managed, .participatesInCycle]) }
         super.init()
         // AppKit's own opening animation, and window tabs only where documents
         // have windows of their own (LLP 1115.000 D7.9).
@@ -453,12 +456,12 @@ final class DocumentWindow: NSObject, NSWindowDelegate {
 
     /// In front — never activated under a script (LLP 1012), so a running
     /// smoke never takes the focus from whoever is typing, and shown behind
-    /// the other apps' windows on the agent's clock (`Agent.windowsBehind`).
+    /// the other apps' windows on the agent's clock (`AgentLink.windowsBehind`).
     /// Bare `focus()` (LLP 1133.005 D10): the app unhidden, the window
     /// deminiaturized and ordered front, and activation asked for, which
     /// macOS 14's cooperative activation may refuse; nothing more then.
     func front() {
-        if Agent.windowsBehind { window.orderFront(nil); return } // in front of its own windows, in its level
+        if AgentLink.windowsBehind { window.orderFront(nil); return } // in front of its own windows, in its level
         if agentMode && !agentActivates { window.orderFrontRegardless(); return }
         if app.isHidden { app.unhide(nil) }
         if window.isMiniaturized { window.deminiaturize(nil) }
@@ -516,7 +519,7 @@ final class DocumentWindow: NSObject, NSWindowDelegate {
     /// A closed window takes its session with it (LLP 1031 D2): its runner,
     /// its views, its label on the carrier.
     func windowWillClose(_ notification: Notification) {
-        Agent.route(label, nil)
+        AgentLink.route(label, nil)
         if rooted, let location = session.location { lastLocation[label] = location }
         PageFacts.closed(window)
         // After AppKit has finished closing the window this holds.
@@ -614,7 +617,7 @@ func openWindow(asTab: Bool = false, named: String? = nil, at location: String? 
     w.attach()
     w.coverChrome()
     windows.append(w)
-    Agent.route(w.label, w.session)
+    AgentLink.route(w.label, w.session)
     // A named window is where the person left it, as `main` is.
     let frame = scripted || named == nil ? nil : (ExactEnv.appMetadata["CFBundleIdentifier"] as? String).map { $0 + "." + label }
     if let frame, w.window.setFrameUsingName(frame) {
@@ -681,7 +684,7 @@ ExactDocuments.route = { route($0) }
 ExactDocuments.shown = { session, url in
     windows.first { $0.session === session }?.document = url.standardizedFileURL.path
 }
-Agent.hostState = {
+AgentLink.hostState = {
     ["documents": [
         "launchMode": ExactDocuments.launchMode,
         "windows": windows.map(\.observed),
@@ -712,8 +715,14 @@ final class Delegate: NSObject, NSApplicationDelegate {
         for item in buttons.items { buttons.removeItem(item); shortcuts.addItem(item) }
         return shortcuts
     }
-    /// A Spotlight result of the app's index opened (LLP 1133.023 D4).
+    /// A Spotlight result of the app's index opened (LLP 1133.023 D4), or a
+    /// universal link (LLP 1038 D8): before boot, the launch location.
     func application(_ application: NSApplication, continue userActivity: NSUserActivity, restorationHandler: @escaping ([any NSUserActivityRestoring]) -> Void) -> Bool {
+        if userActivity.activityType == NSUserActivityTypeBrowsingWeb, let url = userActivity.webpageURL {
+            let target = frontWindow() ?? openWindow()
+            if target.session.openURL(url) { target.front() }
+            return true
+        }
         guard let location = ExactContentIndex.location(of: userActivity) else { return false }
         (frontWindow() ?? openWindow()).front()
         ExactContentIndex.open(location)
@@ -961,7 +970,7 @@ func finishLaunching() {
     ExactEnv.stamp("makeKeyAndOrderFront")
     // Under a script on the platform's timing: in front regardless, so the window is
     // seen (a covered window's canvases render nothing, LLP 1009 D4) — but never activated.
-    if withoutWindow || Agent.windowsBehind {} else if agentMode && !agentActivates { window.orderFrontRegardless() } else { app.activate(ignoringOtherApps: true) }
+    if withoutWindow || AgentLink.windowsBehind {} else if agentMode && !agentActivates { window.orderFrontRegardless() } else { app.activate(ignoringOtherApps: true) }
     ExactEnv.stamp("activate")
 
     /// Agent mode: the driver owns the process from here — one JSON line in,
@@ -969,7 +978,7 @@ func finishLaunching() {
     /// ordered front; an accessory app's window is not key until something
     /// asks, and a `type` asks (`AgentMac`).
 
-    if agentReadable {
+    if ExactEnv.agentCarried {
         DispatchQueue.main.async { agentReady() }
     }
     if smoke {
@@ -1008,9 +1017,9 @@ func launchWithoutWindow() {
 /// which clears the session's error, but the driver asked for this one.
 nonisolated(unsafe) var planRefusal: String?
 func agentReady() {
-    guard agentReadable, !readySent else { return }
+    guard ExactEnv.agentCarried, !readySent else { return }
     readySent = true
-    Agent.reply(["ready": true, "boot": session.bootMs, "views": session.viewCount, "error": planRefusal ?? session.bootError ?? session.nativeArtifactFailure ?? NSNull()])
-    Agent.startStdio(sessions: [("main", session)])
+    AgentLink.reply(["ready": true, "boot": session.bootMs, "views": session.viewCount, "error": planRefusal ?? session.bootError ?? session.nativeArtifactFailure ?? NSNull()])
+    AgentLink.startStdio(sessions: [("main", session)])
 }
 app.run()

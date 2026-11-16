@@ -26,9 +26,13 @@ fun interface Drive {
 open class ExactActivity : Activity() {
     /** The app's native modules (LLP 1024), by name. */
     protected open val modules: Map<String, NativeModule> = emptyMap()
-    /** The app's `video` player ([VideoPlayer]); none for an app without video. */
+    /** The `video` and `audio` elements' player ([VideoPlayer]), where the APK links one (LLP 1042.001 D2). */
     protected open val video: ((Context) -> VideoPlayer)? = null
     private var natives: Natives? = null
+
+    /** A signed update activated ([Requests]): the open videos and pages are opened from its assets again, and its
+     * boot is good once the view draws it. */
+    internal fun assetsMoved() { natives?.reroot(); if (::view.isInitialized) view.blessNext() }
     private var nativeState: Bundle? = null
     private var nativeStarted = false
     private var nativeResumed = false
@@ -134,8 +138,14 @@ open class ExactActivity : Activity() {
         if (Auth.receive(this, intent)) return
         if (Activations.receive(this, intent)) return
         if (Shares.isShare(intent)) Shares.request(this, intent)?.let { Exact.share(it) }
-        else intent.data?.let { Exact.open(it.toString()) }
+        else (intent.data?.toString() ?: pushed(intent))?.let { Exact.open(it) }
     }
+
+    /** The location a push Firebase showed opens: `navigate` from the intent its tap starts, which carries the
+     * message's `data` and Firebase's `google.message_id` (LLP 1133.004.000 D7). Nothing else of it is read; `navigate`
+     * has a link's trust, as any app could start the activity with a link. */
+    private fun pushed(intent: android.content.Intent): String? =
+        intent.takeIf { it.hasExtra("google.message_id") }?.getStringExtra("navigate")?.takeIf { it.isNotEmpty() }
 
     /** Whether an accessibility service is on (LLP 1115.001 D13). The reader answers one through its root
      * ([Root], [Access]) and asks exact2 for the tree only while one is on: with none, exact2 is never asked and
@@ -242,7 +252,10 @@ open class ExactActivity : Activity() {
      * own: an older release never resolves its types. */
     @android.annotation.TargetApi(31)
     private object Splash {
-        fun quick(activity: Activity) = activity.splashScreen.setOnExitAnimationListener { it.remove() }
+        fun quick(activity: Activity) {
+            StartingWindow.shown()
+            activity.splashScreen.setOnExitAnimationListener { it.remove(); StartingWindow.removed() }
+        }
     }
 
     /** Where exact2 keeps the app's files, and the APK's assets are copied: the app's own files directory, which
@@ -303,13 +316,13 @@ open class ExactActivity : Activity() {
             owner.configure(device)
             owner.colors(colors)
             owner.window(size.first, size.second, density, edges)
-            owner.boot(size.first, size.second, density, storage.absolutePath, live) { ok -> view.ownerStarted(ok) }
+            owner.boot(size.first, size.second, density, storage.absolutePath, noBackupFilesDir.absolutePath, live) { ok -> view.ownerStarted(ok) }
             booting = true
         } else if (intent.getStringExtra("asyncboot") != "0") {
             try { Native.hardwarePictures(intent.getStringExtra("hwbuf") != "0") } catch (e: UnsatisfiedLinkError) { }
             Thread({
                 device.tell(); Native.colors(colors); Native.window(size.first, size.second, density, edges)
-                Native.startAsync(size.first, size.second, density, storage.absolutePath, live)
+                Native.startAsync(size.first, size.second, density, storage.absolutePath, noBackupFilesDir.absolutePath, live)
             }, "exact-load").apply { priority = Thread.MAX_PRIORITY }.start()
             booting = true
         } else { device.tell(); Native.colors(colors); Native.window(size.first, size.second, density, edges) }
@@ -336,7 +349,7 @@ open class ExactActivity : Activity() {
         Exact.answered = { view.onPublished() }
         Exact.turned = { view.turned() }
         if (input) view.keys = Keys(view)
-        val elements = Natives(this, File(storage, "app"), Extensions.withViews(modules), video)
+        val elements = Natives(this, { AssetRoot.of(this) }, Extensions.withViews(modules), video)
         natives = elements
         elements.lifecycle.restore(nativeState)
         nativeState = null
@@ -344,6 +357,7 @@ open class ExactActivity : Activity() {
         if (nativeResumed) elements.lifecycle.event(ViewLifecycle.RESUME)
         elements.hatched = { node, context -> hatchReader?.made(node, context) }
         view.natives = elements
+        elements.reader = view
         // The app's text fields (LLP 1115.001 D8) outlive a reader made again: a field keeps its view, and with it
         // its selection and its undo, while its node lives. Under the view, which takes every touch and hands a
         // field its own ([Fields.touch]).
@@ -353,12 +367,13 @@ open class ExactActivity : Activity() {
         hosted.covered(requests.surfaces?.open == true)
         view.fields = hosted
         // What the reader answers accessibility services with (D13): the root answers for the page, the bars and
-        // the fields; the page's view and the layers are pictures and say nothing themselves. Hosted elements (a
-        // web view, a video) report themselves, after exact2's nodes.
+        // the fields; the page's view and the layers are pictures and say nothing themselves. A hosted web view
+        // reports itself after exact2's nodes; a media controller stands at its node, as a field does.
         view.importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
         view.access = { words -> accessTold(words) }
         root.access.fields = hosted
         root.access.others = { if (elements.childCount > 0) listOf<View>(elements) else emptyList() }
+        root.access.controller = { elements.controller(it) }
         root.addView(elements, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         root.addView(hosted, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         root.addView(view, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
@@ -571,11 +586,28 @@ open class ExactActivity : Activity() {
         if (reads()) Extensions.stopped(isChangingConfigurations)
         view.running(false, reads())
         natives?.lifecycle?.event(ViewLifecycle.STOP)
+        // Videos pause and let go of their decoders; each keeps its place for the reader made at the next start.
+        natives?.stopMedia()
         // Behind the hide, the pads' release and the stop of the turns (none queued after it), what they and anything
         // since the pause committed is on disk before Android may kill it.
         if (!Exact.drainStore()) android.util.Log.w("exact", "the store's writes did not finish before the stop")
+        if (reads() && !isChangingConfigurations) updateWidgets()
         contentResolver.unregisterContentObserver(settings)
         super.onStop()
+    }
+
+    /** Ask the app's own home-screen widgets to refresh, now that what it wrote is on disk (LLP 1126.003 D5): an
+     * explicit update to each provider of this package, by name, so the reader links nothing of the widgets module. An
+     * app without widgets has no providers. */
+    private fun updateWidgets() {
+        if (Build.VERSION.SDK_INT < 31) return
+        val manager = getSystemService(android.appwidget.AppWidgetManager::class.java) ?: return
+        for (info in manager.getInstalledProvidersForPackage(packageName, null)) {
+            val ids = manager.getAppWidgetIds(info.provider)
+            if (ids.isEmpty()) continue
+            sendBroadcast(android.content.Intent(android.appwidget.AppWidgetManager.ACTION_APPWIDGET_UPDATE).setComponent(info.provider)
+                .putExtra(android.appwidget.AppWidgetManager.EXTRA_APPWIDGET_IDS, ids))
+        }
     }
 
     /** In front again: a share sheet that was up and chose nothing was dismissed ([Requests.resumed]); an extension
@@ -666,21 +698,25 @@ open class ExactActivity : Activity() {
         // Rust's `temp_dir` is TMPDIR, else /data/local/tmp, which an app cannot write. API 29 sets none, and a
         // drive with no scratch store keeps its `app:/` files under it (`exact_painted::picker`).
         android.system.Os.setenv("TMPDIR", cacheDir.absolutePath, false)
+        val meta = packageManager.getApplicationInfo(packageName, android.content.pm.PackageManager.GET_META_DATA).metaData
+        // The `protocol_handlers` this APK registers (LLP 1038 D8): exact2 puts a URL of one's scheme at its template's
+        // `%s`, at launch and while the app runs, as the Apple hosts do with `ExactProtocolHandlers`.
+        meta?.getString("dev.exact.protocol_handlers")?.let { android.system.Os.setenv("EXACT_PROTOCOL_HANDLERS", it, true) }
         // The launching intent's URL is the launch location (LLP 1133.023 D15 item 3): the activity is exported, so
         // any app may start it with one, which reaches only what the navigation root routes, as a link does.
         if (arrived) {
-            intent.data?.takeUnless { Shares.isShare(intent) || Auth.claims(this, it) }?.let { android.system.Os.setenv("EXACT_LAUNCH_URL", it.toString(), true) }
+            (intent.data?.takeUnless { Shares.isShare(intent) || Auth.claims(this, it) }?.toString() ?: pushed(intent))
+                ?.let { android.system.Os.setenv("EXACT_LAUNCH_URL", it, true) }
             // A share that starts the app is its launch location, claimed before the boot (LLP 1133.024 D5).
             Shares.request(this, intent)?.let { android.system.Os.setenv("EXACT_SHARE", it, true) }
         }
         // GPU modules (LLP 1009) come from this APK. Exported intents never select executable content.
         android.system.Os.setenv("EXACT_NATIVE_LIBS", applicationInfo.nativeLibraryDir, true)
         android.system.Os.setenv("EXACT_MOVE_TRACKS", "1", true)
-        val development = packageManager.getApplicationInfo(packageName, android.content.pm.PackageManager.GET_META_DATA)
-            .metaData?.getBoolean("dev.exact.development", false) == true
-        if (!development) return
-        // The data module's `console` lines to logcat under `exact-app` (`host/painted/src/android.rs`, `console`).
-        android.system.Os.setenv("EXACT_LOG_CONSOLE", "1", true)
+        // The logcat tag of the app's `console` lines, in every build (`host/painted/src/android.rs`, `console`): the
+        // package name, as Apple's subsystem is the bundle identifier. A label can be localized and hold spaces.
+        android.system.Os.setenv("EXACT_PACKAGE", packageName, true)
+        if (meta?.getBoolean("dev.exact.development", false) != true) return
         // rows=0: no kept rows, every frame walks every row (exact2's EXACT_ROWS), to compare.
         if (intent.getStringExtra("rows") == "0") android.system.Os.setenv("EXACT_ROWS", "0", true)
         // imgvp=N: keep N viewports of decoded pictures (exact2's EXACT_IMAGE_VIEWPORTS; 12 by default).
@@ -702,7 +738,9 @@ open class ExactActivity : Activity() {
             "x_agent_fail_fetch", "x_agent_process", "x_agent_home", "x_agent_login_env",
             "x_agent_share", "x_agent_bind", "x_agent_pads", "x_agent_timing", "x_agent_presentation", "x_agent_chrome",
             "x_rows", "x_moves", "x_idle_frames", "x_slots", "x_lower", "x_row_reuse",
-            "x_image_viewports", "x_defer_collections", "x_log_journal").forEach { k ->
+            "x_image_viewports", "x_defer_collections", "x_log_journal",
+            // The update store's origin and directory (LLP 1030.006 D7); a production bake ignores both.
+            "x_update_origin", "x_update_dir").forEach { k ->
             intent.getStringExtra(k)?.let { android.system.Os.setenv("EXACT_" + k.removePrefix("x_").uppercase(), it, true) }
         }
         // A move may carry layers' tracks ([applyMove]), so a row coming into view starts its animations without a

@@ -91,10 +91,11 @@ class ExactView(context: Context, private val live: Boolean, private val onFirst
     private var heldCopy: Map<Int, android.graphics.RenderNode>? = null
     /** Nodes exact2's reader animates, sampled every frame while any plays. */
     private val layers: Layers = Layers({ node, ops, ox, oy, memo, scale ->
-        // A layer recorded again (a dash phase, a colour, a pixelated image's scale): its paths are read once.
+        // A layer recorded again (a dash phase, a colour, a pixelated image's scale, a drawing HWUI let go): its paths
+        // are read once. Through [relayer], as the drawing HWUI let go is recorded while [main] replays a row.
         val c = node.beginRecording()
-        main.memo = memo; main.layerScale = scale
-        try { main.replayAt(c, IntBuffer.wrap(ops), 0, ops.size, ox, oy, node) } finally { main.memo = null; main.layerScale = 1f }
+        relayer.memo = memo; relayer.layerScale = scale
+        try { relayer.replayAt(c, IntBuffer.wrap(ops), 0, ops.size, ox, oy, node) } finally { relayer.memo = null; relayer.layerScale = 1f }
         node.endRecording()
     }) { fonts[it] }.also { if (skipOffscreen) it.rowShows = Layers.RowShows { row -> rowShows(row) } }
     /** layerbounds=0: layers' nodes cover everything, unclipped (each move or fade damages the window), to compare. */
@@ -102,10 +103,12 @@ class ExactView(context: Context, private val live: Boolean, private val onFirst
     private val bounds = Bounds().also { it.row = { id -> rows[id] } }
     private val measured = RectF()
     private val placed = android.graphics.Rect()
-    private val main: Player = Player(fonts).also { p ->
+    /** A Player that draws the stream into this view: every id resolved to its node, and each row's and layer's slots
+     * that lost their drawings recorded again as it is drawn. */
+    private fun resolving(p: Player): Player {
         p.origins = nativeOrigins
         p.dotsAtOnce = (context as Activity).intent.getStringExtra("dots") != "0"
-        p.layer = { layers.lookup(it) }
+        p.layer = { id -> layers.drawn(id)?.also { slots.refill(Slots.layer(id)) } }
         p.shared = { shared.node(it) }
         p.image = { images[it] }
         p.animated = { animated[it] }
@@ -114,7 +117,12 @@ class ExactView(context: Context, private val live: Boolean, private val onFirst
         p.group = { id -> groups.getOrPut(id) { android.graphics.RenderNode("exact group").apply { setClipToBounds(false) } } }
         p.holder = { id -> scrolling.holder(id) }
         p.slot = { slots.nodes[it] }
+        return p
     }
+    private val main: Player = resolving(Player(fonts))
+    /** Records a layer again from its kept drawing ([Layers]), which can come while [main] replays a row: a Player's
+     * scratch state is one replay's. */
+    private val relayer: Player = resolving(Player(fonts))
     private val background = Player(fonts).also { it.origins = nativeOrigins }
     private val shared = SharedElements(main, { images[it] }, layers::mapShared, layers::sharedOpacity) { id, rect ->
         groups[id]?.let { rect.offset(it.translationX, it.translationY) }
@@ -191,6 +199,7 @@ class ExactView(context: Context, private val live: Boolean, private val onFirst
      * the presenter places the page in it, and the view is laid out there ([ExactActivity.chrome]). */
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         main.width = w; main.height = h
+        relayer.width = w; relayer.height = h
         if (owner != null || started || w == 0 || h == 0) return
         if (booting) {
             // exact2 booted (and painted its first frame) while the activity was set up.
@@ -199,9 +208,10 @@ class ExactView(context: Context, private val live: Boolean, private val onFirst
             android.os.Trace.endSection()
         } else {
             val dir = context.filesDir.absolutePath
+            val store = context.noBackupFilesDir.absolutePath
             try { Native.hardwarePictures(hwbuf) } catch (e: UnsatisfiedLinkError) { }
             Native.trust(context.applicationContext)
-            started = Native.start(window.first, window.second, Device.scale(context), dir, live)
+            started = Native.start(window.first, window.second, Device.scale(context), dir, store, live)
         }
         // Executor replies and decoded images wake the main looper; poll drains them. A wake with no turn to take
         // still owes the next timer (a dev loop's next poll among them). The GPU module's acquisitions wake it too.
@@ -254,6 +264,18 @@ class ExactView(context: Context, private val live: Boolean, private val onFirst
 
     @SuppressLint("ClickableViewAccessibility")
     override fun onTouchEvent(e: MotionEvent): Boolean = contacts.touch(e)
+
+    /** A mouse's wheel with `ctrl` held zooms the zoomable scroller under the pointer about it (LLP 1057.001.000 §5),
+     * as a desktop's does: a notch is the platform's scroll distance, in points. */
+    override fun onGenericMotionEvent(e: MotionEvent): Boolean {
+        if (e.actionMasked != MotionEvent.ACTION_SCROLL || e.metaState and android.view.KeyEvent.META_CTRL_ON == 0 ||
+            !e.isFromSource(android.view.InputDevice.SOURCE_CLASS_POINTER) || !started) return super.onGenericMotionEvent(e)
+        val notch = android.view.ViewConfiguration.get(context).scaledVerticalScrollFactor / Device.scale(context)
+        val (x, y, dy) = Triple(e.x, e.y, -e.getAxisValue(MotionEvent.AXIS_VSCROLL) * notch)
+        val o = owner
+        if (o != null) o.call { Native.zoomWheel(x, y, dy) } else { Native.zoomWheel(x, y, dy); pump() }
+        return true
+    }
 
     /** The hit reply follows the down on the engine's thread. */
     internal fun ask(x: Float, y: Float, then: (IntArray) -> Unit) {
@@ -374,14 +396,27 @@ class ExactView(context: Context, private val live: Boolean, private val onFirst
         ops?.let { main.replay(canvas, it, 0, it.limit()) }
         shared.draw(canvas)
         android.os.Trace.endSection()
+        presents.drew()
         // The first frame after startup counts even with no page ops (an empty page, or only bars).
         // Its mark goes before any turn this frame schedules.
         // Asynchronous: a traversal this frame schedules (rows made on the worker draw at the next) holds posted
         // messages behind its barrier, and the mark then waited for that frame, which waits for this one's on
         // RenderThread (30-45 ms, the first with text): 82 ms where the same launch otherwise marked 47.
         if (first) { first = false; android.os.Handler.createAsync(android.os.Looper.getMainLooper()).post(onFirst); if (warm) postDelayed({ warmer.prepare() }, 300) }
+        if (blessing) { blessing = false; android.os.Handler.createAsync(android.os.Looper.getMainLooper()).post(bless) }
         if (!owned) schedule()
     }
+
+    /** Whether exact2 is to be told of the next drawing: the running generation's boot is good once this view drew it
+     * without crashing (LLP 1030.006 D5), and exact2 answers whether it still waits for one ([Native.drew]). */
+    private var blessing = true
+    private val bless = Runnable {
+        val o = owner
+        blessing = if (o != null) o.sync(false) { Native.drew() } else Native.drew()
+    }
+
+    /** A signed update activated: its boot is good once drawn too. */
+    internal fun blessNext() { blessing = true; invalidate() }
 
     /** The owner booted (or could not). */
     fun ownerStarted(ok: Boolean) { started = ok; contacts.started(); invalidate() }
@@ -416,7 +451,13 @@ class ExactView(context: Context, private val live: Boolean, private val onFirst
     private val warmer = Warm()
     /** wait=N: a release waits N ms for exact2's answer (Exact.WAIT_MS by default), to compare. */
     internal val releaseWait = (context as Activity).intent.getStringExtra("wait")?.toLongOrNull() ?: Exact.WAIT_MS
+    /** Each picture exact2 asked about, reported when it reaches the screen (LLP 1003.001 D9). */
+    private val presents = Presents(this, { owner?.queue?.isNotEmpty() ?: true }) { t, at ->
+        owner?.presented(t, at) ?: run { if (Native.picturePresented(t, at)) pump() }
+    }
+    override fun onAttachedToWindow() { super.onAttachedToWindow(); presents.attach() }
     override fun onDetachedFromWindow() {
+        presents.detach()
         running(false, host = false)
         removeCallbacks(timer)
         scrolling.stopped()
@@ -448,6 +489,7 @@ class ExactView(context: Context, private val live: Boolean, private val onFirst
             val p = o.queue.poll() ?: break
             any = true
             publication = p.publication
+            presents.ingested(p.picture)
             // The fields first: the stream that came with them draws their nodes.
             p.fields?.let { fields?.told(it) }
             p.bars?.let { bars?.told(it) }
@@ -838,6 +880,7 @@ class ExactView(context: Context, private val live: Boolean, private val onFirst
         val stream = pendingStream ?: run {
             android.os.Trace.beginSection("exact native frame")
             val fresh = Native.frame()
+            presents.ingested(Native.presentToken())
             android.os.Trace.endSection()
             fresh?.order(ByteOrder.LITTLE_ENDIAN)?.asIntBuffer()?.let { b ->
                 val words = IntArray(b.limit()); b.get(words); IntBuffer.wrap(words)

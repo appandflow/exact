@@ -243,6 +243,16 @@ extension Agent {
                 "ry": r2(max(0, document.height + i.top + i.bottom - visible.height))]
     }
 
+    /// A zoomable scroller's offsets and ranges in zoomed points, and its
+    /// zoom and range (LLP 1057.001.000 §6).
+    static func zoomed(_ v: NodeView, _ sv: NSScrollView) -> [String: Any] {
+        let clip = sv.contentView, i = sv.contentInsets, z = sv.magnification, o = clip.bounds.origin
+        let document = sv.documentView?.frame.size ?? .zero, port = clip.frame.size
+        return ["sx": r2(o.x * z + i.left), "sy": r2(o.y * z + i.top),
+                "rx": r2(max(0, i.left + document.width * z + i.right - port.width)), "ry": r2(max(0, i.top + document.height * z + i.bottom - port.height)),
+                "scrollZoom": Double(z), "minZoom": Double(v.zoomRange?.lowerBound ?? 1), "maxZoom": Double(v.zoomRange?.upperBound ?? 1)]
+    }
+
     /// The same, for a live scroller.
     static func overscroll(of sv: NSScrollView) -> (CGFloat, CGFloat) {
         overscroll(origin: sv.contentView.bounds.origin,
@@ -267,6 +277,7 @@ extension Agent {
                 n["sx"] = Agent.r2(o.x)
                 n["sy"] = Agent.r2(o.y)
                 n.merge(Agent.range(of: sv)) { _, new in new }
+                if sv.zoom != nil { n.merge(Agent.zoomed(v, sv)) { _, new in new } }
                 // How far past its own ends this scroller currently sits.
                 // A stretched rubber band is a real state a driver could not
                 // otherwise see: the offset alone reads as an ordinary
@@ -1158,22 +1169,10 @@ extension Agent {
         return ["typed": Int(v.id), "value": Agent.shownValue(f.stringValue, of: v)]
     }
 
-    /// `CGWindowListCreateImage` of one window of this process, without its
-    /// frame's shadow, at the backing resolution. The SDK marks the call
-    /// unavailable (ScreenCaptureKit replaces it, and asks for Screen
-    /// Recording even for the caller's own windows), so it is looked up at
-    /// run time; the window server still answers it for the caller's own.
     /// EXACT_AGENT_ACTIVATE=1 (only scripts/measure-controls.mjs sets it): an
     /// activated run, whose pictures say whether they were (ExactMac main.swift).
     nonisolated static let activated = ExactEnv.agentMode && ExactEnv.environment["EXACT_AGENT_ACTIVATE"] == "1"
-    static func ownWindowImage(_ number: Int) -> CGImage? {
-        typealias Create = @convention(c) (CGRect, UInt32, UInt32, UInt32) -> Unmanaged<CGImage>?
-        guard let symbol = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "CGWindowListCreateImage") else { return nil } // RTLD_DEFAULT
-        let create = unsafeBitCast(symbol, to: Create.self)
-        // kCGWindowListOptionIncludingWindow; kCGWindowImageBoundsIgnoreFraming | kCGWindowImageBestResolution
-        guard let image = create(.null, 1 << 3, UInt32(number), 1 << 0 | 1 << 3)?.takeRetainedValue(), !emptyPicture(image) else { return nil }
-        return image
-    }
+    static func ownWindowImage(_ number: Int) -> CGImage? { WindowServerPicture.ownWindow(number) }
 
     /// The window server's own composite of `window` and `attached`, all
     /// this process's, in `window`'s frame: one over another as a person
@@ -1221,23 +1220,7 @@ extension Agent {
         return pictures.isEmpty ? image : drawingWindows(pictures, over: image, in: window.frame)
     }
 
-    /// Whether the window server's picture holds nothing. A display that is
-    /// asleep, or a locked screen, still answers, with a transparent picture
-    /// a pixel or two short of the window: no picture, not a wrong one. It
-    /// is read at sixteen places across it, not one: a sheet's corners are
-    /// transparent, and scaled to a single pixel a 460 by 226 sheet read as
-    /// empty and was left out of its window's picture (LLP 1115.002 D7.2).
-    static func emptyPicture(_ image: CGImage) -> Bool {
-        let side = 4
-        var pixels = [UInt8](repeating: 0, count: side * side * 4)
-        let drawn = pixels.withUnsafeMutableBytes { bytes -> Bool in
-            guard let few = CGContext(data: bytes.baseAddress, width: side, height: side, bitsPerComponent: 8, bytesPerRow: side * 4,
-                                      space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return false }
-            few.draw(image, in: CGRect(x: 0, y: 0, width: side, height: side))
-            return true
-        }
-        return !drawn || stride(from: 3, to: pixels.count, by: 4).allSatisfy { pixels[$0] == 0 }
-    }
+    static func emptyPicture(_ image: CGImage) -> Bool { WindowServerPicture.isEmpty(image) }
 
     func screenshot(_ req: [String: Any]) -> [String: Any] {
         let loading = settleForPicture()
@@ -1279,7 +1262,21 @@ extension Agent {
         }
         // As a capture: every canvas paints its picture, read back from the
         // module, and every iframe paints its arm snapshot at its node.
-        var picture = Capture.withGuests(of: [session]) { Capture.picture(of: v) }
+        var picture: NSBitmapImageRep?, captureNote: String?
+        if Capture.hasGlass(in: v), let window = v.window {
+            let readbacks = Self.canvasReadbacks(in: window)
+            let serverPicture = Capture.windowServerPictureResult(of: v)
+            readbacks.restore()
+            switch serverPicture {
+            case let .success(capture):
+                picture = capture
+            case let .failure(error):
+                picture = Capture.withGuests(of: [session]) { Capture.picture(of: v) }
+                captureNote = "glass was not composited: \(error.message); the viewport layer tree was used"
+            }
+        } else {
+            picture = Capture.withGuests(of: [session]) { Capture.picture(of: v) }
+        }
         let area = presenter.navigation.split.agentCaptureArea
         if presenter.navigation.split.active, let full = picture, let image = full.cgImage {
             let scale = CGFloat(full.pixelsWide) / v.bounds.width
@@ -1293,6 +1290,7 @@ extension Agent {
         // as it was taken, which the measure requires of each picture.
         if Self.activated { r["active"] = NSApp.isActive && (v.window?.isKeyWindow ?? false) }
         if loading > 0 { r["imagesPending"] = loading }
+        if let captureNote { r["note"] = captureNote }
         // This is the viewport's own drawing: a dialog's sheet and AppKit's popover are other windows (LLP 1115.002 D7).
         let apart = presenter.sheets(on: v.window).map { String(describing: Swift.type(of: $0)) } + presenter.menus.windowed.map { _ in "NSPopover" }
         if !apart.isEmpty { r["notShown"] = ["windows": apart, "see": "screenshot <png> window"] as [String: Any] }
@@ -1346,19 +1344,20 @@ extension Agent {
     }
 }
 
-extension NSWindow.Level {
-    /// A driven window's level, one below every other app's ordinary windows:
-    /// AppKit orders a window forward for a drive's click or sheet as for a
-    /// person's, and within this level that never shows it over what the person
-    /// is working on. A drive on the agent's clock needs nothing from being seen:
-    /// its pictures are of this window alone (`CGWindowListCreateImage`), with
-    /// canvas readbacks composited in place of Metal layers in either occlusion state,
-    /// and page visibility is the driver's (`PageFacts.hidden`). A live frame
-    /// observation (`liveFrames`) lifts it while it records, and an iframe
-    /// guest, whose WebKit page is not on that clock, while the session holds one.
-    public static let agentBehind = NSWindow.Level(rawValue: NSWindow.Level.normal.rawValue - 1)
-}
+/// WebKit reads this public AppKit property when deciding whether to run a
+/// page's frames and timers. At the driver's reserved level, a covered window
+/// and its sheets still have live pages; their window-server order never changes.
+open class ExactAgentWindow: NSWindow {
+    public override var occlusionState: NSWindow.OcclusionState {
+        let actual = super.occlusionState
+        var parent: NSWindow = self
+        while let over = parent.sheetParent { parent = over }
+        guard parent.level == .agentBehind, isVisible, !isMiniaturized, !NSApp.isHidden else { return actual }
+        return actual.union(.visible)
+    }
 
+    var physicalOcclusionState: NSWindow.OcclusionState { super.occlusionState }
+}
 extension Agent {
     /// Whether this process's windows sit at `NSWindow.Level.agentBehind`: a drive
     /// on the agent's clock, not activated. Under `--timing platform` the clock and

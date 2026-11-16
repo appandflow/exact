@@ -8,7 +8,7 @@
 use std::process::ExitCode;
 
 const USAGE: &str = "usage:
-  exact-bake compat <app-dir> --platform <ios|macos|linux|web> [--target <triple>] [--grants <text>] [--rust-grants <text>] [--settings <json>] [--json]
+  exact-bake compat <app-dir> --platform <ios|macos|linux|android|web> [--target <triple>] [--grants <text>] [--rust-grants <text>] [--settings <json>] [--json]
   exact-bake graph <app.plan> <compat.json> <target> <app-dir>";
 
 fn main() -> ExitCode {
@@ -50,7 +50,7 @@ fn compat_options(args: &[String]) -> Option<CompatOptions<'_>> {
         match flag.as_str() {
             "--platform" if platform.is_none() => {
                 let value = flags.next()?.as_str();
-                if !matches!(value, "ios" | "macos" | "linux" | "web") {
+                if !matches!(value, "ios" | "macos" | "linux" | "android" | "web") {
                     return None;
                 }
                 platform = Some(value);
@@ -94,7 +94,7 @@ fn compat_options(args: &[String]) -> Option<CompatOptions<'_>> {
 /// or with `--json` the id and every input it digests. Callers can supply
 /// source grants from a completed bake without linking the native host.
 fn compat(args: &[String]) -> ExitCode {
-    const USAGE: &str = "usage: exact-bake compat <app-dir> --platform <ios|macos|linux|web> [--target <triple>] [--grants <text>] [--rust-grants <text>] [--settings <json>] [--json]";
+    const USAGE: &str = "usage: exact-bake compat <app-dir> --platform <ios|macos|linux|android|web> [--target <triple>] [--grants <text>] [--rust-grants <text>] [--settings <json>] [--json]";
     if matches!(args, [flag] if flag == "--help" || flag == "-h") {
         println!("{USAGE}");
         return ExitCode::SUCCESS;

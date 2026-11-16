@@ -2,5 +2,4 @@
 <resources>
     <string name="exact_clear">Rensa</string>
     <string name="exact_default_channel">Aviseringar</string>
-    <string name="exact_silent_channel">Ljudlösa aviseringar</string>
 </resources>

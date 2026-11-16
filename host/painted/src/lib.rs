@@ -92,6 +92,7 @@ pub mod presence_secrets;
 pub mod presenter;
 pub mod raster;
 mod scroll_anchor;
+pub mod snapshot;
 mod sound;
 mod surface_haptics;
 mod surfaces;
@@ -114,14 +115,6 @@ pub use app::Composed;
 pub use hatches::Hatches;
 pub use host::{Host, HostError};
 pub use presenter::Presenter;
-
-/// Whether a driver drives Android's reader (`canvas/agent.rs`).
-pub(crate) fn reader_driven() -> bool {
-    #[cfg(target_os = "android")]
-    return canvas::agent::driven();
-    #[cfg(not(target_os = "android"))]
-    false
-}
 
 /// Run `f` inside an atrace section on Android (Perfetto shows it on this
 /// thread); elsewhere just `f`.
@@ -203,4 +196,33 @@ fn test_compile(source: &str) -> Vec<u8> {
     let plan = contract::compile_path(&path);
     let _ = std::fs::remove_dir_all(&dir);
     plan.unwrap().encode()
+}
+
+/// An empty directory `<name>-<pid>` under the temp dir, removed when dropped.
+#[cfg(test)]
+pub(crate) struct TestDir(std::path::PathBuf);
+
+#[cfg(test)]
+impl TestDir {
+    pub(crate) fn new(name: &str) -> TestDir {
+        let dir = std::env::temp_dir().join(format!("{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        TestDir(dir)
+    }
+}
+
+#[cfg(test)]
+impl Drop for TestDir {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
+
+#[cfg(test)]
+impl std::ops::Deref for TestDir {
+    type Target = std::path::Path;
+    fn deref(&self) -> &std::path::Path {
+        &self.0
+    }
 }

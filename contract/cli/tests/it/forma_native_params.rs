@@ -3,20 +3,18 @@
 //! design file and the component, checked as a Contract param is, kept by its
 //! declaration though no row reads it, and listed beside Contract ones.
 
+use crate::scratch::Scratch;
 use exact_plan::Plan;
-use std::path::PathBuf;
 
-fn app(name: &str, files: &[(&str, &str)]) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!(
+fn app(name: &str, files: &[(&str, &str)]) -> Scratch {
+    let dir = Scratch::new(format!(
         "exact2-native-params-{name}-{}",
         std::process::id()
     ));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).unwrap();
     for (file, text) in files {
         std::fs::write(dir.join(file), text).unwrap();
     }
-    dir.join("app.contract")
+    dir.at("app.contract")
 }
 
 fn theme(plan: &Plan) -> Vec<(String, String)> {

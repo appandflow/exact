@@ -402,6 +402,16 @@ extension Presenter {
 /// Optional media policy. Scroll/layout notifications coalesce without app actions
 /// or a frame clock; only a threshold crossing changes the player's paused request.
 final class VideoVisibilityHost {
+    #if os(iOS) || os(tvOS)
+    private let scrolls = ScrollMembership()
+    func changed(in scroll: UIScrollView) {
+        guard !videos.isEmpty, scrolls.contains(scroll, members: videos.values.compactMap { $0.value?.owner }) else {
+            AnimatedRasters.shared.poke()
+            return
+        }
+        changed()
+    }
+    #endif
     private final class WeakVideo {
         weak var value: VideoView?
         init(_ value: VideoView) { self.value = value }
@@ -411,10 +421,23 @@ final class VideoVisibilityHost {
     func track(_ video: VideoView) {
         let key = ObjectIdentifier(video)
         if videos[key] == nil { videos[key] = WeakVideo(video) }
+        #if os(iOS) || os(tvOS)
+        ScrollMembership.epoch &+= 1
+        #endif
         changed()
     }
-    func remove(_ video: VideoView) { videos.removeValue(forKey: ObjectIdentifier(video)) }
-    func reset() { videos.removeAll() }
+    func remove(_ video: VideoView) {
+        videos.removeValue(forKey: ObjectIdentifier(video))
+        #if os(iOS) || os(tvOS)
+        ScrollMembership.epoch &+= 1
+        #endif
+    }
+    func reset() {
+        videos.removeAll()
+        #if os(iOS) || os(tvOS)
+        ScrollMembership.epoch &+= 1
+        #endif
+    }
     func changed() {
         AnimatedRasters.shared.poke()
         guard !videos.isEmpty, !queued else { return }

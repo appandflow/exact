@@ -72,6 +72,7 @@ impl std::error::Error for BakeError {}
 /// mixed entries below do.
 pub fn build(app: &Path, platform: &str) -> Result<(), BakeError> {
     println!("cargo:rerun-if-env-changed=EXACT_BAKED");
+    println!("cargo:rerun-if-env-changed=EXACT_WEB_TYPES");
     library::link(app, platform, std::env::var_os("EXACT_BAKED").is_some()).map_err(BakeError)?;
     icon::link();
     match std::env::var_os("EXACT_BAKED") {
@@ -116,12 +117,14 @@ mod composed;
 fn mixed_grants<'a>(
     javascript: &serde_json::Value,
     rust: Option<&'a dyn DataSource>,
+    base: Option<&str>,
 ) -> Result<Option<&'a str>, String> {
     rust.map(|source| {
         // An unnamed source takes the module's identity where it is composed
-        // (`exact_data::Placed::named`, LLP 1153.003 D2).
+        // (`exact_data::Placed::named`, LLP 1153.003 D2); under a variant one
+        // naming the base app takes the variant's (LLP 1030.008 D2).
         let named = source.app_id();
-        if !named.is_empty() && javascript["appId"].as_str() != Some(named) {
+        if !named.is_empty() && Some(named) != base && javascript["appId"].as_str() != Some(named) {
             return Err("mixed bake sources must declare the same app identity".into());
         }
         Ok(source.grants())
@@ -160,17 +163,9 @@ fn with_module_identity(compat: &str, meta: &serde_json::Value) -> Result<String
 /// source by the identity the link carries, as `module.rs` reads `APP`, so
 /// the archive compiles the same for apps that differ only in identity.
 fn embedded_entry(mode: &str, inputs: &serde_json::Value, linked: bool) -> Result<String, String> {
-    if linked {
-        contract::rust_entry_naming(
-            "ExactEmbeddedData",
-            "embedded_data()",
-            mode,
-            inputs,
-            Some(linked::LINKED_APP),
-        )
-    } else {
-        contract::rust_entry("ExactEmbeddedData", "embedded_data()", mode, inputs)
-    }
+    // A mixed app's composer places its own children (`.placed(..)`): the entry never wraps it again.
+    let app = linked.then_some(linked::LINKED_APP);
+    contract::rust_entry_composed("ExactEmbeddedData", "embedded_data()", mode, inputs, app)
 }
 
 /// `module.rs`'s first constants: the app, its grants and, but in a linked
@@ -288,16 +283,15 @@ fn build_sources(
     }
     let manifest = contract::Manifest::read(app)?;
     let target = std::env::var("TARGET").map_err(|e| e.to_string())?;
-    let module = exact_bake::stored_module(&meta, &manifest, platform)?;
     let compat = exact_bake::compatibility_id_pinned(
         app,
         platform,
         &target,
         &manifest,
         meta["grants"].as_str(),
-        mixed_grants(&meta, rust)?,
+        mixed_grants(&meta, rust, manifest.variant_base())?,
         Some(&baked.entries),
-        module,
+        Some(&meta),
         &meta["env"],
     )?;
     // A TypeScript app's update carries its module pair (`typescript/`); a
@@ -828,6 +822,7 @@ fn sources(root: &Path) -> Result<BTreeMap<PathBuf, Vec<u8>>, String> {
             let entry = entry.map_err(|e| e.to_string())?;
             let name = entry.file_name();
             let name = name.to_string_lossy();
+            let kind = entry.file_type().map_err(|e| e.to_string())?;
             if at == root && name == "__exact_build.tsbuildinfo" {
                 return Err("__exact_build.tsbuildinfo is reserved for the producer".into());
             }
@@ -836,10 +831,8 @@ fn sources(root: &Path) -> Result<BTreeMap<PathBuf, Vec<u8>>, String> {
                 // compat.json made every build stale, and what a web build keeps beside `dist`.
                 || (at == root && (name == "dist-windows" || beside::beside_dist(&name)))
                 || name.starts_with(".exact-js-bake-")
-                // The app's dot directories hold what no build reads: `.exact/`
-                // keeps an agent's diary, evidence, logs and runtime files
-                // (Depot: a `results.json` beside the app made every build stale).
-                || (at == root && name.starts_with('.') && entry.path().is_dir())
+                // Dot directories at any depth hold tooling state, not app sources.
+                || (name.starts_with('.') && kind.is_dir())
                 // The driver reads a test file; no build does, so editing
                 // one rebuilds nothing (trivia F8).
                 || name.ends_with(".test.contract")
@@ -853,7 +846,6 @@ fn sources(root: &Path) -> Result<BTreeMap<PathBuf, Vec<u8>>, String> {
                 continue;
             }
             let relative = path.strip_prefix(root).unwrap();
-            let kind = entry.file_type().map_err(|e| e.to_string())?;
             // Native link inputs, fingerprinted by the Apple build, not app sources.
             if kind.is_dir()
                 && name.ends_with(".xcframework")
@@ -1181,10 +1173,17 @@ fn bake_in(
     };
     // The app's id is app.json's: `app.ts` need not name it, and one it names is what the
     // receipt carries, which the build checks against the manifest (`bake/src/receipt.rs`).
-    let id = contract::Manifest::read(&app)
-        .map(|m| m.id)
-        .unwrap_or_default();
-    let mut entry = format!("import * as app from './app';\nimport type {{ TypeScriptAnswer }} from './app.contract.d.ts';\nexport const appId: string = (app as unknown as {{ appId?: string }}).appId ?? {};\nexport const grants: string = {grants};\nexport const answer: TypeScriptAnswer = app.answer;\n", serde_json::to_string(&id).unwrap_or_default());
+    // Under a variant the id is the variant's, and an `appId` naming the base app is read as
+    // the variant's (LLP 1030.008 D2).
+    let manifest = contract::Manifest::read(&app).ok();
+    let id = manifest.as_ref().map(|m| m.id.as_str()).unwrap_or_default();
+    let base = manifest
+        .as_ref()
+        .and_then(|m| m.variant_base())
+        .unwrap_or(id);
+    let json = |s: &str| serde_json::to_string(s).unwrap_or_default();
+    let (id, base) = (json(id), json(base));
+    let mut entry = format!("import * as app from './app';\nimport type {{ TypeScriptAnswer }} from './app.contract.d.ts';\nconst named = (app as unknown as {{ appId?: string }}).appId;\nexport const appId: string = named === undefined || named === {base} ? {id} : named;\nexport const grants: string = {grants};\nexport const answer: TypeScriptAnswer = app.answer;\n");
     entry.push_str(OPTIONAL_ENTRY);
     entry.push_str("// __exact_canvas_entry\n");
     write_changed(&stage.join("__exact_entry.ts"), entry.as_bytes())?;
@@ -1268,6 +1267,7 @@ fn bake_in(
             .map_or_else(|| e.to_string(), |map| map.bake_error(&e).to_string())
     })?;
     warnings.extend(deferred_warnings);
+    let android_permissions = android::module_permissions(&plan, &grants, &app);
     let plan = plan.encode();
     let source_map = source_map.map(|map| map.json(&plan));
     let packages = package_code(stage)?.packages;
@@ -1278,7 +1278,7 @@ fn bake_in(
         "typescriptRuntime": exact_bake::compat::typescript_runtime_of(&script, &grants),
         "surfaces": surfaces,
         "rustSources": rust_sources,
-        "bytecodeVersion": exact_js::BYTECODE_VERSION,
+        "bytecodeVersion": exact_js::BYTECODE_VERSION, "androidPermissions": android_permissions,
         "plan": {"file": "app.plan", "sha256": digest(&plan), "bytes": plan.len()},
         "module": {"file": "app.hbc", "sha256": digest(&bytecode), "bytes": bytecode.len()},
         "web": {"file": "app.js", "sha256": digest(&script), "bytes": script.len()},
@@ -1344,7 +1344,6 @@ fn compile_bytecode(stage: &Path, hermesc: &Path) -> Result<(), String> {
         stage,
     )
 }
-
 fn write_declarations(
     app: &Path,
     stage: &Path,
@@ -1353,9 +1352,10 @@ fn write_declarations(
     trust: Option<&str>,
 ) -> Result<(), String> {
     write_changed(&stage.join(DECLARATIONS), declarations.as_bytes())?;
-    // The editor's copy is not a captured input. A one-shot native development
-    // build uses the production producer with development trust.
-    if development || trust.is_none_or(|trust| trust == "development") {
+    // Checks leave the editor's copy to the dev loop (LLP 1172.010 E11).
+    if (development || trust.is_none_or(|trust| trust == "development"))
+        && std::env::var("EXACT_WEB_TYPES").as_deref() != Ok("private")
+    {
         write_changed(&app.join(DECLARATIONS), declarations.as_bytes())?;
     }
     Ok(())

@@ -35,6 +35,8 @@ mod long_list;
 mod native_field_resize;
 mod native_timers;
 mod now_screen;
+mod owned;
+mod owned_sends;
 mod queued_then_origin;
 mod reach_margin;
 mod reorder_codec;

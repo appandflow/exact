@@ -288,14 +288,16 @@ test('a page owed to the start is spent by the start firing or an emptied list',
 // inside the window anchors as before, and so does a list that opens at its start (mail F8). end_anchor.rs's pins too.
 test('a list that opens at its end keeps its last visible row when rows land before the window', async () => {
   const result = await evaluate(`(async () => {
-    const run = async (first, change, offset = 0, atEnd = true) => {
+    // \`start\`: a reachstart handler, which the reports at the top fire, leaving it unanswered when the change lands;
+    // \`hook\`: run on the list before the change lands.
+    const run = async (first, change, offset = 0, atEnd = true, start = undefined, hook = undefined) => {
       const el = document.createElement('div');
       el.style.cssText = 'height:320px;width:400px;overflow:auto';
       document.getElementById('exact-root').append(el);
       const rows = rt.sig(first);
       const own = rt.scope(() => list.vl(el, rows, i => i(), (w, i) => {
         const row = document.createElement('div'); row.textContent = String(i()); row.style.height = '32px'; w.append(row);
-      }, {est:32, pw:[], ph:[320], atEnd}));
+      }, {est:32, pw:[], ph:[320], atEnd, start}));
       rt.settled();
       await exact.lists.pending(); await exact.lists.settle();
       const c = [...exact.lists.internals.Lists.values()].find(c => c.el === el);
@@ -306,6 +308,7 @@ test('a list that opens at its end keeps its last visible row when rows land bef
         if (byView) c.feedback(f, byView, { velocity, limit: null });
       };
       report(offset + 1000, -4000); report(offset, -4000); report(offset, 0);
+      hook?.(c);
       const before = c.correction?.offset ?? null;
       rt.commit(() => rt.W(rows, change(rows()))); rt.settled();
       const out = [before, c.correction?.offset ?? null];
@@ -314,7 +317,7 @@ test('a list that opens at its end keeps its last visible row when rows land bef
     };
     const plain = Array.from({length:200}, (_, i) => i), page = Array.from({length:20}, (_, i) => i - 20);
     const days = r => ['day-before', ...page.slice(0, 10), 'today', ...page.slice(10), ...r.slice(1)];
-    const insert = at => r => [...r.slice(0, at), 'extra', ...r.slice(at)];
+    const insert = at => r => [...r.slice(0, at), 'extra', ...r.slice(at)], asked = [];
     return [
       await run(plain, r => [...page, ...r]),
       await run(['start', ...plain], r => [r[0], ...page, ...r.slice(1)]),
@@ -324,14 +327,27 @@ test('a list that opens at its end keeps its last visible row when rows land bef
       await run(plain, insert(25), 640),
       await run(['start', ...plain], insert(3)),
       await run(plain, r => [...page, ...r], 0, false),
-      // Pinned (LLP 1010's D1.2 note): a row put right after a leading row is taken for a page; a page after a
-      // leading run of two rows is not.
+      // Pinned (LLP 1010's D1.2 note): a row put right after a leading row is taken for a page. With no reachstart
+      // unanswered, a page after a leading run of two rows is not; with one, it is that page, and so is an insert,
+      // but not once the start was refused or held, as \`edges\` re-arms it (end_anchor.rs
+      // \`a_refused_start_leaves_nothing_unanswered\`); equal rows again, a row body's inputs changed (an opaque body's
+      // commit), answer nothing (\`an_answer_with_the_same_rows_leaves_reachstart_unanswered\`); a row told apart as
+      // \`eq\` tells it (signed zero) answers it (reach.rs \`rows_answer_by_key_or_by_value_as_eq\`); a list that opens
+      // at its start keeps nothing asked.
       await run(['start', ...plain], insert(1)),
       await run(['start', 'today', ...plain], r => [r[0], r[1], ...page, ...r.slice(2)]),
+      await run(['start', 'today', ...plain], r => [r[0], r[1], ...page, ...r.slice(2)], 0, true, () => {}),
+      await run(plain, insert(5), 0, true, () => {}, c => asked.push(c.startAsked)),
+      await run(plain, insert(5), 0, true, () => {}, c => c.rearm(0)),
+      await run(plain, insert(5), 0, true, () => {}, c => c.update(c.items.map(x => x), [c.idents, c.dups], true)),
+      await run(plain, insert(5), 0, true, () => {}, c => c.update(c.items.map(x => x === 0 ? -0 : x), [c.idents, c.dups])),
+      await run(plain, insert(5), 0, false, () => {}, c => asked.push(c.startAsked)),
+      // What the start asked, kept only by the list that opens at its end (reach.rs \`disarm_edge\`).
+      asked,
     ];
   })()`);
   const N = null;
-  expect(result).toEqual([[N, 640], [N, 640], [N, 672], [N, 1285], [N, N], [N, N], [N, N], [N, N], [N, 32], [N, N]]);
+  expect(result).toEqual([[N, 640], [N, 640], [N, 672], [N, 1285], [N, N], [N, N], [N, N], [N, N], [N, 32], [N, N], [N, 640], [N, 32], [N, N], [N, 32], [N, N], [N, N], [true, false]]);
 }, 60_000);
 
 // @ref runner/src/instance/collection/index_tests.rs `a_bottom_anchor_keeps_the_last_visible_row_off_the_ports_bottom`,

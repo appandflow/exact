@@ -4,7 +4,61 @@
 use super::*;
 
 impl<D: DataSource> Host<D> {
+    pub(super) fn finish_collection(&mut self) -> String {
+        let deadline = self.runner.collection_timer_due_ms();
+        if self.finished_deadline == Some(self.route_overflow_due(deadline))
+            && !self.presence.unauthored
+            && !self.layout_owed
+            && !self.layout_withheld
+            && self
+                .doc_watch
+                .as_ref()
+                .is_none_or(|watch| !watch.needs_retry())
+            && self.canvas_captures.is_empty()
+            && self.canvas_capture_waiting.is_empty()
+        {
+            // A preload may journal from another thread between reports.
+            if let Some(preloads) = &self.preloads {
+                for fact in preloads.journal() {
+                    self.runner.log(format!(
+                        "preload {} {} {:?}",
+                        fact.name, fact.origin, fact.outcome
+                    ));
+                }
+            }
+            self.request_route_overflow();
+            if self.finished_deadline == Some(self.route_overflow_due(deadline)) {
+                if let Some(key) = self.quiet_collection_key() {
+                    if let Some((previous, reply)) = &self.quiet_collection {
+                        if *previous == key {
+                            return reply.clone();
+                        }
+                    }
+                }
+            }
+            let mut batch = Batch::new();
+            self.state_onto(&mut batch);
+            return self.write_batch(batch, None, true);
+        }
+        self.finish(Batch::new(), None)
+    }
+
+    pub(super) fn quiet_collection_key(&self) -> Option<[u64; 8]> {
+        if self.stored
+            || !self.preload_content.is_empty()
+            || !self.engine.quiescent()
+            || self.engine.spatial()
+        {
+            return None;
+        }
+        self.runner.collection_reply_key()
+    }
+
     pub(super) fn finish(&mut self, mut batch: Batch, error: Option<String>) -> String {
+        #[cfg(test)]
+        {
+            self.finish_passes += 1;
+        }
         // A host's fact laid out again (a native control's measured size, an
         // inset, the text size): a box already moving was retargeted from where
         // it shows, and its new frame and offset go in one batch. Without the
@@ -20,11 +74,10 @@ impl<D: DataSource> Host<D> {
         let (mut batch, error) = self.resize_rounds(batch, error);
         self.route_overflow.settled =
             error.is_none() && !batch.layout_provisional && !self.layout_owed;
-        self.request_route_overflow();
         self.drain_canvas_captures(&mut batch);
         self.forget_canvas_captures();
         self.state_onto(&mut batch);
-        self.write(batch, error.as_deref())
+        self.write_batch(batch, error.as_deref(), true)
     }
 
     /// Observe the viewport at the host's time, laying out due timer commits
@@ -102,7 +155,7 @@ impl<D: DataSource> Host<D> {
             self.emit_transform_drags(&mut batch);
             self.present(&mut batch, false);
         }
-        self.runner.resize_settled();
+        self.resize_pending = self.runner.resize_settled();
         // Layout-only batches also owe SVG scenes, even without motion or a commit.
         for note in self.svg.emit(
             self.runner.kernel(),

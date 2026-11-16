@@ -369,14 +369,14 @@ impl Prepared {
                     };
                     let mut last = first;
                     let mut painted = 0.0;
-                    for j in first..segment.atoms.end {
-                        let candidate = if self.atoms[j].space {
+                    for (j, atom) in (first..).zip(&self.atoms[first..segment.atoms.end]) {
+                        let candidate = if atom.space {
                             // A space run hangs, even after an overflowing cluster.
                             painted
                         } else {
-                            self.atoms[j].prefix - base
+                            atom.prefix - base
                         };
-                        if j > first && !self.atoms[j].space && candidate > fit {
+                        if j > first && !atom.space && candidate > fit {
                             break;
                         }
                         last = j;

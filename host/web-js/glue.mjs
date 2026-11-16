@@ -13,7 +13,7 @@ export const HOST_WEB_GLUE = [
   'presence-glue.js', 'native-glue.js', 'geometry-glue.js', 'resize-glue.js', 'intersect-glue.js', 'media-glue.js',
   'sound-glue.js', 'midi-glue.js', 'prompt-glue.js', 'alert-message.js', 'wakelock-glue.js', 'orientationlock-glue.js', 'menu-rows.js',
   // Virtualized lists' browser half; animated images on the agent's clock (agent.js only); Canvas 2D's replayer.
-  'collection-glue.js', 'image-glue.js', 'canvas2d-glue.js',
+  'collection-glue.js', 'list-selection.js', 'image-glue.js', 'canvas2d-glue.js',
   // An iframe's navigation records and commands (commands.js, rt.js `onFrameNavigation`; LLP 1020.002).
   'frame-navigation.js', 'frame-messages.js',
   // Sign-in, storage, request bodies, injected faults and the local network's spaces (ts-data.js, auth.js, admission.js, agent.js, modules.js).
@@ -77,7 +77,7 @@ export function webHostFiles(...groups) {
 /** The data module realm's prelude (LLP 1027 D1a): these scripts, in this order, after module-binary.js, as
  * js/build.rs joins them natively. The realm evaluates them as one script, `module-prelude.js`, whose hash the
  * served page's CSP names; each file is a script of its own whose prelude.js takes the parts the others leave. */
-export const MODULE_PRELUDE = ['time.js', 'crypto.js', 'module-work.js', 'fetch.js', 'auth.js', 'store.js', 'storage.js', 'reply.js', 'prelude.js'].map(f => 'js/src/' + f);
+export const MODULE_PRELUDE = ['time.js', 'crypto.js', 'module-work.js', 'fetch.js', 'auth.js', 'store.js', 'storage.js', 'reply.js', 'errors.js', 'prelude.js'].map(f => 'js/src/' + f);
 /** `module-prelude.js`'s text, from the repository at `root`. */
 export const modulePrelude = root => MODULE_PRELUDE.map(f => readFileSync(resolve(root, f), 'utf8')).join('\n');
 

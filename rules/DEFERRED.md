@@ -65,6 +65,16 @@ viewport by default, saying how far ahead of an end `reachstart` and
 lead, as LLP 1027.004 D3 has it, so a fling that the window preloads for also
 fires the edge event. Take: none offered; waived by Charlie.
 
+**Expanded (Charlie, 2026-11-15, #651; LLP 1030.008):** app.json `variants`: the
+app under another identity (`idSuffix`, `name`, optional `icons` and setting
+values), selected by `--variant` or `EXACT_VARIANT` and never by default, so a
+development build installs beside the release one on Android, iOS and macOS,
+with its own data, settings and update stream. Charlie's panel ruled it
+unanimously. The consumer is the reporter's app. Take: `ORG_GRADLE_PROJECT_idSuffix`
+and its build and drive plumbing are deleted, and Android's knob does not grow
+per host. Still out: variants for games, on Windows, for `exact install` and
+its siblings, for `share`, and in the association files.
+
 **Expanded (Charlie, 2026-10-11, events ruling):** `keycapture=` admits DOM
 capture-phase key dispatch for the coding-agent desktop app's early shortcuts;
 `focusin`/`focusout` admit bubbling subtree focus observation for the clipped
@@ -660,6 +670,13 @@ the tooltips, toasts, empty states and themed fields of
 `issues/closed/20261009-balanced-text-placeholder-color.md`. This
 amends LLP 1104's placeholder refusal. `-webkit-font-smoothing` stays deferred.
 
+**Admitted (Charlie, 2026-11-14, on a panel; LLP 1035.001 D11):** a
+`::backdrop` part on a `dialog` containing only `background-color`: what lies
+beneath the modal dialog, in place of the platform's dim, fading in and out
+with it. Consumer: Felt's full-window dialog (expo/exact#490), which paints
+its own 55 % dim and read about 64 % over UIKit's 20 %. Its other properties (`backdrop-filter`, `opacity`) stay
+refused.
+
 **Admitted (Daehyeon Mun, 2026-10-28, waived; LLP 1019 D12):**
 `-webkit-font-smoothing: auto | antialiased`, an inherited paint row. This
 amends the 2026-10-12 textrows ruling above, which kept it deferred. Consumer:
@@ -895,10 +912,11 @@ names no take; `:focus-within` remains out.
   delivery through APNs, the entitlement signed against a profile with Push
   Notifications, and a production build (`packages/push/test/checklist.md`);
   nothing is claimed for a device until that run. Not built: push on macOS (the
-  row is omitted there), on Android (after local notifications), and on the web
+  row is omitted there) and on the web
   (Declarative Web Push or a host worker). Still refused: push-to-start; a
-  notification service extension; an event raised by a push, but for a
-  declared action the person chose (below).
+  notification service extension except for the app-owned Swift form admitted
+  below; an event raised by a push, but for a declared action the person chose
+  (below).
   **Expanded (Charlie, 2026-11-14, "admit", on LLP 1172.016 Q1 after a
   three-seat panel split two to one for admitting):** a data-only push as a
   wake's trigger (`content-available`, the `remote-notification` background
@@ -928,7 +946,26 @@ names no take; `:focus-within` remains out.
   2026-11-14, after the panel. Built and run on Android 37.2 and Android 11
   emulators. Owed on a phone: delivery after an OEM's background limits have
   stopped the app, Doze over hours, and the channel's sound and heads-up on a
-  locked screen.
+  locked screen. With it, push on Android through FCM in `@exact/push`'s
+  Android implementation: its Firebase Installation ID as the live value, a
+  notification message shown in front too, and its tap opening `data.navigate`.
+  Built and run under the agent and on an emulator with no Firebase project;
+  owed: a registration with a Firebase project and delivery through FCM. A
+  data message as a wake (admitted above, on LLP 1172.016 Q1) waits for
+  Android's headless session; until then it is journaled.
+  **Expanded (the 2026-11-14 panel, two to one, under Charlie's delegation and
+  direction to build the ideal end state; LLP 1133.004 §9 P6, P8):** an app's
+  own Swift `UNNotificationServiceExtension`, packaged by default in iOS and
+  iPadOS builds, may change a visible alert whose payload has
+  `mutable-content: 1`.
+  It runs no Contract, data module, Exact runtime or UI, and raises no arrival
+  event. Consumer: the builder whose ordinary build replaced the extension.
+  Unblocks decryption, downloaded media and rewritten alert text without a
+  post-build patch. Take: waived under the delegation. Still refused:
+  push-to-start; an event raised by a visible push except for the person's
+  declared action above; a notification content extension; Contract or
+  TypeScript on a visible-alert arrival; filtering and critical-alert
+  entitlements; and payload keys Exact reads beyond `navigate`.
 
 **Components** — roughly 15 built-in tags, not 40; roughly 12 Facet components, not 47.
 
@@ -949,7 +986,10 @@ reading. Nothing that isn't HTML is added by it.
   follows this player. (`webview` came off
   2026-08-30 as LLP 1020's `iframe` — it unblocks Weird Castle's entire content
   model, the client that exists to surface Castle web decks; the take: LLP 1013
-  view transitions moved behind the deck lane. LLP 1020 §6. What stays no from
+  view transitions moved behind the deck lane. LLP 1020 §6. Route transitions are
+  admitted as LLP 1013.001, the take waived by Charlie, 2026-11-14, after the panel
+  (decision D16 (a)); element flights across routes stay deferred with LLP 1013.000
+  stage 3. What stays no from
   exact1's webview: `top` topology, navigation policy, the controller ops, `allow`,
   author-facing `srcdoc` — each with its return trigger in LLP 1020 §5.)
 - **Expanded (Daehyeon Mun, 2026-10-19; trade):** `postMessage(text, iframeId)` sends
@@ -1147,6 +1187,17 @@ reading. Nothing that isn't HTML is added by it.
   waived by Charlie's ask (2026-11-12: work the open issues through to the
   ideal end state). Still out: the macOS, Windows, Linux, tvOS, visionOS
   and watchOS cells, and `capture` on the HTML `input` tag.
+  **Expanded (Charlie, 2026-11-15, expo/exact#633; LLP 1133.008.000):**
+  a video from the system camera UI, `recordVideoWithCameraApp`: Android's
+  camera app (`MediaStore.ACTION_VIDEO_CAPTURE`), iOS's
+  `UIImagePickerController` in movie mode, and the web's file input with
+  `accept="video/*"` and `capture`, the video the person keeps written to
+  an `app:/` path and answered as a `Video`. Consumer: the same
+  access-control app, whose guards record a short video and upload it
+  (`exactBodyFrom`, now streamed from disk with no size bound where it is
+  streamed). Unblocks that without app Kotlin or Swift. Take: none
+  offered; waived by the same ask. Still out: video recording in the app,
+  and the macOS, Windows, Linux, tvOS, visionOS and watchOS cells.
 - **Expanded (Charlie, 2026-10-23, "Expand, no take", on LLP 1133.009 §15
   question 6):** recording the microphone to a file and reading its level,
   by Media Capture's and MediaStream Recording's names (`getUserMedia(audio=)`
@@ -1260,6 +1311,17 @@ reading. Nothing that isn't HTML is added by it.
   a receipt-validation or entitlement server of exact2's, and relaying the
   stores' server notifications; and the Windows, tvOS, visionOS and
   watchOS cells.
+- **Expanded (Charlie's issue panel on expo/exact#638, 2026-11-15; LLP
+  1133.038):** a newer binary from the store, `@exact/store-update`:
+  `storeUpdateStatus()` and `openStorePage()` on iOS, macOS (a Mac App
+  Store install) and Android, and Play's in-app update flows on Android
+  (`startStoreUpdate`, `completeStoreUpdate`, from
+  `@exact/store-update/android`). It is not Exact's own signed updates
+  (LLP 1030). Consumer: a gatehouse app on Android (expo/exact#638).
+  Unblocks a binary the bake cannot carry reaching an install, offered by
+  the store, without app Kotlin. Take: pending Charlie (LLP 1133.038 §13
+  item 1). Still out: an in-app install on Apple, the App Store's sheet,
+  the Microsoft Store and Flatpak cells, and the store distribution lanes.
 - **Expanded (Charlie, 2026-10-26, "Accept r5, build (Recommended)",
   waived; LLP 1133.034 §13 question 9):** payment for physical goods and
   services by Payment Request's names (`showPaymentRequest`,
@@ -1475,12 +1537,17 @@ reading. Nothing that isn't HTML is added by it.
   a cursor the runner holds. Consumer: Pulse, a heart-rate strap's
   display. Unblocks reading a Bluetooth LE peripheral without app Swift or
   Kotlin. Take: none named; the ruling is its own waiver. Still out, each
-  until a consumer asks (LLP 1133.022 §20): Bluetooth in the background,
-  `bluetooth-central`, iOS state restoration and Android's companion
-  presence wakes; scanning for advertisements, the peripheral role and
-  Bluetooth Classic; `exclusionFilters` and filters with several
+  until a consumer asks (LLP 1133.022 §20): iOS state restoration and
+  Android's companion presence wakes; scanning for advertisements, the
+  peripheral role and Bluetooth Classic; `exclusionFilters` and filters with several
   services; an app's own scan list on Android; and the Linux, visionOS and
   watchOS cells.
+  **Expanded (maintainers' #603 implementation request, 2026-11-14):**
+  `device.bluetooth-background` derives iOS's `bluetooth-central` mode beside
+  `device.bluetooth` for an app's own native module (LLP 1067). This unblocks
+  a workout app receiving a strap's heart rate with the screen locked. Take:
+  waived by the scoped implementation request. State restoration, Android
+  companion presence wakes and the rest of LLP 1133.022 §20 remain out.
 - NFC was never on the doing list. **Expanded (Charlie, 2026-10-26,
   "Converged: build (Recommended)", waived; LLP 1133.035 §16 question
   8):** Web NFC's NDEF reading and writing (`nfcStatus`, `scan`,
@@ -1636,6 +1703,14 @@ reading. Nothing that isn't HTML is added by it.
   `virtualized`, `runner/src/instance/window.rs`) is deleted first, before either
   capability lands. Still out: grids, masonry, wrapping and inverted lists; RTL
   row lists; nesting deeper than one level; host keep-alive of an inner list's views.
+  **Expanded (Charlie, approved 2026-11-12):** a vertical
+  windowed list holds always-mounted nodes before and after its one direct
+  keyed `for`, in the height index with their own anchoring identities.
+  Unblocks feed headers, footers, loading and empty states without synthetic
+  data rows. Take: none; Charlie waived the trade. The first slice requires
+  `appearance="none"`; hosts without fixed-item geometry refuse the shape.
+  Still out: a second direct `for`, sections, sticky headers, fixed content
+  on horizontal lists, and a windowed list inside fixed content.
 - No host keep-alive of heavy views by row key, and no reuse of a web view
   or of a native-module view without that module's opt-in (LLP 1068 §4.7,
   §4.8, §5.3; Charlie, 2026-09-27). A reused view is indistinguishable from a
@@ -1731,6 +1806,17 @@ browser as the oracle, the same shape layout already has. In exchange, not in v1
   (F4). Unblocks moving cards on a board without a hand-built drag. Take:
   none offered. Still out: reorder on row and nested lists (LLP 1094 §7),
   drags into or out of the app, multi-item drags, grids, a gesture arena.
+  **Expanded (Charlie's panel on expo/exact#666, unanimous, 2026-11-15; LLP
+  1057.001.000):** a zoomable scroll container, `-exact-min-zoom` and
+  `-exact-max-zoom` on a scroller with one child and its `scrollZoom`, zoomed
+  by UIKit's scroll view on iOS and AppKit's magnification on macOS and
+  emulated on the web and the painted hosts, with its precedence read from
+  the existing table. Consumers: #666's app and the photo-zoom workload
+  (LLP 1041 §8.5). Unblocks pinch to zoom a photo, a diagram or a board with
+  the platform's bounce, extent and double tap. Take: none named; Charlie to
+  name one or waive it (LLP 1057.001.000 §11 Q3). The photo binding gains no
+  bounds, bounce or extent of its own. Still out: a fit keyword, a touch pinch
+  on Linux, a gesture arena.
   **Expanded (Charlie, 2026-10-11; reads lane):** action-only
   `elementsFromPoint(x, y)` lists own ids under a point, front to back,
   including hit ancestors, for the T3 theme editor Inspect overlay. It
@@ -2097,3 +2183,16 @@ Mac; the Settings window is the one named `settings`. Unblocks a Mac app with a
 compose window, an inspector window or a Settings window, without app Swift. Take:
 none offered; waived by Charlie, 2026-11-14, after the panel (decision D3: all three
 seats chose to build it).
+
+**The displays and the pointer (LLP 1178; expo/exact#506).** The displays by
+the Window Management API's names (`getScreenDetails`,
+`windowManagementStatus` from `@exact/window-management`) and the pointer's
+position (`getPointerPosition`), on macOS, the Linux host (its one display)
+and the web (the display list, where the browser has it). Consumer:
+Anthonyy232's screenshot annotation tool (#505, #506). Unblocks putting its
+toolbar on the display that holds the pointer without its own monitor code.
+Take: none offered; waived by Charlie, 2026-11-14, after the panel (decision
+D5: all three seats chose to build both). Still out: Windows (LLP 1178 piece
+4), a still of every display (`captureScreens`, pieces 6 and 7),
+`getDisplayMedia`, window placement, and the desktop Linux, iPadOS and
+Android cells.

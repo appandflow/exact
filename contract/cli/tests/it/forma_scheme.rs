@@ -4,14 +4,13 @@
 //! is reported once, at its declaration, however many rows name it; the mark
 //! is refused on a token whose sides differ.
 
-fn app(tag: &str, design: &str, view: &str) -> std::path::PathBuf {
-    let dir =
-        std::env::temp_dir().join(format!("exact2-forma-scheme-{tag}-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).unwrap();
+use crate::scratch::Scratch;
+
+fn app(tag: &str, design: &str, view: &str) -> Scratch {
+    let dir = Scratch::new(format!("exact2-forma-scheme-{tag}-{}", std::process::id()));
     std::fs::write(dir.join("app.forma"), design).unwrap();
     std::fs::write(dir.join("app.contract"), view).unwrap();
-    dir.join("app.contract")
+    dir.at("app.contract")
 }
 
 /// The `lower-colour-one-scheme` warnings, each `(line, message)`, and the

@@ -33,32 +33,40 @@ export const widgetId = app => `${app.id}.widgets`;
 // LLP 1126.001 WP16: the Mac container is authorized by the signing team,
 // independently of iOS's registered group and of restricted Keychain access.
 export const macWidgetGroup = (app, team) => `${team}.${app.id}.widgets`;
-export function widgetSigningTeam(identity, { distribution = false, certificates = null } = {}) {
+/** The certificate kinds a Mac build signs with, and the variable that names one: Apple Development; Developer ID
+ * Application (`distribution`); for the Mac App Store (`store`), Apple Distribution or its older name, 3rd Party Mac
+ * Developer Application (LLP 1030.005 D1). */
+export const signingKinds = (distribution, store = null) => store ? ['Apple Distribution', '3rd Party Mac Developer Application']
+  : [distribution ? 'Developer ID Application' : 'Apple Development'];
+/** The kinds as a phrase with its article: "an Apple Distribution or 3rd Party Mac Developer Application". */
+export const kindPhrase = (distribution, store = null) => { const kinds = signingKinds(distribution, store).join(' or '); return `${/^[AEIOU]/.test(kinds) ? 'an' : 'a'} ${kinds}`; };
+export const identityVariable = (distribution, store = null) => store ? 'EXACT_APPSTORE_ID' : distribution ? 'EXACT_DEVELOPER_ID' : 'EXACT_IDENTITY';
+export function widgetSigningTeam(identity, { distribution = false, store = null, certificates = null } = {}) {
   certificates ??= (spawnSync('security', ['find-certificate', '-a', '-p'], { encoding: 'utf8' }).stdout
     ?.match(/-----BEGIN CERTIFICATE-----[\s\S]*?-----END CERTIFICATE-----/g) ?? []).map(pem => new X509Certificate(pem));
-  const kind = distribution ? 'Developer ID Application' : 'Apple Development', variable = distribution ? 'EXACT_DEVELOPER_ID' : 'EXACT_IDENTITY';
+  const kinds = signingKinds(distribution, store), variable = identityVariable(distribution, store);
   for (const cert of certificates) {
     const cn = /^CN=(.*)$/m.exec(cert.subject)?.[1];
     if (cert.fingerprint.replaceAll(':', '') === identity?.toUpperCase() || cn === identity) {
       if (!distribution && cn?.startsWith('Developer ID Application: ')) return null;
-      if (!cn?.startsWith(kind + ': ')) throw new Error(`host/apple: Mac widgets need an ${kind} certificate for this build; ${variable} names ${cn}`);
+      if (!kinds.some(k => cn?.startsWith(k + ': '))) throw new Error(`host/apple: Mac widgets need ${kindPhrase(distribution, store)} certificate for this build; ${variable} names ${cn}`);
       const team = /^OU=([A-Z0-9]{10})$/m.exec(cert.subject)?.[1];
       if (team) return team;
     }
   }
-  throw new Error(`host/apple: Mac widgets need an ${kind} identity; name its SHA-1 or certificate name with ${variable} (security find-identity -v -p codesigning)`);
+  throw new Error(`host/apple: Mac widgets need ${kindPhrase(distribution, store)} identity; name its SHA-1 or certificate name with ${variable} (security find-identity -v -p codesigning)`);
 }
 export { macHardwareID };
 /** `also`: what the app's own profile must allow besides (presence.mjs `macSigning`: its grants' profile entitlements),
  * so one profile is chosen for both. */
-export function macWidgetProfiles({ app, team, distribution = false, installed = installedProfiles(), named = process.env.EXACT_PROFILE ? decodeProfile(process.env.EXACT_PROFILE) : null, udid, hardwareID = macHardwareID, log = console.log, also = () => true }) {
+export function macWidgetProfiles({ app, team, distribution = false, store = null, installed = installedProfiles(), named = process.env.EXACT_PROFILE ? decodeProfile(process.env.EXACT_PROFILE) : null, udid, hardwareID = macHardwareID, log = console.log, also = () => true }) {
   if (named && !named.platforms?.includes('OSX')) {
     log(`Mac widgets: ignoring EXACT_PROFILE (${named.name}) for ${named.platforms?.join(', ') || 'another platform'}; shared secrets need macOS profiles (LLP 1126.001 §5 Q5).`);
     named = null;
   }
   if (udid === undefined) udid = !distribution && installed.some(p => p.platforms?.includes('OSX') && p.team === team) ? hardwareID() : null;
   const group = macWidgetGroup(app, team);
-  const fits = (p, id) => p.platforms?.includes('OSX') && p.team === team && p.dev === !distribution && !profileMisfit(p, udid)
+  const fits = (p, id) => p.platforms?.includes('OSX') && p.team === team && p.dev === !distribution && (!store || p.method === store) && !profileMisfit(p, udid)
     && profilesFor(id, [p]).length && (p.groups.includes(group) || p.groups.includes(`${team}.*`))
     && (p.keychain.includes(`${p.prefix}.${app.id}`) || p.keychain.includes(`${p.prefix}.*`));
   for (const owner of (named ? [named] : installed).filter(p => fits(p, app.id) && also(p)).sort(byExpiry)) {
@@ -69,15 +77,15 @@ export function macWidgetProfiles({ app, team, distribution = false, installed =
   return null;
 }
 /** The widgets' team and profiles, after the build has resolved its signing identity. */
-export function macWidgetSigning(app, identity, { distribution = false, log = console.log, certificates, profiles } = {}) {
+export function macWidgetSigning(app, identity, { distribution = false, store = null, log = console.log, certificates, profiles } = {}) {
   if (!platformWidgetEntries(app, 'macos').length) return null;
-  const team = identity && identity !== '-' ? widgetSigningTeam(identity, { distribution, certificates }) : null;
+  const team = identity && identity !== '-' ? widgetSigningTeam(identity, { distribution, store, certificates }) : null;
   if (!team) {
-    if (identity !== '-') throw new Error(`host/apple: Mac widgets need ${distribution ? 'a Developer ID Application' : 'an Apple Development'} identity; ${distribution ? 'set EXACT_DEVELOPER_ID=<sha1>' : 'set DEVELOPMENT_TEAM=<team-id> or EXACT_IDENTITY=<sha1>, or EXACT_IDENTITY=- to build without the extension'}`);
+    if (identity !== '-') throw new Error(`host/apple: Mac widgets need ${kindPhrase(distribution, store)} identity; ${distribution ? `set ${identityVariable(distribution, store)}=<sha1>` : 'set DEVELOPMENT_TEAM=<team-id> or EXACT_IDENTITY=<sha1>, or EXACT_IDENTITY=- to build without the extension'}`);
     log('Mac widgets: this build is signed ad hoc (EXACT_IDENTITY=-); building without an extension. Set EXACT_IDENTITY to an Apple Development identity to include widgets.');
     return null;
   }
-  return { team, profiles: macWidgetProfiles({ app, team, distribution, log, ...profiles }) };
+  return { team, profiles: macWidgetProfiles({ app, team, distribution, store, log, ...profiles }) };
 }
 /** Shared widget metadata on the owning app; signing supplies the group's and Keychain's identities. */
 export function widgetAppKeys(app, platform, { group, keychain, generation }) {

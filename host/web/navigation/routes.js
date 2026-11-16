@@ -1,5 +1,5 @@
 import { viewChildren, unwrapListItem, viewParent } from "./lists.js";
-import { fold, launched, onFold, launchLocation } from "./environment.js";
+import { fold, launched, onFold, launchLocation, launchVisits } from "./environment.js";
 import { inertAncestor } from "./layers.js";
 import { popoverObservation } from "./popover.js";
 // @ref LLP 1038 D6/D7/D11 — host projection and the last committed URL.
@@ -55,6 +55,22 @@ export const liveById = (id, root = document) => {
 };
 // a command by id means the live element: one leaving keeps its ids for its own references
 const leavingSheets = new Set(), shownRoutes = new WeakMap();
+// @ref LLP 1013.001 D2, D6 — while a route transition plays (shared.js), the route beneath a pushed route stays shown
+// and the pushed route inert; the projection keeps both so until the transition ends.
+const heldRoutes = new Set(), arrivingRoutes = new Set();
+/** Each navigation root under `root` with the routes it last showed in its selected stack, bottom first. */
+export const shownStacks = (root) => new Map([...root.querySelectorAll("[navigationBack]")].map((nav) => [nav, shownRoutes.get(nav) ?? []]));
+/** Hold `beneath` shown and `arriving` inert, projected now; what it returns lets them go and projects again. */
+export function holdRoutes(beneath, arriving) {
+  heldRoutes.add(beneath);
+  arrivingRoutes.add(arriving);
+  navigation.project(root, log);
+  return () => {
+    heldRoutes.delete(beneath);
+    arrivingRoutes.delete(arriving);
+    navigation.project(root, log);
+  };
+}
 export function sheetLeaves(el) {
   if (typeof matchMedia !== "function" || typeof HTMLTextAreaElement !== "function" || el.nodeType !== 1 || el.getAttribute("navigationPresentation") !== "modal" || el.hasAttribute("data-exiting") || !el.isConnected || el.querySelector("audio, video, dialog[open], :popover-open") || "createValueRange" in HTMLTextAreaElement.prototype && el.querySelector("textarea[data-decorations]") || getComputedStyle(el).position !== "fixed" || matchMedia("(prefers-reduced-motion: reduce)").matches) {
     return false;
@@ -570,6 +586,81 @@ export function pageTitle(said = saidTitle) {
     document.title = title;
   }
 }
+// The scroller whose top a route's bar sits at (presenter/bars.rs `content_scroller`): the one `navigationScroll` names,
+// else the shallowest under the route that scrolls up and down, eight levels at most.
+function contentScroller(route) {
+  const scrolls = (el) => /^(auto|scroll)$/.test(getComputedStyle(el).overflowY), named = route.getAttribute("data-navigationscroll");
+  if (named) {
+    return [...route.querySelectorAll(`[id="${CSS.escape(named)}"]`)].find(scrolls) ?? null;
+  }
+  let level = [route];
+  for (let depth = 0; depth < 8 && level.length && level.length <= 256; depth++) {
+    const hit = level.find(scrolls);
+    if (hit) {
+      return hit;
+    }
+    level = level.flatMap((el) => getComputedStyle(el).display === "none" ? [] : [...el.children]);
+  }
+  return null;
+}
+// What keeps a clear bar (`clearBar`, below), which the projection runs once a host hands it over: the wasm host's glue
+// for every plan, the JS target's compiler only for a plan whose route may say `navigationBar="transparent"` (LLP
+// 1047.002 D1).
+let clearing = null;
+export const useClearBars = (clear) => {
+  clearing = clear;
+};
+const clearInset = new WeakSet(), clearBars = new WeakMap();
+let barResized;
+/** A route that says `navigationBar="transparent"` lays its bar over its top, clear (neutral.css), as iOS gives the bar
+ * a clear scroll-edge appearance and insets no content (NavigationBarIOS.swift `transparentBar`): the route's top inset,
+ * `var(--exact-safe-area-inset-top)`, then includes the bar's height, and the bar is `scrolled` while content is under
+ * it. A header iOS makes no bar of keeps its place. */
+export function clearBar(route) {
+  const header = headerOf(route), clear = !!header && route.getAttribute("data-navigationbar") === "transparent" && viewChildren(route)[0] === header && !asWritten(header);
+  if (clearInset.has(route)) {
+    clearInset.delete(route);
+    route.style.removeProperty("--exact-safe-area-inset-top");
+    route.style.removeProperty("--exact-bar-height");
+  }
+  for (const el of viewChildren(route)) {
+    if (el.hasAttribute("data-exact-clear") && !(clear && el === header)) {
+      el.removeAttribute("data-exact-clear");
+      barResized?.unobserve(el);
+      clearBars.delete(el);
+    }
+  }
+  if (!clear) {
+    return;
+  }
+  if (!clearBars.has(header)) {
+    // The first clear bar starts what follows each one: its height, and whether content has scrolled under it.
+    if (barResized === undefined) {
+      barResized = watchClearBars();
+    }
+    clearBars.set(header, route);
+    barResized?.observe(header);
+  }
+  const below = getComputedStyle(route).getPropertyValue("--exact-safe-area-inset-top") || "0px", height = header.offsetHeight;
+  clearInset.add(route);
+  route.style.setProperty("--exact-bar-height", `${height}px`);
+  route.style.setProperty("--exact-safe-area-inset-top", `calc(${below} + ${height}px)`);
+  barScrolled(route, header);
+}
+const barScrolled = (route, header) => header.setAttribute("data-exact-clear", (contentScroller(route) ?? document.scrollingElement)?.scrollTop > 0 ? "scrolled" : "");
+function watchClearBars() {
+  document.addEventListener("scroll", () => {
+    for (const header of root.querySelectorAll("[data-exact-clear]")) {
+      clearBars.has(header) && barScrolled(clearBars.get(header), header);
+    }
+  }, { capture: true, passive: true });
+  return globalThis.ResizeObserver ? new ResizeObserver((entries) => {
+    for (const { target } of entries) {
+      const route = clearBars.get(target);
+      route?.isConnected && clearBar(route);
+    }
+  }) : null;
+}
 function appBarBack(nav, routes, index, split, shown) {
   const route = routes[index], header = headerOf(route);
   if (!header) {
@@ -696,6 +787,17 @@ function commit(op) {
     originIndex = browserIndex();
     written[0] = stamp(0, op);
     history.replaceState(written[0], "", historyURL(op.url));
+    // After a reload, this document's entries before the current one (`launchVisits`) are the page's too, newest first,
+    // as far as each is at the URL of the visit beneath the one after it: Back, the app bar's as well as the browser's,
+    // then steps back to it rather than pushing it (#527). The JS target's launch builds the stack from those entries.
+    const before = launchVisits(), beneath = op.visits ?? [];
+    for (let k = 1, at = beneath.findIndex(([id]) => id === op.top) - 1; k <= before.length && at >= 0; k++, at--) {
+      if (canonicalOf(before[before.length - k].split("#")[0]) !== beneath[at][1]) {
+        break;
+      }
+      written[-k] = { exact: -k, id: beneath[at][0], url: before[before.length - k] };
+      first = -k;
+    }
   } else if (written[cursor]?.id === op.top && !(pop === null && written[cursor].url !== op.url && written[cursor].url.split("#")[0] === op.url.split("#")[0])) {
     // another fragment on the visit shown, or none, is one more browser entry of it, as a same-document link's is (LLP 1153 D5)
     if (written[cursor].url !== op.url) {
@@ -710,7 +812,8 @@ function commit(op) {
         const from = cursor;
         cursor = j;
         // The entry gone back to takes the top's url when that changed in the same commit (`replace(back(r), u)`).
-        return go(j, from, () => written[j].url === op.url || history.replaceState(written[j] = stamp(j, op), "", historyURL(op.url)));
+        // An entry a reload left holds the state of the page before it, which is stamped again.
+        return go(j, from, () => written[j].url === op.url && history.state?.exact === j && history.state.id === written[j].id || history.replaceState(written[j] = stamp(j, op), "", historyURL(op.url)));
       }
     }
     for (const index of Object.keys(written)) {
@@ -1144,9 +1247,9 @@ export const navigation = {
           }
           const covered = modal && (index >= beneath && index < presented || split > 0 && index === 0);
           // a sheet shows what it sits over: the page (in the strip above a narrow sheet) and any sheets between, which only the top one dims
-          route.style.visibility = active || covered ? "" : "hidden";
+          route.style.visibility = active || covered || heldRoutes.has(route) ? "" : "hidden";
           route.toggleAttribute("data-exact-covered", covered);
-          setInert(route, !active || !!route.authoredInert);
+          setInert(route, !active || arrivingRoutes.has(route) || !!route.authoredInert);
           const column = !split ? null : index === 0 ? "list" : sheet(route) || shownIn[index] >= 0 ? null : "detail";
           if (route.getAttribute("data-exact-split") !== column) {
             column ? route.setAttribute("data-exact-split", column) : route.removeAttribute("data-exact-split");
@@ -1154,6 +1257,7 @@ export const navigation = {
           route.style.setProperty("--exact-split", column ? `${split}px` : "");
           framing?.(routes, index, shownIn, inUse);
           appBarBack(nav, routes, index, split > 0, active || covered);
+          clearing?.(route);
           if (stack === at && index === selected) {
             freshPath(route);
           }

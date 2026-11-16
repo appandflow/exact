@@ -355,7 +355,7 @@ mod tests {
 
     #[test]
     fn button_feedback_distinguishes_hover_press_focus_and_disabled() {
-        let engine = TextEngine::shared();
+        let engine = crate::text::fixtures::shared();
         for dark in [false, true] {
             let inputs = Inputs {
                 direction: exact_kernel::Direction::Ltr,
@@ -430,7 +430,7 @@ mod tests {
 
     #[test]
     fn windows_alerts_keep_actions_visible_and_scroll_long_content() {
-        let engine = TextEngine::shared();
+        let engine = crate::text::fixtures::shared();
         for dark in [false, true] {
             for font_scale in [1., 1.5, 2.] {
                 for width in [240., 400., 1100.] {
@@ -481,7 +481,7 @@ mod tests {
 
     #[test]
     fn contrast_dialogs_use_opaque_system_pairs_and_two_pixel_edges() {
-        let engine = TextEngine::shared();
+        let engine = crate::text::fixtures::shared();
         let palette = crate::presenter::ContrastPalette {
             window: [32, 32, 32, 255],
             text: [255; 4],
@@ -544,7 +544,7 @@ mod tests {
 
     #[test]
     fn windows_alerts_size_to_content_and_put_one_button_at_the_trailing_edge() {
-        let engine = TextEngine::shared();
+        let engine = crate::text::fixtures::shared();
         let inputs = Inputs {
             direction: exact_kernel::Direction::Ltr,
             bold_text: false,

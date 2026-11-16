@@ -5,10 +5,10 @@
 //! a node whose children would inherit it; Bold Text weights a system
 //! family under a type token and leaves a named one alone.
 
+use crate::scratch::Scratch;
 use exact_kernel::{Kernel, StyleId};
 use exact_plan::{Plan, Value};
 use exact_runner::{DataError, DataSource, Runner};
-use std::path::PathBuf;
 
 struct NoData;
 
@@ -18,13 +18,11 @@ impl DataSource for NoData {
     }
 }
 
-fn app(name: &str, view: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("exact2-type-{name}-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).unwrap();
+fn app(name: &str, view: &str) -> Scratch {
+    let dir = Scratch::new(format!("exact2-type-{name}-{}", std::process::id()));
     std::fs::write(dir.join("app.forma"), DESIGN).unwrap();
     std::fs::write(dir.join("app.contract"), view).unwrap();
-    dir.join("app.contract")
+    dir.at("app.contract")
 }
 
 fn booted(plan: Plan) -> Runner<NoData> {

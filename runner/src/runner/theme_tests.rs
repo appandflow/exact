@@ -22,7 +22,9 @@ const MODES: &str = "forma t\n\naxes\n  dark-style = black | dim  under scheme=d
 
 /// `contract`'s plan beside the design.
 fn plan(name: &str, contract: &str) -> exact_plan::Plan {
-    let dir = std::env::temp_dir().join(format!("exact2-faces-{name}-{}", std::process::id()));
+    let dir = crate::TempDir(
+        std::env::temp_dir().join(format!("exact2-faces-{name}-{}", std::process::id())),
+    );
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
     std::fs::write(dir.join("app.forma"), MODES).unwrap();

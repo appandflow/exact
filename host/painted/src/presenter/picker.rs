@@ -517,24 +517,59 @@ impl<D: DataSource> Presenter<D> {
             #[cfg(unix)]
             Arm::Present(request, view) => {
                 let address = std::env::var("DBUS_SESSION_BUS_ADDRESS").ok();
-                self.ask_portal(request, view, address, crate::portal::TIMEOUT);
+                let folder = self.start_folder(name, request.start_in.as_deref());
+                self.ask_portal(request, view, folder, address, crate::portal::TIMEOUT);
             }
             _ => {}
         }
         self.dirty = true;
     }
 
+    /// Where the chooser opens for `startIn` (LLP 1173 D2): a `doc:` handle's
+    /// folder, or a well-known folder where `user-dirs.dirs` puts it. One
+    /// that does not resolve is refused into the journal, and the chooser
+    /// opens where the portal would.
+    #[cfg(unix)]
+    pub(crate) fn start_folder(
+        &mut self,
+        command: &str,
+        start: Option<&str>,
+    ) -> Option<std::path::PathBuf> {
+        let start = start?;
+        let (folder, why) = if start.starts_with(exact_data::documents::PREFIX) {
+            let folder = exact_data::documents::folder(start, 0);
+            (folder, "is not a document this session holds")
+        } else {
+            (
+                exact_data::known_folders::linux(start),
+                "is not a folder here",
+            )
+        };
+        if folder.is_none() {
+            self.host
+                .log(format!("{command}: startIn: refused: {start} {why}"));
+        }
+        folder
+    }
+
     /// Ask the portal on the session bus at `address` on a thread of its
-    /// own; its outcome reaches the element at the next pump.
+    /// own, opening at `folder`; its outcome reaches the element at the
+    /// next pump.
     #[cfg(unix)]
     pub(crate) fn ask_portal(
         &mut self,
         request: exact_runner::file_pickers::Picker,
         view: ViewId,
+        folder: Option<std::path::PathBuf>,
         address: Option<String>,
         timeout: std::time::Duration,
     ) {
         let (inbox, wake) = (self.portal.clone(), self.executor.waker());
+        let filters = if request.kind == exact_runner::file_pickers::Kind::Directory {
+            Ok(Vec::new())
+        } else {
+            crate::portal::filters(&self.compat)
+        };
         let kind = request.kind;
         let ask = {
             let mut asks = inbox.lock().unwrap_or_else(|e| e.into_inner());
@@ -546,7 +581,16 @@ impl<D: DataSource> Presenter<D> {
         let asked = std::thread::Builder::new()
             .name("exact-portal".into())
             .spawn(move || {
-                let outcome = crate::portal::choose(&request, address.as_deref(), timeout);
+                let outcome = match filters {
+                    Ok(filters) => crate::portal::choose(
+                        &request,
+                        &filters,
+                        folder.as_deref(),
+                        address.as_deref(),
+                        timeout,
+                    ),
+                    Err(reason) => crate::portal::Outcome::Refused(reason),
+                };
                 (inbox.lock().unwrap_or_else(|e| e.into_inner()))
                     .answered
                     .push((ask, kind, outcome));

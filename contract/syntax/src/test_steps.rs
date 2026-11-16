@@ -163,7 +163,16 @@ pub enum Step {
         /// Where.
         span: Span,
     },
-    /// `pass fetch "…"`: the prefix stops failing (LLP 1103).
+    /// An immediate HTTP fixture, installed before boot when leading a test.
+    AnswerFetch {
+        /// What a matching fetch's URL starts with.
+        prefix: String,
+        /// Response status, headers and text body, encoded as JSON.
+        response: String,
+        /// Where.
+        span: Span,
+    },
+    /// `pass fetch "…"`: the prefix stops failing or answering (LLP 1103).
     PassFetch {
         /// The prefix a `fail fetch` armed.
         prefix: String,

@@ -13,7 +13,7 @@ export const armedAt = () => Instant ?? clock.now;
 // A commit takes its time first (`time`); its clock readers see it once the body has run (`tick`): the body reads the
 // pre-state.
 export function time() {
-  if (!clock.agent && !Timing && start) clock.now = Math.max(clock.now, performance.now() - start);
+  if (!clock.agent && !Timing && start !== null) clock.now = Math.max(clock.now, performance.now() - start);
 }
 // A release build never enters agent mode (LLP 1069.007 D2): its build writes this false, as the wasm host's files
 // are gated.

@@ -11,6 +11,11 @@ use super::{not_booted, Bridge};
 use exact_runner::DataSource;
 
 impl<D: DataSource> Bridge<D> {
+    /// Omit layout-only boxes inside quiet collection rows of subsequent boots (LLP 1171 D4).
+    pub fn set_flat_nodes(&mut self, on: bool) {
+        self.launch_layout.flat_nodes = on;
+    }
+
     /// Frame tasks at their presentation target after timer admission.
     pub fn admitted_frame(&mut self, target_ms: f64, wall_ms: f64) -> u32 {
         let out = self
@@ -203,6 +208,21 @@ impl<D: DataSource> Bridge<D> {
         let name = String::from_utf8_lossy(&self.input[..len.min(self.input.len())]).into_owned();
         self.launch_facts.window_name = Some(name);
         self.launch_facts.rooted = rooted;
+    }
+
+    /// The platform's layout direction for every boot from here
+    /// (`exact_runner::time::Launch::direction`): 0 left to right, 1 right
+    /// to left, anything else none (the strings table's).
+    pub fn set_launch_direction(&mut self, direction: u32) {
+        self.launch_facts.direction = u8::try_from(direction)
+            .ok()
+            .and_then(exact_kernel::Direction::from_wire);
+    }
+
+    /// Whether unsaid text is natural for every boot from here
+    /// (`exact_runner::time::Launch::natural_text`, LLP 1060.000 D3).
+    pub fn set_launch_natural_text(&mut self, on: bool) {
+        self.launch_facts.natural_text = on;
     }
 
     /// Where the viewer is, for the next boot's first settle, as

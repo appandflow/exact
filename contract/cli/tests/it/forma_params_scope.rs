@@ -1,16 +1,14 @@
 //! @ref LLP 1121 D15 (stage 7 A, review round 1) — where a component may
 //! name its params, and what the build and the IR make of them.
 
-use std::path::PathBuf;
+use crate::scratch::Scratch;
 
-fn app(name: &str, files: &[(&str, &str)]) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("exact2-scope-{name}-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).unwrap();
+fn app(name: &str, files: &[(&str, &str)]) -> Scratch {
+    let dir = Scratch::new(format!("exact2-scope-{name}-{}", std::process::id()));
     for (file, text) in files {
         std::fs::write(dir.join(file), text).unwrap();
     }
-    dir.join("app.contract")
+    dir.at("app.contract")
 }
 
 const DESIGN: &str = "forma t\n\ntheme\n  accent.fill = #0a7aff\n";

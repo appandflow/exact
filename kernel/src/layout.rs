@@ -1019,7 +1019,7 @@ impl LayoutTree {
             }) {
                 minima.insert(node, minimum);
                 adjusted = style.clone();
-                adjusted.min_size.height = taffy::LengthPercentageAuto::length(minimum);
+                adjusted.min_size.height = taffy::Dimension::length(minimum);
                 &adjusted
             } else {
                 style

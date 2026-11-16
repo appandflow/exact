@@ -2,5 +2,4 @@
 <resources>
     <string name="exact_clear">محو</string>
     <string name="exact_default_channel">الإشعارات</string>
-    <string name="exact_silent_channel">الإشعارات الصامتة</string>
 </resources>

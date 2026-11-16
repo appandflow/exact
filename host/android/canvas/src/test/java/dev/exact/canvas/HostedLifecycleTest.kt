@@ -37,7 +37,7 @@ class HostedLifecycleTest {
         }
         fun sequence() = events.map { it.second }
     }
-    private fun natives(module: Module) = Natives(RuntimeEnvironment.getApplication(), File("."), mapOf("map" to module))
+    private fun natives(module: Module) = Natives(RuntimeEnvironment.getApplication(), { File(".") }, mapOf("map" to module))
     private fun Natives.map(id: Int = 7, row: Int = 0) = ensure(id, 2, 100, 100, "{\"module\":\"map\",\"slot\":2,\"generation\":3}", row)
 
     @Test fun lateViewsCatchUpAndGetEachActivityCallbackAndSavedState() {

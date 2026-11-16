@@ -38,8 +38,9 @@ async function editor(engine, source, drive, runtime = false, attrs = '') {
         window.events = []; window.logs = []; window.prevent = () => false;
         const record = (type, value, start, end, direction, inputType, data, cancelable, composing) => events.push({ type, value, start, end, direction, inputType, data, cancelable, composing });
         if (${runtime}) {
-          const { mde, on, onKey, onBeforeInput, onSelectionChange, onValue, Hosts } = await import('./rt.js');
+          const { mde, on, onKey, onBeforeInput, onSelectionChange, onValue, Hosts, useCommands } = await import('./rt.js');
           const commands = await import('./commands.js');
+          useCommands({ preventDefault: commands.preventDefault, stopPropagation: commands.stopPropagation });
           window.command = (name, args) => commands[name](s => logs.push(s))(...args);
           on(field, 'beforeinput', r => { record('beforeinput', r[0], ...r.slice(2)); if (prevent(r)) Hosts.preventDefault(); }, onBeforeInput);
           on(field, 'selectionchange', r => record('selectionchange', r[0], ...r.slice(2)), onSelectionChange);

@@ -218,7 +218,8 @@ export function storedTexts(state) {
  * amount, a form the app refused with its error), so their values are left out of the comparison; and `saved`, the fields that
  * showed a value the app kept and now show another. A field is compared like any text only when the app kept what it showed and
  * the reloaded field shows something it did not keep: focus-timer's settings reloaded with 25 and 5 over the saved 30 and 10.
- * What the app kept is what its state and resources hold both before and after the reload (`storedTexts` of each); a field that
+ * A field marked invalid is a draft even if another saved record holds the same text. Otherwise, what the app kept is what
+ * its state and resources hold both before and after the reload (`storedTexts` of each); a field that
  * shows what is kept after the reload (the water tracker's refused 0, then its saved goal) is the app doing as it should. */
 function typedFields(before, after, touched, states) {
   const was = storedTexts(states?.before), now = storedTexts(states?.after);
@@ -228,7 +229,7 @@ function typedFields(before, after, touched, states) {
   const drafts = new Set(), saved = [];
   for (const id of ids) {
     const there = (before ?? []).find((n) => field(n, id)), here = (after ?? []).find((n) => field(n, id));
-    if (!(has(value(there)) && (!here || !has(value(here))))) drafts.add(id);
+    if (['true', 'grammar', 'spelling'].includes(there.props?.accessibilityInvalid) || !(has(value(there)) && (!here || !has(value(here))))) drafts.add(id);
     else if (here) saved.push({ kind: 'field', id, was: value(there), now: value(here) });
   }
   return { drafts, saved };
@@ -450,6 +451,9 @@ export async function largestText(s, screen) {
     for (let page = 0; page < PAGES; page++) {
       obs = await s.op({ op: 'check' });
       for (const it of obs.items ?? []) looked.add(it.id).add(it.of);
+      // Menu substitutes remain in tree for taps, but their rows are not page content to scroll to.
+      const omit = id => { looked.add(id); for (const child of nodes.get(id)?.children ?? []) omit(child); };
+      for (const a of obs.advice ?? []) if (a.kind === 'menu') omit(a.id);
       const before = found.size;
       const compared = { ...obs, items: (obs.items ?? []).filter(it => !projected.has(it.id) && !projected.has(it.of)) };
       for (const f of judge(compared, null, { host: web ? 'web' : 'ios' })) if (LARGE_KINDS.has(f.kind) && !accepts(ACCEPT, f, nodes) && !found.has(`${f.kind} ${f.id}`)) found.set(`${f.kind} ${f.id}`, f);
@@ -1003,7 +1007,9 @@ async function deviceMain(argv, emitJSON, declined, ended) {
   const args = guardFlags('verify', argv);
   const value = (flag) => args.indexOf(flag) >= 0 ? args[args.indexOf(flag) + 1] : undefined;
   const json = args.includes('--json'), sim = value('--sim'), copyTo = value('--shots');
-  const flagged = new Set([args.indexOf('--app') + 1, args.indexOf('--sim') + 1, args.indexOf('--shots') + 1].filter((i) => i > 0));
+  // The app's variant (LLP 1030.008 D3), for every process verify starts; the app it resolves claims it.
+  if (value('--variant')) { process.env.EXACT_VARIANT = value('--variant'); delete process.env.EXACT_VARIANT_APP; }
+  const flagged = new Set([args.indexOf('--app') + 1, args.indexOf('--sim') + 1, args.indexOf('--shots') + 1, args.indexOf('--variant') + 1].filter((i) => i > 0));
   const { resolveApp } = await import('./app.mjs');
   const app = resolveApp(value('--app'));
   const named = args.find((a, i) => !a.startsWith('-') && !flagged.has(i)), chosen = named ? { host: named } : shippedHost('verify', app.manifest);
@@ -1015,6 +1021,13 @@ async function deviceMain(argv, emitJSON, declined, ended) {
   const host = chosen.host;
   if (!['web', 'ios', 'windows', 'android'].includes(host)) { console.error(`verify: web, ios, windows or android, not ${host} (test ${host} runs the tests there)`); return declined(2); }
   if (host === 'windows' && process.platform !== 'win32') { console.error('verify windows runs on Windows (bun exact.mjs verify windows there)'); return declined(2); }
+  if (['web', 'ios', 'windows'].includes(host)) {
+    const { privateWebBuild, privateNativeBuild } = await import('./web-build.mjs');
+    const build = (host === 'web' ? privateWebBuild : privateNativeBuild)(app, 'verify');
+    Object.assign(process.env, build.env);
+    if (host !== 'web') await build.seed(host);
+    process.once('exit', build.close);
+  }
   if (host === 'android') process.env.EXACT_ANDROID_READER = '1'; // the APK, as `test android` drives it
   if (sim) process.env.EXACT_SIM = sim; // as the driver names it (devices.mjs `simulator`)
   const started = Date.now();

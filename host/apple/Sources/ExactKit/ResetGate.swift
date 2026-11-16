@@ -54,6 +54,7 @@ enum ResetGate {
         "later(_:done:)": (.page, "a notice's calls, as `tellSoon`'s"),
         "setPage(_:)": (.page, "a key window or activation the teardown moved (a sheet closing) is the page's: it is told again"),
         "setRootFontSize(_:)": (.page, "the page's root font, told with its key window: told again with it"),
+        "preferPresented(_:)": (.page, "the agent's `prefer presented`, told again with the page's facts"),
         "setDisplayScale(_:)": (.page, "the page's display scale, told with its key window: told again with it"),
         "tellSoon(_:)": (.page, "a notice the teardown set off (a key window moving) is the page's: it is told again, at once"),
         "collectionFeedback(_:now:)": (.collections, "a list's report is of its old rows; the new list reports its own port and rows"),
@@ -133,6 +134,7 @@ enum ResetGate {
         "surfaceRecord(_:_:)": "an old canvas publisher released during teardown: its release must not clear a kept launch answer, and the new publishers record their own",
         "canvasPerformanceRecord(_:_:)": "an old canvas publisher's performance sample or release; the new publishers report their own metrics",
         "regionComplete(_:)": "an old generation's region artifact: `RegionController` drops one from another generation before it is told, and the new tree asks its own",
+        "regionFallback(_:)": "an old generation's flow fallback: `RegionController` checks generation and the current request before it is told",
         "fulfillSurface(_:kind:body:now:)": "an old-tree surface completing as its view goes: `completeSurface` drops a completion from another generation before it is told",
         // Told again before the reset returns (Session `presentCommitted`, `applyTogether`): moot.
         "setPreferences(_:)": "the person's preferences: `tellTime` tells the new runtime them again (`tellPreferences`)",
@@ -144,6 +146,7 @@ enum ResetGate {
         "groupedMargins(_:)": "UIKit's grouped-card margins: the new tree's grouped lists measure and report their own",
         "localInsets(_:)": "content owners' local insets (LLP 1123 D9): the navigation's reset clears what was told, and each route and block reports its own as the new tree lays out",
         "resizeBox(_:width:height:)": "a resize grip's drag on the old tree: a restart takes the size back to the plan's, as a reload does the browser's",
+        "setTime(epochAtZero:utcOffset:)": "the date, told by a check an input the teardown sets off makes (`followOffset`): forgotten when held, so the next check tells it again (boot and the agent tell it outside the hold)",
         // Never reached while held: their entry points wait for the replay first.
         "dataReady()": "never held: `activateData` holds first and is replayed (.activation), which asks it",
         "landShare()": "never held: a cold share lands from `activateData`, which holds first and is replayed",
@@ -156,7 +159,6 @@ enum ResetGate {
         "prepareModule(_:module:token:width:height:letGo:)": "a restart's own preparation, before its reset",
         "commitPlan()": "a restart's own commit, before its reset",
         "startOnFrame(_:at:)": "a setting the session gives at boot, outside the hold",
-        "setTime(epochAtZero:utcOffset:)": "the clock's epoch, told at boot and by the agent, outside the hold",
         "setPlace(locale:timeZone:seed:formatLocale:)": "the place, told at boot, by the agent and when the Region or the hour cycle changes, outside the hold",
         "setLaunchPlace(locale:timeZone:seed:formatLocale:)": "the launch place, told at boot, outside the hold",
     ]

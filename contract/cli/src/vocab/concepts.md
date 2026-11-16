@@ -7,6 +7,19 @@ tag, attribute or function prints its entry first, then the concept. Every `cont
 compiles (`contract/cli/tests/it/vocab.rs`).
 -->
 
+## bluetooth: Bluetooth grants for an app's native module
+names: device.bluetooth, device.bluetooth-background
+
+Declare `device.bluetooth purpose.bluetooth` in the data module's grants and
+`"purpose.bluetooth": "Reads your heart rate from your strap."` in `strings/en.json`.
+Apple derives `NSBluetoothAlwaysUsageDescription`; a sandboxed Mac also gets its
+Bluetooth entitlement. Android derives connection permission and CompanionDeviceManager
+setup metadata; the module asks for runtime permission itself.
+For an iOS central receiving peripheral updates in the background, add
+`device.bluetooth-background` without a purpose key beside the Bluetooth line.
+It derives `bluetooth-central` in `UIBackgroundModes` on iOS only. The native
+module owns Bluetooth calls; see docs/reference.md#bluetooth-in-a-native-module.
+
 ## scroll: scrolling to the top, or to an item
 names: scrollTo, scrollToTop, scroll-to-top, scrollToIndex, scrollIntoView, scrollTop, scrollToEnd, scrollToBottom, scroll-to-bottom
 
@@ -847,7 +860,7 @@ component Tag
       text label
 ```
 
-- Resources, mutations and tasks are the root's: a child takes their results as props.
+- A child may own resources, asked while each instance lives; mutations and tasks are the root's.
 
 ## derive: a value computed from state
 names: computed, memo, useMemo, selector, getter
@@ -1220,6 +1233,83 @@ component App
   element, which has no placeholder.
 - `::before` and `::after` are refused: Contract has no generated box. Write what they would show as
   a child (a `text`, an `image`).
+
+## ::backdrop: what lies beneath a modal dialog
+names: backdrop, scrim, dim, dimming, modal overlay, overlay colour, backdropColor, UIDimmingView
+
+CSS's `::backdrop { background-color }` is a block: `::backdrop` on its own line under a `dialog`
+(before its children; there a value may compute) or in a `style`, then `background-color=…`
+indented beneath it. It admits `background-color` alone, with its own alpha (`transparent` lays
+nothing over the page), and fades in and out with the dialog. Without one each platform keeps its
+own dim (UIKit's beneath a sheet, the web's and the painted hosts' scrim).
+
+```contract
+component App
+  view
+    column
+      dialog id="confirm" background-color="#0000008C" width="100%" height="100%"
+        ::backdrop
+          background-color="transparent"
+        text "Panel" background-color="#14171D" color="#FFFFFF" padding=24
+```
+
+- Another property in the block (`backdrop-filter`, `opacity`) is refused; so is the block on any
+  element other than a `dialog`.
+
+## view-transition: a route's own entrance and exit
+names: ::view-transition-new, ::view-transition-old, view transition, route transition, screen transition, page transition, navigation animation, view-transition-name, stackAnimation, enterTransition, popExitTransition, transitionSpec, fade route, slide route
+
+A route (an element with `navigationKey`) chooses its own entrance and exit with CSS View
+Transitions' two parts: `::view-transition-new` plays when a push (or a `fullscreen`
+presentation) adds it, `::view-transition-old` when a pop (or the dismissal) removes it. Each
+holds one declaration, the `animation` shorthand, naming `keyframes` that move `opacity`,
+`translate`, `scale` and `rotate`, or `none` for a cut. Only the route added or removed moves;
+the route beneath stands still. Declaring a part replaces the platform's transition for that
+change; a route with no parts keeps the platform's push and pop. Write the parts in a `style`
+the route takes, or under the route before its children.
+
+```contract
+keyframes fade-in
+  from opacity=0
+keyframes fade-out
+  to opacity=0
+
+style Fades
+  ::view-transition-new
+    animation="fade-in 180ms ease-out both"
+  ::view-transition-old
+    animation="fade-out 150ms ease-in both"
+
+routes nav
+  home "/"
+  camera "/camera"
+
+component App
+  action open
+    nav = push(nav, path("camera"))
+  action back
+    nav = back(nav)
+  view
+    main navigationKey=`${top(nav).id}` navigationBack="close" width="100%" height="100%"
+      for e in stack(nav) key=e.id
+        if e.name == "camera"
+          column navigationKey=`${e.id}` navigationPresentation="fullscreen" class=Fades background-color="black"
+            button press=back id="close"
+              text "Close"
+        else
+          column navigationKey=`${e.id}`
+            button press=open
+              text "Camera"
+```
+
+- The longhands (`animation-duration`…) are refused: the shorthand resets every one, so no
+  browser default leaks in. An `infinite` or `paused` animation is refused, and a value is a
+  literal or a choice of literals (`still ? "none" : "fade-in 180ms"`).
+- A sheet (`navigationPresentation="modal"`), a route with `navigationSource` (the zoom), and
+  any element that is no route refuse the parts; an element that moves between states takes
+  `sharedElement` instead. A tab switch keeps the platform's.
+- Under reduce motion the change cuts. On iOS the edge swipe keeps UIKit's interactive pop;
+  Android's predictive Back scrubs the authored exit.
 
 ## glass: Liquid Glass, a material or a blur behind a box
 names: Liquid Glass, liquid-glass, liquidGlass, material, materials, vibrancy, blur, frosted, UIVisualEffectView, UIGlassEffect, BlurView, GlassView, expo-blur, expo-glass-effect, tintColor, glass tint, tinted glass, isInteractive, UIBlurEffect, dark blur, blur tint, blur intensity, intensity
@@ -1727,3 +1817,31 @@ agent's `state` shows the page's as `language {"lang":"ur","dir":"rtl"}`.
 phone number in Arabic text.
 
 More: docs/contract-for-agents.md (`t`, `setLocale`)
+
+## :active: Press feedback without app state
+names: active, pressed, press-translate
+
+`:active` takes `background-color`, `color`, `opacity`, `translate` and
+`-exact-press-scale`. The host shows them on the innermost pressable node,
+without a runner round trip. Translate adds to the node's own translation.
+Percentages use the border box by default. Only x and y are accepted; use
+transitions for 3D motion. A computed target changes with ordinary app
+commits; `none` clears the offset. The node remains the containing block of
+its absolute descendants while unpressed and when a computed target is `none`
+(LLP 1074).
+
+Layout stays unchanged. On the web, the hit area moves with the paint, as
+CSS does, and the browser's click rules apply. Native hosts keep the unpressed
+hit area and use their press timing. Release or cancellation removes the offset.
+
+```contract
+component App
+  state n = 0
+  action count
+    n = n + 1
+  view
+    button press=count appearance="none"
+      :active
+        translate = "4px 4px"
+      text `Pressed ${n}`
+```

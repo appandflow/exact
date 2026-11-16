@@ -148,6 +148,7 @@ fn resolve_gradient(css: &str, tint: Option<[f32; 4]>) -> String {
             tint.as_ref().map_or(std::ptr::null(), |t| t.as_ptr()),
             out.as_mut_ptr(),
             out.len(),
+            false,
         )
     };
     String::from_utf8(out[..n].to_vec()).unwrap()

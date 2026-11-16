@@ -8,21 +8,66 @@ pub(super) struct Journal {
     pub(super) settled: bool,
     pub(super) wake: Option<std::sync::Arc<dyn Fn() + Send + Sync>>,
     requested: bool,
+    /// The host time of the last wake, which wakes no more than once a
+    /// [`WAKE_MS`]: a layout that changes every frame (a scroll, a ticker)
+    /// marks the journal dirty every frame.
+    woke_ms: Option<f64>,
+    /// A settled layout waits for the next wake: the batch asks for a call
+    /// when it is due ([`Host::route_overflow_due`]).
+    owed: bool,
     warned: BTreeSet<NodeKey>,
 }
 
+/// The least time between two wakes for the check.
+const WAKE_MS: f64 = 100.;
+
 impl<D: DataSource> Host<D> {
     pub(super) fn request_route_overflow(&mut self) {
-        if self.data_activated
+        if !(self.data_activated
             && self.route_overflow.dirty
             && self.route_overflow.settled
             && !self.route_overflow.requested
-            && self.route_overflow_window().is_some()
+            && self.route_overflow_window().is_some())
         {
-            self.route_overflow.requested = true;
-            if let Some(wake) = &self.route_overflow.wake {
-                wake();
-            }
+            // Nothing to check now (none dirty) or nothing it may check yet (not settled, no
+            // window offer): no deadline either, or the platform would be asked to call in a
+            // loop; a later layout that may be checked marks it again.
+            self.route_overflow.owed = false;
+            return;
+        }
+        if self
+            .route_overflow
+            .woke_ms
+            .is_some_and(|at| self.now_ms < at + WAKE_MS)
+        // the deadline's own arithmetic
+        {
+            self.route_overflow.owed = true;
+            return;
+        }
+        self.route_overflow.owed = false;
+        self.route_overflow.requested = true;
+        self.route_overflow.woke_ms = Some(self.now_ms);
+        if let Some(wake) = &self.route_overflow.wake {
+            wake();
+        }
+    }
+
+    /// The deadline of an owed check, if one is owed: the agent's `settle`
+    /// takes it too, so a frozen clock advances to it.
+    pub(super) fn route_overflow_owed_ms(&self) -> Option<f64> {
+        self.route_overflow
+            .owed
+            .then(|| self.route_overflow.woke_ms.map(|at| at + WAKE_MS))
+            .flatten()
+    }
+
+    /// When an owed check is due: the batch's timer deadline is no later, so
+    /// a call comes then even if nothing else is due.
+    pub(super) fn route_overflow_due(&self, due: Option<f64>) -> Option<f64> {
+        let owed = self.route_overflow_owed_ms();
+        match (due, owed) {
+            (Some(a), Some(b)) => Some(a.min(b)),
+            (a, b) => a.or(b),
         }
     }
 
@@ -35,6 +80,7 @@ impl<D: DataSource> Host<D> {
             return;
         };
         self.route_overflow.dirty = false;
+        self.route_overflow.owed = false;
         let kernel = self.runner.kernel();
         self.route_overflow
             .warned

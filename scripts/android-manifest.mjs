@@ -32,6 +32,8 @@
 // and asks nothing for; a runtime permission comes only from a grant line, which derives its prompt (LLP 1133.002 D6).
 // There is no `<provider>` but a library's removed one, and no `android:process`.
 
+import { EXACT_PATHS } from './links.mjs';
+
 /** The broadcasts a package's receiver may name: the boot, the package replaced, the clock and zone, the exact-alarm
  * switch (LLP 1133.030 D9). */
 export const RECEIVER_ACTIONS = new Set([
@@ -71,12 +73,13 @@ export const SERVICE_BINDS = new Map([
 export const LIBRARY_SERVICES = new Map([['com.google.firebase.MESSAGING_EVENT', ['com.google.firebase.provider.FirebaseInitProvider']]]);
 
 /** The `<meta-data>` a package may declare, by name, with its one value or resource (LLP 1133.034 D13: Google Pay's
- * switch; LLP 1133.004.000 D6: Firebase's messaging client off at launch, and the channel and small icon it gives a
- * notification message shown while the app is in the background, which are the app's default channel and its
- * `exact_notification` drawable, `android-channels.mjs`'). */
+ * switch; LLP 1133.004.000 D6, D7: Firebase's messaging client off at launch and addressed by installation ID, and
+ * the channel and small icon it gives a notification message shown while the app is in the background, which are the
+ * app's default channel and its `exact_notification` drawable, `android-channels.mjs`'). */
 export const METADATA = new Map([
   ['com.google.android.gms.wallet.api.enabled', { value: 'true' }],
   ['firebase_messaging_auto_init_enabled', { value: 'false' }],
+  ['firebase_messaging_installation_id_enabled', { value: 'true' }],
   ['com.google.firebase.messaging.default_notification_channel_id', { value: 'default' }],
   ['com.google.firebase.messaging.default_notification_icon', { resource: '@drawable/exact_notification' }],
 ]);
@@ -257,26 +260,78 @@ export function manifestFragment(bound, { privacyPolicy = null } = {}) {
   ].join('\n');
 }
 
-/** Auth callbacks are custom schemes on Android. HTTPS grants remain available to the web and Apple;
- * Android does not register App Links or loopback callbacks. The runner checks the full endpoint and state. */
+/** The app's activity as a fragment extends it: `singleTask`, so a link or a share another app sends brings this task
+ * forward to `onNewIntent` rather than stacking a second reader in the sender's task. */
+const MAIN_ACTIVITY = '        <activity android:name="dev.exact.app.MainActivity" android:launchMode="singleTask" tools:replace="android:launchMode">';
+
+/** `fragment` with `lines` (intent filters) on the app's activity and `meta` on the application: a share target, auth
+ * callbacks and links extend one activity element instead of duplicating it. */
+function onMainActivity(fragment, lines, meta = []) {
+  if (fragment.includes(MAIN_ACTIVITY)) return withMetaData(fragment.replace(MAIN_ACTIVITY, [MAIN_ACTIVITY, ...lines].join('\n')), meta);
+  return withMetaData(fragment, [...meta, MAIN_ACTIVITY, ...lines, '        </activity>']);
+}
+
+/** A browsable VIEW filter for `scheme`: links in other apps and browsers that use it start this activity. */
+const viewFilter = (scheme) => [
+  '            <intent-filter>',
+  '                <action android:name="android.intent.action.VIEW" />',
+  '                <category android:name="android.intent.category.DEFAULT" />',
+  '                <category android:name="android.intent.category.BROWSABLE" />',
+  `                <data android:scheme="${escape(scheme)}" />`,
+  '            </intent-filter>',
+];
+
+/** The handlers an Android build registers (LLP 1038 D8): each custom scheme of `protocol_handlers`, lowercased, as
+ * Android matches schemes case-sensitively; a `distribution_only` one only in a production build, as an Apple archive;
+ * never `http` and `https`, which make a browser (Android is not one, docs/reference.md). */
+export const androidProtocolHandlers = (manifest, distributed = false) => (manifest?.protocol_handlers ?? [])
+  .filter((h) => !['http', 'https'].includes(h.protocol.toLowerCase()) && (!h.distribution_only || distributed))
+  .map(({ protocol, url }) => ({ protocol: protocol.toLowerCase(), url }));
+
+/** The protocol handlers on the app's activity (LLP 1038 D8): a VIEW filter for each scheme, and the handlers as the
+ * application's `dev.exact.protocol_handlers` meta-data, which the reader gives exact2 so that the whole URL arrives at
+ * the template's `%s` (cold, the launch location; warm, `navigate`), as Apple's `ExactProtocolHandlers`. */
+export function withProtocolHandlers(fragment, handlers = []) {
+  if (!handlers.length) return fragment;
+  const filters = [...new Set(handlers.map((h) => h.protocol))].flatMap(viewFilter);
+  return onMainActivity(fragment, filters, [`        <meta-data android:name="dev.exact.protocol_handlers" android:value="${escape(JSON.stringify(handlers))}" />`]);
+}
+
+/** The App Links on the app's activity (LLP 1038 D8): for each claimed host (`androidLinkFilters`), an `autoVerify`
+ * https filter, which Android opens in the app once the host's `/.well-known/assetlinks.json` names it, the link's path
+ * its location. From Android 15 (API 35) `<uri-relative-filter-group android:allow="false">` leaves each excluded
+ * path to the browser; earlier releases ignore the element (Android, "<uri-relative-filter-group>"). The groups are
+ * ordered, the first that matches deciding, and a filter with groups matches only a URI a group allows (an emulator on
+ * Android 17 opens nothing without it), so a group allowing the scope comes last. The filter's own `pathPrefix`, where
+ * `androidLinkFilters` gives one, narrows it on every release. */
+export function withAppLinks(fragment, filters = []) {
+  if (!filters.length) return fragment;
+  const group = (allow, data) => [`                <uri-relative-filter-group${allow ? '' : ' android:allow="false"'}>`, `                    <data ${data} />`, '                </uri-relative-filter-group>'];
+  const pathData = (p) => p.endsWith(EXACT_PATHS) ? `android:pathPrefix="${escape(p)}"` : `android:path="${escape(p)}"`;
+  const lines = filters.flatMap(({ host, pathPrefix, exclude, allow }) => [
+    '            <intent-filter android:autoVerify="true">',
+    '                <action android:name="android.intent.action.VIEW" />',
+    '                <category android:name="android.intent.category.DEFAULT" />',
+    '                <category android:name="android.intent.category.BROWSABLE" />',
+    '                <data android:scheme="https" />',
+    `                <data android:host="${escape(host)}" />`,
+    ...(pathPrefix ? [`                <data android:pathPrefix="${escape(pathPrefix)}" />`] : []),
+    ...(exclude.length ? [...exclude.flatMap((p) => group(false, pathData(p))), ...group(true, `android:pathPrefix="${escape(allow)}"`)] : []),
+    '            </intent-filter>',
+  ]);
+  return onMainActivity(fragment, lines);
+}
+
+/** Auth callbacks are custom schemes on Android. HTTPS grants remain available to the web and Apple, and an https
+ * callback on a claimed origin is excluded from the App Links (`withAppLinks`); Android registers no loopback
+ * callback. The runner checks the full endpoint and state. */
 export function withAuthCallbacks(fragment, callbacks = []) {
   const endpoints = [...new Set(callbacks.filter(callback => !['http:', 'https:'].includes(new URL(callback).protocol)))];
   const schemes = [...new Set(endpoints.map(callback => new URL(callback).protocol.slice(0, -1)))];
   if (!schemes.length) return fragment;
-  const filters = schemes.flatMap(scheme => [
-    '            <intent-filter>',
-    '                <action android:name="android.intent.action.VIEW" />',
-    '                <category android:name="android.intent.category.DEFAULT" />',
-    '                <category android:name="android.intent.category.BROWSABLE" />',
-    `                <data android:scheme="${escape(scheme)}" />`,
-    '            </intent-filter>',
-  ]);
+  // A scheme a protocol handler already filters is not filtered twice.
+  const filters = schemes.filter((scheme) => !fragment.includes(viewFilter(scheme).join('\n'))).flatMap(viewFilter);
   // A hostless scheme:/path cannot be narrowed by android:path: Android ignores paths without a host.
-  const activity = '        <activity android:name="dev.exact.app.MainActivity" android:launchMode="singleTask" tools:replace="android:launchMode">';
-  const meta = [`        <meta-data android:name="dev.exact.auth.callbacks" android:value="${escape(JSON.stringify(endpoints))}" />`];
-  // A share target already declared this activity; extend it instead of duplicating the manifest element.
-  if (fragment.includes(activity)) fragment = fragment.replace(activity, [activity, ...filters].join('\n'));
-  else meta.push(activity, ...filters, '        </activity>');
-  const app = withMetaData(fragment, meta);
+  const app = onMainActivity(fragment, filters, [`        <meta-data android:name="dev.exact.auth.callbacks" android:value="${escape(JSON.stringify(endpoints))}" />`]);
   return `${app}\n    <queries>\n        <intent><action android:name="android.support.customtabs.action.CustomTabsService" /></intent>\n        <intent><action android:name="android.intent.action.VIEW" /><category android:name="android.intent.category.BROWSABLE" /><data android:scheme="https" /></intent>\n    </queries>`;
 }

@@ -4,10 +4,11 @@
 //! the rows; an expression over tokens a synthetic token; the plan keeps
 //! what the view may name and every role override.
 
+use crate::scratch::Scratch;
 use exact_kernel::{ColorValue, Kernel, RowValue, StyleId};
 use exact_plan::{Plan, Value};
 use exact_runner::{DataError, DataSource, Runner};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 pub(super) struct NoData;
 
@@ -17,14 +18,12 @@ impl DataSource for NoData {
     }
 }
 
-pub(super) fn app(name: &str, files: &[(&str, &str)]) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("exact2-forma-{name}-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).unwrap();
+pub(super) fn app(name: &str, files: &[(&str, &str)]) -> Scratch {
+    let dir = Scratch::new(format!("exact2-forma-{name}-{}", std::process::id()));
     for (file, text) in files {
         std::fs::write(dir.join(file), text).unwrap();
     }
-    dir.join("app.contract")
+    dir.at("app.contract")
 }
 
 fn colour(plan: Plan, id: &str, row: StyleId) -> ColorValue {

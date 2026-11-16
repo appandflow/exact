@@ -951,12 +951,12 @@ fn world_state(reply: &str) -> bool {
     parse().unwrap_or(false)
 }
 
-#[cfg(all(test, not(target_arch = "wasm32")))]
-#[path = "surface_tests.rs"]
-mod tests;
 #[cfg(test)]
 #[path = "surface_tests/lifecycle.rs"]
 mod lifecycle_tests;
+#[cfg(all(test, not(target_arch = "wasm32")))]
+#[path = "surface_tests.rs"]
+mod tests;
 
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod residency_tests {

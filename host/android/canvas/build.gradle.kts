@@ -11,6 +11,7 @@ android {
         getByName("main").kotlin.directories.add("../../../vendor/ibex/crates/ibex2/android")
         getByName("test").kotlin.directories.addAll(listOf(
             "../../../packages/age-range/android", "../../../packages/age-range/test",
+            "../../../packages/store-update/android", "../../../packages/store-update/test",
             "../../../packages/barcode-detection/android", "../../../packages/barcode-detection/test",
             "../../../packages/alarms/android", "../../../packages/alarms/test",
             "../../../packages/background/android", "../../../packages/background/test",
@@ -39,6 +40,7 @@ android {
 
 dependencies {
     testImplementation("com.google.android.play:age-signals:0.0.4")
+    testImplementation("com.google.android.play:app-update:2.1.0")
     testImplementation("com.google.mlkit:text-recognition:16.0.1")
     testImplementation("com.google.mlkit:barcode-scanning:17.3.0")
     testImplementation("com.google.mlkit:genai-prompt:1.0.0-beta4")

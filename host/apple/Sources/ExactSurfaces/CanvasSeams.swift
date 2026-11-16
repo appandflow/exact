@@ -526,7 +526,7 @@ extension CanvasesHost {
     func agent(_ view: UInt32, _ request: [String: Any]) -> [String: Any]? {
         guard let e = live(view), let s = session, let m = e.module, let ask = m.agent else { return nil }
         var request = request
-        let size = s.agentInstance.box(e.view)
+        let size = InspectionGeometry.box(e.view.bounds, of: e.view, viewport: s.presenter.viewport)
         request["width"] = max(1, size.width)
         request["height"] = max(1, size.height)
         request["scale"] = e.view.canvasScale
@@ -569,7 +569,7 @@ extension CanvasesHost {
     }
 
     func decorate(_ request: [String: Any], _ reply: [String: Any]) -> [String: Any] {
-        guard reply["error"] == nil, !Agent.worldRequest(request) else { return reply }
+        guard reply["error"] == nil, request["entity"] == nil, request["world"] as? Bool != true else { return reply }
         var reply = reply
         switch request["op"] as? String {
         case "tree":

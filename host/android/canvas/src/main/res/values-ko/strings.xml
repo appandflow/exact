@@ -2,5 +2,4 @@
 <resources>
     <string name="exact_clear">지우기</string>
     <string name="exact_default_channel">알림</string>
-    <string name="exact_silent_channel">무음 알림</string>
 </resources>

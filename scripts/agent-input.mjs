@@ -1,6 +1,6 @@
 // A session's input (scripts/agent.mjs `open`): what a person does to the app — a press, a held contact, typing, a
 // share, an answer to a held device request — delivered through the carrier's own input path.
-import { partTap, tapRefusal } from './agent-inspect.mjs';
+import { partTap, tapRefusal, layoutBox } from './agent-inspect.mjs';
 import { existsSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { basename, resolve } from 'node:path';
 import { namedRefusal } from './agent-aim.mjs';
@@ -30,7 +30,7 @@ export function sessionInput(s, { carrier, host, timing, touch, app }) {
      * and how each form is delivered — `platform` (a real input event through the platform's own path),
      * `recognized` (an already-recognized event injected), `activation` (a hit-test and a direct call),
      * `presenter` (seekable native recognition without OS input injection), or `unsupported`. iOS activates and
-     * injects; it synthesizes no touch (LLP 1008 §9), so its held contact is recognized (AgentPanIOS.swift), a real
+     * injects; it synthesizes no touch (LLP 1008 §9), so the iOS agent's held contact is recognized, a real
      * one under --touch platform. */
     input:
       host === 'ios' || host === 'host-ios'
@@ -214,7 +214,7 @@ export function sessionInput(s, { carrier, host, timing, touch, app }) {
           mode: timing,
         });
       if (
-        (opts.contextmenu || opts.dblclick) &&
+        (opts.contextmenu || (opts.dblclick && !opts.touch)) &&
         !['web', 'ios', 'macos', 'mac', ...(opts.dblclick ? [] : ['linux', 'android', 'windows'])].includes(host)
       )
         throw new Error(`${host} does not carry contextmenu/dblclick input`);
@@ -236,6 +236,11 @@ export function sessionInput(s, { carrier, host, timing, touch, app }) {
         (button.length || opts.wheel || pressAt) && opts.at !== undefined
           ? (button[0] ?? (opts.wheel ? 'wheel' : 'a press'))
           : null;
+      const targetLayout = async () => {
+        const layout = await s.layout();
+        const box = await layoutBox(s, node.id, layout);
+        return { box, viewport: layout.viewport };
+      };
       if (form) {
         if (
           ![
@@ -251,11 +256,10 @@ export function sessionInput(s, { carrier, host, timing, touch, app }) {
         )
           // iOS: a press, and the long press and double tap that select text there (LLP 1115.000 D11.6)
           throw new Error(`${host} does not carry ${form} at an explicit point`);
-        const b = (await s.layout()).nodes.find(n => n.id === node.id),
-          [x, y] = opts.at;
+        const { box: b } = await targetLayout(), [x, y] = opts.at;
         if (!b || x < 0 || y < 0 || x >= b.w || y >= b.h) throw new Error(`${form} at must be inside the target box`);
       }
-      if (opts.pinch !== undefined && !['web', 'ios', 'macos', 'mac'].includes(host))
+      if (opts.pinch !== undefined && !['web', 'ios', 'macos', 'mac', 'android', 'windows'].includes(host))
         return s.tagged({
           tapped: node.id,
           target,
@@ -277,9 +281,7 @@ export function sessionInput(s, { carrier, host, timing, touch, app }) {
       // refused, named.
       const explicit = opts.drag?.from ?? opts.at,
         pointOut = async (point = explicit) => {
-          const l = await s.layout(),
-            b = l.nodes.find(n => n.id === node.id),
-            vp = l.viewport;
+          const { box: b, viewport: vp } = await targetLayout();
           if (!b || !vp) return false;
           const x = b.x + point[0],
             y = b.y + point[1];
@@ -321,7 +323,7 @@ export function sessionInput(s, { carrier, host, timing, touch, app }) {
         throw new Error('a contact is already down; use `tap up` or `tap cancel` first'); // one finger at a time
       let at;
       if (kind === 'down' && opts.at) {
-        const b = (await s.layout()).nodes.find(n => n.id === node.id);
+        const { box: b } = await targetLayout();
         if (!b) throw new Error(`view ${node.id} has no box on screen`);
         at = { x: b.x + opts.at[0], y: b.y + opts.at[1] };
       }

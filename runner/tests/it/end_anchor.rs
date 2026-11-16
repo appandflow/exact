@@ -34,24 +34,38 @@ fn boot(rows: &str, margin: &str) -> Runner<NoData> {
   state older = 0
   state extra = -1
   state starts = 0
+  state gen = 0
+  state meta = 0
+  state tick = 0
+  state refuse = false
   action onStart
-    starts = starts + 1
+    starts = starts + range(refuse ? 65537 : 1).length
+  action refuseStarts
+    refuse = true
+  action touchMeta
+    meta = meta + 1
+  action tickBody
+    tick = tick + 1
   action prepend
     n = n + 20
     older = older + 20
   action prepend11
     n = n + 11
     older = older + 11
+  action answer
+    gen = gen + 1
+  action append
+    n = n + 1
   action insert(at: number)
     extra = at
-  derive nums = range(n).map(x => x - older)
+  derive nums = range(n + gen * 0).map(x => x - older)
   derive msgs = nums.map(k => `${{k}}`)
   derive base = {rows}
   derive shown = extra < 0 ? base : base.slice(0, extra).concat([\"extra\"]).concat(base.slice(extra))
   view
     list virtualized=true height=320 estimated-item-height=32 scroll-start=\"end\" reachstart=onStart{margin}
-      for k in shown key=k
-        text `${{k}}` height=32
+      for row in shown.slice(meta * 0).map(k => [k]) key=(row.join(\"\") + `${{meta * 0}}`)
+        text `${{row.join(\"\")}}${{tick > 0 ? \"\" : \"\"}}` height=32
 "
     );
     Runner::boot(
@@ -72,6 +86,12 @@ fn report(r: &mut Runner<NoData>, offset: f64, velocity: f64) {
 
 /// [`report`] with `leading` px of padding before the first row.
 fn report_padded(r: &mut Runner<NoData>, offset: f64, velocity: f64, leading: f64) {
+    let error = feedback(r, offset, velocity, leading);
+    assert!(error.is_none(), "{error:?}");
+}
+
+/// A report, and the error an action it ran refused with.
+fn feedback(r: &mut Runner<NoData>, offset: f64, velocity: f64, leading: f64) -> Option<String> {
     let c = &r.collections()[0];
     let feedback = CollectionFeedback {
         view: c.view,
@@ -99,7 +119,7 @@ fn report_padded(r: &mut Runner<NoData>, offset: f64, velocity: f64, leading: f6
         ..Default::default()
     };
     let result = r.collection_feedback_filled(feedback, fill).unwrap();
-    assert!(result.error.is_none(), "{:?}", result.error);
+    result.error.map(|e| format!("{e:?}"))
 }
 
 /// Opened at its end, then scrolled by the reader to `offset` and at rest.
@@ -148,17 +168,127 @@ fn a_page_above_a_reader_inside_the_list_moves_the_port_by_the_page() {
 }
 
 /// An edit inside the window anchors as before: the first visible row holds
-/// (nothing at a zero offset), and the rows below it move down.
+/// (nothing at a zero offset), and the rows below it move down. At the top,
+/// the `reachstart` the reader's arrival fired is answered first (a row
+/// appended at the end): while it is unanswered, rows put there are its page.
 #[test]
 fn a_row_put_inside_the_window_anchors_as_before() {
-    for (offset, at) in [(0., 5.), (640., 25.)] {
-        let mut r = read_at(PLAIN, "", offset);
+    for (rows, offset, at) in [(PLAIN, 0., 5.), (PLAIN, 640., 25.), (LEADING, 0., 3.)] {
+        let mut r = read_at(rows, "", offset);
+        r.act("append", vec![]).unwrap();
         r.act("insert", vec![Value::Number(at)]).unwrap();
-        assert_eq!(correction(&r), None, "{offset}: the port stays");
+        assert_eq!(correction(&r), None, "{rows} {offset}: the port stays");
     }
-    let mut r = read_at(LEADING, "", 0.);
-    r.act("insert", vec![Value::Number(3.)]).unwrap();
-    assert_eq!(correction(&r), None, "after the leading row's successor");
+}
+
+/// LLP 1168.000 D1.2: while a `reachstart` is unanswered, rows that land
+/// after a leading run at the top (a leading row, then a separator that
+/// stays) are its page, and the last visible row holds. An answer that
+/// changes the rows ends that, so the same rows then show at the top; so
+/// does the start re-arming, here while the reader is away and back on a
+/// build-only report, which runs no action. An insert inside the window
+/// while it is unanswered is taken for the page.
+#[test]
+fn a_page_after_a_leading_run_is_seen_while_reachstart_is_unanswered() {
+    let mut r = read_at(LEADING_RUN, "", 0.);
+    assert_eq!(starts(&r), 1.);
+    r.act("prepend", vec![]).unwrap();
+    assert_eq!(correction(&r), Some(640.), "the page");
+    let mut r = read_at(LEADING_RUN, "", 0.);
+    r.act("append", vec![]).unwrap();
+    r.act("prepend", vec![]).unwrap();
+    assert_eq!(correction(&r), None, "answered: rows show at the top");
+    let mut r = read_at(LEADING_RUN, "", 0.);
+    report(&mut r, 1000., 0.);
+    report(&mut r, 1000., 0.);
+    build_only(&mut r, 0.);
+    assert_eq!(starts(&r), 1., "no action on a build-only report");
+    r.act("prepend", vec![]).unwrap();
+    assert_eq!(correction(&r), None, "re-armed: rows show at the top");
+    let mut r = read_at(PLAIN, "", 0.);
+    r.act("insert", vec![Value::Number(5.)]).unwrap();
+    assert_eq!(correction(&r), Some(32.), "taken for the page");
+}
+
+/// Pinned, as LLP 1010's D1.2 note records: an empty or identical answer
+/// changes no row, so `reachstart` stays unanswered until the start
+/// re-arms, and an insert inside the window at the top is still taken for
+/// its page.
+#[test]
+fn an_empty_answer_leaves_reachstart_unanswered() {
+    let mut r = read_at(PLAIN, "", 0.);
+    r.act("answer", vec![]).unwrap();
+    r.act("insert", vec![Value::Number(5.)]).unwrap();
+    assert_eq!(correction(&r), Some(32.));
+}
+
+/// A `reachstart` that is refused, or waits on a covered route, asked
+/// nothing: an insert inside the window at the top right after it anchors
+/// as before.
+#[test]
+fn a_refused_start_leaves_nothing_unanswered() {
+    let mut r = boot(PLAIN, "");
+    r.act("refuseStarts", vec![]).unwrap();
+    let end = r.collections()[0]
+        .correction
+        .expect("opens at its end")
+        .offset;
+    report(&mut r, end, 0.);
+    report(&mut r, end, 0.);
+    report(&mut r, 1000., -4000.);
+    assert!(feedback(&mut r, 0., -4000., 0.).is_some(), "refused");
+    assert_eq!(starts(&r), 0.);
+    r.act("insert", vec![Value::Number(5.)]).unwrap();
+    assert_eq!(correction(&r), None);
+}
+
+/// What changes no row's key or value answers nothing, in either
+/// evaluation mode: an answer's other fields (the subject and the key read
+/// `meta`, and each row is a fresh list equal to the last), or an input only
+/// a row's body reads (`tick`). `reachstart` stays unanswered, and an insert
+/// inside the window is still its page.
+#[test]
+fn an_answer_with_the_same_rows_leaves_reachstart_unanswered() {
+    for full in [false, true] {
+        for action in ["touchMeta", "tickBody"] {
+            let mut r = read_at(PLAIN, "", 0.);
+            r.set_full_evaluation(full);
+            r.act(action, vec![]).unwrap();
+            r.act("insert", vec![Value::Number(5.)]).unwrap();
+            assert_eq!(correction(&r), Some(32.), "{action}, full {full}");
+        }
+    }
+}
+
+/// A build-only report at rest at `offset`, measuring every mounted row at
+/// 32 px: it runs no edge action (LLP 1072 §5).
+fn build_only(r: &mut Runner<NoData>, offset: f64) {
+    let c = &r.collections()[0];
+    let feedback = CollectionFeedback {
+        view: c.view,
+        revision: c.revision,
+        scroll_sequence: c.scroll_sequence + 1,
+        offset,
+        port_cross: 640.,
+        port_main: 320.,
+        cross: 640.,
+        padding: [0.0; 2],
+        measurements: (c.rows.iter())
+            .map(|row| exact_runner::RowMeasurement {
+                view: row.view,
+                epoch: row.epoch,
+                size: 32.,
+            })
+            .collect(),
+        focus_view: None,
+        interaction_view: None,
+    };
+    let fill = CollectionFill {
+        create_only: true,
+        ..Default::default()
+    };
+    let result = r.collection_feedback_filled(feedback, fill).unwrap();
+    assert!(result.error.is_none(), "{:?}", result.error);
 }
 
 /// With D1.1: the page's rows, a port above the reader, are outside a
@@ -181,17 +311,13 @@ fn the_start_waits_for_the_reader_unless_the_band_reaches_the_page() {
 
 /// Pinned, as LLP 1010's D1.2 note records: by the order of keys alone, a
 /// row put right after a leading row at the top is a page landing there
-/// (D1.1's rule), so it moves the port by its height; and a page put after
-/// a leading run of two rows (a leading row, then a separator that stays)
-/// is not seen as one, so the port stays at the top and the page shows.
+/// (D1.1's rule), answered or not, so it moves the port by its height.
 #[test]
 fn what_order_alone_cannot_tell_apart_is_pinned() {
     let mut r = read_at(LEADING, "", 0.);
+    r.act("append", vec![]).unwrap();
     r.act("insert", vec![Value::Number(1.)]).unwrap();
     assert_eq!(correction(&r), Some(32.), "taken for a page");
-    let mut r = read_at(LEADING_RUN, "", 0.);
-    r.act("prepend", vec![]).unwrap();
-    assert_eq!(correction(&r), None, "not taken for a page");
 }
 
 /// A report at rest at `offset` measuring each mounted row at

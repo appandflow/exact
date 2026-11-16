@@ -39,6 +39,7 @@ pub const RECIPES: &[(&str, &str)] = &[
     recipe!("dates-and-days"),
     recipe!("declared-source"),
     recipe!("device"),
+    recipe!("displays"),
     recipe!("eas-android"),
     recipe!("eas-ios"),
     recipe!("edit-sheet"),
@@ -65,6 +66,7 @@ pub const RECIPES: &[(&str, &str)] = &[
     recipe!("native-views"),
     recipe!("navigation-stack"),
     recipe!("nfc"),
+    recipe!("notification-service-extension"),
     recipe!("number-field"),
     recipe!("numeric-readout"),
     recipe!("oauth"),
@@ -76,6 +78,7 @@ pub const RECIPES: &[(&str, &str)] = &[
     recipe!("purchases"),
     recipe!("random-and-shuffle"),
     recipe!("random-rolls"),
+    recipe!("report-errors"),
     recipe!("responsive-columns"),
     recipe!("rest-backend"),
     recipe!("properties"),
@@ -88,6 +91,7 @@ pub const RECIPES: &[(&str, &str)] = &[
     recipe!("snapback-auth"),
     recipe!("snapback-tests"),
     recipe!("socket-ticket"),
+    recipe!("store-update"),
     recipe!("suspending-feed"),
     recipe!("symbols"),
     recipe!("tabs"),
@@ -103,6 +107,7 @@ pub const RECIPES: &[(&str, &str)] = &[
     recipe!("waveform-and-tail"),
     recipe!("web-look"),
     recipe!("website"),
+    recipe!("website-hosting"),
 ];
 
 pub const PATTERNS: &[(&str, &str)] = &[

@@ -74,9 +74,17 @@ The design record is a separate, private repository of numbered documents (LLPs)
 README and the guides cite it by number (`LLP 1115 D7`). The guides under [`docs/`](docs)
 are the public documentation.
 
-Upgrade note (2026-10-16): Snapback mutation replies with `ok: false` now throw
-`refused(why)` and expose `failure(slot)`; see the
-[before/after and inherited-app commands](snapback4/README.md#updating-an-inherited-app).
+To upgrade an inherited app, run these commands from its directory:
+
+```sh
+bun exact.mjs update
+bun exact.mjs contract migrate app.contract
+bun exact.mjs lock
+bun exact.mjs contract build app.contract --json --errors-only
+```
+
+For the Snapback mutation refusal rewrite, see the
+[upgrade note in start-here](docs/start-here.md#upgrading-an-inherited-app).
 
 ## Contents
 
@@ -304,10 +312,14 @@ asset catalog generation, App Intents metadata and ad-hoc signing run on Linux.
 Production builds with custom native views also validate the compiled factory roster.
 Linux can import a simulator qualification with `EXACT_NATIVE_ROSTERS=/path/to/qualification.json`.
 It contains `{ "version": 1, "probes": [{ "probeSha256": "…", "roster": "<JSON object>" }] }`.
-The build writes `native-probes.json` beside its link products to identify the probe to
-execute on an iOS simulator. Qualifications match the probe's SHA-256; changing its
-compiled bytes requires a new simulator run. Without a matching qualification, a
-production build refuses rather than accepting an absent factory or omitting its
+The build writes `native-probes.json` beside its link products to identify the retained
+probe directory. Copy that whole directory to the Mac and run its `ExactRosterProbe`
+with `xcrun simctl spawn <simulator> <directory>/ExactRosterProbe`. Use the printed JSON
+as the qualification's `roster` string and the listed `probeSha256` as its digest.
+The digest covers every file in the directory: the executable, module library, package
+libraries and declared frameworks. Changing any of them requires a new simulator run.
+Without a matching qualification, a production build refuses rather than accepting
+an absent factory or omitting its
 first-frame declaration. Development builds retain the existing manifest fallback.
 
 ### 2. Run Caltrain in the browser
@@ -729,10 +741,11 @@ else here was admitted because a real app needed it.
   (`exact-camera srcObject=`) and takes still photos (`takePhoto`) on the web, iOS,
   macOS, and Android, behind the `device.camera` grant (LLP 1133.008).
   `takePhotoWithCameraApp` takes one in the system camera UI instead: Android's camera
-  app, iOS's camera picker, and on the web a file input with `capture`. It needs no grant
-  on Android; iOS shows the `device.camera` line's purpose. It does not record video
-  from the camera or hand its frames to code, and it has no Windows, Linux, tvOS, or
-  watchOS implementation.
+  app, iOS's camera picker, and on the web a file input with `capture`;
+  `recordVideoWithCameraApp` records a video there (LLP 1133.008.000). Neither needs a
+  grant on Android; iOS shows the `device.camera` line's purpose, and for a video the
+  `device.microphone` line's too. It does not record video in the app or hand the
+  camera's frames to code, and it has no Windows, Linux, tvOS, or watchOS implementation.
 - **Data.** TypeScript or Rust sources, optionally on a worker, and sources declared in
   Contract: an HTTP request whose JSON answer is read field by field. An app whose
   sources are all declared has no data module, and its native build links no JavaScript
@@ -768,8 +781,8 @@ else here was admitted because a real app needed it.
   [Windows Desk](apps/windows-desk/README.md) demonstrates
   native controls over Contract and the kernel with an app-local Win32 presenter;
   general Windows control parity and delivery remain unfinished.
-  Notification-area icons are not built: `-exact-menu="status"` stays an
-  ordinary button in the window (LLP 1133.025 §14).
+  A `-exact-menu="status"` button is a notification-area icon with a painted
+  menu (LLP 1133.025 D4), built and not yet run on Windows.
 - **Android.** Admitted (2026-10-07) and early. An app builds for Android and runs
   on an emulator or a phone: `bun exact.mjs android` builds it, `bun exact.mjs test
   android` runs its tests, and `bun exact.mjs agent android …` drives it
@@ -844,4 +857,5 @@ The Snapback client (`snapback4/`) is not in this repository, and Exact works wi
 in a checkout without it, `exact new --snapback` and `bun exact.mjs snapback` refuse,
 naming the missing client. A checkout that has it there uses published **0.4.33** with
 the matching immutable Rust source revision `3653cae823145170df3e720f5e321bd1b5b4d79d`,
-and [its guide](snapback4/README.md) covers wiring and device rebuilds.
+and its guide, `snapback4/README.md`, comes with that client and covers wiring
+and device rebuilds. The guide is absent from a clean Exact checkout.

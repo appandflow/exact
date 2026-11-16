@@ -58,6 +58,10 @@ mod forma_param_lines;
 mod forma_rows;
 mod forma_serve;
 mod migrate;
+#[cfg(test)]
+#[allow(dead_code)]
+#[path = "../tests/it/scratch.rs"]
+mod scratch;
 mod verify;
 mod vocab;
 

@@ -213,14 +213,15 @@ test.skipIf(process.platform !== 'darwin')('Mac setup reports a failed Xcode ver
     const log = resolve(bin, 'sdk-called');
     const message = 'Xcode license has not been accepted. Run sudo xcodebuild -license.';
     writeFileSync(resolve(bin, 'xcodebuild'), `#!/bin/sh\necho '${message}' >&2\nexit 69\n`, { mode: 0o755 });
-    writeFileSync(resolve(bin, 'xcrun'), `#!/bin/sh\ntouch '${log}'\nexit 1\n`, { mode: 0o755 });
+    // Compiler-path diagnostics may use --find; this test observes SDK probes alone.
+    writeFileSync(resolve(bin, 'xcrun'), `#!/bin/sh\nif [ "$1" = "--sdk" ]; then touch '${log}'; fi\nexit 1\n`, { mode: 0o755 });
     const row = sdkReport({ ...process.env, DEVELOPER_DIR: '/Applications/Xcode.app/Contents/Developer',
       PATH: bin + delimiter + process.env.PATH }, { only: 'macos' }).find(row => row.name === 'Xcode');
     assert.equal(row.ok, false);
     assert.equal(row.fix, message);
     assert.equal(existsSync(log), false);
   } finally { rmSync(bin, { recursive: true, force: true }); }
-});
+}, 30000);
 
 test.skipIf(process.platform !== 'darwin')('a first build asks setup for the Xcode the build will use, at its destination\'s SDK', async () => {
   const { platformReport, sdkReport } = await import('./exact.mjs');

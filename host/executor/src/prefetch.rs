@@ -8,7 +8,7 @@ impl Core {
         owned: &mut Option<Preloads>,
         r: &Job,
     ) {
-        if !r.request.prefetch || !eligible(&r.request, r.class, r.forced, r.work.is_some()) {
+        if !r.request.prefetch || !eligible(&r.request, r.class, r.forced, reads::opaque(&r.work)) {
             return;
         }
         if let Some(cache) = state.cache.as_mut() {
@@ -93,6 +93,10 @@ impl Core {
             generation,
         );
         held.prefetch = true;
+        held.fixture = match &r.work {
+            Some(OwnedWork::HttpResponse(work)) => Some(work.clone()),
+            _ => None,
+        };
         let index = if let Some(i) = slot {
             drop_held(cache, i, Event::NeverTaken);
             cache.preloads[i] = held;

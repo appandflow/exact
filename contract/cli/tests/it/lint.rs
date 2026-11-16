@@ -1,6 +1,7 @@
 //! LLP 1017 P1: what the compiler refuses about values and names, and what
 //! bake's layout lint refuses that the compiler cannot see.
 
+use crate::scratch::Scratch;
 use contract::BakeError;
 use exact_plan::Value;
 use exact_runner::{DataError, DataSource};
@@ -1179,8 +1180,7 @@ fn the_element_lint_finds_nothing_in_any_app() {
 
 /// A file of its own, so `use`, fonts and the manifest resolve as for an app.
 fn compile_all(name: &str, source: &str) -> Vec<(String, u32, String)> {
-    let dir = std::env::temp_dir().join(format!("exact-plural-{}-{name}", std::process::id()));
-    std::fs::create_dir_all(&dir).unwrap();
+    let dir = Scratch::new(format!("exact-plural-{}-{name}", std::process::id()));
     let path = dir.join("app.contract");
     std::fs::write(&path, source).unwrap();
     let Err(errors) = contract::compile_path_all(&path, false) else {

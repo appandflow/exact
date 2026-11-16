@@ -6,8 +6,8 @@
 // bar's scroller too, by one rule, LLP 1115.000 D11.1), else, with no routes,
 // the viewport when it scrolls, else the first vertical scroller on the
 // page. A grouped list answers with the collection view that shows, never
-// the hidden scroll beneath it. Run after every batch and every finished
-// navigation.
+// the hidden scroll beneath it. Run after batches that can change the
+// scroller selection and every finished navigation.
 #if os(iOS) || os(tvOS)
 import UIKit
 

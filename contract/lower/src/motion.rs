@@ -26,6 +26,8 @@ fn row(name: &str) -> bool {
         "transition"
             | "animation"
             | "-exact-exit-animation"
+            | contract_syntax::VIEW_TRANSITION_NEW
+            | contract_syntax::VIEW_TRANSITION_OLD
             | "-exact-layout-transition"
             | "transition-duration"
             | "transitionDuration"

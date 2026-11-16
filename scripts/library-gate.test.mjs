@@ -35,10 +35,12 @@ function slottedIn(packages) {
 }
 
 function ir() {
-  const out = join(mkdtempSync(join(tmpdir(), 'library-gate-ir-')), 'ir.json');
-  const r = spawnSync('cargo', ['run', '-q', '-p', 'contract', '--', 'forma', 'ir', join(ROOT, 'apps/library-gate'), '-o', out], { cwd: ROOT, encoding: 'utf8' });
-  if (r.status !== 0) throw new Error(`contract forma ir: ${r.stderr}`);
-  return JSON.parse(readFileSync(out, 'utf8')).library.filter(c => c.library);
+  const dir = mkdtempSync(join(tmpdir(), 'library-gate-ir-')), out = join(dir, 'ir.json');
+  try {
+    const r = spawnSync('cargo', ['run', '-q', '-p', 'contract', '--', 'forma', 'ir', join(ROOT, 'apps/library-gate'), '-o', out], { cwd: ROOT, encoding: 'utf8' });
+    if (r.status !== 0) throw new Error(`contract forma ir: ${r.stderr}`);
+    return JSON.parse(readFileSync(out, 'utf8')).library.filter(c => c.library);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
 }
 
 test('every exported component, once per variant value, every cell rendered, every slot marked', () => {

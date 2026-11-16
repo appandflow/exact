@@ -22,6 +22,7 @@ use std::sync::Arc;
 pub(crate) mod case;
 pub mod decorations;
 pub mod inline_box;
+pub mod natural;
 
 /// A payload-free lifetime namespace. Allocation identity is valid only while
 /// retained: it is never a wire id, address handle, or serialized cache key.
@@ -218,8 +219,14 @@ pub struct Paragraph {
     pub markup: Markup,
     /// The paragraph strut: minimum line box even when all inline runs are smaller.
     pub strut: TextStyle,
-    /// Base direction.
+    /// Base direction, and the direction `start` and `end` resolve against;
+    /// under `natural`, the layout direction alone.
     pub direction: Direction,
+    /// The direction is unsaid on a host whose text is natural, and the text
+    /// is not Markdown (LLP 1060.000 D3): each paragraph's base is its first
+    /// strong character's, `direction`'s where it has none
+    /// ([`natural::paragraph_bases`]).
+    pub natural: bool,
     /// Horizontal alignment, physical: `start` and `end` are resolved
     /// against `direction` ([`TextAlign::physical`]), so a host never sees them.
     pub text_align: TextAlign,
@@ -287,6 +294,7 @@ impl Paragraph {
             markup: Markup::None,
             strut: t.style(),
             direction: p.direction,
+            natural: false,
             text_align: p.text_align.physical(p.direction),
             line_clamp: p.line_clamp,
             text_overflow: p.text_overflow,
@@ -306,6 +314,7 @@ impl Paragraph {
             markup: Markup::None,
             strut: TextStyle::from_style(s),
             direction: s.direction,
+            natural: false,
             text_align: s.text_align.physical(s.direction),
             line_clamp: s.line_clamp,
             text_overflow: s.text_overflow,

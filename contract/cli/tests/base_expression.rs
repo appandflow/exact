@@ -9,7 +9,11 @@ use exact_kernel::style::scale;
 use exact_kernel::{Kernel, StyleId};
 use exact_runner::forma::{Length, Token};
 use exact_runner::{DataError, DataSource, Place, Runner, Value};
-use std::path::{Path, PathBuf};
+use std::path::Path;
+#[path = "it/scratch.rs"]
+#[allow(dead_code)]
+mod scratch;
+use scratch::Scratch;
 
 const CARD_PAD: Token<Length> = Token::new("card.pad");
 
@@ -21,16 +25,14 @@ impl DataSource for NoData {
     }
 }
 
-fn app(name: &str, design: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!(
+fn app(name: &str, design: &str) -> Scratch {
+    let dir = Scratch::new(format!(
         "exact2-base-expression-{name}-{}",
         std::process::id()
     ));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).unwrap();
     std::fs::write(dir.join("app.forma"), design).unwrap();
     std::fs::write(dir.join("app.contract"), "component App\n  view\n    column testId=\"card\" padding=\"card.pad\" box-shadow=\"card.shadow\"\n      text \"a\"\n").unwrap();
-    dir.join("app.contract")
+    dir.at("app.contract")
 }
 
 fn boot(path: &Path) -> Runner<NoData> {

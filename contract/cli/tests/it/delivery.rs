@@ -4,6 +4,7 @@
 //! the agent's mirror, the commands reaching `take_commands` by name, and
 //! the bake refusing a field the runner cannot fill.
 
+use crate::scratch::Scratch;
 use exact_kernel::{Kernel, PropId};
 use exact_runner::{agent, DataError, DataSource, Delivery, Runner, Value};
 use std::path::Path;
@@ -203,9 +204,7 @@ fn a_field_the_runner_cannot_fill_is_refused_at_bake_by_name() {
 
 #[test]
 fn manifest_identity_survives_an_unnamed_data_standin_and_conflicts_fail() {
-    let directory =
-        std::env::temp_dir().join(format!("exact-manifest-plan-{}", std::process::id()));
-    std::fs::create_dir_all(&directory).unwrap();
+    let directory = Scratch::new(format!("exact-manifest-plan-{}", std::process::id()));
     std::fs::write(
         directory.join("app.json"),
         r#"{"app":{"id":"com.exact.standin","name":"Stand-in"}}"#,

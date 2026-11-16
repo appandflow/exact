@@ -22,7 +22,7 @@ const SOURCES: Record<string, string> = { authored: 'set here', dynamic: 'a dyna
 // The wire's row names that authors spell otherwise (contract/lower's
 // style_names.rs); any other is its name with dashes.
 const CSS: Record<string, string> = {
-  text_color: 'color', position_type: 'position', svg_mask: 'mask', placeholder_color: '::placeholder color',
+  text_color: 'color', position_type: 'position', svg_mask: 'mask', placeholder_color: '::placeholder color', backdrop_color: '::backdrop background-color',
   text_stroke_width: '-webkit-text-stroke-width', text_stroke_color: '-webkit-text-stroke-color', control_corner_style: '-exact-corner-style',
   ...Object.fromEntries(['tint_color', 'exit_animation', 'layout_transition', 'press_scale', 'drag_timeline', 'symbol_rendering', 'symbol_palette', 'symbol_value',
     'symbol_effect', 'press_haptic', 'content_transition', 'scroll_edge_effect', 'hover_effect', 'smart_invert', 'animation_trigger', 'control_size', 'fit', 'mode']

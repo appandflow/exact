@@ -1448,3 +1448,45 @@ fn relative_anchor_corrections_include_boundaries_but_exclude_clamping() {
     let start = i.capture_anchor(0., 100., false).unwrap();
     assert!(!i.kept_row(&start, 100.));
 }
+
+#[test]
+fn fixed_items_are_not_reorder_gaps_and_keep_reading_anchors() {
+    let mut i = index(&[40., 40., 40.]);
+    i.measure_fixed(0, 100.).unwrap();
+    i.measure_fixed(1, 500.).unwrap();
+    assert_eq!(i.certified_gap(50.).unwrap(), None);
+    assert_eq!(i.certified_gap(350.).unwrap(), None);
+    assert_eq!(i.certified_gap(100.).unwrap(), Some(0));
+    assert_eq!(i.certified_gap(220.).unwrap(), Some(3));
+    let tail = i.capture_anchor(350., 100., false).unwrap();
+    let lead = i.capture_anchor(50., 100., false).unwrap();
+    let token = i.measurement_token("k0").unwrap();
+    i.set_measured_height("k0", token, 80.).unwrap();
+    assert_eq!(i.restore_anchor(&tail, 100.).unwrap(), 390.);
+    assert_eq!(i.restore_anchor(&lead, 100.).unwrap(), 50.);
+}
+
+/// With fixed content, a bottom anchor finds its row past the lead, and a
+/// port whose bottom is inside the lead or the trail keeps its top anchor.
+#[test]
+fn a_bottom_anchor_reads_rows_past_fixed_content() {
+    let mut index = index(&[10.0; 10]);
+    index.measure_fixed(0, 25.0).unwrap();
+    index.measure_fixed(1, 15.0).unwrap();
+    let rows = index.capture_bottom_anchor(30.0, 20.0, false).unwrap();
+    assert_eq!(SizeIndex::anchor_key(&rows), Some("k2"));
+    let lead = index.capture_bottom_anchor(0.0, 20.0, false).unwrap();
+    assert_eq!(SizeIndex::anchor_key(&lead), None, "the lead holds itself");
+    let trail = index.capture_bottom_anchor(120.0, 20.0, false).unwrap();
+    assert_eq!(
+        SizeIndex::anchor_key(&trail),
+        Some("k9"),
+        "the first visible row's top"
+    );
+    let mut prepended: Vec<Rc<str>> = (0..5).map(|i| Rc::from(format!("p{i}"))).collect();
+    prepended.extend(keys(10));
+    index.replace_keys(prepended).unwrap();
+    assert_eq!(index.restore_anchor(&rows, 20.0).unwrap(), 80.0);
+    assert_eq!(index.restore_anchor(&lead, 20.0).unwrap(), 0.0);
+    assert_eq!(index.restore_anchor(&trail, 20.0).unwrap(), 170.0);
+}

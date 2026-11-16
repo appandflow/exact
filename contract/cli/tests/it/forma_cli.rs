@@ -1,14 +1,13 @@
 //! `contract forma check | eval | ir` (LLP 1121 D2): an app's design on its
 //! own, found where the compiler finds it.
 
+use crate::scratch::Scratch;
 use std::process::Command;
 
 const DESIGN: &str = "forma t\n\naxes\n  dark-style = black | dim  under scheme=dark\n\ntheme\n  surface.card = light-dark(#ffffff, #000000)\n    when dark-style=dim: light-dark(#ffffff, #15202b)\n  brand = #c8102e\n";
 
-fn app(tag: &str, design: &str) -> std::path::PathBuf {
-    let dir = std::env::temp_dir().join(format!("contract-forma-cli-{tag}-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).unwrap();
+fn app(tag: &str, design: &str) -> Scratch {
+    let dir = Scratch::new(format!("contract-forma-cli-{tag}-{}", std::process::id()));
     std::fs::write(
         dir.join("app.contract"),
         "component App\n  view\n    text \"a\" background-color=\"surface.card\"\n",

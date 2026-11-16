@@ -52,7 +52,21 @@ extension ExactSession {
         return protocolHandlers.lazy.compactMap { handler in
             guard let name = handler["protocol"], let template = handler["url"] else { return nil }
             return self.runtime.protocolLocation(of: href, protocol: name, template: template)
-        }.first ?? runtime.location(of: href)
+        }.first ?? runtime.location(of: appRelativeURL(url))
+    }
+
+    private func appRelativeURL(_ url: URL) -> String {
+        guard let base = webMount["base"], base != "/",
+              let origin = webMount["origin"].flatMap(URL.init(string:)),
+              let scheme = url.scheme?.lowercased(), ["http", "https"].contains(scheme),
+              scheme == origin.scheme?.lowercased(), url.host?.lowercased() == origin.host?.lowercased(),
+              (url.port ?? (scheme == "https" ? 443 : 80)) == (origin.port ?? (scheme == "https" ? 443 : 80)),
+              var parts = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return url.absoluteString }
+        let path = parts.percentEncodedPath
+        if path == String(base.dropLast()) { parts.percentEncodedPath = "/" }
+        else if path.hasPrefix(base) { parts.percentEncodedPath = "/" + path.dropFirst(base.count) }
+        else { return url.absoluteString }
+        return parts.string ?? url.absoluteString
     }
 
     /// The `https` handler's template, when the app claims the web's links
@@ -130,7 +144,7 @@ extension ExactSession {
     public var location: String? {
         guard let url = routerOp?["url"] as? String else { return nil }
         let fragment = routerOp?["fragment"] as? String ?? ""
-        return fragment.isEmpty ? url : url + "#" + fragment
+        return fragment.isEmpty || url.contains("#") ? url : url + "#" + fragment
     }
 
     /// Whether the selected visit is at `location`: its location, or its

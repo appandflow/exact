@@ -114,6 +114,39 @@ impl<D: DataSource + Default> CanvasHost<D> {
         }
     }
 
+    /// The reader's pinch of zoomable scroller `id` (LLP 1057.001.000 §5):
+    /// `phase` 0 began, 1 scaled by `factor` while its focal point moved
+    /// from `from` to `to`, 2 ended; in pixels.
+    pub fn zoom(&mut self, id: u32, phase: i32, factor: f32, from: (f32, f32), to: (f32, f32)) {
+        let s = self.scale;
+        match phase {
+            0 => self.p.zoom_pinch_began(id),
+            1 => self
+                .p
+                .zoom_pinched(id, factor, (from.0 / s, from.1 / s), (to.0 / s, to.1 / s)),
+            _ => self.p.zoom_pinch_ended(id),
+        }
+    }
+
+    /// The reader's double tap at (`x`, `y`) pixels: `phase` 0 its second
+    /// tap came down, 1 it lifted ([`crate::presenter::Presenter::zoom_tap_down`],
+    /// [`crate::presenter::Presenter::zoom_double_tap`]).
+    pub fn zoom_tap(&mut self, phase: i32, x: f32, y: f32) {
+        let at = (x / self.scale, y / self.scale);
+        if phase == 0 {
+            self.p.zoom_tap_down(at);
+        } else {
+            self.p.zoom_double_tap(at);
+        }
+    }
+
+    /// A wheel with `ctrl` held at (`x`, `y`) pixels, `dy` points toward
+    /// the end: a trackpad's or a mouse's pinch, about the pointer.
+    pub fn zoom_wheel(&mut self, x: f32, y: f32, dy: f32) {
+        let s = self.scale;
+        self.p.wheel_zoom(x / s, y / s, dy);
+    }
+
     /// What the reader is told of the scrollers it knows, when that is not
     /// what it was last told
     /// ([`crate::presenter::Presenter::reader_scrollers`] has the words).

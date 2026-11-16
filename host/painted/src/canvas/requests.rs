@@ -84,6 +84,24 @@ impl<D: DataSource + Default> CanvasHost<D> {
             .reader_module_event(id, key, session, kind, payload, now);
     }
 
+    /// A media element's event or state (LLP 1042.001 D7), only for the
+    /// session and allocation whose element the reader still holds.
+    #[allow(clippy::too_many_arguments)]
+    pub fn media(
+        &mut self,
+        id: u32,
+        key: exact_kernel::NodeKey,
+        session: u64,
+        event: &str,
+        payload: &str,
+        state: &str,
+    ) {
+        let now = self.now();
+        self.force |= self
+            .p
+            .reader_media(id, key, session, event, payload, state, now);
+    }
+
     /// The reader's answer to request `id`, or its cancellation (`None`).
     pub fn answer(&mut self, id: u32, answer: Option<&str>) {
         self.p.answer_request(id, answer);
@@ -113,6 +131,12 @@ impl<D: DataSource + Default> CanvasHost<D> {
     /// from Activity and promoted service ownership. Release gated streams before returning.
     pub fn page_hidden(&mut self, hidden: bool, eligible: bool) {
         self.force |= self.p.page_execution(hidden, eligible);
+    }
+
+    /// The reader drew a frame (`Native.drew`): whether it should say so
+    /// again after its next one ([`crate::presenter::Presenter::reader_drew`]).
+    pub fn drew(&mut self) -> bool {
+        self.p.reader_drew()
     }
 
     /// A package's call of the app's handler (`ExtensionContext.invoke`, LLP

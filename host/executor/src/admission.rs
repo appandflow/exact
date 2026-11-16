@@ -13,7 +13,7 @@ impl Core {
         cache_store_withheld: Option<bool>,
     ) -> Result<(), (&'static str, Option<OwnedWork>)> {
         let ordered = r.request.is_ordered();
-        let overlap = reads::overlaps(&r, work.is_some());
+        let overlap = reads::overlaps(&r, reads::opaque(&work));
         let first_admission = cache_store_withheld.is_none();
         let preloads =
             (first_admission && r.request.prefetch).then(|| self.preloads.lock().unwrap());
@@ -23,6 +23,7 @@ impl Core {
         // long poll that is no stream's HTTP GET (LLP 1016.000 D8), is refused here, before any path.
         let checked = (r.request.prefetch && r.class != RequestClass::Read)
             .then_some("exactPrefetch requires a plain HTTP read")
+            .or(super::outcome::request_refusal(&r.request))
             .or(r.request.prefetch_refusal())
             .or(r.request.preload_refusal())
             .or(r.request.long_poll_refusal())
@@ -47,10 +48,10 @@ impl Core {
             return Err(("native executor retired", work));
         }
         let cache_store_withheld = cache_store_withheld.unwrap_or_else(|| {
-            cache::asked(&mut state, &r, work.is_some());
+            cache::asked(&mut state, &r, reads::opaque(&work));
             false
         });
-        let effect_read = reads::effect_read(&r, work.is_some());
+        let effect_read = reads::effect_read(&r, reads::opaque(&work));
         let waits_for_effect =
             (effect_read || waiting) && preload::effect_count(&state) >= COUNTS[0];
         if ordered && (state.ordered_barrier || !state.fenced.is_empty() || waits_for_effect) {
@@ -113,7 +114,7 @@ impl Core {
                 // hold no effect (LLP 1041 §8.4, amended 2026-10-09).
                 let full = if lane == 1 {
                     state.counts[1] - streams >= COUNTS[1]
-                } else if reads::safe_read(&r.request, work.is_some(), r.class) {
+                } else if reads::safe_read(&r.request, reads::opaque(&work), r.class) {
                     state.counts[0] - state.agains >= ORDERED_READS
                 } else {
                     preload::effect_count(&state) >= COUNTS[0]
@@ -159,7 +160,7 @@ impl Core {
         // Only a request that waits in its lane's queue has one: a stream or
         // a one-shot starts on a thread of its own at once.
         let queues = !r.request.stream && !one_shot;
-        let queued_deadline = if lane == 1 && queues && work.is_none() {
+        let queued_deadline = if lane == 1 && queues && !reads::opaque(&work) {
             match r
                 .request
                 .timeout_ms
@@ -221,10 +222,15 @@ impl Core {
                 claim: asynch::Claim::None,
                 cached: false,
                 cache_exchange: None,
-                cache_replacing: cache::replacing(&r.request, r.class, r.forced, work.is_some()),
+                cache_replacing: cache::replacing(
+                    &r.request,
+                    r.class,
+                    r.forced,
+                    reads::opaque(&work),
+                ),
                 refresh: None,
-                cache_barrier: cache::barrier(&r.request, r.class, work.is_some()),
-                invalidates: cache::invalidates(&r.request, work.is_some()),
+                cache_barrier: cache::barrier(&r.request, r.class, reads::opaque(&work)),
+                invalidates: cache::invalidates(&r.request, reads::opaque(&work)),
             });
             rouse(&self.shared, &state);
             drop(state);

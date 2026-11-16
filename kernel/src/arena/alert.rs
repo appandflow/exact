@@ -475,10 +475,10 @@ impl NodeArena {
         // measured independently of the Neutral sheet's authored width.
         let ceiling = Dimension::Calc(100., -2. * em - 6.).floor_lpa(self.env());
         if !own.has(StyleId::MaxWidth) {
-            s.max_size.width = ceiling;
+            s.max_size.width = ceiling.into();
         }
         if !own.has(StyleId::MaxHeight) {
-            s.max_size.height = ceiling;
+            s.max_size.height = ceiling.into();
         }
     }
 }

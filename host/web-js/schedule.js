@@ -22,10 +22,10 @@ const Q = {
   // arms or drops (rt.js `commit`).
   save() {
     Asked = new Set();
-    return [Mutations.map(m => m.wait && [m.wait.slice(), m.stall]), Gates.length ? [clock.timers.slice(), Gates.map(g => [g.armed, g.kt, g.due, g.base, g.k, g.gen, g.ready])] : null];
+    return [Mutations.map(m => m.wait && [m, m.wait.slice(), m.stall]), Gates.length ? [clock.timers.slice(), Gates.map(g => [g.armed, g.kt, g.due, g.base, g.k, g.gen, g.ready])] : null];
   },
   restore([queues, timers]) {
-    Mutations.forEach((m, k) => { if (queues[k]) { m.wait = queues[k][0]; m.stall = queues[k][1]; } });
+    for (const q of queues) if (q) { q[0].wait = q[1]; q[0].stall = q[2]; }
     if (timers) { clock.timers.splice(0, Infinity, ...timers[0]); Gates.forEach((g, k) => { [g.armed, g.kt, g.due, g.base, g.k, g.gen, g.ready] = timers[1][k]; }); }
   },
   /** D8's step, inside the commit after its settlement: each gate and key over the settled state, at the commit's

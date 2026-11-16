@@ -9,6 +9,7 @@
 
 use super::forma_package_params::{package, reading};
 use super::forma_serve::{digest, Serve};
+use crate::scratch::Scratch;
 use serde_json::{json, Value};
 use std::path::PathBuf;
 
@@ -41,7 +42,7 @@ fn bare(mut v: Value) -> Value {
 /// primed server's builds are `built` (each line of its log). Run twice:
 /// as the server runs, reusing (what the answers come from), and verifying
 /// that what it reused is what checking again gives (condition (b)).
-fn primed_as_fresh(setup: &dyn Fn(&str) -> PathBuf, edit: Edit, probes: &[&str], built: &[&str]) {
+fn primed_as_fresh(setup: &dyn Fn(&str) -> Scratch, edit: Edit, probes: &[&str], built: &[&str]) {
     for verify in [false, true] {
         let dir = setup(if verify { "verify" } else { "reuse" });
         let log = dir.join("retention.log");
@@ -92,7 +93,7 @@ const PIN: &str = "forma t\n\ntheme\n  ink = #111111\n  ink2 = #222222\n  readin
 /// The app `reading` makes, its design `design`, and a colour row of an
 /// expression over its token `over`: a synthetic token (D3) each answer
 /// lists.
-fn with(tag: &str, design: &str, over: &str) -> PathBuf {
+fn with(tag: &str, design: &str, over: &str) -> Scratch {
     let dir = reading(tag);
     std::fs::write(dir.join("app.forma"), design).unwrap();
     std::fs::write(
@@ -232,7 +233,7 @@ fn a_header_moved_answers_as_fresh() {
 
 const LIB: &str = "forma reading\n\ntheme\n  reading.gap: length = space.md\n  reading.pin = #112233\n  reading.alt = #445566\n\ncomponent Map\n  params\n    pin: color = reading.pin\n";
 
-fn with_lib(tag: &str, lib: &str) -> PathBuf {
+fn with_lib(tag: &str, lib: &str) -> Scratch {
     let dir = with(tag, PIN, "ink");
     package(&dir, "reading", super::forma_package_params::CARD, lib);
     dir
@@ -569,7 +570,7 @@ fn an_edit_failing_after_the_design_is_classed_rebuild_while_retention_is_kept()
 
 /// The press-scale app: `scale` an alias of `one`, a button's press scale,
 /// with or without a synthetic expression (`over`).
-fn press(tag: &str, over: bool) -> PathBuf {
+fn press(tag: &str, over: bool) -> crate::scratch::Scratch {
     let dir = super::forma_serve::app(
         tag,
         "forma t\n\ntheme\n  ink = #111111\n  one = 1\n  neg = -1\n  zero = 0\n  scale = one\n",
@@ -597,7 +598,7 @@ fn a_build_failing_after_the_design_is_rebuild_once_the_check_reports() {
     for over in [false, true] {
         let dir = press(&format!("ret-press-{over}"), over);
         // Outside the app: a file in it is an input the check fingerprints.
-        let log = PathBuf::from(format!("{}.check.log", dir.display()));
+        let log = Scratch::adopt(PathBuf::from(format!("{}.check.log", dir.display())));
         let _ = std::fs::remove_file(&log);
         let mut s = Serve::start(&dir, &[("EXACT_FORMA_CHECK_LOG", log.to_str().unwrap())]);
         let class = |s: &mut Serve| s.ask(propose("ink")).0["ok"]["class"].clone();
@@ -626,7 +627,7 @@ fn a_build_failing_after_the_design_is_rebuild_once_the_check_reports() {
 fn closing_the_server_mid_check_exits_at_once() {
     let dir = press("ret-close", false);
     // A gate never opened: the check waits for good.
-    let gate = PathBuf::from(format!("{}.gate", dir.display()));
+    let gate = Scratch::adopt(PathBuf::from(format!("{}.gate", dir.display())));
     let _ = std::fs::remove_file(&gate);
     let mut s = Serve::start(&dir, &[("EXACT_FORMA_CHECK_GATE", gate.to_str().unwrap())]);
     assert!(s.ask(propose("ink")).0.get("ok").is_some());
@@ -670,7 +671,7 @@ fn until(s: &mut Serve, want: &str) {
 fn a_value_edit_while_broken_is_rebuild_and_a_fixing_one_returns_to_live() {
     let dir = press("ret-press-fix", false);
     // Outside the app: a file in it is an input the check fingerprints.
-    let log = PathBuf::from(format!("{}.check.log", dir.display()));
+    let log = Scratch::adopt(PathBuf::from(format!("{}.check.log", dir.display())));
     let _ = std::fs::remove_file(&log);
     let mut s = Serve::start(&dir, &[("EXACT_FORMA_CHECK_LOG", log.to_str().unwrap())]);
     let class = |s: &mut Serve| s.ask(propose("ink")).0["ok"]["class"].clone();
@@ -702,7 +703,7 @@ fn a_value_edit_while_broken_is_rebuild_and_a_fixing_one_returns_to_live() {
 #[test]
 fn a_check_raced_by_an_edit_mid_build_is_dropped() {
     let dir = press("ret-press-race", false);
-    let gate = PathBuf::from(format!("{}.gate", dir.display()));
+    let gate = Scratch::adopt(PathBuf::from(format!("{}.gate", dir.display())));
     let _ = std::fs::remove_file(&gate);
     std::fs::write(
         dir.join("app.forma"),
@@ -710,7 +711,7 @@ fn a_check_raced_by_an_edit_mid_build_is_dropped() {
     )
     .unwrap();
     // Outside the app: a file in it is an input the check fingerprints.
-    let log = PathBuf::from(format!("{}.check.log", dir.display()));
+    let log = Scratch::adopt(PathBuf::from(format!("{}.check.log", dir.display())));
     let _ = std::fs::remove_file(&log);
     let mut s = Serve::start(
         &dir,
@@ -745,11 +746,11 @@ fn a_check_raced_by_an_edit_mid_build_is_dropped() {
 #[test]
 fn a_lost_check_is_asked_for_again() {
     let dir = press("ret-press-lost", false);
-    let gate = PathBuf::from(format!("{}.gate", dir.display()));
+    let gate = Scratch::adopt(PathBuf::from(format!("{}.gate", dir.display())));
     let _ = std::fs::remove_file(&gate);
     let open = || std::fs::write(&gate, "").unwrap();
     // Outside the app: a file in it is an input the check fingerprints.
-    let log = PathBuf::from(format!("{}.check.log", dir.display()));
+    let log = Scratch::adopt(PathBuf::from(format!("{}.check.log", dir.display())));
     let _ = std::fs::remove_file(&log);
     let mut s = Serve::start(
         &dir,
@@ -799,10 +800,10 @@ fn a_lost_check_is_asked_for_again() {
 #[test]
 fn an_open_scrub_follows_the_check() {
     let dir = press("ret-press-scrub", false);
-    let gate = PathBuf::from(format!("{}.gate", dir.display()));
+    let gate = Scratch::adopt(PathBuf::from(format!("{}.gate", dir.display())));
     let _ = std::fs::remove_file(&gate);
     // Outside the app: a file in it is an input the check fingerprints.
-    let log = PathBuf::from(format!("{}.check.log", dir.display()));
+    let log = Scratch::adopt(PathBuf::from(format!("{}.check.log", dir.display())));
     let _ = std::fs::remove_file(&log);
     let mut s = Serve::start(
         &dir,
@@ -847,7 +848,7 @@ fn an_open_scrub_follows_the_check() {
 #[test]
 fn a_failure_of_files_since_moved_still_marks_the_key() {
     let dir = press("ret-press-moved", false);
-    let log = PathBuf::from(format!("{}.check.log", dir.display()));
+    let log = Scratch::adopt(PathBuf::from(format!("{}.check.log", dir.display())));
     let _ = std::fs::remove_file(&log);
     let mut s = Serve::start(&dir, &[("EXACT_FORMA_CHECK_LOG", log.to_str().unwrap())]);
     let write = |s: &mut Serve, name: &str, to: &str| {
@@ -874,7 +875,7 @@ fn a_failure_of_files_since_moved_still_marks_the_key() {
 #[test]
 fn a_scrubs_frames_never_clear_a_key_the_files_left() {
     let dir = press("ret-press-scrub-left", false);
-    let log = PathBuf::from(format!("{}.check.log", dir.display()));
+    let log = Scratch::adopt(PathBuf::from(format!("{}.check.log", dir.display())));
     let _ = std::fs::remove_file(&log);
     let mut s = Serve::start(&dir, &[("EXACT_FORMA_CHECK_LOG", log.to_str().unwrap())]);
     edit(&dir, "scale = one", "scale = zero");

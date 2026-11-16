@@ -45,7 +45,9 @@ pub fn call(
             text,
             |name| {
                 pairs
-                    .chunks_exact(2)
+                    .as_chunks::<2>()
+                    .0
+                    .iter()
                     .find(|pair| pair[0].as_str() == Some(name))
                     .and_then(|pair| pair[1].as_str())
             },

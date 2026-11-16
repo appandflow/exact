@@ -408,15 +408,18 @@ function imageOptions(method, from, to, options, limits) {
   }
   return out;
 }
+// `maxBytes` and `quality` may each be unsaid, not both (LLP 1069.002 A1.12).
 function compressLimits(from, to, options) {
-  const api = 'storage.fs.compressImage()', d = options?.maxDimension, b = options?.maxBytes;
+  const api = 'storage.fs.compressImage()', d = options?.maxDimension, b = options?.maxBytes, q = options?.quality;
   if (typeof from !== 'string' || typeof to !== 'string') return new TypeError(`${api}: from and to must be app:/ paths`);
-  if (!options || typeof options !== 'object') return new TypeError(`${api}: options must be {maxDimension, maxBytes}`);
+  if (!options || typeof options !== 'object') return new TypeError(`${api}: options must be an object`);
   if (!Number.isInteger(d) || d < 1 || d > 8192) return new TypeError(`${api}: maxDimension must be an integer from 1 to 8192`);
-  if (!Number.isInteger(b) || b < 1 || b > 67108864) return new TypeError(`${api}: maxBytes must be an integer from 1 to 67108864`);
+  if (b !== undefined && (!Number.isInteger(b) || b < 1 || b > 67108864)) return new TypeError(`${api}: maxBytes must be an integer from 1 to 67108864`);
+  if (q !== undefined && !(typeof q === 'number' && q >= 0 && q <= 1)) return new TypeError(`${api}: quality must be a number from 0 to 1`);
+  if (b === undefined && q === undefined) return new TypeError(`${api}: needs maxBytes, quality or both`);
   const type = options.type === undefined ? 'image/jpeg' : options.type;
   if (type !== 'image/jpeg' && type !== 'image/png') return new TypeError(`${api}: type must be "image/jpeg" or "image/png"`);
-  return { maxDimension: d, maxBytes: b, type };
+  return { maxDimension: d, type, ...(b === undefined ? {} : { maxBytes: b }), ...(q === undefined ? {} : { quality: q }) };
 }
 const optionsRefusal = (...args) => { const out = imageOptions(...args); return out instanceof Error ? out : null; };
 const isDocument = args => args.slice(0, 2).some(p => typeof p === 'string' && p.startsWith('doc:/'));
@@ -463,9 +466,13 @@ function renderStorage(owner) {
   };
   return Object.freeze({ fs: Object.freeze({ directories: DIRECTORIES, ...fs, watch }), sqlite: Object.freeze({ open: refuse('storage.sqlite.open()') }), work: promise => Promise.resolve(promise) });
 }
+// False in a production page whose sources hold no `fs.read`, `fs.write` or `sqlite.open` grant (build.mjs
+// `storageGrants`, LLP 1047.002 D3): its bundle keeps the refusals below and drops what only a grant reaches, the
+// adapters, the SQLite handles and the topics a write tells the app's other tabs.
+const STORAGE_GRANTED = true;
 function storageOf(grants) {
   const ordinary = start => answering.ordinary(start, true);
-  const admitted = ['fs-read', 'fs-write', 'sqlite-open'].some(kind => hasGrant(grants, kind));
+  const admitted = STORAGE_GRANTED && ['fs-read', 'fs-write', 'sqlite-open'].some(kind => hasGrant(grants, kind));
   let fs, sqlite;
   const key = () => import('./storage-environment.js').then(({ storageKey, agentStorageRefusal }) => {
     const k = appId ? storageKey(appId) : null;
@@ -503,7 +510,8 @@ function storageOf(grants) {
   const image = (method, from, to, options, limits) => {
     const out = imageOptions(method, from, to, options, limits);
     if (out instanceof Error) return Promise.reject(out);
-    return (admitted ? queued(`${method} ${from}`, () => files().then(f => f[method](from, to, out))) : denied(`fs.${method}`)).catch(refused)
+    if (!admitted) return denied(`fs.${method}`).catch(refused);
+    return queued(`${method} ${from}`, () => files().then(f => f[method](from, to, out))).catch(refused)
       .then(written => { shared.relay(fileTopics(written?.path ?? to)); return written; });
   };
   const compressImage = (from, to, options) => {
@@ -533,9 +541,11 @@ function storageOf(grants) {
         const wrongExpect = expectRefusal(m, args);
         if (wrongExpect) return Promise.reject(wrongExpect);
         const captured = structuredClone(args);
+        // With no storage grant no tab of the app writes a file, so a refused call watches no topic and tells none.
+        if (!admitted) return denied(`fs.${m}`, isDocument(captured) && !copiesIn(m, captured)).catch(refused);
         const run = () => copiesIn(m, captured) ? documents().then(files).then(f => globalThis.exact.documents.copyFile(captured[0], captured[1], grants, f))
           : isDocument(captured) ? documents().then(f => f[m](...captured)) : files().then(f => f[m](...captured), orEmpty(m, captured[0]));
-        const done = (admitted ? queued(`${m}${typeof args[0] === 'string' ? ` ${args[0]}` : ''}`, run) : denied(`fs.${m}`, isDocument(captured) && !copiesIn(m, captured))).catch(refused);
+        const done = queued(`${m}${typeof args[0] === 'string' ? ` ${args[0]}` : ''}`, run).catch(refused);
         const topics = [...(m === 'copyFile' ? [] : fileTopics(captured[0])), ...(/^(rename|copyFile)$/.test(m) ? fileTopics(captured[1]) : [])];
         if (!FILE_WRITES.test(m)) { shared.watch(topics); return done; }
         return done.then(v => { shared.relay(topics); return v; });

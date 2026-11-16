@@ -1,17 +1,24 @@
 // Authored expects over a tree (agent-test.mjs): a node the tree carries but the
 // shipped app does not show — a header node the iOS navigation bar leaves out,
 // which the agent's own chrome still paints — fails, and says why (LLP 1116 D2).
-import { test, expect } from 'bun:test';
+import { afterAll, test, expect } from 'bun:test';
 import { spawnSync } from 'node:child_process';
 import { createServer } from 'node:http';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { createInterface } from 'node:readline';
+import { Readable } from 'node:stream';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { backendFetchPrefixes, churnLines, disabledExpectation, focusedExpectation, nativeFetchOrigins, NO_FAILURES, perfExpectation, pickHint, propertyHolds, testMutationClock, refusalExpectation, refuseDisabled, runTests, stateHolds, serverRequest, testScope, textExpectation, treeExpectation, unarranged } from './agent-test.mjs';
+import { failureMark, backendFetchPrefixes, churnLines, disabledExpectation, focusedExpectation, nativeFetchOrigins, NO_FAILURES, perfExpectation, pickHint, propertyHolds, testMutationClock, refusalExpectation, refuseDisabled, runTests, stateHolds, serverRequest, testScope, textExpectation, treeExpectation, unarranged } from './agent-test.mjs';
 import { axFindings } from './agent-ax.mjs';
 import { withEpoch } from './agent-launch.mjs';
 import { serveBuildTree } from '../host/web/serve.mjs';
+import { sitePages } from '../host/web-js/render.mjs';
 import { fileURLToPath } from 'node:url';
+// A fixture's build can fail before the `try` that removes its directory.
+const scratches = [];
+const scratch = (prefix) => { const dir = mkdtempSync(join(tmpdir(), prefix)); scratches.push(dir); return dir; };
+afterAll(() => { for (const dir of scratches) rmSync(dir, { recursive: true, force: true }); });
 
 test('always predicates preserve JSON types, option kinds and the previous state', () => {
   const state = { slots: { n: 2, flag: false, absent: null, answer: { ok: true }, empty: [], text: '2' }, derives: { doubled: 4 } };
@@ -34,7 +41,7 @@ test('always predicates preserve JSON types, option kinds and the previous state
 });
 
 test('device properties see boot, typing and clock changes, and reset stays between tests', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'exact-properties-')), contract = join(dir, 'app.contract'), file = join(dir, 'app.test.contract');
+  const dir = scratch('exact-properties-'), contract = join(dir, 'app.contract'), file = join(dir, 'app.test.contract');
   const plan = join(dir, 'app.plan'), dist = join(dir, 'dist');
   writeFileSync(contract, `component App
   state ready = true
@@ -176,6 +183,284 @@ test('the fetch-loading-error recipe passes its own test', async () => {
     rmSync(dir, { recursive: true, force: true });
   }
 }, 180_000);
+
+test('authored HTTP fixtures precede the first resource load, survive reload and reset between tests', async () => {
+  const root = fileURLToPath(new URL('..', import.meta.url)), dir = scratch('exact-http-fixture-');
+  const dist = join(dir, 'dist'), file = join(dir, 'app.test.contract');
+  let requests = 0;
+  const server = createServer((req, res) => {
+    if (req.url === '/greeting') { requests++; res.writeHead(200, {'content-type': 'application/json', 'cache-control': 'no-store'}); res.end('{"text":"Live greeting"}'); }
+    else serveBuildTree(dist, req, res);
+  });
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  const origin = `http://127.0.0.1:${server.address().port}`, prefix = `${origin}/greeting`;
+  try {
+    writeFileSync(join(dir, 'app.json'), JSON.stringify({ name: 'HTTP Fixture', app: {id: 'test.http-fixture', name: 'HTTP Fixture'}, host: {web: {}}, rust: false }));
+    writeFileSync(join(dir, 'app.contract'), `routes nav
+  home "/" render=build
+shape Greeting
+  text: string
+component Rest
+  resource greeting = greeting() as shape Greeting
+  action retry
+    refresh greeting
+  view
+    column
+      if failed(greeting)
+        text "Offline" testId="greeting"
+      else
+        text greeting.text testId="greeting"
+      button "Retry" testId="retry" press=retry
+`);
+    writeFileSync(join(dir, 'app.ts'), `export const grants = 'net.fetch ${origin}';
+export async function answer() {
+  const response = await fetch('${prefix}');
+  if (!response.ok) return {text: 'HTTP ' + response.status + ': ' + await response.text()};
+  return await response.json();
+}`);
+    writeFileSync(file, `test "fixture before boot and after reload"
+  answer fetch "${prefix}" with 200 header "x-fixture" "yes" {"text":"Stubbed greeting"}
+  expect text "greeting" == "Stubbed greeting"
+  reload
+  expect text "greeting" == "Stubbed greeting"
+  fail fetch "${prefix}"
+  tap "retry"
+  clock data
+  expect text "greeting" == "Offline"
+  reload
+  expect text "greeting" == "Offline"
+  answer fetch "${prefix}" with 503 "unavailable"
+  tap "retry"
+  clock data
+  expect text "greeting" == "HTTP 503: unavailable"
+  expect no failures
+  reload
+  expect text "greeting" == "HTTP 503: unavailable"
+  pass fetch "${prefix}"
+  reload
+  expect text "greeting" == "Live greeting"
+test "fresh fixture"
+  answer fetch "${prefix}" with 200 {"text":"Second fixture"}
+  expect text "greeting" == "Second fixture"
+test "no fixture leaks"
+  expect text "greeting" == "Live greeting"
+test "unrelated fault preserves the rendered answer"
+  fail fetch "${origin}/unrelated"
+  expect text "greeting" == "Live greeting"
+  reload
+  expect text "greeting" == "Live greeting"
+`);
+    const build = Bun.spawn([process.execPath, 'host/web-js/build.mjs', 'http-fixture', '--out', dist, '--render', 'js'], {cwd: root, env: {...process.env, EXACT_APP_DIR: dir}, stdout: 'pipe', stderr: 'pipe'});
+    const [status, stdout, stderr] = await Promise.all([build.exited, new Response(build.stdout).text(), new Response(build.stderr).text()]);
+    expect(status, stdout + stderr).toBe(0);
+    const html = readFileSync(join(dist, 'index.html'), 'utf8');
+    expect(html).toContain('Live greeting');
+    expect(html).toContain('application/vnd.exact.checkpoint');
+    expect(requests).toBe(1);
+    const result = await runTests({host: 'web', app: dir, file, webDist: dist, url: `${origin}/`, env: {XDG_CACHE_HOME: join(dir, 'cache')}});
+    expect(result.results.map(t => t.failures)).toEqual([[], [], [], []]);
+    expect([result.passed, result.failed, requests]).toEqual([4, 0, 2]);
+    writeFileSync(file, `test "successful transport with an invalid source answer"
+  answer fetch "${prefix}" with 200 {"wrong":true}
+  expect no failures
+`);
+    const refused = await runTests({host: 'web', app: dir, file, webDist: dist, url: `${origin}/`, env: {XDG_CACHE_HOME: join(dir, 'cache')}});
+    expect(refused.failed).toBe(1);
+    expect(refused.results[0].failures.join(' ')).toContain('greeting');
+  } finally { await new Promise(resolve => server.close(resolve)); }
+}, 180_000);
+
+test.each(['declared', 'promise'])('%s rendered sources use HTTP fixtures at launch and reload', async kind => {
+  const root = fileURLToPath(new URL('..', import.meta.url)), dir = scratch('exact-rendered-fixture-');
+  const dist = join(dir, 'dist'), file = join(dir, 'app.test.contract');
+  let requests = 0;
+  const server = createServer((req, res) => {
+    if (req.url === '/greeting/hello%20world') { requests++; res.writeHead(200, {'content-type': 'application/json', 'cache-control': 'no-store'}); res.end('{"text":"Live greeting"}'); }
+    else serveBuildTree(dist, req, res);
+  });
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  const origin = `http://127.0.0.1:${server.address().port}`, url = `${origin}/greeting/hello%20world`;
+  try {
+    writeFileSync(join(dir, 'app.json'), JSON.stringify({ name: 'Rendered Fixture', app: {id: 'test.rendered-fixture', name: 'Rendered Fixture'}, host: {web: {}}, rust: false }));
+    writeFileSync(join(dir, 'app.contract'), `routes nav
+  home "/" render=build
+shape Greeting
+  text: string
+${kind === 'declared' ? `source greeting(name: string) as shape Greeting
+  url "${origin}/greeting/{name}"
+` : ''}component Rest
+  resource greeting = greeting("hello world") as shape Greeting
+  view
+    text greeting.text testId="greeting"
+`);
+    if (kind === 'promise') writeFileSync(join(dir, 'app.ts'), `export const grants = 'net.fetch ${origin}';
+export function answer() { return Promise.resolve().then(() => fetch('${url}')).then(r => r.json()); }
+`);
+    writeFileSync(file, `test "fixture at launch and reload"
+  answer fetch "${url}" with 200 {"text":"Stubbed greeting"}
+  expect text "greeting" == "Stubbed greeting"
+  reload
+  expect text "greeting" == "Stubbed greeting"
+`);
+    const build = Bun.spawn([process.execPath, 'host/web-js/build.mjs', 'rendered-fixture', '--out', dist, '--render', 'js'], {cwd: root, env: {...process.env, EXACT_APP_DIR: dir}, stdout: 'pipe', stderr: 'pipe'});
+    const [status, stdout, stderr] = await Promise.all([build.exited, new Response(build.stdout).text(), new Response(build.stderr).text()]);
+    expect(status, stdout + stderr).toBe(0);
+    expect(readFileSync(join(dist, 'index.html'), 'utf8')).toContain('Live greeting');
+    expect(requests).toBe(1);
+    const result = await runTests({host: 'web', app: dir, file, webDist: dist, url: `${origin}/`, env: {XDG_CACHE_HOME: join(dir, 'cache')}});
+    expect(result.results.map(t => t.failures)).toEqual([[]]);
+    expect([result.passed, result.failed, requests]).toEqual([1, 0, 1]);
+  } finally { await new Promise(resolve => server.close(resolve)); }
+}, 180_000);
+
+test.each([['rust', 0, 'chrome'], ['rust', 20 * 1024, 'chrome'], ['rust', 20 * 1024, 'firefox'], ['rust', 20 * 1024, 'webkit'], ['js', 0, 'chrome'], ['rust', 60 * 1024, 'chrome', 'cached'], ['js', 60 * 1024, 'chrome', 'cached']])('%s request rendering keeps %i-byte fixtures local on %s through launch and reload', async (how, padding, browser, policy = 'request') => {
+  const root = fileURLToPath(new URL('..', import.meta.url)), dir = scratch('exact-rust-fixture-');
+  const dist = join(dir, 'dist'), file = join(dir, 'app.test.contract');
+  let requests = 0, configs = 0, renderer, lines, server;
+  const heard = [];
+  let report;
+  const reported = new Promise(resolve => { report = resolve; });
+  const probe = `<script>
+    const present = Object.hasOwn(globalThis, '__exactLaunchFaults');
+    if (top === self) fetch('/report?present=' + present);
+    else parent.postMessage({fixtureProbe: true, present}, '*');
+  </script>`;
+  const backend = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch(req) {
+    if (new URL(req.url).pathname === '/probe') return new Response(probe, {headers: {'content-type': 'text/html'}});
+    if (new URL(req.url).pathname === '/report') { report(new URL(req.url).searchParams.get('present') === 'true'); return new Response('ok'); }
+    if (new URL(req.url).pathname === '/config') { configs++; return Response.json({text: 'Server-only config'}); }
+    requests++; return Response.json({text: 'Live greeting'}, {headers: {'access-control-allow-origin': '*', 'cache-control': 'public, max-age=60'}});
+  } });
+  const prefix = new URL('greeting', backend.url).href;
+  const stop = async () => {
+    if (renderer) { renderer.kill('SIGTERM'); await renderer.exited; renderer = null; }
+    lines?.close();
+    if (server) { await new Promise(resolve => server.close(resolve)); server = null; }
+  };
+  try {
+    writeFileSync(join(dir, 'app.json'), JSON.stringify({ name: 'Rust Fixture', app: {id: 'com.exact.caltrain', name: 'Rust Fixture'}, host: {web: {csp: false}}, rust: false }));
+    writeFileSync(join(dir, 'app.contract'), `routes nav
+  home "/" render=${policy}
+shape Greeting
+  text: string
+source greeting() as shape Greeting
+  url "${prefix}"
+source config() as shape Greeting
+  url "${new URL('config', backend.url).href}"
+component App
+  resource config = config() as shape Greeting
+  resource greeting = greeting() as shape Greeting
+  view
+    column
+      text greeting.text testId="greeting"
+      text config.text testId="config"
+`);
+    const build = async production => {
+      const child = Bun.spawn([process.execPath, 'host/web-js/build.mjs', 'rust-fixture', '--out', dist, '--render', how === 'js' ? 'js' : 'none', ...(production ? ['--production'] : [])], {cwd: root, env: {...process.env, EXACT_APP_DIR: dir}, stdout: 'pipe', stderr: 'pipe'});
+      const [status, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
+      expect(status, stdout + stderr).toBe(0);
+    };
+    const start = async () => {
+      if (how === 'js') {
+        const pages = sitePages(dist);
+        server = createServer({maxHeaderSize: 128 * 1024}, (req, res) => serveBuildTree(dist, req, res, {pages}));
+        await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+        return `http://127.0.0.1:${server.address().port}/`;
+      }
+      const binary = join(process.env.CARGO_TARGET_DIR ?? join(root, 'target'), 'host-dev', 'caltrain-render');
+      renderer = Bun.spawn([binary, '--serve', dist, '--port', '0'], {cwd: root, stdout: 'pipe', stderr: 'pipe'});
+      const child = renderer, errors = new Response(child.stderr).text();
+      lines = createInterface({input: Readable.fromWeb(child.stdout)});
+      return new Promise((resolve, reject) => {
+        lines.on('line', line => { heard.push(line); const url = /http:\/\/[^/]+\//.exec(line)?.[0]; if (url) resolve(url); });
+        child.exited.then(async () => reject(new Error(`renderer ended: ${await errors}`)));
+      });
+    };
+    if (how === 'rust') {
+      const child = Bun.spawn(['cargo', 'build', '--profile', 'host-dev', '-p', 'caltrain-linux', '--bin', 'caltrain-render'], {cwd: root, stdout: 'pipe', stderr: 'pipe'});
+      const [status, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
+      expect(status, stdout + stderr).toBe(0);
+    }
+    await build(false);
+    mkdirSync(join(dist, '.exact', 'auth'), {recursive: true});
+    writeFileSync(join(dist, '.exact', 'auth', 'probe.html'), probe);
+    const url = await start();
+    expect(await (await fetch(new URL('/.exact/auth/probe.html', url))).text()).toBe(probe);
+    const live = await fetch(url);
+    const html = await live.text();
+    expect(live.status, html + heard.join('\n')).toBe(200);
+    expect(html).toContain('Live greeting');
+    expect(requests).toBe(1);
+    requests = 0;
+    const shell = await fetch(new URL('/?agent=1&failFetch=1', url));
+    expect(shell.status).toBe(400);
+    expect(await shell.text()).not.toContain('<script type="application/vnd.exact.checkpoint"');
+    expect(requests).toBe(0);
+    const response = {status: 200, headers: {'content-type': 'application/json', 'cache-control': 'public, max-age=60'}, body: '{"text":"Rendered fixture"}'};
+    const headers = {'x-exact-faults': Buffer.from([prefix, '-', '-', 0, 1, JSON.stringify(response), 0].join('\t')).toString('base64')};
+    const rendered = await fetch(new URL('/?agent=1&failFetch=1', url), {headers});
+    const renderedHTML = await rendered.text();
+    expect(rendered.status, renderedHTML).toBe(200);
+    expect(rendered.headers.get('cache-control')).toBe('no-store');
+    expect(renderedHTML).toContain('Rendered fixture');
+    expect(renderedHTML).toContain('Server-only config');
+    expect(renderedHTML).toContain('<script type="application/vnd.exact.checkpoint"');
+    expect(requests).toBe(0);
+    const body = JSON.stringify({text: 'Stubbed greeting', padding: 'é&'.repeat(padding / 3)});
+    writeFileSync(file, `test "request fixture at launch and reload"
+  answer fetch "${prefix}" with 200 header "cache-control" "public, max-age=60" ${body}
+  expect text "greeting" == "Stubbed greeting"
+  expect text "config" == "Server-only config"
+  reload
+  expect text "greeting" == "Stubbed greeting"
+  expect text "config" == "Server-only config"
+  answer fetch "${prefix}" with 200 {"text":"Replacement greeting"}
+  reload
+  expect text "greeting" == "Replacement greeting"
+  expect text "config" == "Server-only config"
+`);
+    const result = await runTests({host: 'web', browser, app: dir, file, webDist: dist, url: new URL('/?appQuery=kept#anchor', url).href, env: {XDG_CACHE_HOME: join(dir, 'cache')}, atEnd: async session => {
+      await session.carrier.reset({session: true});
+      await session.clock('data');
+      const text = await session.carrier.evaluate('document.body.textContent');
+      expect(await session.carrier.evaluate('globalThis.__exactLaunchFaults')).toContain('Stubbed greeting');
+      const frames = await session.carrier.evaluate(`Promise.all(${JSON.stringify([new URL('/.exact/auth/probe.html', url).href, new URL('/probe', backend.url).href])}.map(src => new Promise(resolve => {
+        const frame = document.createElement('iframe');
+        const receive = event => {
+          if (event.source !== frame.contentWindow || !event.data.fixtureProbe) return;
+          removeEventListener('message', receive); frame.remove(); resolve(event.data.present);
+        };
+        addEventListener('message', receive); frame.src = src; document.body.append(frame);
+      })))`);
+      await session.carrier.evaluate(`location.assign(${JSON.stringify(new URL('/probe', backend.url).href)})`);
+      return {text, frames, external: await reported};
+    }});
+    expect(result.results.map(t => t.failures)).toEqual([[]]);
+    expect(result.results[0].end.error).toBeUndefined();
+    expect(result.results[0].end.text).toContain('Stubbed greeting');
+    expect([result.results[0].end.frames, result.results[0].end.external]).toEqual([[false, false], false]);
+    expect([result.passed, result.failed, requests]).toEqual([1, 0, 0]);
+    expect(await (await fetch(url)).text()).toContain('Live greeting');
+    expect(configs).toBeGreaterThan(1);
+    if (!padding) {
+      await stop();
+      await build(true);
+      const production = await fetch(new URL('/?agent=1&failFetch=1', await start()), {headers});
+      expect(production.status).toBe(200);
+      expect(await production.text()).toContain('Live greeting');
+      expect(requests).toBe(1);
+    }
+  } finally { await stop(); backend.stop(true); }
+}, 180_000);
+
+test('successful HTTP fixtures do not arrange resource failures', async () => {
+  const mark = await failureMark({
+    state: async () => ({ faults: [{prefix: 'https://api.test/', hits: 1, response: {status: 200}}],
+      failures: { greeting: {count: 1} }, failed: {greeting: 'Invalid greeting'} }),
+    op: async () => ({next: 0}),
+  });
+  expect(unarranged(NO_FAILURES, mark)).toEqual(['resource greeting was refused once (Invalid greeting)']);
+});
 
 test('a pick with no picker held names the step that holds one on its host', () => {
   expect(pickHint('web')).toContain('tap the visible file input or a button');
@@ -389,6 +674,7 @@ component App
         column navigationKey=\`\${e.id}\`
           text e.url
 `);
+  // A reload restores the earlier visits as well as the top route (#527).
   writeFileSync(file, `test "reload keeps earlier visits" on web
   type "root" "/item/one"
   expect state depth == 2
@@ -401,7 +687,7 @@ component App
   clock +60000
   reload
   expect state url == "/item/two"
-  expect state depth == 2
+  expect state depth == 3
   tap "root" history -1
   expect state url == "/item/one"
   tap "root" history -1
@@ -585,13 +871,16 @@ test "an expected refusal before reload does not accept the next journal"
   } finally { server.close(); rmSync(dir,{recursive:true,force:true}); }
 },180_000);
 
-test('authored media preferences apply before observations, override by name, and survive reload', async () => {
+test('authored preferences use the drive parser, override by name, and survive reload', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'exact-test-media-'));
   const contract = join(dir, 'app.contract'), plan = join(dir, 'app.plan'), dist = join(dir, 'dist'), file = join(dir, 'app.test.contract');
   writeFileSync(contract, `shape Viewport
   prefersColorScheme: string
   prefersReducedMotion: bool
+shape Page
+  onLine: bool
 component App
+  resource page = exactPage() as shape Page
   resource viewport = exactViewport() as shape Viewport
   view
     column
@@ -632,7 +921,15 @@ test "invalid later value"
   expect text "scheme" == "dark"
   prefer prefers-color-scheme banana
 
-test "page facts are outside the test media grammar"
+test "page facts use the drive parser"
+  prefer online false
+  expect state page.onLine == false
+  reload
+  expect state page.onLine == false
+  prefer online true
+  expect state page.onLine == true
+  reload
+  expect state page.onLine == true
   prefer online false
 
 test "a failure does not stop the next test"
@@ -653,6 +950,9 @@ test "invalid text size"
 
 test "text size does not leak into another test"
   expect text "scheme" == "dark"
+
+test "a host refuses an unsupported page fact"
+  prefer keyboard-navigation true
 `);
   const root = fileURLToPath(new URL('..', import.meta.url));
   const compile = spawnSync(join(process.env.CARGO_TARGET_DIR ?? join(root, 'target'), 'debug', 'contract'), ['build', contract, '-o', plan], { cwd: root, encoding: 'utf8' });
@@ -673,25 +973,39 @@ test "text size does not leak into another test"
       await t.restart();
       expect(textExpectation((await s.tree()).nodes, 'scheme', dark ? 'dark' : 'light')).toBeNull();
       expect(await rootSize()).toBe(fontSize);
+      if (t.launch.media.online != null) expect((await s.state()).resources.page.onLine).toBe(false);
       ends.push(t.launch.media);
       return {};
     } });
-    expect(r.results.map(t => t.end?.error)).toEqual(Array(11).fill(undefined));
-    expect(r.results.map(t => t.failures.length)).toEqual([0, 0, 1, 1, 1, 1, 0, 0, 0, 1, 0]);
+    expect(r.results.map(t => t.end?.error)).toEqual(Array(12).fill(undefined));
+    expect(r.results.map(t => t.failures.length)).toEqual([0, 0, 1, 1, 1, 0, 0, 0, 0, 1, 0, 1]);
     for (const [index, line, name, value] of [[2, 24, 'prefers-color-scheme', 'banana'], [3, 28, 'unknown', 'dark'], [4, 33, 'prefers-color-scheme', 'banana']]) {
       const hint = name === 'unknown' ? 'did you mean `prefer prefers-color-scheme dark`? ' : '';
       expect(r.results[index].failures[0]).toContain(`line ${line}: prefer: ${name} ${value}: ${hint}expected`);
     }
-    expect(r.results[5].failures[0]).toContain('test prefer: expected a CSS media feature');
     expect(r.results[9].failures[0]).toContain('prefer: root-font-size 0: expected');
+    expect(r.results[11].failures[0]).toContain('prefer: keyboard-navigation: true is not a page fact this host sets');
+    expect(r.results[11].failures[0]).not.toContain('test prefer:');
     expect(ends).toEqual([
       { 'prefers-color-scheme': 'light', 'prefers-reduced-motion': 'reduce' },
       { 'prefers-color-scheme': 'light', 'prefers-reduced-motion': 'reduce' },
+      { 'prefers-color-scheme': 'dark', 'prefers-reduced-motion': 'reduce', online: false },
       { 'prefers-color-scheme': 'dark', 'prefers-reduced-motion': 'reduce' },
-      { 'prefers-color-scheme': 'dark', 'prefers-reduced-motion': 'reduce', 'root-font-size': '24' },
-      { 'prefers-color-scheme': 'dark', 'prefers-reduced-motion': 'reduce', 'root-font-size': '28px' },
+      { 'prefers-color-scheme': 'dark', 'prefers-reduced-motion': 'reduce', 'root-font-size': 24 },
+      { 'prefers-color-scheme': 'dark', 'prefers-reduced-motion': 'reduce', 'root-font-size': 28 },
       { 'prefers-color-scheme': 'dark', 'prefers-reduced-motion': 'reduce' },
     ]);
+    for (const [inherited, own] of [['displayScale', 'display-scale'], ['display-scale', 'displayScale']]) {
+      writeFileSync(file, `prefer ${inherited} "2"
+test "scale override before launch"
+  prefer ${own} "1"
+  expect text "scheme" == "light"
+  reload
+  expect text "scheme" == "light"
+`);
+      const overridden = await runTests({ host: 'web', file, app: 'caltrain', url: `http://127.0.0.1:${server.address().port}/` });
+      expect(overridden.results.map(t => t.failures)).toEqual([[]]);
+    }
   } finally { server.close(); rmSync(dir, { recursive: true, force: true }); }
 }, 180_000);
 
@@ -983,6 +1297,28 @@ test('replay selects the original ordinal among duplicate names and host variant
   } finally {rmSync(dir, {recursive:true, force:true});}
 }, 30000);
 
+test('at keeps the origin of a remote web test', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'exact-remote-at-')), script = join(dir, 'check.mjs');
+  writeFileSync(join(dir, 'app.contract'), 'component App\n  view\n    text "Test"\n');
+  writeFileSync(join(dir, 'app.test.contract'), 'test "remote route"\n  at "/settings?panel=account#name"\n  expect state ready == true\n');
+  writeFileSync(script, `
+    import assert from 'node:assert/strict';
+    import { mock } from 'bun:test';
+    const urls = [];
+    mock.module(${JSON.stringify(fileURLToPath(new URL('./agent.mjs', import.meta.url)))}, () => ({ open: async options => {
+      urls.push(options.url);
+      return {host:'web',now:0,op:async()=>({clock:0,lines:[]}),clock:async()=>({}),state:async()=>({mutationRequests:0,slots:{ready:true}}),logs:async()=>({lines:[]}),close:async()=>{}};
+    }}));
+    const {runTests} = await import(${JSON.stringify(fileURLToPath(new URL('./agent-test.mjs', import.meta.url)))});
+    const result = await runTests({host:'web',app:${JSON.stringify(dir)},file:${JSON.stringify(join(dir, 'app.test.contract'))},url:'http://fixture.invalid:4321/'});
+    assert.equal(result.failed, 0, JSON.stringify(result));
+    assert.deepEqual(urls, ['http://fixture.invalid:4321/settings?panel=account#name']);
+  `);
+  try {
+    const result = spawnSync(process.execPath, [script], { encoding: 'utf8', timeout: 30000 });
+    expect(result.status, result.stdout + result.stderr).toBe(0);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+}, 30000);
 test('the APK carrier skips a test that names a size, saying why, and refuses a drive\'s --size (#547)', () => {
   const dir = mkdtempSync(join(tmpdir(), 'exact-test-apk-size-')), script = join(dir, 'check.mjs');
   writeFileSync(join(dir, 'app.contract'), 'component App\n  view\n    text "Test"\n');
@@ -1013,3 +1349,37 @@ test('the APK carrier skips a test that names a size, saying why, and refuses a 
     expect(r.stdout).toContain('completed');
   } finally {rmSync(dir, {recursive:true, force:true});}
 }, 60000);
+test('single-value page facts replay by canonical name and drive-only forms are refused', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'exact-test-page-')), script = join(dir, 'check.mjs');
+  writeFileSync(join(dir, 'app.contract'), 'component App\n  view\n    text "Test"\n');
+  const pageFacts = {frozen:'false', 'visibility-state':'hidden', online:'false', 'can-share':'false', 'can-share-files':'false', 'can-share-pictures':'false', 'can-open-files':'false', 'iframe-partition':'false', 'has-focus':'false', 'keyboard-navigation':'true', 'bold-text':'true', 'root-font-size':'24px', 'display-scale':'2', 'gpu-tier':'low'};
+  const driveOnly = {posture:'folded', segments:'2x1', gap:'40', mode:'density=compact', extension:'nfc.field=clear', Segments:'2x1', Mode:'density=compact', Extension:'nfc.field=clear'};
+  writeFileSync(join(dir, 'app.test.contract'), `test "page facts"\n${Object.entries(pageFacts).map(([name,value]) => `  prefer ${name} ${JSON.stringify(value)}\n`).join('')}  expect state ready == true\n  prefer Online true\n  prefer rootFontSize "28px"\n  reload\n  expect state ready == true\n${Object.entries(driveOnly).map(([name,value]) => `test "refuse ${name}"\n  prefer ${name} ${JSON.stringify(value)}\n`).join('')}`);
+  writeFileSync(script, `
+    import assert from 'node:assert/strict';
+    import {mock} from 'bun:test';
+    import {preferGroups} from ${JSON.stringify(fileURLToPath(new URL('./agent-prefer.mjs', import.meta.url)))};
+    let page, opens = 0, calls = [];
+    mock.module(${JSON.stringify(fileURLToPath(new URL('./agent.mjs', import.meta.url)))}, () => ({open: async () => {
+      opens++; page = {};
+      return {host:'linux', now:0, prefer:async facts=>{calls.push(facts); Object.assign(page,preferGroups(facts).page); return {};},
+        op:async()=>({clock:0,lines:[]}), clock:async()=>({}), state:async()=>({mutationRequests:0,slots:{ready:true}}),
+        logs:async()=>({lines:[]}), close:async()=>{}};
+    }}));
+    const {runTests} = await import(${JSON.stringify(fileURLToPath(new URL('./agent-test.mjs', import.meta.url)))});
+    const expected = {...preferGroups(${JSON.stringify(pageFacts)}).page, online:true, 'root-font-size':28};
+    const r = await runTests({host:'linux', app:${JSON.stringify(dir)}, file:${JSON.stringify(join(dir, 'app.test.contract'))},
+      atEnd:async(s,t)=>{if(t.name === 'page facts') {assert.deepEqual(page,expected); assert.deepEqual(t.launch.media,expected);} return {};}});
+    assert.equal(r.passed,1,JSON.stringify(r));
+    assert.equal(r.failed,${Object.keys(driveOnly).length},JSON.stringify(r));
+    assert.equal(r.results[0].end?.error,undefined);
+    for (const t of r.results.slice(1)) assert.match(t.failures[0],new RegExp(t.name.slice(7)+' is drive-only for now'));
+    assert.equal(opens,${Object.keys(driveOnly).length+2});
+    assert.equal(calls.length,${Object.keys(pageFacts).length*2+2});
+    assert.ok(calls.every(facts=>!Object.hasOwn(facts,'Online')&&!Object.hasOwn(facts,'rootFontSize')));
+  `);
+  try {
+    const r = spawnSync(process.execPath, [script], {encoding:'utf8', timeout:30000});
+    expect(r.status, r.stdout + r.stderr).toBe(0);
+  } finally {rmSync(dir, {recursive:true, force:true});}
+}, 30000);

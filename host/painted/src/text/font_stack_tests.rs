@@ -313,3 +313,34 @@ fn normal_metrics_follow_font_stretch_in_either_query_order() {
         }
     }
 }
+
+#[test]
+fn svg_family_ids_resolve_in_the_pictures_own_catalog() {
+    let loaded = exact_svg_file::load(r#"<svg><text font-family="MissingExactFont, monospace">Mono</text><text font-family="serif">Serif</text></svg>"#).unwrap();
+    let scene = loaded.scene(200.0, 40.0);
+    let mut catalog = fixture();
+    fonts::set_generic(
+        &mut catalog.fonts.collection,
+        fontique::GenericFamily::Monospace,
+        "Roboto Flex",
+    );
+    fonts::set_generic(
+        &mut catalog.fonts.collection,
+        fontique::GenericFamily::Serif,
+        "Inter",
+    );
+    let mut engine = TextEngine::with_catalog(catalog);
+    engine.install_runtime(9, &["Inter".into()]);
+    let text = engine.for_svg(&loaded.document.fonts);
+    let mut text = text.borrow_mut();
+    for (item, generic) in scene.items.iter().zip([6, 4]) {
+        let exact_kernel::svg::scene::Kind::Text(item) = &item.kind else {
+            panic!("text")
+        };
+        let run = &item.chunks[0].runs[0];
+        let face = text
+            .resolved_face_id(run.style.font_family, 400, false)
+            .expect("fixture generic face");
+        assert_eq!(Some(face), text.resolved_face_id(generic, 400, false));
+    }
+}

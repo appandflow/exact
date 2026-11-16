@@ -10,9 +10,10 @@
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
-import { basename, dirname, relative, resolve, sep } from 'node:path';
+import { basename, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { cargoEnvironment, lockedMetadata, pathFrom, patchLines } from './app.mjs';
+import { cargoEnvironment, lockedMetadata, pathFrom, patchLines, readManifest as readAppManifest } from './app.mjs';
+import { pathWithin } from './paths.mjs';
 import { nativePackages } from './package-libraries.mjs';
 import { MEMBER_OF, appCrates, authoredWorkspace, gpuShellsDir, notAMember, shellsDir } from './cargo-check.mjs';
 import { APPLE_BUILD_SCRIPT, appleBuildScript } from './linked-plan.mjs';
@@ -23,7 +24,7 @@ const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
  * takes `host.ios` (scripts/app.schema.json). */
 export const PLATFORMS = { ios: 'apple', macos: 'apple', linux: 'linux', android: 'android', windows: 'windows' };
 /** SDK dependencies whose names app and game crates may not take. */
-export const SDK_CRATES = new Set(['ibex2-sqlite', 'exact-logic', 'exact-apple', 'exact-apple-update', 'exact-js', 'exact-js-bake', 'exact-linux', 'exact-painted', 'exact-web', 'exact-web-capabilities', 'exact-js-web', 'exact-game-bake', 'exact-game-render']);
+export const SDK_CRATES = new Set(['ibex2-sqlite', 'exact-logic', 'exact-apple', 'exact-apple-update', 'exact-js', 'exact-js-bake', 'exact-linux', 'exact-painted', 'exact-painted-update', 'exact-web', 'exact-web-capabilities', 'exact-js-web', 'exact-game-bake', 'exact-game-render']);
 
 /** Authored host crates own their identity. Otherwise package.json keeps the scaffold's prefix across directory
  * and display-name changes; a caller's name or the folder supplies it for an app without a package manifest. */
@@ -73,7 +74,7 @@ const hostDefaults = (platform) => ({
   windows: { window: { width: 1024, height: 720, minWidth: 360, minHeight: 500 } },
 }[platform] ?? {});
 
-const readManifest = (dir) => JSON.parse(readFileSync(resolve(dir, 'app.json'), 'utf8'));
+const readManifest = (dir) => readAppManifest(dir, basename(dir));
 const writeManifest = (dir, manifest) => writeFileSync(resolve(dir, 'app.json'), JSON.stringify(manifest, null, 2) + '\n');
 
 /** Whether the manifest names the platform. */
@@ -149,16 +150,31 @@ export function rustDataOf(manifest) {
   return { krate: data.crate, ty, lib: ty.split('::')[0], source };
 }
 
+/** The refusal of an app with a Rust data crate that app.json's `rust.data` does not name (LLP 1153.003 D2). `found`
+ * says how the build knows the app has one; `crates` are the crates that may be it, each `{ name, manifest }`. The
+ * line to add names the first, or `<crate>` when there is none yet, and keeps the manifest's other `rust` fields (its
+ * string form is the mode). */
+export function undeclaredDataCrate(found, consequence, crates, manifest) {
+  const crate = crates[0] ?? { name: '<crate>' };
+  const lib = (() => { try { return Bun.TOML.parse(readFileSync(crate.manifest, 'utf8')).lib?.name; } catch { return undefined; } })() ?? (crates.length ? crate.name.replaceAll('-', '_') : '<library>');
+  const mode = typeof manifest.rust === 'string' ? manifest.rust : manifest.rust?.mode;
+  const among = crates.length > 1 ? ` (the data crate: one of ${crates.map(c => c.name).join(', ')})` : '';
+  return `${found}, and app.json names no rust.data: ${consequence}. Name the data crate and the source it answers with in app.json${among}, as apps/forma-host/app.json does:\n`
+    + `  "rust": { ${mode ? `"mode": ${JSON.stringify(mode)}, ` : ''}"data": { "crate": "${crate.name}", "type": "${lib}::<Type>", "source": "${lib}::<Type>::new(…)" } }\n`
+    + `"source" is the type itself, its ::default() (when "source" is left out) or its ::new(…) with literal arguments; a source `
+    + `built from anything else is a module of its own, named in rust.module.package (LLP 1153.003 D2).`;
+}
+
 /** A Rust-data app's host crate (LLP 1153.003 D2): the data crate the manifest names, linked, and the shared bake
  * (`exact_bake::host::app`) as its build script's one line; no exact-js, so no Hermes. `data.dependency` is the data
- * crate's dependency from the crate's directory. */
-function rustCrateFiles(kind, { name, title, dep, app, data }) {
+ * crate's dependency from the crate's directory; `updates` links the Android library's update store, as for app.ts. */
+function rustCrateFiles(kind, { name, title, dep, app, data, updates = false }) {
   const target = { web: `[lib]\ncrate-type = ["cdylib", "rlib"]`, apple: '[lib]\ncrate-type = ["rlib"]', android: '[lib]\ncrate-type = ["cdylib"]\ntest = false\nbench = false' }[kind]
     ?? `[[bin]]\nname = "${name}-${kind}"\npath = "src/main.rs"${kind === 'windows' ? '\ntest = false\nbench = false' : ''}`;
   // The web dev loop's resident driver bakes with the source's `default()` (`exact_web::dev::main`).
   const dev = kind === 'web' && data.source === `${data.ty}::default()`;
   const sdk = { web: ['logic', 'host/web', 'host/web-capabilities'], apple: ['vendor/ibex/crates/ibex2-sqlite', 'logic', 'host/apple', 'host/apple-update'],
-    linux: ['vendor/ibex/crates/ibex2-sqlite', 'logic', 'host/linux', 'host/painted'], android: ['vendor/ibex/crates/ibex2-sqlite', 'logic', 'host/painted'],
+    linux: ['vendor/ibex/crates/ibex2-sqlite', 'logic', 'host/linux', 'host/painted'], android: ['vendor/ibex/crates/ibex2-sqlite', 'logic', 'host/painted', ...updates ? ['host/painted-update'] : []],
     windows: ['vendor/ibex/crates/ibex2-sqlite', 'logic', 'host/windows', 'host/painted'] }[kind];
   const crateOf = path => ({ 'vendor/ibex/crates/ibex2-sqlite': 'ibex2-sqlite', logic: 'exact-logic', 'host/web-capabilities': 'exact-web-capabilities', 'host/apple-update': 'exact-apple-update' })[path] ?? `exact-${path.split('/').pop()}`;
   const dependencies = [...sdk.map(path => `${crateOf(path)} = ${dep(path)}`), `exact-data-host = ${dep('data/host')}`, `${data.krate} = ${data.dependency}`].join('\n');
@@ -201,8 +217,9 @@ const hostCrateFiles = (kind, options) => options.data && !options.typescript ? 
 
 /** A host crate's files, keyed by path under the crate's directory. `dep(path)` is a dependency's path from there and
  * `app` the app directory's, as Rust strings' content; `native` attaches the factory the bake writes for a package
- * that fills the native slot. */
-function crateFiles(kind, { name, title, dep, app, native = false, preload = false, data = null }) {
+ * that fills the native slot; `updates` links the Android library's update store (`deploy.store.android` "A",
+ * LLP 1030.006 D3), which a library at "0" does not carry. */
+function crateFiles(kind, { name, title, dep, app, native = false, preload = false, data = null, updates = false }) {
   const header = (target) => `[package]
 name = "${name}-${kind}"
 version.workspace = true
@@ -381,7 +398,7 @@ fn main() {
 ibex2-sqlite = ${dep('vendor/ibex/crates/ibex2-sqlite')}
 exact-logic = ${dep('logic')}
 exact-painted = ${dep('host/painted')}
-exact-js = ${dep('js')}
+${updates ? `exact-painted-update = ${dep('host/painted-update')}\n` : ''}exact-js = ${dep('js')}
 ${linked}
 ${build}`,
     'build.rs': data ? beside('android') : `fn main() {
@@ -405,8 +422,11 @@ mod android {
 
     ${module(false).replace(/\n(?=.)/g, '\n    ')}    include!(concat!(env!("OUT_DIR"), "/logic.rs"));
     include!(concat!(env!("OUT_DIR"), "/hatches.rs"));
+    // The home-screen widgets' JNI, when app.json declares any (LLP 1126.003 D9).
+    include!(concat!(env!("OUT_DIR"), "/widgets.rs"));
+    exact_widgets!(app_data());
 
-    exact_painted::canvas_jni!(super::AppData, hatches = crate::android::exact_hatches());
+    exact_painted::canvas_jni!(super::AppData, hatches = crate::android::exact_hatches()${updates ? ', updates = exact_painted_update::open' : ''});
 }
 `,
   };
@@ -449,12 +469,6 @@ export const authoredCrate = (dir, kind, name, title) =>
  * (LLP 1153 D1.4) whose script is still the first gets the second from `update` (game/new.mjs). */
 export const copiedBuildScripts = () => Object.fromEntries(Object.values(PLATFORMS).concat('web').filter((kind, i, all) => all.indexOf(kind) === i)
   .map(kind => [kind, ['../../..', '..'].map(app => crateFiles(kind, { name: 'app', title: 'App', app, dep: () => '' })['build.rs'])]));
-
-/** How a generated workspace at `from` names a path in this checkout: always relative, with `/`. Unlike an authored
- * workspace's (`pathFrom`), it is rewritten when the app or the checkout moves (its stamp names both), and a deploy's
- * capture keeps the two trees' relative places, where a path into the live checkout would leave the capture. */
-const pathWithin = (from, to) =>
-  (relative(realpathSync(from), existsSync(to) ? realpathSync(to) : resolve(to)) || '.').split(sep).join('/');
 
 const titleOf = name => name.split('-').map(w => w[0].toUpperCase() + w.slice(1)).join(' ');
 const stampOf = (shells) => { try { return JSON.parse(readFileSync(resolve(shells, '.stamp.json'), 'utf8')); } catch { return null; } };
@@ -528,6 +542,7 @@ export function ensureShells(dir, manifest = readManifest(dir), name = null) {
   const shells = shellsDir(dir), title = manifest.app?.name ?? manifest.name ?? titleOf(name);
   // The package that fills the native slot (LLP 1154 D3); the bake refuses two.
   const crates = shellCrates(manifest), native = nativePackages(dir).map(p => p.name), members = appMembers(dir, name);
+  const updates = manifest.deploy?.store?.android === 'A';
   // The paths written are relative (`pathWithin`), which reads real directories.
   for (const kind of crates) mkdirSync(resolve(shells, kind), { recursive: true });
   const copied = ['rust-toolchain.toml', '.cargo/config.toml'].map(file => [file, readFileSync(resolve(ROOT, file), 'utf8')]);
@@ -537,7 +552,14 @@ export function ensureShells(dir, manifest = readManifest(dir), name = null) {
   const data = rustDataOf(manifest), typescript = existsSync(resolve(dir, 'app.ts'));
   const dataCrate = data && members.host.find(member => member.name === data.krate);
   if (data && !dataCrate) throw new Error(`app.json's rust.data.crate is ${data.krate}, which is not a crate beside app.json that joins the app's workspace (package.workspace = "${MEMBER_OF.host}")`);
-  const options = (kind, app, dep) => ({ name, title, native: native.length > 0, preload: Object.keys(manifest.preload ?? {}).length > 0, app, dep, typescript,
+  // A crate the host links is the data crate or a helper of it (D1.1). Without rust.data no host crate links one, so
+  // unless a module of the app's own answers (rust.module.package), nothing answers the app's requests.
+  if (!data && !manifest.rust?.module?.package && members.host.length) {
+    const named = members.host.map(member => member.name).join(', ');
+    throw new Error(undeclaredDataCrate(`${dir}: ${named} beside app.json ${members.host.length > 1 ? 'join' : 'joins'} the app's generated workspace`,
+      'its host crates link a crate of the app\'s only as the data crate rust.data names, so they would answer none of the app\'s requests', members.host, manifest));
+  }
+  const options = (kind, app, dep) => ({ name, title, native: native.length > 0, preload: Object.keys(manifest.preload ?? {}).length > 0, app, dep, typescript, updates,
     data: data && { ...data, dependency: `{ path = ${JSON.stringify(pathWithin(resolve(shells, kind), dataCrate.dir))} }` } });
   // The inputs whose change rewrites the workspace: the app's path, the checkout's and its commit, the templates (this
   // module), the files copied from the checkout, its patch table and its lock (a dependency the SDK moved), the
@@ -546,6 +568,7 @@ export function ensureShells(dir, manifest = readManifest(dir), name = null) {
   const stamp = {
     exact2: ROOT, app: dir, commit, name, title, crates, native, members: own, data, typescript,
     ...(Object.keys(manifest.preload ?? {}).length ? { preload: true } : {}),
+    ...(updates ? { updates } : {}),
     inputs: createHash('sha256').update([readFileSync(fileURLToPath(import.meta.url), 'utf8'), APPLE_BUILD_SCRIPT, ...copied.map(([, text]) => text), ...patches, readFileSync(resolve(ROOT, 'Cargo.lock'), 'utf8')].join('\0')).digest('hex'),
   };
   besideApp(dir, members.host.length + members.gpu.length > 0);

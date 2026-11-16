@@ -18,6 +18,8 @@ mod dock;
 mod global_shortcuts;
 #[path = "../../../packages/login-item/windows/lib.rs"]
 mod login_item;
+#[path = "../../../packages/window-management/linux/lib.rs"]
+mod window_management;
 
 /// A session label and the callback `watch_reserved` was given for it.
 type Watcher = (String, Box<dyn Fn() + Send>);
@@ -305,4 +307,40 @@ fn a_print_screen_reader_is_asked_again_as_the_system_takes_it() {
             "unregister 1 snap PrintScreen",
         ]
     );
+}
+
+/// LLP 1178 D6: a host that fills its one display reports the presenter's
+/// viewport and scale as that display, and calls its watchers when either
+/// changes, not when the pointer moves.
+#[test]
+fn a_full_screen_display_is_the_viewport_and_tells_its_watchers_of_a_resize() {
+    use crate::desktop::{surface, Displays, FullScreen};
+    let screen = FullScreen {
+        label: "eDP-1".into(),
+        internal: true,
+    };
+    surface((800., 600.), 2., None);
+    let told = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let counted = told.clone();
+    screen.watch_displays(
+        "1",
+        Box::new(move || {
+            counted.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        }),
+    );
+    let s = screen.screens();
+    assert_eq!(
+        (s.screens[0].rect, s.screens[0].scale),
+        ([0., 0., 800., 600.], 2.)
+    );
+    assert!(s.screens[0].internal && s.screens[0].primary);
+    assert!(screen.pointer().is_none(), "no pointer drawn yet");
+    surface((800., 600.), 2., Some((10., 20.)));
+    assert_eq!(screen.pointer().map(|p| p.client), Some(Some([10., 20.])));
+    assert_eq!(told.load(std::sync::atomic::Ordering::Relaxed), 0);
+    surface((1024., 600.), 2., Some((10., 20.)));
+    assert_eq!(told.load(std::sync::atomic::Ordering::Relaxed), 1);
+    screen.unwatch_displays("1");
+    surface((800., 600.), 2., None);
+    assert_eq!(told.load(std::sync::atomic::Ordering::Relaxed), 1);
 }

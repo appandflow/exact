@@ -106,7 +106,11 @@ final class BuildHeld {
     let contrast = DisplayPreferences.agentContrast
     private(set) var sessions: [Session] = []
     #if os(macOS)
+    #if EXACT_AGENT
     let appearance = (system: Agent.systemAppearance, app: NSApp.appearance)
+    #else
+    let appearance = (system: Optional<NSAppearance>.none, app: NSApp.appearance)
+    #endif
     #else
     final class Scene { weak var scene: UIWindowScene?; let style: UIUserInterfaceStyle?, contrast: UIAccessibilityContrast?
         init(_ s: UIWindowScene) {
@@ -132,10 +136,14 @@ final class BuildHeld {
     /// The system appearance as it was: a pin's are set again over it.
     func restoreAppearance() {
         #if os(macOS)
+        #if EXACT_AGENT
         let following = Agent.followsSystem
         Agent.systemAppearance = appearance.system
         if following { NSApp.appearance = appearance.app }
         DisplayPreferences.changed()
+        #else
+        NSApp.appearance = appearance.app
+        #endif
         #else
         for held in scenes {
             guard let scene = held.scene else { continue }
@@ -240,11 +248,13 @@ extension ExactApp {
     /// refuses the pin's modes runs its own again, and it is reported.
     private func apply(_ pin: BuildPin?, to sessions: [ExactSession], _ held: BuildHeld) {
         DisplayPreferences.agentContrast = pin?.contrast ?? held.contrast
+        #if EXACT_AGENT
         for session in sessions where pin?.scheme != nil || pin?.contrast != nil {
             let agent = session.agentInstance
             if let scheme = pin?.scheme { agent.systemScheme(dark: scheme == "dark") }
             agent.systemContrast(more: DisplayPreferences.contrast == "more")
         }
+        #endif
         PageFacts.pinnedRootFontSize = pin?.rootFontSize
         for session in sessions { session.apply(session.runtime.setRootFontSize(PageFacts.rootFontSize)) }
         var refused: String?

@@ -433,6 +433,7 @@ final class NativeViews {
     /// and its views and calls work; no hatch is connected or called.
     static let hatchesOff = !ExactEnv.productionBake && ExactEnv.environment["EXACT_HATCHES"] == "off"
     private var entries: [UInt32: NativeEntry] = [:]
+    var isEmpty: Bool { entries.isEmpty }
     private var gateOpen = false
     private var waits: [UInt32: NativeWait] = [:]
     private var nextToken: UInt32 = 1
@@ -642,7 +643,9 @@ final class NativeViews {
 
     /// Where the module keeps its files: the app's roots, as the runtime
     /// configures storage, including a named agent store. An unnamed drive
-    /// gets a process-local tree. Temporary files survive named relaunches,
+    /// gets a process-local tree, made here: a package resolves an `app:/`
+    /// path by a walk that starts at an existing root (`AppFileWalk`), and
+    /// nothing else makes this one. Temporary files survive named relaunches,
     /// except the picker's separately managed `picked` directory.
     static func roots(session: ExactSession, agent: Bool = ExactEnv.agentMode,
                       namedStore: String? = ExactEnv.environment["EXACT_AGENT_STORAGE"]) -> (data: String, cache: String, temporary: String) {
@@ -653,7 +656,11 @@ final class NativeViews {
         let id = Bundle.main.bundleIdentifier ?? "app"
         if agent {
             let base = (NSTemporaryDirectory() as NSString).appendingPathComponent("exact-agent-\(getpid())-\(session.runtime.rt)")
-            return (base + "/data", base + "/cache", base + "/temporary")
+            let roots = (data: base + "/data", cache: base + "/cache", temporary: base + "/temporary")
+            for root in [roots.data, roots.cache, roots.temporary] {
+                try? FileManager.default.createDirectory(atPath: root, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+            }
+            return roots
         }
         let home = NSHomeDirectory()
         let cache = home + "/Library/Caches/exact/" + id
@@ -694,10 +701,9 @@ final class NativeViews {
         return "the app's native module artifact did not load: \(failure.message)"
     }
 
-    /// After first pixel, before data activates: load the artifact and make
-    /// the session's instance, so the first `native.call` pays for neither.
-    /// A first load of a freshly built dylib took 164 ms inside a call's
-    /// 100 ms budget (the sample host, 2026-09-27).
+    /// After first pixel, before data activates: load the app library and
+    /// make the session's instance. Packages wait for their first use
+    /// (LLP 1067.000.001).
     func prepareAppModule() {
         activateHatches()
         defer { if !hatchesConnected, pendingHatches == nil { session?.presenter.elements.releaseFrames() } } // they never will

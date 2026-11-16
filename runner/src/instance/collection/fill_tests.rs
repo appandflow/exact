@@ -2,6 +2,68 @@
 use super::*;
 
 #[test]
+fn offset_only_reports_do_not_walk_and_changed_geometry_and_pins_do() {
+    let mut h = Harness::new(1000, false, false);
+    h.send(h.feedback(641.));
+    let before = h.snapshot();
+    let walks = h.tree.collection_walks;
+    for n in 0..100 {
+        assert!(!h.send(h.feedback(641. + f64::from(n) / 100.)));
+    }
+    assert_eq!(h.tree.collection_walks, walks);
+    assert_eq!(h.snapshot().rows, before.rows);
+    assert_eq!(h.snapshot().revision, before.revision);
+    assert_eq!(h.snapshot().scroll_sequence, before.scroll_sequence + 100);
+
+    for input in 0..7 {
+        let mut f = h.feedback(642.);
+        let row = h.snapshot().rows[0].clone();
+        match input {
+            0 => f.measurements.push(RowMeasurement {
+                view: row.view,
+                epoch: row.epoch,
+                size: row.size + 20.,
+            }),
+            1 => f.cross += 10.,
+            2 => f.port_main += 10.,
+            3 => f.port_cross += 10.,
+            4 => f.padding[0] += 10.,
+            5 => f.focus_view = Some(row.root),
+            6 => f.interaction_view = Some(row.root),
+            _ => unreachable!(),
+        }
+        let walks = h.tree.collection_walks;
+        h.send(f);
+        assert_eq!(h.tree.collection_walks, walks + 1, "input {input}");
+        if input == 0 {
+            assert_eq!(h.snapshot().rows[0].size, row.size + 20.);
+        }
+    }
+    let walks = h.tree.collection_walks;
+    h.send(h.feedback(3200.));
+    assert_eq!(
+        h.tree.collection_walks,
+        walks + 1,
+        "the offset left its band"
+    );
+    assert!(h.snapshot().rows.iter().any(|r| r.index >= 100));
+
+    let mut h = Harness::new(1000, false, false);
+    h.send(h.feedback(641.));
+    let pin = h.snapshot().rows[0].root;
+    let mut f = h.feedback(641.);
+    f.focus_view = Some(pin);
+    h.send(f);
+    let walks = h.tree.collection_walks;
+    for n in 0..100 {
+        let mut f = h.feedback(641. + f64::from(n) / 100.);
+        f.focus_view = Some(pin);
+        assert!(!h.send(f));
+    }
+    assert_eq!(h.tree.collection_walks, walks, "an unchanged current pin");
+}
+
+#[test]
 fn a_limited_report_builds_what_it_owes_then_leads_in_travel_order() {
     let mut h = Harness::new(1_000, false, false);
     let rows = |h: &Harness| {

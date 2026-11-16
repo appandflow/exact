@@ -280,7 +280,7 @@ component Hero
     let served = serving(
         Server::bind(
             Serve {
-                dist: dir,
+                dist: dir.to_path_buf(),
                 port: 0,
                 name: "Hero".into(),
                 origin: None,

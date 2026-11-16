@@ -18,6 +18,7 @@ impl CameraPointer {
     pub fn feed(
         &mut self,
         w: &World,
+        poses: &PoseRows<'_>,
         camera: Option<Entity>,
         next_tick: bool,
         structure: bool,
@@ -26,7 +27,7 @@ impl CameraPointer {
         let look = camera.and_then(|e| w.get::<MouseLook>(e).map(|p| *p));
         let pan = camera.and_then(|e| w.get::<PointerPan>(e).map(|p| *p));
         let changed = self.camera != camera;
-        if changed || camera.is_some_and(|e| snap_in(w, e, chains)) {
+        if changed || camera.is_some_and(|e| poses.snap_in(e, chains)) {
             self.pan_interpolates = false;
         } else if next_tick {
             self.pan_interpolates = true;
@@ -44,11 +45,11 @@ impl CameraPointer {
             for (e, _) in w.query::<&Parent>().iter() {
                 let mut at = e;
                 for _ in 0..=w.len() {
-                    let Some(parent) = w.get::<Parent>(at).map(|p| p.0) else {
+                    let Some(parent) = poses.parents.get(at).map(|p| p.0) else {
                         break;
                     };
                     if parent == camera {
-                        if let Some(t) = pose(w, e) {
+                        if let Some(t) = poses.pose(e) {
                             self.kids.push(
                                 old.iter()
                                     .copied()
@@ -63,7 +64,7 @@ impl CameraPointer {
             }
         }
         for history in &mut self.kids {
-            history.update(w, next_tick, chains);
+            history.update(poses, next_tick, chains);
         }
     }
     /// `tick_move` is the camera's position change over the latest tick, the

@@ -3,7 +3,7 @@
 import { expect, onTestFinished, test } from 'bun:test';
 import { cpSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { createHash } from 'node:crypto';
 import { request } from 'node:http';
 import { spawnOwned } from './test-children.mjs';
@@ -57,7 +57,8 @@ test('T2: the canvas frames the dev loop\'s page, sandboxed, at the size chosen;
   await new Promise(ok => listener.listen(0, '127.0.0.1', ok));
   const port = listener.address().port;
   await new Promise(ok => listener.close(ok));
-  const dist = mkdtempSync(join(tmpdir(), 'exact-design-tool-canvas-dist-'));
+  // The build's lock and kept generations go beside its dist (serve.mjs `replaceBuild`): the dist sits in a directory of its own.
+  const dist = join(mkdtempSync(join(tmpdir(), 'exact-design-tool-canvas-dist-')), 'dist');
   const dev = spawnOwned(process.execPath, [resolve(ROOT, 'host/web/dev.mjs'), '--port', String(port)], { cwd: ROOT, env: { ...timed(CLOCKS), EXACT_APP_DIR: app, EXACT_WEB_DIST: dist }, stdio: ['ignore', 'pipe', 'pipe'] });
   let tool, other, driving = true, saidPlan = null;
   try {
@@ -163,6 +164,6 @@ test('T2: the canvas frames the dev loop\'s page, sandboxed, at the size chosen;
     if (tool) await stop(tool);
     await stop(dev);
     rmSync(app, { recursive: true, force: true });
-    rmSync(dist, { recursive: true, force: true });
+    rmSync(dirname(dist), { recursive: true, force: true });
   }
 }, 900_000);

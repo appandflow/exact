@@ -10,10 +10,12 @@ import { createHash } from 'node:crypto';
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { suiteBrowser } from '../../scripts/agent-launch.mjs';
+import { installLock } from '../../scripts/filesystem.mjs';
 import { appSources } from '../web/serve.mjs';
+import { loopWebDist } from '../../scripts/web-build.mjs';
 
 const ROOT = resolve(fileURLToPath(new URL('../..', import.meta.url)));
 const sha = text => createHash('sha256').update(text).digest('hex');
@@ -28,12 +30,13 @@ async function devLoop(dir, env = {}) {
   await new Promise(ok => listener.listen(0, '127.0.0.1', ok));
   const port = listener.address().port;
   await new Promise(ok => listener.close(ok));
-  const dist = mkdtempSync(join(tmpdir(), 'exact-js-builds-'));
+  // The build's lock and kept generations go beside its dist (serve.mjs `replaceBuild`): the dist sits in a directory of its own.
+  const dist = env.EXACT_WEB_DIST === '' ? loopWebDist({ dir, target: resolve(dir, 'target') }, 'js') : join(mkdtempSync(join(tmpdir(), 'exact-js-builds-')), 'dist');
   // Owned: ended with what it starts when the test ends, a timeout included (scripts/test-children.mjs).
   const dev = spawnOwned(process.execPath, [resolve(ROOT, 'host/web/dev.mjs'), '--app', dir, '--port', String(port)], { cwd: ROOT, env: { ...process.env, EXACT_WEB_DIST: dist, ...env }, stdio: ['ignore', 'pipe', 'pipe'] });
   const stop = async () => {
     await dev.stop(30_000);
-    rmSync(dist, { recursive: true, force: true });
+    rmSync(dirname(dist), { recursive: true, force: true });
   };
   let out = '', err = '';
   dev.stderr.on('data', d => { err = (err + d).slice(-4000); });
@@ -477,5 +480,43 @@ test("the JS loop: an edit to a copied file: library rebuilds with the library's
   } finally {
     await loop?.stop().catch(() => {});
     rmSync(dir, { recursive: true, force: true });
+    // The lock the reinstall took, kept in TMPDIR by the app's path (filesystem.mjs `installLock`).
+    rmSync(installLock(dir), { force: true });
   }
 }, 1_200_000);
+
+
+test('real loops keep their pages while test, verify and agent build the same app privately', async () => {
+  const dir = mkdtempSync(resolve(ROOT, 'target/receipt-entrypoints-')), loops = [];
+  try {
+    const apps = ['one', 'two'].map(name => resolve(dir, name));
+    for (const [n, app] of apps.entries()) {
+      mkdirSync(app);
+      writeFileSync(resolve(app, 'app.json'), JSON.stringify({ name: `Receipt ${n}`, app: { id: `test.receipt${n}`, name: `Receipt ${n}` } }));
+      writeFileSync(resolve(app, 'app.contract'), `component App\n  view\n    text "Ready ${n}" testId="ready"\n`);
+      writeFileSync(resolve(app, 'app.test.contract'), `test "ready"\n  expect text "ready" == "Ready ${n}"\n`);
+      writeFileSync(resolve(app, 'exact.mjs'), `import {run} from ${JSON.stringify(resolve(ROOT, 'scripts/app-cli.mjs'))};\nprocess.exitCode = await run({dir:import.meta.dir, name:${JSON.stringify(app.split("/").at(-1))}, exact2:${JSON.stringify(ROOT)}, args:process.argv.slice(2)});\n`);
+    }
+    loops.push(...await Promise.all(apps.map(app => devLoop(app, { EXACT_WEB_DIST: '' }))));
+    const receipts = loops.map(loop => readFileSync(resolve(loop.dist, '.exact-build.json'), 'utf8'));
+    const checks = ['test', 'agent', 'verify'].map(verb => {
+      const child = spawnOwned(process.execPath, [resolve(apps[0], 'exact.mjs'), verb, 'web', ...(verb === 'agent' ? ['tree'] : ['--json'])],
+        { cwd: apps[0], env: { ...process.env, EXACT_WEB_DIST: '', EXACT_BAKE_OUTPUT: '' }, stdio: ['ignore', 'pipe', 'pipe'] });
+      let output = ''; for (const stream of [child.stdout, child.stderr]) stream.on('data', bytes => { output += bytes; });
+      return new Promise((ok, fail) => { child.once('error', fail); child.once('exit', code => ok({ verb, code, output })); });
+    });
+    writeFileSync(resolve(apps[0], 'unused.contract'), 'component Unused\n  text "not imported"\n');
+    for (const result of await Promise.all(checks)) expect(result.code, result.verb + ': ' + result.output).toBe(0);
+    for (const [n, loop] of loops.entries()) {
+      const page = await (await fetch(loop.base)).text();
+      expect(page).toContain('/__dev/page');
+      expect(JSON.parse(readFileSync(resolve(loop.dist, '.exact-build.json'))).app).toEqual(JSON.parse(receipts[n]).app);
+      expect(readFileSync(resolve(loop.dist, 'index.html'), 'utf8')).toContain(`Receipt ${n}`);
+    }
+    const runs = readFileSync(resolve(apps[0], '.exact/runs.jsonl'), 'utf8').trim().split('\n').map(line => JSON.parse(line));
+    expect(new Set(runs.map(run => run.receipt)).size).toBeGreaterThanOrEqual(3);
+    expect(runs.every(run => run.receipt && readFileSync(run.receipt, 'utf8').includes('"reads"'))).toBe(true);
+  } finally {
+    await Promise.all(loops.map(loop => loop.stop())); rmSync(dir, { recursive: true, force: true });
+  }
+}, 180_000);

@@ -117,6 +117,23 @@ test('a declared app data crate is linked into generated game hosts', () => {
   } finally { rmSync(dir, {recursive:true, force:true}); }
 });
 
+test('a game with an update store is refused before its shells are generated', () => {
+  const dir = mkdtempSync(resolve(tmpdir(), 'exact-store-shell-'));
+  const shells = () => gameShells(dir, gameDefaults(dir).game, resolve(import.meta.dir, '..'));
+  try {
+    mkdirSync(resolve(dir, 'logic/src'), {recursive:true});
+    writeFileSync(resolve(dir, 'logic/src/lib.rs'), 'impl Game for Island { const ID: &\'static str = "island"; }');
+    for (const platform of ['android', 'ios', 'macos', 'linux', 'windows', 'web']) {
+      writeFileSync(resolve(dir, 'app.json'), JSON.stringify({deploy:{store:{[platform]:'A'}}}));
+      expect(shells).toThrow(`deploy.store.${platform} is "A", but games take no over-the-air updates today`);
+      expect(existsSync(resolve(dir, '.shells'))).toBe(false);
+    }
+    writeFileSync(resolve(dir, 'app.json'), JSON.stringify({deploy:{store:{android:'0', ios:'0'}}}));
+    shells();
+    expect(existsSync(resolve(dir, '.shells/android/Cargo.toml'))).toBe(true);
+  } finally { rmSync(dir, {recursive:true, force:true}); }
+});
+
 test('render declarations fail before creating or changing generated files', () => {
   const dir = mkdtempSync(resolve(tmpdir(), 'exact-render-declaration-'));
   const valid = {crate:'island-render', hooks:'view::Hooks', shaders:'shaders::REGISTRY'};

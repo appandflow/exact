@@ -612,12 +612,12 @@ impl Lowerer<'_> {
 
 /// Native interaction limits must also cover computed expressions, not only literals.
 pub(crate) fn portable_literal(value: &Expr, name: &str) -> Result<(), LowerError> {
-    match value {
-        Expr::Str(_, _) => Ok(()),
-        Expr::Ternary(_, yes, no, _) | Expr::Match { some: yes, none: no, .. } => { portable_literal(yes, name)?; portable_literal(no, name) },
-        Expr::Let { body, .. } => portable_literal(body, name),
-        _ => err("lower-css-interaction", format!("`{name}` takes a CSS keyword literal or a choice of literals so native support can be checked; computed strings cannot be checked"), value.span()),
+    for leaf in contract_checking::value_leaves(value) {
+        if !matches!(leaf, Expr::Str(..)) {
+            return err("lower-css-interaction", format!("`{name}` takes a CSS keyword literal or a choice of literals so native support can be checked; computed strings cannot be checked"), leaf.span());
+        }
     }
+    Ok(())
 }
 
 /// CSS `text-box-trim` on a block cuts its first and last formatted lines,

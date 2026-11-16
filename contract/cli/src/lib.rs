@@ -55,6 +55,7 @@ mod rust;
 mod sources;
 mod strings;
 mod surface;
+use surface::fact_shape;
 mod symbols;
 pub use contract_analyze::SuggestionCheck;
 pub use properties::{check_properties_path, check_suggestions_path, properties, tests};
@@ -75,8 +76,8 @@ pub use contract_types::strings::Strings;
 pub use exact_runner::DataSource;
 mod preload;
 pub use logic::{
-    apple_linked, linux_entry, native_storage_constructor, rust_entry, rust_entry_naming,
-    web_linked, web_rust_mode,
+    apple_linked, linux_entry, native_storage_constructor, rust_entry, rust_entry_composed,
+    rust_entry_naming, web_linked, web_rust_mode,
 };
 pub use manifest::{Activity, Configuration, Manifest, Parameter, RustData, Widget};
 pub use map::{plan_digest, SourceMap};
@@ -295,13 +296,19 @@ pub(crate) fn params(file: &mut contract_syntax::File) -> Result<(), CompileErro
 /// writes them for a file, from the one design a text has, its inline
 /// `theme`: the first row refused, or the warning for a fallback dropped.
 fn vars(file: &mut contract_syntax::File) -> Result<Vec<CompileError>, CompileError> {
-    let tokens = contract_lower::var_tokens::Tokens::of(None, &[], file.theme.as_ref());
+    let tokens = contract_lower::var_tokens::Tokens::of(None, &[], file.theme.as_ref())
+        .with_runtime([&*file]);
     let found = contract_lower::var_tokens::rewrite(file, &tokens);
     if let Some(e) = found.refused.into_iter().next() {
         return Err(e.into());
     }
-    let warning = contract_lower::var_tokens::fallback_warning(&found.fallbacks);
-    Ok(warning.map(CompileError::warning).into_iter().collect())
+    let fallback = contract_lower::var_tokens::fallback_warning(&found.fallbacks);
+    let undeclared = contract_lower::var_tokens::undeclared_warning(&found.undeclared);
+    Ok(fallback
+        .into_iter()
+        .chain(undeclared)
+        .map(CompileError::warning)
+        .collect())
 }
 /// Compile one source text to a validated plan. A text has no path, so a
 /// `use … from "./file.contract"` in it cannot be resolved: compile a file
@@ -963,6 +970,8 @@ fn compile_loaded(
         own.extend(shortcut_warnings(&file, &app_root));
         let fallbacks = contract_lower::var_tokens::fallback_warning(&sources.var_fallbacks);
         own.extend(fallbacks.map(CompileError::warning));
+        let undeclared = contract_lower::var_tokens::undeclared_warning(&sources.var_undeclared);
+        own.extend(undeclared.map(CompileError::warning));
     }
     let compiled = compile_file_warned(
         &file,
@@ -1143,7 +1152,17 @@ pub fn bake_with_warnings<D: DataSource>(
     if plan.app_id.is_empty() {
         plan.app_id = data.app_id().to_string();
     }
+    // A source naming its product boots the plan of the selected variant
+    // (LLP 1030.008 D2); the plan keeps the variant's id.
+    let variant = (plan.app_id != data.app_id())
+        .then(|| manifest::selected_base(&plan.app_id))
+        .flatten()
+        .filter(|base| base == data.app_id())
+        .map(|base| std::mem::replace(&mut plan.app_id, base));
     let runner = first_frame(&plan, data, true)?;
+    if let Some(id) = variant {
+        plan.app_id = id;
+    }
     let mut b = PlanBuilder::from_plan(plan);
     let pending: Vec<String> = runner.pending().into_iter().map(|(n, _)| n).collect();
     let dated = runner.resources_reading_clock();
@@ -1193,6 +1212,8 @@ pub fn bake_with_warnings<D: DataSource>(
             );
         }
     }
+    // @ref LLP 1035.005.004 D8 — and the answers of the boot render's instances.
+    runner.bake_launch_answers(&mut b, &dated);
     b.finish()
         .map(|plan| (plan, runner.bake_warnings().to_vec()))
         .map_err(|e| BakeError::Runner(RunnerError::Plan(e)))
@@ -1279,13 +1300,17 @@ fn first_frame<D: DataSource>(
         "bake-transport-field",
     )?;
     surface::shape(plan)?;
-    let mut runner = Runner::boot(
+    // The bake answers `presented` false: no picture of it was presented.
+    let was = exact_runner::page::set_awaits_present(true);
+    let runner = Runner::boot(
         plan.clone(),
         data,
         Kernel::with_monospace(),
         exact_runner::Viewport::sized(LINT_VIEWPORT.0 as f64, LINT_VIEWPORT.1 as f64),
         "/",
-    )?;
+    );
+    exact_runner::page::set_awaits_present(was);
+    let mut runner = runner?;
     // A binding that traps on the baked answers fails the build, where the
     // runner would unset its row and go on (LLP 1017.003 D3).
     if let Some(line) = runner.journal().find(|l| l.contains(" trapped Trap(")) {
@@ -1301,50 +1326,6 @@ fn first_frame<D: DataSource>(
     }
     lint(&mut runner, answered)?;
     Ok(runner)
-}
-
-/// The runner's own sources (LLP 1030 D7 delivery; LLP 1039 D1 viewport;
-/// LLP 1069.000 D2 page) are answered by the runner, not by the data crate,
-/// so the fields each can fill are a closed set — a declared field it does
-/// not know would refuse every boot on every device, which is a build-time
-/// refusal here instead, naming the field.
-fn fact_shape(
-    plan: &Plan,
-    source: &str,
-    fields: &[&str],
-    id: &'static str,
-) -> Result<(), BakeError> {
-    for row in plan.resources.iter() {
-        if plan.str(row.source) != source {
-            continue;
-        }
-        let name = plan.str(row.name);
-        let ty = plan.type_(row.ty);
-        if ty.kind != exact_plan::TypeKind::Record {
-            return Err(BakeError::Lint {
-                site: None,
-                id,
-                message: format!(
-                    "`resource {name} = {source}()` must be `as shape` a record of {}",
-                    fields.join(", ")
-                ),
-            });
-        }
-        for f in ty.fields.iter() {
-            let field = plan.str(plan.field(f).name);
-            if !fields.contains(&field) {
-                return Err(BakeError::Lint {
-                    site: None,
-                    id,
-                    message: format!(
-                        "`{name}` declares `{field}`, which {source} does not answer; it answers {}",
-                        fields.join(", ")
-                    ),
-                });
-            }
-        }
-    }
-    Ok(())
 }
 
 /// The layout lint (LLP 1017 P1d): the compiler cannot see layout, bake can.
@@ -1401,8 +1382,8 @@ fn lint<D: DataSource>(runner: &mut Runner<D>, answered: bool) -> Result<(), Bak
                 if matches!(s.overflow_y, exact_kernel::Overflow::Hidden) {
                     continue;
                 }
-                let unbounded = matches!(s.height, Dimension::Auto)
-                    && matches!(s.max_height, Dimension::Auto)
+                let unbounded = s.height.is_content_sized()
+                    && s.max_height.is_content_sized()
                     && s.flex_grow == 0.0;
                 if !unbounded {
                     continue;

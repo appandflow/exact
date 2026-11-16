@@ -4,6 +4,7 @@
 //! plan's `icons` table for a computed source, and `symbol:sf/…` naming the
 //! role whose Apple name it is or the icon whose `sf` it is.
 
+use crate::scratch::Scratch;
 use std::path::PathBuf;
 
 /// The template subset (`contract_lower`'s `icons::TEMPLATE`).
@@ -13,8 +14,10 @@ const REPLY: &str = r#"<svg xmlns="http://www.w3.org/2000/svg" height="24" viewB
 const TWO: &str =
     r#"<svg viewBox="0 0 24 24"><path fill="red" d="M0 0h1"/><path fill="blue" d="M2 2h1"/></svg>"#;
 
-fn app(name: &str, targets: &str, design: &str, view: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("exact2-icons-{name}-{}", std::process::id()));
+fn app(name: &str, targets: &str, design: &str, view: &str) -> Scratch {
+    let dir = Scratch::adopt(
+        std::env::temp_dir().join(format!("exact2-icons-{name}-{}", std::process::id())),
+    );
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(dir.join("assets/icons")).unwrap();
     std::fs::write(dir.join("assets/icons/reply.svg"), REPLY).unwrap();
@@ -26,7 +29,7 @@ fn app(name: &str, targets: &str, design: &str, view: &str) -> PathBuf {
     )
     .unwrap();
     std::fs::write(dir.join("app.contract"), view).unwrap();
-    dir.join("app.contract")
+    dir.at("app.contract")
 }
 
 fn view(source: &str) -> String {

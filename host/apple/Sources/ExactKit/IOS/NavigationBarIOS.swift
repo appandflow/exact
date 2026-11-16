@@ -23,48 +23,78 @@ struct HatchSource: Equatable {
     let bar: BarSource, back: String, navigation: ObjectIdentifier, dataset: String, scroll: ObjectIdentifier?
 }
 
-/// UIKit's bar, which hands a touch that lands on none of its own controls
-/// to an authored control of the shown route's header (`appearance="none"`)
-/// beneath it: a title the page draws itself where the bar is clear. UIKit's
-/// bar otherwise takes every touch in its frame.
+/// The bar of each navigation controller Exact builds. UIKit's bar takes
+/// every touch in its frame, its empty areas included; this one leaves a
+/// touch on none of its own controls to a shown control the top route's
+/// header keeps authored (`appearance="none"`, LLP 1075.003 §9.10) where
+/// that control lies under the bar, as a route drawn under its bar places it.
+/// At a transparent route's clear edge, the empty band also leaves touches
+/// to the page; the title, items and scrolled material keep theirs.
 final class RouteNavigationBar: UINavigationBar {
     override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
-        let hit = super.hitTest(point, with: event)
-        guard let hit, !Self.isControl(hit, below: self), authoredControl(at: point) != nil else { return hit }
-        return nil
+        guard let hit = super.hitTest(point, with: event) else { return nil }
+        let onControl = sequence(first: hit, next: { $0 === self ? nil : $0.superview }).contains { $0 is UIControl || $0 is UISearchBar }
+        if onControl { return hit }
+        if authoredControl(at: point) != nil { return nil }
+        guard let route = (delegate as? UINavigationController)?.topViewController as? RouteController,
+              NavigationHost.transparentBar(route.node) else { return hit }
+        if let scroll = route.contentScrollView(for: .top), scroll.contentOffset.y + scroll.adjustedContentInset.top > 0.5 { return hit }
+        let item = route.navigationItem
+        // Follow UINavigationBar's appearance fallback order; a hatch can
+        // replace the clear edge with a visible background.
+        let edge = item.scrollEdgeAppearance ?? scrollEdgeAppearance
+        var appearance = edge ?? item.standardAppearance ?? standardAppearance
+        #if os(iOS)
+        if traitCollection.verticalSizeClass == .compact {
+            appearance = item.compactScrollEdgeAppearance ?? compactScrollEdgeAppearance ?? edge
+                ?? item.compactAppearance ?? compactAppearance ?? item.standardAppearance ?? standardAppearance
+        }
+        #endif
+        guard appearance.backgroundEffect == nil, appearance.backgroundImage == nil,
+              (appearance.backgroundColor?.resolvedColor(with: traitCollection).cgColor.alpha ?? 0) == 0 else { return hit }
+        if let title = item.titleView, !title.isHidden, title.alpha >= 0.01,
+           title.bounds.contains(title.convert(point, from: self)) { return hit }
+        if ((item.leftBarButtonItems ?? []) + (item.rightBarButtonItems ?? [])).contains(where: { item in
+            guard let view = item.customView, view.window != nil, view.window === self.window,
+                  !view.isHidden, view.alpha >= 0.01 else { return false }
+            return view.bounds.contains(view.convert(point, from: self))
+        }) { return hit }
+        // UIKit's plain title is a noninteractive label, so it is not the
+        // view returned by hitTest. Use its visible bounds, without naming
+        // the private views UIKit wraps it in.
+        func hasLabel(_ view: UIView) -> Bool {
+            guard !view.isHidden, view.alpha >= 0.01 else { return false }
+            if let label = view as? UILabel, label.text?.isEmpty == false,
+               label.bounds.contains(label.convert(point, from: self)) { return true }
+            return view.subviews.contains(where: hasLabel)
+        }
+        return hasLabel(self) ? hit : nil
     }
 
-    /// The shown route's authored header control under `point`, in the bar's
-    /// coordinates.
+    /// The shown authored control of the top route's header under `point`,
+    /// in the bar's coordinates.
     func authoredControl(at point: CGPoint) -> NodeView? {
         guard let route = (delegate as? UINavigationController)?.topViewController as? RouteController,
               let ids = route.projectedSource?.authored, let views = route.host?.presenter.views else { return nil }
-        for id in ids {
-            guard let node = views[id], node.window != nil, node.window === window, !node.isHidden, node.alpha > 0.01 else { continue }
-            if node.bounds.contains(node.convert(point, from: self)) { return node }
+        return ids.lazy.compactMap { views[$0] }.first { node in
+            node.window != nil && node.window === self.window && node.bounds.contains(node.convert(point, from: self))
+                && !sequence(first: node as UIView, next: \.superview).contains { $0.isHidden || $0.alpha < 0.01 }
         }
-        return nil
-    }
-
-    private static func isControl(_ view: UIView, below bar: UIView) -> Bool {
-        var at: UIView? = view
-        while let v = at, v !== bar {
-            if v is UIControl || v is UISearchBar { return true }
-            at = v.superview
-        }
-        return false
     }
 }
 
 /// The delegate Exact gives each navigation controller it builds: Exact's
-/// own handling first, then the app's delegate, which receives straight
-/// anything Exact does not implement — a custom transition's animator
-/// (LLP 1075.003 §3.5). A pop UIKit commits reaches the router at Exact's
-/// `willShow`, before the app's; a swipe, in its coordinator's completion,
-/// after both have heard `didShow` (LLP 1035.001 D1, D2).
+/// own handling first, then the app's delegate, which is asked first for a
+/// transition's animator and receives straight anything Exact does not
+/// implement (LLP 1075.003 §3.5). A pop UIKit commits reaches the router at
+/// Exact's `willShow`, before the app's; a swipe, in its coordinator's
+/// completion, after both have heard `didShow` (LLP 1035.001 D1, D2).
 final class NavigationDelegateProxy: NSObject, UINavigationControllerDelegate {
     weak var host: NavigationHost?
-    weak var app: UINavigationControllerDelegate?
+    /// The app's delegate, held strongly until the app gives another or nil,
+    /// or the stack's record goes: UIKit calls the methods the proxy answered
+    /// when it was set (LLP 1075.003 §9.16), and the proxy forwards them here.
+    var app: UINavigationControllerDelegate?
 
     func navigationController(_ nav: UINavigationController, willShow controller: UIViewController, animated: Bool) {
         // The bar as the route coming into view wants it, alongside UIKit's
@@ -98,13 +128,21 @@ final class NavigationDelegateProxy: NSObject, UINavigationControllerDelegate {
         app?.navigationController?(nav, didShow: controller, animated: animated)
     }
 
+    /// The app's animator first (LLP 1075.003 §3.5), then the one the
+    /// route's own part asks for (LLP 1013.001), else UIKit's.
+    func navigationController(_ nav: UINavigationController, animationControllerFor operation: UINavigationController.Operation,
+                              from: UIViewController, to: UIViewController) -> UIViewControllerAnimatedTransitioning? {
+        app?.navigationController?(nav, animationControllerFor: operation, from: from, to: to)
+            ?? host?.routeTransition(nav, operation: operation, from: from, to: to)
+    }
+
     override func responds(to selector: Selector!) -> Bool {
         super.responds(to: selector) || (app?.responds(to: selector) ?? false)
     }
 
-    override func forwardingTarget(for selector: Selector!) -> Any? {
-        app?.responds(to: selector) == true ? app : nil
-    }
+    // Send the app's delegate each call Exact does not implement, whatever the delegate answers now: UIKit calls the
+    // methods the proxy answered when it was set, as it calls its own delegate's (LLP 1075.003 §9.16)
+    override func forwardingTarget(for selector: Selector!) -> Any? { app }
 }
 
 /// A header's search field as UIKit's search controller (LLP 1075.003
@@ -367,17 +405,21 @@ final class BarPress: NSObject {
     }
 }
 
-/// One stack Exact built: its delegate, whether its routes may show the bar (they may unless the
+/// One stack Exact built: its controller, its delegate, whether its routes may show the bar (they may unless the
 /// app's `navigation` hatch says no; which of them shows it is each route's, LLP 1115.000 D5.3), the
 /// tint it last gave the bar, its top route's accent (nil: none), and whether a hatch tinted the bar,
 /// which Exact then leaves alone.
 final class NavigationStack {
+    weak var controller: UINavigationController?
     let proxy = NavigationDelegateProxy()
     let faceTint = BarFaceTintView()
     var showsBar: Bool
     let order: Int
     let label: String
     var hatched = false
+    /// Whether the development check has named the stack's delegate slot as
+    /// written outside Exact since the slot was last Exact's.
+    var slotNamed = false
     var barTint: UIColor?, hatchTintsBar = false
     init(showsBar: Bool, order: Int) { (self.showsBar, self.order, label) = (showsBar, order, "#\(order)") }
 }
@@ -540,6 +582,7 @@ extension NavigationHost {
     func registerStack(_ nav: UINavigationController) -> NavigationStack {
         stackCount += 1
         let stack = NavigationStack(showsBar: true, order: stackCount)
+        stack.controller = nav
         stack.proxy.host = self
         stacks[ObjectIdentifier(nav)] = stack
         nav.delegate = stack.proxy
@@ -656,6 +699,7 @@ extension NavigationHost {
             c.ownedScroll = scroller
         }
         coverLifted(routes)
+        keepExit(routes, in: nav)
         // A route's header shown or hidden in place; a push or pop sets the
         // bar in `willShow` instead, with UIKit's transition.
         if let nav, nav.transitionCoordinator == nil, let top = nav.topViewController as? RouteController, routes.contains(top) {
@@ -745,7 +789,12 @@ extension NavigationHost {
         // says otherwise (LLP 1116.020 D2).
         let large: UINavigationItem.LargeTitleDisplayMode = shape?.level == 1 ? .always : .never
         let opens = item.largeTitleDisplayMode == .never && large == .always
+        let closes = item.largeTitleDisplayMode != .never && large == .never
         item.largeTitleDisplayMode = large
+        // UIKit lays the bar out for the new mode only at its next layout,
+        // which nothing asks for at rest: the expanded title, its inset and
+        // its covers stayed until the reader scrolled.
+        if closes, let nav = c.navigationController { nav.navigationBar.setNeedsLayout(); nav.view.setNeedsLayout() }
         // A title that turns large again in place (a selection's count back
         // to its heading) opens over a scroller at its start, as UIKit's
         // opens over a table at its top; one scrolled into its content stays
@@ -1050,9 +1099,28 @@ extension NavigationHost {
         return appearance
     }()
 
+    /// A drawn bar item (`ChipFace`, `BadgeFace`) is an image for one
+    /// appearance: a new colour scheme or contrast projects each live
+    /// stack's bars again, and only an item whose face changed is drawn
+    /// again. The change is heard in the Exact view's own trait change,
+    /// before UIKit has given the views under it their new traits, which the
+    /// faces read; the window's `updateTraitsIfNeeded` gives them theirs now,
+    /// with its callbacks sent synchronously (UIView.h). A stack still
+    /// showing an ended route (a sheet going away) is left alone.
+    func appearanceChanged() {
+        for nav in allNavigations {
+            let routes = nav.stackRoutes.compactMap { $0 as? RouteController }
+            guard !routes.isEmpty, routes.allSatisfy({ controllers[$0.node.id] === $0 }) else { continue }
+            nav.viewIfLoaded?.window?.updateTraitsIfNeeded()
+            prepareRoutes(routes, in: nav)
+        }
+    }
+
     /// Keep the primary owner in the root's authored scroller. For a route's
     /// replacement, register it before its first native layout, preserving Back.
     func scrollBackendChanged(_ node: NodeView) {
+        presenter.pageGeometryOwed = true
+        presenter.listRowDependencies = nil
         if node === container {
             fitOwner()
             return
@@ -1362,21 +1430,28 @@ extension NavigationHost {
     }
 
     /// The app's delegate for a controller whose own slot Exact keeps.
-    /// UIKit reads which methods a delegate answers when it is set, so the
-    /// proxy is set again.
+    /// UIKit reads which methods a delegate answers once, when it is set
+    /// (LLP 1075.003 §9.16), and the proxy answers for the app's delegate's
+    /// methods too, so the proxy is set again and UIKit reads its answers
+    /// anew. The old delegate goes only after that, so UIKit asks nothing of
+    /// it as it goes, and what its `deinit` does runs outside the swap.
     func setAppDelegate(_ controller: AnyObject, _ delegate: AnyObject?) {
         if let tabs = controller as? UITabBarController, tabs === tabController {
-            tabProxy.app = delegate as? UITabBarControllerDelegate
-            tabs.delegate = nil
-            tabs.delegate = tabProxy
-            presenter.session?.log("hatch tabs: delegate \(delegate.map { "\(type(of: $0))" } ?? "cleared")")
+            withExtendedLifetime(tabProxy.app) {
+                tabs.delegate = nil
+                tabProxy.app = delegate as? UITabBarControllerDelegate
+                tabs.delegate = tabProxy
+                presenter.session?.log("hatch tabs: delegate \(delegate.map { "\(type(of: $0))" } ?? "cleared")")
+            }
             return
         }
         guard let nav = controller as? UINavigationController, let stack = stacks[ObjectIdentifier(nav)] else { return }
-        stack.proxy.app = delegate as? UINavigationControllerDelegate
-        nav.delegate = nil
-        nav.delegate = stack.proxy
-        presenter.session?.log("hatch navigation \(stack.label): delegate \(delegate.map { "\(type(of: $0))" } ?? "cleared")")
+        withExtendedLifetime(stack.proxy.app) {
+            nav.delegate = nil
+            stack.proxy.app = delegate as? UINavigationControllerDelegate
+            nav.delegate = stack.proxy
+            presenter.session?.log("hatch navigation \(stack.label): delegate \(delegate.map { "\(type(of: $0))" } ?? "cleared")")
+        }
     }
 }
 #endif

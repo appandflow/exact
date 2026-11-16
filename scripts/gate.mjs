@@ -8,9 +8,10 @@ export const gateParts = [
   ['fmt', 'cargo', ['fmt', '--all', '--', '--check']],
   ['caps', process.execPath, ['scripts/caps.mjs']],
   ['boot', process.execPath, ['scripts/boot.mjs']],
-  ['scripts', process.execPath, ['test', '--isolate', './scripts/gate.test.mjs', './scripts/async-bisect.test.mjs']],
+  ['seams', process.execPath, ['scripts/seam-ratchets.mjs']],
+  ['scripts', process.execPath, ['test', '--isolate', './scripts/gate.test.mjs', './scripts/async-bisect.test.mjs', './scripts/seam-ratchets.test.mjs']],
   ['check', 'cargo', ['check', '--keep-going']],
-  ...['exact-num', 'exact-color', 'exact-motion', 'exact-plan', 'contract-syntax', 'contract-types']
+  ...['exact-num', 'exact-color', 'exact-motion', 'exact-plan', 'contract-syntax', 'contract-types', 'contract-checking']
     .map(pkg => [`unit:${pkg}`, 'cargo', ['test', '--lib', '--no-fail-fast', '-p', pkg]]),
 ];
 

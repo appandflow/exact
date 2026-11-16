@@ -2,5 +2,4 @@
 <resources>
     <string name="exact_clear">Išvalyti</string>
     <string name="exact_default_channel">Pranešimai</string>
-    <string name="exact_silent_channel">Tylieji pranešimai</string>
 </resources>

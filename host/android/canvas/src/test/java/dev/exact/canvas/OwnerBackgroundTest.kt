@@ -22,6 +22,8 @@ class OwnerBackgroundTest {
     @Implements(Native::class, isInAndroidSdk = false)
     class Host {
         companion object {
+            val visibility = ArrayList<Boolean>()
+            @JvmStatic @Implementation fun hidden(hidden: Boolean, eligible: Boolean) { visibility.add(hidden) }
             var due = 0L
             var ticks = 0
             var frames = 0
@@ -45,6 +47,29 @@ class OwnerBackgroundTest {
             @JvmStatic @Implementation fun animating() = false
             @JvmStatic @Implementation fun owed() = false
             @JvmStatic @Implementation fun nextDue() = (due - SystemClock.uptimeMillis()).toDouble()
+        }
+    }
+
+    @Test fun mainThreadVisibilityPublishesBeforeTurningTheReader() {
+        val previousOwner = Exact.owner
+        val previousTurned = Exact.turned
+        Exact.owner = null
+        Host.visibility.clear()
+        var turns = 0
+        try {
+            Exact.turned = {}
+            Exact.hidden(true)
+            Exact.turned = {
+                assertEquals("the foreground flag precedes the reader turn", listOf(true, false), Host.visibility)
+                turns++
+            }
+            Exact.hidden(false)
+            assertEquals("owner=0 produces after returning to the foreground", 1, turns)
+        } finally {
+            Exact.turned = {}
+            Exact.hidden(false)
+            Exact.owner = previousOwner
+            Exact.turned = previousTurned
         }
     }
 

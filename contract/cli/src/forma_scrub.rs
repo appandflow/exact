@@ -504,9 +504,10 @@ mod tests {
     /// inflate it.
     #[test]
     fn a_refusal_after_an_unchanged_prefix_stays_within_the_budget() {
-        let dir =
-            std::env::temp_dir().join(format!("exact-forma-refusal-budget-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
+        let dir = crate::scratch::Scratch::new(format!(
+            "exact-forma-refusal-budget-{}",
+            std::process::id()
+        ));
         let clone = include_str!("../../../forma/tests/fmt/bluesky-clone.forma");
         let tokens: String = (0..139)
             .map(|i| format!("  measure.t{i} = 8px\n"))
@@ -594,6 +595,5 @@ mod tests {
             )
         );
         drop(server);
-        std::fs::remove_dir_all(dir).unwrap();
     }
 }

@@ -211,7 +211,7 @@ fn a_surface_touch_after_a_surface_key_restores_the_opener_ringless() {
 }
 
 fn boot() -> Presenter<()> {
-    let (p, error) = Presenter::boot_with(
+    let (p, error) = Presenter::boot_with_fixture_fonts(
         &crate::test_plan(APP),
         (),
         (400., 800.),

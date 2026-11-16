@@ -294,6 +294,7 @@ export async function readLongPoll(op, init, limit, message, controller, admits)
     const signal = deadline ? AbortSignal.any([controller.signal, deadline]) : controller.signal;
     let wait, error = null;
     try {
+      if (takeFault(url.href)) throw new TypeError(faultMessage(url.href));
       const response = await fetch(url.href, { ...init, signal });
       const drop = () => response.body?.cancel().catch(() => {});
       if (!response.url && response.type !== 'opaqueredirect') {
@@ -452,7 +453,7 @@ export async function waitForInflight(waiting, deadline) {
 }
 
 import { admitsNetwork, admittingGrant, coversPath, grantError, scopedGrantSet } from './grant-admission.js';
-import { faultMessage, takeFault } from './faults.js';
+import { answeredFetch, countFault, faultMessage, matchFault, takeFault } from './faults.js';
 import { reachRefusal, redirectFor, UNATTRIBUTED } from './address-space.js';
 
 // Network and page-module requests share admission and the byte ceiling.
@@ -597,9 +598,13 @@ export async function request(op, { grantSet, loadPageNative, moduleLoader, loca
     const early = !asset && moduleLoader?.claim?.(url, init);
     // @ref LLP 1103 D1, D2 — a driver fault is a refused connection, never sent; a GET
     // `fetchEarly` already sent (before the fault was armed) is not one it decides.
-    if (!early && !asset && !op.stream && takeFault(url)) return failed(1, faultMessage(url));
+    const fixture = !early && !asset && !op.stream && matchFault(url, true);
+    if (fixture && !fixture.response) { countFault(url, fixture); return failed(1, faultMessage(url)); }
     if (!early && expired()) return failed(10, `the request timed out after ${op.timeoutMs} ms`);
-    const response = await (early || fetch(asset ? localAssetURL(url) : url, init));
+    if (fixture && target) return failed(2, 'answer fetch does not support exactBodyTo');
+    if (fixture && signal.aborted) return failed(4, 'request aborted');
+    const checked = new Request(asset ? localAssetURL(url) : url, init);
+    const response = fixture ? answeredFetch(fixture.response, checked) : await (early || fetch(checked));
     // A redirect that left the grants names where it led (podcast F5): the
     // browser followed it, and the response's URL is the last hop's.
     if (!response.url && response.type !== 'opaqueredirect') {
@@ -618,7 +623,13 @@ export async function request(op, { grantSet, loadPageNative, moduleLoader, loca
     const headerText = [...response.headers].map(([k, v]) => `${k}: ${v}`).join('\n');
     // Written: its size first, as a pseudo-header (host.rs `outcome_from`); any other reply is read as usual, at most 1 MiB.
     if (target && response.ok) return { kind: 0, status: response.status, headers: `:exact-body-to: ${await target.put(response, op.maxResponseBytes ?? 1024 * 1024 * 1024)}\n${headerText}`, body: new Uint8Array() };
-    return { kind: 0, status: response.status, headers: headerText, body: await boundedHttpBody(response, target ? Math.min(op.maxResponseBytes ?? 1024 * 1024, 1024 * 1024) : op.maxResponseBytes) };
+    const result = { kind: 0, status: response.status, headers: headerText, body: await boundedHttpBody(response, target ? Math.min(op.maxResponseBytes ?? 1024 * 1024, 1024 * 1024) : op.maxResponseBytes) };
+    if (fixture) {
+      if (expired()) return failed(10, `the request timed out after ${op.timeoutMs} ms`);
+      if (signal.aborted) return failed(4, 'request aborted');
+      countFault(url, fixture);
+    }
+    return result;
   } catch (error) {
     // Whichever ended it first: the combined signal keeps the first reason.
     if (deadline && signal.aborted && signal.reason === deadline.reason) return failed(10, `the request timed out after ${op.timeoutMs} ms`);

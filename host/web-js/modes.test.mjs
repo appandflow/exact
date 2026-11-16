@@ -243,17 +243,50 @@ test('a development build boots in the modes its reload carried', async () => {
 // modes still work.
 test('a release copy of modes.js has no live entry point', async () => {
   const { withoutDev } = await import('./module.mjs');
-  const { mkdtempSync, readFileSync, writeFileSync } = await import('node:fs');
+  const { mkdtempSync, readFileSync, rmSync, writeFileSync } = await import('node:fs');
   const { join } = await import('node:path');
   const release = withoutDev(readFileSync(new URL('./modes.js', import.meta.url), 'utf8'));
   for (const live of ['function design(', 'tupleRules', 'tupleKey', 'designDigest', 'dev-only']) expect(release).not.toContain(live);
   const dir = mkdtempSync(join((await import('node:os')).tmpdir(), 'exact-modes-release-'));
-  writeFileSync(join(dir, 'rt.js'), 'export const After = [], PropHooks = {}, inflight = { n: 0 }, say = () => {};\n');
-  writeFileSync(join(dir, 'modes.js'), release);
-  const document = createDocument();
-  Object.assign(globalThis, { document, __exactRender: true, exact: {} });
-  const { modes } = await import(join(dir, 'modes.js'));
+  let modes;
+  try {
+    writeFileSync(join(dir, 'rt.js'), 'export const After = [], PropHooks = {}, inflight = { n: 0 }, say = () => {};\n');
+    writeFileSync(join(dir, 'modes.js'), release);
+    const document = createDocument();
+    Object.assign(globalThis, { document, __exactRender: true, exact: {} });
+    ({ modes } = await import(join(dir, 'modes.js')));
+  } finally { rmSync(dir, { recursive: true, force: true }); }
   modes([['dark-style', ['black', 'dim']]], {}, [], {}, [], {}, 'd0', 's0');
   expect(globalThis.exact.design).toBeUndefined();
   expect(globalThis.exact.modes).toBeDefined();
+});
+
+
+test('the drive DOM clears baked token styles and walks nested boundaries without browser selectors', async () => {
+  const previous = { document: globalThis.document, __exactRender: globalThis.__exactRender, MutationObserver: globalThis.MutationObserver, CSS: globalThis.CSS };
+  const document = createDocument();
+  document.getElementsByClassName = name => document.root.getElementsByTagName('*').filter(e => e.classList.contains(name));
+  const el = (parent, attrs) => { const e = document.createElement('div'); for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v); parent.append(e); return e; };
+  const page = el(document.root, { class: 'c0' });
+  const boundary = el(page, { 'data-x-b': '0', 'data-x-pin': 'density=compact' });
+  const child = el(boundary, { 'data-x-b': '0' });
+  Object.assign(globalThis, { document, __exactRender: false, MutationObserver: class { observe() {} disconnect() {} }, CSS: undefined });
+  try {
+    const { modes } = await import('./modes.js');
+    // The drive lacks both APIs; a host with CSS.escape alone still needs the walk.
+    for (const css of [undefined, { escape: value => value }]) {
+      globalThis.CSS = css;
+      delete page.$xc;
+      page.style.setProperty('color', '#222222');
+      modes([['density', ['regular', 'compact']]], { c0: { 0: 0 } }, ['color:var(--x-ink)'], { c0: ['color'] }, []);
+      exact.modes.set([]);
+      expect(page.style.getPropertyValue('color')).toBe('');
+      expect(child.getAttribute('data-x-modes')).toBe('density=compact');
+      expect(child.style.getPropertyValue('color')).toBe('var(--x-ink)');
+      boundary.setAttribute('data-x-pin', 'density=regular');
+      exact.modes.set([]);
+      expect(child.getAttribute('data-x-modes')).toBe('density=regular');
+      boundary.setAttribute('data-x-pin', 'density=compact');
+    }
+  } finally { Object.assign(globalThis, previous); }
 });

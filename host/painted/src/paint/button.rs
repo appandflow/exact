@@ -1282,7 +1282,7 @@ mod tests {
     }
     #[test]
     fn synchronous_height_for_width_wraps_clamps_and_counts_padding_once() {
-        let engine = TextEngine::shared();
+        let engine = crate::text::fixtures::shared();
         let mut engine = engine.borrow_mut();
         let mut r = request();
         let natural = measure(&mut engine, &r);
@@ -1307,7 +1307,7 @@ mod tests {
     }
     #[test]
     fn semantic_subtitle_symbol_placement_sizes_and_authored_axes_share_the_measure() {
-        let engine = TextEngine::shared();
+        let engine = crate::text::fixtures::shared();
         let mut engine = engine.borrow_mut();
         let mut r = request();
         r.face.title = Some("Lock".into());

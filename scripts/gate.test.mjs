@@ -31,10 +31,10 @@ test('a unit crate that cannot compile does not stop the remaining crates', asyn
     ran.push(...packages);
     return { status: packages.includes('exact-num') ? 101 : 0 };
   } });
-  expect(parts).toHaveLength(6);
-  expect(result.parts).toHaveLength(6);
+  expect(parts).toHaveLength(7);
+  expect(result.parts).toHaveLength(7);
   expect(result.failed).toEqual(['unit:exact-num']);
-  expect(ran).toEqual(['exact-num', 'exact-color', 'exact-motion', 'exact-plan', 'contract-syntax', 'contract-types']);
+  expect(ran).toEqual(['exact-num', 'exact-color', 'exact-motion', 'exact-plan', 'contract-syntax', 'contract-types', 'contract-checking']);
 });
 
 test('hourly metrics record a passing gate over budget as a violation', () => {

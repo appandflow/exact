@@ -1,3 +1,4 @@
+use super::tests::Probe;
 use super::*;
 #[path = "surface_controls_tests/escape.rs"]
 mod escape;
@@ -24,10 +25,10 @@ fn find(p: &Presenter<()>, name: &str) -> u32 {
         })
         .unwrap()
 }
-fn fixture() -> (Presenter<()>, PathBuf) {
+fn fixture() -> (Presenter<()>, Probe) {
     fixture_with_hud_removal(false)
 }
-fn fixture_with_hud_removal(remove_hud: bool) -> (Presenter<()>, PathBuf) {
+fn fixture_with_hud_removal(remove_hud: bool) -> (Presenter<()>, Probe) {
     let source = r#"component Controls
   state removed = false
   state text = ""
@@ -62,7 +63,7 @@ fn fixture_with_hud_removal(remove_hud: bool) -> (Presenter<()>, PathBuf) {
     boot(&source, &["a", "b", "raw"])
 }
 /// A presenter over `source` whose canvases named by testId are worlds of the probe module.
-fn boot(source: &str, canvases: &[&str]) -> (Presenter<()>, PathBuf) {
+fn boot(source: &str, canvases: &[&str]) -> (Presenter<()>, Probe) {
     let (path, compat) = super::tests::fixture();
     let plan = contract::compile(source).unwrap();
     let (mut p, _) = Presenter::boot(
@@ -110,7 +111,7 @@ fn restore(p: &mut Presenter<()>, name: &str, contacts: Value) {
     );
     p.restore_controls();
 }
-fn done(p: Presenter<()>, path: PathBuf) {
+fn done(p: Presenter<()>, path: Probe) {
     drop(p);
     std::fs::remove_dir_all(path.parent().unwrap()).unwrap();
 }

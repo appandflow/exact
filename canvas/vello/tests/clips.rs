@@ -232,8 +232,8 @@ fn compacted_curves_match_uncompacted_pixels_and_restore_and_reset() {
     }
     for p in [&mut compact, &mut reference] {
         let mut image = p.ctx.create_image_data_with_sw_and_sh(128.0, 96.0).unwrap();
-        for pixel in image.data.chunks_exact_mut(4) {
-            pixel.copy_from_slice(&[0, 255, 0, 255]);
+        for pixel in image.data.as_chunks_mut::<4>().0 {
+            *pixel = [0, 255, 0, 255];
         }
         p.ctx.put_image_data(&image, 0.0, 0.0).unwrap();
     }
@@ -293,8 +293,10 @@ fn compacted_curves_match_uncompacted_pixels_and_restore_and_reset() {
         assert_eq!(p.canvas.bytes(), scratch_bytes);
         assert!(p
             .pixels()
-            .chunks_exact(4)
-            .all(|pixel| pixel == [0, 255, 0, 255]));
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .all(|pixel| *pixel == [0, 255, 0, 255]));
     }
 }
 
@@ -322,8 +324,8 @@ fn compacted_curves_match_the_browser() {
         .ctx
         .create_image_data_with_sw_and_sh(128.0, 96.0)
         .unwrap();
-    for pixel in image.data.chunks_exact_mut(4) {
-        pixel.copy_from_slice(&[0, 255, 0, 255]);
+    for pixel in image.data.as_chunks_mut::<4>().0 {
+        *pixel = [0, 255, 0, 255];
     }
     fixture.ctx.put_image_data(&image, 0.0, 0.0).unwrap();
     fixture.ctx.set_global_composite_operation("copy").unwrap();
@@ -402,7 +404,7 @@ fn compacted_curves_match_the_browser() {
     assert_eq!(out.stdout.len(), snapshots.len() * 128 * 96 * 4);
     for (phase, (actual, expected)) in snapshots
         .iter()
-        .zip(out.stdout.chunks_exact(128 * 96 * 4))
+        .zip(out.stdout.as_chunks::<{ 128 * 96 * 4 }>().0)
         .enumerate()
     {
         let pixel = |x: usize, y: usize| {

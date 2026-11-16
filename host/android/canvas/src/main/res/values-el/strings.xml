@@ -2,5 +2,4 @@
 <resources>
     <string name="exact_clear">Διαγραφή</string>
     <string name="exact_default_channel">Ειδοποιήσεις</string>
-    <string name="exact_silent_channel">Αθόρυβες ειδοποιήσεις</string>
 </resources>

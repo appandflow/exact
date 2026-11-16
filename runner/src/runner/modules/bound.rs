@@ -455,6 +455,8 @@ impl<D: DataSource> Runner<D> {
                     self.extensions.live.remove(key);
                     self.extensions.readers.remove(key);
                     self.extensions.groups.remove(key);
+                    // A reader asking again polls it again (`note_poll`).
+                    self.extensions.polls.remove(key);
                 }
                 self.log(format!("release {key}: no reader is left"));
                 released.push(json!({ "extension": extension, "release": name }));
@@ -550,9 +552,12 @@ impl<D: DataSource> Runner<D> {
             return false;
         };
         let source = self.plan.sources[row.source.0 as usize].name;
+        // A child's declared row and a destroyed instance's read nothing
+        // (LLP 1035.005.004 D4).
         (0..self.resources.len()).any(|i| {
             let asleep = (self.resources[i].state.as_ref()).is_some_and(|s| s.asleep);
             !asleep
+                && !self.settles_to_nothing(i)
                 && (self.resource_row(i).source == source
                     || self.resources[i].watching.iter().any(|t| t == key))
         }) || self.pending.iter().any(|p| {

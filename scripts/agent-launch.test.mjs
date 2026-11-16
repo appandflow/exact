@@ -1238,15 +1238,21 @@ test('a setting is named the backend\'s source only where the grant takes it, an
 test("another host's crate or Android's Gradle files are no input of the Apple, web or plan check", async () => {
   const {receiptChanges,webInputs}=await import('./agent-launch.mjs');
   const {planSources}=await import('./agent-build.mjs');
-  const {resolveApp}=await import('./app.mjs');
+  const {resolveApp,patchLines}=await import('./app.mjs');
   const dir=realpathSync(mkdtempSync(resolve(tmpdir(),'exact-other-hosts-'))), before=process.env.EXACT_APP_DIR;
   try {
+    // An app that writes its own host crates writes their workspace too (LLP 1153.003 D3).
+    const hosts=['android','windows','linux','web'];
+    writeFileSync(resolve(dir,'Cargo.toml'),`[workspace]\nmembers = ${JSON.stringify(hosts)}\nresolver = "2"\n\n[patch.crates-io]\n${patchLines(dir).join('\n')}\n`);
+    writeFileSync(resolve(dir,'rust-toolchain.toml'),`[toolchain]\nchannel = "${PINNED_RUST}"\n`);
     const files=['app.json','app.contract','gradle.lockfile','gradle-verification.xml',
-      ...['android','windows','linux','web'].flatMap(host=>[`${host}/Cargo.toml`,`${host}/src/lib.rs`])];
+      ...hosts.flatMap(host=>[`${host}/Cargo.toml`,`${host}/src/lib.rs`])];
     const inputTime=new Date('2026-01-01T00:00:00Z'), builtTime=new Date('2026-01-01T00:01:00Z'), edited=new Date('2026-01-01T00:02:00Z');
+    for (const file of ['Cargo.toml','rust-toolchain.toml']) utimesSync(resolve(dir,file),inputTime,inputTime);
     for (const file of files) {
       mkdirSync(dirname(resolve(dir,file)),{recursive:true});
-      writeFileSync(resolve(dir,file),file==='app.json'?JSON.stringify({name:'Hosts',app:{id:'com.exact.hosts',name:'Hosts'}}):file==='app.contract'?'component App\n  view\n    text "x"\n':'');
+      writeFileSync(resolve(dir,file),file==='app.json'?JSON.stringify({name:'Hosts',app:{id:'com.exact.hosts',name:'Hosts'}}):file==='app.contract'?'component App\n  view\n    text "x"\n'
+        :file.endsWith('/Cargo.toml')?`[package]\nname = "hosts-${dirname(file)}"\nversion = "0.0.0"\nedition = "2021"\n`:'');
       utimesSync(resolve(dir,file),inputTime,inputTime);
     }
     const app=resolveApp(dir), receipt=resolve(dir,'target/receipt.json');

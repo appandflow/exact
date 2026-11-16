@@ -783,8 +783,9 @@ check('the pressed paint shows by the press rule, eased, and replaces the platfo
     // frames for it (2 s at most), where one timer turn can come first on a loaded machine.
     expect(await evaluate(`new Promise(ok => { const end = performance.now() + 2000, look = () => { const on = document.getElementById('painted').hasAttribute('data-exact-painting'); if (!on || performance.now() > end) ok(on); else requestAnimationFrame(look); }; look(); })`)).toBe(false);
     // An authored transition of the same properties running at the press is
-    // left to run, as authored, beneath the paint (which is on images: a
-    // background layer, a mask); released, the node shows its own look again.
+    // left to run, as authored: the pressed colour is a layer over it, and the
+    // pressed opacity waits for its own to end; released, the node shows its
+    // own look again.
     await evaluate(`{ const el = document.getElementById('painted'); el.style.transition = 'background-color 1s linear, opacity 1s linear'; el.style.backgroundColor = 'rgb(255, 255, 0)'; el.style.opacity = '0.6'; (globalThis.exact?.pressShown?.(el) ?? getComputedStyle(el)).opacity; }`);
     expect(await evaluate(`document.getElementById('painted').getAnimations().filter(a => a instanceof CSSTransition).length`)).toBe(2);
     await mouse('mousePressed', painted);
@@ -862,8 +863,8 @@ check('the pressed paint shows by the press rule, eased, and replaces the platfo
     const hovered = await evaluate(`getComputedStyle(document.getElementById('paintrow')).backgroundImage`);
     await mouse('mousePressed', [x, y]);
     await settle();
-    // (The paint is a layer over the node's own images, the hover's kept beneath it.)
-    expect(await evaluate(`(() => { const el = document.getElementById('paintrow'), s = exact.pressShown?.(el) ?? getComputedStyle(el), images = getComputedStyle(el).backgroundImage; return rgb(s.backgroundColor) + ' ' + images.slice(images.indexOf('), ') + 3); })()`)).toBe(`rgb(0, 0, 255) ${hovered}`);
+    // (The pressed colour stands in for the row's background-color; the hover's images stay over it, as over CSS's.)
+    expect(await evaluate(`(() => { const el = document.getElementById('paintrow'), s = exact.pressShown?.(el) ?? getComputedStyle(el); return rgb(s.backgroundColor) + ' ' + getComputedStyle(el).backgroundImage; })()`)).toBe(`rgb(0, 0, 255) ${hovered}`);
     await mouse('mouseReleased', await centre('paintrow'));
     await settle();
     // A pressed opacity cleared while held stops showing at once: the press
@@ -1028,7 +1029,7 @@ for (const engine of ['chromium', 'firefox', 'webkit']) test(`${engine}: a press
         await new Promise(ok => requestAnimationFrame(() => requestAnimationFrame(ok)));
         return { same, toAuthored, count: before.length, painted, released: Number((globalThis.exact?.pressShown?.(el) ?? getComputedStyle(el)).opacity).toFixed(2), rules: document.adoptedStyleSheets.reduce((n, sheet) => n + sheet.cssRules.length, 0) };
       }, [from, to, paused]);
-      // The same animations, untouched, over every look beneath (the paint writes no background-color).
+      // The same animations, untouched, over every look beneath (while a background colour runs, the paint is a layer).
       expect([from, paused, seen.same, seen.toAuthored, seen.count]).toEqual([from, paused, true, true, 2]);
       expect([from, ...seen.painted]).toEqual([from, '0.30', true]);
       expect([from, seen.released, seen.rules]).toEqual([from, '0.60', 0]);
@@ -1046,7 +1047,7 @@ for (const engine of ['chromium', 'firefox', 'webkit']) test(`${engine}: a press
       el.getAnimations().forEach(a => a.finish());
       return seen;
     });
-    expect(half).toMatch(/^rgba\(0, 0, 255, 0\.(49\d*|50\d*)\)$/); // (8-bit: 0.498 or 0.502)
+    expect(half).toBe('rgba(0, 0, 255, 0.5)');
   } finally {
     await page.close();
   }
@@ -1095,7 +1096,8 @@ for (const engine of ['chromium', 'firefox', 'webkit']) test(`${engine}: a press
   }
 }, 60_000);
 
-// Every engine: the paint's layer shifts the node's own per-layer lists with its images (each image keeps its
+// Every engine: the paint's layer (a declared background colour transition over a look that can't be written
+// exactly, here oklch()) shifts the node's own per-layer lists with its images (each image keeps its
 // position and size), sets its own where the node has none, leaves a position or size list alone under a
 // transition of it (the layer isn't painted), and a luminance mask of the node's doesn't turn the paint's mask
 // (Chromium without computedStyleMap: the mask path) into one that hides it; a delayed colour transition
@@ -1111,9 +1113,9 @@ for (const engine of ['chromium', 'firefox', 'webkit']) test(`${engine}: the pai
       document.body.style.background = 'rgb(255, 255, 255)';
       const press = '--exact-press-background-color:rgb(0, 0, 255);--exact-press-opacity:0.5';
       document.getElementById('exact-root').innerHTML = `
-        <div id="two" data-exact-on="press" style="${press};width:60px;height:20px;background-image:linear-gradient(red, red), linear-gradient(lime, lime);background-position:left, right;background-size:10px 10px;background-repeat:no-repeat">2</div>
-        <div id="sized" data-exact-on="press" style="${press};width:60px;height:20px;background-size:10px 10px">S</div>
-        <div id="moving" data-exact-on="press" style="${press};width:60px;height:20px;background-image:linear-gradient(red, red);background-position:left;transition:background-position 1s">M</div>
+        <div id="two" data-exact-on="press" style="${press};width:60px;height:20px;background-image:linear-gradient(red, red), linear-gradient(lime, lime);background-position:left, right;background-size:10px 10px;background-repeat:no-repeat;background-color:oklch(1 0 0);transition:background-color 1s">2</div>
+        <div id="sized" data-exact-on="press" style="${press};width:60px;height:20px;background-size:10px 10px;background-color:oklch(1 0 0);transition:background-color 1s">S</div>
+        <div id="moving" data-exact-on="press" style="${press};width:60px;height:20px;background-image:linear-gradient(red, red);background-position:left;background-color:oklch(1 0 0);transition:background-position 1s, background-color 1s">M</div>
         <div id="lum" data-exact-on="press" style="${press};position:fixed;left:100px;top:100px;width:60px;height:40px;background-color:rgb(255, 255, 255);mask-image:linear-gradient(white, white);mask-mode:luminance">L</div>
         <div id="late" data-exact-on="press" style="--exact-press-color:rgb(255, 0, 0);width:60px;height:20px;color:oklch(0.5 0.1 200);transition:color 0s 1s">C</div>`;
       const pointer = (el, type) => { const r = el.getBoundingClientRect(); el.dispatchEvent(new PointerEvent(type, { bubbles: true, pointerType: 'mouse', pointerId: 1, isPrimary: true, button: 0, buttons: type === 'pointerdown' ? 1 : 0, clientX: r.x + 5, clientY: r.y + 5 })); };
@@ -1147,8 +1149,9 @@ for (const engine of ['chromium', 'firefox', 'webkit']) test(`${engine}: the pai
 // Every engine, the final pass's three: (1) under a declared transition, a node's own opacity or colour changed
 // while held, or its pressed colour cleared, takes effect at once (the paint goes on from the new look beneath; the
 // node's transition times the base's move, D8), not at the release; (2) with no images of its own, the paint's layer
-// takes the node's own background-clip and -origin, so a content-box background stays content-box; (3) a transition
-// on a position axis (background-position-x) leaves the layer out, as one on the position does.
+// (under a declared background colour transition over an oklch() look) takes the node's own background-clip and
+// -origin, so a content-box background stays content-box; (3) a transition on a position axis
+// (background-position-x) leaves the layer out, as one on the position does.
 for (const engine of ['chromium', 'firefox', 'webkit']) test(`${engine}: a held press follows the node's own changes; the layer keeps its clip and axis`, async () => {
   const browser = await suiteBrowser(engine);
   const page = await browser.newPage();
@@ -1158,8 +1161,8 @@ for (const engine of ['chromium', 'firefox', 'webkit']) test(`${engine}: a held 
     const seen = await page.evaluate(async () => {
       document.getElementById('exact-root').innerHTML = `
         <div id="f" data-exact-on="press" style="--exact-press-opacity:0.5;--exact-press-color:rgb(255, 0, 0);width:200px;height:30px;opacity:0.8;color:rgb(0, 0, 0);transition:all 1s linear">F</div>
-        <div id="clip" data-exact-on="press" style="--exact-press-background-color:rgb(0, 0, 255);width:60px;height:20px;padding:8px;background-color:rgb(255, 255, 255);background-clip:content-box;background-origin:content-box">C</div>
-        <div id="axis" data-exact-on="press" style="--exact-press-background-color:rgb(0, 0, 255);width:60px;height:20px;background-image:linear-gradient(red, red), linear-gradient(lime, lime);background-position:left, right;background-size:10px 10px;background-repeat:no-repeat;transition:background-position-x 1s">A</div>`;
+        <div id="clip" data-exact-on="press" style="--exact-press-background-color:rgb(0, 0, 255);width:60px;height:20px;padding:8px;background-color:oklch(1 0 0);background-clip:content-box;background-origin:content-box;transition:background-color 1s">C</div>
+        <div id="axis" data-exact-on="press" style="--exact-press-background-color:rgb(0, 0, 255);width:60px;height:20px;background-image:linear-gradient(red, red), linear-gradient(lime, lime);background-position:left, right;background-size:10px 10px;background-repeat:no-repeat;background-color:oklch(1 0 0);transition:background-position-x 1s, background-color 1s">A</div>`;
       const frame = () => new Promise(ok => requestAnimationFrame(() => requestAnimationFrame(ok)));
       const finish = el => el.getAnimations().forEach(a => a.finish());
       const pointer = (el, type) => { const r = el.getBoundingClientRect(); el.dispatchEvent(new PointerEvent(type, { bubbles: true, pointerType: 'mouse', pointerId: 1, isPrimary: true, button: 0, buttons: type === 'pointerdown' ? 1 : 0, clientX: r.x + 5, clientY: r.y + 5 })); };
@@ -1242,12 +1245,12 @@ for (const engine of ['chromium', 'firefox', 'webkit']) test(`${engine}: a relea
   }
 }, 60_000);
 
-// Every engine: the paint is a layer over the node's own background images (kept beneath it, and theirs again once
-// released); its opacity is the property where the engine hands the glue its own number (computedStyleMap) and a
+// Every engine: the pressed colour stands in for the node's background-color, under its own background images (as
+// CSS's `:active` background-color does), which stay as they are; its opacity is the property where the engine hands the glue its own number (computedStyleMap) and a
 // mask over what it draws elsewhere (the node's own mask kept, intersected) — Chromium runs both, the mask by taking
 // computedStyleMap away (WebKit's mask would clip the shadow away, which is why it takes the number). The box's
 // rounded corners clip the layer, and the node's shadow fades with it, as opacity does.
-for (const engine of ['chromium', 'firefox', 'webkit']) test(`${engine}: the paint layers over the node's own images and keeps to its box`, async () => {
+for (const engine of ['chromium', 'firefox', 'webkit']) test(`${engine}: the pressed colour stays under the node's own images and keeps to its box`, async () => {
   const browser = await suiteBrowser(engine);
   try {
     for (const path of engine === 'chromium' ? ['number', 'mask'] : [engine === 'firefox' ? 'mask' : 'number']) {
@@ -1264,17 +1267,17 @@ for (const engine of ['chromium', 'firefox', 'webkit']) test(`${engine}: the pai
           const m = press('m', 'pointerdown'), masks = m.maskImage, composite = m.maskComposite, mOpacity = m.opacity;
           press('m', 'pointerup');
           const cs = press('r', 'pointerdown');
-          return { images: cs.backgroundImage, masks, composite, mOpacity, opacity: cs.opacity };
+          return { images: cs.backgroundImage, color: cs.backgroundColor, masks, composite, mOpacity, opacity: cs.opacity };
         }, path);
         const { width, data } = decodePng(await page.screenshot());
         const at = (x, y) => [...data.slice((y * width + x) * 4, (y * width + x) * 4 + 3)];
         const near = (got, want) => got.every((v, i) => Math.abs(v - want[i]) <= 6);
-        expect([engine, path, seen.images.startsWith('linear-gradient(') && seen.images.endsWith(', linear-gradient(rgb(255, 0, 0), rgb(255, 0, 0))')]).toEqual([engine, path, true]);
+        expect([engine, path, seen.images, seen.color]).toEqual([engine, path, 'linear-gradient(rgb(255, 0, 0), rgb(255, 0, 0))', 'rgb(0, 0, 255)']);
         if (path === 'mask') expect([engine, path, seen.opacity, seen.mOpacity, seen.masks.endsWith(', linear-gradient(rgb(0, 0, 0), rgb(0, 0, 0))'), seen.composite.startsWith('intersect')]).toEqual([engine, path, '1', '1', true, true]);
         else expect([engine, path, seen.opacity, seen.mOpacity, seen.masks]).toEqual([engine, path, '0.5', '0.5', 'linear-gradient(rgb(0, 0, 0), rgb(0, 0, 0))']);
-        // The middle: the pressed blue at half opacity over the page's white; a corner outside the rounding: never
-        // the blue; the shadow: its green at half opacity.
-        expect([engine, path, near(at(120, 100), [127, 127, 255])]).toEqual([engine, path, true]);
+        // The middle: the pressed blue at half opacity over the page's white; the node's image: its red at half
+        // opacity, over the blue; a corner outside the rounding: never the blue; the shadow: its green at half opacity.
+        expect([engine, path, near(at(120, 100), [127, 127, 255]), near(at(77, 77), [255, 127, 127])]).toEqual([engine, path, true, true]);
         expect([engine, path, at(62, 62)[2] < 200 || at(62, 62)[0] > 200]).toEqual([engine, path, true]);
         expect([engine, path, near(at(55, 100), [127, 191, 127])]).toEqual([engine, path, true]);
         const released = await page.evaluate(async () => {

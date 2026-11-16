@@ -22,19 +22,19 @@ fn identity(name: &str) -> bool {
 }
 
 fn leaf(name: &str) -> bool {
-    if name.is_empty() || matches!(name, "." | "..") || name.contains('\0') {
-        return false;
-    }
-    #[cfg(windows)]
-    {
-        let mut parts = Path::new(name).components();
-        if exact_grants::WindowsPath::validate_component(name).is_err()
-            || !matches!(parts.next(), Some(std::path::Component::Normal(_)))
-            || parts.next().is_some()
-        {
-            return false;
-        }
-    }
+    !(name.is_empty() || matches!(name, "." | "..") || name.contains('\0')) && platform_leaf(name)
+}
+
+#[cfg(windows)]
+fn platform_leaf(name: &str) -> bool {
+    let mut parts = Path::new(name).components();
+    exact_grants::WindowsPath::validate_component(name).is_ok()
+        && matches!(parts.next(), Some(std::path::Component::Normal(_)))
+        && parts.next().is_none()
+}
+
+#[cfg(not(windows))]
+fn platform_leaf(_: &str) -> bool {
     true
 }
 
@@ -291,12 +291,16 @@ pub fn know_roots(app_id: &str) {
 
 /// The app's `data`, `cache` and `tmp` directories. A scripted drive
 /// without a scratch store has none; its picks land in a directory of this
-/// process's own.
+/// process's own, removed at its exit.
 pub fn roots() -> [PathBuf; 3] {
     if let Some(r) = ROOTS.lock().unwrap_or_else(|e| e.into_inner()).clone() {
         return r;
     }
-    let base = std::env::temp_dir().join(format!("exact-agent-{}", std::process::id()));
+    let base = agent_roots();
+    #[cfg(unix)]
+    ibex2::process::wait_at_exit(|| {
+        let _ = std::fs::remove_dir_all(agent_roots());
+    });
     let r = [
         base.join("data"),
         base.join("cache"),
@@ -304,6 +308,11 @@ pub fn roots() -> [PathBuf; 3] {
     ];
     *ROOTS.lock().unwrap_or_else(|e| e.into_inner()) = Some(r.clone());
     r
+}
+
+/// The directory of this process's own that [`roots`] falls back to.
+fn agent_roots() -> PathBuf {
+    std::env::temp_dir().join(format!("exact-agent-{}", std::process::id()))
 }
 
 /// Where an `app:/data|cache|tmp/…` path names (D7), for a file the host
@@ -939,12 +948,14 @@ mod tests {
                 .env_remove("XDG_CACHE_HOME")
                 .output()
                 .unwrap();
+            let made = home.exists();
+            let _ = std::fs::remove_dir_all(&home);
             assert!(
                 output.status.success(),
                 "{}",
                 String::from_utf8_lossy(&output.stdout)
             );
-            assert!(!home.exists(), "knowing the roots creates nothing");
+            assert!(!made, "knowing the roots creates nothing");
             return;
         }
         know_roots("test.exact.roots");

@@ -240,7 +240,7 @@ impl NodeArena {
             crate::style::relative::text_style_size(large, 16.) * self.root_font_size() / 16. * 1.2;
         let margin = ((large_line - line) / 2.).max(0.);
         if !own.has(StyleId::MinHeight) {
-            style.min_size.height = taffy::style::LengthPercentageAuto::length(line);
+            style.min_size.height = taffy::style::Dimension::length(line);
         }
         if !own.has(StyleId::MarginTop) {
             style.margin.top = taffy::style::LengthPercentageAuto::length(margin);

@@ -104,8 +104,7 @@
         "ipad"
       ],
       "localNetworking": "Exact connects to your dev server on the local network to load the app you are working on.",
-      "backgroundModes": [],
-      "associatedDomains": false
+      "backgroundModes": []
     },
     "macos": {
       "minimumOS": "14.0"

@@ -10,6 +10,7 @@
 //! verifies an app `exact new` made, untouched and with each pattern
 //! written into it.
 
+use crate::scratch::Scratch;
 use std::path::{Path, PathBuf};
 
 /// One fenced block: its document, the line of its opening fence, its info
@@ -271,8 +272,7 @@ fn the_long_list_recipe_appends_pages_and_stops_at_the_last() {
 
 #[test]
 fn every_contract_example_in_the_guides_compiles_and_every_test_parses() {
-    let dir = std::env::temp_dir().join(format!("exact-docs-{}", std::process::id()));
-    std::fs::create_dir_all(&dir).unwrap();
+    let dir = Scratch::new(format!("exact-docs-{}", std::process::id()));
     let package = dir.join("node_modules/@exact/in-app-browser");
     let source = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../packages/in-app-browser");
     for file in [
@@ -375,8 +375,7 @@ fn every_contract_example_in_the_guides_compiles_and_every_test_parses() {
 /// block appended. The assembled app compiles with no diagnostics.
 #[test]
 fn every_split_app_in_the_guides_compiles_assembled() {
-    let dir = std::env::temp_dir().join(format!("exact-docs-app-{}", std::process::id()));
-    std::fs::create_dir_all(&dir).unwrap();
+    let dir = Scratch::new(format!("exact-docs-app-{}", std::process::id()));
     let path = dir.join("app.contract");
     let mut docs: Vec<(PathBuf, Vec<Block>)> = Vec::new();
     for block in blocks() {
@@ -497,8 +496,7 @@ fn every_pattern_compiles_with_expected_diagnostics_and_its_tests_parse() {
 #[ignore = "async lane: makes an app with Bun and Cargo and verifies it and every pattern in Chrome; bun scripts/async.mjs runs it"]
 fn the_new_app_and_every_pattern_verify_clean_on_the_web() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let parent = std::env::temp_dir().join(format!("exact-patterns-{}", std::process::id()));
-    std::fs::create_dir_all(&parent).unwrap();
+    let parent = Scratch::new(format!("exact-patterns-{}", std::process::id()));
     let app = parent.join("groceries");
     let run = |cwd: &Path, args: &[&str]| {
         let output =
@@ -677,8 +675,7 @@ fn content_design_readout_has_no_width_ceiling_warning() {
         .into_iter()
         .find(|b| b.doc.ends_with("recipes/content-design.md") && b.info == "contract")
         .expect("content design readout");
-    let dir = std::env::temp_dir().join(format!("exact-content-design-{}", std::process::id()));
-    std::fs::create_dir_all(&dir).unwrap();
+    let dir = Scratch::new(format!("exact-content-design-{}", std::process::id()));
     let path = dir.join("app.contract");
     std::fs::write(&path, block.body).unwrap();
     let (result, warnings) = contract::compile_path_all_warned(&path, false);

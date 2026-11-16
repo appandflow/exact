@@ -40,7 +40,7 @@ pub(super) fn replace_controls_with_close(
 
 pub(super) fn reserve_control(command_count: &AtomicUsize) -> Result<(), HostError> {
     command_count
-        .fetch_update(Ordering::AcqRel, Ordering::Acquire, |count| {
+        .try_update(Ordering::AcqRel, Ordering::Acquire, |count| {
             (count < MAX_OUTBOUND_COMMANDS).then_some(count + 1)
         })
         .map(|_| ())

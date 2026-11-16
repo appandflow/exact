@@ -221,6 +221,7 @@ enum ReplyState {
 pub(super) struct Held {
     generation: usize,
     pub(super) prefetch: bool,
+    fixture: Option<ResponseWork>,
     name: String,
     origin: String,
     secrets: Vec<String>,
@@ -289,6 +290,7 @@ impl Held {
         Self {
             generation,
             prefetch: false,
+            fixture: None,
             key: if definition.request.body.len() <= MAX_BODY_BYTES {
                 Equal::of(&definition.request)
             } else {
@@ -957,13 +959,17 @@ fn waiting_for_name(cache: &cache::Cache, request: &Request) -> bool {
         })
 }
 pub(super) fn waiting(state: &State, job: &Job) -> bool {
-    eligible(&job.request, job.class, job.forced, job.work.is_some())
-        && state.cache.as_ref().is_some_and(|c| {
-            let now = (c.clock)();
-            matches!(c.preload_wait, NameWait::Definitions(due) if now < due)
-                || waiting_for_name(c, &job.request)
-                || find(c, &job.request).is_some_and(|i| can_take(c, &job.request, i))
-        })
+    eligible(
+        &job.request,
+        job.class,
+        job.forced,
+        super::reads::opaque(&job.work),
+    ) && state.cache.as_ref().is_some_and(|c| {
+        let now = (c.clock)();
+        matches!(c.preload_wait, NameWait::Definitions(due) if now < due)
+            || waiting_for_name(c, &job.request)
+            || find(c, &job.request).is_some_and(|i| can_take(c, &job.request, i))
+    })
 }
 // The earliest queued request keeps room to finish before later replies
 // can fill its lane. A preload failure still needs that room (D1).
@@ -1005,7 +1011,8 @@ pub(super) fn effect_count(state: &State) -> usize {
         - state.jobs[0]
             .iter()
             .filter(|job| {
-                waiting(state, job) && reads::safe_read(&job.request, job.work.is_some(), job.class)
+                waiting(state, job)
+                    && reads::safe_read(&job.request, super::reads::opaque(&job.work), job.class)
             })
             .count()
 }
@@ -1035,7 +1042,10 @@ pub(super) fn serve_ready(state: &mut State) {
             state.bytes[0] -= job.charge;
             continue;
         }
-        if job.class != RequestClass::Read || !job.request.is_plain_http() || job.work.is_some() {
+        if job.class != RequestClass::Read
+            || !job.request.is_plain_http()
+            || super::reads::opaque(&job.work)
+        {
             break;
         }
         if !eligible(&job.request, job.class, job.forced, false) {
@@ -1084,7 +1094,7 @@ pub(super) fn serve_ready(state: &mut State) {
         }
         let job = state.jobs[0].remove(index).expect("preload read");
         state.bytes[0] = state.bytes[0] - job.charge + bytes;
-        let light = reads::safe_read(&job.request, job.work.is_some(), job.class);
+        let light = reads::safe_read(&job.request, super::reads::opaque(&job.work), job.class);
         state.light += usize::from(light);
         state.completed[0].push_back(Completed {
             cached,

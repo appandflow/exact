@@ -19,6 +19,8 @@ import UIKit
 import UserNotifications
 #endif
 
+AgentLink.install()
+
 setvbuf(stdout, nil, _IOLBF, 0)
 let exact = ExactComposition.app
 /// The host's own lines go to stderr: under the agent, stdout is the protocol.
@@ -213,7 +215,7 @@ func agentReady() {
     guard ExactEnv.agentMode, !readySent else { return }
     readySent = true
     let error: Any = (a.bootError ?? b.bootError).map { $0 as Any } ?? NSNull()
-    Agent.startSocket(ready: ["ready": true, "boot": max(a.bootMs, b.bootMs), "views": a.viewCount + b.viewCount, "sessions": sessions.map(\.0), "error": error, "pid": Int(getpid())], sessions: sessions)
+    AgentLink.startSocket(ready: ["ready": true, "boot": max(a.bootMs, b.bootMs), "views": a.viewCount + b.viewCount, "sessions": sessions.map(\.0), "error": error, "pid": Int(getpid())], sessions: sessions)
 }
 
 final class AppDelegate: UIResponder, UIApplicationDelegate {
