@@ -564,6 +564,7 @@ for (const [runtime, engine] of [['JS', 'chromium'], ['wasm', 'chromium'], ['JS'
         smooth: [smooth.getPropertyValue('-webkit-font-smoothing'), smooth.getPropertyValue('-moz-osx-font-smoothing')],
         said: at('sized').matches('[data-exact-said~="width"], [data-exact-width]'),
         canvas: [html.style.getPropertyValue('--exact-root-background'), getComputedStyle(html).backgroundColor],
+        theme: [...document.querySelectorAll('meta[name="theme-color"]')].map(m => m.content),
       };
     })()`;
     for (const [id, mode] of [[null, 'set'], ['clear', 'empty'], ['set', 'set'], ['spaces', 'spaces']]) {
@@ -577,6 +578,8 @@ for (const [runtime, engine] of [['JS', 'chromium'], ['wasm', 'chromium'], ['JS'
       expect(actual.canvas[0] !== '', mode).toBe(runtime === 'JS' && set);
       expect(actual.canvas[1], mode).not.toBe('rgba(0, 0, 0, 0)');
       if (runtime === 'JS' && set) expect(actual.canvas[1]).toBe('rgb(30, 30, 31)');
+      // and its theme colour follows the canvas, the shell's once cleared.
+      if (runtime === 'JS') expect(actual.theme).toEqual([actual.canvas[1]]);
     }
   }, SPELLINGS_SOURCE, {}, engine), 120000);
 }
