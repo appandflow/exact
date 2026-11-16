@@ -9,6 +9,18 @@ vendor/ibex/third_party/wpt/urltestdata.json is web-platform-tests'
 url/resources/urltestdata.json, Copyright (c) web-platform-tests contributors,
 under the 3-Clause BSD License; the licence is beside it (LICENSE.md).
 
+Symbols
+
+These symbol roles' paths in kernel/tables/schema.json are Lucide 1.73.0's icons
+(https://lucide.dev), ISC License, Copyright (c) 2026 Lucide Icons and
+Contributors; those Lucide derives from Feather are also MIT License, Copyright
+(c) 2013-present Cole Bemis. Both licences are in kernel/tables/LUCIDE-LICENSE.
+add (plus), adjust (sliders-horizontal), back (chevron-left), book (book-open),
+chart (chart-no-axes-column-increasing), checkmark (check), circle, close (x),
+document (file-text), ellipsis, forward-chevron (chevron-right), hashtag (hash),
+info, list, lock, moon, people (users), play-fill (play), refresh (rotate-cw),
+settings, share and star.
+
 Media
 
 The following images are by Daehyeon Mun and are included with permission:
