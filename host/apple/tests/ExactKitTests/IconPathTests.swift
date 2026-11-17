@@ -152,6 +152,11 @@ final class IconPathTests: XCTestCase {
         p.apply(wireBatch([["op": "frame", "id": 2, "x": 0.0, "y": 60.0, "w": 160.0, "h": 160.0]]))
         v.layoutSymbol()
         XCTAssertEqual(leaf.image.map { [$0.size.width, $0.size.height].map { $0.rounded() } }, [640, 160], "covered, a square box: as tall as it")
+        // Scaled down: its glyph (96 x 24 in a 24 em, so 24 x 6) fits a box shorter than its em, so it keeps its own size.
+        p.apply(wireBatch([["op": "style", "id": 2, "style": ["font_size": 24.0, "object_fit": "scale-down"]],
+                           ["op": "frame", "id": 2, "x": 0.0, "y": 60.0, "w": 160.0, "h": 20.0]]))
+        v.layoutSymbol()
+        XCTAssertEqual(leaf.contentMode, .center, "not enlarged to the box")
         // A viewBox that doesn't divide its box evenly is drawn once, not again at each layout.
         p.apply(wireBatch([["op": "props", "id": 2, "set": ["symbolViewBox": "0 0 799.1 184"]],
                            ["op": "style", "id": 2, "style": ["font_size": 24.0, "object_fit": "contain"]],

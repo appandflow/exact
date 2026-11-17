@@ -37,7 +37,11 @@ extension NodeView {
         case "cover": leaf.contentMode = .scaleAspectFill
         case "none": leaf.contentMode = .center
         case "scale-down":
-            let size = image?.size ?? .zero
+            var size = image?.size ?? .zero
+            if props["symbolPath"] != nil {
+                let box = IconPath.viewBox(props["symbolViewBox"] ?? ""), em = min(size.width / box.width, size.height / box.height)
+                size = CGSize(width: box.width * em, height: box.height * em)
+            }
             leaf.contentMode = size.width <= content.width && size.height <= content.height ? .center : .scaleAspectFit
         // `contain`, and `fill`: a symbol is a vector glyph, which keeps its
         // aspect in a box of another shape as an SVG's default
