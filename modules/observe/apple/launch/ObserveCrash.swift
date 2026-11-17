@@ -12,6 +12,12 @@ enum ObserveCrash {
     nonisolated(unsafe) static var tail: UnsafeMutablePointer<UInt8>?
     static let signals: [Int32] = [SIGABRT, SIGSEGV, SIGBUS, SIGILL, SIGFPE, SIGTRAP]
 
+    /// Where a Rust panic's message, location and thread go before its abort's SIGABRT.
+    /// A separate file, because the signal handler truncates the pending record.
+    static func panicPath(directory: String, session: String) -> String {
+        "\(directory)/exact-observe-panic-\(session).json"
+    }
+
     static func install(directory: String, session: String) {
         // The app-specific Application Support directory already exists; create the file only on a crash
         path = strdup("\(directory)/exact-observe-pending-\(session).json")

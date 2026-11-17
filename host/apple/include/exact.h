@@ -218,6 +218,11 @@ typedef struct ExactTextRun {
  * (LLP 1133.036 D8): 0 granted, 2 denied. Returns 1 if the fact moved. */
 uint32_t exact_local_network_report(uint32_t state);
 
+/* Each later Rust panic writes {"message", "location", "thread"} as JSON to the
+ * file at `path` (len UTF-8 bytes) before the previous hook runs and a release
+ * build aborts. Only the first call installs the hook. */
+void exact_panic_record(const uint8_t *path, size_t len);
+
 /* LLP 1053 G5. CSS white space collapsing (normal, nowrap, pre-line) of a paragraph's
  * runs, the one algorithm the measurer applies before each measure callback. `utf8` is
  * the runs joined, `lens` their byte lengths, `white_space` as in ExactMeasureRequest.

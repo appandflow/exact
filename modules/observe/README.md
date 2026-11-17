@@ -18,7 +18,7 @@ These settings are optional:
 - `dispatchingEnabled`;
 - `dispatchInDebug`. A development build sends nothing unless this is true.
 
-On Apple, the launch part installs fatal-signal handlers, starts a network-path monitor and enables battery monitoring on iOS. Its deferred service loads after startup; a direct native query can load it on demand. Pending crash records live in the app's Application Support directory.
+On Apple, the launch part installs fatal-signal handlers, starts a network-path monitor and enables battery monitoring on iOS. Its deferred service loads after startup; a direct native query can load it on demand. Pending crash records live in the app's Application Support directory. A fatal signal's record carries only the signal; when a Rust panic caused it, the panic's message, `file:line` and thread are written beside it before the abort, and the next launch's `native.exception` carries them.
 
 ## Metrics
 

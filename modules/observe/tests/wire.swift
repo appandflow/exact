@@ -69,6 +69,7 @@ enum WireHarness {
                                  "threads": SQLiteThreads.counts()] as [String: Any]
         out["retry"] = try retryState(fixture, config: config, root: root.appendingPathComponent("retry"))
         out["crash"] = try crashState(fixture, config: config, root: root.appendingPathComponent("crash"))
+        out["panic"] = try panicState(fixture, config: config, root: root.appendingPathComponent("panic"))
         FileHandle.standardOutput.write(try JSONSerialization.data(withJSONObject: out))
     }
 
@@ -90,6 +91,24 @@ enum WireHarness {
         let stored = ObserveService(config: config, handoff: Data(), root: root, clientId: clientId)
         return ["refusedRows": refusedRows, "keptAfterRefusal": keptAfterRefusal,
                 "storedRows": crashes(stored), "keptAfterStore": FileManager.default.fileExists(atPath: record.path)]
+    }
+
+    /// A SIGABRT record beside the crashed session's panic record, and a panic record with no crash.
+    private static func panicState(_ fixture: [String: Any], config: [String: Any], root: URL) throws -> [String: Any] {
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let file = { (name: String) in root.appendingPathComponent(name) }
+        try JSONSerialization.data(withJSONObject: ["session": "aborted", "sessionStart": 1, "signal": 6]).write(to: file("exact-observe-pending-aborted.json"))
+        try JSONSerialization.data(withJSONObject: ["message": "index out of bounds", "location": "data/src/lib.rs:42", "thread": "main"])
+            .write(to: file("exact-observe-panic-aborted.json"))
+        try JSONSerialization.data(withJSONObject: ["message": "caught"]).write(to: file("exact-observe-panic-caught.json"))
+        let service = ObserveService(config: config, handoff: Data(), root: root, clientId: UUID(uuidString: fixture["clientId"] as! String)!)
+        let attributes = service.queue.sync {
+            service.store?.rows("SELECT attributes FROM logs WHERE name = 'native.exception'", []).compactMap { row -> Any? in
+                (row.first as? String).flatMap { try? JSONSerialization.jsonObject(with: Data($0.utf8)) }
+            } ?? []
+        }
+        let left = try FileManager.default.contentsOfDirectory(atPath: root.path).filter { $0.hasPrefix("exact-observe-") }
+        return ["attributes": attributes, "left": left]
     }
 
     private static func retryState(_ fixture: [String: Any], config: [String: Any], root: URL) throws -> [String: Any] {

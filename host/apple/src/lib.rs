@@ -65,6 +65,7 @@ pub mod markup;
 pub mod material;
 pub mod measure;
 pub mod pan_velocity;
+pub mod panic_record;
 pub mod picker;
 mod plan_bytes;
 pub mod presence_secrets;

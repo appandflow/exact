@@ -3,6 +3,7 @@
 // launch. It runs once at the app delegate's init and receives journal events
 // in their own main-thread turn, never inside a draw, commit or apply. Its
 // heavier service, `lib<module>_service.dylib`, loads later when it asks.
+import CExact
 import Foundation
 import QuartzCore
 
@@ -139,6 +140,13 @@ public final class ExactLaunchContext {
         let identity = app["CFBundleIdentifier"] as? String ?? Bundle.main.bundleIdentifier ?? "app"
         crashDirectory = base.appendingPathComponent("exact/\(identity)/crashes", isDirectory: true).path
         try? FileManager.default.createDirectory(atPath: crashDirectory, withIntermediateDirectories: true)
+    }
+
+    /// Each later Rust panic writes `{"message", "location", "thread"}` as JSON to
+    /// `path` before the process aborts, which a fatal-signal handler cannot read.
+    public func recordPanics(to path: String) {
+        let bytes = Array(path.utf8)
+        exact_panic_record(bytes, bytes.count)
     }
 
     /// Delivers every event so far, then each new one, in later main-thread turns.
