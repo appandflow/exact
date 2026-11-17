@@ -276,6 +276,56 @@ export const spawn = (command, args, options) => {
   return child;
 };
 
+/** Says every `every` ms on stdout, until the returned function is called, that `step` (started at `since`) is still
+ *  running, with the last line `last()` answers: a build step whose output is held until it exits, or one waiting on a
+ *  lock, otherwise prints nothing for as long as it lasts. */
+export function stillWaiting(step, since, last = () => '', every = 60_000) {
+  const timer = setInterval(() => {
+    const line = last().trimEnd().split('\n').at(-1)?.trim().slice(0, 300);
+    console.log(`host/apple: still waiting on ${step} (running ${Math.round((Date.now() - since) / 1000)} s${line ? `; last line: ${line}` : ''})`);
+  }, every);
+  timer.unref?.();
+  return () => clearInterval(timer);
+}
+
+/** A short name for a toolchain step in a message: `swift build --product ExactIOS`, `swiftc -module-name ExactAppModules`. */
+export function stepName(command, args) {
+  const at = ['--sdk', '-sdk'].includes(args[0]) ? 2 : 0;
+  const tool = command !== 'xcrun' ? `${command} ${args[0] ?? ''}`.trim() : args[at] === 'simctl' ? `simctl ${args[at + 1]}` : args[at];
+  const flag = ['--product', '-module-name', '--target'].find(name => args.includes(name));
+  return flag ? `${tool} ${flag} ${valueAfter(args, flag)}` : tool;
+}
+
+/** `spawnSync`'s result without blocking the event loop, so `stillWaiting` can speak meanwhile. With `timeout`, a child
+ *  still running then is sent SIGTERM, SIGKILL `grace` ms later, and the wait ends `grace` ms after that whether or not
+ *  its pipes closed (a process it started can hold them): `error.code` is then `ETIMEDOUT`. */
+export function waited(command, args, options = {}, { timeout, grace = 5_000, every } = {}) {
+  const child = spawn(command, args, { ...options, stdio: ['ignore', 'pipe', 'pipe'] }), since = Date.now();
+  const stdout = [], stderr = [], timers = [];
+  child.stdout.setEncoding('utf8').on('data', chunk => stdout.push(chunk));
+  child.stderr.setEncoding('utf8').on('data', chunk => stderr.push(chunk));
+  const stop = () => { if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL'); };
+  process.once('exit', stop);
+  const quiet = stillWaiting(stepName(command, args), since, () => `${stdout.join('')}\n${stderr.join('')}`, every);
+  return new Promise((settle) => {
+    let error;
+    const end = (status, signal) => {
+      quiet(); timers.forEach(clearTimeout); process.removeListener('exit', stop);
+      settle({ pid: child.pid, status, signal, stdout: stdout.join(''), stderr: stderr.join(''), error });
+    };
+    child.once('error', (e) => { error = e; end(null, null); });
+    child.once('close', end);
+    if (timeout) timers.push(setTimeout(() => {
+      error = Object.assign(new Error(`${stepName(command, args)} did not end within ${timeout / 1000} s; sent SIGTERM, then SIGKILL`), { code: 'ETIMEDOUT' });
+      child.kill('SIGTERM');
+      timers.push(setTimeout(() => {
+        stop();
+        timers.push(setTimeout(() => { child.stdout.destroy(); child.stderr.destroy(); end(child.exitCode, child.signalCode ?? 'SIGKILL'); }, grace));
+      }, grace));
+    }, timeout));
+  });
+}
+
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const result = spawnSync('xcrun', process.argv.slice(2), { stdio: 'inherit' });
   if (result.error) console.error(result.error.message);

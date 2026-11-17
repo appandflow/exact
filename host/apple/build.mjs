@@ -43,7 +43,7 @@ import { platformWidgetEntries, activityEntries, hasEntries, widgetGroup, prepar
 import { assembleMac, assembleIOS, buildIntents, shortcutKeys, placeMacDylibs } from './bundle.mjs';
 import { EXTENSION_KINDS, assertNotificationServiceGrants, extensionKinds, notificationService, notificationServiceDirectory, notificationServicePlatformRefusal, withoutExtensions } from './extensions.mjs';
 import { buildWatch, watchCompanion, watchProfiles } from './watch.mjs';
-import { spawn, spawnSync } from './toolchain.mjs';
+import { spawn, spawnSync, stepName, stillWaiting, waited } from './toolchain.mjs';
 import { metalRequired, metalToolchainInstructions } from './metal.mjs';
 import { metalVersion, svgFilterLibrary, svgFilterLibraryName } from './svg-filter.mjs';
 export { metalVersion, svgFilterLibrary, svgFilterLibraryName };
@@ -91,11 +91,12 @@ const run = (cmd, args, opts = {}) => {
 const hasStd = (flag, target) => read('rustup', ['target', 'list', '--installed', '--toolchain', PINNED_RUST]).stdout?.split('\n').includes(target) || (console.error(`${flag} needs Rust's ${target} std, which the pinned toolchain lacks. Install it with \`rustup target add ${target} --toolchain ${PINNED_RUST}\``), process.exitCode = 1, false);
 // Fail on deployment-target and sysroot warnings because Apple tools can still link incompatible inputs
 // @ref LLP 1008
-export const runApple = (cmd, args, opts = {}) => {
-  const { cargoMessages = false, read = false, ...spawnOptions } = opts;
-  const r = spawnSync(...appleCargo(cmd, args, { cwd: root, encoding: 'utf8', maxBuffer: 32 * 1024 * 1024, ...spawnOptions }));
-  if (!cargoMessages && !read) process.stdout.write(quiet(r.stdout ?? ''));
-  process.stderr.write(quiet(r.stderr ?? ''));
+export const runApple = (cmd, args, opts = {}) => appleRan(cmd, args, opts, spawnSync(...appleCargo(cmd, args, appleOptions(opts))));
+/** runApple for a step that can wait on another process's lock (SwiftPM's): awaited, it says every minute that it still runs. */
+export const runAppleWaited = async (cmd, args, opts = {}) => appleRan(cmd, args, opts, await waited(...appleCargo(cmd, args, appleOptions(opts))));
+const appleOptions = ({ cargoMessages, read, ...spawnOptions }) => ({ cwd: root, encoding: 'utf8', maxBuffer: 32 * 1024 * 1024, ...spawnOptions });
+const appleRan = (cmd, args, { cargoMessages = false, read = false }, r) => {
+  if (!cargoMessages && !read) process.stdout.write(quiet(r.stdout ?? '')); process.stderr.write(quiet(r.stderr ?? ''));
   if (r.status !== 0) throw new Error(`${cmd} failed (${r.status ?? r.error?.message})`);
   refuseMixedTargets(cmd, args, `${r.stdout ?? ''}\n${r.stderr ?? ''}`);
   return r;
@@ -118,7 +119,7 @@ const refuseMixedTargets = (cmd, args, output) => {
 const buildStep = (name) => { if (process.env.EXACT_BUILD_STEPS === '1') console.log(`exact-step ${name}`); };
 function startApple(cmd, args, log, { authored, ...opts } = {}) {
   const out = openSync(log, 'w');
-  const child = spawn(...appleCargo(cmd, args, { cwd: root, ...opts, stdio: ['ignore', out, out] }));
+  const child = spawn(...appleCargo(cmd, args, { cwd: root, ...opts, stdio: ['ignore', out, out] })), since = Date.now();
   closeSync(out);
   const exited = new Promise((settle) => {
     child.once('error', (error) => settle({ status: null, error }));
@@ -127,7 +128,7 @@ function startApple(cmd, args, log, { authored, ...opts } = {}) {
   const stop = () => { if (child.exitCode === null && !child.killed) child.kill(); };
   process.once('exit', stop);
   return { stop, async done({ repeated = false } = {}) {
-    const r = await exited;
+    const said = stillWaiting(stepName(cmd, args), since, () => { try { return readFileSync(log, 'utf8'); } catch { return ''; } }), r = await exited; said();
     process.removeListener('exit', stop);
     if (authored) writeFileSync(log, authored(readFileSync(log, 'utf8')));
     if (repeated && r.status !== 0) return false;
@@ -998,7 +999,7 @@ async function main(args, lockHeld = false) {
   const binDir = mkdtempSync(resolve(paths.namespace, '.products-')); cleanup.push(binDir);
   // Every app of this scratch shares one ExactCore framework, whose binary holds the last app's archive: the claim on
   // the scratch is taken before it is linked and kept until the products link, and the app takes its own copy.
-  const waitForSwift = () => awaitBuildOutput(app, paths.swiftLock, (owner) => console.log(`host/apple: waiting for the Swift build of ${owner} in ${swiftBuildRoot.replace(root + '/', '')}`));
+  const waitForSwift = () => awaitBuildOutput(app, paths.swiftLock, (owner, s) => console.log(`host/apple: ${s ? 'still ' : ''}waiting for the Swift build of ${owner} in ${swiftBuildRoot.replace(root + '/', '')}${s ? ` (${s} s)` : ''}`));
   const widgetClaim = widgets ? waitForSwift() : null;
   // An iOS development core links reserved room and this app's plan is fitted into its copy (#477); a shipped one has none.
   const reserve = ios && !production && !distribution && linkedPlan ? linkedPlan.dir : null, core = widgets ? sharedWidgetCore({ app, prepared: widgetCore, libDir, crate, env, runApple, linkedPlan, library, reserve: !!reserve }) : null;
@@ -1179,7 +1180,7 @@ async function main(args, lockHeld = false) {
   const serviceDylibs = launchServices(launchModules(app.dir, app.manifest), webBuildDir); for (const svc of serviceDylibs) arms.push(arm(['--sdk', sdkName, 'swiftc', '-module-cache-path', resolve(packagesRoot, 'modules-module-cache'), ...serviceArgs(svc), ...(ios ? ['-target', iosTripleFor(app, device, tv, compiled.ios), '-sdk', sdk] : macTarget)], svc.sources, svc.built, '', true));
   await hostCompile?.done({ repeated: true });
   if (appModule) await appModule();
-  if (!tv && packaged.has('intents') && modulesBuilt) nativeIntents.push(nativeIntentModule({ moduleName: 'ExactAppModules', binary: modulesBuilt, sources: moduleSources, args: moduleArgs(sdkName, ios ? ['-target', moduleTripleFor(app, true, device, tv), '-sdk', sdk] : macTarget, modulesBuilt, ios, ios && !device, ios ? iosArch : macArch), directory: resolve(linkRoot, 'native-intents'), swiftc, runApple }));
+  if (!tv && packaged.has('intents') && modulesBuilt) console.log('host/apple: reading the intents the app\'s Swift modules declare'), nativeIntents.push(nativeIntentModule({ moduleName: 'ExactAppModules', binary: modulesBuilt, sources: moduleSources, args: moduleArgs(sdkName, ios ? ['-target', moduleTripleFor(app, true, device, tv), '-sdk', sdk] : macTarget, modulesBuilt, ios, ios && !device, ios ? iosArch : macArch), directory: resolve(linkRoot, 'native-intents'), swiftc, runApple }));
   if (packaged.has('intents') && nativeIntents.some(Boolean)) intents = buildIntents({ ...intentOptions, nativeModules: nativeIntents });
   // The early build stands when it succeeded and the bake came out as it was expected to.
   const linkedEarly = early ? await early.step.done({ repeated: true }) && expected.capture === libDir && expected.composition === composition && expected.scratch === paths.scratch : false;
@@ -1204,7 +1205,7 @@ async function main(args, lockHeld = false) {
     }
     if (widgetCore) dropLeftoverCore(swiftBinDir);
     if (!tv && packaged.has('intents') && launchPartsDir) {
-      runApple('swift', [...swiftArgs, '--target', 'ExactLaunchParts'], { cwd: pkg, env });
+      await runAppleWaited('swift', [...swiftArgs, '--target', 'ExactLaunchParts'], { cwd: pkg, env });
       nativeIntents.push(launchIntentModule({ pkg, conditions: ['SWIFT_PACKAGE', ...(!swiftWhole ? ['DEBUG'] : [])], binDir: swiftBinDir, sourceDirectory: launchPartsDir, framework: shared?.framework, sdkName, sdk, triple: moduleTripleFor(app, ios, device, tv), directory: resolve(linkRoot, 'native-intents'), swiftc, runApple }));
       if (nativeIntents.some(Boolean)) intents = buildIntents({ ...intentOptions, nativeModules: nativeIntents });
     }
@@ -1234,7 +1235,7 @@ async function main(args, lockHeld = false) {
       const same = cargoProfile === HOST_DEV && archive && existsSync(resolve(swiftBinDir, p)) && existsSync(linked) && readFileSync(linked, 'utf8') === from;
       if (!same) for (const stale of [p, `${p}.linked`]) rmSync(resolve(swiftBinDir, stale), { force: true });
       // The early build was this one's when nothing it linked from has changed.
-      if (!(same && linkedEarly && p === sole)) runApple('swift', [...productArgs, '--product', p], { cwd: pkg, env });
+      if (!(same && linkedEarly && p === sole)) await runAppleWaited('swift', [...productArgs, '--product', p], { cwd: pkg, env });
       writeFileSync(linked, from);
       const executable = p === 'ExactClip' ? clipBin : resolve(binDir, p === product ? paths.executable : p);
       copyFileSync(resolve(swiftBinDir, p), executable);
@@ -1264,7 +1265,7 @@ async function main(args, lockHeld = false) {
       writeFileSync(log, text); logs.push(log); const named = lines.filter(l => / error: |^ld: |[Uu]ndefined symbol/.test(l));
       return new Error(`does not ${did}:\n${(named.length ? named : lines.slice(-5)).slice(0, 5).map(l => `    ${l}`).join('\n')}`);
     };
-    const ran = (r, log) => { if (r.status !== 0 || r.error) throw failed('run', `${r.stdout ?? ''}${r.stderr ?? ''}${r.error ? `${r.error.message}\n` : ''}exit ${r.status ?? r.signal}`, log); return r.stdout; }; // a minute is a hang: the table reads in milliseconds
+    const ran = (r, log) => { if (r.error?.code === 'ETIMEDOUT') console.warn(`host/apple: reading the module roster: ${r.error.message}`); if (r.status !== 0 || r.error) throw failed('run', `${r.stdout ?? ''}${r.stderr ?? ''}${r.error ? `${r.error.message}\n` : ''}exit ${r.status ?? r.signal}`, log); return r.stdout; }; // a minute is a hang: the table reads in milliseconds
     for (const route of routes) {
       if (route.lacking) { causes.push(`${route.via}: ${basename(route.lacking)} has no ${route.via} slice`); continue; }
       const log = resolve(linkRoot, `roster-probe-${route.via.replaceAll(' ', '-')}.log`);
@@ -1274,11 +1275,11 @@ async function main(args, lockHeld = false) {
         if (process.platform === 'linux' && route.variant === true) writeFileSync(resolve(linkRoot, 'native-probes.json'), JSON.stringify({ version: 1, probes: [{ app: app.name, appId: app.id, file: basename(placed.cached), cachePath: relative(root, placed.cached), probeSha256: probeDigest(placed.cached) }] }));
         const artifact = placed.artifact ?? route.built;
         let text = keptRoster(placed.cached); if (text === undefined && !route.variant) try { const { dlopen, read: at, CString } = import.meta.require('bun:ffi'); text = new CString(at.ptr(dlopen(artifact, { exact_native_abi: { args: [], returns: 'ptr' } }).symbols.exact_native_abi(), 8)).toString(); } catch (e) { throw failed('load', e.message, log); }
-        else if (text === undefined && route.variant === 'maccatalyst') text = ran(read(artifact, [], { timeout: 60_000 }), log);
+        else if (text === undefined && route.variant === 'maccatalyst') text = ran(await waited(artifact, [], { cwd: root }, { timeout: 60_000 }), log);
         else if (text === undefined) { // the iOS simulator named (--sim, EXACT_SIM; a name that is none is not this route's), else any booted
           const pick = args.includes('--sim') ? args[args.indexOf('--sim') + 1] : process.env.EXACT_SIM, ios = simulators().filter(d => /SimRuntime\.iOS/.test(d.runtime)), named = pick && ios.find(d => d.udid === pick || d.name === pick); let sim = named ? null : ios.find(d => d.state === 'Booted');
           if (!sim) try { sim = simulator(named?.udid ?? null); } catch (e) { noSimulator = /^no iPhone simulator/.test(e.message); throw noSimulator ? new Error('no iPhone simulator on an installed iOS runtime') : e; }
-          try { text = ran(read('xcrun', ['simctl', 'spawn', sim.udid, artifact], { timeout: 60_000 }), log); } finally { if (sim.bootedHere) read('xcrun', ['simctl', 'shutdown', sim.udid]); }
+          try { text = ran(await waited('xcrun', ['simctl', 'spawn', sim.udid, artifact], { cwd: root }, { timeout: 60_000 }), log); } finally { if (sim.bootedHere) read('xcrun', ['simctl', 'shutdown', sim.udid]); }
         }
         try { roster = JSON.parse(text); } catch (e) { throw failed('load', `${e.message}\n${text}`, log); } keepRoster(placed.cached, text);
         if (route !== routes[0]) console.log(`host/apple: the module roster was read on ${route.via}`);
