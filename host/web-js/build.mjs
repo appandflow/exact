@@ -4,7 +4,7 @@ import { buildPageFiles, writeCrawlerFiles } from '../web/crawl.mjs';
 import { bakeWatchEnv, hatchWords, injectedProfiles, moduleDirectory, readManifest, resolveApp, webAppManifest, webToolchainEnv } from '../../scripts/app.mjs';
 import { rustDataOf } from '../../scripts/app-shells.mjs';
 import { webIconLinks, webThemeColors } from '../../scripts/app-icons.mjs';
-import { webAudioSession, webCspFile, webHead } from '../../scripts/web-head.mjs';
+import { webAudioSession, webCspFile, webHead, webStandaloneHead } from '../../scripts/web-head.mjs';
 import { fileIdentity, resourceIdentities } from '../apple/assets.mjs';
 import { launchModules } from '../../scripts/launch-modules.mjs';
 import { installedFileDependencies } from '../../scripts/file-dependencies.mjs';
@@ -1198,7 +1198,7 @@ writeFileSync(resolve(out, 'index.html'), `<!doctype html>
 <base href="${siteBase}">
 ${schemeMeta}<title>${attr(manifest.name)}</title>
 <meta name="viewport" content="${viewport}">
-${colorSchemeMeta(interfaceStyle(manifest))}${icon}
+${webStandaloneHead(manifest, viewport)}${colorSchemeMeta(interfaceStyle(manifest))}${icon}
 ${preloads}<style>${base}${css}${launchBackground(manifest)}</style>
 ${webHead(manifest)}<div id="exact-root"${manifest.audio_session ? ` data-audio-session="${manifest.audio_session}"` : ''}></div>
 ${webAudioSession(manifest, contentFiles['audio-session.js'])}${args.includes('--inline')
