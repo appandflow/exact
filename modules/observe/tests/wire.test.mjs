@@ -99,6 +99,48 @@ test('the web service sends an error\'s origin', async () => {
   expect(attributes).toMatchObject({ 'exact.error.origin': 'rust', 'expo.error.source': 'global', 'exception.type': 'RuntimeError', 'exception.message': 'unreachable' });
 });
 
+// `webClientId: "session"`: each page's client id lives in memory only, and a stored one is removed. A page out of
+// the sample records nothing, and its send leaves the rows of a page in it, which go under that page's id. Once
+// sent, no client id is left in storage.
+test('the web service keeps a session-only client id out of localStorage', async () => {
+  const names = ['localStorage', 'navigator', 'setTimeout', 'fetch'];
+  const saved = Object.fromEntries(names.map(n => [n, Object.getOwnPropertyDescriptor(globalThis, n)]));
+  const randomUUID = crypto.randomUUID;
+  const storage = new Map([['expo.eas-client-id', fixture.clientId]]);
+  const bodies = [];
+  let next = 0;
+  // Each page draws its client id, then its session id: pages get ids 1 (in a 0.5 sample) and 3 (out of it).
+  crypto.randomUUID = () => `00000000-0000-4000-8000-${String(++next).padStart(12, '0')}`;
+  Object.assign(globalThis, {
+    localStorage: { getItem: k => storage.get(k) ?? null, setItem: (k, v) => storage.set(k, String(v)), removeItem: k => storage.delete(k) },
+    navigator: { platform: 'MacIntel', language: 'en-US' },
+    setTimeout: () => 0,
+    fetch: async (url, init) => { if (url.endsWith('/logs')) bodies.push(JSON.parse(init.body)); return new Response(null, { status: 200 }); },
+  });
+  try {
+    const { start, uniform } = await import('../web/service.js');
+    expect(uniform('00000000-0000-4000-8000-000000000001')).toBeLessThan(0.5);
+    expect(uniform('00000000-0000-4000-8000-000000000003')).toBeGreaterThanOrEqual(0.5);
+    const config = { 'app.CFBundleIdentifier': 'session.test', projectId: 'p', endpoint: 'https://example.com', webClientId: 'session', sampleRate: 0.5 };
+    // The first page queues a row and closes before it sends; the second, out of the sample, sends.
+    start(config).event({ kind: 'app.event', name: 'first', wall: 1, attributes: {} });
+    expect(storage.has('expo.eas-client-id')).toBe(false);
+    const second = start(config);
+    second.event({ kind: 'app.event', name: 'second', wall: 2, attributes: {} });
+    await second.background();
+    expect(storage.has('expo.eas-client-id')).toBe(false);
+    expect(JSON.parse(storage.get('exact-observe:session.test'))).toEqual({ sessions: {}, metrics: [], logs: [] });
+  } finally {
+    for (const n of names) saved[n] ? Object.defineProperty(globalThis, n, saved[n]) : delete globalThis[n];
+    crypto.randomUUID = randomUUID;
+  }
+  const ids = Object.fromEntries(bodies.flatMap(b => b.resourceLogs).flatMap(r => r.scopeLogs[0].logRecords.map(l => [
+    l.attributes.find(a => a.key === 'event.name').value.stringValue,
+    r.resource.attributes.find(a => a.key === 'expo.eas_client.id').value.stringValue,
+  ])));
+  expect(ids).toEqual({ first: '00000000-0000-4000-8000-000000000001' });
+});
+
 test('the web service retains only current and queued session metadata', async () => {
   const names = ['localStorage', 'navigator', 'setTimeout', 'fetch'];
   const saved = Object.fromEntries(names.map(n => [n, Object.getOwnPropertyDescriptor(globalThis, n)]));
