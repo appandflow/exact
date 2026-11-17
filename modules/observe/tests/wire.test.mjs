@@ -99,6 +99,44 @@ test('the web service sends an error\'s origin', async () => {
   expect(attributes).toMatchObject({ 'exact.error.origin': 'rust', 'expo.error.source': 'global', 'exception.type': 'RuntimeError', 'exception.message': 'unreachable' });
 });
 
+// `webClientId: "session"`: each page's client id lives in memory only, a stored one is removed, and a page that
+// sends an earlier page's queued rows sends them under that page's id.
+test('the web service keeps a session-only client id out of localStorage', async () => {
+  const names = ['localStorage', 'navigator', 'setTimeout', 'fetch'];
+  const saved = Object.fromEntries(names.map(n => [n, Object.getOwnPropertyDescriptor(globalThis, n)]));
+  const randomUUID = crypto.randomUUID;
+  const storage = new Map([['expo.eas-client-id', fixture.clientId]]);
+  const bodies = [];
+  let next = 0;
+  crypto.randomUUID = () => `00000000-0000-4000-8000-${String(++next).padStart(12, '0')}`;
+  Object.assign(globalThis, {
+    localStorage: { getItem: k => storage.get(k) ?? null, setItem: (k, v) => storage.set(k, String(v)), removeItem: k => storage.delete(k) },
+    navigator: { platform: 'MacIntel', language: 'en-US' },
+    setTimeout: () => 0,
+    fetch: async (url, init) => { if (url.endsWith('/logs')) bodies.push(JSON.parse(init.body)); return new Response(null, { status: 200 }); },
+  });
+  try {
+    const { start } = await import('../web/service.js');
+    const config = { 'app.CFBundleIdentifier': 'session.test', projectId: 'p', endpoint: 'https://example.com', webClientId: 'session' };
+    // The first page queues a row and closes before it sends; the second sends both pages' rows.
+    start({ ...config, dispatchingEnabled: false }).event({ kind: 'app.event', name: 'first', wall: 1, attributes: {} });
+    expect(storage.has('expo.eas-client-id')).toBe(false);
+    const second = start(config);
+    second.event({ kind: 'app.event', name: 'second', wall: 2, attributes: {} });
+    await second.background();
+    expect(storage.has('expo.eas-client-id')).toBe(false);
+  } finally {
+    for (const n of names) saved[n] ? Object.defineProperty(globalThis, n, saved[n]) : delete globalThis[n];
+    crypto.randomUUID = randomUUID;
+  }
+  const ids = Object.fromEntries(bodies.flatMap(b => b.resourceLogs).map(r => [
+    r.scopeLogs[0].logRecords[0].attributes.find(a => a.key === 'event.name').value.stringValue,
+    r.resource.attributes.find(a => a.key === 'expo.eas_client.id').value.stringValue,
+  ]));
+  // Each page drew its client id first, then its session id.
+  expect(ids).toEqual({ first: '00000000-0000-4000-8000-000000000001', second: '00000000-0000-4000-8000-000000000003' });
+});
+
 test('the web service retains only current and queued session metadata', async () => {
   const names = ['localStorage', 'navigator', 'setTimeout', 'fetch'];
   const saved = Object.fromEntries(names.map(n => [n, Object.getOwnPropertyDescriptor(globalThis, n)]));

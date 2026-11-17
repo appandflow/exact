@@ -44,6 +44,23 @@
     "moduleConfig": {
       "type": "object",
       "description": "Per-module settings a launch part reads at launch (the Info.plist key ExactModuleConfig): module name to its settings.",
+      "properties": {
+        "observe": {
+          "type": "object",
+          "description": "Observe's settings (modules/observe/README.md).",
+          "properties": {
+            "projectId": { "type": "string", "description": "The EAS project id rows are sent to." },
+            "endpoint": { "type": "string", "description": "The Observe endpoint; default https://o.expo.dev." },
+            "sampleRate": { "type": "number", "minimum": 0, "maximum": 1, "description": "The share of clients that send, decided per client id." },
+            "dispatchingEnabled": { "type": "boolean", "description": "Whether rows are sent at all; default true." },
+            "dispatchInDebug": { "type": "boolean", "description": "Whether a development build sends; default false." },
+            "webClientId": {
+              "enum": ["persistent", "session"],
+              "description": "The web only. persistent (the default) keeps the client id in localStorage; session makes one per page load, kept in memory, and removes a stored one."
+            }
+          }
+        }
+      },
       "additionalProperties": {
         "type": "object"
       }

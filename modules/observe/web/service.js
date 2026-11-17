@@ -75,10 +75,16 @@ function without(stored, sent) {
 
 export function start(config, { boot = 0 } = {}) {
   const key = `exact-observe:${config['app.CFBundleIdentifier'] ?? location.host}`;
-  const clientId = localStorage.getItem('expo.eas-client-id') ?? uuid();
-  localStorage.setItem('expo.eas-client-id', clientId);
+  // `webClientId: "session"` keeps the client id, which sampling also reads, in memory for this
+  // page's session and removes a persistent one stored before.
+  const perSession = config.webClientId === 'session';
+  const clientId = perSession ? uuid() : localStorage.getItem('expo.eas-client-id') ?? uuid();
+  if (perSession) localStorage.removeItem('expo.eas-client-id');
+  else localStorage.setItem('expo.eas-client-id', clientId);
   const session = uuid();
   const meta = {
+    // A queued session's rows keep their own id when a later page sends them.
+    ...(perSession ? { clientId } : {}),
     osName: navigator.userAgentData?.platform ?? navigator.platform, language: navigator.language, clientVersion: '0.1.0',
     appIdentifier: config['app.CFBundleIdentifier'], appName: config['app.CFBundleName'],
     environment: config.environment ?? (config['fact.development'] ? 'development' : 'production'),
@@ -129,7 +135,7 @@ export function start(config, { boot = 0 } = {}) {
 
   const resource = meta => {
     const a = [['os.type', 'browser'], ['os.name', meta.osName], ['browser.language', meta.language], ['telemetry.sdk.name', 'exact-observe'],
-      ['telemetry.sdk.version', meta.clientVersion], ['telemetry.sdk.language', 'javascript'], ['expo.eas_client.id', clientId],
+      ['telemetry.sdk.version', meta.clientVersion], ['telemetry.sdk.language', 'javascript'], ['expo.eas_client.id', meta.clientId ?? clientId],
       ['service.name', meta.appIdentifier], ['expo.app.name', meta.appName], ['expo.environment', meta.environment]];
     return { attributes: a.filter(([, v]) => v != null).map(([k, v]) => stringAttr(k, String(v))) };
   };
