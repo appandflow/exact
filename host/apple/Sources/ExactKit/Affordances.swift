@@ -216,7 +216,7 @@ typealias SymbolLeaf = NSImageView
 final class SymbolEffectState {
     var effect = "none"
     var value: String?
-    var pathTemplate: SymbolImage?
+    var pathTemplate: SymbolImage?, pathTemplateSize: CGSize?
     var inkSource: SymbolImage?, inkImage: SymbolImage?
     var inkColor: PlatformColor?
     private static var key = 0
