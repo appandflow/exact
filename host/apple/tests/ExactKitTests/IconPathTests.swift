@@ -134,6 +134,34 @@ final class IconPathTests: XCTestCase {
         XCTAssertEqual(leaf.contentMode, .center)
         XCTAssertEqual(leaf.image?.size.width, 24, "its em square, not the box's bitmap")
     }
+
+    /// A wide viewBox is drawn in its own aspect: as wide as its box, not squeezed into a square as tall as it.
+    @MainActor func testAWidePathIconKeepsItsAspectInItsBox() throws {
+        var ops = icon(2, ["object_fit": "contain"])
+        var props = ops[0]["props"] as! [String: Any]
+        props["symbolViewBox"] = "0 0 96 24"; props["symbolPath"] = "M 0 0 L 96 0 L 96 24 L 0 24 Z"
+        ops[0]["props"] = props
+        let p = presenter(ops)
+        let v = try XCTUnwrap(p.views[2]), leaf = try XCTUnwrap(v.symbolView)
+        p.apply(wireBatch([["op": "frame", "id": 2, "x": 0.0, "y": 60.0, "w": 160.0, "h": 40.0]]))
+        v.layoutSymbol()
+        XCTAssertEqual(leaf.image.map { [$0.size.width, $0.size.height].map { $0.rounded() } }, [160, 40], "contained: the box's width")
+        p.apply(wireBatch([["op": "style", "id": 2, "style": ["font_size": 24.0, "object_fit": "cover"]]]))
+        v.layoutSymbol()
+        XCTAssertEqual(leaf.image.map { [$0.size.width, $0.size.height].map { $0.rounded() } }, [160, 40], "covered, the same box: the same size")
+        p.apply(wireBatch([["op": "frame", "id": 2, "x": 0.0, "y": 60.0, "w": 160.0, "h": 160.0]]))
+        v.layoutSymbol()
+        XCTAssertEqual(leaf.image.map { [$0.size.width, $0.size.height].map { $0.rounded() } }, [640, 160], "covered, a square box: as tall as it")
+        // A viewBox that doesn't divide its box evenly is drawn once, not again at each layout.
+        p.apply(wireBatch([["op": "props", "id": 2, "set": ["symbolViewBox": "0 0 799.1 184"]],
+                           ["op": "style", "id": 2, "style": ["font_size": 24.0, "object_fit": "contain"]],
+                           ["op": "frame", "id": 2, "x": 0.0, "y": 60.0, "w": 160.0, "h": 37.0]]))
+        v.layoutSymbol()
+        let drawn = try XCTUnwrap(leaf.image)
+        XCTAssertEqual(drawn.size.width, 160, accuracy: 0.5)
+        v.layoutSymbol()
+        XCTAssertTrue(leaf.image === drawn, "the same image")
+    }
     #endif
 
     /// The image's pixels: an asymmetric bar near its top inks its top rows
@@ -173,8 +201,8 @@ final class IconPathTests: XCTestCase {
         }
         let p = presenter(ops)
         let even = try XCTUnwrap(p.views[2]), plain = try XCTUnwrap(p.views[3])
-        XCTAssertEqual(try Self.inked(try XCTUnwrap(even.iconPathImage(side: 24)), at: [4, 12]), [true, false])
-        XCTAssertEqual(try Self.inked(try XCTUnwrap(plain.iconPathImage(side: 24)), at: [4, 12]), [true, true])
+        XCTAssertEqual(try Self.inked(try XCTUnwrap(even.iconPathImage(size: CGSize(width: 24, height: 24))), at: [4, 12]), [true, false])
+        XCTAssertEqual(try Self.inked(try XCTUnwrap(plain.iconPathImage(size: CGSize(width: 24, height: 24))), at: [4, 12]), [true, true])
         // As drawn on the screen, at a fractional origin: the hole clear, the band inked.
         XCTAssertEqual(try drawn(p, even, at: CGPoint(x: 40.5, y: 60.25)), [true, false], "even-odd, drawn")
         XCTAssertEqual(try drawn(p, plain, at: CGPoint(x: 100.33, y: 60.67)), [true, true], "nonzero, drawn")

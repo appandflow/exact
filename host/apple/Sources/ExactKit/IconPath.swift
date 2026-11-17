@@ -7,11 +7,11 @@ import UIKit
 import ExactCore
 
 extension NodeView {
-    /// An icon path's image for this node `side` points square, when it has
+    /// An icon path's image for this node `size` points big, when it has
     /// one (`symbolPath`), filled by its `symbolFillRule`.
-    func iconPathImage(side: CGFloat) -> IconImage? {
+    func iconPathImage(size: CGSize) -> IconImage? {
         guard let commands = props["symbolPath"] else { return nil }
-        return IconPath.image(commands, viewBox: props["symbolViewBox"] ?? "", size: CGSize(width: side, height: side),
+        return IconPath.image(commands, viewBox: props["symbolViewBox"] ?? "", size: size,
                               rule: IconPath.rule(props["symbolFillRule"]))
     }
 }
@@ -48,12 +48,15 @@ extension NodeView {
         // An icon path is a vector: drawn again at the box it fills, not its em square stretched (UIKit scales a bitmap).
         var shown = image
         if props["symbolPath"] != nil, let image {
-            let side = max(content.width, content.height)
+            let box = IconPath.viewBox(props["symbolViewBox"] ?? "")
+            let wide = content.width / box.width, tall = content.height / box.height
+            let fit = leaf.contentMode == .scaleAspectFill ? max(wide, tall) : min(wide, tall)
+            let size = CGSize(width: box.width * fit, height: box.height * fit)
             // (Centred, it is its em square again, whatever the box was before.)
             if leaf.contentMode == .center { shown = image }
-            else if side > 0, side != image.size.width {
+            else if size.width > 0, size.height > 0, size != image.size {
                 let state = SymbolEffectState.of(leaf)
-                if state.pathTemplate?.size.width != side { state.pathTemplate = iconPathImage(side: side) }
+                if state.pathTemplate == nil || state.pathTemplateSize != size { state.pathTemplate = iconPathImage(size: size); state.pathTemplateSize = size }
                 shown = state.pathTemplate
             }
         }
