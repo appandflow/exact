@@ -3,7 +3,7 @@ import { chmodSync, copyFileSync, existsSync, mkdtempSync, mkdirSync, readdirSyn
 import { tmpdir } from 'node:os';
 import { relative, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { appleCommand, crossSdk, spawnSync as appleSpawnSync } from './toolchain.mjs';
+import { appleCommand, crossSdk, spawnSync as appleSpawnSync, stepName, waited } from './toolchain.mjs';
 import { decodeProfile } from './devices.mjs';
 import { appleCrossReport, CROSS_IOS_ROWS, distributionToolchain, ensureWatchSDK, installWatchSDK } from './sdk.mjs';
 import { iosTestRuns } from './xctest.mjs';
@@ -116,6 +116,46 @@ test.skipIf(process.platform !== 'darwin')('a Swift driver run leaves nothing in
     expect(left.length).toBe(1);
     expect(left[0]).not.toBe('TemporaryDirectory.old');
   } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('a waited step past its bound is killed even when it ignores SIGTERM, and the wait ends while a process it started holds its pipes', async () => {
+  // A child that ignores SIGTERM: the bound sends SIGTERM, then SIGKILL after the grace.
+  let started = Date.now();
+  const ignoring = await waited('/bin/sh', ['-c', "trap '' TERM; exec /bin/sleep 30"], {}, { timeout: 200, grace: 200 });
+  expect(Date.now() - started).toBeLessThan(3000);
+  expect(ignoring.error?.code).toBe('ETIMEDOUT');
+  expect(ignoring.error.message).toBe('/bin/sh -c did not end within 0.2 s; sent SIGTERM, then SIGKILL');
+  expect(ignoring.signal).toBe('SIGKILL');
+  expect(() => process.kill(ignoring.pid, 0)).toThrow();
+  // A grandchild that ignores SIGTERM too keeps the pipes open after the child is killed: the wait ends anyway.
+  started = Date.now();
+  const holding = await waited('/bin/sh', ['-c', "trap '' TERM; /bin/sleep 30 & echo $!; wait"], {}, { timeout: 200, grace: 200 });
+  const grandchild = Number(holding.stdout.trim());
+  try {
+    expect(Date.now() - started).toBeLessThan(3000);
+    expect(holding.error?.code).toBe('ETIMEDOUT');
+    expect(() => process.kill(grandchild, 0)).not.toThrow();
+  } finally { process.kill(grandchild, 'SIGKILL'); }
+  // Within its bound, the result is spawnSync's.
+  const done = await waited('/bin/sh', ['-c', 'echo out; echo err >&2; exit 3'], {}, { timeout: 5000 });
+  expect([done.status, done.signal, done.stdout, done.stderr, done.error]).toEqual([3, null, 'out\n', 'err\n', undefined]);
+});
+
+test('a waited step says each period that it still runs, with its last line, and nothing once it ends', async () => {
+  const said = spyOn(console, 'log').mockImplementation(() => {});
+  try {
+    const r = await waited('/bin/sh', ['-c', 'echo Planning build; echo "Another instance of SwiftPM is already running" >&2; /bin/sleep 0.5'], {}, { every: 150 });
+    expect(r.status).toBe(0);
+    const lines = said.mock.calls.flat();
+    expect(lines.length).toBeGreaterThan(0);
+    expect(lines[0]).toMatch(/^host\/apple: still waiting on \/bin\/sh -c \(running \d+ s; last line: Another instance of SwiftPM is already running\)$/);
+    const count = lines.length;
+    await new Promise(settle => setTimeout(settle, 400));
+    expect(said.mock.calls.length).toBe(count);
+  } finally { said.mockRestore(); }
+  expect(stepName('swift', ['build', '--scratch-path', 's', '--product', 'ExactIOS'])).toBe('swift build --product ExactIOS');
+  expect(stepName('xcrun', ['--sdk', 'iphonesimulator', 'swiftc', '-module-name', 'ExactAppModules', 'a.swift'])).toBe('swiftc -module-name ExactAppModules');
+  expect(stepName('xcrun', ['simctl', 'spawn', 'U1', '/probe'])).toBe('simctl spawn');
 });
 
 test('Windows Metal preserves deployment targets and path operands through Wine, while native hosts keep xcrun', () => {

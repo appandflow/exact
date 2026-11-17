@@ -310,11 +310,16 @@ function covered(points, app, display, scale) {
   return differing > Math.max(2, checked / 100) ? `the display differs from the app's drawing at ${differing} of ${checked} plain points (a notification banner or another overlay)` : null;
 }
 
+/** How long, in ms, `simulators()` waits for `simctl list` and a boot here for `simctl bootstatus -b`; the child is then
+ *  killed (SIGKILL: neither has anything of its own to clean up) and the call fails. A list answers in seconds and a
+ *  boot in under a minute; the bounds leave room for a loaded Mac. */
+export const simctlBounds = { list: 120_000, boot: 600_000 };
 /** Every available simulator: { udid, name, runtime, state, type } — `type`
  *  the device type's last component (`iPhone-18-Pro`, `Apple-TV-4K-…`), which a
  *  renamed simulator keeps. */
 export function simulators() {
-  const r = read('xcrun', ['simctl', 'list', 'devices', 'available', '-j']);
+  const r = read('xcrun', ['simctl', 'list', 'devices', 'available', '-j'], { timeout: simctlBounds.list, killSignal: 'SIGKILL' });
+  if (r.error?.code === 'ETIMEDOUT') throw new Error(`xcrun simctl list did not answer within ${simctlBounds.list / 1000} s`);
   if (r.status !== 0) throw new Error('xcrun simctl list: ' + r.stderr);
   return Object.entries(JSON.parse(r.stdout).devices).flatMap(([runtime, list]) => list.map((d) => ({ udid: d.udid, name: d.name, runtime, state: d.state, type: d.deviceTypeIdentifier?.split('.').pop() ?? '' })));
 }
@@ -365,9 +370,9 @@ function bootSimulator(dev) {
   chosenFrom = null;
   const b = read('xcrun', ['simctl', 'boot', dev.udid]);
   if (b.status !== 0 && !/current state: Booted/.test(b.stderr)) throw new Error('simctl boot: ' + b.stderr);
-  const s = read('xcrun', ['simctl', 'bootstatus', dev.udid, '-b']);
+  const s = read('xcrun', ['simctl', 'bootstatus', dev.udid, '-b'], { timeout: simctlBounds.boot, killSignal: 'SIGKILL' });
   // A simulator this call booted is not left running when its boot does not finish.
-  if (s.status !== 0) { if (b.status === 0) read('xcrun', ['simctl', 'shutdown', dev.udid]); throw new Error('simctl bootstatus: ' + s.stderr); }
+  if (s.status !== 0) { if (b.status === 0) read('xcrun', ['simctl', 'shutdown', dev.udid]); throw new Error(s.error?.code === 'ETIMEDOUT' ? `simctl bootstatus: ${dev.name} (${dev.udid}) did not finish booting within ${simctlBounds.boot / 1000} s` : 'simctl bootstatus: ' + s.stderr); }
   return b.status === 0 ? { ...dev, bootedHere: true } : dev;
 }
 

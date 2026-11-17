@@ -1183,15 +1183,15 @@ export function claimBuildOutput(app, path) {
 }
 /** A claim on an output several apps share and each holds briefly (the Swift
  * scratch): wait for a live owner instead of refusing. `waiting` hears the
- * owner's app once. */
+ * owner's app when the wait starts (seconds waited 0) and each minute after. */
 export function awaitBuildOutput(app, path, waiting) {
-  const pause = new Int32Array(new SharedArrayBuffer(4));
-  for (let told = false; ; Atomics.wait(pause, 0, 0, 200)) {
+  const pause = new Int32Array(new SharedArrayBuffer(4)), since = Date.now();
+  for (let next = since; ; Atomics.wait(pause, 0, 0, 200)) {
     try { return claimBuildOutput(app, path); }
     catch (error) {
       if (!/^Apple build busy for /.test(error.message)) throw error;
       // The message carries the owner's claim: its app, not the one waiting.
-      if (!told) { told = true; waiting?.(/"app":"([^"]+)"/.exec(error.message)?.[1] ?? 'another app'); }
+      if (Date.now() >= next) { next += 60_000; waiting?.(/"app":"([^"]+)"/.exec(error.message)?.[1] ?? 'another app', Math.round((Date.now() - since) / 1000)); }
     }
   }
 }

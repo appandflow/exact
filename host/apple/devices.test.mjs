@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { createHash } from 'node:crypto';
 import { resolve } from 'node:path';
 import { decodePng, encodePng } from '../../scripts/png.mjs';
-import { chooseSimulator, crashReports, crashSummary, crashWatch, forwardedEnv, installedAlready, simulator, withDisplay, withMaterials, phoneBridge, phoneStartupFailure, softwareKeyboard, replacedNote, keepInstalledRelease } from './devices.mjs';
+import { chooseSimulator, simctlBounds, simulators, crashReports, crashSummary, crashWatch, forwardedEnv, installedAlready, simulator, withDisplay, withMaterials, phoneBridge, phoneStartupFailure, softwareKeyboard, replacedNote, keepInstalledRelease } from './devices.mjs';
 import { spawn, spawnSync } from 'node:child_process';
 import { createConnection } from 'node:net';
 import { once } from 'node:events';
@@ -231,6 +231,35 @@ test('a simulator is chosen without booting it, and is the drive\'s own only whe
     expect(simulator(undefined).bootedHere).toBeUndefined();
   } finally {
     for (const k of ['PATH', 'DEVELOPER_DIR', 'SIM_BOOT']) if (saved[k] === undefined) delete process.env[k]; else process.env[k] = saved[k];
+    rmSync(bin, { recursive: true, force: true });
+  }
+});
+
+test('a simctl list or boot wait that does not end is killed at its bound, and the call says which', () => {
+  // A fake `xcrun simctl` that ignores SIGTERM and never answers `list` (SIM_LIST=hang) or `bootstatus` (SIM_BOOT=hang).
+  const bin = mkdtempSync(resolve(tmpdir(), 'devices-bound-bin-'));
+  const saved = { PATH: process.env.PATH, DEVELOPER_DIR: process.env.DEVELOPER_DIR, SIM_LIST: process.env.SIM_LIST, SIM_BOOT: process.env.SIM_BOOT }, bounds = { ...simctlBounds }, calls = resolve(bin, 'calls');
+  const list = JSON.stringify({ devices: { 'com.apple.CoreSimulator.SimRuntime.iOS-27-0': [{ udid: 'U1', name: 'iPhone 17 Pro', state: 'Shutdown', deviceTypeIdentifier: 'com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro' }] } });
+  try {
+    writeFileSync(resolve(bin, 'list.json'), list);
+    writeFileSync(resolve(bin, 'xcrun'), `#!/bin/sh\necho "$2" >> '${calls}'\ntrap '' TERM\ncase "$2" in\n  list) [ "$SIM_LIST" = hang ] && exec /bin/sleep 30; cat '${resolve(bin, 'list.json')}' ;;\n  bootstatus) [ "$SIM_BOOT" = hang ] && exec /bin/sleep 30 ;;\nesac\nexit 0\n`);
+    chmodSync(resolve(bin, 'xcrun'), 0o755);
+    process.env.PATH = `${bin}:${saved.PATH}`;
+    process.env.DEVELOPER_DIR ??= '/Applications/Xcode.app/Contents/Developer';
+    simctlBounds.list = 300; simctlBounds.boot = 300;
+    process.env.SIM_LIST = 'hang';
+    let started = Date.now();
+    expect(() => simulators()).toThrow('xcrun simctl list did not answer within 0.3 s');
+    expect(Date.now() - started).toBeLessThan(5000);
+    delete process.env.SIM_LIST; process.env.SIM_BOOT = 'hang'; writeFileSync(calls, ''); simctlBounds.list = bounds.list;
+    started = Date.now();
+    expect(() => simulator(undefined)).toThrow('simctl bootstatus: iPhone 17 Pro (U1) did not finish booting within 0.3 s');
+    expect(Date.now() - started).toBeLessThan(5000);
+    // The simulator this call booted is shut down again.
+    expect(readFileSync(calls, 'utf8').trim().split('\n')).toEqual(['list', 'boot', 'bootstatus', 'shutdown']);
+  } finally {
+    Object.assign(simctlBounds, bounds);
+    for (const k of Object.keys(saved)) if (saved[k] === undefined) delete process.env[k]; else process.env[k] = saved[k];
     rmSync(bin, { recursive: true, force: true });
   }
 });
