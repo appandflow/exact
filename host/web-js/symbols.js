@@ -185,17 +185,18 @@ function refresh() {
     if (el.symbolKey !== key) {
       el.symbolKey = key; const stroke = 1.1 + (Math.max(100, Math.min(900, weight)) - 100) / 400;
       const paint = filled ? `fill="black" fill-rule="${el.hasAttribute("data-symbol-nonzero") ? "nonzero" : "evenodd"}"` : `fill="none" stroke="black" stroke-width="${stroke}" stroke-linecap="round" stroke-linejoin="round"`;
-      el.symbolMask = `url("data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="${point}" height="${point}" viewBox="${box}">${path.split(";").map(d => `<path d="${d}" ${paint}/>`).join("")}</svg>`)}")`;
+      const [, , w, h] = box.trim().split(/[\s,]+/).map(Number), aspect = w > 0 && h > 0 ? w / h : 1; el.symbolSize = aspect > 1 ? [point, point / aspect] : [point * aspect, point];
+      el.symbolMask = `url("data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="${el.symbolSize[0]}" height="${el.symbolSize[1]}" viewBox="${box}">${path.split(";").map(d => `<path d="${d}" ${paint}/>`).join("")}</svg>`)}")`;
       el.symbolPlaceholder = `data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="${point}" height="${point}"/>`)}`;
     }
     if (el.getAttribute("src") !== el.symbolPlaceholder) el.src = el.symbolPlaceholder; el.style.setProperty("--exact-symbol-mask", el.symbolMask);
   }
   // Sources can set intrinsic size synchronously; percentage padding must resolve against the resulting layout.
-  const fits = configs.map(({ el, point, objectFit }) => {
-    const cs = objectFit === "scale-down" ? getComputedStyle(el) : null;
-    const fits = cs && point <= el.clientWidth - (parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight)) && point <= el.clientHeight - (parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom));
+  const fits = configs.map(({ el, objectFit }) => {
+    const cs = objectFit === "scale-down" ? getComputedStyle(el) : null, [w, h] = el.symbolSize;
+    const fits = cs && w <= el.clientWidth - (parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight)) && h <= el.clientHeight - (parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom));
     // `fill`, CSS's initial `object-fit`, keeps a symbol's aspect, as on the Apple hosts (LLP 1011 §4).
-    return [el, objectFit === "none" || (objectFit === "scale-down" && fits) ? `${point}px ${point}px` : objectFit === "scale-down" || objectFit === "fill" ? "contain" : objectFit];
+    return [el, objectFit === "none" || (objectFit === "scale-down" && fits) ? `${w}px ${h}px` : objectFit === "scale-down" || objectFit === "fill" ? "contain" : objectFit];
   });
   for (const [el, fit] of fits) el.style.setProperty("--exact-symbol-fit", fit);
 }
