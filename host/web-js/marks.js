@@ -133,7 +133,9 @@ export function install(modules) {
   Hosts.observe = (name, severity, ...rest) => record('app.event', { name, severity, attributes: pairs(rest) });
   Hosts.observeAttributes = (...rest) => record('app.attributes', { attributes: pairs(rest) });
   Hosts.observeError = (message, type) => record('app.error', { source: 'reportedByUser', message, type: type ?? 'ContractError' });
-  globalThis.exact = Object.assign(globalThis.exact ?? {}, { observe: () => ({ marks: { ...marks }, outcome, trace, events: events.length }) });
+  // A trap in the Rust module (rust-data.js), which fails its call rather than reaching `error`.
+  const observeTrap = error => record('app.error', { source: 'global', origin: 'rust', type: error?.name ?? 'RuntimeError', message: String(error?.message ?? error), stack: error?.stack });
+  globalThis.exact = Object.assign(globalThis.exact ?? {}, { observe: () => ({ marks: { ...marks }, outcome, trace, events: events.length }), observeTrap });
   // A server-rendered document carries capture.js's checkpoint script.
   const served = !!document.querySelector('script[type="application/vnd.exact.checkpoint"]');
   return {

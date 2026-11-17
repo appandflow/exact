@@ -549,7 +549,8 @@ test('web dispatch refuses a Rust prefetch on a send and sends a resource prefet
 });
 
 // A Rust call that fails may have changed the module's own state before it failed: refused after its answer ran, or
-// trapped. The next call runs in a fresh instance, activated again, as natively (logic/src/lib.rs `run`).
+// trapped. The next call runs in a fresh instance, activated again, as natively (logic/src/lib.rs `run`). A trap,
+// and not a refusal, goes to Observe (marks.js `observeTrap`).
 test('a Rust call after a refused or trapped one runs in a fresh instance', async () => {
   const dir = scratch('exact-rust-fresh-');
   for (const name of ['rust-data.js', 'admission.js', 'held.js']) {
@@ -588,7 +589,9 @@ test('a Rust call after a refused or trapped one runs in a fresh instance', asyn
       },
     } };
   };
-  const [instantiate, Instance] = [WebAssembly.instantiate, WebAssembly.Instance];
+  const [instantiate, Instance, exact] = [WebAssembly.instantiate, WebAssembly.Instance, globalThis.exact];
+  const traps = [];
+  globalThis.exact = { observeTrap: error => traps.push(error.message) };
   WebAssembly.instantiate = async () => ({ instance: instance(), module: 'compiled' });
   WebAssembly.Instance = function (module) { expect(module).toBe('compiled'); return instance(); };
   try {
@@ -601,9 +604,10 @@ test('a Rust call after a refused or trapped one runs in a fresh instance', asyn
     expect(() => data.answer('trapped', [], store)).toThrow('unreachable');
     expect(data.answer('count', [], store).v).toBe('0');
     expect(instances).toBe(3);
+    expect(traps).toEqual(['unreachable']);
     expect(data.logic.exports.exact_logic_abi()).toBe(12);
   } finally {
-    [WebAssembly.instantiate, WebAssembly.Instance] = [instantiate, Instance];
+    [WebAssembly.instantiate, WebAssembly.Instance, globalThis.exact] = [instantiate, Instance, exact];
     rmSync(dir, { recursive: true, force: true });
   }
 });

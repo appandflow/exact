@@ -74,6 +74,31 @@ test("the web service sends wire.json's bodies", async () => {
   check(sent, 'web');
 });
 
+// A trap in the page's Rust module (marks.js `observeTrap`) names its origin.
+test('the web service sends an error\'s origin', async () => {
+  const sent = {};
+  const names = ['localStorage', 'navigator', 'setTimeout', 'fetch'];
+  const saved = Object.fromEntries(names.map(n => [n, Object.getOwnPropertyDescriptor(globalThis, n)]));
+  const storage = new Map([['expo.eas-client-id', fixture.clientId]]);
+  Object.assign(globalThis, {
+    localStorage: { getItem: k => storage.get(k) ?? null, setItem: (k, v) => storage.set(k, String(v)) },
+    navigator: { platform: 'MacIntel', language: 'en-US' },
+    setTimeout: () => 0,
+    fetch: async (url, init) => { sent[url.split('/').pop()] = JSON.parse(init.body); return new Response(null, { status: 200 }); },
+  });
+  try {
+    const { start } = await import('../web/service.js');
+    const service = start({ 'app.CFBundleIdentifier': 'origin.test', projectId: 'p', endpoint: 'https://example.com' });
+    service.event({ kind: 'app.error', wall: 1, source: 'global', origin: 'rust', type: 'RuntimeError', message: 'unreachable' });
+    await service.background();
+  } finally {
+    for (const n of names) saved[n] ? Object.defineProperty(globalThis, n, saved[n]) : delete globalThis[n];
+  }
+  const [row] = sent.logs.resourceLogs[0].scopeLogs[0].logRecords;
+  const attributes = Object.fromEntries(row.attributes.map(a => [a.key, Object.values(a.value)[0]]));
+  expect(attributes).toMatchObject({ 'exact.error.origin': 'rust', 'expo.error.source': 'global', 'exception.type': 'RuntimeError', 'exception.message': 'unreachable' });
+});
+
 test('the web service retains only current and queued session metadata', async () => {
   const names = ['localStorage', 'navigator', 'setTimeout', 'fetch'];
   const saved = Object.fromEntries(names.map(n => [n, Object.getOwnPropertyDescriptor(globalThis, n)]));

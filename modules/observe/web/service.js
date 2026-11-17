@@ -237,7 +237,7 @@ export function start(config, { boot = 0 } = {}) {
           log(SEVERITY[e.severity] ? e.severity : 'info', name, e.body == null ? undefined : truncate(String(e.body), 4096), attrs, a.dropped, e.wall);
           break;
         }
-        case 'app.error': log('error', 'js.exception', undefined, { 'expo.error.source': e.source ?? 'reportedByUser', 'expo.error.is_fatal': false, 'exception.type': e.type ?? 'Error', 'exception.message': e.message ?? '', ...(e.stack ? { 'exception.stacktrace': e.stack } : {}) }, 0, e.wall); break;
+        case 'app.error': log('error', 'js.exception', undefined, { 'expo.error.source': e.source ?? 'reportedByUser', 'expo.error.is_fatal': false, 'exception.type': e.type ?? 'Error', 'exception.message': e.message ?? '', ...(e.stack ? { 'exception.stacktrace': e.stack } : {}), ...(e.origin ? { 'exact.error.origin': e.origin } : {}) }, 0, e.wall); break;
       }
     },
     background() { return dispatch(true); },
