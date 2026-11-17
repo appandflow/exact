@@ -17,7 +17,7 @@ These settings are optional:
 - `sampleRate` (0–1, decided per install, or per page load with `webClientId: "session"`);
 - `dispatchingEnabled`;
 - `dispatchInDebug`. A development build sends nothing unless this is true;
-- `webClientId`, the web only: `"persistent"` (the default) keeps the client id in `localStorage` as `expo.eas-client-id`, as expo-observe does. `"session"` makes a new one for each page load, keeps it in memory, and removes a stored one, so the page stores no identifier that outlives its session. Unsent rows still wait in `localStorage`, under their session's id. Apple and Linux keep their persistent id.
+- `webClientId`, the web only: `"persistent"` (the default) keeps the client id in `localStorage` as `expo.eas-client-id`, as expo-observe does. `"session"` makes a new one for each page load, keeps it in memory, and removes a stored one. Sampling is then decided per page load, and a page out of the sample records nothing. Unsent rows still wait in `localStorage` with their session's id and client id, both removed once the rows are sent or dropped. Apple and Linux keep their persistent id.
 
 On Apple, the launch part installs fatal-signal handlers, starts a network-path monitor and enables battery monitoring on iOS. Its deferred service loads after startup; a direct native query can load it on demand. Pending crash records live in the app's Application Support directory. A fatal signal's record carries only the signal; when a Rust panic caused it, the panic's message, `file:line` and thread are written beside it before the abort, and the next launch's `native.exception` carries them.
 

@@ -75,8 +75,9 @@ function without(stored, sent) {
 
 export function start(config, { boot = 0 } = {}) {
   const key = `exact-observe:${config['app.CFBundleIdentifier'] ?? location.host}`;
-  // `webClientId: "session"` keeps the client id, which sampling also reads, in memory for this
-  // page's session and removes a persistent one stored before.
+  // `webClientId: "session"` keeps the client id in memory for this page's session and removes a
+  // persistent one stored before. The queue is shared by pages with different ids, so such a page
+  // decides sampling for its own rows when it records them, and stores its id only with its rows.
   const perSession = config.webClientId === 'session';
   const clientId = perSession ? uuid() : localStorage.getItem('expo.eas-client-id') ?? uuid();
   if (perSession) localStorage.removeItem('expo.eas-client-id');
@@ -92,7 +93,7 @@ export function start(config, { boot = 0 } = {}) {
   const load = () => (() => { try { return JSON.parse(localStorage.getItem(key)); } catch {} })() ?? { sessions: {}, metrics: [], logs: [] };
   const save = q => {
     q.metrics = q.metrics.slice(-MAX_ROWS); q.logs = q.logs.slice(-MAX_ROWS);
-    const live = new Set([session, ...q.metrics.map(r => r.session), ...q.logs.map(r => r.session)]);
+    const live = new Set([...(perSession ? [] : [session]), ...q.metrics.map(r => r.session), ...q.logs.map(r => r.session)]);
     for (const id of Object.keys(q.sessions)) {
       if (!live.has(id)) { delete q.sessions[id]; }
     }
@@ -109,8 +110,9 @@ export function start(config, { boot = 0 } = {}) {
   update(() => {});
   let globals = {}, gate = { after: 0, failures: 0 }, sending = false, timer = null, launchRoute = null, navigated = false;
   const params = extra => ({ ...globals, ...extra });
-  const metric = (category, name, value, wall, route, p) => { update(q => q.metrics.push({ session, time: wall / 1000, category, name, value, route, params: JSON.stringify(p) })); schedule(); };
-  const log = (severity, name, body, attributes, dropped, wall) => { update(q => q.logs.push({ session, time: wall / 1000, severity, name, body, attributes, dropped })); schedule(); };
+  const sampled = uniform(clientId) < Math.min(Math.max(config.sampleRate ?? 1, 0), 1);
+  const metric = (category, name, value, wall, route, p) => { if (perSession && !sampled) return; update(q => q.metrics.push({ session, time: wall / 1000, category, name, value, route, params: JSON.stringify(p) })); schedule(); };
+  const log = (severity, name, body, attributes, dropped, wall) => { if (perSession && !sampled) return; update(q => q.logs.push({ session, time: wall / 1000, severity, name, body, attributes, dropped })); schedule(); };
 
   function startup(e) {
     const m = e.marks ?? {}, from = m.activation ?? 0;
@@ -167,8 +169,7 @@ export function start(config, { boot = 0 } = {}) {
     return envelope(sessions, by, 'resourceLogs', 'scopeLogs', 'logRecords');
   }
 
-  const inSample = () => uniform(clientId) < Math.min(Math.max(config.sampleRate ?? 1, 0), 1);
-  const shouldDispatch = () => (config.dispatchingEnabled ?? true) && inSample() && (!config['fact.development'] || config.dispatchInDebug === true);
+  const shouldDispatch = () => (config.dispatchingEnabled ?? true) && (perSession || sampled) && (!config['fact.development'] || config.dispatchInDebug === true);
   const backoff = n => Math.min(60 * 2 ** (n - 1), 900) * Math.random();
   const retryAfter = h => { if (!h) return null; const s = Number(h); const clamp = x => Math.min(Math.max(x, 60), 900); if (Number.isFinite(s)) return clamp(s); const d = Date.parse(h); return Number.isNaN(d) ? null : clamp((d - Date.now()) / 1000); };
 
