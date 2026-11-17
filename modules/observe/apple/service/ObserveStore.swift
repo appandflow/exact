@@ -1,4 +1,4 @@
-// Observe's on-disk queue in SQLite: sessions, metrics, logs, and a per-signal cursor
+// Observe's on-disk queue in SQLite: sessions, metrics, logs, the MetricKit diagnostics stored, and a per-signal cursor
 // marking processed rows separately from server acknowledgements. Rows are kept 7 days. The database lives with the host's
 // state, outside the app's `app:/` storage.
 import Foundation
@@ -20,11 +20,14 @@ final class ObserveStore {
                 severity TEXT NOT NULL, name TEXT NOT NULL, body TEXT, attributes TEXT, dropped INTEGER NOT NULL DEFAULT 0);
             CREATE TABLE IF NOT EXISTS cursors (signal TEXT PRIMARY KEY, id INTEGER NOT NULL);
             CREATE TABLE IF NOT EXISTS delivered (signal TEXT NOT NULL, id INTEGER NOT NULL, PRIMARY KEY(signal, id));
+            CREATE TABLE IF NOT EXISTS diagnostics (key TEXT PRIMARY KEY, time REAL NOT NULL);
             """, nil, nil, nil)
         let cutoff = Date().timeIntervalSince1970 - Self.retention
         run("DELETE FROM metrics WHERE time < ?", [cutoff])
         run("DELETE FROM logs WHERE time < ?", [cutoff])
         run("DELETE FROM delivered WHERE (signal = 'metrics' AND id NOT IN (SELECT id FROM metrics)) OR (signal = 'logs' AND id NOT IN (SELECT id FROM logs))", [])
+        // MetricKit keeps past diagnostics for days and hands them to each launch; remember them longer.
+        run("DELETE FROM diagnostics WHERE time < ?", [Date().timeIntervalSince1970 - 4 * Self.retention])
         run("DELETE FROM sessions WHERE start < ? AND id NOT IN (SELECT session FROM metrics UNION SELECT session FROM logs)", [cutoff])
     }
 

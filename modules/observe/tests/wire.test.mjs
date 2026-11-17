@@ -325,7 +325,7 @@ test.skipIf(process.platform !== 'darwin')('the Apple service sends wire.json\'s
   const work = mkdtempSync(join(tmpdir(), 'observe-wire-'));
   try {
     const exe = join(work, 'harness');
-    const service = ['ObserveService', 'ObserveWire', 'ObserveRules', 'ObserveStore'].map(f => join(dir, `../apple/service/${f}.swift`));
+    const service = ['ObserveService', 'ObserveWire', 'ObserveRules', 'ObserveStore', 'ObserveMetricKit'].map(f => join(dir, `../apple/service/${f}.swift`));
     const build = spawnSync('xcrun', ['swiftc', '-parse-as-library', '-swift-version', '5', '-module-cache-path', join(work, 'cache'),
       ...service, join(dir, 'wire.swift'), '-lsqlite3', '-o', exe], { encoding: 'utf8' });
     expect(build.status, build.stderr).toBe(0);
@@ -362,5 +362,28 @@ test.skipIf(process.platform !== 'darwin')('the Apple service sends wire.json\'s
       'thread.name': 'main', 'expo.error.source': 'nativeCrash', 'expo.error.is_fatal': true, 'expo.crash.signal_number': 6,
     }]);
     expect(out.panic.left).toEqual([]);
+    // MetricKit's diagnostics: stored once though delivered twice, for the latest session started by the window's end,
+    // with the attributed thread's frames as `<binary> + <offset>` and the binaries' UUIDs for symbolication.
+    const [crash, hang, current, again] = out.metricKit.rows;
+    expect(out.metricKit.rows).toHaveLength(4);
+    expect(again).toMatchObject({ session: 'earlier', name: 'native.hang' });
+    // A hang can reach the session it happened in; a crash ended its own.
+    expect(current).toMatchObject({ session: fixture.session, name: 'native.hang' });
+    expect(crash).toMatchObject({ session: 'earlier', time: 2000, severity: 'fatal', name: 'native.exception' });
+    const { 'exact.crash.call_stack_tree': crashTree, ...crashAttributes } = crash.attributes;
+    expect(JSON.parse(crashTree).callStacks).toHaveLength(2);
+    expect(crashAttributes).toEqual({
+      'exception.type': 'EXC_BAD_ACCESS', 'exception.message': 'Namespace SIGNAL, Code 11',
+      'exception.stacktrace': 'App + 123\nlibsystem_kernel.dylib + 456\n0xff',
+      'expo.error.source': 'nativeCrash', 'expo.error.is_fatal': true, 'exact.crash.origin': 'metrickit',
+      'exact.diagnostic.app_version': '1.2', 'exact.diagnostic.app_build': '7',
+      'expo.crash.exception_type': 'EXC_BAD_ACCESS', 'expo.crash.exception_type_code': 1, 'expo.crash.exception_code': 2,
+      'expo.crash.signal': 'SIGSEGV', 'expo.crash.signal_number': 11, 'expo.crash.termination_reason': 'Namespace SIGNAL, Code 11',
+      'expo.crash.thread_count': 2, 'expo.crash.thread_attributed': true, 'expo.crash.rendered_frame_count': 3,
+      'expo.crash.total_frame_count': 3, 'expo.crash.binary_uuids': ['App:U1', 'libsystem_kernel.dylib:U2'],
+    });
+    expect(hang).toMatchObject({ session: 'earlier', severity: 'warn', name: 'native.hang' });
+    expect(hang.attributes).toMatchObject({ 'exact.hang.duration': 2.5, 'exact.hang.stacktrace': 'App + 123\nlibsystem_kernel.dylib + 456\n0xff',
+      'exact.hang.binary_uuids': ['App:U1', 'libsystem_kernel.dylib:U2'] });
   } finally { rmSync(work, { recursive: true, force: true }); }
 }, 120_000);

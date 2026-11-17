@@ -35,6 +35,9 @@ final class ObserveService {
         }
     }
 
+    /// MetricKit's subscriber, once the store is open; none in tests.
+    var metricKit: AnyObject?
+
     /// The crash directory passed by the launch part, shared with `ObserveCrash`
     let crashDirectory: String?
 
@@ -62,6 +65,9 @@ final class ObserveService {
             store = ObserveStore(directory: directory)
             store?.saveSession(session, start: config["sessionStart"] as? Double ?? Date().timeIntervalSince1970, metadata: metadata)
             ingestCrashes()
+            #if canImport(MetricKit) && !os(tvOS) && !os(watchOS)
+            if root == nil { metricKit = ObserveMetricKit(service: self) }
+            #endif
             scheduleDispatch()
         }
     }
