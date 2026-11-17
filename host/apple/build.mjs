@@ -128,7 +128,7 @@ function startApple(cmd, args, log, { authored, ...opts } = {}) {
   const stop = () => { if (child.exitCode === null && !child.killed) child.kill(); };
   process.once('exit', stop);
   return { stop, async done({ repeated = false } = {}) {
-    const said = stillWaiting(stepName(cmd, args), since, () => readFileSync(log, 'utf8')), r = await exited; said();
+    const said = stillWaiting(stepName(cmd, args), since, () => { try { return readFileSync(log, 'utf8'); } catch { return ''; } }), r = await exited; said();
     process.removeListener('exit', stop);
     if (authored) writeFileSync(log, authored(readFileSync(log, 'utf8')));
     if (repeated && r.status !== 0) return false;

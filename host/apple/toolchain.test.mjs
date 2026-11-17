@@ -131,6 +131,7 @@ test('a waited step past its bound is killed even when it ignores SIGTERM, and t
   started = Date.now();
   const holding = await waited('/bin/sh', ['-c', "trap '' TERM; /bin/sleep 30 & echo $!; wait"], {}, { timeout: 200, grace: 200 });
   const grandchild = Number(holding.stdout.trim());
+  expect(grandchild).toBeGreaterThan(1);
   try {
     expect(Date.now() - started).toBeLessThan(3000);
     expect(holding.error?.code).toBe('ETIMEDOUT');
@@ -148,7 +149,7 @@ test('a waited step says each period that it still runs, with its last line, and
     expect(r.status).toBe(0);
     const lines = said.mock.calls.flat();
     expect(lines.length).toBeGreaterThan(0);
-    expect(lines[0]).toMatch(/^host\/apple: still waiting on \/bin\/sh -c \(running \d+ s; last line: Another instance of SwiftPM is already running\)$/);
+    expect(lines.at(-1)).toMatch(/^host\/apple: still waiting on \/bin\/sh -c \(running \d+ s; last line: Another instance of SwiftPM is already running\)$/);
     const count = lines.length;
     await new Promise(settle => setTimeout(settle, 400));
     expect(said.mock.calls.length).toBe(count);
