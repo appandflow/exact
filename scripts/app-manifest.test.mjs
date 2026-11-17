@@ -1058,6 +1058,6 @@ test('a standalone app is capable on the Home Screen and draws under the status 
   assert.equal(webStandaloneHead({ display: 'standalone' }, 'width=device-width, initial-scale=1'),
     '<meta name="mobile-web-app-capable" content="yes">\n<meta name="apple-mobile-web-app-capable" content="yes">\n');
   assert.equal(webStandaloneHead({ display: 'browser' }, cover), '<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">\n');
-  assert.equal(webStandaloneHead({ display: 'standalone', host: { web: { head: [{ meta: { name: 'Apple-Mobile-Web-App-Status-Bar-Style', content: 'default' } }] } } }, cover),
+  assert.equal(webStandaloneHead({ display: 'standalone', host: { web: { head: [{ meta: { NAME: 'Apple-Mobile-Web-App-Status-Bar-Style', content: 'default' } }] } } }, cover),
     '<meta name="mobile-web-app-capable" content="yes">\n<meta name="apple-mobile-web-app-capable" content="yes">\n', "host.web.head's tag wins");
 });

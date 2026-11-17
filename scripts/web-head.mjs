@@ -109,7 +109,8 @@ export function webHead(manifest) {
  * Under `viewport-fit=auto` the page has no top inset to keep content clear of the clock, so it keeps the solid bar.
  * Chrome reads `mobile-web-app-capable` where Safari reads the `apple-` one. A tag `host.web.head` writes wins. */
 export function webStandaloneHead(manifest, viewport) {
-  const own = new Set((manifest.host?.web?.head ?? []).map((entry) => entry.meta?.name?.trim().toLowerCase()).filter(Boolean));
+  const own = new Set((manifest.host?.web?.head ?? []).flatMap((entry) => Object.entries(entry.meta ?? {})
+    .filter(([key, value]) => key.toLowerCase() === 'name' && typeof value === 'string').map(([, value]) => value.trim().toLowerCase())));
   const capable = ['standalone', 'fullscreen'].includes(manifest.display);
   return [
     ...(capable ? [['mobile-web-app-capable', 'yes'], ['apple-mobile-web-app-capable', 'yes']] : []),
