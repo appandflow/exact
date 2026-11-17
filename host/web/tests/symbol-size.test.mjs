@@ -276,6 +276,42 @@ for (const [file, [stand, names, run]] of Object.entries(RUNTIMES)) test(`chromi
   } finally { await suite.close(); }
 }, 10000);
 
+// An icon whose viewBox is wider than tall keeps its aspect in a box of another shape, as the Apple hosts fit its
+// path (IconPath.swift `layoutSymbol`): contained, covering, or at its own size, its longer side 1em.
+for (const engine of ['chromium', 'firefox', 'webkit']) for (const [file, [stand, names, run]] of Object.entries(RUNTIMES)) test(`${engine}: a wide icon keeps its aspect in its box (${file})`, async () => {
+  const source = readFileSync(resolve(ROOT, file), 'utf8'), suite = await suiteBrowser(engine, { timeout: 10000 });
+  const fits = ['contain', 'fill', 'cover', 'scale-down', 'none'];
+  try {
+    const page = await suite.newPage({ viewport: { width: 400, height: 600 } });
+    await page.setContent(`<style>${symbolSheet(source)} #exact-root img { --exact-tint: rgb(255, 0, 0) !important; }</style><div id="exact-root" style="display:flex;flex-direction:column;align-items:flex-start;gap:20px;padding:20px">
+      ${fits.map(fit => icon(`wide-${fit}`, '', 'M0 0H400V100H0Z', '0 0 400 100', `display:block;font-size:20px;width:160px;height:80px;object-fit:${fit}`)).join('')}
+      </div><script>${stand} ${glueDeclarations(source, names)} globalThis.paint = () => { ${run} };</script>`);
+    await page.evaluate(() => globalThis.paint());
+    await page.waitForFunction(() => [...document.images].every((e) => e.complete));
+    await page.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))));
+    const ink = async (id) => {
+      const png = (await page.locator(`#${id}`).screenshot()).toString('base64');
+      return page.evaluate(async (png) => {
+        const image = new Image();
+        image.src = `data:image/png;base64,${png}`;
+        await image.decode();
+        const canvas = Object.assign(document.createElement('canvas'), { width: image.width, height: image.height }), context = canvas.getContext('2d');
+        context.drawImage(image, 0, 0);
+        const { data } = context.getImageData(0, 0, image.width, image.height);
+        let [left, top, right, bottom] = [Infinity, Infinity, -1, -1];
+        for (let y = 0; y < image.height; y++) for (let x = 0; x < image.width; x++) {
+          const at = (y * image.width + x) * 4;
+          if (data[at] - Math.max(data[at + 1], data[at + 2]) > 127) [left, top, right, bottom] = [Math.min(left, x), Math.min(top, y), Math.max(right, x), Math.max(bottom, y)];
+        }
+        return [right - left + 1, bottom - top + 1];
+      }, png);
+    };
+    const drawn = [];
+    for (const fit of fits) drawn.push([fit, ...(await ink(`wide-${fit}`))]);
+    expect(drawn).toEqual([['contain', 160, 40], ['fill', 160, 40], ['cover', 160, 80], ['scale-down', 20, 5], ['none', 20, 5]]);
+  } finally { await suite.close(); }
+}, 30000);
+
 test('chromium: loaded raster scale-down follows symbol source and title resizing in either sibling order', async () => {
   const file = 'host/web/glue.js', [stand, names, run] = RUNTIMES[file];
   const source = readFileSync(resolve(ROOT, file), 'utf8'), suite = await suiteBrowser('chromium', { timeout: 10000 });
