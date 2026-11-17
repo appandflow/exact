@@ -1009,6 +1009,20 @@ test('an app whose name or head entry spells a script tag renders its pages in t
   } finally { rmSync(dir, { recursive: true, force: true }); }
 }, 300_000);
 
+test('a standalone app under viewport-fit=cover draws under the Home Screen status bar in its shell and a page built ahead', () => {
+  const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..'), dir = mkdtempSync(resolve(tmpdir(), 'exact-site-standalone-')), app = resolve(dir, 'site'), out = resolve(app, 'dist');
+  const tags = '<meta name="mobile-web-app-capable" content="yes">\n<meta name="apple-mobile-web-app-capable" content="yes">\n', bar = '<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">\n';
+  try {
+    for (const fit of ['cover', 'auto']) {
+      site(app, `shape Note\n  text: string\n\nroutes nav\n  home "/" render=build\n\ncomponent App\n  resource note = note("rendered") as shape Note\n  view\n    column viewport-fit="${fit}"\n      text note.text\n`);
+      writeFileSync(resolve(app, 'app.json'), JSON.stringify({ name: 'Site', display: 'standalone', app: { id: 'test.site', name: 'Site' }, host: { web: {} } }));
+      const built = spawnSync(process.execPath, ['host/web/build.mjs', app, '--out', out], { cwd: root, env: { ...process.env, EXACT_APP_DIR: app }, encoding: 'utf8' });
+      expect(built.status, built.stdout + built.stderr).toBe(0);
+      for (const name of ['shell.html', 'index.html']) expect([fit, name, ...[tags, bar].map(t => readFileSync(resolve(out, name), 'utf8').split(t).length - 1)]).toEqual([fit, name, 1, fit === 'cover' ? 1 : 0]);
+    }
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+}, 300_000);
+
 // The build puts its compiled Markdown before the shell's own entry: not before a head entry that is a module script,
 // nor inside a head script's text that spells one (render.mjs `markdownAt`).
 test("compiled Markdown goes before the shell's own entry, whatever the head's scripts are or spell", async () => {

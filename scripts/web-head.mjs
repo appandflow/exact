@@ -102,6 +102,22 @@ export function webHead(manifest) {
   }).join('');
 }
 
+/** The tags that open the app from the Home Screen as its own window and, when the first root is `viewport-fit=cover`,
+ * draw the page under the status bar as Safari draws it under its bars. Without `black-translucent` iOS paints a solid
+ * bar above the page there and `env(safe-area-inset-top)` is 0 (WebKit bug 316008). Its clock and icons are white
+ * whatever the page's scheme (Apple, "Supported Meta Tags"), and iOS reads it when the app is added to the Home Screen.
+ * Under `viewport-fit=auto` the page has no top inset to keep content clear of the clock, so it keeps the solid bar.
+ * Chrome reads `mobile-web-app-capable` where Safari reads the `apple-` one. A tag `host.web.head` writes wins. */
+export function webStandaloneHead(manifest, viewport) {
+  const own = new Set((manifest.host?.web?.head ?? []).flatMap((entry) => Object.entries(entry.meta ?? {})
+    .filter(([key, value]) => key.toLowerCase() === 'name' && typeof value === 'string').map(([, value]) => value.trim().toLowerCase())));
+  const capable = ['standalone', 'fullscreen'].includes(manifest.display);
+  return [
+    ...(capable ? [['mobile-web-app-capable', 'yes'], ['apple-mobile-web-app-capable', 'yes']] : []),
+    ...(/\bviewport-fit=cover\b/.test(viewport ?? '') ? [['apple-mobile-web-app-status-bar-style', 'black-translucent']] : []),
+  ].filter(([name]) => !own.has(name)).map(([name, content]) => `<meta name="${name}" content="${content}">\n`).join('');
+}
+
 /** After the root, before the runtime: a classic script also precedes a capture script's deferred import. */
 export function webAudioSession(manifest, name = 'audio-session.js') {
   return manifest.audio_session ? `<script src="./${name}"></script>\n` : '';

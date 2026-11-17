@@ -39,7 +39,7 @@ import { compilerWarnings, oneScheme, webInputDigests } from '../../scripts/agen
 import { webBuildFailure } from '../../scripts/app-cli.mjs';
 import { builtSettings } from '../../js/bake/src/__exact_env.mjs';
 import { authClientMetadata, checkModuleRoster, gpuModules, markWorlds, rustPolicy, webGpuArtifacts, webHostFiles, worldSurfaces } from '../../scripts/app.mjs';
-import { webAudioSession, webCspFile, webHead } from '../../scripts/web-head.mjs';
+import { webAudioSession, webCspFile, webHead, webStandaloneHead } from '../../scripts/web-head.mjs';
 import { buildRust, rustFiles, rustCards, rustPackage } from '../../scripts/rust.mjs';
 import { webAppManifest, webDist, copyShaders, bakeOutput, bakeWatchEnv, buildBake, contractLast, readBake, verifyBakeFiles, developmentBuildEnv, resolveApp, webToolchainEnv } from '../../scripts/app.mjs';
 import { buildEditor, buildFlow, compilerSet } from '../web-js/module.mjs';
@@ -601,6 +601,8 @@ const pageNative = app.modules.web;
 writeFileSync(resolve(stage, 'index.html'), readFileSync(resolve(stage, 'index.html'), 'utf8')
   .replace(/<style>([\s\S]*?)<\/style>/, (_, css) => `<style>${minifyCss(css)}${launchBackground(app.manifest)}</style>`)
   .replace('<html lang="en">', `<html lang="${escapeHtml(webManifest.lang)}">`)
+  // The status bar's style follows the first root's `viewport-fit`, which only the page knows (wasm/views.js `syncViewportFit`).
+  .replace(/(<meta name="viewport"[^>]*>\n)/, (meta) => meta + webStandaloneHead(app.manifest, null))
   .replace('<title>Exact</title>', `${schemeHead(!bakeOnly && exports.exact_chooses_scheme() ? "exact.state.#scheme" : null, { development: !production, wasm: true })}<title>${escapeHtml(webManifest.name)}</title>`)
   // The manifest's favicons and Apple touch icon, else the shell's default favicon (LLP 1163 D7).
   .replace(/<link rel="icon"[^>]*>/, (link) => webIconLinks(app.manifest, app.dir, link))

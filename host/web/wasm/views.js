@@ -547,6 +547,15 @@ export function syncViewportFit() {
   if (meta && meta.content !== want) {
     meta.content = want;
   }
+  // scripts/web-head.mjs `webStandaloneHead`, which the JS target writes at build time; one `host.web.head` wrote stays.
+  const bar = document.querySelector("meta[name=\"apple-mobile-web-app-status-bar-style\"]");
+  if (cover && !bar) {
+    const added = Object.assign(document.createElement("meta"), { name: "apple-mobile-web-app-status-bar-style", content: "black-translucent" });
+    added.dataset.exact = "";
+    document.head.append(added);
+  } else if (!cover && bar?.hasAttribute("data-exact")) {
+    bar.remove();
+  }
   const vv = globalThis.visualViewport;
   root.style.height = widget === "resizes-content" && vv && vv.scale === 1 && !document.documentElement.hasAttribute("data-scrolldocument") ? `${Math.min(innerHeight, vv.height)}px` : "";
 }
