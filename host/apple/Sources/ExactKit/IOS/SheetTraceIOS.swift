@@ -60,11 +60,11 @@ enum SheetTrace {
     /// What decides whether a drag on the top sheet scrolls its content or
     /// moves the sheet: the detent, the scroll views UIKit's sheet can
     /// track, and each scroll view in the sheet with its gesture and extent.
-    static func scrolls(in controller: UIViewController) -> String {
+    static func scrolls(in controller: UIViewController, fit: CGFloat?) -> String {
         guard controller.isViewLoaded, let view = controller.view else { return "scrolls: no view" }
         var parts: [String] = []
         if let sheet = controller.sheetPresentationController {
-            parts.append("detent=\(sheet.selectedDetentIdentifier?.rawValue ?? "nil") detents=\(sheet.detents.count) expands=\(sheet.prefersScrollingExpandsWhenScrolledToEdge)")
+            parts.append("detent=\(sheet.selectedDetentIdentifier?.rawValue ?? "nil") detents=\(sheet.detents.count) expands=\(sheet.prefersScrollingExpandsWhenScrolledToEdge) fit=\(fit.map { "\(Int($0))" } ?? "nil") sheet=\(short(sheet.presentedView.flatMap { v in v.window.map { v.convert(v.bounds, to: $0) } } ?? .null))")
         }
         parts.append("frame=\(short(view.frame)) window=\(view.window != nil) subviews=\(view.subviews.map(name).joined(separator: ","))")
         parts.append("csv.bottom=\(id(controller.contentScrollView(for: .bottom))) csv.top=\(id(controller.contentScrollView(for: .top)))")
@@ -104,11 +104,11 @@ enum SheetTrace {
     /// the sheet takes instead of its content names the recognizer that won.
     /// It never recognizes, and cancels or delays no touch.
     final class TouchProbe: UIGestureRecognizer, UIGestureRecognizerDelegate {
-        private let top: () -> UIViewController?
+        private let top: () -> (controller: UIViewController, fit: CGFloat?)?
         private var heard: [UIGestureRecognizer] = []
         private var scroll: UIScrollView?
         private var start: CGPoint = .zero
-        init(top: @escaping () -> UIViewController?) {
+        init(top: @escaping () -> (controller: UIViewController, fit: CGFloat?)?) {
             self.top = top
             super.init(target: nil, action: nil)
             cancelsTouchesInView = false
@@ -131,7 +131,7 @@ enum SheetTrace {
         private func finish(_ how: String, _ touches: Set<UITouch>) {
             if !heard.isEmpty, let window = view, let touch = touches.first {
                 let end = touch.location(in: window)
-                SheetTrace.note("touch \(how) moved \(Int(end.x - start.x)),\(Int(end.y - start.y)) app=\(UIApplication.shared.applicationState.rawValue) heard=\(recognizers()) \(scroll.map(SheetTrace.describe) ?? "no scroll") \(top().map(SheetTrace.scrolls) ?? "")")
+                SheetTrace.note("touch \(how) moved \(Int(end.x - start.x)),\(Int(end.y - start.y)) app=\(UIApplication.shared.applicationState.rawValue) heard=\(recognizers()) \(scroll.map(SheetTrace.describe) ?? "no scroll") \(top().map { SheetTrace.scrolls(in: $0.controller, fit: $0.fit) } ?? "")")
             }
             heard = []
             scroll = nil

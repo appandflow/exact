@@ -871,7 +871,7 @@ final class ModalHost: NSObject, UIAdaptivePresentationControllerDelegate {
         guard !layers.isEmpty || !retiring.isEmpty else { return }
         SheetTrace.note("\(edge): " + (layers.map(traceState).joined(separator: " | ")) + (retiring.isEmpty ? "" : " retiring=\(retiring.count)"))
         #if os(iOS)
-        if let top = layers.last?.controller { SheetTrace.note("\(edge) scrolls: \(SheetTrace.scrolls(in: top))") }
+        if let top = layers.last { SheetTrace.note("\(edge) scrolls: \(SheetTrace.scrolls(in: top.controller, fit: top.route.fitContentHeight))") }
         #endif
     }
 
@@ -881,7 +881,7 @@ final class ModalHost: NSObject, UIAdaptivePresentationControllerDelegate {
     func probeTouches(in window: UIWindow?) {
         guard let window, touchProbe?.view !== window else { return }
         if let old = touchProbe { old.view?.removeGestureRecognizer(old) }
-        let probe = SheetTrace.TouchProbe { [weak self] in self?.layers.last?.controller }
+        let probe = SheetTrace.TouchProbe { [weak self] in self?.layers.last.map { ($0.controller, $0.route.fitContentHeight) } }
         window.addGestureRecognizer(probe)
         touchProbe = probe
     }
