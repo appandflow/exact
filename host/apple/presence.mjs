@@ -308,6 +308,16 @@ export function grantEntitlements(app, names = []) {
   return app.clipParent || app.widgetAppId ? names.filter((name) => name !== 'aps-environment' && name !== KEY_VALUE_STORE) : names;
 }
 
+const CLIP_IDENTIFIERS = 'com.apple.developer.associated-appclip-app-identifiers';
+/** The app's App Clip, as Xcode names it in the parent when it archives one (Apple,
+ * com.apple.developer.associated-appclip-app-identifiers), where the app's profile (`allows`) grants it: a profile made
+ * before the clip's App ID existed does not, and signing the entitlement then would refuse the build. */
+export function clipIdentifiers(app, { team = null, prefix = team, allows = [] } = {}) {
+  const clip = app.manifest.host?.ios?.appClip;
+  if (!clip || !team || app.clipParent || app.widgetAppId || app.widgetHost || app.widgetTV || !allows.includes(CLIP_IDENTIFIERS)) return {};
+  return { [CLIP_IDENTIFIERS]: [`${prefix}.${clip.id ?? `${app.id}.Clip`}`] };
+}
+
 /** @ref LLP 1133.034 D13 — the `payment.apple-pay` grants' merchant IDs, where they can be signed: on a simulator, or
  * with a profile whose entitlements (`allows`) include Apple Pay's. Elsewhere (an ad hoc Mac build) Apple Pay is
  * unavailable, and a profile without it would refuse the build. */

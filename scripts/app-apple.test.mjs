@@ -808,6 +808,12 @@ test('an App Clip is its parent\'s app under a second identity: NSAppClip, the p
   assert.match(parent, /<key>com.apple.developer.associated-domains<\/key><array><string>applinks:exact.test<\/string><string>webcredentials:exact.test<\/string><string>appclips:exact.test<\/string><\/array>/);
   assert.doesNotMatch(parent, /parent-application-identifiers/);
   assert.doesNotMatch(parent, /on-demand-install-capable/);
+  // The parent names its clip only when its profile grants that, as a profile made after the clip's App ID does.
+  assert.doesNotMatch(parent, /associated-appclip-app-identifiers/);
+  const granted = flat(entitlements(app, 'TEAM', true, null, { prefix: 'PREFIX', allows: ['com.apple.developer.associated-appclip-app-identifiers'] }));
+  assert.match(granted, /<key>com.apple.developer.associated-appclip-app-identifiers<\/key><array><string>PREFIX.com.exact.test.Clip<\/string><\/array>/);
+  assert.doesNotMatch(flat(entitlements({ ...app, id: clip.id, clipParent: app.id }, 'TEAM', true, null, { prefix: 'PREFIX', allows: ['com.apple.developer.associated-appclip-app-identifiers'] })), /associated-appclip-app-identifiers/);
+  assert.doesNotMatch(flat(entitlements(base, 'TEAM', true, null, { allows: ['com.apple.developer.associated-appclip-app-identifiers'] })), /associated-appclip-app-identifiers/);
   assert.doesNotMatch(flat(entitlements(base, 'TEAM', true)), /appclips:/);
   // handle_links' applinks: becomes the clip's appclips: too; a tvOS build of the app has neither, and a wildcard
   // gives no appclips: (LLP 1038 D8).
