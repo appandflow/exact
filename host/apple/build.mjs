@@ -63,7 +63,7 @@ import { bundleShaderLibraries } from './shader-libraries.mjs';
 import { appleBuildRefusal, guardFlags, reportBuilt } from '../../scripts/help.mjs';
 import { appleImplementations } from '../../js/bake/src/typescript.mjs';
 import { composedModule, moduleSeam, moduleLibraryLinkArgs, packageCompiler, rosterProbe, rosterProbeMain } from './compose.mjs';
-import { associatedDomains, entitlementValue, grantEntitlements, macSigning, merchantEntitlement, signInEntitlement, signsGrant } from './presence.mjs';
+import { associatedDomains, clipIdentifiers, entitlementValue, grantEntitlements, macSigning, merchantEntitlement, signInEntitlement, signsGrant } from './presence.mjs';
 import { writeDataKeys } from './data-keys.mjs';
 import { alternativeNames, backgroundKeys, firstFrameKeys, declaredOrigin, interfaceStyle, localNetworking, memoryEntitlements, modulePlist, nfcKeys, startLocation, storeKeys, transportSecurity, updateActivation, withPackageKeys } from './plist.mjs';
 import { compileFixtures, iosTestRuns, macTests, onlyClasses } from './xctest.mjs';
@@ -358,7 +358,7 @@ export const entitlements = (app, team = null, debuggable = true, reach = null, 
   const all = [...new Set([...(app.clipParent ? linked.filter((d) => !d.startsWith('applinks:')) : linked), ...clips])];
   if (all.length) dict['com.apple.developer.associated-domains'] = all;
   for (const name of grantEntitlements(app, reach?.entitlements)) dict[name] = reach.entitlementValues?.[name] ?? entitlementValue(name, debuggable, dict['application-identifier']);
-  Object.assign(dict, merchantEntitlement(reach, { simulator, team, allows }));
+  Object.assign(dict, merchantEntitlement(reach, { simulator, team, allows }), clipIdentifiers(app, { team, prefix, allows }));
   return plistFile({ ...dict, ...signInEntitlement(reach?.auth, { simulator, team, allows }) });
 };
 
