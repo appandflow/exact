@@ -470,7 +470,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         clearSymbol(); image = nil
         if previousSource?.hasPrefix("symbol:") == true { presenter?.intrinsic(id, nil) }
         guard let session = presenter?.session else { return }
-        if session.rasters?.load(self, source: ImageArrivals.shared.asking(self, for: source), resolver: session.app.resolver) != true {
+        if session.rasters?.load(self, source: source, resolver: session.app.resolver) != true {
             imageSource = previousSource; loadGeneration = previousGeneration
         }
     }
@@ -480,7 +480,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     package func acceptRaster(_ lease: any ImageLease, generation: Int) -> CGSize? {
         guard loadGeneration == generation, let presenter, presenter.views[id] === self else { return nil }
         // A redisplay doesn't re-ask the image layer for a replaced bitmap.
-        raster = lease; ImageArrivals.shared.arriving(self); ImageLink.animated?.attach(self); applyImageLayer()
+        raster = lease; ImageLink.animated?.attach(self); applyImageLayer()
         self.needsDisplay = true
         if let c = canvasAbove { c.needsCapture = true; canvases?.scheduleCapture() }
         presenter.boxFilters?.changed(self)
@@ -495,7 +495,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         invalidateText()
         cachedTextLayout = nil
         dropTextRaster()
-        loadGeneration += 1; ImageArrivals.shared.forget(self)
+        loadGeneration += 1
         presenter?.session?.rasters?.cancel(id)
         raster = nil
         imageSource = nil; PictureInPictureHost.gone(self)

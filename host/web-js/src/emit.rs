@@ -950,7 +950,7 @@ impl Em<'_> {
         }
         let (mut attrs, content, extra) = rows::attributes(element, &parts.props);
         crate::symbols::path_in_source(&mut attrs);
-        if element == "img" && exact_runner::rows::lazy(plan, exact_plan::NodesId(i)) {
+        if element == "img" && exact_runner::rows::repeated(plan, exact_plan::NodesId(i)) {
             attrs.push(("loading".into(), "lazy".into()));
         }
         let mut css = parts.css.clone();

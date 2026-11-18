@@ -543,7 +543,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         clearSymbol(); image = nil
         if previousSource?.hasPrefix("symbol:") == true { presenter?.intrinsic(id, nil) }
         guard let session = presenter?.session else { return }
-        if session.rasters?.load(self, source: ImageArrivals.shared.asking(self, for: source), resolver: session.app.resolver) != true {
+        if session.rasters?.load(self, source: source, resolver: session.app.resolver) != true {
             imageSource = previousSource; loadGeneration = previousGeneration
         }
     }
@@ -552,7 +552,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
     /// loader to report (`RasterLoader.reconcile`, one report per turn).
     package func acceptRaster(_ lease: any ImageLease, generation: Int) -> CGSize? {
         guard loadGeneration == generation, let presenter, presenter.views[id] === self else { return nil }
-        raster = lease; ImageArrivals.shared.arriving(self); ImageLink.animated?.attach(self); applyImageLayer()
+        raster = lease; ImageLink.animated?.attach(self); applyImageLayer()
         self.setNeedsDisplay()
         if let c = canvasAbove { c.needsCapture = true; canvases?.scheduleCapture() }
         presenter.boxFilters?.changed(self)
@@ -605,7 +605,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         invalidateText()
         cachedTextLayout = nil
         dropTextRaster()
-        loadGeneration += 1; ImageArrivals.shared.forget(self)
+        loadGeneration += 1
         presenter?.session?.rasters?.cancel(id)
         buttonRasterView = nil
         raster = nil

@@ -235,18 +235,6 @@ fn grouped_separator_color() -> Option<exact_kernel::ColorValue> {
     style.border_color_bottom
 }
 
-/// A box-filling layer's size for an `object-fit`; `scale-down` needs the
-/// natural size, which only the page knows: the glue sets `--exact-tint-fit`.
-fn fit_size(fit: ObjectFit) -> &'static str {
-    match fit {
-        ObjectFit::Fill => "100% 100%",
-        ObjectFit::Contain => "contain",
-        ObjectFit::Cover => "cover",
-        ObjectFit::None => "auto",
-        ObjectFit::ScaleDown => "var(--exact-tint-fit,contain)",
-    }
-}
-
 pub fn host_css_of(
     node: &NodeFacts<'_>,
     parent: Option<&NodeFacts<'_>>,
@@ -337,25 +325,19 @@ pub fn host_css_of(
             .str(PropId::ImageSource)
             .filter(|s| !s.starts_with("symbol:"))
         {
+            let size = match node.style.object_fit {
+                ObjectFit::Fill => "100% 100%",
+                ObjectFit::Contain => "contain",
+                ObjectFit::Cover => "cover",
+                ObjectFit::None => "auto",
+                ObjectFit::ScaleDown => "var(--exact-tint-fit,contain)",
+            };
             css.push_str("background-color:var(--exact-tint);mask-image:url(");
             css.push_str(&crate::css::css_string(source));
             css.push_str(");mask-size:");
-            css.push_str(fit_size(node.style.object_fit));
+            css.push_str(size);
             css.push_str(";mask-repeat:no-repeat;mask-position:center;mask-origin:content-box;mask-clip:content-box;object-position:-100000px 0;");
         }
-    }
-    // `placeholder` on an image: the stand-in as the img's own background,
-    // fitted as the picture is, which covers it once it loads.
-    if let Some(stand_in) = (node.node_type == NodeType::Image)
-        .then(|| node.props.str(PropId::Placeholder))
-        .flatten()
-        .filter(|s| !s.is_empty() && !s.starts_with("symbol:"))
-    {
-        css.push_str("background-image:url(");
-        css.push_str(&crate::css::css_string(stand_in));
-        css.push_str(");background-size:");
-        css.push_str(fit_size(node.style.object_fit));
-        css.push_str(";background-repeat:no-repeat;background-position:center;background-origin:content-box;background-clip:content-box;");
     }
     // @ref LLP 1053.000 D4 — linked when the plan names a material.
     if let (Some(name), Some(material)) = (
@@ -940,9 +922,6 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
             PropId::StatusBarStyle | PropId::StatusBarAnimation | PropId::SystemBarsHidden => {
                 continue
             }
-            // Read by rt.js's image fade.
-            PropId::FadeDuration => "data-exact-fade",
-            PropId::Loading => "loading",
             // Read by wakelock-glue.js (LLP 1125 D11).
             PropId::Wakelock => "data-exact-wakelock",
             // Read by orientationlock-glue.js (LLP 1133.029 D7).

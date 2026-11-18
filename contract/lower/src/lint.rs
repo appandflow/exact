@@ -381,6 +381,12 @@ pub(crate) fn unknown_attr(tag: &str, a: &Attr) -> LowerError {
                 .into()
         }
         None if css_hint(&a.name).is_some() => css_hint(&a.name).unwrap_or_default(),
+        // LLP 1048.007 D5: the build chooses.
+        None if tag == "image" && a.name == "loading" => {
+            "; Exact chooses: an image a `for` repeats loads as its row comes into view, and a lone \
+             image loads with the page"
+                .into()
+        }
         None if a.name == "className" => {
             "; `class` names a `style` declared in this file, as in `class=Card`".into()
         }

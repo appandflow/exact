@@ -1394,7 +1394,7 @@ export const classifications = [
     ["runner:runner/src/lists.rs", "concat flat flat_len index_of position slice sort_by sum"],
     ["runner:runner/src/machine.rs", "equal equal_items exec Machine::new run step"],
     ["runner:runner/src/program.rs", "Program::new"],
-    ["runner:runner/src/rows.rs", "lazy repeated"],
+    ["runner:runner/src/rows.rs", "repeated"],
     ["runner:runner/src/stdlib.rs", "assembled calendar_diff call format_number format_time join js_max js_min js_round native_props parse_number push_number"],
     ["runner:runner/src/strings.rs", "index_of order pieces replace_all slice split"],
     ["runner:runner/src/tools.rs", "mcp_tools"],

@@ -127,59 +127,6 @@ const BOOL =
     /^(partition|appleAllowsBackForwardNavigationGestures|appleAllowsMagnification|appleInactiveSchedulingPolicy)$/i;
 /** A loaded piece's own handling of a prop (symbols.js's `src`): true when handled. */
 export const PropHooks = {};
-// A bound `placeholder` on an image: its stand-in as its background, fitted as the picture is (element.rs
-// `host_css_of` writes a literal one).
-PropHooks.placeholder = (e, v) => {
-  if (e.localName !== 'img') return false;
-  const s = e.style,
-    on = v != null && v !== '' && !v.startsWith('symbol:');
-  if (on) e.setAttribute('placeholder', v);
-  else e.removeAttribute('placeholder');
-  s.backgroundImage = on ? `url(${JSON.stringify(v)})` : '';
-  if (on) {
-    Object.assign(s, {
-      backgroundRepeat: 'no-repeat',
-      backgroundPosition: 'center',
-      backgroundOrigin: 'content-box',
-      backgroundClip: 'content-box',
-    });
-    requestAnimationFrame(() => {
-      const f = getComputedStyle(e).objectFit;
-      s.backgroundSize = { fill: '100% 100%', none: 'auto', 'scale-down': 'contain' }[f] ?? f;
-    });
-  }
-  return true;
-};
-// `fadeDuration`: an image still loading when it enters the page keeps its box (and background) but not its
-// picture until it arrives, then fades in; one in hand within 50 ms, as a cache's, and one over its
-// `placeholder` show at once.
-const fadeHold = root => {
-    for (const e of root.localName === 'img' ? [root] : (root.querySelectorAll?.('img[data-exact-fade]') ?? []))
-      if (e.dataset.exactFade > 0 && !e.hasAttribute('placeholder') && !e.complete) {
-        e.$held = performance.now();
-        e.setAttribute('data-exact-fading', '');
-      }
-  },
-  fadeEnd = (e, failed) => {
-    if (e.$held == null) return;
-    const quick = performance.now() - e.$held < 50;
-    e.$held = null;
-    e.removeAttribute('data-exact-fading');
-    if (!failed && !quick)
-      e.animate([{ opacity: 0 }, { opacity: 1 }], { duration: Number(e.dataset.exactFade), easing: 'ease-in-out' });
-  };
-if (typeof document !== 'undefined' && typeof MutationObserver === 'function') {
-  document.head?.append(
-    Object.assign(document.createElement('style'), {
-      textContent: 'img[data-exact-fading]{object-position:-100000px 0!important}',
-    }),
-  );
-  fadeHold(document);
-  new MutationObserver(rs => {
-    for (const r of rs) for (const n of r.addedNodes) if (n.nodeType === 1) fadeHold(n);
-  }).observe(document.documentElement, { childList: true, subtree: true });
-  for (const t of ['load', 'error']) document.addEventListener(t, ev => fadeEnd(ev.target, t === 'error'), true);
-}
 // Which field composes, for a piece loaded later (LLP 1114.007).
 if (typeof addEventListener === 'function')
   for (const [type, on] of [

@@ -1590,13 +1590,12 @@ list's cell in a poll. Elsewhere it does nothing. A grouped row's edge or backgr
 image its author wrote otherwise stays the author's on every host, iOS's carried row
 included.
 
-Unless it says otherwise, Exact decides when an `image`'s picture is fetched
+An `image` takes no `loading` attribute: Exact decides when its picture is fetched
 (LLP 1048.007 D5). On the web a lone image loads with the page, and the page's first
 one is preloaded at high priority. An image a `for` repeats is written `loading="lazy"`, the first
 screen's rows included: the browser fetches those at the page's first layout, not
-while it parses the document, and the rest as they come near. HTML's `loading`
-(`lazy` or `eager`, written or bound) on an image wins over that choice on the web.
-Native hosts ignore it and fetch the picture of every image that is mounted.
+while it parses the document, and the rest as they come near. Native hosts fetch the
+picture of every image that is mounted.
 
 A `button` is the platform's own control by default (LLP
 1104 D1). Your bare box
