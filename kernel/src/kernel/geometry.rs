@@ -170,9 +170,10 @@ impl Kernel {
         let root = nodes[&slot];
         let presented = engine(&mut self.layout).height_samples(self.epoch);
         let derive = |s: u32, mut t: taffy::style::Style| {
-            // A scroller the platform insets fits by its content alone: the
-            // detent leaves those insets to UIKit (LLP 1116.000 D1.2).
-            super::cover::without_inset(&self.arena, s, &mut t);
+            // A scroller the platform insets fits by its content and the bar
+            // over it: the detent leaves the bottom inset to UIKit (LLP
+            // 1116.000 D1.2), which sizes the sheet, bar and all, by it.
+            super::cover::without_bottom_inset(&self.arena, s, &mut t);
             let shown = presented
                 .iter()
                 .find(|p| p.node.index == s && self.arena.resolve(p.node) == Some(s));

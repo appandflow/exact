@@ -121,6 +121,11 @@ impl<D: DataSource> Host<D> {
             if let Err(e) = self.runner.kernel_mut().set_host_cover(view, cover) {
                 error.get_or_insert(format!("cover: {e:?}"));
             }
+            // A scroller's top inset is part of the fit-content route above
+            // it (`emit_fitted`), though its frame and extent stay the same.
+            if matches!(cover, None | Some(HostCover::Inset(_))) {
+                self.queue_layout(view);
+            }
         }
         error = error.or(self.blocks_into(blocks, placements));
         for &(view, list) in margins {
