@@ -336,8 +336,8 @@ export const entitlements = (app, team = null, debuggable = true, reach = null, 
   };
   // The clip (`clipParent`, the app's id) is its parent's App Clip: the parent's entitlements, the App Group and
   // Keychain group of the parent's included (how a clip shares data with its app), under the clip's own
-  // application-identifier (Apple, "Creating an App Clip with Xcode", the App Clip entitlement).
-  if (app.clipParent) dict['com.apple.developer.parent-application-identifiers'] = [`${prefix ?? SIMULATOR_PREFIX}.${app.clipParent}`];
+  // application-identifier (Apple, "Creating an App Clip with Xcode", the App Clip entitlement); signed, also On Demand Install Capable, which Xcode applies when it embeds the clip.
+  if (app.clipParent) Object.assign(dict, { 'com.apple.developer.parent-application-identifiers': [`${prefix ?? SIMULATOR_PREFIX}.${app.clipParent}`], ...(team ? { 'com.apple.developer.on-demand-install-capable': true } : {}) });
   if (hasEntries(app) && !app.widgetTV && !app.widgetHost) {
     dict['com.apple.security.application-groups'] = [widgetGroup(app)];
     const owner = app.widgetAppId ?? app.clipParent ?? app.id;
