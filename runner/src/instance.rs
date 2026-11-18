@@ -118,7 +118,7 @@ use errors::invalid;
 pub use errors::InstanceError;
 
 /// One realized node.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct NodeInst {
     /// The site.
     pub node: NodesId,
@@ -145,14 +145,14 @@ pub struct NodeInst {
     around: u32,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 enum Child {
     Node(NodeInst),
     Region(RegionInst),
 }
 
 /// One realized region.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct RegionInst {
     region: RegionsId,
     active: Active,
@@ -161,7 +161,7 @@ pub struct RegionInst {
     subject: Option<Value>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 enum Active {
     /// `if` / `match`: the active arm and its roots.
     Arm {
@@ -193,7 +193,7 @@ impl ArmFrame {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct Row {
     key: Value,
     /// Which repeat of `key` this row is: 0 for the first; the data gave the
@@ -245,7 +245,29 @@ pub struct Ids {
     pub(crate) tabs: tabs::Tabs, // tab panels waiting for their first selection (tabs.rs)
 }
 
+/// A refused render restores ownership; view IDs and work counters keep advancing.
+#[derive(Debug)]
+pub(crate) struct IdsCheckpoint {
+    sites: exact_kernel::id::IdMap<ViewId, NodesId>,
+    theme: theme::ThemeIndex,
+    tabs: tabs::Tabs,
+}
+
 impl Ids {
+    pub(crate) fn checkpoint(&self) -> IdsCheckpoint {
+        IdsCheckpoint {
+            sites: self.sites.clone(),
+            theme: self.theme.clone(),
+            tabs: self.tabs.clone(),
+        }
+    }
+
+    pub(crate) fn restore(&mut self, saved: IdsCheckpoint) {
+        self.sites = saved.sites;
+        self.theme = saved.theme;
+        self.tabs = saved.tabs;
+    }
+
     fn fresh(&mut self) -> ViewId {
         self.next += 1;
         self.next
@@ -298,7 +320,7 @@ pub fn value_json(value: &Value, out: &mut String) {
         }
         Value::Number(_) | Value::Unit | Value::Option(None) => out.push_str("null"),
         Value::Bool(b) => out.push_str(if *b { "true" } else { "false" }),
-        v @ exact_plan::str_value!() => crate::agent::quote(v.text(), out),
+        v @ exact_plan::str_value!() => crate::json::quote(v.text(), out),
         Value::Option(Some(v)) => value_json(v, out),
         Value::List(items) | Value::Record(items) => {
             out.push('[');
@@ -341,7 +363,7 @@ impl SurfaceUpdate {
                 out.push(',');
             }
             if named {
-                crate::agent::quote(&self.names[i], &mut out);
+                crate::json::quote(&self.names[i], &mut out);
                 out.push(':');
             }
             value_json(value, &mut out);
@@ -1236,7 +1258,7 @@ pub(crate) fn invalid_face(view: ViewId, text: String, then: &str) -> String {
 }
 
 /// The root of the instance tree: the plan's top-level sites.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Tree {
     #[cfg(test)]
     pub(crate) collection_walks: usize,

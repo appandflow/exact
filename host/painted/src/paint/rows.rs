@@ -16,7 +16,7 @@ use exact_ink::counters::{self, Counter};
 use exact_kernel::id::{IdMap, IdSet};
 use exact_kernel::NodeKey;
 
-/// What changed since the last frame, by node: what the host saw.
+/// Node changes awaiting row invalidation, and the last unpainted commit's time.
 #[derive(Default)]
 pub struct Dirty {
     hard: Vec<NodeKey>,
@@ -28,6 +28,18 @@ pub struct Dirty {
 }
 
 impl Dirty {
+    #[cfg(test)]
+    pub(crate) fn pending_nodes(&self) -> usize {
+        self.hard.len() + self.moved.len() + self.renewed.len()
+    }
+
+    /// Take node changes while keeping the commit time for the next paint's numeric roll.
+    pub(crate) fn take_changes(&mut self) -> Self {
+        let changes = std::mem::take(self);
+        self.committed = changes.committed;
+        changes
+    }
+
     /// A commit's nodes, and when it landed (ms).
     pub fn commit(&mut self, r: &exact_kernel::CommitReceipt, at: f64) {
         self.committed = Some(at);
@@ -101,6 +113,8 @@ pub(super) struct Paused(Option<Capture>, bool);
 #[derive(Default)]
 struct Capture {
     refused: bool,
+    /// What its boxes' filters paint, in the walk's coordinates (`box_filter.rs`).
+    reach: Option<Rect4>,
     images: Vec<(ViewId, Option<std::sync::Weak<Bitmap>>)>,
     slots: Vec<Slot>,
     text: Vec<(NodeKey, Rc<Paragraph>)>,
@@ -171,13 +185,15 @@ fn within(a: Option<Rect4>, outer: Option<Rect4>) -> Option<Rect4> {
 
 impl Painter {
     pub(super) fn discard_rows(&mut self) {
-        for row in self.rows.kept.values() {
-            self.backend.row_free(row.id);
+        let rows = std::mem::take(&mut self.rows);
+        // The reader can still hold these IDs until it receives their deletions.
+        self.rows.next = rows.next;
+        for id in rows.kept.into_values().map(|r| r.id).chain(rows.freed) {
+            self.backend.row_free(id);
         }
-        self.forget_rows();
     }
 
-    /// Before a frame: drop the rows the host's changes reach.
+    /// Invalidate the rows reached by the host's changes.
     pub(crate) fn rows_dirty(&mut self, kernel: &Kernel, dirty: Dirty) {
         self.numerals.committed = dirty.committed;
         self.invalidate_rows(kernel, dirty);
@@ -555,6 +571,13 @@ impl Painter {
         }
     }
 
+    /// What a box's filter paints in a recording row, past the box.
+    pub(super) fn row_reach(&mut self, r: Rect4) {
+        if let Some(c) = &mut self.rows.recording {
+            c.reach = Some(union(c.reach, r));
+        }
+    }
+
     /// Whether a kept row draws what it would record now; `pictures`: its
     /// pictures included.
     fn row_valid(
@@ -770,6 +793,12 @@ impl Painter {
             covered.2 + 2.0 * MARGIN,
             covered.3 + 2.0 * MARGIN,
         );
+        // And what its filters paint, which can pass the margin.
+        let shift = if local { (0.0, 0.0) } else { origin };
+        let bounds = match capture.reach {
+            Some(r) => union(Some(bounds), (r.0 - shift.0, r.1 - shift.1, r.2, r.3)),
+            None => bounds,
+        };
         // The backend keeps the previous recording when this one is the same.
         let rid = self.backend.row_end(bounds);
         if let Some(old) = previous.filter(|old| *old != rid) {

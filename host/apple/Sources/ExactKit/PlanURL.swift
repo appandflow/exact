@@ -103,15 +103,17 @@ public struct ExactDevelopmentPlan {
     }
 
     @discardableResult
-    public func apply(to app: ExactApp) -> Bool {
+    public func apply(to app: ExactApp) -> ExactApplyResult { apply(to: app, now: false) }
+
+    /// `now`: the dev menu's Reload, which no interaction holds (LLP 1029.000.002 D9).
+    func apply(to app: ExactApp, now: Bool) -> ExactApplyResult {
         do {
             let (plan, module) = try read(for: app)
             let label = baseFiles[0].lastPathComponent
-            guard let module else { return app.apply(plan, label: label) }
-            return app.applyGeneration(ExactGeneration(plan: plan, assets: app.resolver, module: module), label: label, commit: { true })
+            return app.applyTogether(plan, label: label, resolver: app.resolver, token: 0, module: module, development: true, now: now, commit: { true })
         } catch {
             fputs("exact: local generation refused: \(error.localizedDescription)\n", stderr)
-            return false
+            return .refused(error.localizedDescription)
         }
     }
 
@@ -138,19 +140,18 @@ public struct ExactDevelopmentPlan {
         let t = DispatchSource.makeTimerSource(queue: .main)
         t.schedule(deadline: .now() + 0.1, repeating: 0.1)
         t.setEventHandler {
-            last = Self.seen(revision, last: last, apply: { apply(to: app) }, pending: { app.generationPending })
+            last = Self.seen(revision, last: last, apply: { apply(to: app) })
         }
         t.resume()
         return t
     }
 
-    /// The revision seen after a tick. A candidate refused while a
-    /// generation is pending (a module still preparing, a request in
-    /// flight) stays unseen, so the next tick asks again, as the URL form
-    /// does; one applied, or refused otherwise, waits for its files to change.
-    static func seen(_ revision: [Double], last: [Double], apply: () -> Bool, pending: () -> Bool) -> [Double] {
+    /// The revision seen after a tick: each is applied once, whatever it
+    /// answers. One that must wait is the app's to apply (LLP 1029.000.002 D9).
+    static func seen(_ revision: [Double], last: [Double], apply: () -> ExactApplyResult) -> [Double] {
         guard revision != last else { return last }
-        return apply() || !pending() ? revision : last
+        _ = apply()
+        return revision
     }
 }
 
@@ -394,12 +395,12 @@ final class PlanURL: NSObject, URLSessionDataDelegate {
 
     /// The app owns the identity: replacing a connection must not restart an
     /// already current app, while another kind of apply invalidates the identity.
-    static func open(_ page: String, program: String? = nil, acceptProgram: @escaping (String?) -> Bool, current: @escaping () -> String?, plan: @escaping () -> String? = { nil }, waiting: @escaping () -> Bool = { false }, held: @escaping () -> Bool = { false }, design: @escaping (String) -> String = { _ in "unsupported" }, channel: @escaping ([String: Any]) -> Void = { _ in }, apply: @escaping (Generation, String, Bool) -> Bool) -> PlanURL? {
+    static func open(_ page: String, program: String? = nil, acceptProgram: @escaping (String?) -> Bool, current: @escaping () -> String?, plan: @escaping () -> String? = { nil }, design: @escaping (String) -> String = { _ in "unsupported" }, channel: @escaping ([String: Any]) -> Void = { _ in }, apply: @escaping (Generation, String, Bool, @escaping (ReplacementCompletion) -> Void) -> ExactApplyResult) -> PlanURL? {
         guard let u = URL(string: page), u.host != nil, sameOrigin(u, u) else {
             fputs("exact url: not an HTTP app URL: \(page)\n", stderr)
             return nil
         }
-        let connection = PlanURL(u, acceptProgram: acceptProgram, current: current, plan: plan, waiting: waiting, held: held, design: design, channel: channel, apply: apply)
+        let connection = PlanURL(u, acceptProgram: acceptProgram, current: current, plan: plan, design: design, channel: channel, apply: apply)
         // The program the app already runs (a connection replaced): the one
         // this connection takes.
         connection.adopted = program
@@ -410,17 +411,14 @@ final class PlanURL: NSObject, URLSessionDataDelegate {
     let page: URL
     private let currentGeneration: () -> String?
     private let runningPlan: () -> String?
-    /// The candidate, its label, and `letGo` (requests in flight do not hold it back).
-    private let applyGeneration: (Generation, String, Bool) -> Bool
+    /// The candidate, its label, whether Reload asked for it, and its later outcome.
+    private let applyGeneration: (Generation, String, Bool, @escaping (ReplacementCompletion) -> Void) -> ExactApplyResult
     /// A live design batch or snapshot (LLP 1121 stage 4) applied to the
     /// app; answers applied, stale, structure or refused.
     private let applyDesign: (String) -> String
     /// A build-channel frame (LLP 1122 D4): a hello with a new nonce, or a
     /// command (`BuildChannel.commands`).
     private let channel: ([String: Any]) -> Void
-    private let preparationPending: () -> Bool
-    /// Whether requests in flight held the last preparation back (its second's clock).
-    private let requestsHeld: () -> Bool
     private let acceptProgram: (String?) -> Bool
     var terminal: String? { didSet { tellNotice() } }
     /// What the dev loop said it is doing before it had a plan to give:
@@ -457,6 +455,7 @@ final class PlanURL: NSObject, URLSessionDataDelegate {
     private var retrySeconds = 1.0
     private var closed = false
     private var resolution: UInt64 = 0
+    private var applyNow = false
     private var resolutionStarted = ProcessInfo.processInfo.systemUptime
     private var fetches: [UUID: BoundedFetch] = [:]
     private lazy var session: URLSession = {
@@ -467,7 +466,7 @@ final class PlanURL: NSObject, URLSessionDataDelegate {
         return URLSession(configuration: config, delegate: self, delegateQueue: .main)
     }()
 
-    private init(_ page: URL, acceptProgram: @escaping (String?) -> Bool, current: @escaping () -> String?, plan: @escaping () -> String?, waiting: @escaping () -> Bool = { false }, held: @escaping () -> Bool = { false }, design: @escaping (String) -> String, channel: @escaping ([String: Any]) -> Void, apply: @escaping (Generation, String, Bool) -> Bool) {
+    private init(_ page: URL, acceptProgram: @escaping (String?) -> Bool, current: @escaping () -> String?, plan: @escaping () -> String?, design: @escaping (String) -> String, channel: @escaping ([String: Any]) -> Void, apply: @escaping (Generation, String, Bool, @escaping (ReplacementCompletion) -> Void) -> ExactApplyResult) {
         self.page = page
         self.acceptProgram = acceptProgram
         currentGeneration = current
@@ -475,12 +474,11 @@ final class PlanURL: NSObject, URLSessionDataDelegate {
         applyGeneration = apply
         applyDesign = design
         self.channel = channel
-        preparationPending = waiting
-        requestsHeld = held
     }
 
     @discardableResult
-    private func beginResolution() -> UInt64 {
+    private func beginResolution(now: Bool = false) -> UInt64 {
+        applyNow = now
         resolution &+= 1
         resolutionStarted = ProcessInfo.processInfo.systemUptime
         pending = nil
@@ -506,16 +504,16 @@ final class PlanURL: NSObject, URLSessionDataDelegate {
 
     func reload() {
         terminal = nil
-        resolveAndBoot()
+        resolveAndBoot(now: true)
     }
 
     // MARK: discovery and immutable generation fetches (LLP 1023 D1–D3)
 
-    private func resolveAndBoot() {
+    private func resolveAndBoot(now: Bool = false) {
         guard !closed else { return }
         stream?.cancel()
         stream = nil
-        let generation = beginResolution()
+        let generation = beginResolution(now: now)
         var request = URLRequest(url: page)
         request.setValue("\(PlanURL.envelopeType), text/html;q=0.9", forHTTPHeaderField: "Accept")
         request.setValue("no-cache", forHTTPHeaderField: "Cache-Control")
@@ -838,26 +836,30 @@ final class PlanURL: NSObject, URLSessionDataDelegate {
                         let candidate = Generation(identity: identity, plan: payloads[0], assets: resolver, module: logic)
                         payloads.removeAll()
                         let fetched = ProcessInfo.processInfo.systemUptime
-                        // Asked again while the host is preparing, or while requests are in flight;
-                        // a second after they first held it, they are let go, as the web's dev loop does (LLP 1007 §6).
-                        var heldSince: TimeInterval?
-                        func commitCandidate() {
-                            guard !self.closed, self.terminal == nil, generation == self.resolution else { return }
-                            let letGo = heldSince.map { ProcessInfo.processInfo.systemUptime - $0 >= 1 } ?? false
-                            if applyGeneration(candidate, "generation ← " + (page.host ?? ""), letGo) {
+                        var completed = false
+                        let finished: (ReplacementCompletion) -> Void = { [weak self] result in
+                            guard let self, !closed, generation == resolution, !completed else { return }
+                            completed = true
+                            switch result {
+                            case .applied:
                                 refused = nil
-                                // Its plan carries its own design; value-only edits since are the server's.
                                 syncDesign()
                                 status(String(format: "generation %@: envelope %.1f ms, payloads %.1f ms, preparation %.1f ms", String(identity.prefix(12)), envelopeMs, (fetched - payloadStarted) * 1000, (ProcessInfo.processInfo.systemUptime - fetched) * 1000))
-                            } else if preparationPending() {
-                                if requestsHeld() { heldSince = heldSince ?? ProcessInfo.processInfo.systemUptime }
-                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.05, execute: commitCandidate)
-                            } else {
-                                refused = "this app refused the new build"
+                            case .ended(.refused, let reason):
+                                refused = reason
                                 status("the host refused the generation; keeping the running app")
+                            case .ended(let outcome, _):
+                                status(outcome == .superseded ? "generation superseded by a newer candidate" : "generation dropped because its sessions were destroyed")
                             }
                         }
-                        commitCandidate()
+                        let result = applyGeneration(candidate, "generation ← " + (page.host ?? ""), applyNow, finished)
+                        if !completed {
+                            switch result {
+                            case .applied: finished(.applied)
+                            case .held(let reason): status("replacement held: " + reason)
+                            case .refused(let reason): finished(.ended(.refused, reason))
+                            }
+                        }
                     } catch {
                         failed("cannot combine JavaScript and Rust modules: \(error.localizedDescription); keeping the running app", generation: generation)
                     }

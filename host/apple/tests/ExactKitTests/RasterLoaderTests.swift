@@ -5,6 +5,7 @@ import XCTest
 import Darwin
 import CExact
 @testable import ExactKit
+@testable import ExactImages
 
 final class RasterLoaderTests: XCTestCase {
     func testScreenSizedPicturesUseTheSessionBudget() throws {
@@ -44,6 +45,25 @@ final class RasterLoaderTests: XCTestCase {
                 }
             }
         }
+    }
+
+    func testPublishedFilesReplaceAnImagesPixels() throws {
+        let (root, resolver, presenter, node, loader, window) = try fixture()
+        defer {
+            loader.shutdown(); node.raster = nil; window.close()
+            try? FileManager.default.removeItem(at: root)
+            withExtendedLifetime(presenter) {}
+        }
+        node.frame = CGRect(x: 0, y: 0, width: 32, height: 32); node.loadGeneration = 1
+        try png(root, "still.png", width: 32, height: 32, identity: 1)
+        XCTAssertTrue(loader.load(node, source: "still.png", resolver: resolver))
+        settle { node.raster != nil }
+        let first = try XCTUnwrap(node.raster?.image.image)
+        try png(root, "still.png", width: 32, height: 32, identity: 2)
+        loader.pictureChanged("still.png")
+        settle { node.raster?.image.image !== first }
+        let next = try XCTUnwrap(node.raster?.image.image)
+        XCTAssertNotEqual(first.dataProvider?.data as Data?, next.dataProvider?.data as Data?)
     }
 
     func testAResolutionReductionKeepsTheLargestSizeTheBudgetHolds() throws {
@@ -809,7 +829,7 @@ final class RasterLoaderTests: XCTestCase {
         XCTAssertEqual(intrinsic, CGSize(width: 120, height: 80))
         // Old A remains a charged alias while C is accepted; reset cannot debit A.
         loader.reset()
-        XCTAssertTrue((loader.diagnostics["residentBytes"] as? UInt64 ?? 0) >= UInt64(a.image.residentBytes))
+        XCTAssertTrue((loader.diagnostics["residentBytes"] as? UInt64 ?? 0) >= UInt64((a as! NativeRasterLease).decoded.residentBytes))
     }
     func testTwentyGroupsOfDistinctReplacementsBoundSourceMaps() throws {
         let (root, resolver, presenter, node, loader, window) = try fixture()
@@ -828,7 +848,7 @@ final class RasterLoaderTests: XCTestCase {
                 let before = node.raster
                 loader.load(node, source: name, resolver: resolver)
                 settle { node.raster != nil && node.raster !== before }
-                if identity == 0 { first = node.raster }
+                if identity == 0 { first = node.raster as? NativeRasterLease }
                 let bitmap = try XCTUnwrap(node.raster?.image.image)
                 let bytes = try XCTUnwrap(bitmap.dataProvider?.data)
                 seen.insert(UnsafeRawPointer(CFDataGetBytePtr(bytes)).loadUnaligned(as: UInt32.self))

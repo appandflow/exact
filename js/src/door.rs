@@ -84,7 +84,8 @@ pub(crate) unsafe extern "C" fn host_door(
                     // `home:` or `bundle:` path (LLP 1133.007 D6).
                     let document = (state.documents && a.starts_with("doc:/"))
                         || a.starts_with("home:/")
-                        || a.starts_with("bundle:/");
+                        || a.starts_with("bundle:/")
+                        || ibex2::stdlib::fs::is_known_folder(&a);
                     super::storage::refusal(true, state.storage || document, state.agent.is_some())
                 }
             }
@@ -94,7 +95,8 @@ pub(crate) unsafe extern "C" fn host_door(
             None if state.between_answers => {
                 let document = (state.documents && a.starts_with("doc:/"))
                     || a.starts_with("home:/")
-                    || a.starts_with("bundle:/");
+                    || a.starts_with("bundle:/")
+                    || ibex2::stdlib::fs::is_known_folder(&a);
                 super::storage::refusal(
                     !state.deferring(),
                     state.storage || document,
@@ -148,7 +150,19 @@ pub(crate) unsafe extern "C" fn host_door(
                 if let Some(store) = state.store {
                     (*store).observe_external_read();
                 }
+                // A package's synchronous form is the host's app module's,
+                // beside a native module too.
+                let extension = state.native.is_some()
+                    && state.hosted_call.is_some()
+                    && serde_json::from_str::<serde_json::Value>(&b)
+                        .ok()
+                        .is_some_and(|v| exact_runner::Native::sync_form(&v).is_some());
                 match (&mut state.native, state.store) {
+                    (Some(_), Some(_)) if extension => {
+                        let call = state.hosted_call.as_ref().expect("checked above");
+                        call(b.as_bytes())
+                            .map(|reply| Some(String::from_utf8_lossy(&reply).into_owned()))
+                    }
                     (Some(module), Some(_)) => exact_js_value::json::parse(b.as_bytes())
                         .map(serde_json::Value::from)
                         .map_err(|error| error.to_string())
@@ -206,6 +220,12 @@ pub(crate) unsafe extern "C" fn host_door(
         // Whether this is a bake: the prelude marks a stream's refused
         // options there, as storage's refusal is (LLP 1016.000 D11).
         12 if a == "bake" => Ok(state.baking.then(|| "1".into())),
+        12 if a == "host" => {
+            if let Some(store) = state.store {
+                (*store).observe_external_read();
+            }
+            Ok((state.store.is_some() && !state.deferring()).then(|| "native".into()))
+        }
         12 => Ok(crypto::auth_callback(state, &a)),
         // A journal line the runtime writes (LLP 1097 D8): a failed or
         // refused storage operation, an unhandled rejection. `logs` reads

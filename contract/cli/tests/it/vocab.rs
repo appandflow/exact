@@ -78,12 +78,13 @@ fn time_names_numeric_instant_sources() {
     }
 }
 
-/// An event record an arity refusal names (`ScrollEvent`) and a grammar word
-/// a recipe answers (`sequence`, `keyframes`) are one lookup each: euxy ports
-/// 19 and 20 grepped the guides for them.
+/// An event record an arity refusal names (`ScrollEvent`) and a word a
+/// recipe answers (`sequence`, `keyframes`, `exactDelivery`) are one lookup
+/// each.
 #[test]
 fn event_records_and_recipe_words_answer_in_one_lookup() {
-    let out = stdout(&vocab(&["ScrollEvent", "sequence", "keyframes"]));
+    let names = ["ScrollEvent", "sequence", "keyframes", "exactDelivery"];
+    let out = stdout(&vocab(&names));
     assert!(
         out.contains(
             "ScrollEvent: an event record, its fields scrollLeft: number, scrollTop: number"
@@ -94,14 +95,11 @@ fn event_records_and_recipe_words_answer_in_one_lookup() {
         out.contains("\n  `scroll=act` calls `action act(scrollLeft: number, scrollTop: number)`"),
         "{out}"
     );
-    assert!(
-        out.contains("sequence: the recipe docs/recipes/sequencer.md"),
-        "{out}"
-    );
-    assert!(
-        out.contains("keyframes: the recipe docs/recipes/motion.md"),
-        "{out}"
-    );
+    let recipes = ["sequencer", "motion", "over-the-air-updates"];
+    for (word, recipe) in names[1..].iter().zip(recipes) {
+        let line = format!("{word}: the recipe docs/recipes/{recipe}.md");
+        assert!(out.contains(&line), "{out}");
+    }
     let json: Value =
         serde_json::from_str(&stdout(&vocab(&["--json", "MIDIMessageEvent"]))).unwrap();
     assert_eq!(
@@ -838,7 +836,9 @@ fn no_name_prints_the_card_and_all_prints_every_table() {
         "tap <target>",
         "persist",
         "negative `min` gives the pad its ± key",
-        "symbol roles: back close",
+        "symbol roles (\"symbol:<role>\"; * has a <role>-fill",
+        "): back close",
+        "bookmark* document",
         "idioms with code",
     ] {
         assert!(card.contains(want), "{want} missing:\n{card}");

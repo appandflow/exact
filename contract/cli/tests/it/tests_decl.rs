@@ -1,7 +1,29 @@
 //! LLP 1017 P7: `test` blocks parse to the agent's steps and print as JSON
 //! the driver reads (`scripts/agent.mjs --test`).
 
-use contract_syntax::{Expr, Step, TapForm};
+use contract_syntax::{Expr, StateComparison, Step, TapForm};
+
+#[test]
+fn a_test_answers_a_pending_presence_prompt() {
+    let answers = ["allow", "cancel", "fail", "lockout", "invalidated"];
+    let mut src = String::from("test \"unlock\" on ios, android\n  tap \"unlock\"\n");
+    for answer in answers {
+        src.push_str(&format!("  presence {answer}\n"));
+    }
+    let tests = contract::tests(&src).unwrap();
+    let json: serde_json::Value = serde_json::from_str(&contract::tests_json(&tests)).unwrap();
+    for (i, answer) in answers.iter().enumerate() {
+        assert_eq!(
+            json[0]["steps"][i + 1],
+            serde_json::json!({"op": "presence", "answer": answer, "line": i + 3})
+        );
+    }
+    for answer in ["", "deny", "\"allow\"", "allow cancel"] {
+        let error = contract::tests(&format!("test \"t\"\n  presence {answer}\n")).unwrap_err();
+        assert!(error.message.contains("presence"), "{error:?}");
+        assert!(error.message.contains("invalidated"), "{error:?}");
+    }
+}
 
 #[test]
 fn authored_http_responses_are_launch_facts_and_steps() {
@@ -813,6 +835,36 @@ fn a_test_asserts_which_node_has_the_focus() {
 }
 
 #[test]
+fn a_test_bounds_a_nodes_laid_out_width_or_height() {
+    let src = "test \"t\"\n  expect layout \"status-mark\" height <= 24\n  expect layout \"status-mark\" width >= 12.5\n  expect layout \"rule\" height == 1\n";
+    let tests = contract::tests(src).unwrap();
+    assert!(matches!(
+        &tests[0].steps[0],
+        Step::ExpectLayout { target, dimension, comparison: StateComparison::AtMost, value, .. }
+            if target == "status-mark" && dimension == "height" && *value == 24.0
+    ));
+    let json = contract::tests_json(&tests);
+    for step in [
+        "{\"op\":\"expect-layout\",\"target\":\"status-mark\",\"dimension\":\"height\",\"comparison\":\"at-most\",\"value\":24,\"line\":2}",
+        "{\"op\":\"expect-layout\",\"target\":\"status-mark\",\"dimension\":\"width\",\"comparison\":\"at-least\",\"value\":12.5,\"line\":3}",
+        "{\"op\":\"expect-layout\",\"target\":\"rule\",\"dimension\":\"height\",\"comparison\":\"equal\",\"value\":1,\"line\":4}",
+    ] {
+        assert!(json.contains(step), "{step}\n{json}");
+    }
+    for (rest, says) in [
+        ("\"mark\" x <= 24", "reads `width` or `height`, not `x`"),
+        ("\"mark\" height < 24", "takes `==`, `<=` or `>=`"),
+        ("\"mark\" height <= 24px", "in points, written bare"),
+        ("\"mark\" height <= -1", "a size of 0 or more"),
+        ("mark height <= 24", "a testId"),
+    ] {
+        let e = contract::tests(&format!("test \"t\"\n  expect layout {rest}\n")).unwrap_err();
+        assert!(e.to_string().contains(says), "{rest}: {e}");
+        assert_eq!(e.span.line, 2, "{rest}: {e}");
+    }
+}
+
+#[test]
 fn a_test_writes_through_the_apps_server_as_another_person() {
     // LLP 1116.006 D8: method, a path under the server the app calls (or a
     // whole URL), a JSON body that may span lines, and the persona.
@@ -1186,6 +1238,45 @@ fn a_perf_block_refuses_the_wall_clock_and_counts_need_a_block() {
 }
 
 #[test]
+fn state_expectations_accept_value_literals() {
+    let tests = contract::tests(
+        r#"test "two items are picked"
+  expect state picks == ["a", "b"]
+  expect state grid == [
+    [1, -2],
+    [3, 4,],
+    [],
+  ]
+  expect state empty == []
+  expect state picked == some(["a", "b"])
+  expect state row == Row(id="a", position=Point(x=1, y=-2))
+  expect state flags == [none, some(true), some(false)]
+  expect state label == `Hi`
+"#,
+    )
+    .unwrap();
+    let json: serde_json::Value = serde_json::from_str(&contract::tests_json(&tests)).unwrap();
+    let values: Vec<_> = json[0]["steps"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|step| step["value"].clone())
+        .collect();
+    assert_eq!(
+        values,
+        vec![
+            serde_json::json!(["a", "b"]),
+            serde_json::json!([[1, -2], [3, 4], []]),
+            serde_json::json!([]),
+            serde_json::json!(["a", "b"]),
+            serde_json::json!({"id": "a", "position": {"x": 1, "y": -2}}),
+            serde_json::json!([null, true, false]),
+            serde_json::json!("Hi"),
+        ]
+    );
+}
+
+#[test]
 fn state_steps_compare_numeric_bounds_and_literal_membership() {
     use contract_syntax::StateComparison as C;
     let tests = contract::tests("test \"bounds\"\n  expect state offset >= -2\n  expect state offset <= 2\n  expect state rows.0 in 0 -2 2\n  expect state choice in \"ready\" false none []\n").unwrap();
@@ -1216,7 +1307,13 @@ fn state_steps_compare_numeric_bounds_and_literal_membership() {
         "offset in",
         "offset in 1 + 2",
         "offset == computed",
-        "offset == [1, 2]",
+        "offset == [computed]",
+        "offset == [1 + 2]",
+        "offset == some(computed)",
+        "offset == some(1 + 2)",
+        "offset == Row(id=computed)",
+        "offset == Row(id=1, id=2)",
+        "offset == compute(1)",
     ] {
         assert!(
             contract::tests(&format!("test \"bad\"\n  expect state {line}\n")).is_err(),

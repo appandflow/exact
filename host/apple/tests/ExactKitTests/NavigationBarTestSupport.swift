@@ -34,7 +34,7 @@ extension NavigationBarIOSTests {
         view.frame = host.view.bounds
         view.layoutIfNeeded()
         if module {
-            session.natives.installArtifact(try XCTUnwrap(env["EXACT_FIXTURE_MODULE"], "build.mjs --test --ios builds the fixture's module"))
+            session.nativeViews!.installArtifact(try XCTUnwrap(env["EXACT_FIXTURE_MODULE"], "build.mjs --test --ios builds the fixture's module"))
         }
         until("fixture route and native work ready") {
             session.presenter.navigation.primaryNavigation?.topViewController is RouteController &&

@@ -8,106 +8,6 @@
 #if os(iOS) || os(tvOS)
 import UIKit
 
-/// A segmented control whose segments carry their tabs' names and test ids
-/// (LLP 1116 D2, D6): a title segment's `aria-label`, when it says more than
-/// its words, is its accessibility label, and a tab's `testId` its
-/// accessibility identifier, so XCUITest and Maestro address it as any
-/// other node. UIKit has no API for either on a segment: they are written
-/// on its segment views, in order, after each layout, which is when UIKit
-/// makes them. A segment named by nothing is UIKit's (its title).
-class LabelledSegmentedControl: UISegmentedControl {
-    /// UIKit's parts stood in for at the frames the surface draws them at,
-    /// inside a placed canvas child (PlacedAccessibilityIOS.swift).
-    private let placedParts = PlacedStandIns()
-    private func placedElements() -> [PlacedElement]? {
-        placedParts.elements(of: self) {
-            declaredElements(super.accessibilityElements, count: super.accessibilityElementCount(), at: { super.accessibilityElement(at: $0) })
-        }
-    }
-    override var accessibilityElements: [Any]? {
-        get { placedElements() ?? super.accessibilityElements }
-        set { super.accessibilityElements = newValue }
-    }
-    override func accessibilityElementCount() -> Int { placedElements()?.count ?? super.accessibilityElementCount() }
-    override func accessibilityElement(at index: Int) -> Any? {
-        guard let elements = placedElements() else { return super.accessibilityElement(at: index) }
-        return elements.indices.contains(index) ? elements[index] : nil
-    }
-    override func index(ofAccessibilityElement element: Any) -> Int {
-        guard let elements = placedElements() else { return super.index(ofAccessibilityElement: element) }
-        return elements.firstIndex { $0 === element as AnyObject } ?? NSNotFound
-    }
-    var segmentLabels: [String?] = [] { didSet { if segmentLabels != oldValue { setNeedsLayout() } } }
-    var segmentIDs: [String?] = [] { didSet { if segmentIDs != oldValue { setNeedsLayout() } } }
-    var segmentOwners: [UInt32] = []
-    var segmentUnavailable: [Bool] = [] { didSet { if segmentUnavailable != oldValue { setNeedsLayout() } } }
-    override func layoutSubviews() {
-        super.layoutSubviews()
-        labelSegments()
-    }
-    func labelSegments() {
-        let views = segmentViews
-        guard views.count == numberOfSegments else { return }
-        for (index, view) in views.enumerated() {
-            let label = segmentLabels.indices.contains(index) ? segmentLabels[index] : nil
-            let id = segmentIDs.indices.contains(index) ? segmentIDs[index] : nil
-            if view.accessibilityLabel != label { view.accessibilityLabel = label }
-            if view.accessibilityIdentifier != id { view.accessibilityIdentifier = id }
-            let unavailable = !isEnabled || !isEnabledForSegment(at: index) ||
-                (segmentUnavailable.indices.contains(index) && segmentUnavailable[index])
-            var traits = view.accessibilityTraits
-            if unavailable { traits.insert(.notEnabled) } else { traits.remove(.notEnabled) }
-            if index == selectedSegmentIndex { traits.insert(.selected) } else { traits.remove(.selected) }
-            // Write only changed traits so UIKit's computed selection is not frozen by an unchanged override
-            if view.accessibilityTraits != traits { view.accessibilityTraits = traits }
-        }
-    }
-}
-
-extension UISegmentedControl {
-    func segmentOwner(of view: UIView, owners: [UInt32]) -> UInt32? {
-        guard let index = segmentViews.firstIndex(where: { view === $0 || view.isDescendant(of: $0) }),
-              owners.indices.contains(index) else { return nil }
-        return owners[index]
-    }
-
-    /// The segment views (`UISegment`, two containers down on iOS 27), in
-    /// segment order: left to right, reversed right to left.
-    var segmentViews: [UIView] {
-        var found: [UIView] = []
-        func walk(_ view: UIView, _ depth: Int) {
-            for child in view.subviews {
-                if String(describing: type(of: child)) == "UISegment" { found.append(child) } else if depth < 3 { walk(child, depth + 1) }
-            }
-        }
-        walk(self, 0)
-        let views = found.enumerated().sorted { a, b in
-            let x = (a.element.convert(a.element.bounds, to: self).minX, b.element.convert(b.element.bounds, to: self).minX)
-            return x.0 == x.1 ? a.offset < b.offset : x.0 < x.1
-        }.map(\.element)
-        return effectiveUserInterfaceLayoutDirection == .rightToLeft ? views.reversed() : views
-    }
-
-    /// The segment under `point`, in this control's coordinates: the segment
-    /// view whose columns hold it, or the nearest across a gap between them.
-    /// Segments sized by content (`apportionsSegmentWidthsByContent`) are
-    /// unequal, so equal shares stand in only when the views are not found.
-    func segment(at point: CGPoint) -> Int? {
-        guard bounds.contains(point), numberOfSegments > 0 else { return nil }
-        let views = segmentViews
-        if views.count == numberOfSegments {
-            let distance = views.map { view -> CGFloat in
-                let box = view.convert(view.bounds, to: self)
-                return max(box.minX - point.x, point.x - box.maxX, 0)
-            }
-            return distance.indices.min { distance[$0] < distance[$1] }
-        }
-        var index = Int(point.x / bounds.width * CGFloat(numberOfSegments))
-        if effectiveUserInterfaceLayoutDirection == .rightToLeft { index = numberOfSegments - 1 - index }
-        return (0..<numberOfSegments).contains(index) ? index : nil
-    }
-}
-
 private final class ExactSegmentedControl: LabelledSegmentedControl {
     let ownerID: UInt32
     /// Each image segment's: what it shows, its size and label, and the
@@ -211,7 +111,7 @@ private struct TabBarFace: Equatable {
     }
 }
 
-final class SegmentHost: NSObject, UIGestureRecognizerDelegate, UITabBarDelegate {
+final class SegmentHost: NSObject, UIGestureRecognizerDelegate, UITabBarDelegate, SegmentHosting {
     unowned let presenter: Presenter
     private var controls: [UInt32: ExactSegmentedControl] = [:]
     /// The segmented control a tablist or radio group projects to, if any:
@@ -628,7 +528,7 @@ final class SegmentHost: NSObject, UIGestureRecognizerDelegate, UITabBarDelegate
             }
         }
         control.accessibilityIdentifier = owner.props["testId"]
-        control.segmentLabels = tabs.map(Self.segmentLabel)
+        control.segmentLabels = tabs.map(LabelledSegmentedControl.segmentLabel)
         control.segmentIDs = tabs.map { $0.props["testId"] }
         control.segmentOwners = tabs.map(\.id)
         control.segmentUnavailable = tabs.map { $0.disabled || $0.ariaUnavailable }
@@ -657,13 +557,6 @@ final class SegmentHost: NSObject, UIGestureRecognizerDelegate, UITabBarDelegate
         if !pending { control.layoutIfNeeded() }
     }
 
-    /// A title segment's accessibility label: its tab's name where that is
-    /// not its words (an image segment's is its image's, `content`).
-    static func segmentLabel(_ tab: NodeView) -> String? {
-        guard case .title(let title)? = tab.segmentFace, tab.accessibleName != title else { return nil }
-        return tab.accessibleName
-    }
-
     @objc private func changed(_ sender: ExactSegmentedControl) {
         sender.settled = sender.selectedSegmentIndex
         guard let ids = members[sender.ownerID], ids.indices.contains(sender.selectedSegmentIndex),
@@ -672,6 +565,7 @@ final class SegmentHost: NSObject, UIGestureRecognizerDelegate, UITabBarDelegate
         presenter.press(tab.id)
     }
 
+    #if EXACT_INSPECT
     /// Agent activation names the authored tab even though UIKit owns its pixels.
     func activate(_ node: NodeView, before: (CGPoint?) -> Bool = { _ in true }) -> Bool? {
         // A segment in the route's bar takes precedence over its hidden content control.
@@ -705,6 +599,7 @@ final class SegmentHost: NSObject, UIGestureRecognizerDelegate, UITabBarDelegate
         let slot = control.effectiveUserInterfaceLayoutDirection == .rightToLeft ? entry.value.count - 1 - index : index
         return (control, CGRect(x: share * CGFloat(slot), y: 0, width: share, height: control.bounds.height))
     }
+    #endif
 
     /// The tab bar a tablist is drawn as (`project`) and the item standing
     /// for the tab `node` is (or is in), or nil.

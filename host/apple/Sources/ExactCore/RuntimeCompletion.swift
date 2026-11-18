@@ -3,7 +3,7 @@ import Foundation
 // @ref LLP 1172.005 E11 — a queued runtime job belongs to the session and
 // generation that asked, including the interval before its batch lands.
 package struct RuntimeLease {
-    fileprivate let session: RuntimeDoor
+    package let session: RuntimeDoor
     package let generation: Int
 }
 
@@ -17,7 +17,6 @@ package final class RuntimeDoor {
     private let lock = NSLock()
     private var generation = 0
     private var alive = true
-
     package func lease() -> RuntimeLease {
         lock.withLock { RuntimeLease(session: self, generation: generation) }
     }
@@ -47,10 +46,11 @@ extension Runtime {
 
     /// Refused jobs still answer once per expected batch so the caller can
     /// retire its in-flight work. No lease lock is held across a main callback.
-    package func post(count: Int = 1, caller: String = #function, prepare: () -> Void = {},
+    /// `layout` as `enter`'s.
+    package func post(count: Int = 1, caller: String = #function, layout: Bool = false, prepare: () -> Void = {},
                       done: @escaping (RuntimeCompletion) -> Void, _ body: @escaping (Int) -> Batch) {
         let lease = completionLease
-        let held = enter(caller)
+        let held = enter(caller, layout: layout)
         if !held { prepare() }
         Owner.shared.post { [self] in
             for index in 0..<count {

@@ -2,6 +2,17 @@ import { viewChildren, viewParent } from './navigation.js';
 // Input-only glue: loaded after the baked first pixel, independently of data readiness.
 import "./prompt-glue.js"; // a prompt's Return
 import "./alert-message.js"; // a grouped alert's message box
+// False in a production bake, which host/web/build.mjs and host/web-js/build.mjs write here (LLP 1069.007 D2): the
+// agent's hold, its press readout and its file picker, which only the agent reads, then leave the piece.
+const AGENT_ADMITTED = true;
+// False in the JS target's runtime, which host/web-js/glue.mjs writes here (LLP 1047.002 D4.1): that runtime hears its
+// own pointers and routes its own links, so the wasm host's pointer, mouse and link paths leave the piece.
+const WASM_HOST = true;
+// @ref LLP 1047.002 D4.2 — the behaviours that act only on what a plan makes: a pressed paint, a state look's edges, a
+// pan, a tablist's and a menu's keys, a radio group's, and keyboard shortcuts. The JS target's build writes false each
+// one its plan cannot make (input.flag), and the bundler drops its code. The hourly conformance check fails a page
+// holding what a left-out behaviour acts on (conform-cut.mjs `LEFT_OUT`).
+const PRESS_PAINT = true, STATE_LOOKS = true, PANS = true, ROVING = true, RADIO_GROUPS = true, SHORTCUTS = true;
 const hearsPress = el => (el.exactHandlers ?? el.dataset?.exactOn?.split(" "))?.includes("press") === true;
 /** An element whose `press` the keyboard reaches only through its tabindex:
  * not one the browser activates itself (the wasm host's handler list, or the
@@ -13,7 +24,7 @@ const shortcutKeys = new Set(["Enter", "Tab", "Escape", "Backspace", "Delete", "
  * Russian, Greek): what its physical key (`code`) types on a US layout, with Shift, as web apps match (the macOS host
  * asks the Mac's ASCII-capable layout instead; the web has only `code`). A Latin character is the key wherever it is
  * (AZERTY, Dvorak, German's ö), so no chord fires twice; so are Option's characters (the macOS host's rule). */
-const usCodes = "Backquote Digit1 Digit2 Digit3 Digit4 Digit5 Digit6 Digit7 Digit8 Digit9 Digit0 Minus Equal BracketLeft BracketRight Backslash Semicolon Quote Comma Period Slash".split(" ");
+const usCodes = /* @__PURE__ */ "Backquote Digit1 Digit2 Digit3 Digit4 Digit5 Digit6 Digit7 Digit8 Digit9 Digit0 Minus Equal BracketLeft BracketRight Backslash Semicolon Quote Comma Period Slash".split(" ");
 const physicalKey = e => {
   if (e.altKey || typeof e.key !== "string" || [...e.key].length !== 1 || !/[^\x00-\x7f]/.test(e.key) || /\p{Script=Latin}/u.test(e.key)) return null;
   if (/^Key[A-Z]$/.test(e.code)) return e.code.slice(3).toLowerCase();
@@ -133,7 +144,7 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
   // the choice waits for it, and the input is checked again.
   let pickerActivations = 0;
   (globalThis.exact ??= {}).pickerOpened = () => pickerActivations++;
-  if (agentMode && pick) root.addEventListener("click", event => {
+  if (AGENT_ADMITTED && agentMode && pick) root.addEventListener("click", event => {
     const el = event.target;
     if (!(el instanceof HTMLInputElement) || el.type !== "file") return;
     const activation = pickerActivations;
@@ -154,7 +165,7 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
   // from the pointer events, as on the native hosts.
   // Every holder is fixed before any down runs, as the native hosts fix the
   // path: a node a handler further in disables or removes still hears the up.
-  root.addEventListener("pointerdown", e => { const path = e.composedPath(); for (const n of path) n.exactPointerDown?.(e, true); for (const n of path) n.exactPointerDown?.(e, false); }, true);
+  if (WASM_HOST) root.addEventListener("pointerdown", e => { const path = e.composedPath(); for (const n of path) n.exactPointerDown?.(e, true); for (const n of path) n.exactPointerDown?.(e, false); }, true);
   // @ref LLP 1038 §7 — a plain click on a same-origin link to a declared
   // route stays in this document: a link with its own `press` navigates by
   // it; any other goes to the root's `navigate` handler, as popstate does.
@@ -166,7 +177,7 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
   // location too (LLP 1153 D5): `href="#moves"` is the visit shown, read from
   // the attribute, since the shell's `<base href="/">` resolves it to `/`.
   // The page's own `exact` names the route table and the root's handler.
-  document.addEventListener("click", event => {
+  if (WASM_HOST) document.addEventListener("click", event => {
     const a = event.target.closest?.("a[href]");
     if (!a || !root.contains(a) || event.defaultPrevented || !ready()) return;
     const press = a.exactHandlers?.includes("press");
@@ -185,12 +196,16 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
   }, true);
   document.addEventListener("keydown", (event) => {
     touched = true; // any key, Tab included: a route's focus shows the ring to a keyboard's user (`arrive`, below)
-    if (event.key === "Tab") { radioStops(root); tabStops(root); } // a radio group's one stop, and a tablist's, before the focus moves
+    if (event.key === "Tab") { // a radio group's one stop, and a tablist's, before the focus moves
+      if (RADIO_GROUPS) radioStops(root);
+      if (ROVING) tabStops(root);
+    }
     if (event.isComposing || event.keyCode === 229 || event.key === "Process" || !ready() || event.defaultPrevented) return; // an input method's key, WebKit's committing Enter included (rt.js `onKey`)
     if (event.key === "Enter" || event.key === " ") note(event, true); // a key's press begins (`arrive`, below)
     // A commit may restore the authored runs: refresh their Tab stops and press origin above.
     // Shortcuts already heard the source event.
     if (event.exactFlowCapture) return;
+    if (!SHORTCUTS) return;
     const editing = event.composedPath().some(el => el?.isContentEditable || el?.matches?.("input, textarea, [role=textbox], [role=searchbox], [role=combobox]"));
     const physical = physicalKey(event);
     const matches = (chord) => {
@@ -236,7 +251,7 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
   document.addEventListener("keydown", (event) => {
     const el = event.target;
     if (event.defaultPrevented || event.isComposing || event.keyCode === 229 || event.key === "Process" || event.metaKey || event.ctrlKey || event.altKey || !ready()) return;
-    if (radioArrow(root, event) || roveArrow(root, event) || typeAhead(root, event) || event.repeat) return;
+    if (RADIO_GROUPS && radioArrow(root, event) || ROVING && (roveArrow(root, event) || typeAhead(root, event)) || event.repeat) return;
     // @ref LLP 1115.000 D4.14 — Space holds a `<button>` down until its keyup,
     // when the browser clicks it. Its press shows meanwhile, as under a pointer:
     // the unsaid dim, a native button's highlight, a `-exact-press-scale`, a pressed paint.
@@ -481,7 +496,7 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
   // its opacity times the mask, its background-color with a layered pressed colour over it (as pixels, 8-bit; its
   // own images and masks aren't in it), its colour. Without OffscreenCanvas, the background-color beneath.
   // The agent's node detail reports it (scripts/agent-inspect.mjs), and the press tests read it.
-  (globalThis.exact ??= {}).pressShown = el => {
+  if (AGENT_ADMITTED && PRESS_PAINT) (globalThis.exact ??= {}).pressShown = el => {
     const state = paints.get(el);
     if (!state?.animation) return null;
     const cs = getComputedStyle(el), paint = Number(cs.getPropertyValue("--exact-press-paint")) || 0;
@@ -550,6 +565,9 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
   // The look beneath changed: the ease goes on from where it is, over the rest of its time.
   // `stale`: a sheet, the scheme or a token changed, which no attribute of the node's says.
   const repaint = (el, stale = false) => {
+    // (Its callers are gated too; this gate also ends the cycle paint → paintRule → repaint, which the minifier would
+    // keep.)
+    if (!PRESS_PAINT) return;
     const state = paints.get(el);
     if (!state) return;
     showScale(el, state.to === 1);
@@ -558,17 +576,18 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
     const t = state.animation?.effect.getComputedTiming();
     paint(el, state, t ? Math.max(0, (t.endTime ?? 0) - (t.localTime ?? 0)) : EASE.duration);
   };
-  globalThis.matchMedia?.("(prefers-color-scheme: dark)").addEventListener?.("change", () => { for (const el of paints.keys()) repaint(el, true); });
+  if (PRESS_PAINT) globalThis.matchMedia?.("(prefers-color-scheme: dark)").addEventListener?.("change", () => { for (const el of paints.keys()) repaint(el, true); });
   // So does a live edit that reaches it through a sheet (a state look's rule, the theme's) or the root's
   // modes and tokens (the JS target's), which change no style of the node's own (LLP 1121 D8).
-  const sheets = new MutationObserver(() => { for (const el of paints.keys()) repaint(el, true); });
+  const sheets = PRESS_PAINT && new MutationObserver(() => { for (const el of paints.keys()) repaint(el, true); });
   // A painting node gone from the page (removed, re-rendered) ends its paint and lets go of its rule at once.
-  const gone = new MutationObserver(() => { for (const [el, state] of paints) if (!el.isConnected) endPaint(el, state); });
+  const gone = PRESS_PAINT && new MutationObserver(() => { for (const [el, state] of paints) if (!el.isConnected) endPaint(el, state); });
   // The JS target writes its tokens and tuples through the CSSOM, which no observer sees: it calls this (modes.js).
-  (globalThis.exact ??= {}).repaintPress = () => { for (const el of paints.keys()) repaint(el, true); };
+  if (PRESS_PAINT) (globalThis.exact ??= {}).repaintPress = () => { for (const el of paints.keys()) repaint(el, true); };
   // `now`: the press ends at once (the window or the page went), as it does
   // for a node no longer in the page.
   const showPaint = (el, down, now = false) => {
+    if (!PRESS_PAINT) return;
     let state = paints.get(el);
     if ((state?.to ?? 0) === (down ? 1 : 0)) return;
     if (!state) {
@@ -663,115 +682,118 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
   // refuses one; real input on the node, its going or its disabling lets it go (`dropped(reason)`). A real press on
   // the node as it is held ends there: the hold has it (its release unpaints nothing).
   const DISABLED = ":disabled,[disabled]:not([disabled='false'])";
-  let held = null;
-  // (A leaving view, `data-exiting`, is gone as it starts to leave.)
-  const watch = new MutationObserver(() => { if (!held?.el.isConnected || held.el.closest("[data-exiting]")) letGo("gone"); else if (held.el.closest(DISABLED)) letGo("disabled"); });
-  // (Held still as a look's edge is, below: `data-exact-snap`, which the press paint's observer doesn't watch.)
-  const snap = (el, change) => stillThrough([el], change);
-  // `reason` null: let go unsaid (a dev loop's new generation, whose tree goes and whose hold the server replays).
-  const letGo = (reason) => {
-    if (!held) return;
-    const h = held;
-    held = null;
-    watch.disconnect();
-    if (h.state === "active") showPress(h.el, false); else snap(h.el, () => h.el.removeAttribute("data-exact-held"));
-    if (reason) h.dropped?.(reason);
-  };
-  // (Announced once it is: a hold sent while the glue loads, after paint, waits for it — `exact-hold`.)
-  queueMicrotask(() => globalThis.dispatchEvent?.(new Event("exact-hold")));
-  (globalThis.exact ??= {}).hold = (el, state, dropped) => {
-    if (state != null && !["active", "hover", "focus-visible"].includes(state)) return { error: "holdState is active, hover, focus-visible or null", malformed: true };
-    letGo("replaced");
-    if (state == null) return { held: null };
-    // `active`: the innermost node with a press handler or a view's link, as a real press's (theme2's 07:48; LLP 1121 D8);
-    // none there is `gone`.
-    const node = state === "active" ? el?.closest?.("[data-exact-on~=press],a[data-view][href]") : el;
-    if (!node?.isConnected || !root.contains(node) || node.closest("[data-exiting]")) return { reason: "gone", error: state === "active" ? "no press there: the node presses nothing, nor does any around it" : "the node is not on the page" };
-    if (node.closest(DISABLED)) return { reason: "disabled", error: "a disabled node holds no state" };
-    held = { el: node, asked: el, state, dropped };
-    watch.observe(root, { subtree: true, childList: true, attributes: true, attributeFilter: ["disabled", "data-exiting"] });
-    if (state === "active") {
-      if (press?.el === node) press = null;
-      if (keyHold?.el === node) { const up = keyHold; keyHold = null; removeEventListener("keyup", up, true); node.removeEventListener("blur", up); }
-      showPress(node, true);
-    } else snap(node, () => node.setAttribute("data-exact-held", state));
-    return { held: state, el: node };
-  };
-  globalThis.exact.holdQuiet = () => letGo(null);
-  // What is held on `el` (or on the press it resolved to, `el` named), for `layout` and inspect (LLP 1122 D8): its
-  // state and the rows that state shows, by their
-  // wire names: a press's paint rows (`:active` lowered to them), else the state look's rows in the looks sheet
-  // (its `[data-exact-held~=…]` rule). The rows' places are the server's to join, from the source map.
-  const WIRE = { "--exact-press-translate": "press_translate", "--exact-press": "press_scale", "--exact-press-background-color": "press_background_color", "--exact-press-color": "press_color", "--exact-press-opacity": "press_opacity", "--exact-press-opacity-to": "press_opacity_to" };
-  // `ask`: the runner's agent (the wasm page): the rows as `layout` says the press's own (its D7 rows, `:active`
-  // lowered to them) or its look's, each with the token it read (LLP 1121 D8, stage 9 E). Without one (the JS
-  // target) they are the CSS the page holds, a varying token named where modes.js knows it. Either names the node
-  // the state is held on (the press it resolved to, when named on a node inside it).
-  globalThis.exact.heldOf = (el, ask = null) => {
-    if (!held || (held.el !== el && held.asked !== el)) return null;
-    el = held.el;
-    // (The wasm page numbers its elements `data-view`; the JS target its own way, a link's `data-view` an empty marker.)
-    const view = /^\d+$/.test(el.dataset?.view ?? "") ? Number(el.dataset.view) : globalThis.$exactViewId?.(el) ?? null;
-    const node = ask && view != null ? ask({ op: "node", id: view, plan: true }) : null;
-    if (node && !node.error) {
-      const own = held.state === "active" ? Object.fromEntries(Object.entries(node.style ?? {}).filter(([name]) => Object.values(WIRE).includes(name)))
-        : node.looks?.[held.state === "hover" ? "hover" : "focus_visible"] ?? {};
-      const rows = Object.entries(own).map(([name, row]) => ({ name, value: row.value, ...(row.token ? { token: row.token } : {}) }));
-      return { held: { state: held.state, node: view, site: node.site ?? null, instance: node.instance ?? [], rows } };
-    }
-    const rows = [];
-    if (held.state === "active") for (const [prop, name] of Object.entries(WIRE)) { const value = el.style.getPropertyValue(prop).trim(); if (value) rows.push({ name, value, prop }); }
-    else for (const sheet of document.styleSheets) {
-      let list; try { list = [...sheet.cssRules]; } catch { continue; }
-      for (const rule of list.flatMap(r => r instanceof CSSMediaRule ? [...r.cssRules] : [r])) {
-        if (!rule.selectorText?.includes(`[data-exact-held~="${held.state}"]`) && !rule.selectorText?.includes(`[data-exact-held~=${held.state}]`)) continue;
-        const own = el.matches(rule.selectorText);
-        const card = !own && el.matches(':is([data-liststyle],[data-liststyle]>[data-exact-list-item])>section')
-          ? el.querySelector(':scope>div') : null;
-        if (!own && !card?.matches(rule.selectorText)) continue;
-        // The section owns the row and its source; only the shadow's paint target moves.
-        // A custom property is the look's own (`--exact-hover-wash`), not a row.
-        for (const prop of rule.style) if (!prop.startsWith("--") && (own || prop === "box-shadow")) rows.push({ name: prop.replace(/^border-(top|right|bottom|left)-color$/, "border_color_$1").replace(/-/g, "_"), value: rule.style.getPropertyValue(prop).trim(), prop, target: own ? el : card });
+  if (AGENT_ADMITTED) {
+    let held = null;
+    // (A leaving view, `data-exiting`, is gone as it starts to leave.)
+    const watch = new MutationObserver(() => { if (!held?.el.isConnected || held.el.closest("[data-exiting]")) letGo("gone"); else if (held.el.closest(DISABLED)) letGo("disabled"); });
+    // (Held still as a look's edge is, below: `data-exact-snap`, which the press paint's observer doesn't watch.)
+    const snap = (el, change) => stillThrough([el], change);
+    // `reason` null: let go unsaid (a dev loop's new generation, whose tree goes and whose hold the server replays).
+    const letGo = (reason) => {
+      if (!held) return;
+      const h = held;
+      held = null;
+      watch.disconnect();
+      if (h.state === "active") showPress(h.el, false); else snap(h.el, () => h.el.removeAttribute("data-exact-held"));
+      if (reason) h.dropped?.(reason);
+    };
+    // (Announced once it is: a hold sent while the glue loads, after paint, waits for it — `exact-hold`.)
+    queueMicrotask(() => globalThis.dispatchEvent?.(new Event("exact-hold")));
+    (globalThis.exact ??= {}).hold = (el, state, dropped) => {
+      if (state != null && !["active", "hover", "focus-visible"].includes(state)) return { error: "holdState is active, hover, focus-visible or null", malformed: true };
+      letGo("replaced");
+      if (state == null) return { held: null };
+      // `active`: the innermost node with a press handler or a view's link, as a real press's (theme2's 07:48; LLP 1121 D8);
+      // none there is `gone`.
+      const node = state === "active" ? el?.closest?.("[data-exact-on~=press],a[data-view][href]") : el;
+      if (!node?.isConnected || !root.contains(node) || node.closest("[data-exiting]")) return { reason: "gone", error: state === "active" ? "no press there: the node presses nothing, nor does any around it" : "the node is not on the page" };
+      if (node.closest(DISABLED)) return { reason: "disabled", error: "a disabled node holds no state" };
+      held = { el: node, asked: el, state, dropped };
+      watch.observe(root, { subtree: true, childList: true, attributes: true, attributeFilter: ["disabled", "data-exiting"] });
+      if (state === "active") {
+        if (press?.el === node) press = null;
+        if (keyHold?.el === node) { const up = keyHold; keyHold = null; removeEventListener("keyup", up, true); node.removeEventListener("blur", up); }
+        showPress(node, true);
+      } else snap(node, () => node.setAttribute("data-exact-held", state));
+      return { held: state, el: node };
+    };
+    globalThis.exact.holdQuiet = () => letGo(null);
+    // What is held on `el` (or on the press it resolved to, `el` named), for `layout` and inspect (LLP 1122 D8): its
+    // state and the rows that state shows, by their
+    // wire names: a press's paint rows (`:active` lowered to them), else the state look's rows in the looks sheet
+    // (its `[data-exact-held~=…]` rule). The rows' places are the server's to join, from the source map.
+    const WIRE = { "--exact-press-translate": "press_translate", "--exact-press": "press_scale", "--exact-press-background-color": "press_background_color", "--exact-press-color": "press_color", "--exact-press-opacity": "press_opacity", "--exact-press-opacity-to": "press_opacity_to" };
+    // `ask`: the runner's agent (the wasm page): the rows as `layout` says the press's own (its D7 rows, `:active`
+    // lowered to them) or its look's, each with the token it read (LLP 1121 D8, stage 9 E). Without one (the JS
+    // target) they are the CSS the page holds, a varying token named where modes.js knows it. Either names the node
+    // the state is held on (the press it resolved to, when named on a node inside it).
+    globalThis.exact.heldOf = (el, ask = null) => {
+      if (!held || (held.el !== el && held.asked !== el)) return null;
+      el = held.el;
+      // (The wasm page numbers its elements `data-view`; the JS target its own way, a link's `data-view` an empty marker.)
+      const view = /^\d+$/.test(el.dataset?.view ?? "") ? Number(el.dataset.view) : globalThis.$exactViewId?.(el) ?? null;
+      const node = ask && view != null ? ask({ op: "node", id: view, plan: true }) : null;
+      if (node && !node.error) {
+        const own = held.state === "active" ? Object.fromEntries(Object.entries(node.style ?? {}).filter(([name]) => Object.values(WIRE).includes(name)))
+          : node.looks?.[held.state === "hover" ? "hover" : "focus_visible"] ?? {};
+        const rows = Object.entries(own).map(([name, row]) => ({ name, value: row.value, ...(row.token ? { token: row.token } : {}) }));
+        return { held: { state: held.state, node: view, site: node.site ?? null, instance: node.instance ?? [], rows } };
       }
-    }
-    // A row a token or a role writes (`var(…)`, `light-dark(…)`) says the value it resolves to here, and the token
-    // where modes.js names it; a token reference (`var(--x-…)`) it can't name leaves the answer
-    // `provenance: "incomplete"` (a literal pair or a host's own property names none to miss).
-    let incomplete = false;
-    const cs = getComputedStyle(el);
-    for (const row of rows) {
-      const prop = row.prop;
-      const target = row.target ?? el;
-      delete row.prop;
-      delete row.target;
-      if (target !== el) row.computed = getComputedStyle(target).getPropertyValue(prop).trim();
-      if (!/\b(var|light-dark)\(/.test(row.value)) continue;
-      row.computed ??= cs.getPropertyValue(prop).trim();
-      const token = globalThis.exact.modes?.token?.(el, prop, row.value);
-      if (token) row.token = token;
-      // Each token reference on its own: one modes.js can't name leaves the answer incomplete, whatever else it named.
-      const refs = new Set([...row.value.matchAll(/var\((--x-[\w-]+)/g)].map(m => m[1]));
-      if ([...refs].some(ref => !globalThis.exact.modes?.token?.(el, prop, `var(${ref})`))) incomplete = true;
-    }
-    const site = el.dataset?.site != null ? Number(el.dataset.site) : null;
-    // (Its instance path is the inspect table's, where the page has one: `exact.instanceOf`, inspect-dev.js.)
-    const instance = site != null ? globalThis.exact.instanceOf?.(el) ?? null : null;
-    const answer = { held: { state: held.state, node: view, site, ...(instance ? { instance } : {}), rows, ...(incomplete ? { provenance: "incomplete" } : {}) } };
-    // (The element, unsaid in JSON: a host that numbers its views another way names it from this.)
-    Object.defineProperty(answer.held, "el", { value: el, enumerable: false });
-    return answer;
-  };
-  // Real input on the held node: a press, a key, the pointer coming over it (a hover's), the focus (a focus's).
-  for (const type of ["pointerdown", "keydown"]) root.addEventListener(type, e => { if (held?.el.contains(e.target)) letGo("input"); }, true);
-  // The pointer or the focus coming or going: its leaving the node, not moving within it.
-  const crosses = (e) => held.el.contains(e.target) !== held.el.contains(e.relatedTarget);
-  for (const type of ["pointerover", "pointerout"]) root.addEventListener(type, e => { if (held?.state === "hover" && crosses(e)) letGo("input"); }, true);
-  for (const type of ["focusin", "focusout"]) root.addEventListener(type, e => { if (held?.state === "focus-visible" && crosses(e)) letGo("input"); }, true);
-  // Paint looks snap; a scale look uses the author's transition and its transformed hit box.
-  if (!document.getElementById("exact-snap")) document.head.append(Object.assign(document.createElement("style"), { id: "exact-snap", textContent: "[data-exact-snap]{transition:var(--exact-look-transition,none)!important}" }));
+      const rows = [];
+      if (held.state === "active") for (const [prop, name] of Object.entries(WIRE)) { const value = el.style.getPropertyValue(prop).trim(); if (value) rows.push({ name, value, prop }); }
+      else for (const sheet of document.styleSheets) {
+        let list; try { list = [...sheet.cssRules]; } catch { continue; }
+        for (const rule of list.flatMap(r => r instanceof CSSMediaRule ? [...r.cssRules] : [r])) {
+          if (!rule.selectorText?.includes(`[data-exact-held~="${held.state}"]`) && !rule.selectorText?.includes(`[data-exact-held~=${held.state}]`)) continue;
+          const own = el.matches(rule.selectorText);
+          const card = !own && el.matches(':is([data-liststyle],[data-liststyle]>[data-exact-list-item])>section')
+            ? el.querySelector(':scope>div') : null;
+          if (!own && !card?.matches(rule.selectorText)) continue;
+          // The section owns the row and its source; only the shadow's paint target moves.
+          // A custom property is the look's own (`--exact-hover-wash`), not a row.
+          for (const prop of rule.style) if (!prop.startsWith("--") && (own || prop === "box-shadow")) rows.push({ name: prop.replace(/^border-(top|right|bottom|left)-color$/, "border_color_$1").replace(/-/g, "_"), value: rule.style.getPropertyValue(prop).trim(), prop, target: own ? el : card });
+        }
+      }
+      // A row a token or a role writes (`var(…)`, `light-dark(…)`) says the value it resolves to here, and the token
+      // where modes.js names it; a token reference (`var(--x-…)`) it can't name leaves the answer
+      // `provenance: "incomplete"` (a literal pair or a host's own property names none to miss).
+      let incomplete = false;
+      const cs = getComputedStyle(el);
+      for (const row of rows) {
+        const prop = row.prop;
+        const target = row.target ?? el;
+        delete row.prop;
+        delete row.target;
+        if (target !== el) row.computed = getComputedStyle(target).getPropertyValue(prop).trim();
+        if (!/\b(var|light-dark)\(/.test(row.value)) continue;
+        row.computed ??= cs.getPropertyValue(prop).trim();
+        const token = globalThis.exact.modes?.token?.(el, prop, row.value);
+        if (token) row.token = token;
+        // Each token reference on its own: one modes.js can't name leaves the answer incomplete, whatever else it named.
+        const refs = new Set([...row.value.matchAll(/var\((--x-[\w-]+)/g)].map(m => m[1]));
+        if ([...refs].some(ref => !globalThis.exact.modes?.token?.(el, prop, `var(${ref})`))) incomplete = true;
+      }
+      const site = el.dataset?.site != null ? Number(el.dataset.site) : null;
+      // (Its instance path is the inspect table's, where the page has one: `exact.instanceOf`, inspect-dev.js.)
+      const instance = site != null ? globalThis.exact.instanceOf?.(el) ?? null : null;
+      const answer = { held: { state: held.state, node: view, site, ...(instance ? { instance } : {}), rows, ...(incomplete ? { provenance: "incomplete" } : {}) } };
+      // (The element, unsaid in JSON: a host that numbers its views another way names it from this.)
+      Object.defineProperty(answer.held, "el", { value: el, enumerable: false });
+      return answer;
+    };
+    // Real input on the held node: a press, a key, the pointer coming over it (a hover's), the focus (a focus's).
+    for (const type of ["pointerdown", "keydown"]) root.addEventListener(type, e => { if (held?.el.contains(e.target)) letGo("input"); }, true);
+    // The pointer or the focus coming or going: its leaving the node, not moving within it.
+    const crosses = (e) => held.el.contains(e.target) !== held.el.contains(e.relatedTarget);
+    for (const type of ["pointerover", "pointerout"]) root.addEventListener(type, e => { if (held?.state === "hover" && crosses(e)) letGo("input"); }, true);
+    for (const type of ["focusin", "focusout"]) root.addEventListener(type, e => { if (held?.state === "focus-visible" && crosses(e)) letGo("input"); }, true);
+  }
+  // Paint looks snap; a scale look uses the author's transition and its transformed hit box. (A hold snaps through
+  // them too, `stillThrough`.)
+  if ((STATE_LOOKS || AGENT_ADMITTED) && !document.getElementById("exact-snap")) document.head.append(Object.assign(document.createElement("style"), { id: "exact-snap", textContent: "[data-exact-snap]{transition:var(--exact-look-transition,none)!important}" }));
   // A JS-target look's states, by its attribute's value, from its rules; read again when a sheet comes or goes.
   const lookStates = new Map();
-  new MutationObserver(() => lookStates.clear()).observe(document.head, { childList: true, subtree: true, characterData: true });
+  if (STATE_LOOKS || AGENT_ADMITTED) new MutationObserver(() => lookStates.clear()).observe(document.head, { childList: true, subtree: true, characterData: true });
   const looks = (el, sheet) => {
     if (el.dataset.view != null) { const css = sheet?.exactRules?.get(Number(el.dataset.view)); if (css) return css; }
     const at = el.getAttribute("data-exact-looks");
@@ -822,7 +844,7 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
   // finger's tap leaves the browser's `:hover` on what it touched, which no platform shows. Writing the mark restyles
   // the whole page, so a finger's is written as it lifts, before the `:hover` its tap leaves, and not as it lands,
   // where the restyle would hold up the scroll the finger may start. The page starts with its primary pointer's.
-  const canHover = matchMedia("(any-hover: hover)"), html = document.documentElement;
+  const canHover = STATE_LOOKS && matchMedia("(any-hover: hover)"), html = document.documentElement;
   html.dataset.exactInput ??= matchMedia("(pointer: coarse)").matches ? "touch" : "mouse";
   const touching = () => html.dataset.exactInput === "touch";
   const used = e => { if (html.dataset.exactInput !== e.pointerType) html.dataset.exactInput = e.pointerType; };
@@ -869,65 +891,69 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
   // takes the focus, which the arrows move on from, and the pointer leaving the rows gives it back to what held it
   // before (the menu's button, where Escape leaves it too), so the arrows enter the menu again from its ends. What
   // held it is noted as the focus comes into the menu, by the pointer or by the arrows.
-  const ROW = 'button, a[href], [role^="menuitem"]';
-  let focusBefore = null;
-  root.addEventListener("focusin", e => { const menu = e.target.closest?.(MENUS); if (menu && !menu.contains(e.relatedTarget)) focusBefore = e.relatedTarget; }, true);
-  root.addEventListener("pointerover", e => {
-    const row = e.pointerType !== "touch" && elementOf(e.target)?.closest(ROW), menu = row && row.closest(ROVES);
-    if (!menu || menu !== topMenu(root) || !radioUsable(row) || document.activeElement === row) return;
-    row.focus({ preventScroll: true, focusVisible: false });
-  }, true);
-  root.addEventListener("pointerout", e => {
-    const row = e.pointerType !== "touch" && elementOf(e.target)?.closest(ROW), menu = row && row.closest(MENUS);
-    if (!menu || row !== document.activeElement || elementOf(e.relatedTarget)?.closest(ROW)?.closest(MENUS) === menu) return;
-    if (focusBefore?.isConnected && focusBefore !== document.body) focusBefore.focus({ preventScroll: true, focusVisible: false });
-    else row.blur();
-    focusBefore = null;
-  }, true);
-  const deepFocus = () => { let el = document.activeElement; while (el?.shadowRoot?.activeElement) el = el.shadowRoot.activeElement; return el; };
-  { const el = deepFocus(); if (el instanceof Element) focusSeen.set(el, el.matches(":focus-visible")); }
-  const focusLook = (el) => el instanceof Element && inPage(el) && !el.matches(DISABLED) && looks(el, document.getElementById("exact-looks")).includes("focus-visible");
-  const lookEdges = (e) => {
-    const sheet = document.getElementById("exact-looks"), els = [];
-    if (e.type === "focusin" || e.type === "focusout") {
-      // `:focus-visible` is the focused node's own (inside a shadow root too). Coming in, it had none.
-      const el = e.composedPath()[0];
-      if (!(el instanceof Element) || !inPage(el)) return;
-      const was = e.type === "focusin" ? false : focusSeen.get(el) ?? false, now = e.type === "focusin" && el.matches(":focus-visible");
-      focusSeen.set(el, now);
-      if (was !== now && focusLook(el)) els.push(el);
-    } else {
-      // (A mouse event's target can be a text node: its element's edge.)
-      const over = e.type.endsWith("over"), target = elementOf(e.target), related = elementOf(e.relatedTarget);
-      if (e.type.startsWith("pointer")) { pointerEdges.push({ over, target, related }); if (pointerEdges.length > 4) pointerEdges.shift(); }
-      else {
-        // Its pointer event's twin, taken once; any other mouse edge is its own (and no twin is still owed).
-        const twin = pointerEdges.findIndex(p => p.over === over && p.target === target && p.related === related);
-        if (twin >= 0) { pointerEdges.splice(0, twin + 1); return; }
-        pointerEdges.length = 0;
+  if (ROVING) {
+    const ROW = 'button, a[href], [role^="menuitem"]';
+    let focusBefore = null;
+    root.addEventListener("focusin", e => { const menu = e.target.closest?.(MENUS); if (menu && !menu.contains(e.relatedTarget)) focusBefore = e.relatedTarget; }, true);
+    root.addEventListener("pointerover", e => {
+      const row = e.pointerType !== "touch" && elementOf(e.target)?.closest(ROW), menu = row && row.closest(ROVES);
+      if (!menu || menu !== topMenu(root) || !radioUsable(row) || document.activeElement === row) return;
+      row.focus({ preventScroll: true, focusVisible: false });
+    }, true);
+    root.addEventListener("pointerout", e => {
+      const row = e.pointerType !== "touch" && elementOf(e.target)?.closest(ROW), menu = row && row.closest(MENUS);
+      if (!menu || row !== document.activeElement || elementOf(e.relatedTarget)?.closest(ROW)?.closest(MENUS) === menu) return;
+      if (focusBefore?.isConnected && focusBefore !== document.body) focusBefore.focus({ preventScroll: true, focusVisible: false });
+      else row.blur();
+      focusBefore = null;
+    }, true);
+  }
+  if (STATE_LOOKS) {
+    const deepFocus = () => { let el = document.activeElement; while (el?.shadowRoot?.activeElement) el = el.shadowRoot.activeElement; return el; };
+    { const el = deepFocus(); if (el instanceof Element) focusSeen.set(el, el.matches(":focus-visible")); }
+    const focusLook = (el) => el instanceof Element && inPage(el) && !el.matches(DISABLED) && looks(el, document.getElementById("exact-looks")).includes("focus-visible");
+    const lookEdges = (e) => {
+      const sheet = document.getElementById("exact-looks"), els = [];
+      if (e.type === "focusin" || e.type === "focusout") {
+        // `:focus-visible` is the focused node's own (inside a shadow root too). Coming in, it had none.
+        const el = e.composedPath()[0];
+        if (!(el instanceof Element) || !inPage(el)) return;
+        const was = e.type === "focusin" ? false : focusSeen.get(el) ?? false, now = e.type === "focusin" && el.matches(":focus-visible");
+        focusSeen.set(el, now);
+        if (was !== now && focusLook(el)) els.push(el);
+      } else {
+        // (A mouse event's target can be a text node: its element's edge.)
+        const over = e.type.endsWith("over"), target = elementOf(e.target), related = elementOf(e.relatedTarget);
+        if (e.type.startsWith("pointer")) { pointerEdges.push({ over, target, related }); if (pointerEdges.length > 4) pointerEdges.shift(); }
+        else {
+          // Its pointer event's twin, taken once; any other mouse edge is its own (and no twin is still owed).
+          const twin = pointerEdges.findIndex(p => p.over === over && p.target === target && p.related === related);
+          if (twin >= 0) { pointerEdges.splice(0, twin + 1); return; }
+          pointerEdges.length = 0;
+        }
+        // A hover look holds only where a pointer can hover and the last one used was no finger (looks.rs), on an
+        // enabled node; entering or leaving it, not moving within it.
+        if (!canHover.matches || touching()) return;
+        for (let el = target; el instanceof Element && root.contains(el); el = el.parentElement) {
+          if (el.contains(related)) break;
+          if (!el.matches(DISABLED) && looks(el, sheet).includes(":hover")) els.push(el);
+        }
       }
-      // A hover look holds only where a pointer can hover and the last one used was no finger (looks.rs), on an
-      // enabled node; entering or leaving it, not moving within it.
-      if (!canHover.matches || touching()) return;
-      for (let el = target; el instanceof Element && root.contains(el); el = el.parentElement) {
-        if (el.contains(related)) break;
-        if (!el.matches(DISABLED) && looks(el, sheet).includes(":hover")) els.push(el);
-      }
-    }
-    stillThrough(els);
-  };
-  for (const type of ["pointerover", "pointerout", "mouseover", "mouseout", "focusin", "focusout"]) root.addEventListener(type, lookEdges, true);
-  // A key turning `:focus-visible` on for the node already focused (a click, then a key): Blink and WebKit move it
-  // before the key comes, others in its default action, so it is looked at now and in the frame's style change (at
-  // the window's capture, before a shortcut can take the key).
-  const keyTurned = () => {
-    const el = deepFocus();
-    if (!focusLook(el) || focusSeen.get(el) || !el.matches(":focus-visible")) return false;
-    focusSeen.set(el, true);
-    stillThrough([el]);
-    return true;
-  };
-  addEventListener("keydown", () => { if (focusLook(deepFocus()) && !keyTurned()) requestAnimationFrame(keyTurned); }, true);
+      stillThrough(els);
+    };
+    for (const type of ["pointerover", "pointerout", "mouseover", "mouseout", "focusin", "focusout"]) root.addEventListener(type, lookEdges, true);
+    // A key turning `:focus-visible` on for the node already focused (a click, then a key): Blink and WebKit move it
+    // before the key comes, others in its default action, so it is looked at now and in the frame's style change (at
+    // the window's capture, before a shortcut can take the key).
+    const keyTurned = () => {
+      const el = deepFocus();
+      if (!focusLook(el) || focusSeen.get(el) || !el.matches(":focus-visible")) return false;
+      focusSeen.set(el, true);
+      stillThrough([el]);
+      return true;
+    };
+    addEventListener("keydown", () => { if (focusLook(deepFocus()) && !keyTurned()) requestAnimationFrame(keyTurned); }, true);
+  }
   // Delay touch and pen feedback only where a scroll can move the target. A quick tap flashes on release;
   // a scroll cancels it before it shows (UIKit's `delaysContentTouches`, LLP 1061 D2).
   const TOUCH_DELAY = 150;
@@ -1159,107 +1185,110 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
   };
   return {
     arrive, // once the piece is made (the stack as it stands), then after each commit's tree, its focus commands and its `autofocus`
-    // @ref LLP 1005 §3 — `pointerdown`/`pointerup`, DOM's own: the primary
-    // button or a touch going down on the node, then up or cancelled (a
-    // cancel is an up), bubbling to every enabled ancestor that hears either
-    // (Charlie, 2026-10-15). The up is heard on the document, so it arrives
-    // wherever the pointer lifts; a pointer capture would also retarget the
-    // click there, a press the platforms do not make. LLP 1056 §3 stage 3 —
-    // `pointermove`: a free pointer over the node (no button down), or the
-    // held one anywhere, at most once a frame, the latest. Each carries the
-    // `PointerEvent` record (`offsetX,offsetY,button,buttons,pressure,pointerType,
-    // pointerId,` the modifiers held, from the content box): `fire(29, r)` is down, 30 up, 31 a
-    // move. The JS target's pointer.js is the same rule.
-    pointer(el, on, fire) {
-      let held = null, owner = false, last = null, move = null, frame = 0, spent = false, downOf = null;
-      const wants = kind => el.exactHandlers?.includes(kind);
-      const record = (e, lifted = false) => pointerLine(el, e, lifted);
-      const flush = () => {
-        const m = move; move = null;
-        if (m && wants("pointermove") && ready()) fire(31, record(m));
-      };
-      // A move goes out in its own event unless one went out since the last animation frame; then the latest goes
-      // at the next frame. Chromium and Firefox deliver moves aligned to frames, so each goes out as it comes.
-      const tick = () => { frame = 0; spent = move !== null; flush(); if (spent) frame = requestAnimationFrame(tick); };
-      const moved = e => {
-        last = e; move = e;
-        if (!spent) { spent = true; flush(); }
-        if (!frame) frame = requestAnimationFrame(tick);
-      };
-      // While held: the owner's moves, and every holder's latest point,
-      // which a blur's up reports.
-      const heldMove = e => { if (e.pointerId !== held) return; last = e; if (owner) moved(e); };
-      // The end: an up or cancel anywhere in the document, or the pointer
-      // leaving it (out of the window, into a frame) or the window losing
-      // focus, which this document never hears the up from.
-      const ends = [["pointerup", document], ["pointercancel", document], ["pointerout", document], ["blur", window]];
-      const up = e => {
-        if (e.type === "blur" ? e.target !== window : e.pointerId !== held || (e.type === "pointerout" && e.relatedTarget && e.relatedTarget.localName !== "iframe")) return;
-        held = null; downOf = null;
-        for (const [type, target] of ends) target.removeEventListener(type, up, target === document);
-        document.removeEventListener("pointermove", heldMove, true);
-        flush();
-        // Never for a removed node, nor past a handler further in that
-        // stopped this up (`exactStopped`, glue.js).
-        if (wants("pointerup") && ready() && el.isConnected && !e.exactStopped) fire(30, record(e.type === "blur" ? last : e, true), e);
-      };
-      const disabled = () => el.matches(":disabled") || el.hasAttribute("disabled") || inertAncestor(el);
-      // A free pointer over it: the innermost node hearing moves takes them;
-      // one that hears only down or up lets them by to an ancestor that
-      // hears them, as pointer.js does.
-      on("pointermove", e => {
-        if (e.exactPointerMover || !wants("pointermove")) return;
-        e.exactPointerMover = el;
-        if (held === null && e.buttons === 0 && !disabled()) moved(e);
-      });
-      // `hold`: the walk's first pass, which fixes the holders; then the down.
-      return (e, hold) => {
-        // Its down, unless a handler further in removed or disabled it, or
-        // stopped this down (`exactStopped`, glue.js): it still holds the up and the moves.
-        if (!hold) { if (downOf === e && el.isConnected && !disabled() && wants("pointerdown") && ready() && !e.exactStopped) fire(29, record(e), e); return; }
-        // Any button, as the DOM's (studio diary R22); `buttons` says which.
-        if (!e.isPrimary || held !== null || !el.isConnected || disabled()) return;
-        // The innermost enabled pointer node holds its moves (the walk
-        // reaches it first and marks the event); an ancestor holds only its up.
-        owner = !e.exactPointerOwner;
-        if (!owner && !wants("pointerdown") && !wants("pointerup")) return;
-        e.exactPointerOwner = el;
-        held = e.pointerId; last = e; downOf = e;
-        for (const [type, target] of ends) target.addEventListener(type, up, target === document);
-        document.addEventListener("pointermove", heldMove, true);
-        flush();
-      };
-    },
-    // Studio diary R22, R3, R19, R17: a `contextmenu` with its point (10),
-    // `dblclick` (11), a `wheel` (37, its record; a prevented one does not
-    // scroll), files and folders dropped from outside (38, each minted a
-    // `doc:` handle, documents-glue.js), a file drag's enter and leave (55, 56, documents-glue.js
-    // `hearDrags`) and the window's `beforeunload` (36), as the JS target's
-    // rt.js and files.js hear them. `fire(kind, line)` dispatches.
-    mouse(el, kind, e, fire) {
-      if (!ready()) return;
-      if (kind === "beforeunload") return el.isConnected && fire(36, "");
-      if (el.matches(":disabled") || inertAncestor(el)) return;
-      if (kind === "wheel") return e.exactStopped || fire(37, `${pointerLine(el, e).split(",").slice(0, 2)},${e.deltaX},${e.deltaY},${e.deltaMode},${modifiers(e)}`);
-      if (kind === "dragover") { if (e.dataTransfer?.types?.includes("Files")) { e.preventDefault(); e.dataTransfer.dropEffect = "copy"; } return; }
-      if (kind === "dragenter" || kind === "dragleave") return fire(kind === "dragenter" ? 55 : 56, `${pointerLine(el, e).split(",").slice(0, 2)},${modifiers(e)}`);
-      if (kind === "drop") {
-        const dt = e.dataTransfer;
-        if (!dt?.types?.includes("Files")) return;
-        e.preventDefault(); e.stopPropagation();
-        const at = `${pointerLine(el, e).split(",").slice(0, 2)},${modifiers(e)}`, files = [...dt.files], items = [...dt.items].filter(i => i.kind === "file");
-        const handles = items.map(i => i.getAsFileSystemHandle?.().catch(() => null) ?? null), entries = items.map(i => i.webkitGetAsEntry?.() ?? null);
-        return documents?.().then(async (glue) => {
-          const found = await glue.dropped(await Promise.all(handles), files, entries);
-          if (found.length) fire(38, `${at}\n${found.join("\n")}`); else log("drop: refused: the browser handed over no file");
+    ...(WASM_HOST && {
+      // @ref LLP 1005 §3 — `pointerdown`/`pointerup`, DOM's own: the primary
+      // button or a touch going down on the node, then up or cancelled (a
+      // cancel is an up), bubbling to every enabled ancestor that hears either
+      // (Charlie, 2026-10-15). The up is heard on the document, so it arrives
+      // wherever the pointer lifts; a pointer capture would also retarget the
+      // click there, a press the platforms do not make. LLP 1056 §3 stage 3 —
+      // `pointermove`: a free pointer over the node (no button down), or the
+      // held one anywhere, at most once a frame, the latest. Each carries the
+      // `PointerEvent` record (`offsetX,offsetY,button,buttons,pressure,pointerType,
+      // pointerId,` the modifiers held, from the content box): `fire(29, r)` is down, 30 up, 31 a
+      // move. The JS target's pointer.js is the same rule.
+      pointer(el, on, fire) {
+        let held = null, owner = false, last = null, move = null, frame = 0, spent = false, downOf = null;
+        const wants = kind => el.exactHandlers?.includes(kind);
+        const record = (e, lifted = false) => pointerLine(el, e, lifted);
+        const flush = () => {
+          const m = move; move = null;
+          if (m && wants("pointermove") && ready()) fire(31, record(m));
+        };
+        // A move goes out in its own event unless one went out since the last animation frame; then the latest goes
+        // at the next frame. Chromium and Firefox deliver moves aligned to frames, so each goes out as it comes.
+        const tick = () => { frame = 0; spent = move !== null; flush(); if (spent) frame = requestAnimationFrame(tick); };
+        const moved = e => {
+          last = e; move = e;
+          if (!spent) { spent = true; flush(); }
+          if (!frame) frame = requestAnimationFrame(tick);
+        };
+        // While held: the owner's moves, and every holder's latest point,
+        // which a blur's up reports.
+        const heldMove = e => { if (e.pointerId !== held) return; last = e; if (owner) moved(e); };
+        // The end: an up or cancel anywhere in the document, or the pointer
+        // leaving it (out of the window, into a frame) or the window losing
+        // focus, which this document never hears the up from.
+        const ends = [["pointerup", document], ["pointercancel", document], ["pointerout", document], ["blur", window]];
+        const up = e => {
+          if (e.type === "blur" ? e.target !== window : e.pointerId !== held || (e.type === "pointerout" && e.relatedTarget && e.relatedTarget.localName !== "iframe")) return;
+          held = null; downOf = null;
+          for (const [type, target] of ends) target.removeEventListener(type, up, target === document);
+          document.removeEventListener("pointermove", heldMove, true);
+          flush();
+          // Never for a removed node, nor past a handler further in that
+          // stopped this up (`exactStopped`, glue.js).
+          if (wants("pointerup") && ready() && el.isConnected && !e.exactStopped) fire(30, record(e.type === "blur" ? last : e, true), e);
+        };
+        const disabled = () => el.matches(":disabled") || el.hasAttribute("disabled") || inertAncestor(el);
+        // A free pointer over it: the innermost node hearing moves takes them;
+        // one that hears only down or up lets them by to an ancestor that
+        // hears them, as pointer.js does.
+        on("pointermove", e => {
+          if (e.exactPointerMover || !wants("pointermove")) return;
+          e.exactPointerMover = el;
+          if (held === null && e.buttons === 0 && !disabled()) moved(e);
         });
-      }
-      // A field keeps the browser's own double-click, and a text field its edit menu (navigation.js `editMenu`); a control's input has no edit menu, so its node's `contextmenu` runs (#487).
-      if (kind === "contextmenu" ? editMenu(e.target) : e.target.closest("input,textarea,[contenteditable]")) return;
-      e.preventDefault(); e.stopPropagation();
-      fire(kind === "contextmenu" ? 10 : 11, kind === "contextmenu" ? pointerLine(el, e) : "");
-    },
+        // `hold`: the walk's first pass, which fixes the holders; then the down.
+        return (e, hold) => {
+          // Its down, unless a handler further in removed or disabled it, or
+          // stopped this down (`exactStopped`, glue.js): it still holds the up and the moves.
+          if (!hold) { if (downOf === e && el.isConnected && !disabled() && wants("pointerdown") && ready() && !e.exactStopped) fire(29, record(e), e); return; }
+          // Any button, as the DOM's (studio diary R22); `buttons` says which.
+          if (!e.isPrimary || held !== null || !el.isConnected || disabled()) return;
+          // The innermost enabled pointer node holds its moves (the walk
+          // reaches it first and marks the event); an ancestor holds only its up.
+          owner = !e.exactPointerOwner;
+          if (!owner && !wants("pointerdown") && !wants("pointerup")) return;
+          e.exactPointerOwner = el;
+          held = e.pointerId; last = e; downOf = e;
+          for (const [type, target] of ends) target.addEventListener(type, up, target === document);
+          document.addEventListener("pointermove", heldMove, true);
+          flush();
+        };
+      },
+      // Studio diary R22, R3, R19, R17: a `contextmenu` with its point (10),
+      // `dblclick` (11), a `wheel` (37, its record; a prevented one does not
+      // scroll), files and folders dropped from outside (38, each minted a
+      // `doc:` handle, documents-glue.js), a file drag's enter and leave (55, 56, documents-glue.js
+      // `hearDrags`) and the window's `beforeunload` (36), as the JS target's
+      // rt.js and files.js hear them. `fire(kind, line)` dispatches.
+      mouse(el, kind, e, fire) {
+        if (!ready()) return;
+        if (kind === "beforeunload") return el.isConnected && fire(36, "");
+        if (el.matches(":disabled") || inertAncestor(el)) return;
+        if (kind === "wheel") return e.exactStopped || fire(37, `${pointerLine(el, e).split(",").slice(0, 2)},${e.deltaX},${e.deltaY},${e.deltaMode},${modifiers(e)}`);
+        if (kind === "dragover") { if (e.dataTransfer?.types?.includes("Files")) { e.preventDefault(); e.dataTransfer.dropEffect = "copy"; } return; }
+        if (kind === "dragenter" || kind === "dragleave") return fire(kind === "dragenter" ? 55 : 56, `${pointerLine(el, e).split(",").slice(0, 2)},${modifiers(e)}`);
+        if (kind === "drop") {
+          const dt = e.dataTransfer;
+          if (!dt?.types?.includes("Files")) return;
+          e.preventDefault(); e.stopPropagation();
+          const at = `${pointerLine(el, e).split(",").slice(0, 2)},${modifiers(e)}`, files = [...dt.files], items = [...dt.items].filter(i => i.kind === "file");
+          const handles = items.map(i => i.getAsFileSystemHandle?.().catch(() => null) ?? null), entries = items.map(i => i.webkitGetAsEntry?.() ?? null);
+          return documents?.().then(async (glue) => {
+            const found = await glue.dropped(await Promise.all(handles), files, entries);
+            if (found.length) fire(38, `${at}\n${found.join("\n")}`); else log("drop: refused: the browser handed over no file");
+          });
+        }
+        // A field keeps the browser's own double-click, and a text field its edit menu (navigation.js `editMenu`); a control's input has no edit menu, so its node's `contextmenu` runs (#487).
+        if (kind === "contextmenu" ? editMenu(e.target) : e.target.closest("input,textarea,[contenteditable]")) return;
+        e.preventDefault(); e.stopPropagation();
+        fire(kind === "contextmenu" ? 10 : 11, kind === "contextmenu" ? pointerLine(el, e) : "");
+      },
+    }),
     pan(el, id, on) {
+      if (!PANS) return () => {}; // (a plan with none asks for none: pieces.js `onPan`)
       // @ref LLP 1043.000 §3 D8: one coalesced action per display frame.
       // LLP 1057.001 §1: an inner swipe that is still deciding (its pointer
       // 'pending' in exact.contacts) goes first; the pan waits for its verdict,

@@ -5,8 +5,18 @@ import java.nio.ByteBuffer
 
 /** exact2 on the main thread: layout, shaping and the paint walk, recorded as Canvas ops. */
 object Native {
-    init { System.loadLibrary("exactcanvas") }
-    /** Bind the application JVM before any host starts TLS work. */
+    init {
+        // mimalloc reads its options as the library loads, whichever entrant loads it (an activity, a job, a
+        // receiver). Freed memory goes back at once (decoded pictures otherwise stay held), unless a launch said
+        // otherwise first.
+        android.system.Os.setenv("MIMALLOC_PURGE_DELAY", "0", false)
+        System.loadLibrary("exactcanvas")
+    }
+    /** Copy the launch environment into the library's libc before any host thread boots. ARM translation can
+     * give Android's Os and the library separate environments. */
+    @JvmStatic external fun environment(values: ByteArray)
+    /** Bind the application JVM before any host starts TLS work. The host keeps [context] for the process and gives
+     * it to a GPU artifact's initialization entry (LLP 1009 D11), so it is the application's, never an activity's. */
     @JvmStatic external fun trust(context: android.content.Context)
     /** Boot the app's host on the calling thread, in a window of this size in pixels ([window] told its insets);
      * whether it booted. Where a host already runs on this thread (the activity was made again in this process,
@@ -85,7 +95,8 @@ object Native {
     @JvmStatic external fun scroll(dy: Float)
     /** What is under a point of the view (pixels), for the reader to decide what a drag from there is (LLP 1115.001
      * D7.3) and whose a touch there is (D8): the axes exact2's own gestures there claim (bit 0 sideways, bit 1 up
-     * and down), a count, the hosted text field the touch is for (0: none; [Fields]), and eleven numbers a scroller,
+     * and down; bit 2: the latter is a sheet's drag alone, which a hosted view that disallows interception keeps,
+     * [Contacts]; bits 3 and 4: a nested sheet takes an upward or downward finger drag), a count, the hosted text field the touch is for (0: none; [Fields]), and eleven numbers a scroller,
      * innermost first: its id, flags (bit 0 it takes a sideways drag from here, bit 1 one up or down, bit 2 its
      * rows are a node the reader can move, bit 3 no scrollbar, bit 4 it hears `refresh`, bit 5 its `refreshing`
      * is true, bits 6 and 7 its `keyboardDismissMode`), its revision, then as float bits its offset (x, y), its farthest offset
@@ -175,6 +186,11 @@ object Native {
      * [id] ([android.view.MotionEvent.getPointerId]). The canvas holding the touch takes it where it lands on that
      * canvas; where no canvas holds the touch, a second finger cancels it. */
     @JvmStatic external fun finger(action: Int, id: Int, x: Float, y: Float)
+    /** Whether a finger, a pen or a mouse button is down on the view: true at the touch's down, before the reader
+     * routes it, and false at its last lift or the system's cancel. A scroll, a field or a hosted view takes a touch
+     * that is still down, and exact2 then hears a cancel and no up ([touch]); a replacement waits for the finger
+     * itself (LLP 1029.000.002 D9). Whether one was waiting for this lift, and so wants a turn. */
+    @JvmStatic external fun touching(on: Boolean): Boolean
     /** What happened in the window the reader made for surface [serial] of the top layer ([Surfaces], LLP 1115.001
      * D10), on the host's thread: a touch ([what] 0 down, 1 up, 2 move, 3 cancel) at ([x], [y]), pixels from the
      * window's own top left; the system dismissed the window (8: a tap outside a menu, Back, Escape); the reader
@@ -225,7 +241,8 @@ object Native {
     /** A buffered canvas's newest frame (any thread): generation (24 bits), slot (8), serial (32); -1 none yet, -2 no
      * buffers on this device. */
     @JvmStatic external fun canvasFrame(view: Int): Long
-    /** -1 attachment refused, 0 waiting, 1 first window frame submitted to the compositor. Any thread. */
+    /** -1 attachment refused, 0 waiting, 1 handed to the compositor, 2 submitted, 3 explicitly empty.
+     * Any thread; an empty canvas shows its own styles. */
     @JvmStatic external fun canvasReady(view: Int): Int
     /** That frame's buffer, or null. */
     @JvmStatic external fun canvasBuffer(view: Int): android.hardware.HardwareBuffer?
@@ -251,6 +268,11 @@ object Native {
     @JvmStatic external fun open(href: String)
     /** A share given to the running app, `{"target", "share"}` as [Shares.request] writes it (LLP 1133.024 D5). */
     @JvmStatic external fun share(request: String)
+    /** The URL in the launching intent of the first activity made over a host [Headless] booted (LLP 1133.017 D7): its
+     * location is the launch location, as `EXACT_LAUNCH_URL` is at a boot, with no `navigate`. */
+    @JvmStatic external fun launch(href: String)
+    /** The share in that intent, `{"target", "share"}`: claimed as `EXACT_SHARE` is at a boot. */
+    @JvmStatic external fun launchShare(request: String)
     /** What exact2 asks of the platform since this last returned any (LLP 1115.001 D5), or null when it asks
      * nothing: the one channel out, which [Requests] reads and acts on, on the main thread. exact2 queues a request
      * and makes the first of [fds] readable, so the reader comes for it whether or not a frame follows. The words:
@@ -283,6 +305,10 @@ object Native {
     /** The reader drew a frame of the running generation, which makes its boot good (LLP 1030.006 D5); whether to say
      * so again after the next. On the exact thread. */
     @JvmStatic external fun drew(): Boolean
+    /** Whether the host's data module is active: 1, 0 while its image loads, -1 when it failed to activate. With
+     * [unshown], a host no reader takes a frame from activates it now, since no pixel waits for it (LLP 1133.017 D7);
+     * its image may still be loading then, and the host's wake says when it is not. On the host's thread. */
+    @JvmStatic external fun dataActive(unshown: Boolean): Int
     /** Waits up to [ms] for the store's writes, which exact2 makes on a thread of its own: whether every commit handed
      * over was written (a write that failed is tried once more; failing again, it stays pending). Any thread. */
     @JvmStatic external fun storeDrain(ms: Int): Boolean
@@ -301,6 +327,8 @@ object Native {
     @JvmStatic external fun appRoot(index: Int): String?
     /** Whether extension [name] is told it runs under the agent ([ExtensionContext.agent]). Any thread. */
     @JvmStatic external fun underAgent(name: String): Boolean
+    /** Whether the session's storage is a drive's and not the app's own ([ExtensionContext.scratch]). Any thread. */
+    @JvmStatic external fun scratchStorage(): Boolean
     /** A package's call of the app's handler, `{"extension", "handle", "handler", "args"}` (LLP 1133.016 D15 item 1):
      *  its number, or -1 with no session; [invoked] reads its answer. */
     @JvmStatic external fun invoke(body: String): Int

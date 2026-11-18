@@ -14,6 +14,11 @@ const read = (cmd, args, opts = {}) => spawnSync(cmd, args, { encoding: 'utf8', 
  * Plans embed the current schema digest. App entries need the test app's `appId` to boot. */
 export function compileFixtures(root, run, env, dir, prefix, appId) {
   const contract = args => run(env.EXACT_CONTRACT, ['build', ...args], { env });
+  const watchSync = resolve(dir, 'watch-sync');
+  mkdirSync(watchSync, { recursive: true });
+  writeFileSync(resolve(watchSync, 'app.json'), JSON.stringify({ app: { id: appId, name: 'Watch sync' } }));
+  writeFileSync(resolve(watchSync, 'app.contract'), readFileSync(resolve(root, 'scripts/fixtures/store-refresh.contract')));
+  contract([resolve(watchSync, 'app.contract'), '-o', env[`${prefix}_WATCH_SYNC_PLAN`] = resolve(watchSync, 'app.plan')]);
   contract([resolve(root, 'host/apple/tests/fixtures/layout-only-row.contract'), '-o', env[`${prefix}_LAYOUT_ONLY_ROW_PLAN`] = resolve(dir, 'layout-only-row.plan')]);
   contract([resolve(root, 'host/apple/tests/fixtures/layout-only-paint.contract'), '-o', env[`${prefix}_LAYOUT_ONLY_PAINT_PLAN`] = resolve(dir, 'layout-only-paint.plan')]);
   // Made afresh: a target from before the tamber->forma rename keeps an app.tamber here, which contract refuses.
@@ -49,6 +54,10 @@ export function compileFixtures(root, run, env, dir, prefix, appId) {
   }
   contract([resolve(root, 'host/apple/tests/fixtures/navigation-scroller.contract'), '-o', env[`${prefix}_NAVIGATION_SCROLLER_PLAN`] = resolve(dir, 'navigation-scroller.plan')]);
   contract([resolve(root, 'host/apple/tests/fixtures/overflowing-tabs.contract'), '-o', env[`${prefix}_OVERFLOWING_TABS_PLAN`] = resolve(dir, 'overflowing-tabs.plan')]);
+  contract([resolve(root, 'host/apple/tests/fixtures/shop-scroll.contract'), '-o', env[`${prefix}_SHOP_SCROLL_PLAN`] = resolve(dir, 'shop-scroll.plan')]);
+  contract([resolve(root, 'host/apple/tests/fixtures/quiet-scroll.contract'), '-o', env[`${prefix}_QUIET_SCROLL_PLAN`] = resolve(dir, 'quiet-scroll.plan')]);
+  contract([resolve(root, 'host/apple/tests/fixtures/quiet-edge.contract'), '-o', env[`${prefix}_QUIET_EDGE_PLAN`] = resolve(dir, 'quiet-edge.plan')]);
+  contract([resolve(root, 'host/apple/tests/fixtures/scroll-facts.contract'), '-o', env[`${prefix}_SCROLL_FACTS_PLAN`] = resolve(dir, 'scroll-facts.plan')]);
   contract([resolve(root, 'host/apple/tests/fixtures/scroll-snap.contract'), '-o', env[`${prefix}_SCROLL_SNAP_PLAN`] = resolve(dir, 'scroll-snap.plan')]);
   contract([resolve(root, 'host/apple/tests/fixtures/fixed-page.contract'), '-o', env[`${prefix}_FIXED_PAGE_PLAN`] = resolve(dir, 'fixed-page.plan')]);
   contract([resolve(root, 'scripts/fixtures/collection-fixed-chat.contract'), '-o', env[`${prefix}_COLLECTION_FIXED_PLAN`] = resolve(dir, 'collection-fixed.plan')]);
@@ -59,6 +68,10 @@ export function compileFixtures(root, run, env, dir, prefix, appId) {
   contract([resolve(root, 'host/apple/tests/fixtures/arrangement-sizing.contract'), '-o', env[`${prefix}_ARRANGEMENT_SIZING_PLAN`] = resolve(dir, 'arrangement-sizing.plan')]);
   contract([resolve(root, 'host/apple/tests/fixtures/canvas-capture.contract'), '-o', env[`${prefix}_CANVAS_CAPTURE_PLAN`] = resolve(dir, 'canvas-capture.plan')]);
   contract([resolve(root, 'host/apple/tests/fixtures/range-adjust.contract'), '-o', env[`${prefix}_RANGE_ADJUST_PLAN`] = resolve(dir, 'range-adjust.plan')]);
+  contract([resolve(root, 'host/apple/tests/fixtures/replacement-hold.contract'), '-o', env[`${prefix}_REPLACEMENT_HOLD_PLAN`] = resolve(dir, 'replacement-hold.plan')]);
+  const replaced = resolve(dir, 'replacement-hold-after.contract');
+  writeFileSync(replaced, readFileSync(resolve(root, 'host/apple/tests/fixtures/replacement-hold.contract'), 'utf8').replace('"before"', '"after"'));
+  contract([replaced, '-o', env[`${prefix}_REPLACEMENT_HOLD_AFTER_PLAN`] = resolve(dir, 'replacement-hold-after.plan')]);
   // A test that writes its own manifest names the app the tests link (`SheetFixture`'s `data`).
   env[`${prefix}_TEST_APP_ID`] = appId;
   contract([resolve(root, 'host/apple/tests/fixtures/page-freeze.contract'), '-o', env[`${prefix}_PAGE_FREEZE_PLAN`] = resolve(dir, 'page-freeze.plan')]);
@@ -80,8 +93,9 @@ export function compileFixtures(root, run, env, dir, prefix, appId) {
   contract([resolve(clicks, 'no-sequence.contract'), '-o', env[`${prefix}_PAGE_FREEZE_NO_SEQUENCE_PLAN`] = resolve(dir, 'page-freeze-no-sequence.plan')]);
   // A box's length read against the document's environment stops a test (LLP 1123 D9).
   env[`${prefix}_STRICT_LOCAL_INSETS`] = '1';
+  contract([resolve(root, 'host/apple/tests/fixtures/lazy-tab-title.contract'), '-o', env[`${prefix}_LAZY_TAB_TITLE_PLAN`] = resolve(dir, 'lazy-tab-title.plan')]);
   contract([resolve(root, 'host/apple/tests/fixtures/headless-reply.contract'), '-o', env[`${prefix}_HEADLESS_REPLY_PLAN`] = resolve(dir, 'headless-reply.plan')]);
-  for (const [name, key] of [['saved-scheme', 'SAVED_SCHEME'], ['grouped-card', 'GROUPED_CARD'], ['frame-health', 'FRAME_HEALTH'], ['store-refresh', 'STORE_REFRESH'], ['headless', 'HEADLESS'], ['headless-markdown', 'HEADLESS_MARKDOWN'], ['headless-hidden-markdown', 'HEADLESS_HIDDEN_MARKDOWN'], ['headless-live', 'HEADLESS_LIVE'], ['headless-back', 'HEADLESS_BACK'], ['native-navigation-scroll', 'NATIVE_SCROLL'], ['intersect', 'INTERSECT'], ['native-buttons', 'BUTTONS'], ['keyboard-form', 'KEYBOARD'], ['tab-edge', 'TAB_EDGE'], ['repaint', 'REPAINT'], ['still-title', 'STILL_TITLE'], ['navigation-bars', 'NAVIGATION_BARS'], ['large-title', 'LARGE_TITLE'], ['transparent-bar', 'TRANSPARENT_BAR'], ['bar-band', 'BAR_BAND'], ['pad-bar', 'PAD_BAR'], ['pushed-title', 'PUSHED_TITLE'], ['inline-frame', 'INLINE_FRAME'], ['fieldless', 'FIELDLESS'], ['web-documents', 'WEB_DOCUMENTS'], ['iframe-post-messages', 'IFRAME_POST_MESSAGES'], ['iframe-partition', 'IFRAME_PARTITION'], ['iframe-windows', 'IFRAME_WINDOWS'], ['iframe-pdf', 'IFRAME_PDF'], ['iframe-resident-popover', 'IFRAME_RESIDENT_POPOVER'], ['tab-owner', 'TAB_OWNER'], ['grouped-list-reveal', 'GROUPED_REVEAL'], ['due-now', 'DUE_NOW'], ['caret-reveal', 'CARET_REVEAL'], ['cover-scroll', 'COVER_SCROLL'], ['page-edges', 'PAGE_EDGES'], ['barless-route', 'BARLESS_ROUTE'], ['page-edges-grouped', 'PAGE_EDGES_GROUPED'], ['control-bars', 'CONTROL_BARS'], ['cover-tabs', 'COVER_TABS'], ['layout-insert', 'LAYOUT_INSERT'], ['search-scope', 'SEARCH_SCOPE'], ['barless-tab', 'BARLESS_TAB'], ['pull-refresh', 'PULL_REFRESH'], ['edge-effect', 'EDGE_EFFECT'], ['sticky-bar', 'STICKY_BAR'], ['glass-press', 'GLASS_PRESS'], ['surface-pairs', 'SURFACE_PAIRS'], ['prevent-focus', 'PREVENT_FOCUS'], ['accent-bars', 'ACCENT_BARS'], ['accent-tabs', 'ACCENT_TABS'], ['search-tabs', 'SEARCH_TABS'], ['beside-routes', 'BESIDE_ROUTES'], ['bar-insets', 'BAR_INSETS'], ['bar-hero', 'BAR_HERO'], ['tips', 'TIPS'], ['boot-control-top', 'BOOT_CONTROL_TOP'], ['boot-control-bottom', 'BOOT_CONTROL_BOTTOM'], ['boot-control-tab', 'BOOT_CONTROL_TAB'], ['boot-dialog', 'BOOT_DIALOG'], ['boot-tabs', 'BOOT_TABS'], ['boot-clipboard', 'BOOT_CLIPBOARD'], ['boot-motion', 'BOOT_MOTION'], ['boot-plain', 'BOOT_PLAIN'], ['boot-padded', 'BOOT_PADDED'], ['boot-transform', 'BOOT_TRANSFORM'], ['boot-tip', 'BOOT_TIP']]) {
+  for (const [name, key] of [['saved-scheme', 'SAVED_SCHEME'], ['grouped-card', 'GROUPED_CARD'], ['frame-health', 'FRAME_HEALTH'], ['store-refresh', 'STORE_REFRESH'], ['headless', 'HEADLESS'], ['headless-markdown', 'HEADLESS_MARKDOWN'], ['headless-hidden-markdown', 'HEADLESS_HIDDEN_MARKDOWN'], ['headless-live', 'HEADLESS_LIVE'], ['headless-back', 'HEADLESS_BACK'], ['native-navigation-scroll', 'NATIVE_SCROLL'], ['intersect', 'INTERSECT'], ['native-buttons', 'BUTTONS'], ['keyboard-form', 'KEYBOARD'], ['tab-edge', 'TAB_EDGE'], ['repaint', 'REPAINT'], ['still-title', 'STILL_TITLE'], ['navigation-bars', 'NAVIGATION_BARS'], ['large-title', 'LARGE_TITLE'], ['transparent-bar', 'TRANSPARENT_BAR'], ['bar-band', 'BAR_BAND'], ['pad-bar', 'PAD_BAR'], ['pushed-title', 'PUSHED_TITLE'], ['inline-frame', 'INLINE_FRAME'], ['fieldless', 'FIELDLESS'], ['web-documents', 'WEB_DOCUMENTS'], ['iframe-post-messages', 'IFRAME_POST_MESSAGES'], ['iframe-partition', 'IFRAME_PARTITION'], ['iframe-windows', 'IFRAME_WINDOWS'], ['iframe-pdf', 'IFRAME_PDF'], ['iframe-resident-popover', 'IFRAME_RESIDENT_POPOVER'], ['tab-owner', 'TAB_OWNER'], ['grouped-list-reveal', 'GROUPED_REVEAL'], ['due-now', 'DUE_NOW'], ['caret-reveal', 'CARET_REVEAL'], ['cover-scroll', 'COVER_SCROLL'], ['page-edges', 'PAGE_EDGES'], ['barless-route', 'BARLESS_ROUTE'], ['page-edges-grouped', 'PAGE_EDGES_GROUPED'], ['control-bars', 'CONTROL_BARS'], ['cover-tabs', 'COVER_TABS'], ['layout-insert', 'LAYOUT_INSERT'], ['search-scope', 'SEARCH_SCOPE'], ['barless-tab', 'BARLESS_TAB'], ['pull-refresh', 'PULL_REFRESH'], ['edge-effect', 'EDGE_EFFECT'], ['sticky-bar', 'STICKY_BAR'], ['glass-press', 'GLASS_PRESS'], ['surface-pairs', 'SURFACE_PAIRS'], ['prevent-focus', 'PREVENT_FOCUS'], ['accent-bars', 'ACCENT_BARS'], ['accent-tabs', 'ACCENT_TABS'], ['search-tabs', 'SEARCH_TABS'], ['beside-routes', 'BESIDE_ROUTES'], ['bar-insets', 'BAR_INSETS'], ['bar-hero', 'BAR_HERO'], ['bar-control', 'BAR_CONTROL'], ['tips', 'TIPS'], ['boot-control-top', 'BOOT_CONTROL_TOP'], ['boot-control-bottom', 'BOOT_CONTROL_BOTTOM'], ['boot-control-tab', 'BOOT_CONTROL_TAB'], ['boot-dialog', 'BOOT_DIALOG'], ['boot-tabs', 'BOOT_TABS'], ['boot-clipboard', 'BOOT_CLIPBOARD'], ['boot-motion', 'BOOT_MOTION'], ['boot-plain', 'BOOT_PLAIN'], ['boot-padded', 'BOOT_PADDED'], ['boot-transform', 'BOOT_TRANSFORM'], ['boot-tip', 'BOOT_TIP']]) {
     contract([resolve(root, `scripts/fixtures/${name}.contract`), '-o', env[`${prefix}_${key}_PLAN`] = resolve(dir, `${name}.plan`)]);
   }
   // NamedWindowsTests' links that name a window (LLP 1030.004).
@@ -89,6 +103,8 @@ export function compileFixtures(root, run, env, dir, prefix, appId) {
   contract([resolve(root, 'host/apple/tests/fixtures/sticky-transition.contract'), '-o', env[`${prefix}_STICKY_TRANSITION_PLAN`] = resolve(dir, 'sticky-transition.plan')]);
   // SwipeScrollDragTests': swipeleft and swiperight rows and a scroller's drag events.
   contract([resolve(root, 'host/apple/tests/fixtures/swipe-scroll-drag.contract'), '-o', env[`${prefix}_SWIPE_SCROLL_DRAG_PLAN`] = resolve(dir, 'swipe-scroll-drag.plan')]);
+  // SwipeRoutesIOSTests: swipe rows in a route that pushes another.
+  contract([resolve(root, 'host/apple/tests/fixtures/swipe-push.contract'), '-o', env[`${prefix}_SWIPE_PUSH_PLAN`] = resolve(dir, 'swipe-push.plan')]);
   // SnapshotDriverTests' live tree: a bar and a ring under an ancestor's accent.
   contract([resolve(root, 'host/apple/tests/fixtures/live-accent.contract'), '-o', env[`${prefix}_LIVE_ACCENT_PLAN`] = resolve(dir, 'live-accent.plan')]);
   // HeldStateTests' own (a card that presses over a flat leaf), beside them.
@@ -120,6 +136,7 @@ export function compileFixtures(root, run, env, dir, prefix, appId) {
   contract([resolve(root, 'host/apple/tests/fixtures/save-text.contract'), '-o', env[`${prefix}_SAVE_TEXT_PLAN`] = resolve(dir, 'save-text.plan')]);
   contract([resolve(root, 'host/apple/tests/fixtures/timer-admission.contract'), '-o', env[`${prefix}_TIMER_ADMISSION_PLAN`] = resolve(dir, 'timer-admission.plan')]);
   contract([resolve(root, 'host/apple/tests/fixtures/reset-gate.contract'), '-o', env[`${prefix}_RESET_GATE_PLAN`] = resolve(dir, 'reset-gate.plan')]);
+  contract([resolve(root, 'host/apple/tests/fixtures/still-page.contract'), '-o', env[`${prefix}_STILL_PAGE_PLAN`] = resolve(dir, 'still-page.plan')]);
   contract([resolve(root, 'host/apple/tests/fixtures/reset-gate-admission.contract'), '-o', env[`${prefix}_RESET_GATE_ADMISSION_PLAN`] = resolve(dir, 'reset-gate-admission.plan')]);
   contract([resolve(root, 'host/apple/tests/fixtures/native-retry.contract'), '-o', env[`${prefix}_NATIVE_RETRY_PLAN`] = resolve(dir, 'native-retry.plan')]);
   contract([resolve(root, 'host/apple/tests/fixtures/dimmed-pixels.contract'), '-o', env[`${prefix}_DIMMED_PIXELS_PLAN`] = resolve(dir, 'dimmed-pixels.plan')]);
@@ -129,6 +146,8 @@ export function compileFixtures(root, run, env, dir, prefix, appId) {
   contract([resolve(root, 'host/apple/tests/fixtures/untitled-bar.contract'), '-o', env[`${prefix}_UNTITLED_BAR_PLAN`] = resolve(dir, 'untitled-bar.plan')]);
   // NavigationBarIOSTests': a header whose controls share and add a control.
   contract([resolve(root, 'host/apple/tests/fixtures/bar-share.contract'), '-o', env[`${prefix}_BAR_SHARE_PLAN`] = resolve(dir, 'bar-share.plan')]);
+  // AgentBarPointerIOSTests': a header of more buttons than an iPad's bar places.
+  contract([resolve(root, 'host/apple/tests/fixtures/bar-overflow.contract'), '-o', env[`${prefix}_BAR_OVERFLOW_PLAN`] = resolve(dir, 'bar-overflow.plan')]);
   // NavigationBarIOSTests': a header's title drawn as a face, in an ink per scheme.
   contract([resolve(root, 'host/apple/tests/fixtures/bar-face-scheme.contract'), '-o', env[`${prefix}_BAR_FACE_SCHEME_PLAN`] = resolve(dir, 'bar-face-scheme.plan')]);
   contract([resolve(root, 'host/apple/tests/fixtures/dialog-sheet-reads.contract'), '-o', env[`${prefix}_DIALOG_SHEET_READS_PLAN`] = resolve(dir, 'dialog-sheet-reads.plan')]);
@@ -288,8 +307,8 @@ export async function macTests(pkg, scratch, env, canvasGpu, only = null) {
   if (failed.length) throw new Error(`swift tests failed:\n  ${failed.join('\n  ')}`);
 }
 
-/** The iOS tests `build-for-testing` wrote in `products`, run on the simulator `udid` in separate
- *  runs that always all run; reports their failures together. Most run bare in the xctest agent.
+/** Builds the iOS tests into `derived` and runs them on the simulator `udid` in separate runs that
+ *  always all run; reports their failures together. Most run bare in the xctest agent.
  *  Those that need what only an app gives (a window scene to present in, UIKit's accessibility
  *  runtime; `hostedTests`) run hosted in an app with one scene (`hostSource`, built here) with the
  *  accessibility runtime on for that run alone. The Canvas 2D GPU module's own run apart with it
@@ -297,8 +316,13 @@ export async function macTests(pkg, scratch, env, canvasGpu, only = null) {
  *  Graphics path a runner without it draws. `runApple` and `run` are build.mjs's: they throw on
  *  failure, and `runApple` refuses a mixed deployment target. `only`, when
  *  given, names the classes to run, and a run with none of them is left out. Tests needing
- *  real touches run without simulator clones, beside the existing XCTest touch runner. */
-export async function iosTestRuns({ pkg, products, destination, udid, env, canvasGpu, hostSource, triple, runApple, run, only = null }) {
+ *  real touches run without simulator clones, beside the existing XCTest touch runner. Every run
+ *  writes its result bundle into `derived`, beside the build. */
+export async function iosTestRuns({ pkg, derived, destination, udid, env, canvasGpu, hostSource, triple, runApple, run, only = null }) {
+  // Build without code coverage, which the package's generated scheme turns on: instrumented tests
+  // write tens of megabytes of profiles per run, and nothing in Exact reads them
+  runApple('xcodebuild', ['build-for-testing', '-scheme', 'Exact-Package', '-destination', destination, '-derivedDataPath', derived, '-enableCodeCoverage', 'NO'], { cwd: pkg, stdio: 'inherit', env });
+  const products = resolve(derived, 'Build/Products');
   const bare = withoutPerformanceChecker(products), host = resolve(products, 'ExactTestHost.app');
   rmSync(host, { recursive: true, force: true });
   mkdirSync(host, { recursive: true });
@@ -321,7 +345,9 @@ export async function iosTestRuns({ pkg, products, destination, udid, env, canva
   // allowance, not the rest of the run
   const testRun = (xctestrun, selection, runEnv, parallel = true) => {
     try {
-      runApple('xcodebuild', ['test-without-building', '-xctestrun', xctestrun, '-destination', destination, '-collect-test-diagnostics', 'never',
+      // Name the build's derived data: without `-derivedDataPath`, xcodebuild starts a folder of its
+      // own in `~/Library/Developer/Xcode/DerivedData` for every call
+      runApple('xcodebuild', ['test-without-building', '-xctestrun', xctestrun, '-derivedDataPath', derived, '-destination', destination, '-collect-test-diagnostics', 'never',
         '-test-timeouts-enabled', 'YES', '-default-test-execution-time-allowance', '600',
         '-parallel-testing-enabled', parallel ? 'YES' : 'NO', ...(parallel ? ['-parallel-testing-worker-count', '2'] : []), ...selection], { cwd: pkg, stdio: 'inherit', env: runEnv });
     } catch (e) { failures.push(e); }
@@ -566,15 +592,19 @@ function declarations(dir, platform) {
  *  those that throw `missing("scene", …)` (a presentation completes only in a scene's
  *  window) or `missing("accessibility", …)` (UIKit's accessibility runtime), which run
  *  hosted. `missing("touch", …)` selects tests that need the XCTest touch runner too.
- *  Each must say so in the test method itself, so a helper's need is not missed. */
+ *  Each must say so in the test method itself, so a helper's need is not missed. A test method in
+ *  an extension of a test class, in any file, is that class's. */
 export function hostedTests(dir, prerequisite = 'scene|accessibility') {
   const tests = new Set();
   const requirement = new RegExp(`missing\\("(${prerequisite})"`);
-  for (const file of readdirSync(dir).filter(f => f.endsWith('.swift'))) {
-    const lines = readFileSync(resolve(dir, file), 'utf8').split('\n');
+  const declaration = /class (\w+)\s*:\s*(XCTestCase|\w+Fixture)\b/;
+  const files = readdirSync(dir).filter(f => f.endsWith('.swift')).map(f => [f, readFileSync(resolve(dir, f), 'utf8').split('\n')]);
+  const classes = new Set(files.flatMap(([, lines]) => lines.map(line => declaration.exec(line)?.[1]).filter(Boolean)));
+  for (const [file, lines] of files) {
     let className = null, func = null;
     lines.forEach((line, i) => {
-      className = /class (\w+)\s*:\s*(XCTestCase|\w+Fixture)\b/.exec(line)?.[1] ?? className;
+      const extended = /^extension (\w+)\b/.exec(line)?.[1];
+      className = declaration.exec(line)?.[1] ?? (classes.has(extended) ? extended : className);
       func = /\bfunc (\w+)\s*\(/.exec(line)?.[1] ?? func;
       if (!requirement.test(line)) return;
       if (!className || !func?.startsWith('test')) throw new Error(`${file}:${i + 1}: missing(${prerequisite}) outside a test method (${func ?? 'none'}); say it in the test so the test runs hosted`);

@@ -10,6 +10,7 @@ import { fileURLToPath } from 'node:url';
 import { faultRequest as rawFaultRequest, preferGroups } from './agent-prefer.mjs';
 import { open } from './agent.mjs';
 import { duringOp } from './agent-drag.mjs';
+import { equalJson } from '../host/web-js/declared-values.js';
 import { perfDelta } from './agent-inspect.mjs';
 import { driveStore, faultSpecOf, launchFacts } from './agent-launch.mjs';
 import { macSandboxed } from './agent-build.mjs';
@@ -90,6 +91,21 @@ export function focusedExpectation(nodes, target) {
   const holder = nodes.find((n) => n.focused);
   const was = !targetNode(nodes, target) ? 'no view carries that testId' : !holder ? 'nothing has the focus' : `${holder.props.testId != null ? JSON.stringify(holder.props.testId) : `${holder.type}#${holder.id}`} has it`;
   return { message: `expected "${target}" focused, ${was}` };
+}
+
+/** `expect layout <target> width|height ==|<=|>= <points>`: null when the size holds, else `{ message }`. The
+ * size is the box `layout <target>` reports, `node.space.viewport` (LLP 1012: viewport points, presentation transforms
+ * folded in), at the reply's two decimals. A node the shipped app does not show fails as `expect text` has it; a host
+ * with no box for the node says why (`space.unavailable`: an iOS swipe action not revealed). */
+export async function layoutExpectation(s, nodes, st) {
+  const n = targetNode(nodes, st.target), said = `${st.dimension} of "${st.target}"`;
+  if (!n) return { message: `${said} is absent (no view carries that testId${unopenedHint(nodes)})` };
+  if (n.unshown) return { message: `testId "${st.target}" is in the tree, but ${n.unshown}`, unshown: true };
+  const space = (await s.layout(n.id)).node?.space, box = space?.viewport;
+  if (!box) return { message: `${said} is unknown: ${space?.unavailable ?? 'the host reports no box for it'}` };
+  const r2 = (v) => Math.round(v * 100) / 100, w = r2(box.w), h = r2(box.h), got = st.dimension === 'width' ? w : h;
+  if (stateHolds(got, st)) return null;
+  return { message: `${said} is ${got}, expected ${{ equal: '', 'at-least': '>= ', 'at-most': '<= ' }[st.comparison]}${st.value} (its box is ${w}×${h})` };
 }
 
 /** A press on a disabled control does nothing, and each host said so its own way (the web's silently, a native one in the words of the view
@@ -563,7 +579,7 @@ const LAUNCH = { epoch: 'epoch', 'time-zone': 'timeZone', locale: 'locale', seed
 
 /** Literal comparisons in a scripted state assertion; numeric bounds never coerce another JSON type. */
 export function stateHolds(got, step) {
-  const equal = value => JSON.stringify(got) === JSON.stringify(value);
+  const equal = value => equalJson(got, value);
   switch (step.comparison) {
     case 'equal': return equal(step.value);
     case 'at-least': return typeof got === 'number' && got >= step.value;
@@ -598,7 +614,10 @@ export function propertyHolds(line, state, previous) {
 }
 
 async function propertyFailure(p, line, state, previous, s, file, test, step, index, host) {
-  const label = ['boot', 'reload'].includes(step.op) ? step.op : step.op === 'clock' ? `clock ${step.arg}` : `${step.op} ${JSON.stringify(step.target)}${step.op === 'type' ? ` ${JSON.stringify(step.text)}` : ''}`;
+  const label = ['boot', 'reload'].includes(step.op) ? step.op
+    : step.op === 'clock' ? `clock ${step.arg}`
+    : step.op === 'presence' ? `presence ${step.answer}`
+    : `${step.op} ${JSON.stringify(step.target)}${step.op === 'type' ? ` ${JSON.stringify(step.text)}` : ''}`;
   const location = at => `${at.file}:${at.line}:${at.col}`;
   const out = [`PROPERTY ${JSON.stringify(p.name)} is false on ${host}`,
     `  property line: ${file}:${line.line}`,
@@ -882,7 +901,7 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
       };
       // Before an input while counted faults are outstanding: those that fired leave the check, so a press the app
       // answers with `close()` cannot take an unfired one's evidence with it (LLP 1103 D3).
-      const INPUTS = new Set(['tap', 'drag', 'type', 'key', 'pick', 'authorize', 'clipboard', 'resize', 'back']);
+      const INPUTS = new Set(['tap', 'drag', 'type', 'key', 'pick', 'authorize', 'presence', 'clipboard', 'resize', 'back']);
       const settleFired = async () => {
         if (!armed.size) return;
         const faults = (await s.state()).faults ?? [];
@@ -960,6 +979,17 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
             catch (error) { if (error.message.includes('held: none')) error.message += pickHint(host); throw error; }
             input = st.line; break;
           }
+          case 'presence': {
+            const r = await s.clock('data');
+            if (r?.error || r?.settled === false) throw new Error(`presence: waiting for the prompt: ${r.error ?? r.diagnostic ?? r.reason}`);
+            try { delivered(await s.tap('@presence', { choice: st.answer })); }
+            catch (error) {
+              const missing = error.message.includes('no held device request');
+              error.message = `presence: ${error.message}${missing ? '; tap the control that calls authenticate or unlocks a presence secret first' : ''}`;
+              throw error;
+            }
+            input = st.line; break;
+          }
           // The held sign-in, completed against the app's own server (LLP 1146 D4): its authorization URL is
           // requested with redirects not followed, and the redirect's Location answers the hold.
           case 'authorize': {
@@ -1019,6 +1049,12 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
           case 'expect-focused': {
             const f = focusedExpectation((await s.tree()).nodes, st.target);
             if (f) await fail(`${at}: ${f.message}`);
+            break;
+          }
+          case 'expect-layout': {
+            const f = await layoutExpectation(s, (await s.tree()).nodes, st);
+            if (f?.unshown) failures.push(`${at}: ${f.message}`);
+            else if (f) await fail(`${at}: ${f.message}`);
             break;
           }
           case 'expect-text': {
@@ -1133,7 +1169,7 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
           default: failures.push(`${at}: unknown step ${st.op}`);
         }
         if (closedAt == null) await mutationClock.advance(s, properties.length ? async (state, delta) => {
-          if (delta || ['tap', 'type', 'clock', 'key', 'reload'].includes(st.op)) {
+          if (delta || ['tap', 'type', 'clock', 'key', 'reload', 'presence'].includes(st.op)) {
             await checkProperties(state, delta ? { ...st, op: 'clock', arg: '+' + delta } : st, n);
           } else previous = state;
         } : undefined);

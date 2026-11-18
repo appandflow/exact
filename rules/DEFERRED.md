@@ -75,6 +75,15 @@ and its build and drive plumbing are deleted, and Android's knob does not grow
 per host. Still out: variants for games, on Windows, for `exact install` and
 its siblings, for `share`, and in the association files.
 
+**Expanded (Charlie, 2026-11-17, on #764: "write up an LLP … and then pursue
+the best path"; LLP 1163.000):** alternate app icons the person chooses, on iOS
+and iPadOS: app.json `alternate_icons`, built as the app's own icons are, and
+`@exact/app-icon`'s `appIcon` and `setAppIcon`. The consumer is Shelf's App Icon
+setting. Take: the discovery of alternates from catalogs, where every extra
+`.appiconset` was one, is deleted; the manifest's list is the only roster. Still
+out: Android, until its own RFC (LLP 1163.000 D5); tvOS, until a consumer asks;
+the Mac's Dock tile; switching without the person's tap.
+
 **Expanded (Charlie, 2026-10-11, events ruling):** `keycapture=` admits DOM
 capture-phase key dispatch for the coding-agent desktop app's early shortcuts;
 `focusin`/`focusout` admit bubbling subtree focus observation for the clipped
@@ -662,6 +671,21 @@ after the panel. Still out: a host crate the app writes beside generated ones
 (an authored workspace is the escape), and a crate deeper than one level below
 `app.json` as a member.
 
+**Expanded (Charlie, 2026-11-17, #578; LLP 1181):** `@exact/shader`, a
+first-party GPU package (LLP 1153.003 D5) whose one surface runs a WGSL
+fragment shader from the app's assets over a canvas, with no Rust in the app:
+`canvas surface=shader(src="assets/plasma.wgsl", speed=2)`. The file's uniform
+struct declares its uniforms, which the canvas binds by name. `time`,
+`resolution` and `devicePixelRatio` are filled for a struct that declares
+them. A shader that declares `time` animates, and holds one frame where the
+person prefers reduced motion; any other rests. The compiler checks a literal
+`src` at build. It draws on the web, macOS, iOS, tvOS, Android, Linux and
+Windows. Consumer: the reporter's full-screen shader, which is a GPU crate and
+about 100 lines of wgpu today. Take: none offered; waived by Charlie. Still
+out: textures, the canvas's children as a texture, several passes, compute, a
+translucent canvas, Display P3 and HDR, matrices and arrays as uniforms, a
+built-in pointer, and inline or downloaded source (LLP 1181 §8).
+
 ## Features carried over as "no"
 
 **Admitted (Charlie, 2026-10-12, textrows ruling):** bounded
@@ -709,6 +733,14 @@ to the ideal end state). Still out: `rotate` and `translate` in a look, and
 
 **Runtime**
 
+**Swift Package Manager products (LLP 1133.001 D9; expo/exact#751):**
+waived by Charlie, 2026-11-16, expo/exact#751. An Apple implementation or
+the app's own Swift may name products at exact versions, with one committed
+`Package.resolved` per app and builds restricted to its resolved versions.
+Unblocks vendor SDKs distributed as Swift packages; app-local xcframeworks
+remain supported. CocoaPods stays out: its trunk stops accepting podspecs
+on 2026-12-02, and the Apple build has no Xcode project for it to integrate into.
+
 **Expanded (Charlie, 2026-10-13, issue-program ruling 10):** runner-owned
 WebSocket sending: the stream mapper receives a socket handle and a mutation
 sends ordered, never-coalesced protocol frames (LLP 1016.000 D7). T3 Code's
@@ -731,15 +763,21 @@ question 1) is not admitted.
 
 **Expanded (Charlie, 2026-11-14, issue panel D1; LLP 1133.001.000):** a
 package outside exact2 opts into closed lists that stay exact2's: Info.plist
-keys, device rows (`device.shareplay` added; `device.cloudkit` once the
-package can be read) and host events (`cloudkit-share`, held until the
-package takes it, writing `CKSharingSupported` when it is taken). A row is
-admitted for a package readable at a pinned version. Consumer: nqh-packages'
-CloudKit and SharePlay packages (#531, #532, #526). Unblocks sharing an iCloud
+keys, device rows (`device.shareplay` and `device.cloudkit`) and host events
+(`cloudkit-share`, held until the package takes it, writing `CKSharingSupported`
+when it is taken). A row is
+admitted for a package readable at a pinned version. For `device.cloudkit`, that
+condition is waived by Charlie, 2026-11-16, expo/exact#531: a bare line derives
+`iCloud.<bundle id>`; an explicit `iCloud.<name>` selects one container. It signs
+CloudKit's services, container identifiers and signing environment on iOS and
+under a provisioning profile on the Mac, with no purpose or push grant.
+Consumer: nqh-packages' CloudKit and SharePlay packages (#531, #532, #526).
+Unblocks sharing an iCloud
 zone and a SharePlay session from a package on an unpatched exact2. Take:
 waived by Charlie, 2026-11-14, after the panel. Still out: a package adding to
-a list; CloudKit and SharePlay as standard modules; silent notifications for
-CloudKit; an Android event seam.
+a list; CloudKit and SharePlay as standard modules; multiple containers;
+silent notifications for CloudKit, including silent pushes for CKSyncEngine;
+an Android event seam.
 
 **Expanded (Daehyeon Mun, 2026-10-23; LLP 1133.005):** a local listener,
 `exactListen("unix:<path>", options)`: a data capability in `fetch`'s shape
@@ -811,6 +849,15 @@ names no take; `:focus-within` remains out.
   else of the bundle, read only, changed only by a new binary; `home:` stays
   absent there, and Android has neither. Consumer: a data module reading a
   file the app ships. Take: none; Charlie's ruling.
+- **Admitted (Charlie, 2026-11-14, waived after the panel; LLP 1173 D2,
+  D4, D5):** `startIn` on the document pickers and `saveFile`, and the seven
+  well-known folders as `fs.write` namespaces whose writes only create, on
+  macOS and Linux; Windows folder writes wait for piece 4's drive. Consumer:
+  #507's screenshot annotation tool, saving captures without a picker per file.
+  Take: waived by Charlie, 2026-11-14, after the panel. Still refused: reading,
+  replacing or removing through these namespaces, photo-library and Android
+  MediaStore access through them, and `doc.keep` on Windows. These lines are
+  declared at build; the refusal of every other durable grant stands.
 - ~~Snapback / update economy.~~ Moved 2026-09-03 (Charlie: "you can pull out snapback
   for now"), in LLP 1026 D11's minimal form only: an installed app fetches a signed
   bundle of static files from a baked-in origin, after first pixel, into an on-disk
@@ -831,6 +878,15 @@ names no take; `:focus-within` remains out.
   a reload (LLP 1121 D13). It patches values only: no code, no slots, no tree. A scrub
   session previews values for the length of a gesture. Release builds change their
   design only by an update. Charlie's waiver; no take is named.
+  **Admitted (Charlie, 2026-11-17; expo/exact#754; LLP 1029.000.002 §7), every restart
+  with carry, `deploy.activate: "immediate"` included:** a replacement matches views and
+  component instances by their place in the tree (LLP 1029.000.002 D1) and keeps what
+  matches: a component's state and owned answers, a kept view and its native editor,
+  scroll anchors, focus and selection. It counts a session `generation` that never
+  repeats. It is still a restart with carry: no patch format, no staged reload, no code
+  patched in place, and no private heap migrated. It replaces four unnamed matchers
+  (`lifted`'s counter names, `CarriedPanels`, `FocusPlace`, the JS checkpoint's index
+  path). Charlie's waiver; no take is named.
 - Islands and inline islands.
 - Cross-runtime shared data in production. **Measured exception (Charlie,
   2026-09-18, LLP 1027.003 §9):** all four isolated transfer/storage directions
@@ -867,7 +923,8 @@ names no take; `:focus-within` remains out.
   runs when an update arrives (the system replaces the activity's state and
   the extension redraws it). Consumer: Interview's AI answer being written,
   which only its server can advance. Unblocks a Live Activity that stays true
-  while its app is suspended. Still refused: push-to-start, remote
+  while its app is suspended. Still refused: push-to-start (admitted
+  2026-11-17, below), remote
   notifications (a visible push admitted 2026-11-11, and a data-only push as a
   wake's trigger 2026-11-14, both below), and everything the click ruling left refused. Take: none
   named; the ruling stands as its own waiver.
@@ -913,10 +970,11 @@ names no take; `:focus-within` remains out.
   Notifications, and a production build (`packages/push/test/checklist.md`);
   nothing is claimed for a device until that run. Not built: push on macOS (the
   row is omitted there) and on the web
-  (Declarative Web Push or a host worker). Still refused: push-to-start; a
+  (Declarative Web Push or a host worker). Still refused: push-to-start
+  (admitted 2026-11-17, below); a
   notification service extension except for the app-owned Swift form admitted
-  below; an event raised by a push, but for a declared action the person chose
-  (below).
+  below; an event raised by a push, except Android data-only pushes and a declared
+  action the person chose (below).
   **Expanded (Charlie, 2026-11-14, "admit", on LLP 1172.016 Q1 after a
   three-seat panel split two to one for admitting):** a data-only push as a
   wake's trigger (`content-available`, the `remote-notification` background
@@ -947,12 +1005,16 @@ names no take; `:focus-within` remains out.
   emulators. Owed on a phone: delivery after an OEM's background limits have
   stopped the app, Doze over hours, and the channel's sound and heads-up on a
   locked screen. With it, push on Android through FCM in `@exact/push`'s
-  Android implementation: its Firebase Installation ID as the live value, a
-  notification message shown in front too, and its tap opening `data.navigate`.
+  Android implementation: its FCM registration token and Firebase Installations
+  ID as the live value, a notification message shown in front too, and its tap
+  opening `data.navigate`.
   Built and run under the agent and on an emulator with no Firebase project;
   owed: a registration with a Firebase project and delivery through FCM. A
-  data message as a wake (admitted above, on LLP 1172.016 Q1) waits for
-  Android's headless session; until then it is journaled.
+  data-only message raises `push` through Android's headless session under a
+  ten-second bound. Charlie, 2026-11-16, admitted full Expo push service support:
+  token-mode registration and a TypeScript exchange with Expo, using
+  `extra.eas.projectId`. JVM and mocked-fetch tests cover these paths; real
+  registration and delivery through Expo remain owed on the reporter's phone.
   **Expanded (the 2026-11-14 panel, two to one, under Charlie's delegation and
   direction to build the ideal end state; LLP 1133.004 §9 P6, P8):** an app's
   own Swift `UNNotificationServiceExtension`, packaged by default in iOS and
@@ -962,10 +1024,24 @@ names no take; `:focus-within` remains out.
   event. Consumer: the builder whose ordinary build replaced the extension.
   Unblocks decryption, downloaded media and rewritten alert text without a
   post-build patch. Take: waived under the delegation. Still refused:
-  push-to-start; an event raised by a visible push except for the person's
+  push-to-start (admitted 2026-11-17, below); an event raised by a visible push except for the person's
   declared action above; a notification content extension; Contract or
   TypeScript on a visible-alert arrival; filtering and critical-alert
   entitlements; and payload keys Exact reads beyond `navigate`.
+  **Expanded (Charlie, 2026-11-17, "Admit; we rewrite", on expo/exact#742;
+  LLP 1126 D9 and LLP 1133.004 §9 P8, amended):** ActivityKit push-to-start
+  for an app's own Live Activities on iOS 17.2 and later. `exactActivities()`
+  answers the push-to-start token, read only when an entry declares
+  `push: true`, and the entries a server may start, each with the generation
+  the app runs and its shape digest; the app gives them to its own backend,
+  which sends the start to APNs, and exact2 sends nothing and relays nothing
+  (LLP 1030.000 D6). No app code runs when a start arrives, and the host boots
+  no session for the launch iOS may make for it: the activity and its update
+  token reach the app at its next read of the source. Consumer: expo/exact#742's
+  author, whose backend starts an activity the app did not. Unblocks a Live
+  Activity that begins while its app is not running. Take: none named; the
+  ruling stands as its own waiver. Built; owed on a device: a start delivered
+  through APNs. Still refused: a session booted for a push-to-start's launch.
 
 **Components** — roughly 15 built-in tags, not 40; roughly 12 Facet components, not 47.
 
@@ -1167,7 +1243,7 @@ reading. Nothing that isn't HTML is added by it.
   Maven libraries need (LLP 1133.008 D8). Consumer: the photo editor, which
   takes a photo and then edits it. Unblocks a photo in an app without app
   Swift. Take: the photo editor's Android port moves to later. Still out,
-  each until a consumer asks (LLP 1133.008 §12): video recording, a camera
+  each until a consumer asks (LLP 1133.008 §12): a camera
   track in `video srcObject=` and frames to code, two cameras at once on
   iOS, document scanning (narrowed from "barcode and document scanning" by
   LLP 1133.027's record below), constraint dictionaries, zoom on the
@@ -1196,8 +1272,15 @@ reading. Nothing that isn't HTML is added by it.
   access-control app, whose guards record a short video and upload it
   (`exactBodyFrom`, now streamed from disk with no size bound where it is
   streamed). Unblocks that without app Kotlin or Swift. Take: none
-  offered; waived by the same ask. Still out: video recording in the app,
-  and the macOS, Windows, Linux, tvOS, visionOS and watchOS cells.
+  offered; waived by the same ask. Still out for the system camera UI: the
+  macOS, Windows, Linux, tvOS, visionOS and watchOS cells.
+- **Expanded (Charlie, 2026-11-16, expo/exact#748; consumer trigger met):**
+  in-app video recording through `startMediaRecorder` in `@exact/recording`,
+  over a camera stream sharing the preview and frame analysis session, to an
+  `app:/` file. Unblocks a guided clip with the app's overlay and countdown.
+  Android and the web first, then Apple; `maxDuration` bounds the clip and
+  the track's `frameRate` constraint sets its ideal rate. The result names
+  its MIME type, byte size, duration, pixel size and frame rate.
 - **Expanded (Charlie, 2026-10-23, "Expand, no take", on LLP 1133.009 §15
   question 6):** recording the microphone to a file and reading its level,
   by Media Capture's and MediaStream Recording's names (`getUserMedia(audio=)`
@@ -1840,8 +1923,15 @@ browser as the oracle, the same shape layout already has. In exchange, not in v1
   toasts, trivia's round (their diaries' Top-5). Unblocks an app that does
   no work at rest while nothing is showing. Take: none offered. Still out:
   an implicit reaction to a state change (LLP 1017 P4c's `task … when [dep]`),
-  component-scoped and action-started timers, computed intervals, a gate
+  action-started timers, computed intervals, a gate
   that reads `performanceNow()`, and cancelling a queued send.
+  **Expanded (LLP 1035.005.004 §7/D6; waived by Charlie, 2026-11-16, expo/exact#476):**
+  a child used outside data-sized repetition may own the root's task forms,
+  including `every(frame, …)`. Each task lives with its instance, runs only
+  while its `when` holds, restarts on `key=` changes, and runs its action in
+  the instance's frame. Unblocks a tab or screen that owns its polling or
+  delayed work. Still out: action-started timers, computed intervals, timers
+  under a data-sized `for`, per-row timers, and a child's `sequence`.
   **Expanded (Charlie, 2026-11-12, request to implement Hirbod's open issues;
   #177):** a root `task NAME [when COND] key=EXPR` may use `change(action)`
   to queue one action after the host applies the current commit, without a timer
@@ -2184,15 +2274,18 @@ compose window, an inspector window or a Settings window, without app Swift. Tak
 none offered; waived by Charlie, 2026-11-14, after the panel (decision D3: all three
 seats chose to build it).
 
-**The displays and the pointer (LLP 1178; expo/exact#506).** The displays by
+**The displays, pointer and still capture (LLP 1178; expo/exact#505, #506).** The displays by
 the Window Management API's names (`getScreenDetails`,
 `windowManagementStatus` from `@exact/window-management`) and the pointer's
-position (`getPointerPosition`), on macOS, the Linux host (its one display)
-and the web (the display list, where the browser has it). Consumer:
+position (`getPointerPosition`), on macOS, Windows, the Linux host (its one
+display) and the web (the display list, where the browser has it). A still
+of every display (`captureScreens`, `screenRecordingStatus`,
+`requestScreenRecording` from `@exact/screen-capture`) is admitted on macOS
+and Windows, behind a one-time grant and without a picker per capture. Consumer:
 Anthonyy232's screenshot annotation tool (#505, #506). Unblocks putting its
-toolbar on the display that holds the pointer without its own monitor code.
+toolbar on the display that holds the pointer and capturing before showing
+its window, without its own Win32 monitor and capture code.
 Take: none offered; waived by Charlie, 2026-11-14, after the panel (decision
-D5: all three seats chose to build both). Still out: Windows (LLP 1178 piece
-4), a still of every display (`captureScreens`, pieces 6 and 7),
-`getDisplayMedia`, window placement, and the desktop Linux, iPadOS and
-Android cells.
+D5: all three seats chose to build both). Still out: `getDisplayMedia`, one
+display, a region, a named window, window placement, and the desktop Linux,
+iPadOS and Android cells.

@@ -12,6 +12,7 @@ fn delivery(platform: &str) {
         );
         assert_eq!(launch, "/post/42?q=1#part", "{platform}: cold launch");
         let mut config = Config {
+            output_rotation: Default::default(),
             #[cfg(target_os = "macos")]
             painted_boot: None,
             content_region: None,
@@ -70,7 +71,9 @@ fn delivery(platform: &str) {
                 exact_runner::agent::state(p.host().runner())
             );
         }
-        assert!(p.reload(&plan, ()).unwrap().is_none());
+        assert!(
+            p.reload(&plan, ()).unwrap() == exact_painted::presenter::ReloadResult::Applied(None)
+        );
         let url = "https://site.invalid/app/post/9?q=3#reload";
         assert_eq!(p.open_location(url, 0.), None, "{platform}: after reload");
         let state = exact_runner::agent::state(p.host().runner());

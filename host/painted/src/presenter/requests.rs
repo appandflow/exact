@@ -104,6 +104,8 @@ pub enum Request {
     /// D1): the reader opens its sounds, videos and pages there again, and
     /// says when it drew the new generation (D5).
     Assets(String),
+    /// A desktop file dialog, taken as a typed request by the window host.
+    FileDialog(super::file_dialog::FileDialog),
 }
 
 /// What a picker is opened with, each value as HTML writes it and empty
@@ -150,6 +152,7 @@ impl Request {
             Request::AuthEnd(_) => 19,
             Request::Files(_) => 18,
             Request::Assets(_) => 20,
+            Request::FileDialog(_) => 21,
         }
     }
 }
@@ -211,7 +214,7 @@ impl Haptic {
 }
 
 /// A request the shell took and has not answered.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug)]
 pub(super) enum Waiting {
     /// The share sheet: its outcome is a journal line (LLP 1069.003 D2).
     Share,
@@ -227,6 +230,8 @@ pub(super) enum Waiting {
     /// None after the input is replaced: still consume and remove the
     /// shell's copies, but never deliver them to the new input.
     Files(Option<ViewId>),
+    FileDialog(super::file_dialog::Waiting),
+    Export(Option<ViewId>),
 }
 
 /// Module calls' bodies and replies, handed over from the native slot's
@@ -238,13 +243,16 @@ type Inbox = std::sync::Arc<std::sync::Mutex<Vec<(Vec<u8>, exact_runner::Reply)>
 pub(super) struct State {
     /// Whether a shell takes requests ([`Presenter::serve_requests`]).
     shell: bool,
+    pub(super) file_dialogs: bool,
     pub(super) agent_turn: Option<AgentTurn>,
     /// The last id given; ids start at 1 and are never reused.
     last: u32,
-    queued: Vec<(u32, Request)>,
+    pub(super) queued: Vec<(u32, Request)>,
     pub(super) waiting: BTreeMap<u32, Waiting>,
     pub(super) importing: std::collections::BTreeSet<u32>,
     pub(super) files: super::picker::Inbox,
+    pub(super) exports: super::file_dialog::Inbox,
+    pub(super) export_workers: BTreeMap<u32, std::thread::JoinHandle<()>>,
     /// What the shell was last told of Back, the kernel epoch that was read
     /// at, and what it was last told of the keyboard.
     back: Option<bool>,
@@ -353,6 +361,7 @@ fn encode(id: u32, request: &Request, out: &mut Vec<i32>) {
                 string(out, mime);
             }
         }
+        Request::FileDialog(dialog) => string(out, &dialog.picker.summary()),
         Request::Surface(surface) => surface.encode(out),
         Request::Hatch(words) => out.extend(words),
         Request::SurfaceHaptic(surface, json) => {
@@ -411,7 +420,7 @@ impl<D: DataSource> Presenter<D> {
             .requests
             .waiting
             .values()
-            .any(|w| *w == Waiting::Files(Some(view)))
+            .any(|w| matches!(w, Waiting::Files(Some(v)) if *v == view))
         {
             let id = self
                 .host
@@ -560,6 +569,9 @@ impl<D: DataSource> Presenter<D> {
     /// package's, called now; a shell's, queued for it, each answered by its
     /// id (`answer_request`); any other, `NotSupportedError`.
     pub(super) fn modules_in(&mut self) {
+        for source in self.requests.packages.take_pictures() {
+            self.picture_changed(&source, false);
+        }
         let calls = std::mem::take(
             &mut *self
                 .requests
@@ -922,7 +934,9 @@ impl<D: DataSource> Presenter<D> {
                 return true;
             }
         }
-        if self.requests.importing.contains(&id) {
+        if self.requests.importing.contains(&id)
+            || matches!(self.requests.waiting.get(&id), Some(Waiting::Export(_)))
+        {
             return false;
         }
         if matches!(self.requests.waiting.get(&id), Some(Waiting::Files(_)))
@@ -972,6 +986,10 @@ impl<D: DataSource> Presenter<D> {
                 }
             }
             Waiting::Files(view) => self.files_chosen(id, view, answer),
+            Waiting::Export(_) => unreachable!("exports complete on their worker"),
+            Waiting::FileDialog(waiting) => {
+                self.finish_file_dialog(id, waiting, super::file_dialog::Outcome::Cancelled)
+            }
         }
         true
     }
@@ -993,7 +1011,10 @@ impl<D: DataSource> Presenter<D> {
             .filter(|(_, w)| {
                 !matches!(
                     w,
-                    Waiting::Pick(_) | Waiting::Files(_) | Waiting::Auth { opened: true, .. }
+                    Waiting::Pick(_)
+                        | Waiting::Files(_)
+                        | Waiting::Export(_)
+                        | Waiting::Auth { opened: true, .. }
                 )
             })
             .map(|(id, _)| *id)
@@ -1024,13 +1045,17 @@ impl<D: DataSource> Presenter<D> {
     }
 
     fn drop_picks(&mut self, stale: impl Fn(ViewId) -> bool) {
-        for waiting in self.requests.waiting.values_mut() {
-            if let Waiting::Files(view) = waiting {
+        self.requests.waiting.retain(|_, waiting| {
+            if let Waiting::FileDialog(waiting) = waiting {
+                return !waiting.view.is_some_and(&stale);
+            }
+            if let Waiting::Files(view) | Waiting::Export(view) = waiting {
                 if view.is_some_and(&stale) {
                     *view = None;
                 }
             }
-        }
+            true
+        });
         let picks: Vec<(u32, ViewId)> = (self.requests.waiting.iter())
             .filter_map(|(id, w)| match w {
                 Waiting::Pick(node) if stale(*node) => Some((*id, *node)),

@@ -844,6 +844,7 @@ final class NativeButtonsIOSTests: XCTestCase {
 
     func testSelectAlignmentMovesItsNativeTitleWithoutRebuildingTheMenu() throws {
         let menu = selectMenu(), p = selectPresenter(selectMenu())
+        p.apply(wireBatch([["op": "style", "id": 3, "style": ["field_sizing": "fixed", "written": ["field_sizing"]]]]))
         let node = try XCTUnwrap(p.views[3]), select = try XCTUnwrap(p.controls.controls[3] as? UIButton)
         let natural = p.controls.naturalSize(select, node)
         var widestMenu = menu
@@ -859,7 +860,8 @@ final class NativeButtonsIOSTests: XCTestCase {
         defer { reference.removeFromSuperview() }
         var titleRects: [String: CGRect] = [:]
         for alignment in [nil, "right", "left", "center", nil] as [String?] {
-            let style: [String: Any] = alignment.map { ["text_align": $0] } ?? [:]
+            var style: [String: Any] = ["field_sizing": "fixed", "written": ["field_sizing"]]
+            if let alignment { style["text_align"] = alignment }
             p.apply(wireBatch([["op": "style", "id": 3, "style": style]]))
             let actual = try popupTitleRect(select)
             XCTAssertEqual(try popupIndicatorRect(select), try popupIndicatorRect(reference), "alignment leaves the native indicator at the inline end")
@@ -968,8 +970,8 @@ final class NativeButtonsIOSTests: XCTestCase {
         let p = selectPresenter(menu)
         p.selectOptions = { _ in menu }
         let node = try XCTUnwrap(p.views[3]), select = try XCTUnwrap(p.controls.controls[3] as? UIButton)
+        p.apply(wireBatch([["op": "style", "id": 3, "style": ["text_align": "right", "field_sizing": "fixed", "written": ["field_sizing"]]]]))
         let natural = p.controls.naturalSize(select, node)
-        p.apply(wireBatch([["op": "style", "id": 3, "style": ["text_align": "right"]]]))
         var heard: [String] = []
         p.onControlValue = { id, value, input, change in
             XCTAssertEqual(id, 3)

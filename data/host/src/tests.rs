@@ -10,6 +10,10 @@ use exact_runner::{FailureKind, Request};
 use serde_json::{json, Value as Json};
 use std::sync::atomic::{AtomicU64, Ordering};
 
+/// The host work these tests hand out (LLP 1047.001 D12).
+struct TestWork;
+impl exact_runner::HostWork for TestWork {}
+
 const GRANTS: &str = "fs.read app:/data\nfs.write app:/data\nsqlite.open app:/data/test.db";
 
 struct Paths(PathBuf);
@@ -502,7 +506,7 @@ impl DataSource for Continuing {
         Ok(Value::Unit)
     }
     fn answer(&mut self, _: &mut Store, _: &str, _: &[Value]) -> Result<Answer, DataError> {
-        Ok(Answer::Later(Request::continuation(7)))
+        Ok(Answer::Later(Request::continuation::<TestWork>(7)))
     }
     fn dispatch(&mut self, _: u64, _: &Store) -> exact_runner::Dispatch {
         exact_runner::Dispatch::Host(7)
@@ -1302,3 +1306,6 @@ fn image_cancellation_orders_publication_and_the_consumer_reads_only_success() {
     assert_eq!(work.outstanding_workers(), 0);
     assert_eq!(work.pending_completions(), 0);
 }
+
+#[cfg(any(unix, windows))]
+mod known_folders;

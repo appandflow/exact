@@ -21,6 +21,10 @@ document (file-text), ellipsis, forward-chevron (chevron-right), hashtag (hash),
 info, list, lock, moon, people (users), play-fill (play), refresh (rotate-cw),
 settings, share and star.
 
+packages/model-viewer adapts occlusion-viewer by Ming Kao at b63cff7
+(https://github.com/koolkao/occlusion-viewer), Copyright (c) 2026 Ming Kao,
+under the MIT License; its notice is LICENSE-occlusion-viewer in that package.
+
 Media
 
 The following images are by Daehyeon Mun and are included with permission:

@@ -79,9 +79,10 @@ pub trait Backend {
         Err("this painter cannot present to a CAMetalLayer".into())
     }
     /// Copy the last compose target, without another paint or resize in between.
+    /// False means no retained frame is available.
     #[cfg(target_os = "macos")]
-    fn repeat_apple_frame(&mut self) -> Result<(), String> {
-        Err("this painter has no retained Metal frame".into())
+    fn repeat_apple_frame(&mut self) -> Result<bool, String> {
+        Ok(false)
     }
     /// A lost device whose carrier can present CPU pixels without that device.
     fn lost_device_needs_cpu(&self) -> bool {
@@ -147,8 +148,8 @@ pub trait Backend {
     /// A new frame of this size in points at this scale, cleared to the
     /// page's colour ([`Backend::page`]; white until one is told).
     fn begin(&mut self, width: f32, height: f32, scale: f32);
-    /// Release idle renderer storage on memory pressure or backgrounding.
-    fn trim(&mut self) {}
+    /// Release idle renderer storage, keeping the visible frame unless hidden.
+    fn trim(&mut self, _hidden: bool) {}
     /// Storage from a presented frame after its last reader releases it.
     fn recycle_frame(&mut self, _pixels: Pixmap) {}
     /// Seed a clipped repaint from an accepted frame; false means full repaint.
@@ -246,6 +247,21 @@ pub trait Backend {
     }
     /// End the innermost accepted projective matrix.
     fn plane_end(&mut self) {}
+    /// A box's CSS `filter` run by the backend itself (LLP 1172.023.001 D1):
+    /// what the walk paints until [`Self::pop_filter`] goes through
+    /// `primitives`, a box filter's chain, over `region` in `ts`'s space.
+    /// Whether it took them; else the painter rasterizes the box and runs
+    /// the chain on the CPU.
+    fn push_filter(
+        &mut self,
+        _primitives: &[exact_kernel::svg::filter::Primitive],
+        _region: Rect4,
+        _ts: Transform,
+    ) -> bool {
+        false
+    }
+    /// End the filter [`Self::push_filter`] took.
+    fn pop_filter(&mut self) {}
     /// Composite a rendered canvas child (not a decoded image asset).
     fn surface_image(&mut self, pixels: Arc<Pixmap>, dst: Rect4);
     /// Composite a 2D canvas's bitmap into `dst`, clipped (LLP 1056 D7).
@@ -320,6 +336,11 @@ pub trait Backend {
     fn pointer(&mut self, x: f32, y: f32);
     /// The frame's pixels.
     fn finish(&mut self) -> Result<Pixmap, String>;
+    /// Rotate a retained GPU target before readback, when this backend supports it.
+    /// Other backends return pixels for the output's GPU blit.
+    fn finish_rotated(&mut self, _rotation: exact_ink::Rotation) -> Option<Result<Pixmap, String>> {
+        None
+    }
     /// Complete a paint for its consumer. `Pixels` requires an image; `Window`
     /// permits `None` after submission. `Geometry` updates only geometry.
     /// CPU backends return pixels.
@@ -418,7 +439,7 @@ impl super::Painter {
         self.backend.attach_apple_layer(layer)
     }
     #[cfg(target_os = "macos")]
-    pub(crate) fn repeat_apple_frame(&mut self) -> Result<(), String> {
+    pub(crate) fn repeat_apple_frame(&mut self) -> Result<bool, String> {
         self.backend.repeat_apple_frame()
     }
     pub(crate) fn lost_device_needs_cpu(&self) -> bool {
@@ -461,9 +482,13 @@ impl super::Painter {
         self.backend.attach_window(window, size)
     }
 
-    /// Release idle renderer storage while preserving kept rows.
-    pub fn trim(&mut self) {
-        self.backend.trim();
+    /// Release rebuildable drawing storage on memory pressure or while hidden.
+    /// Keep the accepted content picture until its replacement is published.
+    pub fn trim(&mut self, hidden: bool) {
+        // Rows must release their texture pins before the backend trims its images.
+        self.discard_rows();
+        self.damage.pixels = None;
+        self.backend.trim(hidden);
     }
 }
 

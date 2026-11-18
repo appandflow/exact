@@ -1,12 +1,12 @@
 //! Every example in the guides compiles (LLP 1086 D10): each fenced
-//! `contract` block in `docs/*.md`, the recipes (`docs/recipes/*.md`, LLP
-//! 1116 D3) and `README.md` compiles with no errors, those a builder copies
-//! (README's, the recipes', start-here's) with no warnings either, and each
+//! `contract` block in `docs/*.md`, `docs/recipes/*.md` (LLP 1116 D3),
+//! `game/recipes/*.md` and `README.md` compiles with no errors. Examples in the
+//! README, recipes and start-here guides compile without warnings. Each
 //! `contract-test` block parses. A deliberately partial block is fenced
 //! `text`. A `forma` block is checked as a design, and is the design of
 //! the `contract` blocks after it in its section (LLP 1121 D2). Every
-//! failure is reported in one run. So does every starter
-//! pattern (`docs/patterns/<name>/`, LLP 1116.001 D3), and the async lane
+//! failure is reported in one run. Starter patterns compile too
+//! (`docs/patterns/<name>/`, LLP 1116.001 D3), and the async lane
 //! verifies an app `exact new` made, untouched and with each pattern
 //! written into it.
 
@@ -41,11 +41,10 @@ impl Block {
     }
 }
 
-/// `README.md`, every `docs/*.md` and every recipe (`docs/recipes/*.md`),
-/// by path from the repo root.
+/// `README.md`, `docs/*.md` and the recipes in `docs/recipes` and `game/recipes`.
 pub(crate) fn documents() -> Vec<PathBuf> {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let mut docs: Vec<PathBuf> = ["docs", "docs/recipes"]
+    let mut docs: Vec<PathBuf> = ["docs", "docs/recipes", "game/recipes"]
         .iter()
         .flat_map(|dir| std::fs::read_dir(root.join(dir)).unwrap())
         .map(|entry| entry.unwrap().path())
@@ -273,17 +272,40 @@ fn the_long_list_recipe_appends_pages_and_stops_at_the_last() {
 #[test]
 fn every_contract_example_in_the_guides_compiles_and_every_test_parses() {
     let dir = Scratch::new(format!("exact-docs-{}", std::process::id()));
-    let package = dir.join("node_modules/@exact/in-app-browser");
-    let source = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../packages/in-app-browser");
-    for file in [
-        "package.json",
-        "exact.json",
-        "apple/exact.json",
-        "android/exact.json",
-        "web/exact.json",
+    let packages = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../packages");
+    for (name, from, files) in [
+        (
+            "@exact/app-icon",
+            "app-icon",
+            &["package.json", "exact.json", "apple/exact.json"][..],
+        ),
+        (
+            "@exact/in-app-browser",
+            "in-app-browser",
+            &[
+                "package.json",
+                "exact.json",
+                "apple/exact.json",
+                "android/exact.json",
+                "web/exact.json",
+            ][..],
+        ),
+        (
+            "@fixture/camera-calibration",
+            "fixtures/camera-calibration",
+            &[
+                "package.json",
+                "exact.json",
+                "apple/exact.json",
+                "android/exact.json",
+            ][..],
+        ),
     ] {
-        std::fs::create_dir_all(package.join(file).parent().unwrap()).unwrap();
-        std::fs::copy(source.join(file), package.join(file)).unwrap();
+        let package = dir.join("node_modules").join(name);
+        for file in files {
+            std::fs::create_dir_all(package.join(file).parent().unwrap()).unwrap();
+            std::fs::copy(packages.join(from).join(file), package.join(file)).unwrap();
+        }
     }
     let path = dir.join("app.contract");
     let (mut compiled, mut parsed) = (0, 0);

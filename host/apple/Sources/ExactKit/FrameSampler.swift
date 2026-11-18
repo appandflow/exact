@@ -434,7 +434,7 @@ final class FrameSampler: NSObject {
     @objc func tick(_ link: CADisplayLink) {
         observe(now: link.timestamp, target: link.targetTimestamp, at: CACurrentMediaTime())
         // Which images show without their pixels this frame (LLP 1145 D2).
-        session?.rasters.sampleBlank()
+        session?.rasters?.sampleBlank()
         // The session's own frame source running is activity too.
         if session?.frames.link != nil || held { active = CACurrentMediaTime() }
         if !observing && CACurrentMediaTime() - active > Self.quiet { stop() }
@@ -491,7 +491,7 @@ final class FrameSampler: NSObject {
         lateCount += 1
         missed += record.missed
         // The hatches that ran in it: the sample's own interval, `(now − interval, now]`.
-        record.hatches = session?.hatchDiagnostics.window(from: now - record.interval / 1000, to: now)
+        record.hatches = session?.natives.diagnostics?.window(from: now - record.interval / 1000, to: now)
         record.phases = HostPhases.shared.window(from: now - record.interval / 1000, to: now)
         if record.hatches != nil || record.phases != nil { records[records.count - 1] = record }
         keepRecorded(record, scrolled)
@@ -644,7 +644,7 @@ extension ExactSession {
         // The sites' work, which a release build counts from here: its live
         // instances, and no work yet.
         runtime.measureWork()
-        let perf = raw(agent("{\"op\":\"perf\"}"))
+        let perf = raw(runtime.ask(exact_perf, "{}"))
         #if canImport(UIKit)
         let host = "ios", device = ProcessInfo.processInfo.environment["SIMULATOR_MODEL_IDENTIFIER"].map { "\($0) (simulator)" } ?? UIDevice.current.model
         #else
@@ -679,11 +679,11 @@ extension ExactSession {
                         "overrun": "iOS and tvOS 18 and later: the UI update's commit past its completionDeadlineTime (UIUpdateLink, afterCATransactionCommit); elsewhere: a main run-loop turn that began before the frame's targetTimestamp and went to sleep after it",
                         "loaf": "none on this host"],
             "plan": (perf as? [String: Any])?["plan"] ?? NSNull(),
-            "journal": raw(agent("{\"op\":\"logs\",\"since\":0}")),
+            "journal": raw(runtime.ask(exact_logs, "{\"since\":0}")),
             "frames": frames,
             "perf": perf,
             // The hatches (LLP 1075.003.000.001 §3.3), read in this same turn, so the sections agree.
-            "hatches": ["state": presenter.elements.observation(hatchDiagnostics), "perf": hatchPerf()],
+            "hatches": ["state": presenter.elements.observation(natives.diagnostics), "perf": natives.diagnostics?.perf(of: self) ?? [:]],
         ]
         trace.merge(traceSnapshot()) { _, snapshot in snapshot }
         do {
@@ -715,7 +715,7 @@ extension ExactSession {
     /// Save Trace, ask.
     func measurePerf(frameSampler: Bool = true) {
         guard FrameSampler.measured else { return }
-        HatchDiagnostics.measuring = true
+        HatchDiagnosticsLink.measuring = true
         if frameSampler, sampler == nil { sampler = FrameSampler(session: self) }
         runtime.measureWork()
     }

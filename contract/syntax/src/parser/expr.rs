@@ -15,6 +15,13 @@ const MAX_NESTING: u32 = 64;
 const MAX_TREE_DEPTH: usize = 100;
 
 impl Parser {
+    pub(super) fn state_literal(&mut self) -> R<Expr> {
+        // Stop before a binary operator: `in 0 -2 2` is three literals.
+        let mut value = self.unary()?;
+        check_state_literal(&mut value)?;
+        Ok(value)
+    }
+
     pub(super) fn expr(&mut self) -> R<Expr> {
         self.nest()?;
         let e = self.ternary();
@@ -522,5 +529,57 @@ impl Parser {
         }
         self.built(deepest, span)?;
         Ok(Expr::Template(parts, span))
+    }
+}
+
+fn check_state_literal(value: &mut Expr) -> R<()> {
+    match value {
+        Expr::Number(..) | Expr::Str(..) | Expr::Bool(..) | Expr::None(..) => Ok(()),
+        Expr::Unary(UnOp::Neg, inner, span) if matches!(inner.as_ref(), Expr::Number(..)) => {
+            let Expr::Number(n, _) = inner.as_ref() else {
+                unreachable!()
+            };
+            *value = Expr::Number(-n, *span);
+            Ok(())
+        }
+        Expr::Template(parts, span) if parts.iter().all(|p| matches!(p, TemplatePart::Text(_))) => {
+            let text = parts
+                .iter()
+                .map(|p| match p {
+                    TemplatePart::Text(text) => text.as_str(),
+                    _ => unreachable!(),
+                })
+                .collect();
+            *value = Expr::Str(text, *span);
+            Ok(())
+        }
+        Expr::Some(inner, _) => check_state_literal(inner),
+        Expr::List(items, _) => items.iter_mut().try_for_each(check_state_literal),
+        Expr::Call(_, fields, _) => {
+            let mut names = std::collections::BTreeSet::new();
+            for field in fields {
+                let Expr::NamedArg(name, value, span) = field else {
+                    return Err(state_literal_error(field.span()));
+                };
+                if !names.insert(name.clone()) {
+                    return Err(SyntaxError {
+                        id: "syntax-expected-step",
+                        message: format!("`expect state`: field `{name}` is given twice"),
+                        span: *span,
+                    });
+                }
+                check_state_literal(value)?;
+            }
+            Ok(())
+        }
+        _ => Err(state_literal_error(value.span())),
+    }
+}
+
+fn state_literal_error(span: Span) -> SyntaxError {
+    SyntaxError {
+        id: "syntax-expected-step",
+        message: "`expect state` compares value literals, not expressions: a number, string, bool, `none`, `some(literal)`, list, or shape with literal fields".into(),
+        span,
     }
 }

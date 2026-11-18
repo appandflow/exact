@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-import { buildPageFiles, writeCrawlerFiles } from './crawl.mjs';
+import { buildPageFiles, renderEntryPages, writeCrawlerFiles } from './crawl.mjs';
 import { warmGameInputs, warmGameEnvironment, publishWarmGame } from '../web-js/module.mjs';
 import { generatedInputFiles } from '../../game/inputs.mjs';
 // Build the web app (LLP 1071): the JS target, `host/web-js/build.mjs`, the
@@ -25,7 +25,8 @@ import { generatedInputFiles } from '../../game/inputs.mjs';
 // Developer builds bake development trust; EXACT_UPDATE_TRUST=production
 // requires signing keys, and the deploy verb always selects production.
 import { grantOrigins } from './navigation/grant-origins.js';
-import { buildHostGlue, gateAgent, modulePrelude } from '../web-js/glue.mjs';
+import { buildHostGlue, bundleModuleGlue, modulePrelude } from '../web-js/glue.mjs';
+import { gateAgent } from '../web-js/agent-gate.mjs';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
@@ -33,11 +34,12 @@ import { basename, dirname, relative, resolve, sep } from 'node:path';
 import { within } from '../../scripts/paths.mjs';
 import { fileURLToPath } from 'node:url';
 import { gzipSync } from 'node:zlib';
-import { writeInstallPages } from '../../scripts/install-page.mjs';
+import { sourceProvenance, writeInstallPages } from '../../scripts/install-page.mjs';
 import { sealEnvelope } from '../../scripts/deploy-signing.mjs';
 import { compilerWarnings, oneScheme, webInputDigests } from '../../scripts/agent-launch.mjs';
 import { webBuildFailure } from '../../scripts/app-cli.mjs';
 import { builtSettings } from '../../js/bake/src/__exact_env.mjs';
+import { packageGpuDir, packageGpuInputs, packageGpuManifest, rustDataOf } from '../../scripts/app-shells.mjs';
 import { authClientMetadata, checkModuleRoster, gpuModules, markWorlds, rustPolicy, webGpuArtifacts, webHostFiles, worldSurfaces } from '../../scripts/app.mjs';
 import { webAudioSession, webCspFile, webHead, webStandaloneHead } from '../../scripts/web-head.mjs';
 import { buildRust, rustFiles, rustCards, rustPackage } from '../../scripts/rust.mjs';
@@ -51,8 +53,8 @@ import { interfaceStyle, launchBackground, schemeHead, withInterfaceStyle, withL
 import { webIconLinks, webThemeColors } from '../../scripts/app-icons.mjs';
 import { appManifestDigest, appSources, buildFileCards, copyStaticTreeIfPresent, listAssets, hostingNotes, planRouteTable, publicFileCards, replaceBuild, webEnvelope, moduleCards, MODULE_FILES } from './serve.mjs';
 import { foreignBeside } from './generations.mjs';
-import { androidAssociation, writeLinkFiles } from './association.mjs';
-import { cargoInputPaths, compilerPaths } from '../../scripts/cargo-dep-info.mjs';
+import { writeLinkFiles } from './association.mjs';
+import { cargoInputPaths, compilerPaths, rustShapeInputs } from '../../scripts/cargo-dep-info.mjs';
 import { captureWebProducts, contractReadReceipt } from '../../scripts/web-build.mjs';
 
 const SDK_ROOT = fileURLToPath(new URL('../..', import.meta.url));
@@ -103,11 +105,27 @@ export function webSourceRoots(app, js, render = 'rust') {
   if (js && !set && rustMissing()) throw new RustMissing('exact-web-js');
   closure(recorded ?? webMetadata(SDK_ROOT), WEB_CRATES);
   const names = [], build = resolve(app.dir, 'web/build.rs');
+  const data = rustDataOf(app.manifest);
+  if (data) names.push(data.krate);
   const authored = existsSync(build) && !/^\s*fn main\(\)\s*\{\s*exact_js_bake::build\w*\(/m.test(readFileSync(build, 'utf8'));
   if (app.crate) {
     if (!js || authored) names.push(app.crate('web'));
     if (app.manifest.rust?.module?.package) names.push(app.manifest.rust.module.package);
-    const gpu = [...(app.manifest.game || existsSync(resolve(app.dir, 'gpu/Cargo.toml')) ? [app.crate('gpu')] : []), ...gpuModules(app.manifest).map(({ name }) => app.crate(`gpu-${name}`))];
+    const gpu = [...(app.manifest.game || existsSync(resolve(app.dir, 'gpu/Cargo.toml')) ? [app.crate('gpu')] : []), ...gpuModules(app.manifest, 'web').filter(m => !m.package).map(({ name }) => app.crate(`gpu-${name}`))];
+    // Discovery reads the workspace the last build generated and never writes one: a dev loop's parent asks after
+    // each build, and regenerating from a declaration the build did not use would make its own build stale. The
+    // workspace is made from the declaration, the package's manifest and its lock, so only those are inputs. Every
+    // package's declaration is one, whichever hosts it names, so that adding the web to its `targets` rebuilds.
+    const declared = packageGpuManifest({ gpu: app.manifest.gpu }, app.dir);
+    for (const file of packageGpuInputs(declared)) files.add(file);
+    for (const module of gpuModules(declared, 'web').filter(m => m.package)) {
+      roots.add(resolve(module.root, module.crate));
+      const at = packageGpuDir(app, module);
+      // Absent before its first build, or behind an edit to the package's manifest that the next build resolves.
+      let metadata = null;
+      try { if (existsSync(resolve(at, 'Cargo.lock'))) metadata = webMetadata(at); } catch {}
+      if (metadata) closure(metadata, [app.crate(`gpu-${module.name}`)]);
+    }
     // A generated app's GPU crates resolve in a workspace of their own (LLP 1153.003 D5.1).
     const own = gpu.length && app.gpuWorkspace && app.gpuWorkspace !== app.workspace ? app.gpuWorkspace : null;
     if (own) closure(webMetadata(own), gpu); else names.push(...gpu);
@@ -161,7 +179,10 @@ export function webSourceRoots(app, js, render = 'rust') {
         const name = entry.name === 'output' ? basename(dir).replace(/-[a-f0-9]+$/, '') : basename(dirname(dirname(dir)));
         for (const { packages } of workspaces) {
           const pkg = packages.find(pkg => pkg.name === name);
-          if (pkg) for (const input of cargoInputPaths(readFileSync(path, 'utf8'), dirname(pkg.manifest_path))) add(input, true);
+          if (pkg) {
+            const stdout = readFileSync(path, 'utf8');
+            for (const input of [...cargoInputPaths(stdout, dirname(pkg.manifest_path)), ...rustShapeInputs(stdout)]) add(input, true);
+          }
         }
       } else if (entry.name.endsWith('.json') && basename(dir) === 'kept') {
         const kept = JSON.parse(readFileSync(path, 'utf8'));
@@ -173,7 +194,8 @@ export function webSourceRoots(app, js, render = 'rust') {
     }
   };
   for (const target of targets) scan(target);
-  return [...roots, ...[...files].map(file => ({ file }))];
+  const packageGpu = resolve(app.dir, '.exact/package-gpu'), source = path => !under(packageGpu, path);
+  return [...[...roots].filter(source), ...[...files].filter(source).map(file => ({ file }))];
 }
 
 /** A receipt's `sources` (serve.mjs `appSources`): the app's files as the build ends, or null when one came or went
@@ -245,7 +267,7 @@ function outPath(given) {
   return path;
 }
 // After resolveApp, which names `bun install` when the packages are missing.
-const [{ rolldown }, { minifySync }] = await Promise.all([import('rolldown'), import('rolldown/experimental')]);
+const { minifySync } = await import('rolldown/experimental');
 // A game's web build is the wasm target (Charlie, 2026-09-29: "Game runtime
 // is fine to be on wasm"; LLP 1071 §8). For an app the JS target is the web
 // build, and what it refuses is an error; `--wasm` is internal (below).
@@ -451,7 +473,8 @@ function copyHostFiles(group) {
       : readFileSync(source.startsWith('target/web-host/') ? resolve(hostDir, name) : resolve(root, source), 'utf8');
     // Production ships executable code, without source comments and long
     // local names. Keep exports and property names intact across modules.
-    const result = minifySync(name, production ? gateAgent(code, name) : code, { module: !['module-prelude.js', 'module-binary.js', 'audio-session.js'].includes(name) });
+    const module = !['module-prelude.js', 'module-binary.js', 'audio-session.js'].includes(name);
+    const result = minifySync(name, production ? gateAgent(code, name, { sourceType: module ? 'module' : 'script' }) : code, { module });
     if (result.errors.length) throw new Error(`${name}: ${JSON.stringify(result.errors)}`);
     writeFileSync(resolve(stage, name), result.code);
   }
@@ -519,14 +542,8 @@ if (bakeOnly ? !!moduleInput : typeof exports.exact_module_artifact === 'functio
   pairedModule = Object.fromEntries(Object.entries(moduleCards(files, app.id)).map(([key, card]) => [key, { ...card, url: './' + MODULE_FILES[key] }]));
   writeFileSync(resolve(stage, 'app.hbc'), bytecode);
   copyHostFiles('module');
-  // Remove the module-glue → storage → fs/sqlite request chain's middle
-  // step. Keep the stateful adapters as shared modules: Rust requests also
-  // import them, and must share the same filesystem mutation queues, and
-  // the pickers' handles live in the page's one documents-glue.js.
-  const bundle = await rolldown({ input: resolve(root, 'host/web/module-glue.js'), platform: 'browser',
-    external: ['./storage-fs.js', './storage-sqlite.js', './documents-glue.js'], plugins: [{ name: 'agent-gate', transform: (code, id) => ({ code: gateAgent(code, id) }) }] });
-  try { await bundle.write({ file: resolve(stage, 'module-glue.js'), format: 'es', minify: true }); }
-  finally { await bundle.close(); }
+  // Remove the module-glue → storage → fs/sqlite request chain's middle step.
+  await bundleModuleGlue(root, resolve(stage, 'module-glue.js'), { production });
 }
 const bakedReceipt = readBake(app, 'web', 'wasm32-unknown-unknown', buildEnv.EXACT_BAKE_OUTPUT);
 writeFileSync(resolve(stage, 'app.version.json'), versionFile(bakedReceipt.embedded));
@@ -565,11 +582,10 @@ const manifestNotes = [];
 const webManifest = webAppManifest(app.manifest, app.displayName, manifestNotes, app.dir);
 for (const note of manifestNotes) console.log(note);
 writeFileSync(resolve(stage, 'manifest.json'), JSON.stringify(webManifest, null, 2) + '\n');
-const sourceRevision = spawnSync('git', ['rev-parse', '--short=10', 'HEAD'], {cwd:app.dir,encoding:'utf8',timeout:5000,killSignal:'SIGKILL'});
-const sourceChanges = spawnSync('git', ['status', '--porcelain'], {cwd:app.dir,encoding:'utf8',timeout:5000,killSignal:'SIGKILL'});
+const [sourceRevision, sourceChanges] = await sourceProvenance(app.dir);
 writeInstallPages(stage, app.manifest, { id: buildReceipt.binary.sha256,
-  source: sourceRevision.status === 0 ? sourceRevision.stdout.trim() : null,
-  dirty: sourceChanges.status === 0 ? !!sourceChanges.stdout.trim() : null,
+  source: sourceRevision,
+  dirty: sourceChanges === null ? null : !!sourceChanges,
   builtAt: buildEnv.EXACT_UPDATE_TRUST === 'production' ? null : new Date().toISOString(),
   mode: buildEnv.EXACT_UPDATE_TRUST === 'production' ? 'Release build' : 'Development build', reach: bakedReceipt.reach?.rows ?? [] });
 const escapeHtml = (t) => String(t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
@@ -665,11 +681,9 @@ if (buildLocations.length && renderAt) {
   const rendered = spawnSync('cargo', ['run', '-q', '-p', renderCrate, '--bin', renderBin, '--', '--plan', planOut,
     '--name', webManifest.name, ...(app.origin ? ['--origin', app.origin] : []), '--shell', resolve(stage, 'index.html'), '--build'],
   { cwd: app.dir, env: renderEnv, encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 });
-  if (rendered.status !== 0) throw new Error(`${renderBin}: ${rendered.stderr}${rendered.stdout}`);
+  const pages = renderEntryPages(renderBin, rendered);
   const shell = readFileSync(resolve(stage, 'index.html'), 'utf8');
-  const pages = rendered.stdout.split('\n').filter(Boolean).map((line) => JSON.parse(line));
   if (pages.length) writeFileSync(resolve(stage, 'shell.html'), shell);
-  for (const doc of pages) if (doc.error) throw new Error(`${renderBin} ${doc.location}: ${doc.error}`);
   // Each page's file as the JS target's writers choose it and the servers look it up (crawl.mjs `buildPageFiles`).
   const routeTable = planRouteTable(planBytes), files = buildPageFiles(stage, pages, routeTable);
   for (const [i, doc] of pages.entries()) {
@@ -686,23 +700,8 @@ if (buildLocations.length && renderAt) {
 // The origin's association files (LLP 1030 D1; 1030.000 D2; LLP 1038 D8): one merged file per platform, from the
 // manifest's link claims and the bake's credentials; static origin files the platforms fetch, never a dev-server
 // claim. Every other origin a claim names is printed with its files.
-const ios = app.manifest.host?.ios ?? {};
-// @ref LLP 1069.006 D2 — a claimed https auth callback on Apple needs this
-// origin's `webcredentials` entry too (and is excluded from its links).
 const authReach = bakedReceipt.reach?.auth ?? {};
-// @ref LLP 1133.011 D6 — an `auth.passkey` RP ID that is the origin's host: this origin serves both platforms' files.
-const originHost = app.origin ? new URL(app.origin).hostname : null;
-const passkeyHere = (authReach.passkeys ?? []).includes(originHost);
-const webcredentials = passkeyHere || (authReach.callbacks ?? []).some((c) => app.origin && c.startsWith(new URL(app.origin).origin + '/'));
-for (const line of writeLinkFiles(stage, app, { webcredentials, passkeys: passkeyHere, callbacks: authReach.callbacks ?? [] })) console.error(line);
-// Every other RP ID's two entries are printed, for the domain that serves it.
-const certificates = app.manifest.host?.android?.certificates ?? [];
-const androidStatement = androidAssociation(app.manifest);
-const elsewhere = (authReach.passkeys ?? []).filter((rp) => rp !== originHost && rp !== 'localhost');
-const passkeyNote = (authReach.passkeys ?? []).length ? `; passkeys: ${[
-  passkeyHere ? `${originHost}'s association files${ios.team ? '' : ' (no host.ios.team: no apple-app-site-association)'}${certificates.length ? '' : ' (no host.android.certificates: no assetlinks.json)'}` : null,
-  ...elsewhere.map((rp) => `${rp} must serve /.well-known/apple-app-site-association {"webcredentials":{"apps":["${ios.team ?? '<team>'}.${app.id}"]}} and /.well-known/assetlinks.json ${JSON.stringify([androidStatement])}`),
-].filter(Boolean).join('; ')}` : '';
+for (const line of writeLinkFiles(stage, app, { passkeys: authReach.passkeys ?? [], callbacks: authReach.callbacks ?? [] })) console.error(line);
 
 // The web's auth callback page and the two client-metadata documents
 // (LLP 1069.006 D4; after review, item 3: one client id per
@@ -712,7 +711,8 @@ let authNote = '';
 if (authReach.sessions) {
   mkdirSync(resolve(stage, '.exact/auth'), { recursive: true });
   copyFileSync(resolve(root, 'host/web/auth-callback.html'), resolve(stage, '.exact/auth/callback'));
-  copyFileSync(resolve(root, 'host/web/auth-callback.js'), resolve(stage, '.exact/auth/callback.js'));
+  const callback = readFileSync(resolve(root, 'host/web/auth-callback.js'), 'utf8');
+  writeFileSync(resolve(stage, '.exact/auth/callback.js'), production ? gateAgent(callback, 'auth-callback.js', { sourceType: 'script' }) : callback);
   const docs = authClientMetadata(app, authReach.callbacks ?? []);
   for (const [name, doc] of Object.entries(docs)) writeFileSync(resolve(stage, `.exact/auth/${name}.json`), JSON.stringify(doc, null, 2) + '\n');
   authNote = `; auth: callback page${Object.keys(docs).length ? `, client metadata (${Object.keys(docs).join(', ')})` : ' (no origin: no client metadata)'}`;
@@ -727,7 +727,7 @@ const gpu = bakeOnly ? { note: 'none (--bake)', built: false } : webGpuArtifacts
 let gpuNote = gpu.note;
 if (gpu.built) {
   copyHostFiles('gpu');
-  if (gpuModules(app.manifest).length) copyHostFiles('gpuModules');
+  if (gpuModules(app.manifest, 'web').length) copyHostFiles('gpuModules');
   gpuNote += ', on demand';
   // A game's world surfaces, by name, as its GPU build declared them (`.shells/surfaces.json`): a browser without
   // WebGPU shows the refusal page over these and no other canvas (gpu-refusal.js, LLP 1139.003 D1).
@@ -764,10 +764,10 @@ writeFileSync(resolve(stage, '.exact-build.json'), JSON.stringify({
 publishWarmGame(app, stage, dist, warmInputs, buildReceipt, {...buildEnv, EXACT_GAME_PROOF_PROFILE:proofProfile});
 stage = null;
 if (bakeOnly && process.argv.includes('--json')) reportBuilt({ path: dist, target: 'web', trust: buildEnv.EXACT_UPDATE_TRUST });
-if (bakeOnly) { console.log(`${relative(process.cwd(), dist) || "."}: the bake (no wasm): app.plan ${kib(planBytes.length)}, ${sealed.report}, index.html; documents: ${documentNote}${authNote}${passkeyNote}; modules: ${moduleNote}`); process.exit(0); }
+if (bakeOnly) { console.log(`${relative(process.cwd(), dist) || "."}: the bake (no wasm): app.plan ${kib(planBytes.length)}, ${sealed.report}, index.html; documents: ${documentNote}${authNote}; modules: ${moduleNote}`); process.exit(0); }
 const textFlowWasm = readFileSync(resolve(dist, 'textflow.wasm'));
 const markdownEditor = readFileSync(resolve(dist, 'markup-editor.wasm'));
-console.log(`${relative(process.cwd(), dist) || "."}: app.wasm ${kib(wasm.length)} (${kib(gzipSync(wasm, { level: 9 }).length)} gzip; ${optNote}), index.html, glue.js, app.plan ${kib(planBytes.length)}, ${sealed.report}; documents: ${documentNote}${authNote}${passkeyNote}; GPU: ${gpuNote}; modules: ${moduleNote}; markup-editor.wasm ${kib(markdownEditor.length)} (${kib(gzipSync(markdownEditor, { level: 9 }).length)} gzip), on demand; textflow.wasm ${kib(textFlowWasm.length)} (${kib(gzipSync(textFlowWasm, { level: 9 }).length)} gzip), on demand`);
+console.log(`${relative(process.cwd(), dist) || "."}: app.wasm ${kib(wasm.length)} (${kib(gzipSync(wasm, { level: 9 }).length)} gzip; ${optNote}), index.html, glue.js, app.plan ${kib(planBytes.length)}, ${sealed.report}; documents: ${documentNote}${authNote}; GPU: ${gpuNote}; modules: ${moduleNote}; markup-editor.wasm ${kib(markdownEditor.length)} (${kib(gzipSync(markdownEditor, { level: 9 }).length)} gzip), on demand; textflow.wasm ${kib(textFlowWasm.length)} (${kib(gzipSync(textFlowWasm, { level: 9 }).length)} gzip), on demand`);
 if (process.argv.includes('--json')) reportBuilt({ path: dist, target: 'web', trust: buildEnv.EXACT_UPDATE_TRUST });
 }
 

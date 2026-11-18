@@ -39,7 +39,7 @@ impl<D: DataSource> Bridge<D> {
         };
         let signature = plan.source(source);
         data.bind(&plan);
-        let mut store = Store::new(data.grants(), []);
+        let mut store = Store::new_linked(data.grants(), [], self.links.runner.grants);
         let answer = exact_runner::time::launching_with(self.launch_facts.clone(), || {
             data.activate()?;
             data.answer(&mut store, plan.str(signature.name), &[Value::Number(now)])
@@ -47,7 +47,7 @@ impl<D: DataSource> Bridge<D> {
         let result = match answer {
             Ok(Answer::Now(value)) if value.conforms(&plan, signature.ty) => {
                 let mut json = String::new();
-                exact_runner::agent::typed_json(&plan, signature.ty, &value, &mut json);
+                exact_runner::json::typed_json(&plan, signature.ty, &value, &mut json);
                 serde_json::json!({"entryRefresh":"timeline", "timeline":serde_json::from_str::<serde_json::Value>(&json).unwrap()})
             }
             Ok(Answer::Now(_)) => {
@@ -100,6 +100,7 @@ impl<D: DataSource> Bridge<D> {
         // menu may use this fresh-state path to reload the baked plan.
         // A fresh named drive empties leftover secrets before that read.
         // An archive that links no I/O binds nothing (LLP 1047.001).
+        crate::watch_sync::startup(data.grants(), data.app_id())?;
         let launch_store = self
             .links
             .io
@@ -123,6 +124,10 @@ impl<D: DataSource> Bridge<D> {
         let wall = self.live_clock;
         let ctx = hooks.ctx;
         let launch = self.launch();
+        let sequence = self
+            .host
+            .as_ref()
+            .map(|host| host.runner().reboot_sequence());
         match exact_runner::time::launching_with(launch, || {
             Host::boot_stored_after_decode(
                 plan,
@@ -130,7 +135,7 @@ impl<D: DataSource> Bridge<D> {
                 measurer,
                 self.launch_layout,
                 self.boot_viewport(width, height),
-                None,
+                sequence.as_ref(),
                 snapshot,
                 secrets,
                 self.compat,
@@ -181,6 +186,7 @@ impl<D: DataSource> Bridge<D> {
                     host.listen_io(&**executor, self.document_owner);
                 }
                 self.presenter_hooks(&mut host, &hooks);
+                self.wake = hooks.wake.map(|w| (w, hooks.wake_ctx));
                 self.executor = executor;
                 let batch = Host::ending(self.host.replace(host), batch);
                 self.launch_layout.insets = None;

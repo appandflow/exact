@@ -255,7 +255,7 @@ impl<D: DataSource> Presenter<D> {
 
     /// The reader shell already stamps its accepted sample for prefetching.
     /// Keep that stamp without advancing the Host or sampling its clock again.
-    #[cfg(any(target_os = "android", all(test, not(windows))))]
+    #[cfg(any(target_os = "android", test))]
     pub(crate) fn scroll_end_reader_sampled(&mut self, view: ViewId, at: f64) {
         if let Some(previous) = self.scroll_end.reader_previous.remove(&view) {
             if previous.due <= at {
@@ -500,7 +500,7 @@ impl<D: DataSource> Presenter<D> {
 
 impl<D: DataSource + Default> Presenter<D> {
     pub(crate) fn settle_scroll_commands(&mut self, line: &str, mut reply: String) -> String {
-        use exact_runner::agent::{field_bool, field_str};
+        use exact_runner::json::{field_bool, field_str};
         self.retire_model_scroll_ends();
         if (self.scroll_end.pending.is_empty()
             && self.scroll_end.completed.is_empty()

@@ -35,6 +35,8 @@ macro_rules! canvas_jni_start {
         /// Boot the app, with its update store under `store` (the reader's
         /// no-backup directory) when the library links one.
         fn boot(size: (u32, u32), scale: f32, store: &str) -> Result<Host, String> {
+            static LAUNCH: std::sync::Once = std::sync::Once::new();
+            LAUNCH.call_once(launch_parts);
             let updates = updates().map(|open| (open, std::path::Path::new(store)));
             Host::boot(PLAN, COMPAT, size, scale, hatches(), updates)
         }
@@ -62,6 +64,7 @@ macro_rules! canvas_jni_start {
             $crate::canvas::field::attach(env, scale);
             $crate::canvas::legacy::attach(env);
             $crate::canvas::presence::attach(env);
+            $crate::canvas::secrets::attach(env);
             environment(env, dir, live);
             let store = string(env, store);
             match boot((width as u32, height as u32), scale, &store) {
@@ -118,6 +121,7 @@ macro_rules! canvas_jni_start {
             $crate::canvas::field::attach(env, scale);
             $crate::canvas::legacy::attach(env);
             $crate::canvas::presence::attach(env);
+            $crate::canvas::secrets::attach(env);
             // The environment is set here, before any other thread reads it.
             environment(env, dir, live);
             let store = string(env, store);

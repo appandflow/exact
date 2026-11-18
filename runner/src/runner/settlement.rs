@@ -632,12 +632,11 @@ impl<D: DataSource> Runner<D> {
                             self.resources[i].failed_args = None;
                         }
                         awaiting[i] = false;
+                        if let Some(waiting) = &mut self.resources[i].waiting {
+                            waiting.slept = true;
+                        }
                         let state = match states[i].take() {
-                            Some(mut s) => {
-                                s.asleep = true;
-                                s.slept = true;
-                                s
-                            }
+                            Some(s) => s.sleeping(),
                             None => {
                                 let Some(v) = self.placeholder(i, &row, &resources) else {
                                     all = false;
@@ -790,7 +789,7 @@ impl<D: DataSource> Runner<D> {
                     // A stand-in a refused activation failed holds for a kept
                     // seed's identifying arguments, whatever its context.
                     // NaN must keep its validation failure across unrelated commits.
-                    let identity = &args[..row.args.len as usize - usize::from(row.context)];
+                    let identity = &args[..self.identity_len(i)];
                     let stale = self.resources[i].stale;
                     let failed_for = |f: &Vec<Value>| {
                         crate::compare::unchanged_arguments(f, &args)
@@ -825,12 +824,11 @@ impl<D: DataSource> Runner<D> {
                             p.args.clone_from(&args);
                         }
                     }
-                    // @ref LLP 1027.005 D3/D4 — only a persisted boot seed, or
-                    // an entry waiting for its identity, ignores context, and
-                    // only for known, equal identifying arguments (`kept_wait`).
-                    // A refused commit restores `states` and the resource row.
+                    // @ref LLP 1027.005 D3/D4 — only a persisted boot seed, or an entry waiting
+                    // for its identity, ignores context, and only for known, equal identifying
+                    // arguments (`kept_wait`). A refused commit restores `states` and the row.
                     let kept = self.admit_kept(i, &args, valid_args, ready, &mut states);
-                    let (kept_seed, hold) = (kept.kept_seed, kept.hold);
+                    let (kept_seed, hold, kept_slept) = (kept.kept_seed, kept.hold, kept.slept);
                     if kept.admitted_early {
                         pending_res[i] = false;
                         awaiting[i] = false;
@@ -927,6 +925,7 @@ impl<D: DataSource> Runner<D> {
                         Some(v) => v,
                         None if valid_args
                             && (launch || !ready && self.owned_row(i).is_none())
+                            && !(hold && ready && states[i].is_some())
                             && !exact_plan::runner_owned_source(self.plan.str(row.source))
                             && row.initial.len > 0
                             && !self.secrets_unseen(i, &row, &resources)
@@ -1312,9 +1311,10 @@ impl<D: DataSource> Runner<D> {
                     resources[i] = Some(shown);
                     // A value kept across idleness stays no answer until a
                     // fresh one, asked since, replaces it (LLP 1161.001 D1).
-                    let slept = states[i]
+                    let was = states[i]
                         .as_ref()
-                        .is_some_and(|s| s.slept && s.origin == origin && !placeholder);
+                        .map_or((kept_slept, 0), |s| (s.slept, s.origin));
+                    let slept = was.0 && was.1 == origin && !placeholder;
                     states[i] = Some(ResourceState {
                         inspection_generation: generation,
                         args: value_args,

@@ -17,7 +17,7 @@
 //! <path>` or `tap @t cancel`, LLP 1069.007 D3), or tells the host to
 //! present it.
 
-use crate::agent::{field_bool, field_str, quote};
+use crate::json::{field_bool, field_str, quote};
 use crate::{DataSource, Runner};
 use exact_kernel::ViewId;
 use exact_plan::Value;
@@ -114,7 +114,7 @@ impl SaveFile {
         if self.text.is_none() && !plain_app_path(&self.from) {
             return Err(format!("{} is not an app:/ file", self.from));
         }
-        if self.text.is_none() && !covered(runner.data_ref().grants(), "fs.read", &self.from) {
+        if self.text.is_none() && !runner.covers("fs.read", &self.from) {
             return Err(format!("{} is outside the app's fs.read grants", self.from));
         }
         let name = &self.suggested_name;
@@ -142,6 +142,12 @@ pub(crate) fn plain_app_path(path: &str) -> bool {
         && parts
             .iter()
             .all(|p| !p.is_empty() && *p != "." && *p != ".." && !p.contains('\0'))
+}
+
+/// An `app:/` directory, `app:/<root>` or one below it: one whose files
+/// [`plain_app_path`] admits. One trailing `/` names the same directory.
+pub(crate) fn plain_app_directory(path: &str) -> bool {
+    plain_app_path(&format!("{}/f", path.strip_suffix('/').unwrap_or(path)))
 }
 
 /// Whether an `fs.read` or `fs.write` line of `grants` admits `path`, as
@@ -296,6 +302,9 @@ mod tests {
         assert!(!plain_app_path("app:/data/../x"));
         assert!(!plain_app_path("app:/data"));
         assert!(!plain_app_path("/etc/passwd"));
+        assert!(plain_app_directory("app:/tmp") && plain_app_directory("app:/tmp/a/"));
+        assert!(!plain_app_directory("app:/") && !plain_app_directory("app:/tmp//"));
+        assert!(!plain_app_directory("app:/tmp/../data"));
         assert_eq!(chosen_name("/tmp/out/fieldnotes.json"), "fieldnotes.json");
     }
 

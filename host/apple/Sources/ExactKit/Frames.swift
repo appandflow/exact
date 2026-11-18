@@ -21,6 +21,8 @@ package final class Frames: NSObject {
     var link: CADisplayLink?
     #endif
     package var motion = false, spatial = false
+    /// The motion is only the wait for the page's first present (`Batch.presentOnly`)
+    package var presentOnly = false
     /// A 2D canvas asked for a frame (LLP 1056 D5): ticks run while it does.
     var canvas2d = false
     var timerSoon = false
@@ -106,7 +108,7 @@ package final class Frames: NSObject {
                 }
             }
         } else if motion || canvas2d || tasks { held = true }
-        if hatches, s.clock == nil { s.natives.hatchClock.presented(frameNow); ran = true }
+        if hatches, s.clock == nil { s.natives.hatchesPresented(frameNow); ran = true }
         // A canvas render that drew nothing, as without its drawable, draws when one lands, and the
         // first frame to see one waits until none does (`canvasDrawn`, or `canvasLost` when a waiting
         // canvas leaves). While it waits, a later callback's render of a waiting canvas changes only
@@ -150,10 +152,10 @@ package final class Frames: NSObject {
         guard let s = session else { return .applied }
         if ExactSession.asyncFills {
             guard !s.tickInFlight else { return .held }
-            s.sendTick(now: now, frame: frame)
+            s.sendTick(now: now, frame: frame, presentOnly: presentOnly)
             return .sent
         }
-        s.apply(s.runtime.tick(now: now, frame: frame))
+        s.apply(s.runtime.tick(now: now, frame: frame, presentOnly: presentOnly))
         return .applied
     }
 

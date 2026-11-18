@@ -385,26 +385,28 @@ calls (a shape, a `fn`, a component) comes from its own `use` lines or is
 declared in it, beside the block; another file, the root among them, names
 such a declaration on a `use` line. The
 component's rules hold for its members wherever they are written: a child's
-members file declares no mutation or task.
+members file may declare resources, mutations and tasks at bounded uses.
 
 There is one `props`, `inject`, `provide`, `slot`, and `view` section at most in
-a component. Only the root may own tasks. Any component may own resources and
-mutations (LLP 1035.005.004): each instance of a child asks for its own
+a component. Any component may own resources, mutations and tasks (LLP 1035.005.004): each instance of a child asks for its own
 resources, after the render that makes it, and lets go when the render destroys
 it. Each instance sends its own mutations: its own `pending`, failure, queue and
 answer, and its `then` runs in that instance, where it may call an action prop.
 A child's `refreshes` names its own resources. A send in flight when the render
 destroys the instance stays sent, but its answer changes nothing and its `then`
 does not run, and its waiting sends are dropped. A child's resource is not a
-resource over a list, and a child that owns requests is used where its instances
+resource over a list, and a child that owns requests or tasks is used where its instances
 are bounded: outside every region, under `if` and `match`, or in a row of
 `stack(nav)`, `t.stack` or `nav.tabs`, never under another `for` or in a
 virtualized list (`type-child-resource`). Its state initializers do not read its
 own resources (`type-state-reads-request`). The device's facts,
 `exactViewport()` and `exactPage()` with no arguments (`EmptyState` reads
 `accessibilityTextSize`), open no request: every instance reads the root's one
-answer. A task's
-body has exactly one schedule. A gated task (`when cond`, LLP 1092) has its
+answer. A task's body has exactly one schedule. Each child's task starts with
+its instance, stops when the instance is destroyed and runs its action in that
+instance's frame. A hidden tab or covered screen can remain alive: gate its
+work on activity. Frame tasks are allowed, with one action per armed instance
+per frame. Reload restarts timers over the carried state. A gated task (`when cond`, LLP 1092) has its
 timer only while `cond` holds, armed from the commit that made it true; `key=`
 re-arms it from the commit that changed the key (compared as a `for` key),
 and `key=` alone is `when true key=…`. The gate is a bool (`type-task-gate`), the
@@ -511,18 +513,45 @@ new shape cannot update or end an older instance with incompatible state. A
 compatibility-changing binary update follows LLP 1126.001 §5 Q6’s device gate.
 
 `resource activities = exactActivities() as shape Activities` reads a record
-whose fields are `activities: Activity[]`, `frequentPushesEnabled: bool` and
-`linked: bool` (the host packaged its arm).
+whose fields are `activities: Activity[]`, `frequentPushesEnabled: bool`,
+`linked: bool` (the host packaged its arm), `pushToStartToken:
+option<string>` and `pushToStartActivities: PushStartActivity[]`.
 An activity has `id`, `kind`, `state` (a JSON string), `activityState`
 (`pending`, `active`, `stale`, `ended`, `dismissed`) and `token: option<string>`.
-Readers may name only the fields they need. Off iOS the list is empty and
-frequent pushes are false. A first demand enumerates existing activities,
-including after a relaunch without a send; later token, state and content
-updates re-answer the source. A token is absent until ActivityKit supplies
-it, and exists only for an entry declaring `push: true`. The data module
-sends it to its own backend. Push-to-start and the `remote-notification`
-background mode stay refused; an app with activities registers for remote
-notifications only when it grants `device.push`.
+A push-start activity has `kind`, `generation` and `shape`, all strings.
+Readers may name only the fields they need. Off iOS the lists are empty, the
+push-to-start token is absent and frequent pushes are false. A first demand
+enumerates existing activities, including after a relaunch without a send;
+later token, state and content updates re-answer the source. A token is absent
+until ActivityKit supplies it, and exists only for an entry declaring
+`push: true`. The data module sends it to its own backend. The
+`remote-notification` background mode stays refused; an app with activities
+registers for remote notifications only when it grants `device.push`.
+
+Push-to-start (iOS 17.2 and later) lets the app's backend start an activity
+while the app is not running (LLP 1126 D9). `pushToStartToken` is
+ActivityKit's push-to-start token, read only when an entry declares
+`push: true`; it is absent until ActivityKit supplies one, which it does
+once Live Activities are allowed, and the source answers again when it
+rotates. `pushToStartActivities` lists the entries declaring `push: true`, each
+with the `generation` the app runs and its state `shape` digest; it is empty
+until the app has published that generation, just after it starts. The backend
+sends APNs a `start` event with `attributes-type` `ExactActivityAttributes`,
+`attributes` `{"kind", "generation", "shape"}` from that list, and
+`content-state` `{"shape", "state"}`, the same shape digest and a state in
+the entry's declared shape
+([Apple: starting a Live Activity with a push](https://developer.apple.com/documentation/activitykit/starting-and-updating-live-activities-with-activitykit-push-notifications)).
+It sends the values the app last reported, since a delivered update changes
+the generation; a generation from before a compatibility-changing binary
+update no longer renders.
+
+No app code runs when the start arrives. iOS may launch the app in the
+background for it, and the host boots no session for that launch. The started
+activity, with its update `token`, appears in `activities` the next time a
+session reads `exactActivities()`: at once in a session already reading it,
+otherwise at the app's next launch. Until then the backend has no update token
+for the activity, so it cannot update or end it. The app can update and end
+it as it does an activity it started.
 
 ### MIDI: `exactMIDI`, `sendMIDI`, `midimessage`
 
@@ -793,6 +822,8 @@ step          = "tap" "midi" STRING ( HEX { HEX } | "clock" NUMBER NUMBER ) NL
                   | "copy" | "cut" | "paste" STRING ) NL
               | "pick" STRING ( STRING { STRING } | "cancel" ) NL
               | "authorize" [ "cancel" ] NL           (* the held sign-in, against the app's server (oauth recipe) *)
+              | "presence" ( "allow" | "cancel" | "fail" | "lockout" | "invalidated" ) NL
+                                                     (* answer the pending user-presence prompt, as tap @presence *)
               | "clock" ( "settle" | "data" | "+" NUMBER [ "real" ] | NUMBER ) NL
               | "clock" "held" { IDENT } [ NUMBER ( "s" | "ms" ) ] NL
                                                      (* real time, the clock frozen, until held requests reply *)
@@ -818,10 +849,12 @@ step          = "tap" "midi" STRING ( HEX { HEX } | "clock" NUMBER NUMBER ) NL
               | "expect" "tree" ( "has" | "missing" ) STRING NL
               | "expect" ( "disabled" | "enabled" ) STRING NL  (* a control's `disabled` (LLP 1116.010 D3) *)
               | "expect" "focused" STRING NL         (* the node that holds the keyboard focus *)
+              | "expect" "layout" STRING ( "width" | "height" ) ( "==" | "<=" | ">=" ) NUMBER NL
+                                                     (* its laid-out size, in points *)
               | "expect" "refusal" STRING NL          (* one observed refusal of the named mutation slot *)
               | "expect" "text" STRING "==" STRING NL
               | "expect" "state" IDENT { "." ( IDENT | NUMBER ) }
-                  ( "==" test-value | ( ">=" | "<=" ) [ "-" ] NUMBER | "in" test-value { test-value } ) NL
+                  ( "==" state-literal | ( ">=" | "<=" ) [ "-" ] NUMBER | "in" state-literal { state-literal } ) NL
               | "expect" "sound" ( "has" | "missing" ) STRING
                   [ "at" NUMBER ] [ "gain" NUMBER ] [ "ends" NUMBER ]
                   [ "playbackRate" NUMBER ] [ "pan" [ "-" ] NUMBER ] [ "by" IDENT ] NL
@@ -832,6 +865,10 @@ step          = "tap" "midi" STRING ( HEX { HEX } | "clock" NUMBER NUMBER ) NL
 midi-fact     = "midi.state" ( "prompt" | "granted" | "denied" | "unavailable" )
               | ( "midi.inputs" | "midi.outputs" ) STRING ;  (* names, comma-separated *)
 HEX           = HEXDIGIT HEXDIGIT ;                  (* one byte, as in 90 3c 64 *)
+state-literal = [ "-" ] NUMBER | STRING | "true" | "false" | "none"
+              | "some" "(" state-literal ")"
+              | "[" [ state-literal { "," state-literal } [ "," ] ] "]"
+              | IDENT "(" [ IDENT "=" state-literal { "," IDENT "=" state-literal } [ "," ] ] ")" ;
 test-value    = [ "-" ] NUMBER | STRING | "true" | "false" | "none" | "[" "]" ;
 scalar        = [ "-" ] NUMBER | STRING | "true" | "false" | "null" ;
 METHOD        = "GET" | "POST" | "PUT" | "PATCH" | "DELETE" ;
@@ -853,6 +890,14 @@ block in a run under platform timing. `query` and `built` read the same on every
 `evaluated` is each runtime's own, so a test that compares it names one host. The development
 source map names components; a host without one says so. A drive's `perf <target> during "…"`
 shows the same counts while a test is being written.
+
+`presence <answer>` waits as `clock data` does, with the virtual clock frozen, then
+answers the pending user-presence prompt through the driver's `tap @presence`.
+It fails if no prompt is pending, several match, or the data wait expires.
+It answers both a presence secret's unlock and `@exact/local-auth`'s `authenticate`;
+`invalidated` applies only to unlock. Use `prefer permission.local-auth granted`
+to handle the separate permission prompt, and `clock data` after the answer before
+checking its result. Scope tests with `on` to hosts that support the operation.
 
 `expect no failures` fails when, since the test launched or its last `expect no failures`, a
 resource was refused while no `fail fetch` fired, a send failed that no `expect refusal` names,
@@ -948,7 +993,17 @@ Targets are driver test ids. `expect disabled "send"` (`enabled`) reads the cont
 does nothing, and fails its step on every host, `send is disabled`: say what the app refuses
 with `expect disabled`, then `expect enabled` once what enables it has happened. `expect
 focused "picker"` passes when that node holds the keyboard focus, as every host's tree marks it
-(`[focused]` in `agent <host> tree`): after a key moves the focus, or a dialog returns it. Each test is a session of its own, opened with its
+(`[focused]` in `agent <host> tree`): after a key moves the focus, or a dialog returns it.
+
+`expect layout "status-mark" height <= 24` bounds a node's laid-out `width` or `height` with
+`==`, `<=` or `>=`. The size is that of the box `agent <host> layout <target>` prints as `space
+viewport`: points (CSS pixels on the web) at two decimals, with a presentation transform folded
+in (LLP 1012). A failure names the size and the box, so an image a column stretched to its own
+width fails its test: `height of "status-mark" is 310, expected <= 24 (its box is 420×310)`.
+A size that comes from text, a platform control or the window differs by host: bound it, and
+keep `==` for a size the app sets.
+
+Each test is a session of its own, opened with its
 launch lines: `size 1200x800`, `epoch "2026-09-21T12:00:00Z"`, `time-zone
 "America/New_York"`, `locale "fr-FR"` and `seed 7` are the driver's `--size`,
 `--epoch`, `--time-zone`, `--locale` and `--seed`, so they lead the test's steps,
@@ -1087,7 +1142,11 @@ report unsupported. Scope these tests with `on web`.
 list's row into view by its key, so a row outside the rendered window can be
 tapped by its own id on the next step. `type "id" "text"` sets the field's
 value, as Playwright's `fill`; `append` adds the text after the value the tree
-shows (a prefilled reply). `type "id" key "Name"` presses the key;
+shows (a prefilled reply). `type "id" key "Name"` presses the key (on iOS,
+ArrowRight or ArrowLeft at an `input type="range"` that shows its `UISlider`
+is the slider's accessibility increment or decrement, the call VoiceOver's
+swipe makes; its halves are that step's keydown with the move, then its
+keyup, and a held key's repeats move it again);
 `down` and `up` are the two halves, and `for <ms>` holds it that long on the
 virtual clock (`down` or `up` together with `for` is refused). `reload` restarts the app on the store it had: the
 web page reloads its current URL in the same profile, keeping Back and Forward
@@ -1144,8 +1203,12 @@ to a motion's end.
 value, not its options), else its descendants' text in order (a button's label),
 else a field's value. `expect state name.field` reads a field of a record at any
 depth, and `name.0` a list index (a whole number from 0); a missing field fails
-naming the fields there. The value is a number, including a negative (`== -3`),
-a string, a bool, `none`, or `[]` — not an expression (`-1 + 2` is refused).
+naming the fields there. The expected value uses the expression grammar's literals:
+numbers, including negatives (`== -3`), strings, bools, `none`, `some(literal)`,
+lists (`["a", "b"]`, `[[1, -2], []]`), and shapes with literal fields
+(`Point(x=1, y=-2)`). Lists and shapes may span lines and keep a trailing comma.
+Equality is structural, with no type coercion; a mismatch prints the actual and
+expected values. Computed expressions (`-1 + 2`, `[count]`) are refused.
 `expect wakelock held` and `expect wakelock released` compare `state.wakelock.held`.
 This is the runner's holder record: displayed elements requesting the lock, not
 whether the OS or browser granted it. A failure names the holding view ids and
@@ -1249,7 +1312,7 @@ says. Every roster function has a row and an example, and each example written
 | `encodeRouteSegment(text)` | String; routing's checked segment encoding | `encodeRouteSegment("a b")` is `"a%20b"` |
 | `open(router, location)` | Router | `top(open(nav, "/item/7")).name` is `"item"` |
 | `push(router, location)` | Router; same top URL does not add a visit | `depth(push(nav, "/item/7"))` is `2` |
-| `replace(router, location)` | Router; the top visit takes the location and keeps its id. A stack's first visit keeps its root route: a location matching another route is refused and the router is unchanged (a first-launch screen: docs/recipes/first-launch.md) | `top(replace(push(nav, "/item/7"), "/item/8")).url` is `"/item/8"` |
+| `replace(router, location)` | Router; the top visit takes the location and keeps its id. One at another path is a new page, whose scrollers start over (at `scrollTop=`, else at their start) | `top(replace(push(nav, "/item/7"), "/item/8")).url` is `"/item/8"` |
 | `back(router)` | Router | `depth(back(push(nav, "/item/7")))` is `1` |
 | `select(router, tabName)` | Router | `nav = select(nav, "search")`, in an action, shows the `search` tab |
 | `go(router, location)` | Router; the top, a pop to it on the selected stack, another tab whose top it is, or else a push onto the selected stack, whatever tab declares its route (into the route's declared tab: `open`) | `top(go(nav, "/item/7")).name` is `"item"` |
@@ -1258,7 +1321,7 @@ says. Every roster function has a row and an example, and each example written
 | `depth(router)` | Number | `depth(nav)` is `1` |
 | `params(router, parameterName)` | `string[]`: that parameter's non-empty values over the selected stack, bottom first, duplicates kept (one entry's own value is `entry.params.<name>`, `""` where its route does not bind it; the name must be a parameter of some route) | `params(push(nav, "/item/7"), "id")` is `["7"]` |
 | `searchParam(entry, name)` | String | `searchParam(top(push(nav, "/item/7?tab=notes")), "tab")` is `"notes"` |
-| `fragment(entry)` | String: what the entry's location had after `#`, fragment-encoded as the browser's `hash` is, `""` when none. It is no part of the screen: `/item/7#moves` is the visit to `/item/7`, and a `push`, `replace` or `go` that changes only the fragment changes it on that visit. Written as `path("item", id) + "#moves"`, or `href="#moves"` on a `link` to the screen shown. Once the route's content has arrived, each host scrolls to the element with that `id` in the entry's route, as a browser scrolls to a fragment (`top`, or no such element: the route's top) (LLP 1153 D5) | `fragment(top(push(nav, "/item/7#moves")))` is `"moves"` |
+| `fragment(entry)` | String: what the entry's location had after `#`, fragment-encoded as the browser's `hash` is, `""` when none. It is no part of the screen: `/item/7#moves` is the visit to `/item/7`, and a `push`, `replace` or `go` that changes only the fragment changes it on that visit. Written as `path("item", id) + "#moves"`, or `href="#moves"` on a `link` to the screen shown. Once the route's content has arrived, each host scrolls to the element with that `id` in the entry's route, as a browser scrolls to a fragment (`top`, or no such element: the route's top) (LLP 1153 D5). A visit given another path with none, a page swapped in by `replace`, starts each of its scrollers over instead: at its `scrollTop=`, at the end of a list with `scroll-start="end"`, else at its start; `scroll-restoration="manual"` keeps one where it was (D5.1) | `fragment(top(push(nav, "/item/7#moves")))` is `"moves"` |
 | `sharedFiles(entry, name)` | `SharedFiles`: `{files: Picked[], dropped, pending}`, the files a received share carried, by the token in the entry's `name` parameter; `pending` counts those still being copied, and a token the host did not set this launch answers no files (LLP 1133.024 D3; [`share_target`](reference.md#shares-from-other-apps-share_target)) | `sharedFiles(top(nav), "files").files.length` is the count of shared files that have landed |
 | `t("key", name=value, …)` | Localized string; validates tables/placeholders | `t("greeting", name=user.name)` is the `greeting` string of the app's locale with `{name}` filled |
 | `frame(id)` | `Geometry`, actions only; last layout where the viewer sees it, as `getBoundingClientRect`: in the viewport, every scroll offset and transform applied | `frame("card").height`, in an action, is the card's height as drawn |
@@ -1487,8 +1550,8 @@ CSS hyphens are part of the authored name. `testId` and admitted host-specific
 props retain their declared spelling.
 `text-wrap-style="balance"` and its `text-wrap="balance"` shorthand are
 inherited; `auto` restores ordinary greedy wrapping. `pretty` and `stable` are refused with the supported values, `auto | balance`. Every host balances the
-lines before a paragraph's first forced break, up to six, at the narrowest
-width that keeps their count, as Chrome does (LLP 1001 §6).
+lines before a paragraph's first forced break, up to six, where Chrome
+breaks them (LLP 1001 §6).
 `-webkit-font-smoothing` takes `auto` or `antialiased` and is inherited; `none`
 and `subpixel-antialiased` are refused. It changes how glyphs paint, never how
 text measures (LLP 1019 D12).
@@ -2741,6 +2804,13 @@ macOS, iOS and iPadOS with a hardware keyboard, Linux):
   Tab moves the focus, arrows move the caret; on the web arrows, Space and
   the page keys also scroll the page or the focus's scroller (a native
   scroller does not scroll by key, so there is nothing there to prevent).
+  On a native host a screen reader's step of an `input type="range"`
+  (VoiceOver's swipe up or down; the increment and decrement macOS and
+  Windows offer; Android's scroll forward and backward) is its arrow keydown
+  first, ArrowRight to raise and ArrowLeft to lower (swapped where its
+  `direction` is `rtl`): a handler that calls `preventDefault()` makes the
+  move itself, as it does for a keyboard's arrow on the web, and otherwise
+  the host steps the range.
   Where Exact paints the group (on the web, Linux, Windows and Android's
   reader always; on the Mac and iOS where no segmented control, sidebar,
   toolbar or tab bar stands in for it), a
@@ -2864,9 +2934,9 @@ the virtual clock).
   same button. Help retains the system search field; the standard menus, and
   Develop in a development build, remain unless removed. Other hosts keep the ordinary button
   and ignore this Mac presentation hint. On a top-level root,
-  `-exact-menu-remove="show-tab-bar autofill close-all"` suppresses the named
+  `-exact-menu-remove="show-tab-bar close-all"` suppresses the named
   standard items and their menu equivalents. The literal whitespace-separated
-  ids are `close-all`, `autofill`, `show-tab-bar`, `show-all-tabs`,
+  ids are `close-all`, `show-tab-bar`, `show-all-tabs`,
   `enter-full-screen`, `minimize`, `zoom`, `bring-all-to-front`,
   `show-previous-tab`, `show-next-tab`, `move-tab-to-new-window`,
   `merge-all-windows`, `back` (Go ▸ Back), `forward` (Go ▸ Forward), `develop` (the Develop menu),
@@ -3134,7 +3204,7 @@ Presentation probe readings remain diagnostic until qualified on a physical devi
 | `screenLate` | ms a frame reached the screen after UIKit expected it (`UIUpdateInfo.estimatedPresentationTime`), when over half a period, as the presentation probe saw it: with UI updates, a recording keeps two transparent one-point Metal layers and, as each update for which a drawable of either is ready (cleared off the main thread) begins its commit, presents that drawable on its own; its `presentedTime` is when the composite holding it reached the screen. The simulator's Metal has no `presentedTime`: there the probe presents and hears nothing |
 | `unshown` | a frame whose probe drawable was never shown (a `presentedTime` of 0, as for a frame the render server skipped for a later one), so the frame before stayed on screen in its place; in a total, how many |
 | `probed` | in a total, the frames the probe reported, late or not |
-| `render` | on iOS and tvOS, what in the window costs the render server work of its own each frame it composites it, read once as the recording stops (`ms`, how long that took): `layers`, the visible layers; `rows` under `columns`, one per `kind`, `place` and `node` (the Exact node's test id, else `#` and its id, else `node` and its number), with the `top` and `height` its layers span and their `count`; a kind more than four nodes have in one place is one row, its `node` how many. A `kind` is `backdrop` (a `CABackdropLayer`, which UIKit's blur and glass use: it renders what lies behind it first), `portal` (another part of the tree rendered again), `filter`, `blend`, `mask`, `shadow` (without a `shadowPath`), `group` (group opacity) or `rasterize`, each an offscreen pass, or `metal` (a Metal layer, as MapKit's map, which the GPU draws itself). A `content` row is in the followed scroller's content coordinates, so a late frame's `offset` to `offset` plus the viewport's height is what was on screen; a `fixed` row (bars, overlays) is in the window's. The `fixed` rows come first. A list that builds its rows as they scroll in has only those near the viewport then. The compact copy keeps the rows that fit after its 12 worst late frames, and `shown` counts them |
+| `render` | on iOS and tvOS, what in the window costs the render server work of its own each frame it composites it, read once as the recording stops (`ms`, how long that took): `layers`, the visible layers; `rows` under `columns`, one per `kind`, `place` and `node` (the Exact node's test id, else `#` and its id, else `node` and its number), with the `top` and `height` its layers span and their `count`; a kind more than four nodes have in one place is one row, its `node` how many. A `kind` is `backdrop` (a `CABackdropLayer`, which UIKit's blur and glass use: it renders what lies behind it first), `portal` (another part of the tree rendered again), `filter`, `blend`, `mask`, `shadow` (without a `shadowPath`), `group` (group opacity) or `rasterize`, each an offscreen pass, or `metal` (a Metal layer, as MapKit's map, which the GPU draws itself). `backdrop` and `portal` are Core Animation's private classes, told by name only in a development build: a production build names none (LLP 1035.003), so there a backdrop's blur is a `filter` and a portal is not reported. A `content` row is in the followed scroller's content coordinates, so a late frame's `offset` to `offset` plus the viewport's height is what was on screen; a `fixed` row (bars, overlays) is in the window's. The `fixed` rows come first. A list that builds its rows as they scroll in has only those near the viewport then. The compact copy keeps the rows that fit after its 12 worst late frames, and `shown` counts them |
 | `scrolledPt` | a segment's distance, from where its first interval began; none for the first segment of a scroller taken as it moved |
 | `droppedFrames` | frames after the first 36,000 (five minutes at 120 Hz), which a recording does not keep |
 | `lateShown`, `shown` | how many late frames (and in the compact copy, scroll segments) the trace reports of all there were. The full report keeps up to 200 late frames in time order, those late the longest by `hitchMs` when there are more; the compact copy lists the ones that fit, those late the longest first, and leaves out the segments at rest |
@@ -3155,9 +3225,11 @@ Syntax is only the first layer. In particular:
   called `name(x)`, as it is declared) but not take a declared shape's constructor name.
 - Action reads see the starting snapshot. Writes land together. Locals are
   immutable and cannot shadow visible names or escape their block.
-- Tasks are root-owned. A child may own ordinary state, derives, actions,
-  resources and mutations, each instance its own, where its instances are
-  bounded (`type-child-resource`). An action writes only its own admitted slots.
+- A child may own ordinary state, derives and actions, and, at bounded uses,
+  resources, mutations and tasks (`type-child-resource`). Each instance owns its
+  work; its task runs in that instance's frame until destruction. Hidden instances
+  stay alive, so a task that should stop while hidden needs a `when` gate.
+  An action writes only its own admitted slots.
 - A `then` handler takes no parameters and must not send its own mutation.
 - A state's initializer reads only props, injects and the states above it; a
   resource, derive, mutation, action or later state it names is

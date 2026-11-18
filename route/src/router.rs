@@ -270,9 +270,7 @@ pub fn push(table: &Table, r: Router, location: &str) -> (Router, Option<Refusal
     commit(r, result)
 }
 
-/// Rewrite the top visit while keeping its id and owning tab. At depth one
-/// only a location matching the stack's own root route can replace it: the
-/// tab's, or a rooted launch's screen.
+/// Rewrite the top visit, at any depth, keeping its id and owning tab.
 pub fn replace(table: &Table, r: Router, location: &str) -> (Router, Option<Refusal>) {
     if r.tabs.is_empty() {
         return open(table, r, location);
@@ -280,9 +278,6 @@ pub fn replace(table: &Table, r: Router, location: &str) -> (Router, Option<Refu
     let result = (|| {
         let d = destination(table, &r, location)?;
         let index = selected(&r)?;
-        if r.tabs[index].stack.len() == 1 && d.name != r.tabs[index].stack[0].name {
-            return Err(refusal("replace cannot change the tab's root route"));
-        }
         let mut out = r.clone();
         let old = out.tabs[index]
             .stack
@@ -311,7 +306,7 @@ pub fn back(_table: &Table, mut r: Router) -> (Router, Option<Refusal>) {
     (r, None)
 }
 
-/// Show a retained tab; reselecting the current tab pops it to its root position.
+/// Show a retained tab; reselecting the current tab pops it to its first visit.
 /// A declared tab a rooted launch left out is seeded at its root.
 /// An unknown tab leaves the entire value unchanged and reports one refusal.
 pub fn select(table: &Table, r: Router, name: &str) -> (Router, Option<Refusal>) {

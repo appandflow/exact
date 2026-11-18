@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test';
-import { bisectAffected, bisectFailures, probeOutcomes } from './async-bisect.mjs';
+import { bisectAffected, bisectFailures, holds, newFailures, probeOutcomes } from './async-bisect.mjs';
 import { spawnSync } from 'node:child_process';
-import { closeSync, mkdirSync, mkdtempSync, openSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 
@@ -31,7 +31,26 @@ test('only a finished probe can clear a failure; a failure it found still counts
   expect(probeOutcomes({ failures: [], checks: { test: { complete: true, status: 1 } } }, ['test: absent'])).toEqual({ 'test: absent': 'pass' });
 });
 
-import { checkout, withLaneEdits, run as runCheck, failureSelection, nothing, probeSteps, extraChecks, checks, fullCoverage, covers, failureAffected, retainSkippedFailures } from './async.mjs';
+import { checkout, withLaneEdits, run as runCheck, failureSelection, nothing, probeSteps, extraChecks, checks, fullCoverage, covers, failureAffected, failures, retainSkippedFailures } from './async.mjs';
+
+test('a byte-budget row is a new failure at each further step over its ceiling, and not at a step down', async () => {
+  const row = (over) => failures('metrics', `  iOS: hello app, optimized for size   12.69 MB   production; budget 12,590,000 B, 12,690,000 B VIOLATION by ${over} MB\n`, 1)[0];
+  expect(row('0.3')).toBe('metrics: iOS: hello app, optimized for size VIOLATION by 0.3 MB');
+  expect([holds([row('0.3')], row('0.4')), holds([row('0.3')], row('0.3')), holds([row('0.3')], row('0.2'))]).toEqual([false, true, true]);
+  expect(newFailures([row('0.3')], [row('0.2')])).toEqual([]);
+  // Three commits in one run each took a step: each step is its own failure, attributed to the commit that took it.
+  const steps = newFailures([row('0.2')], [row('0.5')]);
+  expect(steps).toEqual([row('0.3'), row('0.4'), row('0.5')]);
+  const at = { 0: '0.2', 1: '0.3', 2: '0.4', 3: '0.5' };
+  const found = await bisectFailures(['0', '1', '2', '3'], steps, async (sha, wanted) =>
+    probeOutcomes({ failures: [row(at[sha])], checks: { metrics: { complete: true, status: 1 } } }, wanted));
+  expect(steps.map(f => found[f].commit)).toEqual(['1', '2', '3']);
+  // A row that does not name its distance neither passes nor fails a step.
+  const plain = 'metrics: iOS: hello app, optimized for size VIOLATION';
+  expect(probeOutcomes({ failures: [plain], checks: { metrics: { complete: true, status: 1 } } }, [row('0.3')])[row('0.3')]).toBe('unknown');
+  expect(failures('metrics', '  blocking gate (warm)   31.0 s   VIOLATION: gate; budget 30 s; VIOLATION: over budget\n', 1))
+    .toEqual(['metrics: blocking gate (warm) VIOLATION']);
+});
 
 test('completed tests can pass at a probe while another test in the same check fails', async () => {
   const result = await bisectFailures(['0', '1', '2', '3', '4'], ['test: a', 'test: b'], async sha => {
@@ -103,8 +122,16 @@ test('lane edits are restored after success, an error and a child killed before 
         git('add', paths[0]);
         if (outcome === 'error') throw new Error('check failed');
         if (outcome === 'killed') {
-          const child = spawnSync(process.execPath, ['-e', "require('node:fs').writeFileSync('apps/caltrain/app.contract', 'child edit'); process.kill(process.pid, 'SIGKILL')"], { cwd: root });
-          expect(child.signal).toBe('SIGKILL');
+          const child = spawnSync(process.execPath, ['-e', `
+            const fs = require('node:fs');
+            fs.writeFileSync('apps/caltrain/app.contract', 'child edit');
+            process.on('exit', () => fs.writeFileSync('exit-cleanup', 'ran'));
+            process.kill(process.pid, 'SIGKILL');
+          `], { cwd: root });
+          expect(child.error).toBeUndefined();
+          expect(process.platform === 'win32' ? child.status : child.signal).toBe(process.platform === 'win32' ? 1 : 'SIGKILL');
+          expect(readFileSync(join(root, paths[1]), 'utf8')).toBe('child edit');
+          expect(existsSync(join(root, 'exit-cleanup'))).toBe(false);
         }
       });
       if (outcome === 'error') await expect(run).rejects.toThrow('check failed');
@@ -123,9 +150,13 @@ test('lane edits are restored after success, an error and a child killed before 
       const fs = require('node:fs');
       for (const path of ${JSON.stringify(paths)}) fs.writeFileSync(path, 'interrupted lane');
       require('node:child_process').execFileSync('git', ['add', ${JSON.stringify(paths[0])}]);
+      process.on('exit', () => fs.writeFileSync('exit-cleanup', 'ran'));
       process.kill(process.pid, 'SIGKILL');
     `], { cwd: root });
-    expect(killed.signal).toBe('SIGKILL');
+    expect(killed.error).toBeUndefined();
+    expect(process.platform === 'win32' ? killed.status : killed.signal).toBe(process.platform === 'win32' ? 1 : 'SIGKILL');
+    for (const path of paths) expect(readFileSync(join(root, path), 'utf8')).toBe('interrupted lane');
+    expect(existsSync(join(root, 'exit-cleanup'))).toBe(false);
     checkout(tip, root);
     expect(git('status', '--porcelain')).toBe('');
     for (const path of paths) expect(readFileSync(join(root, path), 'utf8')).toBe('original');
@@ -136,7 +167,7 @@ test('lane edits are restored after success, an error and a child killed before 
     expect(readFileSync(join(root, paths[0]), 'utf8')).toBe('original');
     expect(readFileSync(join(root, 'unrelated'), 'utf8')).toBe('keep');
   } finally { rmSync(root, { recursive: true, force: true }); }
-});
+}, 30000);
 
 test('a preexisting failure repaired in the range is attributed to its new introduction', async () => {
   const result = await bisectFailures(['base', 'pass', 'tip'], ['x'], async sha => ({ x: sha === 'pass' ? 'pass' : 'fail' }));

@@ -160,9 +160,11 @@ A `use` names one of three things:
   to it reaches the next build. A package's own relative uses stay inside the
   package.
 
-A library is Contract only: components, shapes, functions, styles, keyframes and
-timelines. It cannot own resources or carry TypeScript; its components take data
-through props, `inject` and slots. Fonts it names are the app's to supply.
+A library can supply components, shapes, functions, styles, keyframes and
+timelines. Its components may own resources and mutations using sources declared
+by its own package's module, with the app supplying the required grants. They may
+also own tasks at bounded uses, or take data through props, `inject` and slots.
+Fonts it names are the app's to supply.
 Contract never imports JavaScript or TypeScript. Import cycles and unknown names
 are refused. Keep external work behind the data interface.
 
@@ -273,9 +275,9 @@ action search(value: string)
   query = value
 ```
 
-Root components may own states, derives, actions, resources, mutations, and
-tasks. Child components may own states, derives, and actions; root-only work
-must be passed down as values or actions. State initializers read props,
+Components may own states, derives and actions. A root or a child at a bounded
+use may also own resources, mutations and tasks, each for its instance's lifetime.
+Data-sized list rows receive shared data and actions through props. State initializers read props,
 injects and earlier states only: they run before any resource answers or
 derive is computed. Derives can be declared in dependency order
 or another order, but their dependency graph must be acyclic.
@@ -1525,7 +1527,7 @@ values and serving behavior (LLP 1048.003). A compiled interface alone is not a 
 
 ## Time, motion, and geometry
 
-A root task schedules one action, with no arguments:
+A task schedules one action, with no arguments:
 
 ```contract
 component Clock
@@ -1538,11 +1540,14 @@ component Clock
     text `${ticks}` testId="ticks"
 ```
 
-`every(ms, action)` first fires one interval after boot, and `after(ms, action)`
-fires once, `ms` after boot. Intervals are whole-number literals of at least 1.
+`every(ms, action)` first fires one interval after its instance mounts, and
+`after(ms, action)` fires once, `ms` after that mount. Intervals are whole-number literals of at least 1.
 `every(frame, action)` runs once per presented frame without catching up missed
-frames. Each task body contains one schedule. Tasks are root-owned, not child
-lifecycle hooks.
+frames. Each task body contains one schedule. A child at a bounded use owns the
+same forms for its instance's lifetime; each firing runs in that instance's frame.
+A task is a schedule, not a lifecycle hook. A hidden instance stays alive, so use
+`when active` to stop its task while hidden. Each active `every(frame, …)` runs
+once per frame per instance.
 
 A task can wait for state instead of starting at mount:
 
@@ -1798,12 +1803,15 @@ If a resource fails, check the source implementation, its generated types and
 grants, and its bake behavior. If an event fails, check the captured arguments,
 payload type, current action binding, and whether the node exists.
 
-`app.json` also controls delivery policy. `bun scripts/deploy.mjs <app>` is a
+`app.json` also controls delivery policy. From the app, `bun exact.mjs deploy` is a
 dry run, which expects a committed tree (or `--dirty`); publication uses `--yes`,
 an origin, a signing key, and the configured signed streams. Before
 changing trust or publishing, read [the reference](reference.md) on
 `EXACT_UPDATE_TRUST` (LLP 1030.000). Writing Contract does not require inventing a deployment
-service. To put an iOS app on someone's iPhone, run `bun exact.mjs share`: it
+service. `bun exact.mjs push` publishes a working-tree edit to installed release binaries
+immediately; `--watch` repeats it on save. It needs a production build receipt or
+existing stream and the signing key. It has no dry run and publishes no web root.
+To put an iOS app on someone's iPhone, run `bun exact.mjs share`: it
 builds the app and prints an AppDrop link that installs it with their own Apple ID.
 
 ## Where to go next

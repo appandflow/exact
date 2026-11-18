@@ -102,9 +102,15 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
   `flex-basis` of 0 is never smaller than the border), so a calendar's today with
   `border-width=(isToday ? 2 : 0)` is wider and taller than its neighbours and
   the days after it sit off the columns above. Fix: give every cell the border and vary
-  its colour, `border-width=2 border-color=(isToday ? "-exact-label" : "transparent")`.
+  its colour, `border="2px solid" border-color=(isToday ? "-exact-label" : "transparent")`.
   (Bake-off round 28, mood journal: 50.9 points against 47.4 on iOS; Chrome alike, with
   `border-box` too.)
+
+- **A column with `width="100%"` inside a dialog stays narrow in an iOS sheet.**
+  The dialog has `fit-content` width, as in HTML, so the child's percentage resolves
+  against that dialog's width. Put `width="100%" box-sizing="border-box"` on
+  the `dialog` itself to fill the sheet between its side insets. Verified on an
+  iPhone 17 Pro simulator, iOS 27.0 (#845).
 
 - **A root with `min-height="100%"` and `overflow-y="auto"` does not scroll itself.**
   `min-height` lets the box grow with its in-flow content (CSS), so it has nothing to
@@ -507,13 +513,6 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
   says "navigate refused"). Fix: `navigate=follow` on the root and
   `action follow(url: string)` with `nav = go(nav, url)`, as every pattern has;
   `one-screen` keeps it with one route (LLP 1116.002, 1116.003).
-- **A welcome screen's Continue does nothing.** Cause: the welcome is the route at `/`
-  and Continue writes `nav = replace(nav, path("habits"))`; a stack's first visit keeps
-  its root route, so the router refuses ("replace cannot change the tab's root
-  route" in the log), and `push` would put the list over the welcome, with a Back to
-  it. Fix: the main screen is the root route and shows the welcome while a `persist`
-  flag is unset (docs/recipes/first-launch.md). The compiler warns on the plain form
-  (`lower-replace-root`). (Guard-rail evaluation, welcome, 2026-10-16.)
 - **A pushed screen's content is cut off and never scrolls, or its large title never
   collapses.** Cause: a route is a box, not a scroller; a title collapses only with
   the scroller right after the route's `header`. Fix: a `scroll flex=1 min-height=0`
@@ -586,7 +585,11 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
   not presented; the authored header, tablist and popover paint instead, by default.
   To see the bars, the tab bar and sheets as a person does, drive with `--chrome
   platform` and take `screenshot out.png window`; menus stay the agent's popovers
-  there. On the Mac the same switch shows a `dialog` and a modal route as
+  there (on the Mac, a `role="menu"` popover is painted with its rows 5 points
+  inside its box, as an `NSMenu`'s items are, on each side its author wrote no
+  padding for, and on AppKit's menu panel where its author wrote no surface in
+  any state; a person gets the `NSMenu`, which draws none of the rows' own
+  colours). On the Mac the same switch shows a `dialog` and a modal route as
   sheets and a popover
   that is no menu as AppKit's popover; each is a window of its own, so a plain
   `screenshot` (the viewport's own drawing) leaves it out and says so
@@ -594,6 +597,14 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
   `EXACT_AGENT=1` and `EXACT_AGENT_FAIL_FETCH`, no socket) shows the native bars
   and menus, its fetches still failing. (Signal Clone, builds 5 and 10; Splitter,
   rough 4 and 11; Recipe Finder, round 27.)
+- **A header with more buttons than the bar has room for loses the rest to UIKit's
+  overflow menu.** UIKit shows the first buttons as bar items and lists the others
+  under a More (…) button: a 402-point bar showed a symbol and two worded buttons
+  of 33. Under `--chrome platform` a `tap` on one of the others is refused (`its bar
+  item is in the navigation bar's overflow menu`): the driver does not open that
+  menu. Fix: write only the buttons that fit, and put the rest in one menu button
+  (a `button` with a `popovertarget`). (#738; iPhone 17 Pro and iPad Pro 11-inch
+  simulators, iOS 27.0, 2026-11-16.)
 - **An `EmptyState`'s button sits at the bottom of the screen.** Cause: the part
   takes the free height it is given, so a `button` written after it lands at that
   space's foot. Fix: indent the button under the `EmptyState` call, its slot.
@@ -602,14 +613,23 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
   inside a route draws under the native bars. Fix: render full-screen overlays
   (menus, action sheets) as root children after the tab container, or as a
   `navigationPresentation="fullscreen"` route. (Signal Clone, build 10.)
-- **A full-screen route on iOS shows white bands above and below its content.**
+- **A full-screen route on iOS shows bands above and below its content.**
   Cause: the host keeps the route's content clear of the status bar and the home
   indicator (LLP 1123 D3), so a child at `position="absolute" inset=0` starts
-  below the status bar, and where the route paints nothing its controller shows
-  the system background. Fix: give the route's own column the background
+  below the status bar and ends above the home indicator. Where the route paints
+  nothing, the bands show the nearest ancestor that paints a background, else
+  the platform background (the theme's page ground when set).
+  `system-bars-hidden=true` leaves them on a phone with a notch
+  or Dynamic Island, whose insets stay when the bars hide. Fix, where the
+  content needs only a backdrop: give the route's own column the background
   (`background-color`, with `color-scheme="dark"` for a photo viewer): it fills
   the screen to its edges, and where it is translucent, or fades out, the page
-  the route covers shows through. (Excord's image viewer, 2026-10-27.)
+  the route covers shows through. Fix, where the content itself must reach the
+  screen's edges (a full-screen canvas, a camera, a map): put
+  `-exact-safe-area="none"` on the route and place its controls
+  with `var(--exact-safe-area-inset-*)`, which still reads the route's insets.
+  (Excord's image viewer, 2026-10-27; #759, iPhone 12 and iPhone 17 Pro
+  simulators, iOS 27.0, 2026-11-16.)
 - **A Mac glass panel shows sharp content behind a wrapper.** AppKit's
   `backdrop-filter` samples only the parent's subtree, even when every wrapper
   is transparent. Make the glass a direct sibling of what it covers; put a
@@ -757,6 +777,7 @@ What a port writes from habit, what the compiler says, and what to write (the eu
 | `transform="rotate(-2deg)"` | `lower-attr-tag` | `rotate="-2deg"`, `translate="0px 25px"`, `scale=0.8` |
 | Expo's `NativeTabs.Trigger role="search"`, SwiftUI's `Tab(role: .search)` | `lower-attr-value` on `role="search"` | `rel="search"` on the root tab, written last; `autofocus` on its root's header search field sets it apart on iOS 26 (`contract vocab search`) |
 | a `ScrollView` in a `flex: 1` `View`: `column flex=1` › `scroll flex=1` | `lower-scroll-grows` (warning) | `min-height=0` on the column; the scroller alone needs none |
+| `borderWidth` and `borderColor` without a style (solid in RN) | `lower-border-unstyled` (warning) | `border="1px solid" border-color="…"`, or add `border-style="solid"` to the written width; for one edge use `border-top-style="solid"` so the other sides stay absent |
 | `alignItems`, `justifyContent`, `gap` on a `View` (a flex column in RN) | `lower-flex-on-block` (warning) | `column` or `row`: a `view` is `display: block`, as a `<div>` is |
 | `flexDirection="row"` on a `Pressable` with content | `lower-flex-on-block` (warning) | `button display="flex"`, and `text-align="left"` where its text is not centred: a `button` is a block with centred text, as `<button>` is |
 | `<SFSymbol name="x" size={N}>`, expo-symbols `SymbolView` | nothing; hand-drawn as an `svg`, or as `font-size=N`, the glyph comes out smaller | `image "symbol:sf/x" width=N height=N object-fit="contain"`, its tint as `color` ("Values beside an SF Symbol", below) |
@@ -1020,7 +1041,9 @@ price: answers arrive `Later`, outside the action's transaction (LLP 1027.002 D1
 - **A token kept in an app data file.** Exact has a secret store, and it holds
   strings, not only keys: grant `secret.keep <name>` and use
   `store.set`/`store.get`/`store.forget` in an answer (the Keychain on Apple,
-  `localStorage` on the web; a Linux launch forgets it at exit for now). The
+  origin-readable `localStorage` on the web; unencrypted files retained across
+  launches on Linux). **Web refresh and session tokens need a server-set
+  HttpOnly, Secure cookie:** follow [web sessions](recipes/web-sessions.md). The
   Signal clone kept its signal-cli bearer token in a plain config file because
   `secret.keep` read like the P-256 key store of LLP 1069.005. (2026-10-06.)
 
@@ -1281,8 +1304,10 @@ price: answers arrive `Later`, outside the action's transaction (LLP 1027.002 D1
   may scroll and send `pointercancel`, ending its moves. The web drag reply names
   observed cancellation and scrolling, with the named node’s `touch-action` and
   the effective intersection through its ancestors at contact start. Changing
-  `touch-action` during a contact does not change the browser's decision for it.
-  `drag … mouse` exercises the mouse path.
+  `touch-action` in that touch's `pointerdown` does not change the browser's
+  decision. On iOS, UIKit decides when the pan is recognized, so that write
+  applies there. For the same behavior on every host, set `none` before the
+  touch starts. `drag … mouse` exercises the mouse path.
 
 - **A `pan` hears nothing from a finger on the web.** A drag with
   `tap <id> drag dx dy` (or a real touch) moves nothing and logs nothing. Cause:
@@ -1926,6 +1951,25 @@ price: answers arrive `Later`, outside the action's transaction (LLP 1027.002 D1
   `-exact-control-size` and `-exact-corner-style` are admitted only on an
   explicit native button, including through classes. (LLP 1069.011.001 D12–D14.)
 
+- **`Request::continuation` does not compile: "type annotations needed"**, or
+  an Apple production build answers a source's request with `Unlinked("io")`.
+  A continuation runs on the host's executor, which an Apple production build
+  links only with `io` (LLP 1047.001 D12). Declare the work on the source that
+  builds it: `impl exact_runner::HostWork for MySource {}`, and write
+  `Request::continuation::<Self>(token)`. The build script passes
+  `exact_bake::hands_out_work!(source)` to `compatibility_id` beside the grants,
+  so the bake links `io` with nothing in `app.json`; pass the source the entry
+  runs, which may not be the one the bake runs (Markdown Stress bakes with
+  `MarkdownStress` and runs `NativeMarkdownStress`). A source that forwards
+  another's continuations declares it too. A TypeScript module needs nothing:
+  its bake reads the bundle for the prelude's timers (`setTimeout`,
+  `AbortSignal.timeout`) and `scheduler.yield()`, and links I/O for a native
+  slot's `native.later()`. It cannot see a timer the
+  module names at run time (`globalThis["set" + "Timeout"]`), nor a source
+  that names another type's marker: those are refused by name. A push of a
+  module that newly hands out host work to a binary without `io` is refused
+  (`appleUses.io`): bake a new binary.
+
 - **Natively, a Snapback resource or mutation fails with `native call outside an
   answer` while the same app works on the web.** Seen with five resources
   opening one `Snapback.switcher` partition at launch, and with a `setTyping`
@@ -2017,6 +2061,13 @@ price: answers arrive `Later`, outside the action's transaction (LLP 1027.002 D1
   demo site, 2026-11-12.)
 
 ## Working on Exact itself
+
+- **SwiftPM imports need more than Swift module paths.** An App Intents
+  typecheck with only `-I` and `-F` loses C and Objective-C module maps and
+  headers. Preserve the shared dependency target's compiler import flags when
+  compiling consumers and gathering their constants. A roster probe also needs
+  its own executable beside the package's resource bundles: `Bundle.main` in
+  Bun refers to Bun's bundle.
 
 - **An Android regression test still runs the temporarily reverted code after
   the source is restored.** A revert and restore close together can leave
@@ -2412,3 +2463,9 @@ once, then reports it again only after its valid bindings disappear and return. 
   1133.037 D3). Read such a name from `app.ts`, choosing it or its other target's name by
   the status (`attachedList ? attachedPorts({}) : getPorts({})`), as
   `docs/recipes/usb-hid-serial.md` does.
+
+- **A cached JSON collection can lose another tab’s edits.** `atomicWriteFile`
+  protects the replacement, not the read that produced it. Even a fresh read races
+  another writer. Use SQLite statements and constraints for shared collections
+  (`pattern list-detail`); close each connection in `finally` so other web tabs
+  can acquire it.

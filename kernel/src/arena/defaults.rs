@@ -7,7 +7,7 @@ static HEADER: std::sync::LazyLock<StyleProps> = std::sync::LazyLock::new(|| {
     // Static defaults keep roles, independent of the initializing app's theme.
     let role = |name| {
         let metric = metrics::named(name).expect("schema header metric");
-        let crate::generated::MetricValue::Text(name) = metric.neutral else {
+        let crate::generated::MetricValue::Text(name) = metric.neutral() else {
             panic!("schema header role");
         };
         crate::ColorValue::Role(crate::style::roles::role(name).expect("schema header role"))
@@ -36,7 +36,7 @@ static HEADER: std::sync::LazyLock<StyleProps> = std::sync::LazyLock::new(|| {
         (StyleId::Top, "-exact-header-top"),
     ] {
         let metric = metrics::named(name).expect("schema header metric");
-        let value = metrics::as_written(id, metric.neutral).expect("neutral header row");
+        let value = metrics::as_written(id, metric.neutral()).expect("neutral header row");
         style.set_dynamic(id, &value).expect("schema header value");
     }
     style
@@ -127,7 +127,17 @@ impl NodeArena {
         }
         // What moves a box in or out of sticky moves it out of or into the
         // top layer: its block follows at the next layout.
-        if crate::style::top_layer::lifted(self, slot) {
+        let lifted = crate::style::top_layer::lifted(self, slot);
+        // Measure the readers under a box that joins or leaves the top layer again, and at
+        // the next layout derive the raw readers below again: their holder, and with it their
+        // band and targets, changes; a reader elsewhere that this moves has a frame that moved
+        if lifted != self.top_layer_slots.contains(slot) {
+            self.observations.moved(slot);
+            if !self.readers.targets.is_empty() {
+                self.observations.targets.moved.push(slot);
+            }
+        }
+        if lifted {
             self.top_layer_slots.insert(slot);
         } else {
             self.top_layer_slots.remove(slot);
@@ -303,7 +313,7 @@ impl NodeArena {
 
     fn is_neutral_segmented(&self, slot: u32) -> bool {
         metrics::column() == Column::Neutral
-            && self.segmented_radios(slot).is_some()
+            && self.segmented_members(slot).is_some()
             && !self.grouped_row(slot)
     }
 

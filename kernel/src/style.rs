@@ -35,12 +35,14 @@ mod floor;
 mod keyword;
 pub use keyword::SizeKeyword;
 mod handles;
+pub(crate) use handles::less;
 mod intern;
 pub mod safe_area_properties;
 pub use calc::Comparison;
 use handles::calc_handle;
 pub(crate) use handles::{calc_handle_in, resolve_calc, tree_handle, LayoutEnv};
 pub mod env;
+pub mod targets;
 pub use env::link as link_segments;
 pub use env::{uses_env, Edge, Env, EnvRefusal, Rect, Region, SegmentVar, TitleBarVar};
 /// Link the wide colour forms (`lab()`, `lch()`, `oklab()`, `oklch()`,
@@ -1435,6 +1437,9 @@ pub fn taffy_style(arena: &NodeArena, slot: u32) -> taffy::style::Style {
     crate::grouped::apply_card_margins(arena, slot, &mut s);
     // After the mirror: a table's sides are what they cancel, physically.
     table::apply(arena, slot, &mut s);
+    // After the mirror and a table's padding: a reservation is physical
+    crate::kernel::block::reservation::lay_out(arena, slot, &style, &env, &mut s);
+    crate::kernel::ignore::lay_out(arena, slot, &mut s);
     // @ref LLP 1115.002 D8.2 — the containing block a host gave the subtree.
     crate::kernel::apply_block(arena, slot, &mut s);
     // @ref LLP 1074 T1 — a root is the containing block of every absolutely
@@ -1445,6 +1450,25 @@ pub fn taffy_style(arena: &NodeArena, slot: u32) -> taffy::style::Style {
     }
     lowering.finish(&mut s);
     s
+}
+
+/// `side` with `points` more.
+pub(crate) fn plus(
+    side: taffy::style::LengthPercentage,
+    points: f32,
+) -> taffy::style::LengthPercentage {
+    use taffy::style::{CompactLength, LengthPercentage};
+    let raw = side.into_raw();
+    match raw.tag() {
+        CompactLength::LENGTH_TAG => length(raw.value() + points),
+        CompactLength::PERCENT_TAG => LengthPercentage::calc(handles::calc_handle_in(
+            raw.value() * 100.0,
+            0.0,
+            false,
+            points,
+        )),
+        _ => LengthPercentage::calc(handles::plus(raw.calc_value(), points)),
+    }
 }
 
 mod decoration;

@@ -138,8 +138,11 @@ test or drive to investigate; it does not add another blocking check.
   thread of their own.
 - **Each test sets up what it uses.** macOS XCTest classes run one per process
   (`host/apple/xctest.mjs`) and iOS classes one per simulator clone, so a class
-  cannot rely on an earlier class. Install what it uses in `class func setUp`
-  (`ExactSurfaces.install()` for a canvas) and create what it reads
+  cannot rely on an earlier class. The bundle installs the development
+  composition as it loads (`TestsInstall.swift`), so the capabilities a
+  development app links are installed before any test; a class that uses one
+  development links only by use (media picker, sign-in sheet, numerals, tips)
+  installs it in `class func setUp`, and creates what it reads
   (`NSApplication.shared` before `NSApp`). `UserDefaults.standard` is one
   domain for every macOS XCTest process (`com.apple.dt.xctest.tool`): a
   test that sets a key the host also writes gives the host a suite of its
@@ -313,7 +316,10 @@ change the native state inside that pair, then wait for the runner to apply it
   launched in 74 ms against the full build's 185 ms and used 263 MB of memory
   against 939 MB (the medians of 7 launches, every process of the browser
   counted). `exact setup` installs both builds (`bunx playwright@<version>
-  install chromium chromium-headless-shell` does the same).
+  install chromium chromium-headless-shell` does the same). A test that
+  launches it registers through `engineTest.chromium` or `need('chrome',
+  chromium().unavailable)`, so that a missing build skips it; `suiteBrowser`
+  refuses a missing one with the same reason.
 - **Run the device runner's own tests alone.** `scripts/agent-test.test.mjs`
   drives a real app on the web, so it needs the pinned Chromium or `CHROME`
   pointing at an installed Chrome, and one of its tests builds the app's web
@@ -337,6 +343,26 @@ change the native state inside that pair, then wait for the runner to apply it
   exit outside Bun's test runner. A test about the browser process (it kills
   the browser, or needs a kept profile, a headed window or flags of its own)
   launches its own.
+- **Register a test per engine through `engineTests()`.** With `const
+  engineTest = await engineTests()` (`scripts/coverage.mjs`),
+  `engineTest[engine](name, fn)` (or `.each`) runs the test or, when that
+  browser is not installed or does not launch, skips it. Bun prints only a
+  count of skips, so the first skip of a kind in a process prints why, with
+  who can fix it and how (`SKIP: missing firefox, so the tests that need it are
+  skipped, …`), and each skipped test then prints `SKIP: <name> — missing
+  firefox`. Under `EXACT_REQUIRED=1`, as
+  the hourly lane runs, it fails instead. Finding out launches Firefox and
+  WebKit once, as the file's `suiteBrowser()`, so name only the engines the
+  file drives (`engineTests(['chromium', 'webkit'])`). A test that drives
+  several engines in one setup loops over `await drivable([…])`, which leaves
+  a missing one out the same way and runs the rest.
+- **On macOS 27, Playwright's Firefox needs Mozilla's.** macOS lets only
+  Mozilla's signed Firefox create `~/Library/Application Support/Firefox`, and
+  Playwright's Firefox exits with "Could not find profile folder" while it is
+  missing, so install Firefox from mozilla.org and open it once. The folder
+  stays unreadable to other programs; Firefox 158 and later start without
+  reading it ([bug 2069536](https://bugzilla.mozilla.org/show_bug.cgi?id=2069536)),
+  after a wait of about 7 s per launch on an M5 Pro (2026-11-17).
 - **Wait for the event, not for its first sign.** The shell is faster than the
   full build, so a test that reads a state while the browser still changes it
   fails there first. `document.fullscreenElement` is set before the

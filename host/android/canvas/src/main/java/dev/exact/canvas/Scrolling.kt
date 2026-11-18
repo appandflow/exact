@@ -30,7 +30,7 @@ import kotlin.math.sign
  *
  * What crosses to exact2 and back is `host/painted/src/presenter/scrollers.rs`:
  * - at a touch's down the reader asks what is under it ([Native.under]): the scrollers, innermost first, and the axes
- *   exact2's own gestures claim there (a swipe row, a reorder grip, a `pan`);
+ *   exact2's own gestures claim there (a swipe row, a reorder grip, a `pan`, a sheet's drag);
  * - past the slop, a drag along an axis exact2 claims stays its own; along one a scroller under the finger scrolls
  *   on, the scroll wins: exact2's press and drag recognition for the touch is cancelled ([ExactView.forward] with a
  *   cancel) and no more of the touch reaches it;
@@ -433,9 +433,10 @@ internal class Scrolling(private val view: ExactView) {
         // A hosted text field that drags its own selection or caret asked to keep its touch, as it asks a ScrollView.
         if (view.fieldKeeps()) return
         val across = ax > ay
-        if (claims and (if (across) 1 else 2) != 0) { mode = THEIRS; return }
+        val sheetDirection = if (y < downY) 8 else 16
+        if (claims and (if (across) 1 else 2 or sheetDirection) != 0) { mode = THEIRS; return }
         val takes = { side: Boolean -> chain.any { if (side) it.x else it.y } }
-        val other = (if (across) ay else ax) > slop && claims and (if (across) 2 else 1) == 0
+        val other = (if (across) ay else ax) > slop && claims and (if (across) 2 or sheetDirection else 1) == 0
         sideways = when {
             takes(across) -> across
             other && takes(!across) -> !across

@@ -135,7 +135,7 @@ import { HOST_SDKS, olderVersion, xcodeRefusal } from '../host/apple/devices.mjs
 
 /** A fake `xcrun` whose `--show-sdk-version` answers for each SDK from `SDK_<name>`, and for an SDK without one fails
  *  in xcrun's words (Xcode 27.2 for an SDK it has not), and which does `rest` (shell) for any other command. */
-const fakeXcrun = (rest) => `#!/bin/sh\ncase "$*" in *--show-sdk-version*)\n  sdk=$(echo "$*" | sed -n 's/.*--sdk \\([a-z]*\\).*/\\1/p'); eval "v=\\\${SDK_$sdk:-}"\n  [ -n "$v" ] && { echo "$v"; exit 0; }; echo "xcrun: error: SDK \\"$sdk\\" cannot be located" >&2; exit 1;;\nesac\n${rest}\n`;
+const fakeXcrun = (rest) => `#!/bin/sh\ncase "$*" in *--version*) echo "Apple Swift version \${SELECTED_SWIFT:-6.4}"; exit 0;; *--show-sdk-version*)\n  sdk=$(echo "$*" | sed -n 's/.*--sdk \\([a-z]*\\).*/\\1/p'); eval "v=\\\${SDK_$sdk:-}"\n  [ -n "$v" ] && { echo "$v"; exit 0; }; echo "xcrun: error: SDK \\"$sdk\\" cannot be located" >&2; exit 1;;\nesac\n${rest}\n`;
 
 test('the Apple build names the Xcode it found and the one the Swift host needs', () => {
   assert.equal(olderVersion('26.4', '27.1'), true);
@@ -145,7 +145,7 @@ test('the Apple build names the Xcode it found and the one the Swift host needs'
   assert.equal(olderVersion('27.10', '27.2'), false, 'parts compare as numbers');
   assert.equal(olderVersion('28', '27.1'), false);
   // What a command answers: an SDK version, or (`failed`) xcrun's own error.
-  const xcode = (sdk, failed = null) => (cmd) => cmd === 'xcrun' ? (failed ? { status: 1, stdout: '', stderr: failed } : { status: 0, stdout: `${sdk}\n` })
+  const xcode = (sdk, failed = null) => (cmd, args) => cmd === 'xcrun' ? (args.includes('--version') ? { status: 0, stdout: 'Apple Swift version 6.4' } : failed ? { status: 1, stdout: '', stderr: failed } : { status: 0, stdout: `${sdk}\n` })
     : { status: 0, stdout: `Xcode ${sdk || '27.1'}\nBuild version 17E5\n` };
   const developer = process.env.DEVELOPER_DIR;
   process.env.DEVELOPER_DIR = '/Applications/Xcode_26.4.app/Contents/Developer';
@@ -165,6 +165,15 @@ test('the Apple build names the Xcode it found and the one the Swift host needs'
     assert.match(unread, /\(Xcode 27\.1, .*\) could not report its tvOS SDK: xcrun: error: SDK "appletvos" cannot be located; xcrun: error: unable to lookup item 'SDKVersion' in SDK 'appletvos'/);
     assert.doesNotMatch(unread, /which Xcode .* carry|Select one/);
   } finally { if (developer === undefined) delete process.env.DEVELOPER_DIR; else process.env.DEVELOPER_DIR = developer; }
+});
+
+test('an adequate SDK still needs a supported Swift compiler', () => {
+  const probe = (version) => (cmd, args) => ({ status: 0, stdout:
+    cmd === 'xcodebuild' ? 'Xcode 27.2\n' : args.includes('--version') ? version : '27.2\n' });
+  assert.match(xcodeRefusal('macosx', probe('Apple Swift version 6.2.4')), /Swift 6\.2\.4.*Swift 6\.4/);
+  assert.match(xcodeRefusal('macosx', probe('unreadable')), /could not report.*Swift/);
+  assert.equal(xcodeRefusal('macosx', probe('Apple Swift version 6.4')), null);
+  assert.equal(xcodeRefusal('macosx', probe('Apple Swift version 6.4.2 (swiftlang-test)')), null);
 });
 
 test.skipIf(process.platform !== 'darwin')('the Swift host\'s floor holds only builds that compile it, at the SDK they compile with', () => {
@@ -228,6 +237,7 @@ test.skipIf(process.platform !== 'darwin')('a first build asks setup for the Xco
   const bin = mkdtempSync(resolve(tmpdir(), 'exact-xcode-row-'));
   try {
     writeFileSync(resolve(bin, 'xcrun'), fakeXcrun('exec /usr/bin/xcrun "$@"'), { mode: 0o755 });
+    writeFileSync(resolve(bin, 'swift'), '#!/bin/sh\necho "Apple Swift version 6.2.4"\n', { mode: 0o755 });
     // xcodebuild answers for an Xcode, and refuses the Command Line Tools in its own words.
     writeFileSync(resolve(bin, 'xcodebuild'), `#!/bin/sh\ncase "$DEVELOPER_DIR" in *CommandLineTools*) echo "xcode-select: error: tool 'xcodebuild' requires Xcode, but active developer directory '$DEVELOPER_DIR' is a command line tools instance" >&2; exit 1;; esac\necho "Xcode 27.1"\n`, { mode: 0o755 });
     writeFileSync(resolve(bin, 'xcode-select'), `#!/bin/sh\necho /Library/Developer/CommandLineTools\n`, { mode: 0o755 });
@@ -235,7 +245,7 @@ test.skipIf(process.platform !== 'darwin')('a first build asks setup for the Xco
     const env = { ...process.env, DEVELOPER_DIR: '/Applications/Xcode-27.1.app/Contents/Developer', SDK_iphonesimulator: '27.1', SDK_appletvsimulator: '27.0', SDK_appletvos: '26.4',
       PATH: bin + delimiter + process.env.PATH };
     const whole = sdkReport({ ...env, SDK_macosx: '26.0', SDK_iphonesimulator: '26.0' });
-    assert.equal(whole.find(row => row.name === 'Xcode').ok, true, 'the general Xcode row does not blame a Mac-capable Xcode for the iOS floor');
+    assert.equal(whole.find(row => row.name === 'Xcode').ok, true, 'Mac setup checks the selected Swift, even with an older Swift on PATH, and the Mac SDK floor');
     assert.equal(whole.find(row => row.name === 'iOS SDK').ok, false);
     // What app-cli.mjs reads before a native verb's first build (`ios --tvos` is the ios verb).
     const xcode = async (options) => (await platformReport('ios', sdkReport(env, { only: 'ios', ...options }), options)).find(row => row.name === 'Xcode');
@@ -243,7 +253,7 @@ test.skipIf(process.platform !== 'darwin')('a first build asks setup for the Xco
     assert.equal((await xcode({ tv: true })).ok, true, 'an Apple TV simulator build needs the tvOS Simulator 27.0 SDK');
     const phone = await xcode({ device: true });
     assert.equal(phone.ok, false, 'a device build needs the iphoneos SDK');
-    assert.equal(phone.want, 'Xcode 27.1 or later');
+    assert.equal(phone.want, 'ios SDK 27.1+, Swift 6.4+');
     assert.equal((await xcode({ tv: true, device: true })).ok, false);
     // Apple's tools take an Xcode's bundle path, with or without a trailing slash, as well as its Contents/Developer.
     for (const DEVELOPER_DIR of ['/Applications/Xcode-27.1.app', '/Applications/Xcode-27.1.app/', '/Applications/Xcode-27.1.app/Contents/Developer/']) {
@@ -254,6 +264,10 @@ test.skipIf(process.platform !== 'darwin')('a first build asks setup for the Xco
     assert.equal(tools.ok, false, 'the Command Line Tools are no Xcode');
     const missing = (await platformReport('ios', sdkReport({ ...env, SDK_appletvos: '' }, { only: 'ios', device: true, tv: true }), { device: true })).find(row => row.name === 'Xcode');
     assert.match(missing.fix, /could not report its tvOS SDK: xcrun: error: SDK "appletvos" cannot be located/, 'a failed probe is said in its own words');
+    writeFileSync(resolve(bin, 'swift'), '#!/bin/sh\necho "Apple Swift version 6.4.2"\n', { mode: 0o755 });
+    const oldSwift = sdkReport({ ...env, SDK_macosx: '26.0', SELECTED_SWIFT: '6.2.4' }, { only: 'macos' }).find(row => row.name === 'Xcode');
+    assert.equal(oldSwift.ok, false, 'a newer Swift on PATH cannot satisfy the selected compiler floor');
+    assert.match(oldSwift.fix, /Swift 6\.2\.4 is too old/);
   } finally { rmSync(bin, { recursive: true, force: true }); }
 }, 120000);
 
@@ -304,6 +318,15 @@ test('a CI setup check names only the requested build toolchain and fails when i
   assert.match(result.stdout, /Android JDK: missing/);
   assert.match(result.stdout, /Android NDK: missing/);
   assert.doesNotMatch(result.stdout, /Chrome|web nightly|wasm-bindgen|Xcode/);
+});
+
+test('a setup check requires a Hermes bundle only of an app that links it', async () => {
+  const { platformReport } = await import('./exact.mjs');
+  const rows = [{ name: 'Hermes bundle (aarch64-linux-android)', ok: false, have: 'missing', fix: 'install it', need: 'Android TypeScript' }];
+  const hermesRow = async hermes => (await platformReport('android', rows, { hermes })).find(row => row.name === rows[0].name);
+  expect(await hermesRow(false)).toMatchObject({ ok: true, required: true, have: 'not linked by this app' });
+  expect(await hermesRow(null)).toMatchObject({ ok: false, required: false, need: 'TypeScript apps' });
+  expect(await hermesRow(true)).toMatchObject({ ok: false, required: true, fix: 'install it' });
 });
 
 test('web setup accepts an install scope and refuses native install scopes before provisioning', () => {
@@ -439,4 +462,33 @@ test('a signal during one test file stops the run; a failing file does not', asy
     const failed = spawnSync(process.execPath, [driver, 'test', ...files('fail', 'pass'), '--web-dist', dir], { cwd: dir, encoding: 'utf8', env });
     expect([failed.status, failed.stdout.includes('STARTED pass')]).toEqual([1, true]);
   } finally { rmSync(root, { recursive: true, force: true }); }
+}, 30_000);
+
+test.skipIf(process.platform === 'win32')('TypeScript Android builds require a target Hermes bundle before baking', () => {
+  const dir = mkdtempSync(resolve(tmpdir(), 'exact-android-typescript-'));
+  try {
+    mkdirSync(resolve(dir, 'bin'));
+    const tool = (name, body) => writeFileSync(resolve(dir, 'bin', name), `#!/bin/sh\n${body}\n`, { mode: 0o755 });
+    tool('rustup', "printf '%s\\n' aarch64-linux-android x86_64-linux-android");
+    tool('cargo', 'if [ "$1" = tree ]; then echo "exact-js v0.1.0"; else echo "x86_64 bake reached" >&2; exit 1; fi');
+    tool('java', `echo 'openjdk version "21.0.8"' >&2`);
+    tool('javac', 'exit 0');
+    const bin = resolve(dir, 'toolchains/llvm/prebuilt', process.platform === 'darwin' ? 'darwin-x86_64' : 'linux-x86_64', 'bin');
+    mkdirSync(bin, { recursive: true });
+    writeFileSync(resolve(bin, 'x86_64-linux-android29-clang'), '');
+    for (const [abis, bundle] of [['x86_64', '/intel-bundle'], ['x86_64'], ['arm64-v8a,x86_64']]) {
+      const r = spawnSync(process.execPath, [resolve(import.meta.dir, 'agent-android.mjs'), 'build', 'shelf', '--apk', '--abis', abis], {
+        encoding: 'utf8', env: { ...process.env, PATH: `${dir}/bin:${process.env.PATH}`, JAVA_HOME: dir, ANDROID_NDK_HOME: dir,
+          HERMES_LEAN_SYS_DIR_aarch64_linux_android: '/arm-bundle', HERMES_LEAN_SYS_DIR_x86_64_linux_android: bundle },
+      });
+      expect(r.status).toBe(1);
+      if (bundle) expect(r.stderr).toContain('x86_64 bake reached');
+      else {
+        expect(r.stderr).toContain("shelf's TypeScript needs the x86_64-linux-android Hermes bundle:");
+        expect(r.stderr).toContain('HERMES_LEAN_SYS_DIR_x86_64_linux_android');
+        expect(r.stderr).not.toContain('x86_64 bake reached');
+        expect(r.stderr).not.toContain('at hermesBundle');
+      }
+    }
+  } finally { rmSync(dir, { recursive: true, force: true }); }
 }, 30_000);

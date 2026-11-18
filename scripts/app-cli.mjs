@@ -184,6 +184,7 @@ export function appVerbs(name, dir, { host = 'web', game = false, os = process.p
     windows: ['host/windows/build.mjs', name],
     // The APK on the Canvas reader, installed (LLP 1107 D1); `--headless` the Linux host for Android instead.
     android: ['scripts/agent-android.mjs', 'build', name, '--apk', '--install'],
+    ...game ? {} : { deploy: ['scripts/deploy.mjs', dir], push: ['scripts/push.mjs', name] },
     update: ['scripts/exact.mjs', 'new', dir, '--update'],
     lock: ['scripts/app-cli.mjs', '--lock', dir],
     add: ['scripts/exact.mjs', 'add'],
@@ -215,7 +216,7 @@ export function appVerbs(name, dir, { host = 'web', game = false, os = process.p
 export const beforeBuild = {
   status: false, web: true, 'web-build': true, serve: true, test: false, agent: false, verify: true, ios: true, mac: true, share: true,
   linux: true, windows: true, android: true, update: false, lock: false, hatch: false, snapback: true, backend: false, docs: false,
-  feedback: false, add: false,
+  feedback: false, add: false, deploy: true, push: true,
   contract: ([command, ...rest]) => ['build', 'types', 'rust', 'verify', 'test', 'lean', 'symbols', 'gallery'].includes(command)
     || command === 'forma' && checksDesign(rest),
   forma: (rest) => checksDesign(rest),
@@ -564,7 +565,7 @@ if (verb === 'contract') {
   const prepares = beforeBuild[verb];
   if (declared.before_build !== undefined && !own[verb] && (typeof prepares === 'function' ? prepares(rest) : prepares)) {
     // The verbs whose scripts refuse a flag they do not take (`guardFlags`)
-    if (['web', 'web-build', 'serve', 'verify', 'ios', 'mac', 'linux', 'android', 'snapback', 'pattern', 'share'].includes(verb)) {
+    if (['web', 'web-build', 'serve', 'verify', 'ios', 'mac', 'linux', 'android', 'snapback', 'pattern', 'share', 'deploy', 'push'].includes(verb)) {
       const refused = await refusedFlag();
       if (refused != null) return log(refused);
     }
@@ -661,10 +662,9 @@ export function gpuBindgen(metadata, roots) {
   };
 }
 
-/** A note when the app's GPU modules link a wasm-bindgen other than the CLI the web build runs (`exact setup` installs
- * the version exact2 pins in game/Cargo.toml), which refuses any other; null otherwise. The modules are `<app>-gpu`,
- * in gpu/, and `<app>-gpu-<module>` for each of app.json's `gpu.modules`; with no gpu/ crate the web build
- * (host/web-js/build.mjs) builds none of them. */
+/** A note when the app's own GPU crates link a wasm-bindgen other than the web build's CLI (`exact setup` installs
+ * the version exact2 pins in game/Cargo.toml); null otherwise. This checks gpu/ and app.json's `gpu.modules`.
+ * Package GPU modules build separately, from their generated workspaces, even when the app has no gpu/ crate. */
 function bindgenFinding(dir, workspace, options) {
   const game = resolve(import.meta.dir, '../game/Cargo.toml');
   const pin = existsSync(game) ? String(Bun.TOML.parse(readFileSync(game, 'utf8')).workspace?.dependencies?.['wasm-bindgen'] ?? '').replace(/^=/, '') : '';
@@ -688,6 +688,12 @@ function bindgenFinding(dir, workspace, options) {
 /** Explicit app lock repair: preserve selected versions and resolve only manifest drift. An app without a workspace of
  * its own resolves its generated one (LLP 1153.003 D1.4), capturing a lock only when its crates leave exact2's. */
 export async function lockApp(dir) {
+  const { readManifest } = await import('./app.mjs');
+  const { lockSwiftPackages } = await import('../host/apple/compose.mjs');
+  const swift = lockSwiftPackages({ dir, manifest: readManifest(dir, basename(dir)) });
+  return [await lockRustApp(dir), swift].filter(Boolean).join('\n');
+}
+async function lockRustApp(dir) {
   const { cargoEnvironment } = await import('./app.mjs');
   const { appCrates, authoredWorkspace, shellsDir } = await import('./cargo-check.mjs');
   const { GPU_LOCK, ensureGpuShells, ensureShells, lockShells, lockChanges } = await import('./app-shells.mjs');

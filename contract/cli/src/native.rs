@@ -181,7 +181,8 @@ fn watched_rust_hatches(
 /// Rust hatches, `modules/android/*.rs` or `modules/linux/*.rs`, with the
 /// reader's Kotlin ones told beside them; the reader's alone when the app
 /// has no Rust ones; none when it gives `android` no word); and what
-/// [`android_reach`] writes, and the widgets' `widgets.rs` ([`widgets`]).
+/// [`android_reach`] writes, the widgets' `widgets.rs` ([`widgets`]), and
+/// `launch.rs`, the launch modules called once before boot.
 pub fn android_entry(
     app_root: &Path,
     manifest: &Manifest,
@@ -189,6 +190,11 @@ pub fn android_entry(
     out_dir: &Path,
 ) -> Result<(), String> {
     let install = "Option<::exact_painted::hatches::Install>";
+    std::fs::write(
+        out_dir.join("launch.rs"),
+        crate::logic::painted_launch_parts(app_root, manifest, "android")?,
+    )
+    .map_err(|e| e.to_string())?;
     let text = match watched_rust_hatches(app_root, manifest, "android")? {
         Some(rust) => format!(
             "{rust}fn exact_hatches() -> {install} {{\n    Some(::exact_painted::hatches::install_with_reader::<hatches::ExactHatches>(HatchKey::WORDS))\n}}\n"
@@ -211,13 +217,21 @@ pub fn android_entry(
 
 /// What the APK's build reads beside an Android plan, from an app's
 /// Android crate or a game's bake: `uses.txt`, [`android_uses`] one a line,
-/// and `permissions.txt`, the Android permissions its grant lines and
-/// module names derive beyond the compatibility id's reach.
+/// `permissions.txt`, the Android permissions its grant lines and module
+/// names derive, and `transfers.rs`, the imported transfer package's JNI entry.
 pub fn android_reach(
     app_root: &Path,
     plan: &exact_plan::Plan,
     out_dir: &Path,
 ) -> Result<(), String> {
+    let transfer = if plan.package_extensions().get("background-transfer")
+        == Some(&"@exact/background-transfer")
+    {
+        "exact_painted::android_transfer_jni!();\n"
+    } else {
+        ""
+    };
+    std::fs::write(out_dir.join("transfers.rs"), transfer).map_err(|e| e.to_string())?;
     let uses = android_uses(plan);
     std::fs::write(out_dir.join("uses.txt"), uses.join("\n")).map_err(|e| e.to_string())?;
     // The grant ceiling of the compatibility id the build script wrote

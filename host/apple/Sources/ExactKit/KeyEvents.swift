@@ -327,7 +327,7 @@ extension Presenter {
     /// (and the field editor editing it), textarea, native button or date/select control. Any other view a node
     /// holds (a web view, a native module's) keeps its keys, as an iframe's
     /// never reach the page.
-    func keyTarget(_ responder: NSResponder?) -> NodeView? {
+    package func keyTarget(_ responder: NSResponder?) -> NodeView? {
         if let run = responder as? InlineKeyView { return run.owner }
         guard let view = responder as? NSView else { return nil }
         var next: NSView? = view

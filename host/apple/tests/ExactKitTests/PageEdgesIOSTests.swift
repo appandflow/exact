@@ -2,6 +2,7 @@
 import UIKit
 import XCTest
 @testable import ExactKit
+@testable import ExactCollections
 import ExactGroupedLists
 
 /// LLP 1130: a page with no native container keeps the area it is laid out
@@ -276,8 +277,8 @@ final class PageEdgesIOSTests: XCTestCase {
         XCTAssertTrue(hit.isDescendant(of: filter), "a tap on the switcher is the switcher's, not \(type(of: hit))")
         XCTAssertTrue(filter.interactions.contains { $0 is UIScrollEdgeElementContainerInteraction }, "UIKit's edge effect over the list")
         // An app's own scroll view holds the bar's edge through a batch, and its nil gives the edge
-        // back to the list at once, through the list's band under the switcher, since the title
-        // does not collapse with the list
+        // back to the list by the route's next layout, through the list's band under the switcher,
+        // since the title does not collapse with the list
         let route = try XCTUnwrap(p.navigation.activeRoute)
         XCTAssertNil(route.collapseScroll, "the switcher stands between the title and the list")
         XCTAssertTrue(route.contentScrollView(for: .top) === sv, "the bar follows the list under the switcher")
@@ -288,6 +289,7 @@ final class PageEdgesIOSTests: XCTestCase {
         XCTAssertTrue(route.contentScrollView(for: .top) === own)
         route.setContentScrollView(nil, for: .top)
         own.removeFromSuperview()
+        route.view.layoutIfNeeded()
         XCTAssertTrue(route.contentScrollView(for: .top) === sv, "nil gives the edge back to the list drawn under the switcher")
         sv.contentOffset.y = 100 - list.scrollTopInset(sv)
         p.press(try node(session, "pick-chat").id)
@@ -515,7 +517,7 @@ final class PageEdgesIOSTests: XCTestCase {
 
         p.press(try node(session, "use-list").id)
         until("a virtualized list is banded") {
-            guard let l = list(), l.scrollView != nil, p.collections.entries[l.id] != nil else { return false }
+            guard let l = list(), l.scrollView != nil, p.listHost.entries[l.id] != nil else { return false }
             return abs(l.pageBand.bottom - cover.bottom) < 0.5
         }
     }

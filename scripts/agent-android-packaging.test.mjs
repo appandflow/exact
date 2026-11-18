@@ -114,3 +114,36 @@ test.skipIf(process.platform !== 'darwin' || !releaseJavaEnv ||
       .toBe('-dontoptimize\n-dontobfuscate');
   } finally { rmSync(dir, {recursive:true, force:true}); }
 }, 600000);
+
+test.skipIf(process.platform !== 'darwin' || !releaseJavaEnv ||
+  !androidSdkPackages().every(pkg => existsSync(resolve(releaseSdk, pkg.path))))('one Maven lock write produces a graph the next strict resolution accepts', () => {
+  const dir = mkdtempSync(resolve(tmpdir(), 'exact-android-locks-'));
+  try {
+    writeFileSync(resolve(dir, 'app.json'), JSON.stringify({app:{id:'dev.exact.locks', name:'Locks'}}));
+    const init = resolve(dir, 'resolve.gradle');
+    writeFileSync(init, `gradle.projectsEvaluated {
+      def app = gradle.rootProject.project(':app')
+      app.tasks.register('resolveRuntime') {
+        doLast {
+          app.configurations.releaseRuntimeClasspath.incoming.resolutionResult.allDependencies.each {
+            if (it instanceof org.gradle.api.artifacts.result.UnresolvedDependencyResult) throw it.failure
+          }
+        }
+      }
+    }`);
+    // Push brings older Kotlin transitives into a graph whose reader selects the current stdlib.
+    const {maven} = JSON.parse(readFileSync(resolve(import.meta.dir, '../packages/push/android/exact.json'), 'utf8'));
+    const args = ['--no-watch-fs', '--no-daemon', '--console=plain', '-I', init,
+      '-Papp=locks', '-PapplicationId=dev.exact.locks', '-PappName=Locks', `-PappDir=${dir}`,
+      `-PappBuildDir=${dir}/app`, `-PcanvasBuildDir=${dir}/canvas`, '--project-cache-dir', `${dir}/cache`,
+      `-Pmaven=${maven.join(',')}`, `-PmavenLock=${dir}/gradle.lockfile`];
+    const run = tasks => spawnSync(resolve(import.meta.dir, '../host/android/gradlew'), [...args, ...tasks], {
+      cwd: resolve(import.meta.dir, '../host/android'), encoding:'utf8', timeout:180000, maxBuffer: 1 << 28,
+      env:{...releaseJavaEnv, ANDROID_HOME:releaseSdk},
+    });
+    const written = run([':app:dependencies', ':app:resolveRuntime', '--write-locks']);
+    expect(written.status, written.stdout + written.stderr).toBe(0);
+    const strict = run([':app:resolveRuntime']);
+    expect(strict.status, strict.stdout + strict.stderr).toBe(0);
+  } finally { rmSync(dir, {recursive:true, force:true}); }
+}, 400000);

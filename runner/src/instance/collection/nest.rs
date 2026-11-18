@@ -31,7 +31,7 @@ pub(crate) struct KeptPosition {
 
 /// An outer list's kept positions: (outer row key, inner site) to the inner
 /// list's position, bounded by recency.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub(crate) struct Kept {
     entries: HashMap<(Rc<str>, Rc<str>), KeptPosition>,
     order: BTreeMap<u64, (Rc<str>, Rc<str>)>,
@@ -90,12 +90,12 @@ impl Kept {
                 out.push(',');
             }
             let _ = write!(out, "{{\"list\":{list},\"row\":");
-            crate::agent::quote(row, out);
+            crate::json::quote(row, out);
             out.push_str(",\"site\":");
-            crate::agent::quote(site, out);
+            crate::json::quote(site, out);
             out.push_str(",\"key\":");
             match &entry.position.point {
-                ReadingPoint::Row(key) => crate::agent::quote(key, out),
+                ReadingPoint::Row(key) => crate::json::quote(key, out),
                 ReadingPoint::Fixed(side) => {
                     let _ = write!(out, "null,\"fixed\":{side}");
                 }

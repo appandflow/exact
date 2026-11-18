@@ -10,8 +10,25 @@ import os
 enum HostLog {
     private static let logger = Logger(subsystem: "dev.exact", category: "host")
 
+    static func capabilities(_ session: ExactSession, _ batch: Batch) {
+        guard HatchDiagnosticsLink.available else { return }
+        func missing(_ product: String) {
+            guard session.missingCapabilities.insert(product).inserted else { return }
+            note(session, "plan uses an unavailable capability; link \(product) and call \(product).install() before creating sessions")
+        }
+        for op in batch.ops {
+            if MarkdownLink.installed == nil, op.props["markup"] == "markdown" {
+                missing("ExactMarkdown")
+            }
+            if DragLink.installed == nil,
+               op.op == .heightDrag || op.op == .transformDrag || !(op.props["reorderFor"] ?? "").isEmpty {
+                missing("ExactDrag")
+            }
+        }
+    }
+
     static func note(_ session: ExactSession?, _ line: @autoclosure () -> String) {
-        guard HatchDiagnostics.available, let session else { return }
+        guard HatchDiagnosticsLink.available, let session else { return }
         let line = line()
         session.log("host: " + line)
         logger.debug("\(line, privacy: .public)")

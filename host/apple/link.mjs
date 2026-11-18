@@ -88,9 +88,14 @@ export function deploymentTargets(app) {
 export const compiledTargets = (app, trust = process.env.EXACT_UPDATE_TRUST ?? 'development', platform = process.platform) =>
   trust === 'production' || hasFileParameters(app.manifest.intents) || app.manifest.launch?.length && platform !== 'linux' ? deploymentTargets(app) : { ...deploymentTargets(app), ios: '17.0' };
 
-/** The capabilities with a Swift half, by name, and the product of
- * `Package.swift` (its `capabilities` table) each is. */
-const SWIFT_CAPABILITIES = [['grouped_lists', 'ExactGroupedLists'], ['markdown', 'ExactMarkdown'], ['surfaces', 'ExactSurfaces'], ['drag', 'ExactDrag'], ['media_picker', 'ExactMediaPicker'], ['auth_session', 'ExactAuthSession'], ['numerals', 'ExactNumerals'], ['tips', 'ExactTips'], ['presence', 'ExactPresence']];
+/** The capabilities with a Swift half, by name, and the product each is: the rows of `Package.swift`'s
+ * `allCapabilities`, the one list a family's move adds to. */
+const SWIFT_CAPABILITIES = (() => {
+  const table = readFileSync(new URL('./Package.swift', import.meta.url), 'utf8').match(/^let allCapabilities[^\n]*\n([\s\S]*?)^\]/m)?.[1] ?? '';
+  const rows = [...table.matchAll(/^\s*\("([a-z_]+)", "(Exact\w+)"\),$/gm)].map(([, name, product]) => [name, product]);
+  if (!rows.length) throw new Error('host/apple: Package.swift has no allCapabilities rows');
+  return rows;
+})();
 
 /** The capabilities a development build links only as production would
  * (LLP 1047.001.000 F): each links a framework that costs every iOS launch
@@ -253,4 +258,14 @@ export function assertLinkedSdk(executable, expected) {
       throw new Error(`host/apple: ${basename(executable)} records SDK ${recorded ?? '(none)'}, not ${expected}: AppKit would draw it in another design`);
     }
   }
+}
+
+/** This build's command, to run it again: an `exact new` app's `exact.mjs` verb (EXACT_APP_DIR, which that
+ * sets), else this script's. */
+export function rebuildArgs(args, dir = process.env.EXACT_APP_DIR) {
+  const quote = (a) => /^[\w@%+=:,./-]+$/.test(a) ? a : `'${a.replaceAll("'", "'\\''")}'`;
+  if (!dir) return `bun host/apple/build.mjs ${args.map(quote).join(' ')}`;
+  const ios = ['--ios', '--device', '--tvos'].some((flag) => args.includes(flag));
+  const rest = args.filter((a) => a !== '--ios' && !(a.endsWith('-apple') && !a.startsWith('-')));
+  return [`(cd ${quote(dir)} && bun exact.mjs ${ios ? 'ios' : 'mac'}`, ...rest.map(quote)].join(' ') + ')';
 }

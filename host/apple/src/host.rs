@@ -35,7 +35,7 @@ mod arrange_tests;
 #[path = "canvas2d.rs"]
 pub(crate) mod canvas2d;
 #[path = "canvas_capture.rs"]
-mod canvas_capture;
+pub(crate) mod canvas_capture;
 #[path = "canvas_performance.rs"]
 mod canvas_performance;
 #[path = "colors.rs"]
@@ -223,6 +223,9 @@ pub struct Host<D: DataSource> {
     /// frame request waits for them (`exact_canvas_held`, LLP 1056 D5).
     canvas_held: IdSet<ViewId>,
     canvas_kept: [Vec<exact_runner::CanvasList>; 2],
+    /// Image handles the presenter was asked to decode and may hold,
+    /// decoded or failed (LLP 1056 D9).
+    canvas_images: BTreeSet<String>,
     /// Canvas draws run in a turn of their own (`exact_canvas_draw`), not in
     /// the turns main waits on (LLP 1072 §8.5).
     canvas_deferred: bool,
@@ -305,6 +308,8 @@ pub struct Host<D: DataSource> {
     /// The session's wake (`listen`), which a pending activation leaves with the data source.
     preload_wake: exact_runner::PreloadWake,
     doc_watch: Option<crate::doc_watch::DocWatch>,
+    /// A turn's family work after its commits, in its written order.
+    turn: crate::link::TurnLinks<D>,
     /// Deadline at the last successful finish with no pending resize notifications;
     /// only a receipt-free collection report can reuse its settled passes.
     finished_deadline: Option<Option<f64>>,
@@ -313,7 +318,7 @@ pub struct Host<D: DataSource> {
     #[cfg(test)]
     finish_passes: usize,
     #[cfg(test)]
-    batch_writes: usize,
+    pub(crate) batch_writes: usize,
     /// The update store's last line this host journaled, so a sync after a check writes it once.
     update_line: Option<String>,
     delivery: Option<&'static crate::delivery::Hooks>,
@@ -517,7 +522,11 @@ impl<D: DataSource> Host<D> {
         // is configured and whether or not anything was picked (D7).
         crate::picker::know_roots(data.app_id());
         if let Some(store) = &secrets {
-            store.seed_snapshot(carried.map_or(snapshot.as_slice(), |carried| &carried.store));
+            store.seed_snapshot(
+                carried
+                    .filter(|c| !c.fresh_state)
+                    .map_or(snapshot.as_slice(), |carried| &carried.store),
+            );
         }
         if let Some(shared) = secrets.as_ref().and_then(|store| store.shared_secrets()) {
             data.configure_secrets(shared)
@@ -527,6 +536,7 @@ impl<D: DataSource> Host<D> {
         let was = exact_runner::page::set_awaits_present(start_on_frame);
         let runner = Runner::boot_with_delivery_linked(
             links.runner,
+            links.modules,
             plan,
             data,
             kernel,
@@ -538,6 +548,7 @@ impl<D: DataSource> Host<D> {
         );
         exact_runner::page::set_awaits_present(was);
         let mut runner = runner.map_err(HostError::Runner)?;
+        runner.read_only_store(crate::watch_sync::read_only_names());
         // Its own roles from here, not those of the session it replaces (a
         // caller's scope is that one's; LLP 1121 stage 5).
         let _roles = runner.bind_roles();
@@ -600,9 +611,10 @@ impl<D: DataSource> Host<D> {
             keys: IdMap::default(),
             inline_runs: IdMap::default(),
             // LLP 1126 D10: watchOS has no Core Animation presenter for box motion or path morphs.
-            svg: svg::SvgState::new(cfg!(any(target_os = "ios", target_os = "tvos"))),
+            svg: svg::SvgState::new(svg::render_server()),
             canvas_held: IdSet::default(),
             canvas_kept: Default::default(),
+            canvas_images: BTreeSet::new(),
             canvas_deferred: false,
             canvas_scale: layout.canvas_scale.unwrap_or(canvas2d::DEFAULT_SCALE),
             dirty_paragraphs: BTreeSet::new(),
@@ -624,10 +636,7 @@ impl<D: DataSource> Host<D> {
                 let mut engine = Engine::linked(links.engine);
                 let _ = engine.set_start_on_frame(start_on_frame, 0.0);
                 // LLP 1126 D10: watchOS keeps box motion sampled for its SwiftUI driver.
-                engine.set_lowered_properties(&svg::lowered(cfg!(any(
-                    target_os = "ios",
-                    target_os = "tvos"
-                ))));
+                engine.set_lowered_properties(&svg::lowered(svg::render_server()));
                 engine
             },
             paint: paint::Paint::default(),
@@ -664,6 +673,7 @@ impl<D: DataSource> Host<D> {
             store_retry_names: Vec::new(),
             preload_wake: Default::default(),
             doc_watch: None,
+            turn: links.turn,
             finished_deadline: None,
             quiet_collection: None,
             resize_pending: false,
@@ -730,10 +740,16 @@ impl<D: DataSource> Host<D> {
             &mut host.engine,
             &sync,
             host.svg.box_motion,
+            host.svg.live_filters,
             &|v| !runner.handlers_of(v).is_empty(),
         );
-        svg_lower::hand_over_paths(runner.kernel(), &mut host.engine, host.svg.box_motion);
-        for view in svg_lower::resample(runner.kernel(), &mut host.engine, host.svg.box_motion) {
+        svg_lower::hand_over_paths(runner.kernel(), &mut host.engine, host.svg.live_filters);
+        for view in svg_lower::resample(
+            runner.kernel(),
+            &mut host.engine,
+            host.svg.live_filters,
+            &|v| !runner.handlers_of(v).is_empty(),
+        ) {
             host.svg.element(host.runner.kernel(), view);
         }
         host.boot_paint(&order);
@@ -781,9 +797,14 @@ impl<D: DataSource> Host<D> {
     /// Swift host resolves an image's `app:/` source against (LLP 1069.002
     /// D7); `shareFile` a share's confined copy (LLP 1125 D12). `None` else.
     pub fn answer_hold(&mut self, request: &str) -> Option<String> {
-        let op = exact_runner::agent::field_str(request, "op");
+        let op = exact_runner::json::field_str(request, "op");
         if op.as_deref() == Some("shareFile") {
-            return Some(crate::picker::share_file(request, self.runner.data_ref()));
+            let copy = Some(crate::picker::share_copy as crate::link::ShareCopy);
+            return Some(crate::picker::share_file(
+                request,
+                self.runner.data_ref(),
+                copy,
+            ));
         }
         if op.as_deref() == Some("appRoots") {
             return Some(crate::picker::app_roots_reply(self.runner.data_ref()));
@@ -878,7 +899,14 @@ impl<D: DataSource> Host<D> {
     /// [`Host::listen`] to `io`, and read sockets' buffered bytes (D7) and
     /// long polls' backoff waits (D8) from it; watch the documents the answers watch, as `owner`'s (LLP 1069.010.000 D1).
     pub fn listen_io(&mut self, io: &dyn crate::executor::Io, owner: u64) {
-        self.doc_watch = Some(crate::doc_watch::DocWatch::new(owner, &mut self.runner));
+        self.doc_watch = Some(crate::doc_watch::DocWatch::new(
+            owner,
+            self.runner.native_slot(),
+        ));
+        // Its first watches, read under the grants by the turn's documents work.
+        if let Some(documents) = self.turn.documents {
+            documents(self);
+        }
         self.listen(io.waker());
         self.runner.set_socket_reader(io.socket_reader());
         self.runner.set_retry_reader(io.retry_reader());

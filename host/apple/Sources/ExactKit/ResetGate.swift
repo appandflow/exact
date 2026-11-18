@@ -34,7 +34,7 @@ enum ResetGate {
     /// The held calls replayed after the batch, by `Runtime` method, and why.
     static let replayed: [String: (Replay, String)] = [
         "advance(now:untilRequest:)": (.advance, "a timer due over the teardown is the new tree's: it advances once its tree is in"),
-        "tick(now:frame:)": (.advance, "a frame's tick is the clock's: the new runtime's due work advances once its tree is in"),
+        "tick(now:frame:presentOnly:)": (.advance, "a frame's tick is the clock's: the new runtime's due work advances once its tree is in"),
         "frame(now:wall:admitted:)": (.advance, "a display frame is the clock's, as a tick is"),
         "covers(_:)": (.covers, "the old tree's covers clearing is moot, but the new tree's bar covers its content: they are told again"),
         "view(_:)": (.fit, "a resize the teardown set off (a keyboard it ended) is the window's: the view fits again"),
@@ -44,7 +44,7 @@ enum ResetGate {
         "deliverModuleEvents()": (.modules, "module events wait for the runner that hears them: they are delivered after, in order, once"),
         "regions(_:)": (.fit, "the window's layout regions, told with its size: it fits again"),
         "titlebarArea(_:)": (.fit, "the title-bar area, told with its size: it fits again"),
-        "tickAsync(now:frame:capture:measureFrame:done:)": (.advance, "a frame's tick sent to the owner, as `tick` is"),
+        "tickAsync(now:frame:capture:measureFrame:presentOnly:done:)": (.advance, "a frame's tick sent to the owner, as `tick` is"),
         "advanceAsync(now:frame:admitted:capture:measureFrame:done:)": (.advance, "a timer's advance sent to the owner, as `advance` is"),
         "landThenFirst()": (.advance, "the `then`s due when a batch landed: the new runtime's due work advances once its tree is in"),
         "landThen()": (.advance, "the agent's `then`s of an input, as `landThenFirst`'s"),
@@ -71,7 +71,8 @@ enum ResetGate {
         "pointer(_:_:_:now:)": "a pointer event on the old tree",
         "pan(_:dx:dy:now:)": "a pan on the old tree",
         "panRelease(_:vx:vy:now:)": "a pan released as its view goes",
-        "scrolled(_:left:top:)": "an old scroller's offset as its view goes",
+        "scrolled(_:left:top:observing:)": "an old scroller's offset as its view goes",
+        "noteCollectionScroll(_:revision:sequence:offset:)": "the old list's travel; the replacement reports its own port",
         "timelineScrolled(_:left:top:)": "an old scroller's timelines as its view goes; the new tree's layout places its own",
         "canvasDrawAsync(done:)": "a draw of the old tree's canvases; the new tree's draw on mount",
         "intrinsics(_:)": "the old views' sizes; the new tree's views measure and report their own",
@@ -230,7 +231,7 @@ extension ExactSession {
                 view?.needsLayout = true
                 #endif
             case .page: tellPage()
-            case .collections: presenter.collections.flush()
+            case .collections: presenter.collections.flushIfNeeded()
             case .pump: pumpReplies()
             case .activation: if let held = pendingActivation, held.generation == generation { pendingActivation = nil; activateData(held.generation, token: held.token) } // (this turn: its batch, then its module events)
             case .modules: if dataGeneration == generation, !replays.contains(.activation) { deliverModuleEvents() } // (else this generation's activation drains them)

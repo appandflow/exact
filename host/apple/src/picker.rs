@@ -242,7 +242,9 @@ pub(super) fn roots() -> [PathBuf; 3] {
     let mut held = ROOTS.lock().unwrap_or_else(|e| e.into_inner());
     held.get_or_insert_with(|| {
         let base = std::env::temp_dir().join(format!("exact-agent-{}", std::process::id()));
-        // The process's own directory goes at its exit.
+        // The process's own directory goes at its exit. `ibex2::process` is
+        // Unix's: on Windows this crate is compiled (a default member), never run.
+        #[cfg(unix)]
         ibex2::process::wait_at_exit(|| {
             let dir = std::env::temp_dir().join(format!("exact-agent-{}", std::process::id()));
             let _ = std::fs::remove_dir_all(dir);
@@ -270,7 +272,7 @@ pub fn with_files(reply: String) -> String {
     let file = temporary.join(rest);
     let mut s = reply.trim_end_matches('}').to_owned();
     s.push_str(",\"file\":");
-    exact_runner::agent::quote(&file.to_string_lossy(), &mut s);
+    exact_runner::json::quote(&file.to_string_lossy(), &mut s);
     s.push(',');
     s.push_str(&roots_reply()[1..]);
     s
@@ -284,7 +286,7 @@ pub fn roots_reply() -> String {
         s.push_str(if i == 0 { "\"" } else { ",\"" });
         s.push_str(name);
         s.push_str("\":");
-        exact_runner::agent::quote(&root.to_string_lossy(), &mut s);
+        exact_runner::json::quote(&root.to_string_lossy(), &mut s);
     }
     s.push_str("}}");
     s
@@ -309,14 +311,23 @@ pub(crate) fn app_roots_reply<D: exact_runner::DataSource>(data: &D) -> String {
     format!("{{\"storage\":{},{}", reply, &roots_reply()[1..])
 }
 
-/// The agent's `shareFile` ([`share_copy`]), through the asking session's
-/// own app's roots.
-pub fn share_file<D: exact_runner::DataSource>(request: &str, data: &D) -> String {
+/// The agent's `shareFile` ([`share_copy`], the I/O link's `copy`), through
+/// the asking session's own app's roots. An archive without I/O copies
+/// nothing and refuses as grants that name no `fs.read` refuse.
+pub fn share_file<D: exact_runner::DataSource>(
+    request: &str,
+    data: &D,
+    copy: Option<crate::link::ShareCopy>,
+) -> String {
+    let Some(copy) = copy else {
+        let path = exact_runner::json::field_str(request, "path").unwrap_or_default();
+        return exact_runner::json::error(&format!("{path}: denied: fs.read"));
+    };
     let roots = app_dirs(data.app_id())
         .ok()
         .flatten()
         .map(|(roots, _)| roots);
-    share_copy(request, data.grants(), roots.as_ref())
+    copy(request, data.grants(), roots.as_ref())
 }
 
 /// Each app's directories as its storage opened them, by their paths, pinned
@@ -368,7 +379,7 @@ fn open_pinned(roots: &[PathBuf; 3]) -> Result<AppDirectories, String> {
 /// anything else. `request` is `{"op":"shareFile","path":…,"to":…}`;
 /// `roots` the asking session's app's, `None` where it has no storage.
 pub fn share_copy(request: &str, grants: &str, roots: Option<&[PathBuf; 3]>) -> String {
-    let field = |k| exact_runner::agent::field_str(request, k).unwrap_or_default();
+    let field = |k| exact_runner::json::field_str(request, k).unwrap_or_default();
     let (path, to) = (field("path"), field("to"));
     let pinned = roots.and_then(|r| {
         PINNED
@@ -391,11 +402,11 @@ pub fn share_copy(request: &str, grants: &str, roots: Option<&[PathBuf; 3]>) -> 
     match copied {
         Ok(()) => {
             let mut s = String::from("{\"file\":");
-            exact_runner::agent::quote(&to, &mut s);
+            exact_runner::json::quote(&to, &mut s);
             s.push('}');
             s
         }
-        Err(e) => exact_runner::agent::error(&format!("{path}: {e}")),
+        Err(e) => exact_runner::json::error(&format!("{path}: {e}")),
     }
 }
 

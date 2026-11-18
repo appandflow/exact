@@ -17,7 +17,7 @@ final class HatchDiagnosticsTests: XCTestCase {
     }
 
     func testEachBoundRefusesAndCountsPastIt() throws {
-        try XCTSkipUnless(HatchDiagnostics.measuring)
+        try XCTSkipUnless(HatchDiagnosticsLink.measuring)
         let store = HatchDiagnostics()
 
         // Counters: 64 names; a bad name or amount is refused.
@@ -69,7 +69,7 @@ final class HatchDiagnosticsTests: XCTestCase {
     }
 
     func testACallsTimeIsItsOwn() throws {
-        try XCTSkipUnless(HatchDiagnostics.measuring)
+        try XCTSkipUnless(HatchDiagnosticsLink.measuring)
         var now = 0.0
         let store = HatchDiagnostics(mediaTime: { now })
         store.timed("navigation", "built") {
@@ -88,7 +88,7 @@ final class HatchDiagnosticsTests: XCTestCase {
     }
 
     func testCountsFromFourThreadsSumExactlyAndTheRingOverwritesItsOldest() throws {
-        try XCTSkipUnless(HatchDiagnostics.measuring)
+        try XCTSkipUnless(HatchDiagnosticsLink.measuring)
         let store = HatchDiagnostics()
         let done = expectation(description: "four threads")
         done.expectedFulfillmentCount = 4

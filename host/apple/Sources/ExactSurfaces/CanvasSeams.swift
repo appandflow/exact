@@ -1,5 +1,6 @@
 // The GPU module's optional input, message and agent seams (LLP 1046.002 §3).
 // The runner never learns what a surface's world is; the web host is the oracle.
+import CExact
 import Foundation
 #if os(macOS)
 import AppKit
@@ -160,7 +161,7 @@ extension CanvasesHost {
     }
 
     func bindSurface(_ m: GpuModule, _ e: Entry) -> UInt32 {
-        guard let data = try? JSONSerialization.data(withJSONObject: e.values) else { return 1 }
+        let data = e.values
         let now = session?.now() ?? 0
         // The size first: a stamped bind may tick a new world, which frames
         // itself for its canvas before its first tick (`Game::first_frame`).
@@ -306,10 +307,26 @@ extension CanvasesHost {
 
     /// The canvas's record, when the module has a new one, to the app.
     func publishRecord(_ e: Entry) {
-        guard live(e.view.id) === e, publishers[e.name] === e, let m = e.module, let take = m.published else { return }
+        guard live(e.view.id) === e, let m = e.module, let take = m.published else { return }
+        let empty = (m.presentationFlags?(e.id) ?? 0) & 4 != 0
+        #if os(macOS)
+        let layer = e.view.canvasMetal?.layer
+        #else
+        let layer = e.view.canvasMetal?.metalLayer
+        #endif
+        if empty {
+            #if os(macOS)
+            layer?.isHidden = true
+            #else
+            e.view.canvasMetal?.hidePicture()
+            #endif
+        }
         let length = take(e.id)
         if length != UInt32.max, let data = length == 0 ? Data() : m.output(length) {
-            surfaceRecord(e.name, String(decoding: data, as: UTF8.self))
+            if !empty, layer?.isHidden == true,
+               let record = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+               record["presented"] as? Bool == true { layer?.isHidden = false }
+            if publishers[e.name] === e { surfaceRecord(e.name, String(decoding: data, as: UTF8.self)) }
         }
     }
 
@@ -331,10 +348,18 @@ extension CanvasesHost {
         publishers.removeValue(forKey: e.name)
         updatePerformanceTimer()
         surfaceRecord(e.name, nil)
-        if e.performance { session?.canvasPerformanceRecord(e.name, nil) }
+        session?.canvasPerformanceRecord(e.name, nil)
     }
 
     func updatePerformanceTimer() {
+        for e in entries.values where e.id != 0 {
+            guard let m = e.module else { continue }
+            let enabled = publishers[e.name] === e && session?.canvasPerformanceRequested(e.name) == true
+            if enabled != e.performance {
+                e.performance = enabled
+                _ = m.performanceReporting?(e.id, enabled)
+            }
+        }
         guard visible, session?.clock == nil, publishers.values.contains(where: { $0.performance && $0.id != 0 }) else {
             performanceTimer?.invalidate(); performanceTimer = nil; return
         }
@@ -368,17 +393,39 @@ extension CanvasesHost {
     /// The module's answer when a canvas asks for no asset (`AssetChanges::json`).
     static let noAssetChanges = Data(#"{"requests":[],"retired":[]}"#.utf8)
 
+    static func readAsset(_ name: String, resolver: AssetResolver?, roots: [String: URL]) throws -> Data? {
+        guard AssetResolver.validAssetName(name) else { throw CocoaError(.fileReadInvalidFileName) }
+        if name.hasPrefix("app:/") {
+            guard let file = AppFileWalk.open(name, roots: roots) else { return nil }
+            defer { try? file.close() }
+            return try file.readToEnd() ?? Data()
+        }
+        return try resolver?.delivery("assets/" + name)
+    }
+
+    private func assetReader(_ names: [String]) -> (String) throws -> Data? {
+        let resolver = session?.app.resolver
+        var roots: [String: URL] = [:]
+        if names.contains(where: { $0.hasPrefix("app:/") }), let session,
+           let reply = try? JSONSerialization.jsonObject(with: Data(session.runtime.ask(exact_app_roots, "").utf8)) as? [String: Any],
+           let paths = reply["roots"] as? [String: String] {
+            roots = paths.filter { ["data", "cache", "tmp"].contains($0.key) }.mapValues { URL(fileURLWithPath: $0, isDirectory: true) }
+        }
+        return { name in try Self.readAsset(name, resolver: resolver, roots: roots) }
+    }
+
     /// Read `names` for `e` off the main thread, in order; each lands in
     /// `e.arrived` and is delivered at once on the main thread, so a canvas's
     /// deliveries take a turn each between frames.
     func readAssets(_ names: [String], for e: Entry) {
-        guard !names.isEmpty, let resolver = session?.app.resolver else { return }
+        guard !names.isEmpty, session != nil else { return }
+        let read = assetReader(names)
         for name in names {
             assetReadSerial += 1
             let serial = assetReadSerial
             e.reading[name] = serial
             assetReads.async { [weak self, weak e] in
-                let bytes = Result { try resolver.delivery("assets/" + name) }
+                let bytes = Result { try read(name) }
                 DispatchQueue.main.async {
                     guard let self, let e, e.reading[name] == serial else { return }
                     e.reading.removeValue(forKey: name)
@@ -425,7 +472,8 @@ extension CanvasesHost {
                     // here, in the order asked, and their late results dropped.
                     let inFlight = e.reading.sorted { $0.value < $1.value }.map(\.key)
                     e.reading.removeAll()
-                    ready += (inFlight + requests).map { name in (name, Result { try session?.app.resolver.delivery("assets/" + name) }) }
+                    let names = inFlight + requests, read = assetReader(names)
+                    ready += names.map { name in (name, Result { try read(name) }) }
                 }
                 guard !ready.isEmpty else { break }
                 delivered = true

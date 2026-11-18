@@ -3,8 +3,8 @@ import { chmodSync, copyFileSync, existsSync, mkdtempSync, mkdirSync, readdirSyn
 import { tmpdir } from 'node:os';
 import { relative, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { appleCommand, crossSdk, spawnSync as appleSpawnSync, stepName, waited } from './toolchain.mjs';
-import { decodeProfile } from './devices.mjs';
+import { appleCommand, crossSdk, spawn as appleSpawn, spawnSync as appleSpawnSync, stepName, waited } from './toolchain.mjs';
+import { decodeProfile, xcodeRefusal } from './devices.mjs';
 import { appleCrossReport, CROSS_IOS_ROWS, distributionToolchain, ensureWatchSDK, installWatchSDK } from './sdk.mjs';
 import { iosTestRuns } from './xctest.mjs';
 
@@ -95,6 +95,36 @@ test.skipIf(process.platform !== 'darwin')('timestamped release signing has no d
   } finally { said.mockRestore(); rmSync(dir, { recursive: true, force: true }); }
 });
 
+test.skipIf(process.platform !== 'darwin')('Swift builds use the selected Xcode compiler even when PATH shadows it', async () => {
+  const dir = mkdtempSync(resolve(tmpdir(), 'exact-swift-selected-'));
+  try {
+    const bin = resolve(dir, 'bin'), selected = resolve(dir, 'selected');
+    mkdirSync(bin); mkdirSync(selected);
+    for (const tool of ['swift', 'swiftc']) {
+      writeFileSync(resolve(bin, tool), '#!/bin/sh\necho "Apple Swift version 6.2.4"\n', { mode: 0o755 });
+      writeFileSync(resolve(selected, tool), '#!/bin/sh\necho "Apple Swift version 6.4.2: $*"\n', { mode: 0o755 });
+    }
+    writeFileSync(resolve(bin, 'xcrun'), '#!/bin/sh\nif [ "$1" = "--sdk" ]; then echo 26.0; exit 0; fi\ntool="$1"; shift\nexec "$DEVELOPER_DIR/$tool" "$@"\n', { mode: 0o755 });
+    const options = { env: { ...process.env, DEVELOPER_DIR: selected, PATH: `${bin}:${process.env.PATH}` }, encoding: 'utf8' };
+    expect(xcodeRefusal('macosx', (cmd, args) => spawnSync(cmd, args, options), selected)).toBeNull();
+    expect(spawnSync('swift', ['--version'], options).stdout.trim()).toBe('Apple Swift version 6.2.4');
+    for (const [tool, args] of [['swift', ['build', '--target', 'ExactKit']], ['swiftc', ['--version']]]) {
+      const expected = `Apple Swift version 6.4.2: ${args.join(' ')}\n`;
+      const result = appleSpawnSync(tool, args, options);
+      expect(result.status).toBe(0);
+      expect(result.stdout).toBe(expected);
+      const output = await new Promise((done, fail) => {
+        const child = appleSpawn(tool, args, { env: options.env });
+        let stdout = '';
+        child.stdout.setEncoding('utf8').on('data', chunk => { stdout += chunk; });
+        child.once('error', fail);
+        child.once('close', code => code === 0 ? done(stdout) : fail(new Error(`${tool} exited ${code}`)));
+      });
+      expect(output).toBe(expected);
+    }
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
 test.skipIf(process.platform !== 'darwin')('a Swift driver run leaves nothing in TMPDIR, and SwiftPM runs share one that keeps an hour of leavings', () => {
   const dir = mkdtempSync(resolve(tmpdir(), 'exact-swift-temp-')), bin = resolve(dir, 'bin'), base = resolve(dir, 'tmp');
   try {
@@ -104,6 +134,7 @@ test.skipIf(process.platform !== 'darwin')('a Swift driver run leaves nothing in
       writeFileSync(resolve(bin, tool), '#!/bin/sh\nmkdir "$(mktemp -d "$TMPDIR/TemporaryDirectory.XXXXXX")/.keep-directory"\nprintf %s "$TMPDIR"\n');
       chmodSync(resolve(bin, tool), 0o755);
     }
+    writeFileSync(resolve(bin, 'xcrun'), '#!/bin/sh\ntool="$1"; shift\nexec "${0%/*}/$tool" "$@"\n', { mode: 0o755 });
     const options = { env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, TMPDIR: base }, encoding: 'utf8' };
     const driver = appleSpawnSync('swiftc', ['--version'], options);
     expect(driver.stdout.startsWith(`${base}/exact-swift-`)).toBe(true);
@@ -468,9 +499,9 @@ async function iosRunsFixture(body) {
   const savedPath = process.env.PATH, record = resolve(tmpdir(), `exact-touches-${udid}.runner.json`);
   let opening;
   try {
-    const pkg = resolve(root, 'package'), products = resolve(root, 'products');
+    const pkg = resolve(root, 'package'), derived = resolve(root, 'derived'), products = resolve(derived, 'Build/Products');
     mkdirSync(resolve(pkg, 'tests/ExactKitTests'), { recursive: true });
-    mkdirSync(products);
+    mkdirSync(products, { recursive: true });
     writeFileSync(resolve(pkg, 'tests/ExactKitTests/FixtureTests.swift'), `class FixtureTests: XCTestCase {
       func testHosted() { throw missing("scene", "window") }
       func testTouch() { throw missing("touch", "Back") }
@@ -482,7 +513,7 @@ async function iosRunsFixture(body) {
     for (const name of ['plutil', 'xcrun']) chmodSync(resolve(root, name), 0o755);
     process.env.PATH = `${root}:${savedPath}`;
     opening = spyOn(await import('./touches.mjs'), 'openTouches');
-    await body({ root, opening, options: { pkg, products, destination: `id=${udid}`, udid, env: {}, canvasGpu: 'gpu', hostSource: 'host.swift', triple: 'arm64-apple-ios-simulator', run: () => {} } });
+    await body({ root, opening, options: { pkg, derived, destination: `id=${udid}`, udid, env: {}, canvasGpu: 'gpu', hostSource: 'host.swift', triple: 'arm64-apple-ios-simulator', run: () => {} } });
   } finally {
     opening?.mockRestore();
     process.env.PATH = savedPath;
@@ -562,6 +593,18 @@ for (const kept of [false, true]) test(`hosted touches keep device ownership thr
   expect(locked).toBe(false);
 }));
 
+test('the iOS tests build without coverage into the derived data that every test run names', () => iosRunsFixture(async ({ opening, options }) => {
+  opening.mockImplementation(async () => ({ kept: false, pid: 123, handoff: () => ({ port: 1234, token: 'fixture-token' }), close: async () => {}, end: async () => null }));
+  const builds = [], runs = [];
+  await iosTestRuns({ ...options, runApple: (command, args) => {
+    const derived = args[args.indexOf('-derivedDataPath') + 1];
+    if (args[0] === 'build-for-testing') builds.push({ derived, coverage: args[args.indexOf('-enableCodeCoverage') + 1] });
+    else if (args[0] === 'test-without-building') runs.push(derived);
+  } });
+  expect(builds).toEqual([{ derived: options.derived, coverage: 'NO' }]);
+  expect(runs).toEqual(Array(4).fill(options.derived));
+}));
+
 for (const [phase, kept] of [['setup', false], ['handoff', false], ['test and cleanup', false], ['test and cleanup', true]]) test(`the GPU tests still run after a ${kept ? 'reused' : 'new'} touch runner's ${phase} failure`, () => iosRunsFixture(async ({ opening, options }) => {
   const failure = new Error(`touch ${phase}`), cleanupFailure = new Error('touch cleanup'), ran = [];
   let cleaned = false;
@@ -577,7 +620,7 @@ for (const [phase, kept] of [['setup', false], ['handoff', false], ['test and cl
   let reported;
   try {
     await iosTestRuns({ ...options, runApple: (command, args) => {
-      if (command !== 'xcodebuild') return;
+      if (args[0] !== 'test-without-building') return;
       const selected = args.filter(a => a.startsWith('-only-testing:'));
       const suite = selected.some(a => a.includes('Canvas2DGpuStressTests')) ? 'gpu'
         : selected.some(a => a.endsWith('/testTouch')) ? 'touch'

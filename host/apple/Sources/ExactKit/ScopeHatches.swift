@@ -29,20 +29,14 @@ import UIKit
 typealias HatchAppFn = @convention(c) (UnsafeMutableRawPointer?, UInt32, UnsafeMutableRawPointer?, UnsafePointer<UInt8>?, UInt32) -> Void
 typealias HatchWindowFn = @convention(c) (UnsafeMutableRawPointer?, UInt32, UnsafeMutableRawPointer?, UnsafeMutableRawPointer?, UnsafePointer<UInt8>?, UInt32) -> Void
 
-public extension ExactSession {
-    /// The embedder's word that this session's window is its own (LLP
-    /// 1075.003.000.001 §2.1.1): a window hatch is then handed the window.
-    /// Set before the session's first frame. False unless said.
-    var hatchesOwnWindow: Bool {
-        get { natives.scopes.windowExclusive }
-        set { natives.scopes.windowExclusive = newValue }
+extension NativeViews {
+    var ownsWindow: Bool {
+        get { scopes.windowExclusive }
+        set { scopes.windowExclusive = newValue }
     }
-    /// The embedder's word that this session may set process-wide state
-    /// (appearance proxies, the application object): at most one session in a
-    /// process. False unless said.
-    var hatchesOwnProcess: Bool {
-        get { natives.scopes.processOwner }
-        set { natives.scopes.processOwner = newValue }
+    var ownsProcess: Bool {
+        get { scopes.processOwner }
+        set { scopes.processOwner = newValue }
     }
 }
 
@@ -111,7 +105,7 @@ extension NativeViews {
                 call(instance, event, application.map { Unmanaged.passUnretained($0).toOpaque() }, j.bindMemory(to: UInt8.self).baseAddress, UInt32(json.count))
             }
         }
-        if event == 2 { session?.presenter.elements.regions.ended(scope: "app") }
+        if event == 2 { session?.presenter.hatchElements?.regions.ended(scope: "app") }
     }
 
     private func windowJSON(_ view: ExactView, _ window: FocusWindow) -> Data {
@@ -159,15 +153,15 @@ extension NativeViews {
         #else
         let walked: PlatformView? = window
         #endif
-        let regions = session?.presenter.elements.regions
-        let had = HatchDiagnostics.measuring && scopes.windowExclusive && event != 2 ? walked.flatMap { regions?.recognizers(under: $0) } : nil
+        let regions = session?.presenter.hatchElements?.regions
+        let had = HatchDiagnosticsLink.measuring && scopes.windowExclusive && event != 2 ? walked.flatMap { regions?.recognizers(under: $0) } : nil
         timedHatch("window", moment) {
             json.withUnsafeBytes { j in
                 call(instance, event, raw(scopes.windowExclusive ? window : nil), raw(scene), j.bindMemory(to: UInt8.self).baseAddress, UInt32(json.count))
             }
         }
         if let had, let walked { regions?.undeclared(under: walked, by: "window") { had.contains(ObjectIdentifier($0)) } }
-        if event == 2 { session?.presenter.elements.regions.ended(scope: "window") }
+        if event == 2 { session?.presenter.hatchElements?.regions.ended(scope: "window") }
     }
 
     /// As the hatches connect: `app`, then `window` for the surface there
