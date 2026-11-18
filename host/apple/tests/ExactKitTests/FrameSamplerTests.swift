@@ -1209,16 +1209,16 @@ final class FrameSamplerTests: XCTestCase {
     /// the next trace and the agent's `perf` read.
     func testAReleaseBuildsFirstTraceStartsItsMeasuring() throws {
         let session = ExactApp.shared.makeSession()
-        defer { session.runtime.measureWork(); session.destroy(); HatchDiagnostics.measuring = true }
+        defer { session.runtime.measureWork(); session.destroy(); HatchDiagnosticsLink.measuring = true }
         // As a release build boots: no site's work counted, no sampler, no hatch timing.
         exact_measure_work_later()
         XCTAssertNil(session.boot(size: CGSize(width: 390, height: 844)).error)
         XCTAssertTrue(session.agent(#"{"op":"perf"}"#).contains("not measured until first asked"), "no site's work is counted")
         session.sampler?.stop()
         session.sampler = nil
-        HatchDiagnostics.measuring = false
+        HatchDiagnosticsLink.measuring = false
         let probes = { (session.hatchPerf()["calls"] as? [[String: Any]] ?? []).filter { $0["hatch"] as? String == "probe" }.count }
-        session.natives.timedHatch("probe", "tick") {}
+        session.nativeViews!.timedHatch("probe", "tick") {}
         XCTAssertEqual(probes(), 0, "no call is timed")
         session.log("before the trace")
         let url = try session.saveTrace().get()
@@ -1231,8 +1231,8 @@ final class FrameSamplerTests: XCTestCase {
         XCTAssertTrue("\(trace["journal"] ?? "")".contains("before the trace"), "the journal is kept")
         XCTAssertNotNil((trace["perf"] as? [String: Any])?["sites"], "the sites' work is kept")
         XCTAssertNotNil(session.sampler, "the trace started the frames")
-        XCTAssertTrue(HatchDiagnostics.measuring, "and the hatch timing")
-        session.natives.timedHatch("probe", "tick") {}
+        XCTAssertTrue(HatchDiagnosticsLink.measuring, "and the hatch timing")
+        session.nativeViews!.timedHatch("probe", "tick") {}
         XCTAssertEqual(probes(), 1)
     }
 }

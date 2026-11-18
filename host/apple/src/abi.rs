@@ -53,6 +53,8 @@ pub struct Bridge<D: DataSource> {
     /// Requests whose continuation a source held at dispatch (LLP 1027.002
     /// D3): released after a later commit, by token.
     parked: std::collections::BTreeMap<u64, exact_runner::RequestOut>,
+    /// The session's wake, which an archive with no executor calls itself.
+    wake: Option<(crate::executor::WakeFn, *mut c_void)>,
     launch: Option<String>,
     /// Whether motion an author's commit begins waits for the first presented
     /// frame (LLP 1003.001 D7): every host booted here takes it.
@@ -118,6 +120,7 @@ impl<D: DataSource> Bridge<D> {
             compat: None,
             delivery: None,
             parked: std::collections::BTreeMap::new(),
+            wake: None,
             launch: None,
             start_on_frame: false,
             app_module: None,
@@ -264,8 +267,15 @@ impl<D: DataSource> Bridge<D> {
             host,
             executor,
             parked,
+            wake,
+            links,
             ..
         } = self;
+        // A widget's entry starts its own executor when the archive links
+        // I/O (`entry_timeline`): only an archive without I/O refuses.
+        if let (Some(h), None) = (host.as_mut(), links.io) {
+            Self::emit_without_io(h, *wake, s);
+        }
         if let (Some(h), Some(x)) = (host.as_mut(), executor.as_deref()) {
             if !h.runner_mut().intersect_due().is_empty() {
                 x.notify();
@@ -282,7 +292,6 @@ impl<D: DataSource> Bridge<D> {
                     x.notify();
                 }
             }
-            let admitted = h.grants();
             let mut presenter = crate::batch::Batch::new();
             Self::auth_forgotten(h, &mut presenter);
             for r in h.take_requests() {
@@ -296,22 +305,11 @@ impl<D: DataSource> Bridge<D> {
                     Self::run_dispatch(h, x, parked, r, exact_runner::Dispatch::Missing);
                     continue;
                 }
-                if r.request.url == "exact-activity:" {
-                    if let Ok(request) = std::str::from_utf8(&r.request.body) {
-                        presenter.activity(r.ticket, request);
-                    }
+                if Self::presenter_work(h, &mut presenter, &r) {
                     continue;
                 }
                 if r.request.is_auth() {
                     Self::auth_arm(h, x, &mut presenter, &r);
-                    continue;
-                }
-                if let Some(surface) = r.request.surface.as_deref() {
-                    let oversized = matches!(surface, SurfaceRequest::Restore { bytes, .. } if bytes.len() > MAX_HOST_WORK_BYTES);
-                    let refusal = oversized
-                        .then(|| "surface restore exceeds 16 MiB".to_string())
-                        .or_else(|| r.request.check_surface_grant(&admitted).err());
-                    h.surface_work(&mut presenter, &r, refusal.as_deref());
                     continue;
                 }
                 let dispatch = match r.request.continuation {
@@ -336,7 +334,7 @@ impl<D: DataSource> Bridge<D> {
             if h.runner_mut().collected_aborts() {
                 x.notify();
             }
-            presenter.presences(h.runner_mut().take_presence_asks());
+            presenter.presences(h.runner_mut().take_presence_asks_json());
             h.runner_mut().publish_sockets(|batch| x.socket(batch)); // LLP 1016.000 D7
             presenter.prepend_to(s);
         }
@@ -394,11 +392,11 @@ impl<D: DataSource> Bridge<D> {
                 Outcome::Surface(SurfaceOutcome::Captured(body))
             }
             7 if body.is_empty() => Outcome::Surface(SurfaceOutcome::Restored),
-            8 if self.host.is_some() => self
-                .host
-                .as_mut()
-                .expect("booted")
-                .canvas_captured(ticket, &body),
+            8 if self.host.is_some() => self.host.as_mut().expect("booted").canvas_captured(
+                ticket,
+                &body,
+                self.links.io.map(|io| io.write_file),
+            ),
             2..=4 => Outcome::Failed {
                 kind: match kind {
                     2 => FailureKind::Refused,
@@ -643,7 +641,16 @@ impl<D: DataSource> Bridge<D> {
         let mut validated = None;
         if self.painted {
             match data.preload() {
-                Ok(false) => return self.emit("{\"ops\":[],\"pending\":true}".into()),
+                Ok(false) => {
+                    // The session's own wake, which a session without an
+                    // executor has too: nothing else asks again once the
+                    // image has loaded (LLP 1029.000.002 D9).
+                    if let Some(wake) = hooks.wake {
+                        let ctx = hooks.wake_ctx as usize;
+                        data.when_preloaded(Box::new(move || wake(ctx as *mut c_void)));
+                    }
+                    return self.emit("{\"ops\":[],\"pending\":true}".into());
+                }
                 Err(error) => {
                     return self.refuse_preparation(&format!("candidate preload: {error:?}"))
                 }
@@ -662,6 +669,7 @@ impl<D: DataSource> Bridge<D> {
             // Validate carried-state answers and layout, without endowing real
             // storage or releasing candidate effects. A refusal keeps the live
             // host. The accepted validation runner is disposable, too.
+            let carried = self.host.as_ref().map(Host::carry).unwrap_or_default();
             let length = self.prepare_plan_with_delivery(
                 plan_len,
                 validation,
@@ -673,13 +681,8 @@ impl<D: DataSource> Bridge<D> {
             if self.prepared.is_none() {
                 return length;
             }
-            let mut carried = self.prepared.as_ref().unwrap().host.carry();
-            // Only validated answers cross this boundary. Store effects belong
-            // to the committed session, never to the disposable validation pass.
-            if let Some(live) = &self.host {
-                carried.store = live.carry().store;
-            }
-            validated = Some(carried);
+            let answers = self.prepared.as_ref().unwrap().host.carry();
+            validated = Some(carried.with_validated_answers(answers));
             self.discard_plan();
         }
         // The real candidate remains deferred through all-session acceptance.
@@ -762,6 +765,9 @@ impl<D: DataSource> Bridge<D> {
         // A reload carries the running store (`Carried::store`). A fresh
         // session takes the granted platform snapshot before its first query,
         // just like boot_fresh; neither path releases effects until commit.
+        if let Err(reason) = crate::watch_sync::startup(data.grants(), data.app_id()) {
+            return self.refuse(&reason);
+        }
         let launch_store = self.links.io.and_then(|io| (io.preloads)()).map(|launch| {
             launch.watch_store(&|| {
                 carried.is_some() && self.host.as_ref().is_some_and(Host::launch_store_pending)
@@ -902,6 +908,7 @@ impl<D: DataSource> Bridge<D> {
             candidate.host.listen_io(&**executor, self.document_owner);
         }
         self.presenter_hooks(&mut candidate.host, &candidate.hooks);
+        self.wake = candidate.hooks.wake.map(|w| (w, candidate.hooks.wake_ctx));
         self.executor = executor;
         let batch = Host::ending(self.host.replace(candidate.host), candidate.batch);
         self.launch_layout.insets = None;
@@ -1393,13 +1400,13 @@ impl<D: DataSource> Bridge<D> {
         // D4) before any view is looked up.
         let out = match self.host.as_mut() {
             Some(h)
-                if exact_runner::agent::field_str(&request, "op").as_deref() == Some("actions")
-                    && exact_runner::agent::field_bool(&request, "drain") =>
+                if exact_runner::json::field_str(&request, "op").as_deref() == Some("actions")
+                    && exact_runner::json::field_bool(&request, "drain") =>
             {
                 h.take_ended_actions()
             }
             Some(h) => h.answer_hold(&request).unwrap_or_else(|| h.agent(&request)),
-            None => exact_runner::agent::error("not booted"),
+            None => exact_runner::json::error("not booted"),
         };
         // An answered auth hold is delivered by the next pump (LLP 1069.006 D7).
         if out.contains("\"capability\":\"auth\"") {
@@ -1422,6 +1429,7 @@ fn escape(s: &str) -> String {
 /// A thread-local bridge cell, for the exports.
 pub type Cell<D> = RefCell<Bridge<D>>;
 
+mod answers;
 mod boot;
 mod canvas_performance;
 use boot::PreparedHost;
@@ -1430,6 +1438,7 @@ mod preparation;
 mod pump;
 mod registry;
 mod snapshot;
+mod without_io;
 #[cfg(test)]
 use registry::REFUSAL;
 pub use registry::{refusal_ptr, with_entry, with_runtime, Entry, Registry};
@@ -1461,6 +1470,10 @@ mod collection_tests;
 #[cfg(test)]
 #[path = "abi/canvas_scale_tests.rs"]
 mod canvas_scale_tests;
+
+#[cfg(test)]
+#[path = "abi/canvas_image_tests.rs"]
+mod canvas_image_tests;
 
 #[cfg(test)]
 #[path = "abi/launch_layout_tests.rs"]

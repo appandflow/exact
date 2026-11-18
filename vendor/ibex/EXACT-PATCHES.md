@@ -11,8 +11,11 @@ keep the receipt’s VM, ICU, then platform-runtime order. Ibex supplies
 NumberFormat and DateTimeFormat; Hermes's ICU backend supplies Collator.
 Stub builds emit empty Intl bytecode beside the other binding placeholders.
 
-The pinned Android bundle targets API 29. A local development bundle can be
-selected through `HERMES_LEAN_SYS_DIR_aarch64_linux_android`.
+The pinned Android bundle targets API 29. The resolver applies Android's ICU
+layout and receipt requirements to arm64 and x86_64. Local development bundles
+can be selected through `HERMES_LEAN_SYS_DIR_aarch64_linux_android` and
+`HERMES_LEAN_SYS_DIR_x86_64_linux_android`; the pinned v6 release supplies only
+Android arm64.
 
 The installer’s `--check-dir <directory> <rust-triple>` validates a local cross
 bundle with the build resolver and cached host compiler, without installing or
@@ -33,8 +36,9 @@ manager again after `KeyChain.ACTION_TRUST_STORE_CHANGED`, because a manager
 over an explicit keystore copies its anchors once. With that declaration,
 it initializes the default trust manager with a null keystore to honor the app's
 anchors and exclusions. Both paths pass the hostname to
-`X509TrustManagerExtensions`. The Rust crate is pinned to the companion's JNI
-interface. The Canvas reader compiles these
+`X509TrustManagerExtensions`. The companion implements the 0.7 JNI interface,
+unchanged in 0.7.1 (Android artifact 0.2.0); `CertificateVerifierTest` checks its
+static method, result fields and status codes. The Canvas reader compiles these
 classes and keeps them through R8. Other Android consumers must compile these
 classes instead of the published Android AAR and call
 `transport::initialize_android` before TLS; an uninitialized consumer receives
@@ -50,18 +54,6 @@ the distrusted emSign intermediate keys (RUSTSEC-2026-0382). Exact's
 `transport/trust_tests.rs`, with its certificates in
 `transport/testdata/distrusted/`, checks both against either kind of store;
 replay it on a refresh unless upstream carries the same check.
-
-## Portable event-stream timeouts
-
-`transport/rustls_http.rs` removes implicit read deadlines after a successful
-`text/event-stream` response identifies an event stream without an explicit
-request timeout. Connection and header limits and explicit timeouts still apply.
-Cancellation interrupts blocked reads; ordinary requests keep their limits.
-The last `Content-Type` controls classification when it is repeated.
-`transport/rustls_timeout_tests.rs` probes both default deadlines and expired
-deadlines, explicit-timeout policy and agent reuse. `transport/stream_tests.rs`
-exercises later events, explicit timeout expiry, cancellation and release
-against loopback peers.
 
 ## Repeated portable HTTP response fields
 
@@ -1037,8 +1029,8 @@ upstream; replay on a refresh until it lands.
 ureq 3.4.0 vendored under another name (`vendor/ureq/EXACT-PATCHES.md`): the
 portable transport implements ureq's `unversioned` traits, which change
 between minor releases, and an app's own `ureq` must resolve apart from it
-(LLP 1153.003 D6.5). `hermes-lean-sys` and its installer call only `ureq::get`
-and require `"3"`. The atomics call `try_update`, Rust's current name for the
+(LLP 1153.003 D6.5). `hermes-lean-sys` and its installer use only ureq's
+stable API (an agent and its TLS roots, local patch 47) and require `"3"`. The atomics call `try_update`, Rust's current name for the
 deprecated `fetch_update`. Replay on a refresh.
 
 ## Local patch 46, a request body streamed from a file
@@ -1092,10 +1084,17 @@ resource releases wait on a worker. Replay on a refresh.
 
 `Fetch::admit` checks the binding's grants and hop gate without sending a
 request; a later `stream` checks them again at every hop. HTTP admission
-refuses userinfo and non-HTTP schemes. Redirects rewrite POST on 301/302,
+refuses non-HTTP schemes and, at the first hop and at every redirect, a URL
+with userinfo: Fetch throws a `TypeError` for a
+[request URL that includes credentials](https://fetch.spec.whatwg.org/#dom-request)
+and answers a network error for a
+[redirect to one](https://fetch.spec.whatwg.org/#http-redirect-fetch) in
+another origin, which every server is to an app. The background-transfer
+carrier refuses userinfo in its own hop gate as well, beside the source's
+grant and gate. Redirects rewrite POST on 301/302,
 rewrite non-GET/HEAD on 303, and drop body headers when dropping the body,
-as [Fetch's redirect algorithm](https://fetch.spec.whatwg.org/#http-redirect-fetch)
-requires. Authorization remains removed after any origin change.
+as Fetch's redirect algorithm requires. Authorization remains removed after
+any origin change.
 Redirect credential stripping compares parsed URL origins, leaving hostless
 and non-HTTP targets to hop admission. Such targets fail URL validation,
 not HTTP-origin extraction, so a carrier never retries them as network faults.
@@ -1107,3 +1106,119 @@ wins; a reused connection restores the next request's own timeouts. TLS,
 trust selection and HTTP framing are unchanged. The Android carrier uses
 this through the same endowed fetch binding as ordinary requests (LLP
 1133.017). Replay on a refresh.
+
+`AppDirectories::publish_file` admits a destination under pinned directories and
+renames a completed host-owned file into it on the same filesystem. Recovery
+recognizes an already-published destination; storage errors preserve the source
+for retry. This avoids requiring another response-sized allocation at publication.
+
+## Windows known folders
+
+LLP 1173 D4's create-only namespaces use an OS-selected root, UNC included,
+and retain handles below it. Their walk refuses name-surrogate reparse tags
+and reopens admitted directories with normal reparse processing so cloud
+filters can recall placeholders. The reopened handle must identify the same
+object; tags are checked again before use. Every directory is reopened because
+Windows can hide cloud tags. The app and native drive walks keep refusing all
+reparse points. Leaf validation shares the native path rule. Exclusive
+creation uses `FILE_CREATE`; atomic publication uses the retained parent and
+`FileRenameInformation` with `ReplaceIfExists` false. Known-folder `mkdir`
+creates every component exclusively, with `FILE_CREATE` on Windows and
+`mkdirat` on Unix; app walks keep their open-or-create behavior. Replay on a refresh.
+
+The portable tag and name tests run on macOS. Windows tests cover collisions,
+retained parents and agent roots. Native qualification remains pending:
+`cargo run -p exact-windows --example known-folders` probes OneDrive and UNC
+redirection before a Windows app drive claims the cell. Append
+`-- pictures OnlineOnly` to exercise an existing dehydrated child directory.
+
+## Local patch 47, the Hermes download trusts `SSL_CERT_FILE`
+
+`build_support.rs` downloads a pinned bundle with Mozilla's roots, or, when
+`SSL_CERT_FILE` names a PEM file, with that file's certificates in their place,
+as OpenSSL and curl read the variable. `exact setup` then works behind a
+TLS-intercepting proxy whose CA is private. The pinned SHA-256 still decides
+what is extracted. Replay on a refresh.
+
+## Content codings off Apple
+
+The rustls transport builds ureq with `gzip` and `brotli`: a request names
+`Accept-Encoding: gzip, br`, and a response with that `Content-Encoding` reaches
+`fetch` decoded, as NSURLSession gives it on Apple and Fetch requires
+([HTTP-network fetch](https://fetch.spec.whatwg.org/#http-network-fetch)). A server may
+send a stored coding unasked: Cloud Storage serves a `br` object to a request that
+names only `identity`. Without the features Android, Linux and Windows handed the
+coded bytes to `text()`. Replay on a refresh.
+
+## Local patch 48, an open-ended response
+
+`Request::open_ended` marks a response its caller reads for as long as it
+holds it: exact2's event streams and byte streams (LLP 1016.000). Without an
+explicit `timeout`, no limit of the transport's own ends it, on the whole
+exchange or on a quiet body, whatever its status. An explicit timeout keeps
+its meaning, and ordinary requests keep their limits.
+
+The portable transport (`transport/rustls_http.rs`) keeps its limits on
+connecting (10 s) and on the head (15 s), and lifts every read deadline ureq
+would apply to the body (its 30 s global and 15 s body limits) once the head
+arrives, for an `open_ended` request and for a successful response whose
+last `Content-Type` is `text/event-stream`. Cancellation still interrupts a
+blocked read, and a pooled agent restores its deadlines when it is leased
+again. `transport/rustls_timeout_tests.rs` probes the deadlines passed to the
+wire, default and expired, and agent reuse; `transport/stream_tests.rs`
+exercises later events, explicit timeout expiry, cancellation and release
+against loopback peers.
+
+Darwin (`transport/darwin_http.mm`) sets an open-ended request's
+`timeoutInterval`, which ends a task after that long without data (60 s by
+default), to a limit nothing reaches (`Ibex2Unbounded`). The head goes
+without a limit too: URLSession calls `didReceiveResponse` only with the
+first body bytes or the body's end (content sniffing; measured for
+`text/event-stream`, `application/octet-stream` and `text/plain`), so a
+server that answers and then waits shows no head until it sends. Its
+session's `timeoutIntervalForResource` (seven days by default) is the same
+unreached limit; that limit is a session's, so the pool leases an open-ended
+exchange only a session of its kind and every other request one that keeps
+the seven days, and at its four sessions an idle one of the other kind gives
+up its place.
+
+exact2's `host/executor/src/stream_quiet_tests.rs` holds an event stream and
+a byte stream quiet past each transport's limits against a loopback peer, on
+rustls and on URLSession. Replay on a refresh.
+
+## Local patch 49, one connection pool a transport
+
+exact2 runs its independent lane's six workers, its scoped requests and its
+launch preloads over one transport (LLP 1162 D5), so its reads share their
+connections.
+
+Darwin (`transport/darwin_http.mm`) ran each exchange on one of four
+sessions leased to it alone, because its delegate waits while the exchange's
+reader is behind, which would stall every task of a shared session; each
+session had its own connection pool. `Request::collected` says the caller
+reads the reply to its end as it arrives, into memory (exact2's plain reads
+and preloads, not a reply written to a file). Such an exchange, if not
+open-ended and its limit at most 64 MiB, a plain request's ceiling, now runs
+on one `shared` session per transport, whose delegate waits only while the
+reply is a mebibyte ahead of its reader, which a collecting reader never is
+for long: the session's other exchanges are not held, and what it holds of
+each reply stays bounded. The reader takes the reply from an offset and drops
+what it has taken once that is half the buffer. URLSession task suspension is
+no substitute: suspended in `didReceiveData`, a loopback task kept delivering
+its whole 8 MiB. The shared session's `HTTPMaximumConnectionsPerHost` is 32:
+URLSession's six (macOS) or four (iOS) would queue a read behind replies its
+origin holds, which sessions of their own never did, and 32 is more than
+exact2 runs at once on one transport (six workers, eight launch preloads,
+eight prefetches). HTTP/2 and HTTP/3
+carry an origin's exchanges on one connection. Any other exchange still
+leases a session of its own (local patch 48's kinds), so a stream, an unread
+reply or a slow file write never holds back the shared session.
+`transport/darwin_stream_tests.rs` has eight collected exchanges at once take
+their heads, which the peer sends only once all eight are in, beside four
+open-ended ones, and eight more after them open no connection.
+
+The portable transport (`transport/rustls_http.rs`) leases each exchange an
+idle agent of its own, each agent with its own pool. A lease now takes the
+newest idle agent whose last requests went to the request's origin (the
+eight it remembers), so a request finds a connection another left open to
+it. Replay on a refresh.

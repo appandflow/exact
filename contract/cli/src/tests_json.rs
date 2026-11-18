@@ -294,6 +294,10 @@ fn step_json(step: &Step, s: &mut String) {
         Step::Authorize { cancel, .. } => {
             s.push_str(&format!("{{\"op\":\"authorize\",\"cancel\":{cancel}"));
         }
+        Step::Presence { answer, .. } => {
+            s.push_str("{\"op\":\"presence\",\"answer\":");
+            q(answer, s);
+        }
         Step::Clipboard {
             target, edit, text, ..
         } => {
@@ -333,6 +337,20 @@ fn step_json(step: &Step, s: &mut String) {
         Step::ExpectFocused { target, .. } => {
             s.push_str("{\"op\":\"expect-focused\",\"target\":");
             q(target, s);
+        }
+        Step::ExpectLayout {
+            target,
+            dimension,
+            comparison,
+            value,
+            ..
+        } => {
+            s.push_str("{\"op\":\"expect-layout\",\"target\":");
+            q(target, s);
+            s.push_str(&format!(
+                ",\"dimension\":\"{dimension}\",\"comparison\":\"{}\",\"value\":{value}",
+                comparison_name(*comparison)
+            ));
         }
         Step::ExpectText { target, value, .. } => {
             s.push_str("{\"op\":\"expect-text\",\"target\":");
@@ -399,17 +417,10 @@ fn step_json(step: &Step, s: &mut String) {
         } => {
             s.push_str("{\"op\":\"expect-state\",\"name\":");
             q(name, s);
-            s.push_str(",\"comparison\":");
-            q(
-                match comparison {
-                    contract_syntax::StateComparison::Equal => "equal",
-                    contract_syntax::StateComparison::AtLeast => "at-least",
-                    contract_syntax::StateComparison::AtMost => "at-most",
-                    contract_syntax::StateComparison::In => "in",
-                },
-                s,
-            );
-            s.push_str(",\"value\":");
+            s.push_str(&format!(
+                ",\"comparison\":\"{}\",\"value\":",
+                comparison_name(*comparison)
+            ));
             state_literal(value, s);
         }
         Step::Perf { steps, .. } => {
@@ -617,11 +628,22 @@ fn property_value(v: &contract_syntax::PropertyValue, s: &mut String) {
     }
 }
 
+/// A comparison as the driver's script names it.
+fn comparison_name(comparison: contract_syntax::StateComparison) -> &'static str {
+    match comparison {
+        contract_syntax::StateComparison::Equal => "equal",
+        contract_syntax::StateComparison::AtLeast => "at-least",
+        contract_syntax::StateComparison::AtMost => "at-most",
+        contract_syntax::StateComparison::In => "in",
+    }
+}
+
 fn state_literal(value: &Expr, s: &mut String) {
     match value {
         Expr::Number(n, _) => s.push_str(&format!("{n}")),
         Expr::Str(t, _) => q(t, s),
         Expr::Bool(b, _) => s.push_str(&format!("{b}")),
+        Expr::Some(inner, _) => state_literal(inner, s),
         Expr::List(items, _) => {
             s.push('[');
             for (i, item) in items.iter().enumerate() {
@@ -632,6 +654,22 @@ fn state_literal(value: &Expr, s: &mut String) {
             }
             s.push(']');
         }
-        _ => s.push_str("null"),
+        Expr::Call(_, fields, _) => {
+            s.push('{');
+            for (i, field) in fields.iter().enumerate() {
+                let Expr::NamedArg(name, value, _) = field else {
+                    unreachable!("state literal fields are named")
+                };
+                if i > 0 {
+                    s.push(',');
+                }
+                q(name, s);
+                s.push(':');
+                state_literal(value, s);
+            }
+            s.push('}');
+        }
+        Expr::None(_) => s.push_str("null"),
+        _ => unreachable!("state expectations contain only literals"),
     }
 }

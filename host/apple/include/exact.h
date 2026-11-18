@@ -169,16 +169,6 @@ ExactRasterReady exact_raster_take_ready(uint64_t session, uint64_t request);
 void exact_raster_lease_release(uint64_t lease);
 ExactRasterStats exact_raster_stats(uint64_t session);
 
-/* An SVG file as an image (LLP 1011.001 D4). header: 1 when bytes begin an SVG,
- * writing its natural size (CSS pixels) into size[0..2]; else 0. scene: the
- * file resolved at width x height CSS pixels as the svg op's JSON, in a buffer
- * of *out_len bytes to free with exact_svg_image_free; *flags bit 0 means the
- * picture has text (drawn on the main thread, where the fonts are), bit 1 that
- * the file was refused, the buffer then holding the reason. */
-uint32_t exact_svg_image_header(const uint8_t *bytes, size_t len, double *size);
-uint8_t *exact_svg_image_scene(const uint8_t *bytes, size_t len, double width, double height, size_t *out_len, uint32_t *flags);
-void exact_svg_image_free(uint8_t *ptr, size_t len);
-
 /* Width/height offers below zero mean "as the content wants". */
 #define EXACT_MAX_CONTENT (-1.0f)
 #define EXACT_MIN_CONTENT (-2.0f)
@@ -303,6 +293,15 @@ void exact_textflow_free(uint64_t handle);
  * min(count,cap) to out (null is a query); returns count, 0 for invalid UTF-8. */
 size_t exact_text_line_breaks(const uint8_t *utf8, size_t len,
     const uint32_t *words, size_t word_count, uint32_t *out, size_t cap);
+/* LLP 1001 §6: where Blink's scorer breaks a balanced paragraph of `lines` greedy
+ * lines in `width` (the first line's less `indent`), its block's font `font_size`.
+ * `count` break opportunities in order, the last the paragraph's end: where a line
+ * ending there ends, where the next starts, both from the paragraph's start, and
+ * whether it shows a hyphen. Writes the lines - 1 indices where lines break; returns
+ * their count, 0 where the scorer gives nothing (bisect, or keep the greedy lines). */
+size_t exact_text_balanced_breaks(float width, float indent, float font_size, uint32_t justified,
+    const float *ends, const float *nexts, const uint8_t *hyphens, size_t count, size_t lines,
+    uint32_t *out, size_t cap);
 
 /* LLP 1060.000 D3: natural text's base direction per paragraph (UAX #9 P2, P3 at its
  * paragraph separators; `fallback` where one has no strong character): 0 ltr, 1 rtl.
@@ -687,10 +686,13 @@ uint32_t exact_share_land(ExactRuntime rt);
  * A change's text, key's name, or guest message is the payload in the input
  * buffer's first len bytes. */
 uint32_t exact_dispatch(ExactRuntime rt, uint32_t view, uint32_t kind, size_t len, double now_ms);
-/* A scroll container the presenter shows (or, nonzero page, the page) now
+/* A scroll container the presenter shows (page 0, or 1 for the page) now
  * stands at left, top CSS px (scrollLeft, scrollTop), handler or not: what
  * frame() and measure() subtract from the kernel's scroll-free box, so an
- * action reads the box where the viewer sees it (LLP 1051.000 D1). No batch. */
+ * action reads the box where the viewer sees it (LLP 1051.000 D1). No batch.
+ * Page 2 consumes a collection mailbox: top is the main-axis offset; exact_in
+ * holds the snapshot revision and scroll sequence as two LE uint64_t words.
+ * It updates collection geometry without feedback, retirement or a batch. */
 void exact_scrolled(ExactRuntime rt, uint32_t page, uint32_t view, double left, double top);
 /* An inline run's shaped fragments, united in viewport coordinates. Called
  * synchronously on the runtime owner; UI work is served on main. */
@@ -717,7 +719,7 @@ const uint8_t *exact_field_decorations(const uint8_t *input, size_t len, size_t 
  * then an excluded rectangle (NaN at x means no exclusion).
  * Its hit region is independent of the content's clip and pointer events. */
 void exact_top_layer(ExactRuntime rt, const uint32_t *views, const double *rects, const double *clips, uint32_t count, uint32_t modal, uint32_t backdrop_view, const double *backdrop);
-/* Versioned LE collection feedback in exact_in; returns the ordinary batch. */
+/* Versioned LE collection feedback in exact_in. */
 uint32_t exact_collection_feedback(ExactRuntime rt, size_t len, double now_ms);
 /* Laid-out fixed sibling extent, side 0 (lead) or 1 (trail). Counts come
  * from the snapshot's fixed roots. NaN when the geometry is unavailable. */
@@ -1073,9 +1075,8 @@ uint32_t exact_tick_at(ExactRuntime rt, double now_ms, double frame_ms); /* LLP 
  * pixels wide, as on the web); a width or height ≤ 0 clears it (the load
  * failed, or the source was removed). Lays out again; the batch carries
  * every frame that moved. */
-uint32_t exact_intrinsic(ExactRuntime rt, uint32_t view, float width, float height);
-/* exact_intrinsic for several views under one layout: the input buffer's
- * first len bytes are LE records of (uint32 view, float width, float height). */
+/* The input buffer's first len bytes are LE records of
+ * (uint32 view, float width, float height), applied under one layout. */
 uint32_t exact_intrinsics(ExactRuntime rt, size_t len);
 /* What native containers cover of boxes (LLP 1075.003 §3.5) under one
  * layout: LE records of (uint32 view, uint32 kind — 0 clears, 1 edges,
@@ -1158,6 +1159,24 @@ uint32_t exact_grouped_list(ExactRuntime rt, uint32_t view);
  * buffer — JSON, not a batch. */
 uint32_t exact_agent(ExactRuntime rt, size_t len);
 
+/* The agent operations the core asks in a production build, each its own
+ * export (LLP 1047.001 D11). Each answers as exact_agent answers its
+ * operation, reading only the request fields named here, and returns the
+ * JSON reply's length in the output buffer: the runner's outstanding work;
+ * whether a quit waits ({"mustFinish":B}); the view tree ({"target"},
+ * {"shallow"}); the state; one view's rows ({"id":V}, {"plan":true}); the
+ * session's identity; the app's file roots; and the answer to a held
+ * device request ({"op":"tap"|"type","ticket":T,"choice"|"text"}). A
+ * family's own are in its header. */
+uint32_t exact_outstanding(ExactRuntime rt, size_t len);
+uint32_t exact_must_finish(ExactRuntime rt, size_t len);
+uint32_t exact_tree(ExactRuntime rt, size_t len);
+uint32_t exact_state(ExactRuntime rt, size_t len);
+uint32_t exact_node(ExactRuntime rt, size_t len);
+uint32_t exact_tags(ExactRuntime rt, size_t len);
+uint32_t exact_app_roots(ExactRuntime rt, size_t len);
+uint32_t exact_answer_ticket(ExactRuntime rt, size_t len);
+
 /* A host line for the runner's journal (LLP 1012 §3; LLP 1035.001 D6): the
  * input buffer's first len bytes — a refused intent and its reason. Returns 0. */
 uint32_t exact_log(ExactRuntime rt, size_t len);
@@ -1174,12 +1193,6 @@ uint32_t exact_orientation_applied(ExactRuntime rt, size_t len, uint8_t conflict
  * input buffer; the output is the runner's ruling, {"refused":…} /
  * {"ticket":N} (held for the agent) / {"present":true,…}. */
 uint32_t exact_command(ExactRuntime rt, size_t len);
-
-/* What SVG pixel work the live plan can need, as bits (0 before a boot):
- * 1 an island, a `mask` or a `filter` (LLP 1055.000 §8 ruling 4), when the
- * host should open its island module off the main thread now; 2 a filter,
- * when it should make its GPU filter pipelines now. */
-uint8_t exact_svg_islands(ExactRuntime rt);
 
 /* 1 when the data source's activation evaluates a TypeScript module on the
  * owner (exact_prepare_data), which the presenter then posts from the first
@@ -1234,6 +1247,9 @@ typedef struct {
 } ExactDeliveryApi;
 const ExactDeliveryApi *exact_delivery_api(void);
 uint32_t exact_delivery_sync(ExactRuntime rt);
+
+// Private callback for the optional watch transport; never a view or agent reply.
+void exact_watch_store(const uint8_t *plan, size_t plan_len, const uint8_t *input, size_t len, void (*seal)(const uint8_t *, size_t, void (*)(const uint8_t *, size_t, size_t), size_t), void (*reply)(const uint8_t *, size_t, size_t), size_t context);
 
 #ifdef __cplusplus
 }

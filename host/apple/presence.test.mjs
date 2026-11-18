@@ -204,6 +204,26 @@ test('a Mac build with a passkey line and no profile has none, and a release bui
   expect(macProvisioning(app, bake('auth.passkey localhost'), { release: true, find: none })).toBeNull();
 });
 
+test('a Mac HTTPS auth callback selects a profile and signs its webcredentials domain', () => {
+  const callback = 'https://auth.example/return', domains = 'com.apple.developer.associated-domains';
+  const compat = { ...bake(`auth.session https://accounts.google.com\nauth.callback ${callback}\nsecret.keep session`),
+    reach: { auth: { callbacks: [callback], associatedDomains: ['webcredentials:auth.example'] } } };
+  const profile = { name: 'auth', team: 'TEAM', prefix: 'TEAM', dev: true, method: 'development',
+    appId: `TEAM.${app.id}`, platforms: ['OSX'], devices: ['THIS-MAC'], expires: new Date('2099-01-01'),
+    entitlements: [domains] };
+  const signed = macSigning(app, compat, { current: 'identity', teamOf: () => 'TEAM', identityFor: () => 'identity', log: () => {},
+    find: (a, required, options) => macProfile(a, required, { ...options, installed: [profile], named: null, udid: 'THIS-MAC' }) });
+  expect(signed.provisioning?.profile).toBe(profile);
+  expect(signed.provisioning?.entitlements[domains]).toEqual(['webcredentials:auth.example?mode=developer']);
+  const said = [];
+  expect(macProvisioning(app, compat, { find: none, log: line => said.push(line) })).toBeNull();
+  expect(said.join('\n')).toContain('HTTPS auth sessions fail association validation');
+  expect(() => macProvisioning(app, compat, { release: true, find: none })).toThrow(/^grant-needs-profile: auth.callback https:\/\/auth.example\/return:/);
+  for (const callback of ['app.test:/return', 'http://127.0.0.1/return', 'https://auth.example/.exact/auth/callback']) {
+    expect(macProfileNeeds({ reach: { auth: { callbacks: [callback], associatedDomains: [] } } })).toEqual([]);
+  }
+});
+
 test('one profile signs every need: the rows, the keychain group and the domains, each as its build signs it', () => {
   const profile = { name: 'p', team: 'T', prefix: 'P', dev: true, method: 'development' };
   const compat = { ...bake('secret.keep key biometry-any\nauth.passkey app.example', ['com.apple.developer.aps-environment', 'com.apple.developer.declared-age-range']),
@@ -215,10 +235,10 @@ test('one profile signs every need: the rows, the keychain group and the domains
     'com.apple.developer.aps-environment': 'development', 'com.apple.developer.declared-age-range': true,
     'keychain-access-groups': ['P.com.example.lock'], 'com.apple.developer.associated-domains': ['webcredentials:app.example?mode=developer'] });
 });
-test('a development build asks for a passkey domain in developer mode, a release build never', async () => {
+test('a development build asks for every webcredentials domain in developer mode, a release build never', async () => {
   const { associatedDomains } = await import('./presence.mjs');
-  const auth = { passkeys: ['app.example'], associatedDomains: ['webcredentials:app.example', 'webcredentials:auth.example'] };
-  expect(associatedDomains(auth, true)).toEqual(['webcredentials:app.example?mode=developer', 'webcredentials:auth.example']);
+  const auth = { passkeys: ['app.example'], associatedDomains: ['webcredentials:app.example', 'webcredentials:auth.example', 'applinks:app.example'] };
+  expect(associatedDomains(auth, true)).toEqual(['webcredentials:app.example?mode=developer', 'webcredentials:auth.example?mode=developer', 'applinks:app.example']);
   expect(associatedDomains(auth, false)).toEqual(auth.associatedDomains);
   expect(associatedDomains(undefined, true)).toEqual([]);
 });
@@ -262,6 +282,88 @@ test('SharePlay: a Mac build without a profile signs no Group Activities, and a 
   expect(entitlementValue(key, true)).toBe(true);
   const profile = { prefix: 'TEAM', team: 'TEAM', dev: true };
   expect(macProfileEntitlements(app, profile, macProfileNeeds(compat), compat)[key]).toBe(true);
+});
+
+test('CloudKit signs its arrays and capitalised environment, and an unprovisioned Mac release claims no shares', async () => {
+  const { entitlements, infoPlist, macInfoPlist, tvReach } = await import('./build.mjs');
+  const { macProfileEntitlements, signsGrant } = await import('./presence.mjs');
+  const { hostEventKeys } = await import('./plist.mjs');
+  const { plistFile, PROFILE_KEYS } = await import('./assets.mjs');
+  const owner = { id: 'com.example.boards', displayName: 'Boards', manifest: { host: {} } };
+  const services = 'com.apple.developer.icloud-services', containers = 'com.apple.developer.icloud-container-identifiers';
+  const environment = 'com.apple.developer.icloud-container-environment', keys = [services, containers, environment];
+  for (const container of [null, 'iCloud.com.example.shared']) {
+    const values = { [services]: ['CloudKit'], ...(container ? { [containers]: [container] } : {}) };
+    const reach = { entitlements: keys, profileEntitlements: keys, entitlementValues: values, tvOmits: keys };
+    const compat = { inputs: { grantCeiling: `device.cloudkit${container ? ` ${container}` : ''}` }, reach };
+    for (const dev of [true, false]) {
+      const expected = { [services]: ['CloudKit'], [containers]: [container ?? `iCloud.${owner.id}`], [environment]: dev ? 'Development' : 'Production' };
+      const signed = entitlements(owner, 'TEAM', dev, reach, { distributed: !dev });
+      for (const [key, value] of Object.entries(expected)) {
+        const entry = plistFile({ [key]: value }).match(/<dict>([\s\S]*)<\/dict>/)[1].trim();
+        expect(signed).toContain(entry);
+        expect(PROFILE_KEYS).toContain(key);
+      }
+      expect(macProfileEntitlements(owner, { prefix: 'PREFIX', team: 'TEAM', dev }, macProfileNeeds(compat), compat)).toMatchObject(expected);
+      for (const omitted of ['aps-environment', 'ubiquity-', 'remote-notification']) expect(signed).not.toContain(omitted);
+    }
+    for (const bundle of [{ ...owner, clipParent: owner.id }, { ...owner, widgetAppId: owner.id }]) {
+      expect(entitlements(bundle, null, true, reach)).not.toContain('com.apple.developer.icloud-');
+    }
+    expect(entitlements(owner, null, true, tvReach(reach))).not.toContain('com.apple.developer.icloud-');
+    const said = [];
+    expect(macProvisioning(owner, compat, { release: true, find: none, log: l => said.push(l) })).toBeNull();
+    expect(said.join('\n')).toContain('CloudKit is unavailable');
+    expect(signsGrant('device.cloudkit', compat, null)).toBe(false);
+    expect(signsGrant('device.cloudkit', compat, { entitlements: { [services]: ['CloudKit'] } })).toBe(false);
+    const taken = provisioning => ({ packages: hostEventKeys([{ extension: 'invites', event: 'cloudkit-share' }], line => signsGrant(line, compat, provisioning)) });
+    expect(macInfoPlist(owner, { reach: taken(null) })).not.toContain('CKSharingSupported');
+    const clip = infoPlist(owner, false, { reach: taken(undefined), clip: true });
+    expect(clip).not.toContain('CKSharingSupported');
+    expect(clip).not.toContain('ExactHostEvents');
+    for (const plist of [infoPlist(owner, false, { reach: taken(undefined) }), macInfoPlist(owner, { reach: taken({ entitlements: Object.fromEntries(keys.map(k => [k, true])) }) })]) {
+      expect(plist).toContain('CKSharingSupported');
+      expect(plist).toContain('ExactHostEvents');
+    }
+  }
+});
+
+test('CloudKit profiles must allow the service, selected container and signed environment by value on iOS and macOS', async () => {
+  const { decodeProfile, profile, allows } = await import('./devices.mjs');
+  const { grantEntitlementValues } = await import('./presence.mjs');
+  const { plistFile } = await import('./assets.mjs');
+  const services = 'com.apple.developer.icloud-services', containers = 'com.apple.developer.icloud-container-identifiers';
+  const environment = 'com.apple.developer.icloud-container-environment', required = [services, containers, environment];
+  const owner = { id: 'com.example.boards' }, values = { [services]: ['CloudKit'], [containers]: ['iCloud.com.example.shared'] };
+  for (const mac of [false, true]) {
+    const decoded = (edits = {}) => decodeProfile('/synthetic/cloudkit', 'darwin', { read: () => ({ stdout: plistFile({
+      Name: 'CloudKit', TeamIdentifier: ['TEAM'], Platform: [mac ? 'OSX' : 'iOS'], ProvisionedDevices: ['DEVICE'],
+      ExpirationDate: new Date(Date.now() + 864e7).toISOString(),
+      Entitlements: { [mac ? 'com.apple.application-identifier' : 'application-identifier']: `TEAM.${owner.id}`, 'get-task-allow': true,
+        ...values, [environment]: ['Development', 'Production'], ...edits },
+    }) }) });
+    const chosen = decoded();
+    chosen.expires = new Date(Date.now() + 864e7);
+    const select = installed => mac
+      ? macProfile(owner, required, { installed, named: null, team: null, udid: 'DEVICE', values })
+      : profile('DEVICE', owner.id, required, { installed, named: null, team: null, values });
+    expect(select([chosen])).toBe(chosen);
+    expect(allows({ ...chosen, dev: false }, required, values)).toBe(true);
+    expect(allows({ ...chosen, dev: false, entitlementValues: { ...chosen.entitlementValues, [environment]: ['Development'] } }, required, values)).toBe(false);
+    expect(allows({ ...chosen, entitlementValues: { ...chosen.entitlementValues, [containers]: ['iCloud.com.example.*'] } }, required, values)).toBe(true);
+    const defaults = grantEntitlementValues(owner, { entitlementValues: { [services]: ['CloudKit'] } });
+    expect(defaults[containers]).toEqual([`iCloud.${owner.id}`]);
+    const defaultProfile = { ...chosen, entitlementValues: { ...chosen.entitlementValues, [containers]: defaults[containers] } };
+    expect(allows(defaultProfile, required, defaults)).toBe(true);
+    if (mac) expect(macProfile(owner, required, { installed: [defaultProfile], named: null, team: null, udid: 'DEVICE', values: defaults })).toBe(defaultProfile);
+    for (const edits of [{ [services]: ['CloudDocuments'] }, { [containers]: ['iCloud.com.example.other'] }, { [environment]: ['Production'] }]) {
+      const wrong = { ...decoded(edits), expires: chosen.expires };
+      expect(allows(wrong, required, values)).toBe(false);
+      if (mac) expect(select([wrong])).toBeNull();
+      else expect(() => select([wrong])).toThrow(/grant-device-profile/);
+      expect(select([wrong, chosen])).toBe(chosen);
+    }
+  }
 });
 
 test('a release keeps what the build signed under its profile, and nothing else of its signature (LLP 1133.010 D7)', async () => {

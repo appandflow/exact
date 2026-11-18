@@ -26,13 +26,16 @@ impl<D: DataSource> Presenter<D> {
         self.agent_reader_turn();
         self.executor.begin_pump();
         self.host.runner_mut().take_fault_logs();
-        if self.painted && self.data_activating() {
+        if self.unshown {
+            self.activate_unshown();
+        } else if self.painted && self.data_activating() {
             self.first_pixel();
         }
         let performance_error = self.poll_canvas_performance();
         let region_error = self.poll_content_region().or(performance_error);
         self.finish_portal_picks();
         self.finish_file_imports();
+        self.finish_file_exports();
         // Waiting admission can refuse without a completion to commit (LLP 1162 D1).
         if !self.host.has_ordered_request_refusals() {
             for (ticket, reason) in self.executor.resume_ordered() {

@@ -955,7 +955,7 @@ extension Agent {
         // `key` handlers, then the event, which forwards to the surface.
         // canvasType sent the surface only, so Escape and KeyP never reached
         // Contract (platformer repro canvas-keys-macos).
-        if req["key"] == nil, let reply = presenter.controls.type(v, req["text"] as? String ?? "") { return reply }
+        if req["key"] == nil, let reply = presenter.controls.family.type(v, req["text"] as? String ?? "") { return reply }
         if v.props["editable"] == "false", req["key"] == nil { return ["error": "view \(v.id) is readonly"] }
         // @ref LLP 1038 D11 — type on the root delivers a location.
         if v.props["navigationBack"] != nil, req["key"] == nil {

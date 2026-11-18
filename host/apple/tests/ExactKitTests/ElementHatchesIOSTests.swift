@@ -40,9 +40,9 @@ final class ElementHatchesIOSTests: XCTestCase {
         NativeViews.uninstallTable()
         let session = ExactApp.shared.makeSession(label: "scroll-hatch-recognizers")
         sessions.append(session)
-        session.natives.install(module: UnsafeMutableRawPointer(bitPattern: 1)!)
-        session.natives.hatchesConnected = true
-        session.natives.elementCall = { _, event, view, platform, _, _ in
+        session.nativeViews!.install(module: UnsafeMutableRawPointer(bitPattern: 1)!)
+        session.nativeViews!.hatchesConnected = true
+        session.nativeViews!.elementCall = { _, event, view, platform, _, _ in
             guard event != 2, let view, let platform else { return 0 }
             let node = Unmanaged<NodeView>.fromOpaque(view).takeUnretainedValue()
             let scroll = Unmanaged<UIScrollView>.fromOpaque(platform).takeUnretainedValue()
@@ -50,7 +50,7 @@ final class ElementHatchesIOSTests: XCTestCase {
             if node.props["dataset"] == #"{"add":true}"# { scroll.addGestureRecognizer(UIPinchGestureRecognizer()) }
             return 0
         }
-        let p = session.presenter, regions = p.elements.regions
+        let p = session.presenter, regions = p.hatchElements!.regions
         p.apply(wireBatch([
             ["op": "create", "id": 1, "kind": "view", "props": ["hatch": "scroller"], "style": ["overflow_y": "auto"]],
             ["op": "roots", "ids": [1]],
@@ -84,7 +84,7 @@ final class ElementHatchesIOSTests: XCTestCase {
         XCTAssertNil(session.boot(plan: plan, size: CGSize(width: 402, height: 874)).error)
         view.frame = host.view.bounds
         view.layoutIfNeeded()
-        session.natives.installArtifact(try XCTUnwrap(env["EXACT_FIXTURE_MODULE"]))
+        session.nativeViews!.installArtifact(try XCTUnwrap(env["EXACT_FIXTURE_MODULE"]))
         let log = { session.agent(#"{"op":"logs","since":0}"#) }
         until("the badge's hatch built") { log().contains("hatch element badge #") && log().contains(": built") }
         let badge = try XCTUnwrap(node(session, "hatched-badge"), "a hatched leaf box is a view")
@@ -128,7 +128,7 @@ final class ElementHatchesIOSTests: XCTestCase {
         XCTAssertNil(session.boot(plan: plan, size: CGSize(width: 402, height: 874)).error)
         view.frame = host.view.bounds
         view.layoutIfNeeded()
-        session.natives.installArtifact(try XCTUnwrap(env["EXACT_FIXTURE_MODULE"]))
+        session.nativeViews!.installArtifact(try XCTUnwrap(env["EXACT_FIXTURE_MODULE"]))
         until("the module connected") { session.natives.hatchesConnected }
         session.presenter.press(try XCTUnwrap(node(session, "show-frame")).id)
         until("the frame shows a web view") { (self.node(session, "hatched-frame")?.web as? WKWebView) != nil }
@@ -157,7 +157,7 @@ final class ElementHatchesIOSTests: XCTestCase {
         sessions.append(session)
         session.webviews.moduleLocation = { arm }
         // The module made before first pixel: its hatches connect at first pixel.
-        session.natives.installArtifact(try XCTUnwrap(env["EXACT_FIXTURE_MODULE"]))
+        session.nativeViews!.installArtifact(try XCTUnwrap(env["EXACT_FIXTURE_MODULE"]))
         let view = ExactView(session: session)
         let host = UIViewController()
         let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene

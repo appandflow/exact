@@ -138,7 +138,7 @@ final class IframeEmbedTests: XCTestCase {
     /// viewports below the window's bottom, where a held leaf waits to come near.
     func testAHatchedFrameWaitsForTheModuleOrMadeWithoutIt() throws {
         let session = try session("frame-waits")
-        let natives = session.natives
+        let natives = session.nativeViews!
         NativeViews.uninstallTable()
         natives.hasAppModule = true
         defer { natives.hasAppModule = false; NativeViews.uninstallTable() }

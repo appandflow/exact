@@ -337,10 +337,10 @@ private final class Host {
             if let old = host.program { return old == program }
             host.program = program
             return true
-        }, current: { [weak host] in host?.running }, plan: { [weak host] in host?.running }, channel: { [weak host] in host?.channel($0) }, apply: { [weak host] candidate, _, _ in
+        }, current: { [weak host] in host?.running }, plan: { [weak host] in host?.running }, channel: { [weak host] in host?.channel($0) }, apply: { [weak host] candidate, _, _, _ in
             host?.running = candidate.identity
             host?.applied.append(candidate.identity)
-            return true
+            return .applied
         })
     }
 

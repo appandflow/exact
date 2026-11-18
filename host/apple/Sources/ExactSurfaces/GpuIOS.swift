@@ -61,6 +61,10 @@ final class MetalCanvasView: UIView {
         awaitingFirstFrame = false
         metalLayer.isHidden = false
     }
+    func hidePicture() {
+        awaitingFirstFrame = false
+        metalLayer.isHidden = true
+    }
 }
 
 /// The process's spare canvas layers, their drawables kept (`MetalCanvasView`).
@@ -151,7 +155,7 @@ final class CanvasesHost {
     final class Entry {
         let view: NodeView
         let name: String
-        var values: Any
+        var values: Data
         var id: UInt32 = 0
         var presentable = true
         var wants = false
@@ -205,7 +209,7 @@ final class CanvasesHost {
         var picture: CGImage?
         /// The artifact whose surface this canvas is (LLP 1009 D6), once created.
         var module: GpuModule?
-        init(view: NodeView, name: String, values: Any) { self.view = view; self.name = name; self.values = values }
+        init(view: NodeView, name: String, values: Data) { self.view = view; self.name = name; self.values = values }
     }
     var entries: [UInt32: Entry] = [:]
     var publishers: [String: Entry] = [:]
@@ -271,7 +275,7 @@ final class CanvasesHost {
     }
 
     /// A surface op: new inputs for a canvas node.
-    func surface(view: NodeView, name: String, values: Any) {
+    func surface(view: NodeView, name: String, values: Data) {
         if let e = entries[view.id], e.view !== view || e.name != name { destroy(view: view.id) }
         if let e = entries[view.id] {
             e.values = values
@@ -310,6 +314,7 @@ final class CanvasesHost {
     }
 
     func loadIfNeeded() {
+        updatePerformanceTimer()
         guard !entries.isEmpty, session?.firstDrawMs != nil else { return }
         // Each artifact the first time one of its canvases exists (LLP 1009
         // D6). A declared module loads on the next turn, after the frame that
@@ -375,8 +380,10 @@ final class CanvasesHost {
         e.id = bytes.withUnsafeBufferPointer { m.create($0.baseAddress, bytes.count, ptr, w, h) }
         e.presentable = e.id != 0
         if e.id == 0 { FileHandle.standardError.write(Data("exact gpu: \(m.error())\n".utf8)); return }
-        e.performance = publishers[e.name] === e && session?.canvasPerformanceRequested(e.name) == true
-        if e.performance { _ = m.performanceReporting?(e.id, true) }
+        if let session, !m.giveStorage(e.id, session: session) {
+            failed = m.error(); m.destroy(e.id); e.id = 0; e.presentable = false; return
+        }
+        e.performance = false
         e.module = m
         updatePerformanceTimer()
         lifecycle.deliver(e.id, module: m)
@@ -765,7 +772,7 @@ final class CanvasesHost {
         // to submit for it, and its tick's frame is still to draw.
         let drew = m.drew.map { $0(e.id) != 0 } ?? (m.starved?(e.id) != 1)
         if drew { recorded(m); e.drawnTick = tick; drawn += 1 }
-        e.waiting = !drew
+        e.waiting = (m.presentationFlags?(e.id) ?? 0) & 4 == 0 && !drew
         // A module that cannot say when a first frame is shown (`gpu_seen`):
         // the frame just recorded is presented by this tick's flush.
         if drew, metal.awaitingFirstFrame, m.seen == nil, r < 2 { DispatchQueue.main.async { metal.reveal() } }

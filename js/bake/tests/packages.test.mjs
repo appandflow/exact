@@ -471,3 +471,52 @@ test('a type-only nested manifest still identifies the enclosing named package',
     fixture.close();
   }
 });
+
+// zod 4 ships `v4/classic/package.json` and its siblings, nameless with `main`, `module` and `types`: its code there is
+// zod's, and bundles, while the type check's advice still stops at such a manifest (the test above).
+for (const field of ['exports', 'main', 'types']) test(`a package's code under a nested nameless manifest with ${field} bundles as the package's`, async () => {
+  const fixture = linkedApp();
+  const { stage, module, put } = fixture;
+  try {
+    put(join(module, 'index.js'), "export { value } from './nested/index.js';\n");
+    put(join(module, 'nested/index.js'), "import { Value } from '@scratch/peer/values'; export const value = new Value();\n");
+    put(join(module, 'nested/package.json'), JSON.stringify({ type: 'module', [field]: field === 'exports' ? { '.': './index.js' } : './index.js' }));
+    const code = await bundle(stage);
+    const record = JSON.parse(readFileSync(join(stage, '__exact_packages.json'), 'utf8'));
+    expect(record.edges).toContainEqual([
+      'node_modules/.packages/@scratch/module@1.0.0/index.js', './nested/index.js', 'import',
+      'node_modules/.packages/@scratch/module@1.0.0/nested/index.js',
+    ]);
+    const file = join(fixture.root, 'bundle.mjs');
+    put(file, code);
+    expect((await import(file)).label).toBe('app');
+  } finally {
+    fixture.close();
+  }
+});
+
+test('Expo push exchanges a typed subscription using the imported app.json on every executor', async () => {
+  const fixture = linkedApp();
+  const { app, stage, put } = fixture;
+  try {
+    mkdirSync(join(app, 'node_modules/@exact'), { recursive: true });
+    symlinkSync(fileURLToPath(new URL('../../../packages/push', import.meta.url)), join(app, 'node_modules/@exact/push'), process.platform === 'win32' ? 'junction' : 'dir');
+    const manifest = { app: { id: 'dev.guard' }, extra: { eas: { projectId: 'project-fixture' } } };
+    const entry = `import manifest from './app.json';
+import { getExpoPushTokenAsync } from '@exact/push/expo';
+import type { PushSubscription } from '@exact/push';
+export const exchange = (subscription: PushSubscription) => getExpoPushTokenAsync(subscription, manifest);
+`;
+    put(join(app, 'app.ts'), entry);
+    put(join(stage, 'app.ts'), entry);
+    put(join(app, 'app.json'), JSON.stringify(manifest));
+    put(join(stage, 'app.json'), JSON.stringify(manifest));
+    configure(stage, false, parseSync);
+    await check(stage, join(libraries, 'tsc'), libraries);
+    const code = await bundle(stage);
+    expect(code).toContain('project-fixture');
+    expect(code).toContain('https://exp.host/--/api/v2/push/getExpoPushToken');
+  } finally {
+    fixture.close();
+  }
+});

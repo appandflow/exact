@@ -1,5 +1,6 @@
 // The Apple iframe arm's opaque C ABI (@ref LLP 1020 D3/D4). This file is
 // shared by both presenters and deliberately imports no WebKit.
+import CExact
 import Foundation
 
 #if os(macOS)
@@ -326,7 +327,7 @@ final class WebViews {
         // frames of the folder its session's module resolves `app:/tmp/` in (@ref LLP 1020.002 D9).
         if let id = owner.props["id"], let session {
             values["element"] = id
-            values["owner"] = URL(fileURLWithPath: NativeViews.roots(session: session).temporary, isDirectory: true).standardizedFileURL.path
+            values["owner"] = URL(fileURLWithPath: AppRoots.of(session: session).temporary, isDirectory: true).standardizedFileURL.path
         }
         // Only a frame that handles `newwindow=` asks for popups and tabs (@ref LLP 1020.002 D5).
         if owner.handlers.contains("newwindow") { values["newwindow"] = true }
@@ -658,7 +659,7 @@ final class WebViews {
               let capability = value["capability"] as? String, let args = value["args"] as? [String: Any], let session else { return }
         let request: [String: Any] = ["op": "frameRequest", "node": Int(id), "capability": capability, "args": args]
         let line = (try? JSONSerialization.data(withJSONObject: request)).map { String(decoding: $0, as: UTF8.self) } ?? "{}"
-        let reply = (try? JSONSerialization.jsonObject(with: Data(session.agent(line).utf8)) as? [String: Any]) ?? [:]
+        let reply = (try? JSONSerialization.jsonObject(with: Data(session.runtime.ask(exact_frame_request, line).utf8)) as? [String: Any]) ?? [:]
         guard let ticket = (reply["ticket"] as? NSNumber)?.uint64Value else {
             fputs("exact: iframe \(id): \(capability) answered as Cancel: \(reply["error"] as? String ?? "not held")\n", stderr)
             return deliver(entry, ["token": token, "cancel": true])
@@ -796,7 +797,7 @@ final class WebViews {
     }
 
     func tree(_ line: String = "{\"op\":\"tree\"}") -> [String: Any] {
-        guard let session, let data = session.agent(line).data(using: .utf8),
+        guard let session, let data = session.runtime.ask(exact_tree, line).data(using: .utf8),
               var root = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
         else { return ["error": "unreadable tree"] }
         guard var nodes = root["nodes"] as? [[String: Any]] else { return root }

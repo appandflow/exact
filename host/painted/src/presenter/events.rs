@@ -8,7 +8,7 @@ use super::*;
 impl<D: DataSource> Presenter<D> {
     /// A carrier's memory-pressure notification releases idle painter targets.
     pub fn memory_warning(&mut self) {
-        self.brush.trim();
+        self.brush.trim(self.host.runner().page().hidden);
     }
 
     /// A desktop window's activation preserves the focused allocation for
@@ -19,7 +19,7 @@ impl<D: DataSource> Presenter<D> {
         }
         self.window_active = active;
         if !active {
-            self.brush.trim();
+            self.brush.trim(self.host.runner().page().hidden);
             self.window_focus = self
                 .focus
                 .and_then(|id| self.host.kernel().node(id).map(|n| n.key));
@@ -918,8 +918,11 @@ impl<D: DataSource> Presenter<D> {
             self.pointer_aux(2, true, x, y, now);
             self.pointer_aux(2, false, x, y, now);
         } else {
-            self.pointer_down(x, y, now)?;
-            self.pointer_up(x, y, now)?;
+            // The click lifts whatever its down did, so no press is left held.
+            let down = self.pointer_down(x, y, now);
+            let up = self.pointer_up(x, y, now);
+            down?;
+            up?;
         }
         Ok(format!(
             "{{\"tapped\":{id},\"{kind}\":true,\"at\":[{},{}],\"delivery\":\"presenter\"}}",

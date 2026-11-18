@@ -1,4 +1,4 @@
-export { liveById, sheetLeaves, panelsOf, overPage, pushingList, splitOf, unselected, unselectedForHead, routeFlags, historyURL, markBars, routeTitle, pageTitle, navigation, useSheets, sheetFrame, useClearBars, clearBar, shownStacks, holdRoutes } from "./navigation/routes.js";
+export { liveById, sheetLeaves, panelsOf, overPage, pushingList, splitOf, unselected, unselectedForHead, routeFlags, historyURL, markBars, routeTitle, pageTitle, navigation, shownStacks, holdRoutes } from "./navigation/routes.js";
 export { listRow, viewChildren, viewParent, listOwner, listItem, syncListItemRoles, unwrapListItem } from "./navigation/lists.js";
 export { afterPaint, afterPaintPieces, presenceLoader, animationClock, animationClocks } from "./navigation/motion.js";
 export { scrollFollowers, scrollDrag } from "./navigation/scroll.js";
@@ -15,5 +15,5 @@ export { storeInPage, pageStore } from "./navigation/store.js";
 export { valuedControl, settleValue, typedControl, textField, sourceField, editMenu, fieldSelection, settleRadios, setFieldSelection, setFieldRangeText, controlEvent } from "./navigation/controls.js";
 export { grantOrigins } from "./navigation/grant-origins.js";
 export { isCloudMetadata, isLocalNetwork } from "./grant-admission.js";
-export { socketProtocols, createGrantSet, grantError, trimGrant, grantWords, rawGrantText, hasGrant, sameGrantDeclaration, scopedGrantSet, unionGrantSets, admittingGrant, admitsNetwork, admitsSecret, coversPath } from "./grant-admission.js";
+export { socketProtocols, createGrantSet, grantError, trimGrant, grantWords, rawGrantText, hasGrant, sameGrantDeclaration, scopedGrantSet, unionGrantSets, admittingGrant, admitsNetwork, admitsSecret, coversPath, knownFolderPath } from "./grant-admission.js";
 export { textSource, textPosition, onSelection } from "./navigation/selection.js";

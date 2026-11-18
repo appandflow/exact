@@ -50,19 +50,24 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
     /// Exact's tab container and its stacks by panel id; the tablist whose
     /// place its bar takes; the tab delegate Exact keeps and forwards.
     var tabController: UITabBarController? {
-        // Release the app's tab delegate with the container it was given for, once that container's slot is empty:
-        // UIKit keeps calling the methods the proxy answered while the proxy is in the slot
+        // Give each container a proxy of its own, which holds the app's delegate for that container only
         didSet {
             guard tabController !== oldValue else { return }
-            withExtendedLifetime(tabProxy.app) {
-                if oldValue?.delegate === tabProxy { oldValue?.delegate = nil }
-                tabProxy.app = nil
+            tabProxy?.retire()
+            tabProxy = tabController.map { tabs in
+                let proxy = TabDelegateProxy()
+                proxy.host = self
+                proxy.fill(tabs) { [weak self] in self?.presenter.session?.log("hatch tabs: \($0)") }
+                return proxy
             }
         }
     }
     /// What holds the tabs: Exact's tab controller, or a container the app's
     /// `tabContainer` hatch returned (LLP 1075.003 §3.6).
-    var tabOwner: UIViewController?
+    var tabOwner: UIViewController? { didSet { tabOwnerTerm &+= 1 } }
+    /// Advances whenever `tabOwner` is set, so a container's term ends when
+    /// it leaves the tabs, even if the same container takes them again.
+    private(set) var tabOwnerTerm = 0
     var tabsHatched = false, tabContainerAsked = false, routerTab = -1
     /// The router's tab's root route when a tap reselects it at that root,
     /// kept from `shouldSelect` to `didSelect` to scroll it to its top.
@@ -93,6 +98,12 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
     /// bar for a root's hidden tablist (LLP 1075.003 §3.7, amended).
     weak var tablistRoot: RouteController?
     var tablistHidBar = false
+    /// The transitions whose end runs what they held (`runHeld(after:)`), held weakly so that one gone without completing
+    /// leaves the table
+    let heldTransitions = NSHashTable<AnyObject>.weakObjects()
+    /// A pushed route on top whose tablist changed while a transition ran over its stack: the bar follows it when the
+    /// transition ends if it is the selected route then, and the next follow of another route drops it
+    weak var tablistOwed: RouteController?
     var tabItems: [String] = []
     /// The tabs the items were last made from, made again when the size
     /// class (a path glyph's size) changes.
@@ -100,10 +111,8 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
     /// The bar's tint as last written as a value: the selected tab's own tint, light and dark; nil
     /// where the bar takes an accent as its tint.
     var tabTint: [[Double]]?
-    let tabProxy = TabDelegateProxy()
-    /// The tab container whose delegate slot the development check has named
-    /// as written outside Exact since the slot was last Exact's.
-    weak var tabSlotNamed: UITabBarController?
+    /// The delegate Exact keeps in `tabController`'s slot, while there is one.
+    private(set) var tabProxy: TabDelegateProxy?
     /// Each tab's `UITab`, in tab order, when Exact's container is built
     /// from them (TabsIOS.swift); empty for one built from `viewControllers`.
     var builtTabs: [AnyObject] = []
@@ -130,10 +139,18 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
     /// The covers the kernel was last told (`deliverCovers`), each route's local insets (LLP 1123 D9), and
     /// the clearance its scrollers' insets hold (D3, ClearanceIOS.swift).
     var delivered: [UInt32: HostCover] = [:], localInsets = LocalInsetsReport(), clearance: [ObjectIdentifier: ClearanceInset] = [:]
-    var deliveringCovers = false
-    /// A header was lifted in a batch and the runtime's answer to its cover
-    /// is still to come (`coverLifted`, `deliverCovers`): a stack change waits.
-    var liftHeld = false
+    var deliveringCovers = false, deliverAgain = false
+    /// The chain of corrections the reports not yet told are told in, nil with none (`countReport`)
+    var untoldChain: CoversChain?
+    /// How many reports changed the covers, and the last of them whose answer the runtime has applied, or that a reset
+    /// made moot: while one is owed, a position Exact carries waits for its layout (`writeCarriedScrollsWhenAnswered`)
+    var coversReported = 0, coversAnswered = 0
+    var coversAnswerOwed: Bool { coversAnswered < coversReported }
+    /// The report of the last header lifted in a batch (`coverLifted`), and the last report whose lift a delivery has
+    /// released, just before the runtime's answer to it (`deliverCovers`): while a lift is unreleased a stack change
+    /// waits, and a delivery releases only the lifts it told, so a later one holds until its own delivery's answer
+    var liftReport = 0, liftReleased = 0
+    var liftHeld: Bool { liftReleased < liftReport }
     /// Whether this boot's first batch looked for the tablist the boot
     /// covered (`adoptBootCover`); every boot covers its own.
     private(set) var bootCoverSeen = false
@@ -311,6 +328,7 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
     func fitOwner() {
         presenter.hostDocument(fixed: wantsWholeView)
         guard let owner = primaryOwner ?? bootOwner, let view = owner.viewIfLoaded, let root = container else { return }
+        presenter.turnChrome(owner)
         let mount = ownerMount(root)
         if view.superview !== mount {
             mount.addSubview(view)
@@ -438,11 +456,13 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
         guard window != nil else { return }
         nativeMove = .none; settled = false
         syncing = true
+        // On every return, run the edge passes it held from a route's layout while it ran
         defer {
             #if os(iOS)
             endBootTransfer()
             #endif
-            syncing = false; presenter.flushPendingFocus(); presenter.elementScrolls.flush()
+            syncing = false; settleScrollEdges()
+            presenter.flushPendingFocus(); presenter.elementScrolls.flush()
         }
         guard let p = projection(batch) else {
             if bootOwner != nil || transferringBootOwner != nil { reset(clearFocus: false) }
@@ -506,8 +526,9 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
             }
             // Write a stack with a transition UIKit runs there (or left there, off screen) once it is over; one that
             // holds the routes already is projected now
-            guard nav.transitionCoordinator == nil || nav.stackRoutes.elementsEqual(stack, by: ===) else {
+            if let transition = nav.transitionCoordinator, !nav.stackRoutes.elementsEqual(stack, by: ===) {
                 tabsHeld = true
+                runHeld(after: transition)
                 continue
             }
             prepareRoutes(stack, in: nav)
@@ -577,6 +598,8 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
         controllers = controllers.filter { routeIDs.contains($0.key) }
         presenter.modals.updatePermissions()
         if p.tabs != nil { replayTabs() }
+        // Before the covers, run the edge passes owed (a route hatch's selection may owe some), unless a transition holds them
+        runOwedScrollEdges()
         reportCovers()
         refitForBars()
         // A route that left every stack gives its block back (LLP 1123 D2)
@@ -657,6 +680,8 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
     /// The controller Exact installed under the root: the tab container, or
     /// the one stack.
     var primaryOwner: UIViewController? { tabOwner ?? primaryNavigation }
+    /// The controllers whose chrome takes the document's direction (`Presenter.turnChrome`).
+    var chromeOwners: [UIViewController] { [primaryOwner, bootOwner, transferringBootOwner].compactMap { $0 } }
 
     func willMount() { mounting = true }
 
@@ -700,7 +725,8 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
     }
 
     func modalDidDismiss() {
-        guard pendingSync else { return }
+        // A presentation or dismissal ended: run the edge passes that a selection made during it owes, when no sync is pending
+        guard pendingSync else { return settleScrollEdges() }
         pendingSync = false
         sync(Batch(ops: [], timers: false, motion: false, clock: nil, error: nil))
         presenter.syncModal()
@@ -715,7 +741,6 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
         // batch syncs, whatever it holds, so a route still declared returns.
         nativeMove = .ownerRemoved
         retireStack(nav)
-        nav.delegate = nil
         if !preserving {
             nav.willMove(toParent: nil)
             nav.view.removeFromSuperview()
@@ -762,6 +787,16 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
     /// that stack waits for it (`writable`).
     var changing: Bool {
         navigation.map { $0.viewIfLoaded?.window != nil && pushOrPop(on: $0) != nil } ?? false || routesInFlight(selectedStack)
+    }
+    /// More's own push or pop on screen, of a plain tab it shows (`PlainTab`), which `changing` does not read: More's
+    /// wrapper is no stack navigation follows
+    var moreChanging: Bool {
+        #if os(iOS)
+        guard let more = tabController?.moreNavigationController, more.viewIfLoaded?.window != nil else { return false }
+        return pushOrPop(on: more) != nil
+        #else
+        return false
+        #endif
     }
     var hasInteractiveTransition: Bool { allNavigations.contains { $0.transitionCoordinator?.isInteractive == true } }
 
@@ -1080,9 +1115,12 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
         goBack()
     }
 
-    /// A stack Exact retired: its handle goes.
+    /// A stack Exact retired: its delegate slot leaves Exact, and its handle
+    /// goes.
     func retireStack(_ nav: UINavigationController) {
-        guard let stack = stacks.removeValue(forKey: ObjectIdentifier(nav)), stack.hatched else { return }
+        guard let stack = stacks.removeValue(forKey: ObjectIdentifier(nav)) else { return }
+        stack.proxy.retire()
+        guard stack.hatched else { return }
         _ = presenter.session?.natives.navigationHatch(nav, built: false, showsBar: stack.showsBar, label: stack.label)
     }
 
@@ -1097,10 +1135,11 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
         retireTabs()
         if let primaryNavigation { retireStack(primaryNavigation) }
         if !covers.isEmpty || !delivered.isEmpty || !localInsets.wanted.isEmpty {
+            // Clearing the covers or local insets changes them as a report does, and is answered as one
+            if !covers.isEmpty || !localInsets.wanted.isEmpty { countReport() }
             covers = [:]; localInsets.wanted = [:]
             presenter.afterBatch { [weak self] in self?.deliverCovers() }
         }
-        primaryNavigation?.delegate = nil
         primaryNavigation?.willMove(toParent: nil)
         primaryNavigation?.view.removeFromSuperview()
         primaryNavigation?.removeFromParent()

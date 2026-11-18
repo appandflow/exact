@@ -15,8 +15,8 @@
 // 4,096 drained acts, are the most one agent command runs. On the wall the
 // same 4,096 bound one presented frame's ticks and one timer's `after`s,
 // so an animation keeps ticking for as long as the app runs.
-// Coalescing afters refresh values at instants the clock already reaches;
-// they add no seek stop or deadline for settling a pending reply.
+// Coalescing afters refresh values at each runner stop, before pending package
+// reads are dispatched; they add no seek stop or deadline for settling a reply.
 //
 //   host table   64  frames(host, token, on)     a ticket begins or stops
 //                72  after(host, token, ms)      ms < 0 cancels
@@ -100,6 +100,14 @@ final class HatchClock {
         return due.map(\.token)
     }
 
+    /// Clock-derived values are current before the reads this runner step queued.
+    func refresh(at now: Double) -> String? {
+        let due = afters.filter { $0.coalescing && $0.due <= now }.sorted { ($0.due, $0.order) < ($1.due, $1.order) }
+        afters.removeAll { $0.coalescing && $0.due <= now }
+        for after in due { guard tick(1, after.token, at: now) else { return "HatchFireLimit" } }
+        return nil
+    }
+
     /// Under the agent, at the instant `now`, its commits applied: the ticks,
     /// the `after`s, and what they asked, drained here. The limit's name when
     /// one is passed.
@@ -142,4 +150,16 @@ final class HatchClock {
             self.rearm()
         }
     }
+}
+
+extension NativeViews {
+    func hatchSeq(_ seq: UInt64) { hatchClock.seq = seq }
+    func resetHatchClock() { hatchClock.reset() }
+    func beginHatchCommand() { hatchClock.beginCommand() }
+    func refreshHatchClock(at now: Double) -> String? { hatchClock.refresh(at: now) }
+    var hatchNextAfter: Double? { hatchClock.nextAfter }
+    var hatchNextInstant: Double? { hatchClock.nextInstant }
+    func fireHatchClock(at now: Double) -> String? { hatchClock.fire(at: now) }
+    @discardableResult func hatchesPresented(_ now: Double) -> Bool { hatchClock.presented(now) }
+    var liveTickets: Int { hatchClock.liveTickets }
 }

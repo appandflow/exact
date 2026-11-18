@@ -11,6 +11,7 @@ pub(super) mod frame_navigation;
 mod keyboard;
 mod view_event;
 pub use keyboard::KeyboardEvent;
+pub(in crate::runner) use view_event::absent_is_none;
 
 const BINDING_ARGS: usize = 8;
 const BINDING_STRING: usize = 1024;
@@ -1058,7 +1059,10 @@ impl<D: DataSource> Runner<D> {
                 return self.as_origin(origin, |r| r.arrived(|r| r.dispatch_event(view, event)));
             }
         }
-        self.arrived(|r| r.dispatch_event(view, event))
+        self.arrived(|r| {
+            r.note_input(&event);
+            r.dispatch_event(view, event)
+        })
     }
 
     fn dispatch_event(&mut self, view: ViewId, event: Event) -> Result<CommitReceipt, RunnerError> {

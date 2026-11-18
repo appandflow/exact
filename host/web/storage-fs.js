@@ -5,7 +5,7 @@
 // module evaluates: a realm that later refuses ambient time to app code (the
 // module Worker, LLP 1027.002 D2) still stamps files with the real one.
 import { agentStorageRefusal, directories as roots, fileVersion, now, storageKey } from './storage-environment.js';
-import { coversPath } from './grant-admission.js';
+import { coversPath, knownFolderPath } from './grant-admission.js';
 const rootPaths = Object.values(roots);
 // Calls from one host module retain invocation order. Web Locks queue
 // conflicts with a live SQLite handle or another tab, with a bounded wait.
@@ -19,6 +19,7 @@ function failure(message, code) {
 }
 
 export function normalizePath(path) {
+  if (knownFolderPath(path)) throw Object.assign(new Error('NotSupportedError: well-known folders are unavailable on this host'), { name: 'NotSupportedError', code: 'failed' });
   if (typeof path !== 'string' || !path.startsWith('app:/')) {
     throw failure('browser storage needs an app:/ path');
   }
@@ -226,6 +227,24 @@ export function createFileStore(appId) {
       if (!previous) changes.touch(parentOf(path));
     }, [path, parentOf(path)]);
   }
+  function putBlobs(entries, refusal = () => undefined) {
+    entries = entries.map(({ path, blob }) => {
+      path = normalizePath(path);
+      requireBelowRoot(path);
+      return { path, blob };
+    });
+    if (!entries.length) return Promise.resolve();
+    return run(true, (records, changes) => {
+      const refused = refusal(); if (refused) throw refused;
+      for (const { path, blob } of entries) {
+        directory(records, parentOf(path));
+        const previous = records.get(path);
+        if (previous && previous.kind !== 'file') throw failure('write needs a regular file', 'EISDIR');
+        changes.put({ path, kind: 'file', contents: blob, modifiedMs: now() });
+        if (!previous) changes.touch(parentOf(path));
+      }
+    }, entries.flatMap(({ path }) => [path, parentOf(path)]));
+  }
   return Object.freeze({
     directories: roots,
     async readFile(path) {
@@ -250,18 +269,8 @@ export function createFileStore(appId) {
     },
     // Trusted host only: a picked file's entry, backed by the browser's File
     // rather than bytes read into memory (LLP 1069.002 D5).
-    putBlob(path, blob, refusal = () => undefined) {
-      path = normalizePath(path);
-      requireBelowRoot(path);
-      return run(true, (records, changes) => {
-        const refused = refusal(); if (refused) throw refused;
-        directory(records, parentOf(path));
-        const previous = records.get(path);
-        if (previous && previous.kind !== 'file') throw failure('write needs a regular file', 'EISDIR');
-        changes.put({ path, kind: 'file', contents: blob, modifiedMs: now() });
-        if (!previous) changes.touch(parentOf(path));
-      }, [path, parentOf(path)]);
-    },
+    putBlob: (path, blob, refusal) => putBlobs([{ path, blob }], refusal),
+    putBlobs,
     writeFile(path, data) { return write(path, data, false); },
     atomicWriteFile(path, data) { return write(path, data, false); },
     // Trusted host only: takes an ArrayBuffer and detaches it from its caller.

@@ -58,10 +58,11 @@ impl<D: DataSource> Runner<D> {
         if s.placeholder || s.slept {
             return false;
         }
-        let context = self.resource_row(i).context as usize;
-        let identity = |a: &[Value]| a.len().saturating_sub(context).min(a.len());
-        let asked = s.answered_args();
-        asked[..identity(asked)] == now[..identity(now)]
+        // The row's count, not each list's: a kept seed's list holds only
+        // the identifying arguments (LLP 1027.005 D6).
+        let n = self.identity_len(i);
+        let asked = s.answered_args().get(..n);
+        asked.is_some_and(|asked| now.get(..n) == Some(asked))
     }
 
     /// The pending flags `pending(x)` reads, from the tickets in flight and
@@ -199,8 +200,10 @@ impl<D: DataSource> Runner<D> {
     /// or a queued mutation's next send. A repeating timer is not: an
     /// `every` spinner never ends, so it cannot hold a run open.
     pub fn one_shot_armed(&self) -> bool {
-        (self.timers.iter().zip(&self.plan.timers))
-            .any(|(t, row)| row.once && t.next_ms.is_finite())
+        self.timers
+            .iter()
+            .enumerate()
+            .any(|(i, t)| self.timer_row(i).once && t.next_ms.is_finite())
             || self.then_due.iter().any(|due| due.is_finite())
             || self.queues.next_due.iter().any(|due| due.is_finite())
     }
@@ -226,7 +229,7 @@ impl<D: DataSource> Runner<D> {
     /// A request held for the agent: a device's, or a module's (LLP 1133.002 §6).
     fn held_for_agent(&self, p: &PendingReq) -> bool {
         self.device_holds.iter().any(|h| h.ticket == p.ticket)
-            || self.extensions.holds_token(p.continuation)
+            || self.holds_token(p.continuation)
             || self.presence_holds(p.ticket)
     }
 

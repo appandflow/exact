@@ -484,6 +484,26 @@ test('game and generated shell workspaces inherit every root vendor patch', asyn
   } finally {rmSync(root, {recursive:true, force:true});}
 });
 
+test('a game optimizes its build-time meshopt decoder across build profiles', () => {
+  mkdirSync(resolve(import.meta.dir, '../target'), {recursive:true});
+  const root = realpathSync(mkdtempSync(resolve(import.meta.dir, '../target/meshopt-profile-')));
+  try {
+    const app = resolve(root, 'model-game');
+    createGame(app, undefined, {assets:true});
+    for (const profile of ['release', 'web', 'host-dev', 'gpu-dev']) {
+      const result = spawnSync('cargo', ['build', '-p', 'model-game-gpu', '--profile', profile,
+        '--unit-graph', '-Z', 'unstable-options', '--offline', '--locked'], {
+        cwd:resolve(app, '.shells'), env:{...process.env, RUSTC_BOOTSTRAP:'1'},
+        encoding:'utf8', maxBuffer:1 << 24,
+      });
+      assert.equal(result.status, 0, result.stderr);
+      const units = JSON.parse(result.stdout).units.filter(unit => unit.target.name === 'exact_meshopt');
+      assert.equal(units.length, 1, `${profile}: one decoder build`);
+      assert.equal(units[0].profile.opt_level, '3', `${profile}: the build-time decoder stays optimized`);
+    }
+  } finally {rmSync(root, {recursive:true, force:true});}
+});
+
 test('a Windows game shell links the shared presenter its baked entry uses', () => {
   const root = realpathSync(mkdtempSync(resolve(tmpdir(), 'game-windows-host-')));
   try {
@@ -532,6 +552,12 @@ test('a root crate\'s new registry dependency or new path crate resolves before 
   assert.deepEqual(outsideSdkLock(lock(block('cssparser','0.37.1','dd')),seeded,members),[`cssparser 0.37.1 ${registry}`],'the root lock decides the version');
   assert.deepEqual(outsideSdkLock(lock(block('itoa','1.0.9','cc')),seeded,members),[`itoa 1.0.9 ${registry}`],'the SDK lock still decides its own packages');
   assert.equal(withRootPins(sdk,''),sdk);
+  // The root's older major of a package the SDK holds (vt100's unicode-width 0.1) leaves the
+  // SDK's edges naming its own version: a bare one would let Cargo take either.
+  const width=lock(`${block('codespan-reporting','0.13.1','ff')}dependencies = [\n "unicode-width",\n]\n`,block('unicode-width','0.2.2','gg'));
+  const pinned=Bun.TOML.parse(withRootPins(width,lock(block('unicode-width','0.1.14','hh')))).package;
+  assert.deepEqual(pinned.map(p=>`${p.name} ${p.version}`),['codespan-reporting 0.13.1','unicode-width 0.2.2','unicode-width 0.1.14']);
+  assert.deepEqual(pinned[0].dependencies,['unicode-width 0.2.2']);
 });
 
 
@@ -588,25 +614,6 @@ test('lockDrift names what exact2 added and moved under a captured lock, never w
   assert.deepEqual(lockChanges(wired,unwired),['web 0.1.0 (path) no longer depends on helper']);
   assert.deepEqual(lockChanges(unwired,wired),['web 0.1.0 (path) now depends on helper']);
   assert.deepEqual(lockChanges(wired,wired),[]);
-});
-
-test('lock seeds the SDK lock\'s versions, a same-series bump included, and keeps the game\'s own packages', async () => {
-  const {lockSeed,staleLock}=await import('../scripts/app-shells.mjs');
-  const block=(name,version,source)=>`[[package]]\nname = "${name}"\nversion = "${version}"\n${source?`source = "${source}"\n`:''}`;
-  const lock=(...blocks)=>`version = 4\n\n${blocks.join('\n')}`;
-  const crates='registry+https://github.com/rust-lang/crates.io-index';
-  const sdk=lock(block('foo','0.12.1',crates),block('exact-game','0.1.0'));
-  const own=lock(block('foo','0.12.0',crates),block('rand','0.9.1',crates),block('tool','1.0.0','git+https://example.com/tool#aaa'),block('x-logic','0.1.0'));
-  // foo 0.12.0 → the SDK's 0.12.1 (one graph holds one version per series), not crates.io's newest.
-  assert.deepEqual(Bun.TOML.parse(lockSeed(sdk,own)).package.map(p=>`${p.name} ${p.version}`),['foo 0.12.1','exact-game 0.1.0','rand 0.9.1','tool 1.0.0','x-logic 0.1.0']);
-  assert.equal(lockSeed(sdk,sdk),sdk);
-  // A git fork of an SDK crate, same name and series, is another package: kept at its revision.
-  const fork=lock(block('foo','0.12.0','git+https://example.com/foo?branch=main#aaa'));
-  assert.deepEqual(Bun.TOML.parse(lockSeed(sdk,fork)).package.map(p=>`${p.name} ${p.version} ${p.source??''}`),['foo 0.12.1 '+crates,'exact-game 0.1.0 ','foo 0.12.0 git+https://example.com/foo?branch=main#aaa']);
-  // Only a lock that needs updating is stale; a crate missing from the cache is not.
-  assert.ok(staleLock('error: cannot update the lock file /g/.shells/Cargo.lock because --locked was passed to prevent this'));
-  assert.ok(staleLock('error: the lock file /g/.shells/Cargo.lock needs to be updated but --locked was passed to prevent this'));
-  assert.ok(!staleLock('error: failed to download `rustix v1.1.5`\n\nCaused by:\n  attempting to make an HTTP request, but --offline was specified'));
 });
 
 test('a captured lock exact2 moved past is named at a build, at generation and at update, and left alone', async () => {

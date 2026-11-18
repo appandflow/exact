@@ -75,6 +75,7 @@ pub mod store;
 pub mod style;
 pub mod svg_image;
 pub mod textflow;
+pub mod watch_sync;
 
 pub use host::{Host, HostError};
 

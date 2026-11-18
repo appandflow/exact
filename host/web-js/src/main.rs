@@ -25,6 +25,8 @@ mod emit_tests;
 mod events;
 mod faces;
 mod facts;
+#[cfg(test)]
+mod input_tests;
 mod inspect;
 #[cfg(test)]
 mod inspect_tests;
@@ -38,6 +40,8 @@ mod modes;
 mod modes_tests;
 #[cfg(test)]
 mod module_tests;
+#[cfg(test)]
+mod navigation_tests;
 #[cfg(test)]
 mod owned_tests;
 mod paint;
@@ -633,6 +637,13 @@ fn main() -> ExitCode {
             if out_files.editor {
                 let _ = std::fs::write(dir.join("editor.flag"), "");
             }
+            // A plan that sends (a mutation): its TypeScript seam stays in the
+            // entry, since a send is refused while its source is not ready
+            // (LLP 1047.003 D6).
+            let _ = std::fs::remove_file(dir.join("sends.flag"));
+            if !plan.mutations.is_empty() {
+                let _ = std::fs::write(dir.join("sends.flag"), "");
+            }
             // A dialog, an alert or a popover (prompt-glue.js, alert-message.js,
             // menu-rows.js): glue the page adds for them (LLP 1047.002 D1).
             let _ = std::fs::remove_file(dir.join("dialogs.flag"));
@@ -642,6 +653,10 @@ fn main() -> ExitCode {
             if out_files.flow {
                 let _ = std::fs::write(dir.join("flow.flag"), "");
             }
+            // The navigation behaviours the page leaves out (navigation.rs).
+            let _ = std::fs::write(dir.join("navigation.flag"), out_files.navigation.join("\n"));
+            // The input piece's behaviours the page leaves out (input.rs).
+            let _ = std::fs::write(dir.join("input.flag"), out_files.input.join("\n"));
             if !out_files.preloads.is_empty() {
                 let _ = std::fs::write(dir.join("preloads.html"), &out_files.preloads);
             }

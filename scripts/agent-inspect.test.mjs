@@ -1,12 +1,54 @@
 // `state <name>` (agent-inspect.mjs `stateOp`, LLP 1116.007 D3.9): a state, derive or resource (or a field of the record)
 // reads by name, down a dotted path, as `expect state` does, even where a view carries the name; a plain view's is the record.
 import { test, expect } from 'bun:test';
-import { render, renderTrace, renderFrameHealthReport, renderFrameHealthMetrics, perfOp, readTrack, renderPerf, stateOp, tapRefusal, nextCommitTasks, settleBound, planLocators, perfDelta, pidTrace } from './agent-inspect.mjs';
+import { render, renderTrace, renderFrameHealthReport, renderFrameHealthMetrics, perfOp, readTrack, renderPerf, stateOp, tapRefusal, nextCommitTasks, settleBound, planLocators, perfDelta, pidTrace, scaledScreenshot } from './agent-inspect.mjs';
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { open } from './agent-session.mjs';
 import { launchFacts } from './agent-launch.mjs';
+import { compareOp } from './agent-compare.mjs';
+import { encodePng } from './png.mjs';
+
+test('rotated panel captures scale on image axes and compare against rotated layout boxes', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'exact-rotated-capture-'));
+  const logical = { x: 10, y: 40, w: 60, h: 30 };
+  const cases = [
+    [0, 120, 200, { x: 10, y: 40, w: 60, h: 30 }],
+    [90, 200, 120, { x: 130, y: 10, w: 30, h: 60 }],
+    [180, 120, 200, { x: 50, y: 130, w: 60, h: 30 }],
+    [270, 200, 120, { x: 40, y: 50, w: 30, h: 60 }],
+  ];
+  const session = {
+    host: 'linux',
+    layout: async () => ({ viewport: { w: 120, h: 200 }, nodes: [{ id: 1, ...logical }] }),
+    tree: async () => ({ nodes: [{ id: 1, type: 'View', props: { testId: 'card' } }] }),
+  };
+  const picture = (w, h, box, color) => {
+    const data = new Uint8Array(w * h * 16).fill(255);
+    for (let y = box.y * 2; y < (box.y + box.h) * 2; y++)
+      for (let x = box.x * 2; x < (box.x + box.w) * 2; x++) data.set([...color, 255], (y * w * 2 + x) * 4);
+    return encodePng({ width: w * 2, height: h * 2, data });
+  };
+  try {
+    for (const [rotation, w, h, box] of cases) {
+      const shot = { screenshot: join(dir, 'shot.png'), w, h, rotation };
+      const reference = join(dir, 'ref.png');
+      writeFileSync(shot.screenshot, picture(w, h, box, [0, 0, 0]));
+      writeFileSync(reference, picture(w, h, box, [160, 0, 0]));
+      const full = scaledScreenshot(shot, 2, 'linux');
+      expect(full.shrunk).toBe(false);
+      const scaled = scaledScreenshot(shot, 1, 'linux');
+      expect([scaled.image.width, scaled.image.height]).toEqual([w, h]);
+      expect(scaled.shrunk).toBe(true);
+      expect(render('screenshot', shot)).toContain(`${w}×${h}`);
+      const result = await compareOp(session, reference, async () => shot);
+      expect(result.compare.regions.length).toBeGreaterThan(0);
+      expect(result.text).toContain(`under card [${box.x},${box.y} ${box.w}×${box.h}]`);
+      expect(await session.layout()).toEqual({ viewport: { w: 120, h: 200 }, nodes: [{ id: 1, ...logical }] });
+    }
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
 
 test('bounded frame report and capture controls bypass legacy perf collection', async () => {
   const asked = [];
@@ -272,6 +314,7 @@ test('--plan finds plans with a map beside them in a directory, and refuses one 
 
 test('perf during subtracts each handler\'s dispatches and drops the ones that did not run', () => {
   const read = (n) => ({ plan: 'p', incarnation: 1, seq: n, sites: [], handlers: [{ site: 3, event: 'hover in', dispatched: n, committed: n }, { site: 5, event: 'press', dispatched: 1, committed: 0 }] });
+  expect(() => perfDelta({...read(2), generation:1}, {...read(60), generation:3})).toThrow('generation 1 → 3');
   expect(perfDelta(read(2), read(60)).handlers).toEqual([{ site: 3, event: 'hover in', dispatched: 58, committed: 58 }]);
 });
 
@@ -371,6 +414,21 @@ test('resource declarations refuse incomplete or malformed source spans', async 
     const reply = {planDigest:'same',resourceStatus:{inbox:{resource:1,source:'Inbox'}}};
     expect(identifyResources(reply, maps).resourceStatus.inbox.declaration.status).toBe('unavailable');
   }
+});
+
+test('the live world row shows reported hook work and leaves absent measurements blank', () => {
+  const report = world => render('perf', { period: { ms: 16.7 }, lifetime: {}, world });
+  const perf = { ticksPerFrame: { max: 2, count: 1 } };
+  const prepare = { p50: 0.2, p95: 0.3, p99: 0.4, mean: 0.25, count: 4 };
+  const hooks = { cpuMs: { prepare }, frame: {
+    draws: { max: 3, count: 1 }, triangles: { max: 36, count: 1 }, uploadBytes: { max: 0, count: 1 },
+  } };
+  expect(report([{ canvas: 7, perf, renderHooks: hooks }])).toContain(
+    ' · hooks prepare p50 0.2 ms p95 0.3 ms p99 0.4 ms mean 0.25 ms · draws max 3 · triangles max 36 · upload max 0 B · ticks/frame max 2');
+  expect(report([{ canvas: 7, perf: {}, renderHooks: { frame: null } }])).toContain(
+    ' · hooks prepare — · draws max — · triangles max — · upload max — · ticks/frame max —');
+  expect(report([{ canvas: 7, perf, renderHooks: { frame: { draws: { max: 0, count: 0 } } } }])).toContain(' · draws max —');
+  expect(report([{ canvas: 7, perf }])).not.toContain(' · hooks prepare');
 });
 
 // LLP 1144 D3: a scroll handler that changed the tree on every event of a fling is said once, with what to do; one that
@@ -531,4 +589,29 @@ test('trace --pid looks for a sandboxed Mac app\'s marker in its container (LLP 
     : cmd === 'codesign' ? signed : cmd === 'plutil' ? 'com.example.probe\n' : cmd === 'getconf' ? '/var/folders/x/T/\n' : '' });
   await expect(pidTrace(4242, () => '/nowhere', run(sandbox))).rejects.toThrow(`no ${join(homedir(), 'Library/Containers/com.example.probe/Data/tmp/exact-trace-4242.ready')}`);
   await expect(pidTrace(4242, () => '/nowhere', run('<plist><dict/></plist>'))).rejects.toThrow('no /var/folders/x/T/exact-trace-4242.ready');
+});
+
+
+test('logs retain session tags and read a replacement journal from its start', async () => {
+  let generation = 1, lines = ['first', 'second'];
+  const calls = [];
+  const carrier = {
+    host: 'web', browser: 'chrome', hostLines: [], launchFacts: launchFacts({}), reset() {},
+    async ask(req) {
+      calls.push(req);
+      return {
+        generation, epoch: generation, incarnation: 1, clock: 0,
+        from: Math.min(req.since, lines.length), next: lines.length, lines: lines.slice(req.since),
+      };
+    },
+  };
+  const s = await open({ reuse: carrier });
+  expect((await s.logs()).generation).toBe(1);
+  generation = 2;
+  lines = ['replacement generation 2'];
+  const reply = await s.logs();
+  expect(reply.generation).toBe(2);
+  expect(reply.epoch).toBe(2);
+  expect(reply.lines).toEqual(lines);
+  expect(calls.map(c => c.since)).toEqual([0, 2, 0]);
 });

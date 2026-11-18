@@ -19,7 +19,7 @@ pub(super) struct Checkpoint {
     letting: usize,
     slots: Vec<Value>,
     resources: Vec<super::resources::ResourceRow>,
-    module_readers: std::collections::BTreeMap<String, std::collections::BTreeMap<usize, String>>,
+    module_readers: super::module_seam::Readers,
     uploads: super::uploads::Uploads,
     failed_mut: Vec<Option<crate::failure::Failure>>,
     refresh_next: Vec<usize>,
@@ -27,8 +27,13 @@ pub(super) struct Checkpoint {
     unsent: Vec<Unsent>,
     reconciling: Vec<usize>,
     pending: Vec<PendingReq>,
+    retired_fetches: Vec<(u64, u64)>,
     queues: super::queue::Saved,
     timers: Vec<super::Timer>,
+    owned_sends: Vec<Option<super::owned_sends::OwnedSend>>,
+    then_due: Vec<f64>,
+    landed: Vec<usize>,
+    render: Option<super::owned_tasks::RenderCheckpoint>,
     published: Option<Box<Published>>,
     commands: usize,
     /// Socket batches of earlier commits, not yet taken (LLP 1016.000 D7):
@@ -39,17 +44,16 @@ pub(super) struct Checkpoint {
     /// Kept-answer lines made before this commit (`Keeping::refused`).
     refused: usize,
     /// Who each request and `then` is from (LLP 1133.023 D7).
-    origins: super::modules::OriginsSaved,
+    origins: super::provenance::OriginsSaved,
     /// The arguments refused a child's resource (LLP 1133.007 D13).
-    refused_args: super::modules::Refused,
+    refused_args: super::processes::Refused,
     /// What sends had written into instances before it (LLP 1035.005.004 D6).
     send_undo: usize,
 }
 
 /// What a settlement publishes that a refusal after it — the gate step
-/// (LLP 1092 D8) — must put back; taken only for a plan with a gated task
-/// or a sequence (LLP 1125 D2), whose gate steps are the one refusal that
-/// follows a settlement that stood.
+/// (LLP 1092 D8) — or owned reconciliation must put back. These steps can
+/// refuse after settlement has published its values and queued requests.
 pub(super) struct Published {
     settled: Option<super::settlement::Settled>,
     derives: Vec<Option<Value>>,
@@ -79,7 +83,7 @@ impl<D: DataSource> Runner<D> {
             store,
             slots: self.slots.clone(),
             resources: self.resources.clone(),
-            module_readers: self.extensions.readers.clone(),
+            module_readers: self.readers_saved(),
             uploads: self.uploads.clone(),
             failed_mut: self.failed_mut.clone(),
             refresh_next: self.refresh_next.clone(),
@@ -87,9 +91,15 @@ impl<D: DataSource> Runner<D> {
             unsent: self.unsent.clone(),
             reconciling: self.reconciling.clone(),
             pending: self.pending.clone(),
+            retired_fetches: self.retired_fetches.clone(),
             queues: self.queues.save(),
             timers: self.timers.clone(),
-            published: (self.plan.timers.iter().any(|t| t.gated || t.keyed)
+            owned_sends: self.owned_sends.clone(),
+            then_due: self.then_due.clone(),
+            landed: self.landed.clone(),
+            render: self.checkpoint_render(),
+            published: (self.transactional_render()
+                || self.plan.timers.iter().any(|t| t.gated || t.keyed)
                 || !self.plan.sequences.is_empty())
             .then(|| {
                 Box::new(Published {
@@ -156,7 +166,7 @@ impl<D: DataSource> Runner<D> {
                     old.entropy_reader |= attempted.entropy_reader;
                 }
                 self.resources = resources;
-                self.extensions.readers = c.module_readers;
+                self.readers_restore(c.module_readers);
                 self.release_sampled();
                 // A spent reply's turn read the store: its failure stands, and so does the read,
                 // which a draw of randomness alone doesn't make a contents read (LLP 1069.005 D2).
@@ -167,6 +177,12 @@ impl<D: DataSource> Runner<D> {
                 self.uploads = c.uploads;
                 self.failed_mut = c.failed_mut;
                 self.undo_sends(c.send_undo);
+                self.owned_sends = c.owned_sends;
+                self.then_due = c.then_due;
+                self.landed = c.landed;
+                if let Some(render) = c.render {
+                    self.restore_render(render);
+                }
                 self.refresh_next = c.refresh_next;
                 if kept {
                     self.ask_failed_readers(None);
@@ -191,11 +207,11 @@ impl<D: DataSource> Runner<D> {
                     }
                 }
                 self.pending = c.pending;
+                self.retired_fetches = c.retired_fetches;
                 self.letting_restored(c.letting);
                 self.origins_restore(c.origins);
                 self.refused_restore(c.refused_args);
                 self.queues.restore(c.queues);
-                // A child's send rows this commit made stay, idle.
                 self.pad_mutation_rows();
                 self.timers = c.timers;
                 if let Some(p) = c.published {
@@ -756,7 +772,7 @@ impl<D: DataSource> Runner<D> {
                     if i > 0 {
                         s.push_str(", ");
                     }
-                    crate::agent::untyped_json(a, &mut s);
+                    crate::json::untyped_json(a, &mut s);
                 }
                 s.push(')');
                 s
@@ -778,6 +794,14 @@ impl<D: DataSource> Runner<D> {
             }
         }
         let result = self.update();
+        if result.is_err() && !self.poisoned {
+            for (rows, slot, old) in row_undo.into_iter().rev() {
+                match old {
+                    Some(v) => rows.borrow_mut().slots.insert(slot, v),
+                    None => rows.borrow_mut().slots.remove(&slot),
+                };
+            }
+        }
         // Commands are journaled only once the update committed: a failure
         // there poisons the runner and clears them.
         if result.is_ok() {
@@ -1025,7 +1049,13 @@ impl<D: DataSource> Runner<D> {
             sent: false,
             grant: request
                 .stream
-                .then(|| crate::grants::admitting_request(self.data.grants(), &request))
+                .then(|| {
+                    crate::grants::admitting_request(
+                        self.links.grants,
+                        self.data.grants(),
+                        &request,
+                    )
+                })
                 .flatten()
                 .map(str::to_string),
             ask_again: false,
@@ -1172,7 +1202,7 @@ impl<D: DataSource> Runner<D> {
         }
         // A module's name called from data code: the runner's admission, then
         // the module (LLP 1133.002 D14).
-        if let Some(dispatch) = self.module_call(&request.body) {
+        if let Some(dispatch) = self.module_call(request) {
             return dispatch;
         }
         let handler = self.native_slot().handler();

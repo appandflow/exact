@@ -83,6 +83,9 @@ final class PointerRecognizer: UIGestureRecognizer {
 
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
         super.touchesBegan(touches, with: event)
+        // A held touch that ended unseen goes first, so the new one resolves
+        // its own paragraph or listener, not the old touch's.
+        releaseEnded()
         let source = touches.first.flatMap(Self.source)
         // A pointer callback can retire a hit before the view receives this touch.
         let layoutHit = touches.first.flatMap { touch in
@@ -112,7 +115,7 @@ final class PointerRecognizer: UIGestureRecognizer {
         let target = source.flatMap { view -> NodeView? in
             guard let start = NodeView.innermost(view) else { return nil }
             let point = first.location(in: nil), local = start.local(point)
-            if presenter?.svg.target(start.id, at: local) != nil
+            if presenter?.svg?.target(start.id, at: local) != nil
                 || start.inlineActivationTarget(at: local) != nil || start.inlineLink(at: local) != nil { return nil }
             return start.activationTarget(at: point)
         }
@@ -203,7 +206,26 @@ final class PointerRecognizer: UIGestureRecognizer {
         lift(touches)
     }
     private func lift(_ touches: Set<UITouch>) {
-        guard let held = touch, touches.contains(held) else { return }
+        releaseEnded()
+        guard let held = touch, touches.contains(held) else {
+            // A touch it never took (another was held, or none listened)
+            // ends: holding none, it is done. Left possible, it keeps UIKit
+            // from resetting the touch's other recognizers, and a scroll
+            // view's pan never begins again.
+            if touch == nil { state = .failed }
+            return
+        }
+        release(held)
+        state = .failed
+    }
+    /// The held touch, if it has ended or been cancelled without its end
+    /// reaching this recognizer (a menu that took the tap that opened it),
+    /// lifted as its end would have lifted it.
+    private func releaseEnded() {
+        guard let held = touch, held.phase == .ended || held.phase == .cancelled else { return }
+        release(held)
+    }
+    private func release(_ held: UITouch) {
         touch = nil
         // A turn later, once UIKit's own tap (a field's focus) has had the lift.
         if presenter?.preventedTouches.contains(held) == true { DispatchQueue.main.async { [weak presenter] in presenter?.preventedTouches.remove(held) } }
@@ -212,7 +234,6 @@ final class PointerRecognizer: UIGestureRecognizer {
         path = []
         dispatch(nodes) { n in n.presenter?.pointer(n.id, .up, sample(held, lifted: true, button: Self.domButton(buttons), at: n)) }
         if relay != nil { node = nil }
-        state = .failed
     }
     override func reset() {
         super.reset()
@@ -430,7 +451,7 @@ extension NodeView {
             if !path.isLive(in: presenter) { cancelPressContact(); return }
         }
         guard !disabled, !(contact.bubbled ? authoredInert : inert) else { cancelPressContact(); return }
-        if !contact.bubbled, let target = presenter?.svg.target(id, at: local(touch.location(in: nil))) {
+        if !contact.bubbled, let target = presenter?.svg?.target(id, at: local(touch.location(in: nil))) {
             svgPressed = target; return
         }
         if !contact.bubbled, let run = inlineActivationTarget(at: local(touch.location(in: nil))) {
@@ -480,7 +501,7 @@ extension NodeView {
         guard !disabled else { pressed = false; inlinePressed = nil; linkPressed = nil; svgPressed = nil; return }
         if let target = svgPressed {
             svgPressed = nil
-            if let touch = touches.first, presenter?.svg.target(id, at: local(touch.location(in: nil))) == target { activateSvg(target) }
+            if let touch = touches.first, presenter?.svg?.target(id, at: local(touch.location(in: nil))) == target { activateSvg(target) }
             return
         }
         if let run = inlinePressed {
@@ -559,7 +580,7 @@ extension NodeView {
     @discardableResult
     func activate(at windowPoint: CGPoint) -> NodeView? {
         // An SVG element under the point takes it (LLP 1055.000 D17).
-        if kind == "svg", let element = presenter?.svg.target(id, at: local(windowPoint)) { activateSvg(element); return self }
+        if kind == "svg", let element = presenter?.svg?.target(id, at: local(windowPoint)) { activateSvg(element); return self }
         let target = activationTarget(at: windowPoint), consumed = controlTakesTouch(at: windowPoint)
         if target == nil, !takesPress, consumed { return nil }
         let bubbled = target.map { (presenter?.pressBox(of: $0, from: self) ?? $0) !== $0 } ?? false

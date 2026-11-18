@@ -63,21 +63,56 @@ pub fn with_declared(grants: &str, plan: &exact_plan::Plan) -> String {
     out
 }
 
-/// How the runner reads an I/O grant line (`net.fetch …`, `secret.keep …`),
-/// when an archive links I/O (LLP 1047.001): its own lines (devices, auth)
-/// it reads itself. An archive without I/O names no grant grammar, and the
-/// URL parsing an origin needs with it.
-pub type GrantsLink = Option<fn(&str) -> Result<(), String>>;
+/// How the runner reads I/O grants (`net.fetch …`, `secret.keep …`) and
+/// what they admit, when an archive links I/O (LLP 1047.001): its own lines
+/// (devices, auth) it reads itself. An archive without I/O names no grant
+/// grammar, and none of the URL parsing an origin needs with it; there an
+/// I/O line is refused by name and nothing is admitted, as under grants
+/// that name nothing.
+pub type GrantsLink = Option<&'static GrantLinks>;
 
-/// Read one I/O grant line: [`GrantsLink`]'s linked value.
+/// [`GrantsLink`]'s linked value: [`LINKED`].
+#[derive(Debug)]
+pub struct GrantLinks {
+    /// Read one I/O grant line: [`validate`].
+    pub validate: fn(&str) -> Result<(), String>,
+    /// The line that admits a request to a URL: [`admitting`].
+    pub admitting: for<'a> fn(&'a str, Option<&'a str>, &str) -> Option<&'a str>,
+    /// Whether an `auth.session` grant's origin admits a sign-in page's
+    /// origin: [`session_admits`].
+    pub session_admits: fn(&str, &str) -> bool,
+    /// Whether an `fs.read` or `fs.write` line admits a path:
+    /// [`crate::save_file::covered`].
+    pub covers: fn(&str, &str, &str) -> bool,
+}
+
+/// The I/O grant grammar.
+pub const LINKED: GrantLinks = GrantLinks {
+    validate,
+    admitting,
+    session_admits,
+    covers: crate::save_file::covered,
+};
+
+/// Read one I/O grant line.
 pub fn validate(line: &str) -> Result<(), String> {
     exact_grants::GrantSet::parse(line).map(|_| ())
+}
+
+/// Whether `grant`, the origin an `auth.session` line names, admits a
+/// sign-in page at `origin`, as a `net.fetch` line of it would admit a fetch.
+pub fn session_admits(grant: &str, origin: &str) -> bool {
+    let Ok(origin) = exact_grants::origin_of(origin) else {
+        return false;
+    };
+    exact_grants::GrantSet::parse(&format!("net.fetch {grant}"))
+        .is_ok_and(|set| set.permits(&exact_grants::Operation::Fetch { origin }))
 }
 
 /// Parse `spec` whole: its grants, or every line that is not one, each as
 /// `line N: why` (ibex2's wording where the rule is ibex2's).
 pub fn parse(spec: &str) -> Result<Grants<'_>, Vec<String>> {
-    parse_with(spec, Some(validate))
+    parse_with(spec, Some(&LINKED))
 }
 
 /// [`parse`] with the I/O grammar `link` names; without one, an I/O line is
@@ -102,7 +137,7 @@ pub fn parse_with(spec: &str, link: GrantsLink) -> Result<Grants<'_>, Vec<String
             lines.push(line);
         } else {
             let read = match link {
-                Some(validate) => validate(line),
+                Some(link) => (link.validate)(line),
                 None => Err(format!("`{line}` is I/O, which this archive does not link")),
             };
             match read {
@@ -182,13 +217,17 @@ pub fn redacted(url: &str) -> (String, bool) {
     }
 }
 
-/// The line that admits a stream `request` under its scope, as
+/// The line that admits a stream `request` under its scope, as `link`'s
 /// [`admitting`] for a URL; for a child process, the first `process.spawn`
 /// line that names its program (LLP 1133.007 D2's `state.streams`).
-pub fn admitting_request<'a>(spec: &'a str, request: &'a crate::Request) -> Option<&'a str> {
+pub fn admitting_request<'a>(
+    link: GrantsLink,
+    spec: &'a str,
+    request: &'a crate::Request,
+) -> Option<&'a str> {
     let scope = request.grants.as_deref();
     if !request.is_process() {
-        return admitting(spec, scope, &request.url);
+        return link.and_then(|link| (link.admitting)(spec, scope, &request.url));
     }
     let program = crate::process::summary(&request.body).1?;
     let lines = |text: &'a str| text.lines().map(str::trim).filter(|l| !l.is_empty());
@@ -606,6 +645,23 @@ mod tests {
         let twice = super::parse("secret.keep ssh.password\nsecret.hold ssh.password").unwrap_err();
         assert!(twice[0].starts_with("secret-name-twice"), "{twice:?}");
         assert!(super::parse("fs.read home:/").unwrap_err()[0].contains("home-grant-whole"));
+    }
+
+    #[test]
+    fn known_folder_lines_are_write_only_and_separate_from_documents() {
+        let spec = "fs.write documents:/
+fs.write pictures:/Exports
+fs.read doc:/";
+        assert_eq!(super::parse(spec).unwrap().lines().len(), 3);
+        let parsed: serde_json::Value =
+            serde_json::from_str(&super::normalized_json(spec)).unwrap();
+        assert_eq!(
+            parsed["entries"][0][2],
+            serde_json::json!(["fs-write", "documents:"])
+        );
+        for capability in ["fs.read", "sqlite.open"] {
+            assert!(super::parse(&format!("{capability} documents:/")).is_err());
+        }
     }
 
     /// `browser.automation` is the runner's own line and names no target

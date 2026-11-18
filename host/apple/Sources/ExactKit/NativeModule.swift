@@ -94,12 +94,8 @@ import CExact
 import Foundation
 #if os(macOS)
 import AppKit
-typealias NativePlatformView = NSView
-typealias NativeImage = NSImage
 #else
 import UIKit
-typealias NativePlatformView = UIView
-typealias NativeImage = UIImage
 #endif
 
 private typealias NativeEventFn = @convention(c) (UnsafeMutableRawPointer?, UInt32, UInt32, UnsafePointer<UInt8>?, UInt32) -> Void
@@ -378,7 +374,7 @@ private let nativeLaterCallback: ExactAppLaterFn = { ctx, body, length, reply in
     let rt = ExactRuntime(UInt(bitPattern: ctx))
     let data = body.map { Data(bytes: $0, count: length) } ?? Data()
     DispatchQueue.main.async {
-        guard let natives = ExactSession.session(for: rt)?.natives else {
+        guard let natives = ExactSession.session(for: rt)?.nativeViews else {
             let bytes = Array("the session ended".utf8)
             return bytes.withUnsafeBufferPointer { exact_app_reply(reply, 503, $0.baseAddress, $0.count) }
         }
@@ -394,7 +390,7 @@ private let nativeCallCallback: ExactAppCallFn = { ctx, body, length, slot in
     let rt = ExactRuntime(UInt(bitPattern: ctx))
     let data = body.map { Data(bytes: $0, count: length) } ?? Data()
     let work = {
-        guard let natives = ExactSession.session(for: rt)?.natives else {
+        guard let natives = ExactSession.session(for: rt)?.nativeViews else {
             let bytes = Array("the session ended".utf8)
             return bytes.withUnsafeBufferPointer { exact_app_answer(slot, 503, $0.baseAddress, $0.count) }
         }
@@ -416,10 +412,11 @@ private let nativeNowCallback: NativeTable.NowFn = { host in
     ExactSession.session(for: ExactRuntime(UInt(bitPattern: host)))?.now() ?? ExactEnv.wall()
 }
 
-final class NativeViews {
-    weak var session: ExactSession? { didSet { hatchDiagnostics.attach(session) } }
-    /// What Exact times of each hatch call and what hatch code records (LLP 1075.003.000.001 §3.1–3.2).
-    let hatchDiagnostics = HatchDiagnostics()
+final class NativeViews: NativeModuleHosting {
+    weak var session: ExactSession? { didSet { diagnostics?.attach(session) } }
+    /// What Exact times of each hatch call and what hatch code records (LLP
+    /// 1075.003.000.001 §3.1–3.2): none in a production composition.
+    let diagnostics = HatchDiagnosticsLink.store()
     /// This session's slot in the crash breadcrumb (§4.4), and the count of
     /// times its hatches have connected: a record's incarnation.
     var crumbSlot: Int?, hatchIncarnation: UInt32 = 0
@@ -629,7 +626,7 @@ final class NativeViews {
     }
 
     private var pendingHatches: (() -> Void)?
-    /// Whether this session's hatches may still connect with `word` handled (a hatched frame waits, ElementHatches.swift).
+    /// Whether this session's hatches may still connect with `word` handled (frames and videos wait, ElementHatches.swift).
     func hatchesMayConnect(_ word: String) -> Bool {
         guard hasAppModule, !hatchesConnected, !Self.hatchesOff, instanceFailure == nil, instance == nil || pendingHatches != nil else { return false }
         switch NativeProcess.table { case .success(let t)?: return t.connect != nil && t.elementHatch != nil && t.hatchWords?.contains(word) != false; case .failure?: return false; case nil: return true }
@@ -641,30 +638,9 @@ final class NativeViews {
         pending()
     }
 
-    /// Where the module keeps its files: the app's roots, as the runtime
-    /// configures storage, including a named agent store. An unnamed drive
-    /// gets a process-local tree, made here: a package resolves an `app:/`
-    /// path by a walk that starts at an existing root (`AppFileWalk`), and
-    /// nothing else makes this one. Temporary files survive named relaunches,
-    /// except the picker's separately managed `picked` directory.
     static func roots(session: ExactSession, agent: Bool = ExactEnv.agentMode,
                       namedStore: String? = ExactEnv.environment["EXACT_AGENT_STORAGE"]) -> (data: String, cache: String, temporary: String) {
-        if (!agent || namedStore != nil), let data = session.appFileRoots["data"], let cache = session.appFileRoots["cache"],
-           let temporary = session.appFileRoots["tmp"] {
-            return (data, cache, temporary)
-        }
-        let id = Bundle.main.bundleIdentifier ?? "app"
-        if agent {
-            let base = (NSTemporaryDirectory() as NSString).appendingPathComponent("exact-agent-\(getpid())-\(session.runtime.rt)")
-            let roots = (data: base + "/data", cache: base + "/cache", temporary: base + "/temporary")
-            for root in [roots.data, roots.cache, roots.temporary] {
-                try? FileManager.default.createDirectory(atPath: root, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
-            }
-            return roots
-        }
-        let home = NSHomeDirectory()
-        let cache = home + "/Library/Caches/exact/" + id
-        return (home + "/Library/Application Support/exact/" + id + "/data", cache + "/cache", cache + "/temporary")
+        AppRoots.of(session: session, agent: agent, namedStore: namedStore)
     }
 
     /// What the session's module is made with (`ExactModuleContext`), which
@@ -706,7 +682,7 @@ final class NativeViews {
     /// (LLP 1067.000.001).
     func prepareAppModule() {
         activateHatches()
-        defer { if !hatchesConnected, pendingHatches == nil { session?.presenter.elements.releaseFrames() } } // they never will
+        defer { if !hatchesConnected, pendingHatches == nil { session?.presenter.elements.releaseConfigurations() } } // they never will
         guard hasAppModule, instance == nil, case .success(let table) = self.table() else { return }
         _ = module(table)
         // Its extensions answer their names from now on, outside the agent.
@@ -1318,10 +1294,6 @@ final class NativeViews {
     }
 }
 
-extension ExactSession {
-    /// For a drive's ready line: `NativeViews.artifactFailure()`.
-    public var nativeArtifactFailure: String? { natives.artifactFailure() }
-}
 
 #if os(iOS) || os(tvOS)
 extension NativeViews {

@@ -94,7 +94,7 @@ impl IntoViewStatus {
             IntoViewStatus::Unconverged => "unconverged",
             IntoViewStatus::Cancelled => "cancelled",
             IntoViewStatus::Refused(why) => {
-                crate::agent::quote(&format!("refused: {why}"), out);
+                crate::json::quote(&format!("refused: {why}"), out);
                 return;
             }
         };
@@ -1005,7 +1005,7 @@ impl Tree {
                                 out.push(',');
                             }
                             out.push_str(&format!("{{\"list\":{},\"key\":", c.view));
-                            crate::agent::quote(key, &mut out);
+                            crate::json::quote(key, &mut out);
                             out.push_str(",\"status\":");
                             status.json(&mut out);
                             out.push('}');

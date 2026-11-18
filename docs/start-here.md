@@ -52,7 +52,7 @@ updates and directory renames. Authored host crates keep their own names.
 Before a platform's first build, `bun <exact2>/scripts/exact.mjs setup --check --platform ios` (or `macos`, `android`, …) names what it lacks, the Xcode it needs among them: `exact new`'s table shows the web's rows alone.
 Run each once and let it finish, in the background with a completion notification if your tool has one, rather than polling its log.
 
-On Linux or Windows through WSL, install the [iOS cross tools](../README.md#1-install-the-tools)
+On Linux or Windows through WSL, install the [iOS cross tools](../README.md#building-for-ios-on-linux-and-wsl)
 first. `ios` builds a simulator bundle without installing it; `ios --prebuild` does so
 in the background. Running an iOS simulator, including `verify ios` and `agent ios`, needs macOS.
 
@@ -71,6 +71,9 @@ Your shell commands have no such help, so keep one directory.
 |`agent web --storage s1 "clock data" "tap add" "check both"`|Drives the app by hand, to see why something fails; `--keep-storage` reopens saved data.|
 |`web`, `ios --run`, `windows --run`|For a person watching: its URL, rebuilds on save; a simulator; a window (from SSH, on the signed-in desktop). A second web loop of the same target for this app refuses, naming the first URL and PID.|
 |`share`|For a person to try an iPhone app on their own phone: prints an AppDrop link that installs it. Run it when the app is ready for them, and again after each change they should see; send the link it prints.|
+
+An unanswered modal system alert gets one `verify` finding. The screen beneath it is left unjudged,
+including at the largest text size; answer the alert before the test ends to check that screen.
 
 `verify`, `test` and `agent` compile, build and serve their own copy, saying a compile error as `contract build` does: no `contract build` before them, no dev server. `test linux` and `agent linux` do not build: run `bun exact.mjs linux` first and after each edit; nor do `test android` and `agent android`, which drive the APK `bun exact.mjs android` builds and installs on the device `ANDROID_SERIAL` names (`verify android` builds it). Run `verify` when the features work; `verify ios` or `verify android` once at the end for a phone app. On Windows, `test windows`,
 `agent windows` and `verify windows` build first and drive headless at `app.json`'s `host.windows.window` size, in
@@ -181,7 +184,7 @@ For EAS Build, use [iOS](recipes/eas-ios.md) or [Android](recipes/eas-android.md
 |---|---|
 |`one-screen`|a tracker: a total, quick-add buttons, a dated log in a file|
 |`dashboard`|a summary, bars, dated rows, an add sheet that validates, two columns|
-|`list-detail`|search, a detail, an add sheet, a delete alert, empty states, a file; split when wide|
+|`list-detail`|search, a detail, an add sheet, a delete alert, empty states, SQLite; split when wide|
 |`tabs`|tabs with a badge, a stack in each, a saved set kept with `persist`|
 |`rest`|its own server, polled; a signed-in person (`rest-backend`, `fetch-loading-error`, `after-a-write`)|
 |`site`|a website: a sortable `table` built ahead and filtered by a `select` in the query, a page per item rendered per request with a `dl`, a not-found page, a footer, an API's origin as a setting (`website`)|
@@ -211,6 +214,7 @@ For EAS Build, use [iOS](recipes/eas-ios.md) or [Android](recipes/eas-android.md
 |another wide layout, a chart|`web-look`, `responsive-columns`, `content-design`|
 |a video, a looping hero clip, a song (the `video` and `audio` elements, with a `poster`)|["Sound, MIDI and media"](contract-for-agents.md#sound-midi-and-media)|
 |a map, the camera (drawing is boxes and SVG, not Swift)|`native-views`|
+|calibration for an open camera track, from a package|[`camera-calibration`](recipes/camera-calibration.md)|
 |opening a web page over the app (a checkout, a help page)|`in-app-browser`|
 |a shared server (Snapback): wiring, tests, sign-in|`snapback`, `snapback-tests`, `snapback-auth`|
 |sign in with Google, Microsoft, Auth0, Okta or another OAuth provider|`oauth`|
@@ -219,12 +223,14 @@ For EAS Build, use [iOS](recipes/eas-ios.md) or [Android](recipes/eas-android.md
 |ports, Bun, Chrome and its stores|`ports-and-browsers`|
 |porting an app, a release build, helpers sharing a port|`porting-and-release`|
 |a release build for a phone: the commands, signing, where the artifact lands|`mobile-build`|
+|updates an installed app takes over the air: the key, `deploy` in app.json, the first stream, `deploy`, `push`, an "update ready" banner|`over-the-air-updates`|
 |a metronome, drum machine, sequencer or MIDI app: sound, MIDI, a transport (built in; write no native audio module)|`sequencer`; ["Sound, MIDI and media"](contract-for-agents.md#sound-midi-and-media); `apps/metronome`|
 |transitions, keyframes, exit and layout animation|`motion`|
 |brand colours, light and dark, icon tokens|`theme`, `forma`|
 |an icon: in a button, a tab, beside a label (a symbol, never a character such as ▦ ☏ ★ or an emoji)|`symbols`|
 |a module in Swift that `app.ts` asks (a resource that reads `native.available` or calls `native.call` keeps its answer across launches); a value a launch gives is a setting, not a module (`contract vocab env`)|`native-module`|
 |a canvas drawn in Rust on the GPU (a `Surface`): a crate beside app.json, in a workspace exact2 generates|`gpu-module`|
+|a GPU module whose crates call into Java on Android: the app's Java VM and `Context`|`gpu-module-android`|
 |data answered in Rust instead of `app.ts` (`exact new --rust`, app.json's `rust.data`)|`bun exact.mjs docs Rust data sources`|
 |app.json keys, `assets/`, the `modules` folder|`app-json`|
 |labels in Arabic, Hebrew, Persian or Urdu, laid out right to left; a second language|`rtl`|
@@ -331,7 +337,8 @@ component Groceries
   write (`refreshes` re-reads, `then` runs an action: clear the field only on an ok
   reply, as `afterAdd` does). A send is newest-wins, for a value whose late reply should
   be dropped; `queue` sends one at a time, in order, for a log; `parallel` sends each at
-  once, for independent writes. Only the root declares them; children take `props`. For
+  once, for independent writes. A child at a bounded use can own these requests for its
+  instance's lifetime; data-sized list rows take values and actions through `props`. For
   a newest-wins mutation, the action that sends it must not also assign its slot to
   `none`: assignments commit after sends and can discard its new reply. Hide an old error
   with `pending(added)`. `none` means the slot contains no reply, not failure; use
@@ -384,6 +391,11 @@ const sources: Sources = {
 };
 export const answer: Answer = (source, args, store, storage, native) => sources[source](args, store, storage, native);
 ```
+
+This file example assumes one writer. A read followed by `atomicWriteFile` is not
+a transaction: another tab can save between them. For an editable collection, use
+`pattern list-detail`, which changes individual SQLite rows and enforces unique
+titles in the database.
 
 **The tests** drive by `testId` on every host, each from empty client storage. An
 owned server restarts empty for each test, including with `database: false`. Remote

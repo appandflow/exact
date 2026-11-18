@@ -40,7 +40,7 @@ final class ImageArrivals {
             // inside it would replace the interest that pass is still settling.
             DispatchQueue.main.async { [weak view] in
                 guard let view, let session = view.presenter?.session, view.imageSource == item.source, view.loadGeneration == item.generation else { return }
-                session.rasters.load(view, source: item.source, resolver: session.app.resolver)
+                session.rasters?.load(view, source: item.source, resolver: session.app.resolver)
             }
             fade(view, crossing: CACurrentMediaTime() - item.asked > Self.quick)
             return

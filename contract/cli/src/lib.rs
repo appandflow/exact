@@ -29,6 +29,7 @@ mod declaration;
 pub mod faces;
 pub mod functions;
 pub mod gallery;
+mod gpu_requirements;
 mod grants;
 /// The Lean backend: a program as a term of `semantics/` (LLP-free; see
 /// `semantics/README.md`).
@@ -42,6 +43,7 @@ mod module_rust;
 mod modules;
 pub mod native;
 mod orientationlock;
+pub mod package_gpu;
 mod package_views;
 pub mod picker;
 mod resolve;
@@ -69,6 +71,7 @@ pub mod snapshot;
 pub mod terminal;
 mod typescript;
 pub mod watch;
+pub mod watch_sync;
 pub use contract_lower::vocab::collection_edge_refusal;
 pub use contract_types::strings::Strings;
 /// The data seam, re-exported for an app's build script: the bake asks the
@@ -84,7 +87,7 @@ pub use map::{plan_digest, SourceMap};
 pub use module_rust::module_rust;
 pub use preload::preload_expression;
 pub use resolve::Origin;
-pub use rust::{compile_path_for_rust, rust};
+pub use rust::{build_rust, compile_path_for_rust, rust};
 pub use sources::{
     code_beside, design_name_error, design_path, with_contract_texts, with_design_text, GraphBase,
     Package, Source, SourceGraph,
@@ -987,7 +990,13 @@ fn compile_loaded(
     let (mut plan, sites) = compiled.map_err(|all| {
         joined(
             all.into_iter()
-                .map(|e| sources.resolve(e))
+                .map(|e| {
+                    if e.file.is_some() {
+                        e
+                    } else {
+                        sources.resolve(e)
+                    }
+                })
                 .collect::<Vec<_>>(),
         )
     })?;
@@ -1116,10 +1125,13 @@ fn compile_file_warned(
             // A component nothing uses is not lowered; its literal values
             // are checked as the lint checks them (LLP 1156.005 D3).
             let unused = contract_lower::lint_unused(file);
-            match unused.is_empty() {
-                true => Ok(built),
-                false => Err(each(unused, |e| e)),
+            if !unused.is_empty() {
+                return Err(each(unused, |e| e));
             }
+            if let Some(app) = asset_root {
+                package_gpu::check(app, &checked.expanded.root.view)?;
+            }
+            Ok(built)
         }),
         Err(all) => {
             if warned.is_some() {
@@ -1276,7 +1288,13 @@ fn first_frame<D: DataSource>(
     fact_shape(
         plan,
         "exactActivities",
-        &["activities", "frequentPushesEnabled", "linked"],
+        &[
+            "activities",
+            "frequentPushesEnabled",
+            "linked",
+            "pushToStartToken",
+            "pushToStartActivities",
+        ],
         "bake-activities-field",
     )?;
     activities::shape(plan)?;

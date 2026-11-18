@@ -6,6 +6,7 @@
 //! Kernel validation precedes every write; a refusal leaves the kernel untouched.
 mod admission;
 mod advance;
+pub use advance::{Advanced, Timed};
 mod capture;
 mod native_timers;
 mod retirement;
@@ -117,6 +118,7 @@ pub mod outstanding;
 mod overrun;
 mod owned;
 mod owned_sends;
+mod owned_tasks;
 mod page;
 mod parallel;
 mod perf;
@@ -138,7 +140,20 @@ mod apply;
 mod live_time;
 pub mod midi;
 mod modules;
-pub use modules::{AppState, CallHow, CallOrigin, PresenceAnswer, PresenceAsk, WakeHow};
+pub use modules::AppState;
+mod calls;
+pub use calls::CallHow;
+mod module_seam;
+pub use module_seam::Modules;
+mod presence_secrets;
+pub use presence_secrets::{PresenceAnswer, PresenceAsk};
+mod processes;
+mod provenance;
+mod seams;
+pub use provenance::CallOrigin;
+pub use seams::{ModuleLinks, PresenceSecrets, Tools};
+mod wakes;
+pub use wakes::WakeHow;
 #[cfg(test)]
 mod abort_tests;
 mod canvas_performance;
@@ -152,18 +167,18 @@ mod transport_tests;
 mod uploads;
 mod viewport;
 mod writes;
-pub use carry::Carried;
-pub use checkpoint::Checkpoint;
-pub use router::{launch_matches, routing, RouterChange, Routing};
-pub use split::{press_writes_router, StackSplit};
-pub use uploads::{UploadEnd, UploadMark};
 
 use crate::instance::{Ids, InstanceError, InstanceStep, SurfaceUpdate, Tree, Update};
 use crate::request::{Answer, Dispatch, Outcome, Request, RequestClass, RequestOut};
 use crate::store::{Store, StoreWrite};
 use crate::vm::{self, Env, Frame, RowSlots};
+pub use carry::Carried;
+pub use checkpoint::Checkpoint;
 use exact_kernel::{CommitReceipt, Kernel, ViewId};
 use exact_plan::{ActionsId, Code, EventKind, MutationMode, MutationsId, NodesId, Plan, Value};
+pub use router::{launch_matches, routing, RouterChange, Routing};
+pub use split::{press_writes_router, StackSplit};
+pub use uploads::{UploadEnd, UploadMark};
 
 /// A host-facing effect an action asked for; executed after commit, in order.
 #[derive(Debug, Clone, PartialEq)]
@@ -176,38 +191,8 @@ pub struct Command {
     pub source: Option<ViewId>,
 }
 
-/// A timer or collection-feedback commit and the runner clock it happened at.
-#[derive(Debug, Clone)]
-pub struct Timed {
-    /// The runner's clock when the receipt committed, milliseconds.
-    pub at_ms: f64,
-    /// The commit.
-    pub receipt: CommitReceipt,
-}
-
-/// What one `advance_timed` or collection feedback call did: the commits in order, each at the time
-/// it committed (on a seek clock its due time); the clock afterwards — the requested time, or the
-/// last time reached before a refusal or, advancing until a request, at the timer that sent it
-/// (on a live clock, the last sample if later); and that refusal, if any. Commits before a refusal are
-/// kept: they are in the kernel, and a host must show them.
-#[derive(Debug)]
-pub struct Advanced {
-    /// The commits, in order.
-    pub receipts: Vec<Timed>,
-    /// The clock after the call, milliseconds.
-    pub now_ms: f64,
-    /// The refusal that stopped the advance or the collection edge action.
-    pub error: Option<RunnerError>,
-    /// [`Runner::advance_until_request`] stopped after a commit that sent a
-    /// request, short of its cutoff or at it: the host lands the reply
-    /// before it advances again.
-    pub stopped_on_request: bool,
-    /// Apply this batch before continuing: a keyed change action needs
-    /// the preceding host layout and commands to be visible.
-    pub needs_apply: bool,
-}
-
 #[derive(Clone)]
+#[cfg_attr(test, derive(Debug))]
 struct ResourceState {
     /// Development inspection only; zero means the request was not observed.
     inspection_generation: u64,
@@ -242,6 +227,14 @@ impl ResourceState {
     fn answered_args(&self) -> &[Value] {
         self.answered_for.as_deref().unwrap_or(&self.args)
     }
+
+    /// This state, idle (LLP 1161.002 D2) and kept across idleness: no
+    /// answer until a fresh one after the wake (LLP 1161.001 D1).
+    fn sleeping(mut self) -> Self {
+        self.asleep = true;
+        self.slept = true;
+        self
+    }
 }
 
 /// What a boot starts from besides the plan and the launch.
@@ -249,17 +242,20 @@ impl ResourceState {
 enum Seed<'a> {
     /// The plan's initial state.
     Fresh,
+    /// Fresh state, keeping a running session's sequence.
+    Reboot(&'a Carried),
     /// Fresh state evaluated at the supplied render clock.
     At(f64),
     /// A reload's carried state (LLP 1007 §6).
     Carried(&'a Carried),
     /// A rendered document's answers (LLP 1048.000 D6).
-    Checkpoint(&'a Checkpoint),
+    Checkpoint(&'a Checkpoint, Option<&'a Carried>),
 }
 
 /// A request the host is running: the ticket its reply carries, what it
 /// answers, and the arguments it was asked with (what `parse` sees).
 #[derive(Clone)]
+#[cfg_attr(test, derive(Debug))]
 struct PendingReq {
     completion: Option<CompletionReply>,
     module: Option<ModuleInstance>,
@@ -376,6 +372,11 @@ pub struct Runner<D: DataSource> {
     data: D,
     bake_warnings: Vec<String>,
     kernel: Kernel,
+    generation: u64,
+    replacement: Option<carry::Replacement>,
+    /// What a waiting replacement waits for, as the host says
+    /// ([`Runner::set_replacement_pending`]).
+    replacement_pending: Option<&'static str>,
     slots: Vec<Value>,
     derives: Vec<Option<Value>>,
     resources: Vec<resources::ResourceRow>,
@@ -539,7 +540,22 @@ pub struct Runner<D: DataSource> {
     /// Resources asked again and again with new arguments (a development build's warning).
     churn: query::Churn,
     /// The agent's preferred answers of native modules' sources (LLP 1124 D7).
-    extensions: modules::Extensions,
+    extensions: module_seam::ModuleState,
+    /// Who each commit, request and armed `then` comes from, and the
+    /// invocation each is part of (`provenance.rs`).
+    origins: provenance::Origins,
+    /// `@exact/child-process`'s children and the host's process work clock.
+    processes: processes::Processes,
+    /// Wakes and background actions, running and to come (LLP 1133.017 D5).
+    wakes: wakes::Wakes,
+    /// Tool calls, running and to come (LLP 1133.023 D7).
+    calls: calls::Calls,
+    /// Locked secrets: the host's backend and the calls on it.
+    presence: seams::PresenceState,
+    /// The host's target, once it said ([`Runner::set_module_target`]).
+    module_target: Option<String>,
+    /// The optional parts this runner links, for its plan.
+    seams: ModuleLinks<D>,
     poisoned: bool,
     /// Evaluate every site on every update (the incremental update's reference; `set_full_evaluation`).
     full: bool,
@@ -630,12 +646,6 @@ pub const TIMER_FIRE_LIMIT: usize = 4096;
 pub const VIRTUAL_FRAME_MS: f64 = 1000.0 / 60.0;
 
 impl<D: DataSource> Runner<D> {
-    /// This runner, linking every device capability: the plain boots'.
-    pub(crate) fn linking_every_device(mut self) -> Self {
-        self.device_links = DeviceLinks::ALL;
-        self
-    }
-
     /// Boot: refuse a plan built against another kernel schema, evaluate
     /// initial state, settle resources (compiled data first, the source
     /// otherwise), realize the tree, and apply the first frame's ops.
@@ -648,6 +658,7 @@ impl<D: DataSource> Runner<D> {
     ) -> Result<Runner<D>, RunnerError> {
         Runner::boot_inner(
             RunnerLinks::ALL,
+            ModuleLinks::ALL,
             plan,
             data,
             kernel,
@@ -660,37 +671,10 @@ impl<D: DataSource> Runner<D> {
         .map(Runner::linking_every_device)
     }
 
-    /// Boot a new plan with the state of an old runner (a dev reload that
-    /// keeps its place — LLP 1007 §6). The tree, ids, timers, and every
-    /// derive are fresh; only slots, matching resources, and the clock are
-    /// taken, and each only where it still fits the new plan, so carried
-    /// state can never be why a boot fails. Nothing compiled into the plan
-    /// is trusted over carried state.
-    pub fn boot_carrying(
-        plan: Plan,
-        data: D,
-        kernel: Kernel,
-        carried: &Carried,
-        viewport: crate::Viewport,
-        launch: &str,
-    ) -> Result<Runner<D>, RunnerError> {
-        Runner::boot_inner(
-            RunnerLinks::ALL,
-            plan,
-            data,
-            kernel,
-            Seed::Carried(carried),
-            carried.store.clone(),
-            Default::default(),
-            viewport,
-            launch,
-        )
-        .map(Runner::linking_every_device)
-    }
-
     #[allow(clippy::too_many_arguments)] // the host boot facts
     fn boot_inner(
         links: RunnerLinks,
+        seams: ModuleLinks<D>,
         plan: impl Into<crate::Program>,
         mut data: D,
         mut kernel: Kernel,
@@ -717,11 +701,19 @@ impl<D: DataSource> Runner<D> {
             Seed::Carried(carried) => Some(carried),
             _ => None,
         };
+        let sequence = match seed {
+            Seed::Carried(c) | Seed::Reboot(c) => Some(c),
+            Seed::Checkpoint(_, sequence) => sequence,
+            _ => None,
+        };
+        if let Some(c) = sequence {
+            kernel.continue_epoch(c.epoch);
+        }
         let now_ms = match seed {
-            Seed::Fresh => crate::time::launch_clock(),
+            Seed::Fresh | Seed::Reboot(_) => crate::time::launch_clock(),
             Seed::At(now_ms) => now_ms,
             Seed::Carried(carried) => carried.now_ms,
-            Seed::Checkpoint(checkpoint) => checkpoint.now_ms,
+            Seed::Checkpoint(checkpoint, _) => checkpoint.now_ms,
         };
         if !now_ms.is_finite() {
             return Err(RunnerError::NonFiniteClock);
@@ -798,14 +790,7 @@ impl<D: DataSource> Runner<D> {
                 let Some(resource) = name.strip_prefix(Store::KEPT) else {
                     continue;
                 };
-                let compatible = same_logic
-                    && plan.resources.iter().any(|r| {
-                        plan.str(r.name) == resource
-                            && carried
-                                .store_readers
-                                .iter()
-                                .any(|(n, s)| n == resource && s == plan.str(r.source))
-                    });
+                let compatible = same_logic && kept::compatible_on_reload(plan, carried, resource);
                 let transient =
                     (plan.resources.iter()).any(|r| r.transient && plan.str(r.name) == resource);
                 if private || !compatible || transient {
@@ -854,6 +839,7 @@ impl<D: DataSource> Runner<D> {
         let booting = exact_kernel::style::roles::bind(&roles);
         root_font::bold_text_facts(&mut kernel, &plan, viewport.preferences.bold_text); // LLP 1115.000 D12.3
         let viewport_geometry = crate::viewport::Geometry::of(&kernel);
+        let seams = seams.for_plan(&plan, !store.presence_names().is_empty());
         let mut runner = Runner {
             sites,
             strings,
@@ -957,7 +943,14 @@ impl<D: DataSource> Runner<D> {
             keeping: Default::default(),
             churn: Default::default(),
             activities: activities::Activities::default(),
-            extensions: Default::default(),
+            extensions: module_seam::ModuleState(seams.modules.state()),
+            origins: Default::default(),
+            processes: Default::default(),
+            wakes: Default::default(),
+            calls: Default::default(),
+            presence: seams::PresenceState(seams.presence.state()),
+            module_target: None,
+            seams,
             delivery,
             viewport,
             viewport_geometry,
@@ -983,6 +976,13 @@ impl<D: DataSource> Runner<D> {
             copied_at_checkpoint: 0,
             settled: None,
             derive_store_dependent: Vec::new(),
+            generation: sequence.map_or(1, |c| {
+                c.generation
+                    .checked_add(1)
+                    .expect("session generation exhausted")
+            }),
+            replacement: None,
+            replacement_pending: None,
             journal: std::collections::VecDeque::new(),
             console: Default::default(),
             faults: faults::Faults::from_env().map_err(RunnerError::InvalidFaults)?,
@@ -997,6 +997,7 @@ impl<D: DataSource> Runner<D> {
             fragment_warned: Default::default(),
             conformed: Default::default(),
         };
+        runner.record_replacement(carried);
         runner.init_slots(carried, launch)?;
         runner.carry_modes(carried.map_or(&[], |c| &c.modes));
         runner.ask_kept_scheme();
@@ -1037,7 +1038,7 @@ impl<D: DataSource> Runner<D> {
         // @ref LLP 1048.000 D6 — a document's answers seed their resources.
         // The device's own store is an input its render never had.
         let (seeded, mut again) = match seed {
-            Seed::Checkpoint(checkpoint) => runner.seed_checkpoint(checkpoint),
+            Seed::Checkpoint(checkpoint, _) => runner.seed_checkpoint(checkpoint),
             _ => (vec![false; runner.resources.len()], Vec::new()),
         };
         // A carried answer of a stream still open, as a checkpoint's.
@@ -1069,7 +1070,7 @@ impl<D: DataSource> Runner<D> {
         // initial state, and the carried state is not that.
         runner.settle(carried.is_none())?;
         let note = match seed {
-            Seed::Checkpoint(checkpoint) => runner.end_checkpoint_seeding(checkpoint, &seeded),
+            Seed::Checkpoint(checkpoint, _) => runner.end_checkpoint_seeding(checkpoint, &seeded),
             _ => String::new(),
         };
         runner.journal_kept_seeds();
@@ -1377,48 +1378,6 @@ impl<D: DataSource> Runner<D> {
     pub fn take_store_writes(&mut self) -> Vec<StoreWrite> {
         let writes = self.store.take_writes();
         self.presence_writes(writes)
-    }
-
-    /// The names the store holds a value for — never the values (LLP 1018
-    /// D5: a token is not the agent's to see).
-    /// A presence name is listed with its occupancy, `token: locked,
-    /// user-presence`, `pending`, `plain` or `absent` (LLP 1133.010 §7).
-    pub fn store_names(&self) -> Vec<String> {
-        let presence = self.presence_list();
-        let mut names: Vec<String> = (self.store.names().into_iter())
-            .filter(|n| !n.starts_with(Store::PRESENCE) && !presence.iter().any(|(p, _)| p == n))
-            .map(str::to_string)
-            .collect();
-        names.extend(
-            presence
-                .into_iter()
-                .map(|(name, said)| format!("{name}: {said}")),
-        );
-        names.sort();
-        names
-    }
-
-    /// The store, for a test that reads what an action kept.
-    pub fn store(&self) -> &Store {
-        &self.store
-    }
-
-    /// Whether resource `name` observed device state (secrets, filesystem,
-    /// or SQLite). Bake marks its compiled value as a placeholder, refreshed
-    /// when the data source becomes ready (LLP 1018 D4 / LLP 1027 D4).
-    pub fn resource_reads_store(&self, name: &str) -> bool {
-        self.resource_rows()
-            .position(|r| self.plan.str(r.name) == name)
-            .is_some_and(|i| self.resources[i].store_reader)
-    }
-
-    /// Whether resource `name` drew secure randomness (LLP 1069.005 D2):
-    /// a device read whose value bake leaves out of the plan, so no random
-    /// value is shared by every install; the device asks it.
-    pub fn resource_draws_entropy(&self, name: &str) -> bool {
-        self.resource_rows()
-            .position(|r| self.plan.str(r.name) == name)
-            .is_some_and(|i| self.resources[i].entropy_reader)
     }
 
     /// Deterministic instance work counters, separate from layout and host costs.

@@ -2,6 +2,21 @@ import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
+test('the primary cannot shadow a module surface in development; production reports it', () => {
+  const source = readFileSync(new URL('../gpu-glue.js', import.meta.url), 'utf8');
+  const body = source.slice(source.indexOf('function checkSurfaceOwners('), source.indexOf('const publishers'));
+  const errors = [], exact = { compat: { inputs: { gpuModules: { sky: ['sky'] } } } };
+  const check = new Function('exact', 'stem', 'console', `${body}; return checkSurfaceOwners;`)(exact, 'gpu', { error: m => errors.push(m) });
+  const module = { gpu_surfaces: () => '["clear","sky"]' };
+  assert.throws(() => check(module), /primary and owned by module sky/);
+  exact.compat.embedded = { trust: 'production' };
+  check(module);
+  assert.equal(errors.length, 1);
+  module.gpu_surfaces = () => '["clear"]';
+  check(module);
+  assert.equal(errors.length, 1);
+});
+
 // The router (LLP 1009 D6) over recording stand-ins for gpu-glue.js
 // instances: which artifact each call reaches, and what it joins.
 async function fixture(pending = []) {
@@ -15,6 +30,7 @@ async function fixture(pending = []) {
     clock: () => ({ pending: stem === 'gpu/world', settleAt: stem === 'gpu' ? 5 : 9, reply: { world: [{ stem }] } }),
     deviceLost() { calls.push([stem, 'deviceLost']); },
     retier(tier) { calls.push([stem, 'retier', tier]); },
+    syncPerformance() { calls.push([stem, 'syncPerformance']); },
     swap(version) { calls.push([stem, 'swap', version]); return { ms: 1, errors: [] }; },
     surfaceWork: async name => `${stem}:${name}`,
     handle: request => ({ stem, id: request.id }),
@@ -60,6 +76,8 @@ test('replies join across artifacts and process-wide signals reach every one', a
   assert.deepEqual(f.calls.filter(c => c[1] === 'deviceLost').map(c => c[0]), ['gpu', 'gpu/world']);
   f.gpu.retier('low'); // LLP 1139.003 D2: `prefer gpu-tier` reaches every loaded artifact
   assert.deepEqual(f.calls.filter(c => c[1] === 'retier'), [['gpu', 'retier', 'low'], ['gpu/world', 'retier', 'low']]);
+  f.gpu.syncPerformance();
+  assert.deepEqual(f.calls.filter(c => c[1] === 'syncPerformance'), [['gpu', 'syncPerformance'], ['gpu/world', 'syncPerformance']]);
   f.gpu.swap(3, 'world'); f.gpu.swap(4);
   assert.deepEqual(f.calls.filter(c => c[1] === 'swap'), [['gpu/world', 'swap', 3], ['gpu', 'swap', 4]]);
   assert.deepEqual(f.gpu.handle({ id: 4 }), { stem: 'gpu/world', id: 4 });

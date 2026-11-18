@@ -16,7 +16,12 @@ import { data, Resources, commit, R, Refusal, Kept, say, Sounds } from "./rt.js"
 import * as rt from "./rt.js";
 import { environment, keyboardInset, onKeyboard, displayMode, preferences, UPDATES, updateCode, onPreferences, pageReporter, fold, foldEnv, onFold, preferFold } from "./navigation.js";
 
-const again = (source, why) => () => commit(() => { for (const r of Resources) if (r.source === source) R(r); }, why);
+const again = (source, why) => {
+  const changed = () => {
+    if (!rt.deferForReplacement(changed)) return commit(() => { for (const r of Resources) if (r.source === source) R(r); }, why);
+  };
+  return changed;
+};
 // `readers`: resource name → [its fields, in its shape's order, …].
 const byName = (readers, name, v) => readers[name][0].map(n => v[n]);
 
@@ -66,7 +71,7 @@ const AGENT_ADMITTED = true;
 // whichever of them the plan reads.
 let pageFacts, pageReaders = {}, pageFreezes = false, pageWatching = false, viewportChanged = () => {}, pageChanged = () => {};
 const reporter = () => pageFacts !== undefined ? pageFacts : typeof document === "object" && document.createElement
-  ? (pageFacts = pageReporter(AGENT_ADMITTED && typeof location === "object" && new URLSearchParams(location.search).has("agent"))) : null;
+  ? (pageFacts = pageReporter(AGENT_ADMITTED && typeof location === "object" && ["", "1"].includes(new URL(globalThis.performance?.getEntriesByType?.("navigation")[0]?.name ?? location.href).searchParams.get("agent")))) : null;
 function shareReporter() {
   const facts = reporter();
   if (!facts) return;
@@ -105,6 +110,7 @@ export function watchPage(freezes = false) {
   let previous = facts.read();
   Sounds.frozen = previous.frozen;
   pageChanged = () => {
+    if (rt.deferForReplacement(pageChanged)) return;
     const next = facts.read();
     const before = pageFields(previous), after = pageFields(next);
     const readers = Resources.filter(r => r.source === "exactPage" && pageReaders[r.name]?.[0].some(k => before[k] !== after[k]));
@@ -130,7 +136,7 @@ export const timeFields = (name, facts) => byName(timeReaders, name, facts);
 /** Each reader's second entry: the value the build baked, if it baked one
  * (a plan built from source did not): the embedded answer. */
 export function activities(readers) {
-  (data.reserved ??= {}).exactActivities = (_, a, name) => byName(readers, name, { activities: [], frequentPushesEnabled: false, linked: false });
+  (data.reserved ??= {}).exactActivities = (_, a, name) => byName(readers, name, { activities: [], frequentPushesEnabled: false, linked: false, pushToStartToken: null, pushToStartActivities: [] });
 }
 
 // Replaced with string literals by build.mjs for both the page and its renderer.
@@ -148,8 +154,9 @@ export function delivery(readers) {
  * calls the wasm host's `exact_surface_record`); the host's bytes are
  * `name` alone (disposed) or `name\0json`. */
 export function canvasPerformance(readers) {
-  const names = new Set(Object.values(readers).map(r => r[0]));
-  (globalThis.exact ??= {}).canvasPerformanceRequested = name => names.has(name);
+  (globalThis.exact ??= {}).canvasPerformanceRequested = name => Resources.some(r =>
+    r.source === "exactCanvasPerformance" && readers[r.name]?.[0] === name && !r.asleep && !r.gone);
+  rt.After?.push(() => globalThis.exact?.gpu?.syncPerformance?.());
   surfaces(readers, "exactCanvasPerformance", "canvasPerformanceRecord", 16 * 1024);
 }
 
@@ -174,7 +181,8 @@ export function surfaces(readers, source = "exactSurface", report = "surfaceReco
     } catch (e) { why = String(e?.message ?? e); throw e; }
   };
   const x = globalThis.exact ??= {};
-  x[report] = (surface, json) => {
+  x[report] = function publish(surface, json) {
+    if (rt.deferForReplacement(() => publish(surface, json))) return;
     if (!names.has(surface)) return;
     const was = records.get(surface) ?? null;
     if (was === (json ?? null)) return;

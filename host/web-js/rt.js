@@ -15,7 +15,8 @@ import { liveById, installFits } from './navigation.js';
 // synced animations (LLP 1055.002, emit.rs `clocks`)
 export { animationClocks, launchLocation, launchVisits } from './navigation.js';
 export { fontFamily } from './font-family.js';
-import { Head, markDocument, projectRoots, openTabs, unopened, tp } from './document.js';
+export { cssNames } from './regions.js';
+import { Head, markDocument, projectRoots, openTabs, prepareTabs, unopened, tp } from './document.js';
 export { Head, unopened, tp };
 export { canSetStatus, statusSubject } from './document.js';
 import { conforms, eq, equal, Refusal, Failed } from './shape.js';
@@ -56,7 +57,7 @@ import { Resources, Mutations, lateReaders, lateIdle } from './resources.js';
 import { Views } from './tree.js';
 import { KeyEvent, Propagating } from './events.js';
 import { Pres, Present, Sh, Input, pressFeedback } from './pieces.js';
-import { Booting, start } from './mount.js';
+import { Booting, start, finishTaskScopes } from './mount.js';
 export * from './clock.js';
 export * from './resources.js';
 export * from './tree.js';
@@ -206,6 +207,10 @@ function flush() {
   }
   while (FocusQueue.length) FocusQueue.shift()();
 }
+/** Whether the flush will run an effect. An effect queued because a derive it reads might change runs only if that
+ * derive did, and settlement marks the readers of each derive that changed: an effect not marked is due only while a
+ * derive it reads has still to settle. */
+const due = () => Queue.some(n => !n.gone && (n.s === DIRTY || n.src.some(s => s.fn && s.s !== CLEAN)));
 function untracked(f) {
   const l = Listener;
   Listener = null;
@@ -419,6 +424,13 @@ export function R(r, reasking = false) {
 function settle() {
   for (const n of Settle) if (!n.gone) fresh(n);
 }
+// Keep a document handoff's checkpoint still. Defer the whole reply or
+// recommit, including what its caller does on refusal, under its own origin.
+export function deferForReplacement(f) {
+  if (Writes || !DEVELOPMENT_STORE) return false;
+  const origin = Origin.now(), invocation = Invocation.id;
+  return globalThis.__exactDevReplacement?.defer(() => Origin.run(origin, () => Invocation.run(invocation, f))) ?? false;
+}
 /** One commit: `f` runs; its writes, sends and refreshes land; settlement
  * runs; a refusal anywhere up to here puts everything back and leaves the
  * tree untouched; then the tree updates, completion callbacks run, requests go out, commands run. */
@@ -479,6 +491,7 @@ export function commit(f, what = 'commit', finished) {
     }
     // gated tasks and sequences over the settled state, inside the rollback (LLP 1092 D8, LLP 1125 D2)
     step = 'arming its tasks and sequences';
+    prepareTabs();
     Sched?.gates();
     sound = Sounds.gate?.();
   } catch (e) {
@@ -527,6 +540,7 @@ export function commit(f, what = 'commit', finished) {
   unpark();
   // Freeze releases streams and stops sequences even when the tree waits for a view transition.
   if (ok) {
+    finishTaskScopes();
     if (Sounds.frozen && Open.size) closeLetGo(inflight, say);
     if (Sounds.frozen === true && !wasFrozen) {
       Sounds.settling = true;
@@ -560,11 +574,13 @@ export function commit(f, what = 'commit', finished) {
   // the tree update; inside a view transition when it may hand on a shared element's name (LLP 1013.000 D7)
   const update = () => {
     for (const f of Before) f();
-    // presence measures what it tracks, and what may gain the row, before the tree changes (LLP 1063)
-    Pres?.before({ ops: Probes?.gains() ?? [] }, Views);
+    // presence measures what it tracks, and what may gain the row, before the tree changes (LLP 1063); when the flush
+    // will run no effect it writes nothing, and presence measures nothing (`still`)
+    Pres?.before({ ops: Probes?.gains() ?? [], still: !due() }, Views);
     try {
       flush();
       openTabs();
+      Sched?.gates();
     } catch (e) {
       Poisoned = true;
       Why = why('updating the tree', String(e));
@@ -604,7 +620,7 @@ export function commit(f, what = 'commit', finished) {
         m.thenOrigin = origin;
         if (!clock.agent) drive();
       }
-    Sched?.scan(true, changed); // a free queue's waiting send is due (LLP 1092 D3)
+    Sched?.scan(true, Sched?.changed(queued) ?? changed); // a free queue's waiting send is due (LLP 1092 D3)
     return true;
   };
   // a Back or Forward is mirrored to the history first, and one the browser animated cuts (router.js `traversal`)
@@ -616,6 +632,7 @@ export function commit(f, what = 'commit', finished) {
  * reads are owed (a reconciling ask), they fail, keeping what they show, before a commit publishes it; a refusal of
  * that leaves nothing owed. */
 export function recommit(f, what) {
+  if (deferForReplacement(() => recommit(f, what))) return;
   const done = commit(f, what),
     owed = done === false ? Resources.filter(r => r.reconciling) : [],
     why = Refused?.message;
@@ -701,10 +718,14 @@ export function act(fn, types, skip = 0, names) {
     }
     fn(...a);
   };
-  const a = (...x) => commit(() => go(x), 'action');
+  const a = (...x) => {
+    if (deferForReplacement(() => a(...x))) return true;
+    return commit(() => go(x), 'action');
+  };
   a.t =
     f =>
-    (...v) => {
+    function action(...v) {
+      if (deferForReplacement(() => action(...v))) return true;
       if (Poisoned)
         try {
           f();
@@ -837,7 +858,9 @@ export const Store = {
   // Outside a render, keeping what is already kept is no write, as the runner's `Store::set`.
   set(k, v) {
     if (globalThis.__exactRender) throw new Error("a render's store is empty and refuses writes"); // LLP 1048.000 D9
-    if (v != null && this.map.get(k) === v) return;
+    const same = v == null ? !this.map.has(k) : this.map.get(k) === v;
+    if (v != null && same) return;
+    if (!same) this.leased?.get(k)?.(); // a lease's write arms its recovery (storage-environment.js `exclusiveSecret`)
     if (v == null) this.map.delete(k);
     else this.map.set(k, v);
     this.writes.push([k, v]);
@@ -953,6 +976,6 @@ export * from './roster.js'; // the roster's pure entries
 // the router (LLP 1038), its own file
 export * from './router.js';
 import { routerValid } from './router.js';
-export { queues, gated } from './schedule.js'; // queued sends and gated tasks (LLP 1092), their own file
+export { queues, gated, ownedTasks } from './schedule.js'; // queued sends and gated tasks (LLP 1092), their own file
 export { timerWaits } from './timer-waits.js';
 export { resEach, owned, own, ownedMut, ownMut, keptOwned, rowPath } from './each.js';

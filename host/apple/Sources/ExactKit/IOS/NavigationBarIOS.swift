@@ -86,17 +86,17 @@ final class RouteNavigationBar: UINavigationBar {
 /// The delegate Exact gives each navigation controller it builds: Exact's
 /// own handling first, then the app's delegate, which is asked first for a
 /// transition's animator and receives straight anything Exact does not
-/// implement (LLP 1075.003 §3.5). A pop UIKit commits reaches the router at
-/// Exact's `willShow`, before the app's; a swipe, in its coordinator's
-/// completion, after both have heard `didShow` (LLP 1035.001 D1, D2).
-final class NavigationDelegateProxy: NSObject, UINavigationControllerDelegate {
+/// implement (LLP 1075.003 §3.5). Each call goes to the app's delegate it
+/// came to, even when Exact's handling retires the stack. A pop UIKit
+/// commits reaches the router at Exact's `willShow`, before the app's; a
+/// swipe, in its coordinator's completion, after both have heard `didShow`
+/// (LLP 1035.001 D1, D2).
+final class NavigationDelegateProxy: ForwardingDelegate, UINavigationControllerDelegate {
     weak var host: NavigationHost?
-    /// The app's delegate, held strongly until the app gives another or nil,
-    /// or the stack's record goes: UIKit calls the methods the proxy answered
-    /// when it was set (LLP 1075.003 §9.16), and the proxy forwards them here.
-    var app: UINavigationControllerDelegate?
+    var app: UINavigationControllerDelegate? { appDelegate as? UINavigationControllerDelegate }
 
     func navigationController(_ nav: UINavigationController, willShow controller: UIViewController, animated: Bool) {
+        let app = self.app
         // The bar as the route coming into view wants it, alongside UIKit's
         // transition: a cancelled pop calls this again for the source (§9.10).
         host?.showBar(nav, for: controller as? RouteController, animated: animated)
@@ -106,6 +106,7 @@ final class NavigationDelegateProxy: NSObject, UINavigationControllerDelegate {
     }
 
     func navigationController(_ nav: UINavigationController, didShow controller: UIViewController, animated: Bool) {
+        let app = self.app
         // Restoring a hidden bar changes the route's safe area. Lay out its
         // container before reporting that cover to the kernel.
         nav.view.setNeedsLayout()
@@ -135,14 +136,6 @@ final class NavigationDelegateProxy: NSObject, UINavigationControllerDelegate {
         app?.navigationController?(nav, animationControllerFor: operation, from: from, to: to)
             ?? host?.routeTransition(nav, operation: operation, from: from, to: to)
     }
-
-    override func responds(to selector: Selector!) -> Bool {
-        super.responds(to: selector) || (app?.responds(to: selector) ?? false)
-    }
-
-    // Send the app's delegate each call Exact does not implement, whatever the delegate answers now: UIKit calls the
-    // methods the proxy answered when it was set, as it calls its own delegate's (LLP 1075.003 §9.16)
-    override func forwardingTarget(for selector: Selector!) -> Any? { app }
 }
 
 /// A header's search field as UIKit's search controller (LLP 1075.003
@@ -266,7 +259,10 @@ final class HeaderSearch: NSObject, UISearchBarDelegate, UISearchControllerDeleg
         if let field { host?.presenter.fieldSelections.changed(field) }
         field?.applyFieldDirection() // a `direction` that came while it composed (LLP 1001 §1)
     }
-    // UISearchBar remains the recipient of UIKit's focus, return and private callbacks.
+    // UISearchBar remains the recipient of UIKit's focus, return and private callbacks. It is the field's own
+    // delegate in the search controller this object holds, so it lives as long as this object, and UIKit's own
+    // class answers the same at each call: unlike an app's delegate (`ForwardingDelegate`), it needs no strong hold
+    // and no unconditional forwarding.
     override func responds(to selector: Selector!) -> Bool {
         super.responds(to: selector) || (textDelegate?.responds(to: selector) ?? false)
     }
@@ -417,9 +413,6 @@ final class NavigationStack {
     let order: Int
     let label: String
     var hatched = false
-    /// Whether the development check has named the stack's delegate slot as
-    /// written outside Exact since the slot was last Exact's.
-    var slotNamed = false
     var barTint: UIColor?, hatchTintsBar = false
     init(showsBar: Bool, order: Int) { (self.showsBar, self.order, label) = (showsBar, order, "#\(order)") }
 }
@@ -461,7 +454,7 @@ extension NavigationHost {
                 if reselect { (controller as? UINavigationController)?.popToRootViewController(animated: !ExactEnv.agentFreezes) }
                 else { tabsController.selectedViewController = controller }
                 // A container built from `UITab`s sends `didSelectTab` for the selection itself, not for a reselect
-                if reselect { sendReselect(tabsController, controller) } else if builtTabs.isEmpty { tabProxy.tabBarController(tabsController, didSelect: controller) }
+                if reselect { sendReselect(tabsController, controller) } else if builtTabs.isEmpty { tabProxy?.tabBarController(tabsController, didSelect: controller) }
                 return reply
             }
             // Pick the router's own tab, which More does not show (its list is on top), as a person picks its row:
@@ -585,7 +578,7 @@ extension NavigationHost {
         stack.controller = nav
         stack.proxy.host = self
         stacks[ObjectIdentifier(nav)] = stack
-        nav.delegate = stack.proxy
+        stack.proxy.fill(nav) { [weak self, label = stack.label] in self?.presenter.session?.log("hatch navigation \(label): \($0)") }
         stack.faceTint.changed = { [weak self, weak nav] in
             if let nav { self?.retintBarFaces(in: nav) }
         }
@@ -598,7 +591,6 @@ extension NavigationHost {
     /// remount, new tabs); More keeps its list.
     func release(_ nav: UINavigationController) {
         retireStack(nav)
-        nav.delegate = nil
         nav.setViewControllers(nav.stackFront.filter { !($0 is PlainTab) }, animated: false)
     }
 
@@ -697,6 +689,9 @@ extension NavigationHost {
                                                                   key: c.key, dataset: dataset) }
             c.hatched = true
             c.ownedScroll = scroller
+            // Run the passes again for a selection this route's hatch made, before UIKit lays out its stack, unless a
+            // transition the hatch may have started holds them (More's own included, for a plain tab)
+            if !changing, !moreChanging, !presenter.modals.inTransition { runOwedScrollEdges(of: c) }
         }
         coverLifted(routes)
         keepExit(routes, in: nav)
@@ -713,17 +708,50 @@ extension NavigationHost {
         return (HeaderShape.bar(of: c.node, back: container?.props["navigationBack"], backIsUIKits: c.pushed), bar(of: c.node, pushed: c.pushed))
     }
 
-    /// Select `c`'s top and bottom scroll views again, as its stack's pass
-    /// does (`collapse`, `reachBottom`), for edges an app gave back to
-    /// Exact's selection with nil: at once, since a native call outside a
-    /// batch starts no pass.
+    /// An app changed `c`'s top or bottom selection, from a hatch, a menu action or anywhere else,
+    /// usually where nothing starts a pass. The call records it and asks for the route's
+    /// layout. The route's edge passes and the covers they change follow there, as the route
+    /// appears, or where a sync, a push or pop, a presentation or a dismissal under way ends. Run in
+    /// the call, the passes would write scroll offsets whose events, like the runtime's answer to
+    /// the covers, can be applied there, running the route hatch inside the app's call.
+    func scrollEdgesChanged(_ c: RouteController) {
+        c.scrollEdgesOwed = true
+        c.viewIfLoaded?.setNeedsLayout()
+    }
+
+    /// The edge passes and covers that apps' selections owe, outside a sync
+    func settleScrollEdges() {
+        guard !syncing, runOwedScrollEdges() else { return }
+        coversChanged()
+    }
+
+    /// Run the edge passes that each route owes an app's selection, unless a push or a pop on screen (More's of a plain
+    /// tab included), a presentation or a dismissal is under way, whose end runs them, and say whether any ran. A
+    /// transition a stack off screen keeps until its tab shows again holds none (`changing`). The caller reports the covers.
+    @discardableResult
+    func runOwedScrollEdges() -> Bool {
+        guard !changing, !moreChanging, !presenter.modals.inTransition else { return false }
+        return controllers.values.filter(\.scrollEdgesOwed).reduce(false) { runOwedScrollEdges(of: $1) || $0 }
+    }
+
+    /// Run the edge passes that `c` owes an app's selection once it is in a stack, whatever is under way, and say
+    /// whether they ran. The positions they carry are written once the covers they change are answered
+    /// (`writeCarriedScrollsWhenAnswered`).
+    @discardableResult
+    func runOwedScrollEdges(of c: RouteController) -> Bool {
+        guard c.scrollEdgesOwed, c.inStack else { return false }
+        c.scrollEdgesOwed = false
+        selectScrollEdges(of: c)
+        return true
+    }
+
+    /// Select `c`'s top and bottom scroll views again, as its stack's pass does (`collapse`, `reachBottom`).
     func selectScrollEdges(of c: RouteController) {
         guard let stack = c.stack else { return }
         let nav = stack as? UINavigationController
         let (shape, bar) = barShape(of: c, in: nav)
         collapse(c, shape: shape, shows: bar != .hidden, scroller: contentScroller(of: c))
         reachBottom(c, presented: isPresented(nav))
-        coversChanged()
     }
 
     /// The header a bar stands for takes no room from the turn it is lifted,
@@ -747,7 +775,9 @@ extension NavigationHost {
             }
         }
         guard lifted else { return }
-        if presenter.applying { liftHeld = true }
+        // A lift changes the covers as a report does, and is answered as one (`writeCarriedScrollsWhenAnswered`)
+        countReport()
+        if presenter.applying { liftReport = coversReported }
         presenter.afterBatch { [weak self] in self?.deliverCovers() }
     }
 
@@ -869,7 +899,7 @@ extension NavigationHost {
         if control.selectedSegmentIndex != selected, !pending { control.selectedSegmentIndex = selected }
         if control.selectedSegmentIndex == selected { segments.press.settled = selected }
         control.accessibilityIdentifier = list?.props["testId"]
-        control.segmentLabels = tabs.map(SegmentHost.segmentLabel)
+        control.segmentLabels = tabs.map(LabelledSegmentedControl.segmentLabel)
         control.segmentIDs = tabs.map { $0.props["testId"] }
         control.segmentOwners = tabs.map(\.id)
         control.segmentUnavailable = tabs.map { $0.disabled || $0.ariaUnavailable }
@@ -953,6 +983,8 @@ extension NavigationHost {
         // The field itself, which XCUITest finds as a search field and a
         // person types in, carries the test id (LLP 1116 D2).
         if bar.searchTextField.accessibilityIdentifier != field.props["testId"] { bar.searchTextField.accessibilityIdentifier = field.props["testId"] }
+        // Its name is the field's `aria-label`, as an `input`'s is; with none, UIKit's (the placeholder).
+        if bar.searchTextField.accessibilityLabel != field.props["accessibilityLabel"] { bar.searchTextField.accessibilityLabel = field.props["accessibilityLabel"] }
         #endif
     }
 
@@ -1048,7 +1080,8 @@ extension NavigationHost {
             return
         }
         let old = c.collapseScroll, oldView = c.collapseScrollView
-        if let old, let sv = oldView { old.retainScrollPosition(from: sv) }
+        // Carry the leaving scroller's position across the change, unless it is moving itself
+        if let old, let sv = oldView, !old.scrollUnderWay(sv) { old.retainScrollPosition(from: sv) }
         c.collapseScroll = target
         c.collapseScrollView = physical
         // A scroller at its start (CSS scrollTop 0) stays there as UIKit
@@ -1383,10 +1416,10 @@ extension NavigationHost {
         }
         if #available(iOS 26.0, tvOS 26.0, *) {
             item.style = i.prominent ? .prominent : .plain
-            // A drawn face is its own shape: no glass capsule around it.
+            // A drawn face is its own shape: no glass capsule around it, unless its button asks for glass.
             #if !os(tvOS)
-            item.hidesSharedBackground = i.badge != nil
-            item.sharesBackground = i.badge != nil || !i.ownGlass
+            item.hidesSharedBackground = i.badge != nil && !i.ownGlass
+            item.sharesBackground = !i.ownGlass
             #endif
         }
         return item
@@ -1429,29 +1462,15 @@ extension NavigationHost {
         return true
     }
 
-    /// The app's delegate for a controller whose own slot Exact keeps.
-    /// UIKit reads which methods a delegate answers once, when it is set
-    /// (LLP 1075.003 §9.16), and the proxy answers for the app's delegate's
-    /// methods too, so the proxy is set again and UIKit reads its answers
-    /// anew. The old delegate goes only after that, so UIKit asks nothing of
-    /// it as it goes, and what its `deinit` does runs outside the swap.
+    /// The app's delegate for a controller whose own slot Exact keeps
+    /// (`ForwardingDelegate.give`).
     func setAppDelegate(_ controller: AnyObject, _ delegate: AnyObject?) {
         if let tabs = controller as? UITabBarController, tabs === tabController {
-            withExtendedLifetime(tabProxy.app) {
-                tabs.delegate = nil
-                tabProxy.app = delegate as? UITabBarControllerDelegate
-                tabs.delegate = tabProxy
-                presenter.session?.log("hatch tabs: delegate \(delegate.map { "\(type(of: $0))" } ?? "cleared")")
-            }
+            tabProxy?.give(delegate as? UITabBarControllerDelegate)
             return
         }
         guard let nav = controller as? UINavigationController, let stack = stacks[ObjectIdentifier(nav)] else { return }
-        withExtendedLifetime(stack.proxy.app) {
-            nav.delegate = nil
-            stack.proxy.app = delegate as? UINavigationControllerDelegate
-            nav.delegate = stack.proxy
-            presenter.session?.log("hatch navigation \(stack.label): delegate \(delegate.map { "\(type(of: $0))" } ?? "cleared")")
-        }
+        stack.proxy.give(delegate as? UINavigationControllerDelegate)
     }
 }
 #endif

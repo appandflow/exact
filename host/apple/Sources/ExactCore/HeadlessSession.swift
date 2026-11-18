@@ -271,6 +271,9 @@ public final class HeadlessSession {
         return try pump(at: now)
     }
 
+    /// Re-read an imported companion snapshot and invalidate its readers.
+    public func storeChanged() throws -> Snapshot { try turn { core.runtime.storeChanged() } }
+
     /// Drain ready replies and lay out their store changes: a live host's answer to its wake.
     @discardableResult
     public func pump(at now: Double) throws -> Snapshot {
@@ -410,7 +413,7 @@ public final class HeadlessSession {
     }
 
     package func agentFacts() -> [String: Any] {
-        let bytes = Data(core.runtime.agent("{\"op\":\"tags\"}").utf8)
+        let bytes = Data(core.runtime.ask(exact_tags, "").utf8)
         return (try? JSONSerialization.jsonObject(with: bytes) as? [String: Any]) ?? [:]
     }
 

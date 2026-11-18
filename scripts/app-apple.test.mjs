@@ -252,7 +252,7 @@ test.skipIf(process.platform === 'win32')('an archive of an app without a 1024 p
     mkdirSync(bin); mkdirSync(app);
     writeFileSync(resolve(bin, 'rustup'), `#!/bin/sh\nprintf 'aarch64-apple-ios\\n'\n`, { mode: 0o755 });
     // Every compiler the build could start records that it was started, and compiles nothing; the SDK is new enough.
-    for (const tool of ['cargo', 'rustc', 'swift', 'swiftc', 'xcodebuild', 'xcrun']) writeFileSync(resolve(bin, tool), `#!/bin/sh\n${tool === 'xcrun' ? `case "$*" in *--show-sdk-version*) echo ${HOST_SDKS.ios}; exit 0;; esac\n` : ''}echo "${tool} $*" >> '${log}'\nexit 9\n`, { mode: 0o755 });
+    for (const tool of ['cargo', 'rustc', 'swift', 'swiftc', 'xcodebuild', 'xcrun']) writeFileSync(resolve(bin, tool), `#!/bin/sh\n${tool === 'xcrun' ? `case "$*" in *--version*) echo "Apple Swift version 6.4"; exit 0;; *--show-sdk-version*) echo ${HOST_SDKS.ios}; exit 0;; esac\n` : ''}echo "${tool} $*" >> '${log}'\nexit 9\n`, { mode: 0o755 });
     writeFileSync(resolve(app, 'app.contract'), 'component A\n');
     mkdirSync(resolve(app, 'assets'));
     writeFileSync(resolve(app, 'assets/small.png'), encodePng({ width: 192, height: 192, data: new Uint8Array(192 * 192 * 4).fill(255) }));
@@ -287,7 +287,7 @@ test('the early refusals are the ones packaging makes', async () => {
     const set = resolve(dir, 'modules/apple/Icons.xcassets/Alternate.appiconset');
     mkdirSync(set, { recursive: true });
     writeFileSync(resolve(set, 'Contents.json'), '{}');
-    assert.deepEqual(appleRefusals(app({}), 'ios'), ["host/apple: fixture's alternate icons require a primary; declare host.ios.icon or a square icon of at least 1024 px"]);
+    assert.deepEqual(appleRefusals(app({ alternate_icons: [{ name: 'Alternate', icons: [{ src: 'assets/wide.png' }] }] }), 'ios'), ["host/apple: fixture's alternate icons require a primary; declare host.ios.icon or a square icon of at least 1024 px"]);
     assert.deepEqual(appleRefusals(app({ host: { ios: { icon: 'Missing.icon' } } }), 'ios', { archive: true }), ['host.ios.icon: Missing.icon does not exist'], 'one reason, not the primary it leaves missing as well');
     // tvOS's icon is a 5:3 one; a Caltrain-shaped 8:3 icon is none, which only a distributed bundle refuses.
     writeFileSync(resolve(dir, 'assets/caltrain.png'), encodePng({ width: 320, height: 120, data: new Uint8Array(320 * 120 * 4).fill(255) }));
@@ -688,6 +688,17 @@ test('`userInterfaceStyle` writes UIUserInterfaceStyle on iOS and tvOS and Exact
   }
 });
 
+test('host.macos.layoutDirection writes ExactLayoutDirection only for a Mac rtl request', () => {
+  const app = (manifest) => ({ id: 'com.example.fixture', displayName: 'Fixture', name: 'fixture', manifest });
+  const rtl = app({ host: { macos: { layoutDirection: 'rtl' } } });
+  assert.match(macInfoPlist(rtl), /<key>ExactLayoutDirection<\/key><string>rtl<\/string>/);
+  for (const plist of [infoPlist(rtl, false), infoPlist(rtl, false, { tv: true })])
+    assert.doesNotMatch(plist, /ExactLayoutDirection/);
+  for (const manifest of [{}, { host: {} }, { host: { macos: {} } }, { host: { macos: { layoutDirection: 'auto' } } }, { dir: 'rtl' }]) {
+    assert.doesNotMatch(macInfoPlist(app(manifest)), /ExactLayoutDirection/);
+  }
+});
+
 test('the launch handler bakes `ExactLaunchMode` with or without documents (LLP 1069.010 D4)', async () => {
   const { readManifest } = await import('./app.mjs');
   const app = (manifest) => ({ id: 'com.example.fixture', displayName: 'Fixture', name: 'fixture', manifest: { host: {}, ...manifest } });
@@ -802,18 +813,9 @@ test('an App Clip is its parent\'s app under a second identity: NSAppClip, the p
   const device = flat(entitlements({ ...app, id: clip.id, clipParent: app.id }, 'TEAM', true, null, { prefix: 'PREFIX' }));
   assert.match(device, /<key>application-identifier<\/key><string>PREFIX.com.exact.test.Clip<\/string>/);
   assert.match(device, /<key>com.apple.developer.parent-application-identifiers<\/key><array><string>PREFIX.com.exact.test<\/string><\/array>/);
-  assert.match(device, /<key>com.apple.developer.on-demand-install-capable<\/key><true\/>/);
-  assert.doesNotMatch(sim, /on-demand-install-capable/);
   const parent = flat(entitlements(app, 'TEAM', true));
   assert.match(parent, /<key>com.apple.developer.associated-domains<\/key><array><string>applinks:exact.test<\/string><string>webcredentials:exact.test<\/string><string>appclips:exact.test<\/string><\/array>/);
   assert.doesNotMatch(parent, /parent-application-identifiers/);
-  assert.doesNotMatch(parent, /on-demand-install-capable/);
-  // The parent names its clip only when its profile grants that, as a profile made after the clip's App ID does.
-  assert.doesNotMatch(parent, /associated-appclip-app-identifiers/);
-  const granted = flat(entitlements(app, 'TEAM', true, null, { prefix: 'PREFIX', allows: ['com.apple.developer.associated-appclip-app-identifiers'] }));
-  assert.match(granted, /<key>com.apple.developer.associated-appclip-app-identifiers<\/key><array><string>PREFIX.com.exact.test.Clip<\/string><\/array>/);
-  assert.doesNotMatch(flat(entitlements({ ...app, id: clip.id, clipParent: app.id }, 'TEAM', true, null, { prefix: 'PREFIX', allows: ['com.apple.developer.associated-appclip-app-identifiers'] })), /associated-appclip-app-identifiers/);
-  assert.doesNotMatch(flat(entitlements(base, 'TEAM', true, null, { allows: ['com.apple.developer.associated-appclip-app-identifiers'] })), /associated-appclip-app-identifiers/);
   assert.doesNotMatch(flat(entitlements(base, 'TEAM', true)), /appclips:/);
   // handle_links' applinks: becomes the clip's appclips: too; a tvOS build of the app has neither, and a wildcard
   // gives no appclips: (LLP 1038 D8).

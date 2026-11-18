@@ -391,16 +391,7 @@ fn law_open_is_idempotent() {
 fn law_replace_keeps_the_visit_id() {
     law("replace_id", |t, r, urls| {
         for url in urls {
-            let (replaced, refusal) = replace(t, r.clone(), url);
-            if let Some(refusal) = refusal {
-                assert_eq!(depth(r), 1);
-                assert_ne!(t.matches(url).unwrap().name, r.tab);
-                assert_eq!(
-                    refusal.message,
-                    "replace cannot change the tab's root route"
-                );
-                assert_eq!(replaced, *r);
-            }
+            let replaced = success(replace(t, r.clone(), url));
             assert_eq!(top(&replaced).unwrap().id, top(r).unwrap().id);
             assert_eq!(replaced.next, r.next);
             assert_eq!(replaced.tab, r.tab);
@@ -446,7 +437,6 @@ fn law_visit_ids_are_distinct_and_below_next() {
         let mut ids = BTreeSet::new();
         for tab in &r.tabs {
             assert!(!tab.stack.is_empty());
-            assert_eq!(tab.stack[0].name, tab.name);
             for entry in &tab.stack {
                 assert!(ids.insert(entry.id));
                 assert!(entry.id < r.next);
@@ -731,19 +721,6 @@ fn a_rooted_launch_is_the_screen_alone() {
             .unwrap()
             .name,
         "write"
-    );
-
-    // At depth one the root takes another location of its own route only.
-    let other = success(replace(t, r.clone(), "/prompt/8/write"));
-    assert_eq!(
-        (top(&other).unwrap().id, top(&other).unwrap().url.as_str()),
-        (0, "/prompt/8/write")
-    );
-    let (same, refusal) = replace(t, r.clone(), "/prompts");
-    assert_eq!(same, r);
-    assert_eq!(
-        refusal.unwrap().message,
-        "replace cannot change the tab's root route"
     );
 
     // Another tab is seeded at its root, in declaration order, and kept.

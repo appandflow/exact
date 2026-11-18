@@ -9,12 +9,15 @@ import { Readable } from 'node:stream';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { failureMark, backendFetchPrefixes, churnLines, disabledExpectation, focusedExpectation, nativeFetchOrigins, NO_FAILURES, perfExpectation, pickHint, propertyHolds, testMutationClock, refusalExpectation, refuseDisabled, runTests, stateHolds, serverRequest, testScope, textExpectation, treeExpectation, unarranged } from './agent-test.mjs';
+import { failureMark, backendFetchPrefixes, churnLines, disabledExpectation, focusedExpectation, layoutExpectation, nativeFetchOrigins, NO_FAILURES, perfExpectation, pickHint, propertyHolds, testMutationClock, refusalExpectation, refuseDisabled, runTests, stateHolds, serverRequest, testScope, textExpectation, treeExpectation, unarranged } from './agent-test.mjs';
 import { axFindings } from './agent-ax.mjs';
 import { withEpoch } from './agent-launch.mjs';
 import { serveBuildTree } from '../host/web/serve.mjs';
 import { sitePages } from '../host/web-js/render.mjs';
 import { fileURLToPath } from 'node:url';
+import { engineTests } from './coverage.mjs';
+
+const engineTest = await engineTests();
 // A fixture's build can fail before the `try` that removes its directory.
 const scratches = [];
 const scratch = (prefix) => { const dir = mkdtempSync(join(tmpdir(), prefix)); scratches.push(dir); return dir; };
@@ -313,7 +316,7 @@ export function answer() { return Promise.resolve().then(() => fetch('${url}')).
   } finally { await new Promise(resolve => server.close(resolve)); }
 }, 180_000);
 
-test.each([['rust', 0, 'chrome'], ['rust', 20 * 1024, 'chrome'], ['rust', 20 * 1024, 'firefox'], ['rust', 20 * 1024, 'webkit'], ['js', 0, 'chrome'], ['rust', 60 * 1024, 'chrome', 'cached'], ['js', 60 * 1024, 'chrome', 'cached']])('%s request rendering keeps %i-byte fixtures local on %s through launch and reload', async (how, padding, browser, policy = 'request') => {
+for (const [how, padding, browser, policy = 'request'] of [['rust', 0, 'chrome'], ['rust', 20 * 1024, 'chrome'], ['rust', 20 * 1024, 'firefox'], ['rust', 20 * 1024, 'webkit'], ['js', 0, 'chrome'], ['rust', 60 * 1024, 'chrome', 'cached'], ['js', 60 * 1024, 'chrome', 'cached']]) engineTest[browser](`${how} request rendering keeps ${padding}-byte fixtures local on ${browser} through launch and reload`, async () => {
   const root = fileURLToPath(new URL('..', import.meta.url)), dir = scratch('exact-rust-fixture-');
   const dist = join(dir, 'dist'), file = join(dir, 'app.test.contract');
   let requests = 0, configs = 0, renderer, lines, server;
@@ -531,6 +534,26 @@ test('expect focused reads the node every host\'s tree marks focused, and names 
   expect(focusedExpectation(tree, 'gone').message).toBe('expected "gone" focused, no view carries that testId');
   expect(focusedExpectation([tree[0], { ...tree[3], focused: true }], 'picker').message).toBe('expected "picker" focused, View#4 has it');
   expect(focusedExpectation([tree[0]], 'picker').message).toBe('expected "picker" focused, nothing has the focus');
+});
+
+test('expect layout bounds the width or height `layout <target>` prints, and says the size it found', async () => {
+  const tree = [{ id: 2, type: 'Image', props: { testId: 'status-mark' } }, { id: 6, type: 'Image', props: { testId: 'fixed-mark' } }, { id: 7, type: 'Text', props: { testId: 'tagline' }, unshown: why }];
+  const boxes = { 2: { x: 0, y: 0, w: 420, h: 309.778 }, 6: { x: 0, y: 0, w: 47, h: 19 } }, asked = [];
+  const s = { layout: async (id) => { asked.push(id); return { node: { space: boxes[id] ? { viewport: boxes[id] } : id === 8 ? { unavailable: 'native swipe action is not revealed' } : {} } }; } };
+  const step = (target, dimension, comparison, value) => layoutExpectation(s, tree, { target, dimension, comparison, value });
+  expect(await step('fixed-mark', 'height', 'at-most', 24)).toBeNull();
+  expect(await step('fixed-mark', 'width', 'at-least', 47)).toBeNull();
+  expect(await step('fixed-mark', 'height', 'equal', 19)).toBeNull();
+  expect(await step('status-mark', 'height', 'equal', 309.78)).toBeNull(); // the two decimals a layout reply carries
+  expect((await step('status-mark', 'height', 'at-most', 24)).message).toBe('height of "status-mark" is 309.78, expected <= 24 (its box is 420×309.78)');
+  expect((await step('status-mark', 'width', 'equal', 47)).message).toBe('width of "status-mark" is 420, expected 47 (its box is 420×309.78)');
+  expect((await step('fixed-mark', 'width', 'at-least', 64)).message).toBe('width of "fixed-mark" is 47, expected >= 64 (its box is 47×19)');
+  expect(asked).toEqual([6, 6, 6, 2, 2, 2, 6]);
+  expect((await step('gone', 'height', 'at-most', 24)).message).toBe('height of "gone" is absent (no view carries that testId)');
+  expect(await step('tagline', 'height', 'at-most', 24)).toEqual({ message: `testId "tagline" is in the tree, but ${why}`, unshown: true });
+  const boxless = (id) => layoutExpectation(s, [{ id, type: 'View', props: { testId: 'boxless' } }], { target: 'boxless', dimension: 'width', comparison: 'at-most', value: 1 });
+  expect((await boxless(8)).message).toBe('width of "boxless" is unknown: native swipe action is not revealed');
+  expect((await boxless(9)).message).toBe('width of "boxless" is unknown: the host reports no box for it');
 });
 
 // LLP 1116.010 D3 (chat-rooms and password-generator, round 12): a disabled control is asserted, and pressing one fails the step.
@@ -1225,6 +1248,79 @@ test('script state comparisons use inclusive numeric bounds and typed literal me
   expect(holds('2','in',[2])).toBe(false); expect(holds(2,'in',['2'])).toBe(false);
   expect(holds([],'equal',[])).toBe(true);
 });
+
+test('script state equality compares lists and records structurally', () => {
+  const holds = (got, value) => stateHolds(got, { comparison: 'equal', value });
+  expect(holds(['a', 'b'], ['a', 'b'])).toBe(true);
+  expect(holds(['a', 'b'], ['a', 'c'])).toBe(false);
+  expect(holds(['a', 'b'], ['a'])).toBe(false);
+  expect(holds(['a', 'b'], ['b', 'a'])).toBe(false);
+  expect(holds([[1, -2], [], [3]], [[1, -2], [], [3]])).toBe(true);
+  expect(holds([[1, -2], [], [3]], [[1, 2], [], [3]])).toBe(false);
+  expect(holds([], [])).toBe(true);
+  expect(holds([], [1])).toBe(false);
+  expect(holds([1], ['1'])).toBe(false);
+  expect(holds({ id: 'a', position: { x: 1, y: -2 } }, { position: { y: -2, x: 1 }, id: 'a' })).toBe(true);
+  expect(holds({ id: 'a' }, { key: 'a' })).toBe(false);
+  expect(holds({}, [])).toBe(false);
+  expect(holds([NaN], [null])).toBe(false);
+  expect(holds([NaN], [NaN])).toBe(false);
+  expect(holds([-0], [0])).toBe(true);
+});
+
+engineTest.chromium('authored state literals compare whole values and report mismatches', async () => {
+  const root = fileURLToPath(new URL('..', import.meta.url));
+  const dir = mkdtempSync(join(root, 'target/state-literals-'));
+  const app = join(dir, 'app.contract'), file = join(dir, 'app.test.contract');
+  const plan = join(dir, 'app.plan'), dist = join(dir, 'dist');
+  const server = createServer((req, res) => serveBuildTree(dist, req, res));
+  try {
+    writeFileSync(app, `shape Point
+  x: number
+  y: number
+component App
+  state picks = ["a", "b"]
+  state grid = [[1, -2], [], [3]]
+  state empty: number[] = []
+  state picked = some(["a", "b"])
+  state point = Point(x=1, y=-2)
+  view
+    text "Hi"
+`);
+    writeFileSync(file, `test "equal literals"
+  expect state picks == ["a", "b"]
+  expect state grid == [[1, -2], [], [3,],]
+  expect state empty == []
+  expect state picked == some(["a", "b"])
+  expect state point == Point(y=-2, x=1)
+test "unequal literals"
+  expect state picks == ["a", "c"]
+  expect state picks == ["a"]
+  expect state grid == [[1, 2], [], [3]]
+  expect state empty == [1]
+  expect state picked == none
+  expect state point == Point(x=2, y=-2)
+`);
+    const compiler = join(process.env.CARGO_TARGET_DIR ?? join(root, 'target'), 'debug', 'contract');
+    const compile = spawnSync(compiler, ['build', app, '-o', plan], { cwd: root, encoding: 'utf8' });
+    expect(compile.status, compile.stderr).toBe(0);
+    const build = spawnSync(process.execPath, ['host/web-js/build.mjs', 'ui-gallery', '--plan', plan, '--out', dist, '--render', 'none'], { cwd: root, encoding: 'utf8' });
+    expect(build.status, build.stderr).toBe(0);
+    await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+    const r = await runTests({ host: 'web', file, app: 'ui-gallery', url: `http://127.0.0.1:${server.address().port}/` });
+    expect([r.passed, r.failed]).toEqual([1, 1]);
+    expect(r.results[0].failures).toEqual([]);
+    const messages = r.results[1].failures.map(f => f.slice(f.indexOf(': ', f.indexOf(':') + 1) + 2));
+    expect(messages).toEqual([
+      'picks is ["a","b"], expected ["a","c"]',
+      'picks is ["a","b"], expected ["a"]',
+      'grid is [[1,-2],[],[3]], expected [[1,2],[],[3]]',
+      'empty is [], expected [1]',
+      'picked is ["a","b"], expected null',
+      'point is {"x":1,"y":-2}, expected {"x":2,"y":-2}',
+    ]);
+  } finally { server.close(); rmSync(dir, { recursive: true, force: true }); }
+}, 180_000);
 
 // Run with a private module registry: only the carrier is stubbed, not compilation or backend resets.
 test('fresh resets Snapback beside an owned app server, with file and test seeds', () => {

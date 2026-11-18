@@ -1,24 +1,24 @@
-//! A content owner's local safe-area insets (@ref LLP 1123 D9).
+//! The environment a box's lengths resolve against (`NodeArena::env_of`,
+//! @ref LLP 1123 D9), and two things it resolves: runtime custom properties
+//! and captures (D5), and main's local insets (expo/exact#36).
 //!
-//! A native container that hosts Exact content (a route under a navigation
-//! bar, a tab panel above a tab bar, a sheet under its grabber) clears its
-//! own chrome, so a box inside it has an inset of its own that `env()`,
-//! the document's, does not report. The host says each owner's insets on
-//! the owner's root; `var(--exact-safe-area-inset-<edge>)` reads the
-//! nearest one at or above a node, as an inherited custom property reads
-//! its nearest declaration, and the session root's
-//! ([`crate::Env::local`]) where no owner holds the node.
+//! The local insets stay until LLP 1123 is activated, which replaces them
+//! with D9's observations and D10's leaf, and their authored overrides with
+//! D5's captures (§"What it replaces"). A native container that hosts Exact
+//! content (a route under a navigation bar, a tab panel above a tab bar, a
+//! sheet under its grabber) says its owner's insets on the owner's root
+//! (`Kernel::set_local_insets`); `var(--exact-safe-area-inset-<edge>)` reads
+//! the nearest one at or above a node, as an inherited custom property reads
+//! its nearest declaration, and the session root's ([`crate::Env::local`])
+//! where no owner holds the node. An author may declare the property on any
+//! node, spelled as it is read (`--exact-safe-area-inset-bottom="0px"`); its
+//! subtree then reads that, as CSS Variables 1 inherits a custom property's
+//! computed value, and on an owner's root the authored value stands over the
+//! host's, which stands over the parent's.
 //!
-//! An author may declare the property on any node, spelled as it is read
-//! (`--exact-safe-area-inset-bottom="0px"`); its subtree then reads that,
-//! as CSS Variables 1 inherits a custom property's computed value. On an
-//! owner's root the authored value stands over the host's, which stands
-//! over the parent's.
-//!
-//! The values change no layout by themselves: a length that reads one is
-//! resolved per node where its engine style is derived, so the bars' room
-//! is a length an author can pad with, or pull a background under. The
-//! owner's own clearance of its chrome (D3) is the covers' (`cover.rs`).
+//! Neither changes layout by itself: a length that reads one is resolved per
+//! node where its engine style is derived. An owner's own clearance of its
+//! chrome is D3's content root (`block.rs`).
 
 use super::readers::InsetReaders;
 use super::Kernel;
@@ -52,7 +52,9 @@ pub(crate) fn reads_node(style: &StyleProps) -> bool {
 /// aside (they read their parent's, [`local_at`]), or an author's custom
 /// property.
 fn node_rows(style: &StyleProps) -> StyleMask {
-    rows_where(style, |c| c.reads_local() || c.reads_custom())
+    rows_where(style, |c| {
+        c.reads_local() || c.reads_custom() || c.reads_observed()
+    })
 }
 
 fn rows_where(style: &StyleProps, reads: impl Fn(&calc::Comparison) -> bool) -> StyleMask {
@@ -265,6 +267,8 @@ pub(crate) fn env_at(arena: &NodeArena, slot: u32) -> Cow<'_, Env> {
     let mut env = arena.env().clone();
     env.local = Some(local_at(arena, slot));
     env.properties = Some(properties_at(arena, slot, &arena.effective_style(slot)));
+    env.observed = Some(arena.observations.input(slot));
+    env.targets = arena.observations.targets.scope(arena, slot);
     Cow::Owned(env)
 }
 
@@ -549,7 +553,13 @@ impl<'a> Resolver<'a> {
         let local = local_at(self.arena, key.0);
         let value = tree
             .and_then(|tree| {
-                calc::substitute(&tree, &|edge| local[edge as usize], &mut |name| {
+                // A declaration holds no observation before D10's lowering, which
+                // brings its capture: one here takes its fallback
+                let leaves = calc::Leaves {
+                    local: &|edge| local[edge as usize],
+                    observed: &|_| None,
+                };
+                calc::substitute(&tree, &leaves, &mut |name| {
                     let dep = self.reach(key.0, name)?;
                     self.value(&dep)
                 })
@@ -573,7 +583,8 @@ impl NodeArena {
     }
 }
 
-/// The four insets at `slot`, top right bottom left (LLP 1123 D9): an
+/// The four local insets at `slot`, top right bottom left (main's model,
+/// which LLP 1123 retires): an
 /// override `slot` declares, else its owner's host value when `slot` is an
 /// owner's root, else its parent's; at a root, the session root's. An
 /// override's `var()` reads the edge as `slot` has it: that edge's override
@@ -717,14 +728,17 @@ pub(crate) fn moved(arena: &mut NodeArena, layout: &mut dyn LayoutMirror, slot: 
     let local = differ && !readers.local.is_empty();
     // With nothing declared, a property reader takes its fallback anywhere
     let properties = !readers.properties.is_empty() && readers.declares();
-    if !local && !properties {
+    // With no owner's or session's targets, a raw reader reads none anywhere
+    let targets = !readers.targets.is_empty() && arena.observations.targets.placed_any();
+    if !local && !properties && !targets {
         return false;
     }
     let mut receipt = crate::CommitReceipt::default();
     let mut any = false;
     for s in arena.subtree(slot) {
         let reads = local && arena.readers.local.contains(s)
-            || properties && arena.readers.properties.contains(s);
+            || properties && arena.readers.properties.contains(s)
+            || targets && arena.readers.targets.contains_key(&s);
         if reads {
             rederive(arena, layout, s, false, &mut receipt);
             any = true;
@@ -737,7 +751,8 @@ impl Kernel {
     /// Set or clear (`None`) the local insets of the content owner whose
     /// root is `view`, top right bottom left in points: what its container's
     /// chrome takes of its box, which `var(--exact-safe-area-inset-*)`
-    /// reads in its subtree (LLP 1123 D9). Re-derives and dirties exactly the
+    /// reads in its subtree (main's model, which LLP 1123 replaces with D9's
+    /// observations). Re-derives and dirties exactly the
     /// nodes there whose style reads one; whether any did (a layout is owed
     /// then). Nonfinite or negative insets are refused.
     pub fn set_local_insets(
@@ -769,7 +784,8 @@ impl Kernel {
 
     /// Set the session root's local insets (`None`: the safe-area insets,
     /// `env()`'s), which a node outside every owner reads: the insets of
-    /// the area the document covers (LLP 1123 D9). A host whose document
+    /// the area the document covers (main's model, which LLP 1123 replaces
+    /// with D9's session band). A host whose document
     /// covers its view while `env()` is 0 sets them to the view's. Returns
     /// whether a layout is owed, as [`Kernel::set_env`] does.
     pub fn set_root_local_insets(&mut self, insets: Option<[f32; 4]>) -> Result<bool, KernelError> {
@@ -804,7 +820,7 @@ impl Kernel {
         }
     }
 
-    fn restyle_readers(&mut self, readers: &[u32]) {
+    pub(super) fn restyle_readers(&mut self, readers: &[u32]) {
         if readers.is_empty() {
             return;
         }

@@ -1,14 +1,14 @@
 // The dev loop on the JS target (LLP 1071): what `host/web/dev.mjs` runs for
 // an app the JS target takes, so a developer runs the runtime the app ships.
-// An edit — the Contract, the app's TypeScript or Rust data, its assets, or
+// An edit — the Contract, TypeScript, Rust data or GPU sources, assets, or
 // this runtime and compiler — rebuilds the app (`host/web-js/build.mjs
 // --render none`, into a stage renamed over dist/, so a request sees the old
-// build or the new one; what did not change is not rebuilt: module.mjs
-// `fresh`) and every open page reloads: the plan is compiled ahead of time,
-// so a new plan is a new program. The old page checkpoints the wasm loop's
-// carried set to this server immediately before that reload; the next
-// document consumes it once. A build that fails
-// shows its errors in the page and the page keeps the last good build.
+// build or the new one). Cargo checks the Rust module's inputs, including
+// generated shapes, and reuses unchanged artifacts. Every open page reloads:
+// the plan is compiled ahead of time, so a new plan is a new program.
+// The old page checkpoints the wasm loop's carried set to this server
+// immediately before that reload; the next document consumes it once.
+// A build that fails shows its errors in the page and the page keeps the last good build.
 // `host/web/dev.mjs --wasm` is the resident wasm loop (a plan restarts in
 // place in ~20 ms, state carried).
 import { spawn, spawnSync } from 'node:child_process';
@@ -24,6 +24,8 @@ import { generationFile, generationPath, servedFile } from '../web/generations.m
 import { besidePattern } from '../web/beside.mjs';
 import { cargoContractReads, changedContractReads, contractReadReceipt } from '../../scripts/web-build.mjs';
 import { webSourceRoots } from '../web/build.mjs';
+import { shaderWatchRoots } from '../../scripts/app.mjs';
+import { within } from '../../scripts/paths.mjs';
 import { localInstaller } from '../web/local-install.mjs';
 import { designPath, frameOnlyByTool, formaServer } from '../../scripts/forma-server.mjs';
 import { pluginOnLoopback } from '../../scripts/forma-remote.mjs';
@@ -33,6 +35,7 @@ import { serveCommands, serveReport, streamFrame } from '../../scripts/forma-bui
 import { EXE, depInfoOf, fresh, freshCompiler, webCompiler } from './module.mjs';
 import { RustMissing, fromSets, launch, rustMissing, toolEnv } from '../../scripts/tools.mjs';
 import { hostModuleSources } from './glue.mjs';
+import { engagement } from '../web/engagement.js';
 import { schemeHead } from '../web/look.mjs';
 import { INSPECT_EVENTS } from './inspect-dev.js';
 import { galleryLoop } from './dev-gallery.mjs';
@@ -40,7 +43,7 @@ import { inlineWhy as inlineWhyOf } from './dev-inline.mjs';
 import { DEV_STATUS_TYPE, FAILED, PHASE, gist } from '../web/dev-phase.mjs';
 import { startupBuilds, stopBuildTree } from '../web/dev-startup.mjs';
 import { fileURLToPath } from 'node:url';
-import { installedFileDependencies } from '../../scripts/file-dependencies.mjs';
+import { declaredSources, installedFileDependencies } from '../../scripts/file-dependencies.mjs';
 
 const CHECKPOINT_BYTES = 16 * 1024 * 1024, CHECKPOINTS = 8;
 
@@ -49,11 +52,15 @@ const root = resolve(fileURLToPath(new URL('../..', import.meta.url)));
 const skipped = new RegExp(String.raw`(^|\/)(target|dist|${besidePattern()}|node_modules|conformance)(\/|$)|(^|\/)\.|\.md$`);
 /** The files beside app.json a setting is read from (`import.meta.env`, LLP 1153 D4): inputs, though dot files. */
 const settingsFile = (name) => /^\.env(?:\.local)?$/.test(String(name));
-/** Whether `path` changed from `since` (ms) until now, by the entry's own times (lstat: a link replaced by one to an older
- * file is new, though its target is not): its modification, or its status change, which alone moves when an older file
- * is renamed over it. A time past now is a file dated ahead (an archive's, a clock's), which a build read as it is, so it is no change. Throws
- * for a path that is gone, which each caller reads its own way. */
-const changedSince = (path, since) => { const s = lstatSync(path), now = Date.now() + 1; return [s.mtimeMs, s.ctimeMs].some((t) => t >= since && t <= now); };
+/** Whether an entry or its link target changed from `since` (ms) until now.
+ * A replaced link counts even when its target is older. Status changes also
+ * catch an older file renamed over an input. Future timestamps do not prove an
+ * edit. A missing path throws; callers handle its absence. */
+const changedSince = (path, since) => {
+  const entry = lstatSync(path), now = Date.now() + 1;
+  const stats = entry.isSymbolicLink() ? [entry, statSync(path)] : [entry];
+  return stats.some(s => [s.mtimeMs, s.ctimeMs].some(t => t >= since && t <= now));
+};
 /** Whether a watcher's event for `path` is an edit since `since`: macOS reports a build's reads of a tree (the assets it
  * copies) as events too, and a path unchanged since then is none. A path that is gone is an edit. */
 const movedSince = (path, since) => { try { return changedSince(path, since); } catch { return true; } };
@@ -149,7 +156,7 @@ function build(app, dist, keep = () => false, compiler = null, superseded = null
       building = null;
       const packages = devPackages(stage);
       // Or a source it read moved since it began (a watcher's event can come
-      // after the build ends): its Contract sources (one gone is moved), and
+      // after the build ends): its compiler sources (one gone is moved), and
       // the design, app.ts, app.json, the backend's origin and the settings
       // files .env.local and .env (one come or gone is moved), by their times. Asked again just before it is
       // published or kept, after the work before that.
@@ -166,11 +173,13 @@ function build(app, dist, keep = () => false, compiler = null, superseded = null
       if (types) console.log(types);
       // What it said: its last 12 lines, or from the compiler's first error when those leave it out.
       const said = log.split('\n').filter((l) => l.trim() && !/^\s*(Compiling|Finished|Running|warning)/.test(l) && !compilerWarnings(l).length), first = said.findIndex(compilerError);
-      if (code !== 0) { rmSync(stage, { recursive: true, force: true }); return done({ packages, error: said.slice(first >= 0 ? Math.min(first, said.length - 12) : -12).join('\n') || `build exited ${code}` }); }
-      let cargo;
-      try { cargo = cargoContractReads(webSourceRoots(app, true), began); }
+      if (code !== 0) { rmSync(stage, { recursive: true, force: true }); return done({ packages, error: said.slice(first >= 0 ? Math.min(first, Math.max(0, said.length - 12)) : -12).join('\n') || `build exited ${code}` }); }
+      let cargo, roots;
+      try { roots = webSourceRoots(app, true); cargo = cargoContractReads(roots, began); }
       catch (error) { rmSync(stage, { recursive: true, force: true }); return done({ packages, error: error.message }); }
-      packages.sources = [...new Set([...packages.sources, ...Object.keys(cargo)])];
+      packages.roots = roots;
+      const files = roots.filter(root => root.file).map(root => root.file);
+      packages.sources = [...new Set([...packages.sources, ...files])];
       lastSources = packages.sources;
       if (changedContractReads(cargo).length) return setAside();
       const logic = readFileSync(resolve(stage, '.exact-dev-logic.json'), 'utf8').trim();
@@ -730,13 +739,21 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
     const design = m && (m[1] ?? m[2] ?? m[3]);
     return !!design && existsSync(resolve(dirname(path), design));
   };
+  const outputIsInput = (name) => {
+    const path = resolve(app.dir, name);
+    if (INPUT_TREE.test(name) || JSON.stringify(app.manifest ?? {}).includes(name)
+      || shaderWatchRoots(app).some(root => within(root, path))) return true;
+    for (let at = dirname(path); at !== app.dir && within(app.dir, at); at = dirname(at)) {
+      if (existsSync(resolve(at, 'Cargo.toml'))) return true;
+    }
+    return false;
+  };
   // A build reading a tree (the assets it copies) is reported too on macOS:
   // a path not modified since the last build started is no edit.
   const changed = (base, skip = skipped, fresh = true) => (_, name) => {
     if (stopping) return;
-    // A Contract source the compile read is an input even where the app's
-    // watcher skips (a dot directory).
-    if (name && skip.test(String(name)) && !contractInput(resolve(base, String(name)))
+    // A compiler input remains watched in dot directories and node_modules.
+    if (name && skip.test(String(name)) && !compilerInput(resolve(base, String(name)))
       && !(base === app.dir && (/^\.exact(?:[\\/]backend-origin)?$/.test(String(name)) || settingsFile(name)))) return;
     // `.exact/` is an input only for `backend-origin`: the loop's own design
     // server makes the directory for its lock, which is none. An event for
@@ -753,9 +770,8 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
     // `app.forma.tmp` and renames it over `app.forma`; its event can come
     // before or after the rename): never an input, whenever it comes.
     if (name && temporaryOfDesign(resolve(base, String(name)))) return;
-    // A screenshot, film, log or note written into the app folder, outside the input trees and not named by
-    // app.json, does not reload a page under a test (authoring bench).
-    if (base === app.dir && OUTPUT.test(String(name)) && !INPUT_TREE.test(String(name)) && !JSON.stringify(app.manifest ?? {}).includes(String(name))) return;
+    // Crates can include any extension; declared inputs and input trees also keep their output-looking files.
+    if (base === app.dir && OUTPUT.test(String(name)) && !outputIsInput(String(name))) return;
     // A package's events are all edits: a link replaced by one to an older
     // file is newer than nothing, and its target's time says nothing of it.
     if (fresh && name && !backendMoved && !movedSince(resolve(base, String(name)), since)) return;
@@ -789,13 +805,13 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
     const path = resolve(root, file);
     watchers.push(watch(path, changed(dirname(path))));
   }
-  // Each Contract package the app uses, wherever it is installed or linked.
+  // Compiler source trees and recorded files, wherever installed or linked.
   const packages = new Set();
-  const contractSources = new Set();
+  const compilerSources = new Set();
   // A source, or a directory holding one (its event names the directory).
-  const contractInput = path => contractSources.has(path) || [...contractSources].some(s => s.startsWith(path + '/') || s.startsWith(path + '\\'));
-  const watchPackages = ({ trees = [], shallow = [], sources = [] } = {}) => {
-    for (const source of sources) contractSources.add(source);
+  const compilerInput = path => compilerSources.has(path) || [...compilerSources].some(s => s.startsWith(path + '/') || s.startsWith(path + '\\'));
+  const watchPackages = ({ trees = [], shallow = [], sources = [], roots = [] } = {}) => {
+    for (const source of sources) compilerSources.add(source);
     for (const dir of trees) {
       if (packages.has(dir) || !existsSync(dir)) continue;
       packages.add(dir);
@@ -811,6 +827,28 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
       packages.add(key);
       watchers.push(watch(dir, (_, name) => { if (String(name) === entry) changed(dir, /^$/, false)(_, name); }));
     }
+    // Cargo reads can produce macOS notifications too. Its sources need a
+    // changed entry or link target, rather than every notification. An
+    // installed `file:` package is watched at its declared directory too,
+    // where its files are edited: an install of links reports none of that.
+    const watchCargo = (dir, at, file) => {
+      const key = `cargo:${at}:${file ?? ''}`;
+      if (packages.has(key) || !existsSync(at)) return;
+      packages.add(key);
+      const notify = changed(dir);
+      watchers.push(watch(at, { recursive: !file }, (event, name) => {
+        if (file && String(name) !== basename(file)) return;
+        const path = name == null ? dir : resolve(dir, String(name));
+        if (!compilerInput(path) && !existsSync(path)) return;
+        notify(event, name);
+      }));
+    };
+    const declared = declaredSources(app.dir);
+    for (const input of roots) {
+      const file = input.file, dir = file ? dirname(file) : input, source = declared(dir);
+      watchCargo(dir, dir, file);
+      if (source && source !== dir) watchCargo(dir, source, file);
+    }
   };
   watchPackages(built.packages);
   // The first build was served though a source moved during its last try:
@@ -825,13 +863,15 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
   // once a turn when the app's own commands move it.
   // A checkpoint the server refuses (403: a canvas below `write`, LLP 1121
   // stage 10 C) reloads afresh, so a reader still sees the new build.
+  // A reload waits while text composes, a pointer is down or a drag is under way, then takes the newest build
+  // (`replacementBoundary`).
   // A gallery page's (dev-gallery.mjs): its own stream, design and checkpoint routes, `page: 'gallery'`, no `navigate`.
-  const client = (n, revision, { base = '/__dev', stream = '/__dev/page', page = null } = {}) => `<script>(()=>{const fetch=globalThis.fetch.bind(globalThis),seq=${n},logicRevision=${JSON.stringify(revision)},es=new EventSource('${stream}');let o,reloading=false;
+  const client = (n, revision, { base = '/__dev', stream = '/__dev/page', page = null } = {}) => `<script>(()=>{const fetch=globalThis.fetch.bind(globalThis),seq=${n},logicRevision=${JSON.stringify(revision)},es=new EventSource('${stream}');let o,reloading=false,latest;const boundary=globalThis.__exactDevReplacement=(${replacementBoundary.toString()})(${engagement.toString()});Promise.resolve().then(()=>ready()).then(()=>globalThis.exact.replacementBoundary=boundary);
 const show=t=>{if(!t){o?.remove();o=null;return}o??=document.body.appendChild(Object.assign(document.createElement('pre'),{style:'position:fixed;left:0;right:0;bottom:0;margin:0;padding:12px;background:#300;color:#fdd;font:12px/1.4 ui-monospace,monospace;white-space:pre-wrap;z-index:2147483647',onclick:()=>show()}));o.textContent=t+'\\n(click to dismiss)'};
 const encode=v=>typeof v==='number'&&(!Number.isFinite(v)||Object.is(v,-0))?{$exactNumber:Object.is(v,-0)?'-0':String(v)}:Array.isArray(v)?v.map(encode):v;
 const children=e=>[...(e?.children??[])].flatMap(x=>x.hasAttribute('data-exact-list-item')?[...x.children]:[x]).filter(x=>x.hasAttribute('data-carry-type')||x.hasAttribute('data-listitemkey'));
-const capture=logic=>{const x=globalThis.exact,active=document.activeElement?.closest?.('[data-carry-type]');let focus=null;if(active){const path=[];for(let el=active,p;el&&el.id!=='exact-root';el=p){p=el.parentElement;if(p?.hasAttribute('data-exact-list-item'))p=p.parentElement;path.unshift(children(p).indexOf(el))}if(!path.includes(-1))focus={path,type:active.getAttribute('data-carry-type')}}return{time:x.clock.now,slots:[...x.state[0],...[...(globalThis.__exactDevPanels?.live??[])].filter(s=>!s.n.gone)].map(s=>[s.n.devName,s.n.devType,encode(s())]).concat(globalThis.__exactDevPanels?.left()??[]),answers:logic?[]:x.resources.filter(r=>!r.owned&&!r.failed&&!r.ticket&&!r.waiting&&!r.ov&&r.settled!==undefined).map(r=>[r.name,r.source,encode(r.settled),encode(r.value),r.devType,!!r.store]),carryAnswers:!logic,modes:ch.before?.mode??x.modes?.read()??null,focus}};
-const restored=document.querySelector('script[type="application/vnd.exact.dev-checkpoint"]'),q=new URLSearchParams(location.search),devKeys=new Set(['agent','seed','locale','formatLocale','timeZone','epoch','storage']),admission=q.has('agent')?[...q].filter(([k])=>devKeys.has(k)):null;
+const capture=logic=>{const x=globalThis.exact,active=document.activeElement?.closest?.('[data-carry-type]');let focus=null;if(active){const path=[];for(let el=active,p;el&&el.id!=='exact-root';el=p){p=el.parentElement;if(p?.hasAttribute('data-exact-list-item'))p=p.parentElement;path.unshift(children(p).indexOf(el))}if(!path.includes(-1))focus={path,type:active.getAttribute('data-carry-type')}}return{generation:x.clock.generation,epoch:x.clock.epoch,time:x.clock.now,slots:[...x.state[0],...[...(globalThis.__exactDevPanels?.live??[])].filter(s=>!s.n.gone)].map(s=>[s.n.devName,s.n.devType,encode(s())]).concat(globalThis.__exactDevPanels?.left()??[]),answers:logic?[]:x.resources.filter(r=>!r.owned&&!r.failed&&!r.ticket&&!r.waiting&&!r.ov&&r.settled!==undefined).map(r=>[r.name,r.source,encode(r.settled),encode(r.value),r.devType,!!r.store]),carryAnswers:!logic,modes:ch.before?.mode??x.modes?.read()??null,focus}};
+const restored=document.querySelector('script[type="application/vnd.exact.dev-checkpoint"]'),q=new URLSearchParams(location.search),devKeys=new Set(['agent','seed','locale','formatLocale','timeZone','epoch','storage']),admission=['','1'].includes(q.get('agent'))?[...q].filter(([k])=>devKeys.has(k)):null;
 if(restored){const restoredSeq=Number(restored.dataset.seq);console.info('exact dev reload: restored',restoredSeq);const t=setInterval(()=>{const b=document.getElementById('exact-root')?.dataset.bootMs;if(b!=null){clearInterval(t);Promise.resolve(globalThis.exact?.ready).then(()=>{console.info('exact dev reload: runtime up',restoredSeq);fetch('${base}/reloaded?seq='+restoredSeq+'&boot='+b+'&at='+Date.now(),{method:'POST'})})}},2)}
 const ready=()=>globalThis.exact?Promise.resolve(globalThis.exact.ready):new Promise(ok=>{const t=setInterval(()=>{if(globalThis.exact){clearInterval(t);Promise.resolve(globalThis.exact.ready).then(ok)}},2)});
 let liveQ=Promise.resolve(),liveStatus=null;const live=m=>{liveQ=liveQ.then(async()=>{const x=await ready().then(()=>globalThis.exact),was=x?.designDigest;let sc=m.scrub;const out=x?.design?.(m);if(out?.live==='stale'){const r=await fetch('${base}/design',{cache:'no-store'});if(r.status===200){const f=await r.json();sc=f.scrub;x.design(f)}}if(x?.designDigest!==was&&ch.nonce){clearTimeout(liveStatus);if(sc)liveStatus=setTimeout(status,150);else status()}}).catch(e=>console.error('exact dev:',e))};
@@ -844,7 +884,31 @@ const inspector=ready().then(()=>import('/__dev/inspect.js')).then(m=>{m.install
 let due=false;const moved=()=>{if(due||!ch.nonce)return;due=true;setTimeout(()=>{due=false;const b=facts();if(JSON.stringify(b)!==ch.told){ch.told=JSON.stringify(b);rep(b)}},0)},seen=new MutationObserver(moved);if(cp)ready().then(()=>{globalThis.exact.onAsked=moved});seen.observe(document.documentElement,{attributes:true,attributeFilter:['style','data-x-modes']});seen.observe(document.head,{childList:true,subtree:true,characterData:true});for(const k of['pushState','replaceState']){const w=history[k];history[k]=function(...a){const o=w.apply(this,a);moved();return o}}addEventListener('popstate',moved);addEventListener('hashchange',moved);
 const nav=m=>{liveQ=liveQ.then(async()=>{await ready();const mine=()=>m.stream===ch.nonce;if(!mine())return;const x=globalThis.exact,u=new URL(m.location,location.origin),to=u.pathname+u.search,no=d=>{if(mine())rep({kind:'unsupported',what:'navigate',detail:String(d).slice(0,1024),revision:m.seq})};if(u.origin!==location.origin||u.pathname.startsWith('//'))return no("the location is no path on this page's origin");const there=()=>history.state?.url===to||location.pathname+location.search===to,before=history.state?.url;try{if(!there()){const why=typeof x?.goTo==='function'?x.goTo(to):'this page has no router';if(why)return no(why)}for(let i=0;i<100&&!there()&&history.state?.url===before;i++)await new Promise(ok=>setTimeout(ok,10));if(mine()&&there()&&u.hash!==location.hash)history.replaceState(history.state,'',location.origin+location.pathname+location.search+u.hash)}catch(e){return no(String(e))}moved()}).catch(e=>console.error('exact dev:',e))};
 const pin=m=>{liveQ=liveQ.then(async()=>{await ready();const r=document.documentElement.style,p=m.pin,x=globalThis.exact,was=x.held;let rm=0;x.held=cp&&p?Object.fromEntries([['scheme',!!p.scheme],['rootFontSize',!!p.rootFontSize],...Object.keys(p.mode??{}).map(a=>['mode:'+a,true])]):null;ch.before??={fontSize:r.fontSize,hostFont:r.getPropertyValue('--exact-host-font-size'),mode:x?.modes?.read?.()??{}};const sh=document.getElementById('exact-dev-pin')??document.head.appendChild(Object.assign(document.createElement('style'),{id:'exact-dev-pin'}));const fx=document.querySelector('meta[name="color-scheme"]')?.content,sc=p?.scheme&&(cp||!['light','dark'].includes(fx))?p.scheme:null;sh.textContent=sc?':root{color-scheme:'+sc+(cp?'!important':'')+'}':'';if(cp)x.asked?.scheme?.apply();if((x.systemScheme??null)!==sc){x.systemScheme=sc;dispatchEvent(new Event('resize'))}r.removeProperty('font-size');if(cp&&p?.rootFontSize)r.setProperty('font-size',p.rootFontSize+'px','important');else r.fontSize=p?.rootFontSize?p.rootFontSize+'px':ch.before.fontSize;if(p?.rootFontSize)r.setProperty('--exact-host-font-size',r.fontSize);else if(ch.before.hostFont)r.setProperty('--exact-host-font-size',ch.before.hostFont);else r.removeProperty('--exact-host-font-size');const last=ch.pin?.mode??{},back=Object.fromEntries(Object.entries(ch.before.mode??{}).filter(([a])=>a in last&&!(a in(p?.mode??{}))&&!(cp&&x.asked?.['mode:'+a]))),mode=Object.entries(p?(cp?{...back,...(p.mode??{})}:{...ch.before.mode,...(p.mode??{})}):back);if(mode.length&&x?.modes?.set){const why=x.modes.set(mode);if(why){rm=1;rep({kind:'unsupported',what:'pin.mode',detail:why,revision:m.revision});if(!cp)x.modes.set(Object.entries(ch.before.mode));if(x.held){for(const k of Object.keys(x.held))if(k.startsWith('mode:'))delete x.held[k];for(const [k,on]of Object.entries(was??{}))if(on&&k.startsWith('mode:'))x.held[k]=true}}dispatchEvent(new Event('resize'))}if(p?.contrast)rep({kind:'unsupported',what:'pin.contrast',detail:"a web page cannot pin the browser's contrast",revision:m.revision});for(const [f,on]of Object.entries(was??{}))if(on&&!x.held?.[f])x.asked?.[f]?.apply();if(!p)ch.before=null;ch.pin=p?(cp&&rm?{...p,mode:last}:p):null;ch.revision=m.revision;status()}).catch(e=>console.error('exact dev:',e))};
-es.onmessage=e=>{const m=JSON.parse(e.data);if(m.kind==='forma-batch'||m.kind==='forma-snapshot'){live(m);return}if(m.kind==='pin'){pin(m);return}if(m.kind==='navigate'){m.stream=ch.nonce;nav(m);return}if(m.kind==='inspect'||m.kind==='outline'||m.kind==='hold'){m.stream=ch.nonce;inspector.then(i=>i.frame(m)).catch(e=>rep({kind:'unsupported',what:m.kind,detail:String(e)}));return}if(m.nonce&&m.nonce!==ch.nonce){const n=ch.nonce=m.nonce;ch.registered=ready().then(async()=>{const id=await bid,got=await post(n,{kind:'register',id,host:'web-js',capabilities:${page ? `['pin','inspect','copies','hold'],page:'${page}'` : "['pin','inspect','copies','hold','navigate']"},plan:null,planDigest:globalThis.exact?.plan??null,design:globalThis.exact?.designDigest??null}),ok=got.ok;if(!ok)console.warn('exact dev: the dev loop refused the register of this page ('+got.status+'), so no tool sees it');if(ok&&window!==parent)parent.postMessage({type:'exact-build',id},'*');return ok}).catch(e=>{console.warn('exact dev: this page could not register with the dev loop, so no tool sees it: '+e);return false});status()}if(m.error!==undefined)show(m.error);if(m.reload>seq&&!reloading){reloading=true;if(!globalThis.exact){location.reload();return}ready().then(async()=>{const checkpoint=capture(m.revision!==logicRevision),id=crypto.getRandomValues(new Uint32Array(4)).join('-');console.info('exact dev reload: checkpoint',m.reload);const saved=await fetch('${base}/checkpoint?id='+id+'&seq='+m.reload+'&revision='+encodeURIComponent(m.revision??''),{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(checkpoint)});if(saved.status===403){console.info('exact dev reload: no checkpoint at this scope; a fresh load');location.reload();return}if(!saved.ok)throw new Error('checkpoint handoff answered '+saved.status);const next=new URL(location.href);next.searchParams.set('__exactDev',id);if(admission)for(const [k,v]of admission)if(!next.searchParams.has(k))next.searchParams.set(k,v);location.replace(next.href)}).catch(e=>{reloading=false;console.error('exact dev reload: current page retained; checkpoint handoff failed',e)})}}})()</script>`;
+es.onmessage=e=>{const m=JSON.parse(e.data);if(m.reload>seq)latest=m;if(m.kind==='forma-batch'||m.kind==='forma-snapshot'){live(m);return}if(m.kind==='pin'){pin(m);return}if(m.kind==='navigate'){m.stream=ch.nonce;nav(m);return}if(m.kind==='inspect'||m.kind==='outline'||m.kind==='hold'){m.stream=ch.nonce;inspector.then(i=>i.frame(m)).catch(e=>rep({kind:'unsupported',what:m.kind,detail:String(e)}));return}if(m.nonce&&m.nonce!==ch.nonce){const n=ch.nonce=m.nonce;ch.registered=ready().then(async()=>{const id=await bid,got=await post(n,{kind:'register',id,host:'web-js',capabilities:${page ? `['pin','inspect','copies','hold'],page:'${page}'` : "['pin','inspect','copies','hold','navigate']"},plan:null,planDigest:globalThis.exact?.plan??null,design:globalThis.exact?.designDigest??null}),ok=got.ok;if(!ok)console.warn('exact dev: the dev loop refused the register of this page ('+got.status+'), so no tool sees it');if(ok&&window!==parent)parent.postMessage({type:'exact-build',id},'*');return ok}).catch(e=>{console.warn('exact dev: this page could not register with the dev loop, so no tool sees it: '+e);return false});status()}if(m.error!==undefined)show(m.error);if(m.reload>seq&&!reloading)reload()};
+// The back-forward cache kept this document: a reload its leaving abandoned runs now.
+addEventListener('pageshow',e=>{if(e.persisted&&latest&&!reloading)reload()});
+const reload=()=>{reloading=true;if(!globalThis.exact){location.reload();return}ready().then(async()=>{let m;
+// Clock ticks alone do not change the state handed to the new document.
+const stable=({time,...state})=>JSON.stringify(state);
+for(;;){
+  boundary.thaw();
+  const clear=boundary.wait();
+  if(boundary.pending)console.info('exact dev reload: held',boundary.pending);
+  if(!await clear){reloading=false;return}
+  boundary.freeze();
+  m=latest;
+  const logic=m.revision!==logicRevision,checkpoint=capture(logic),state=stable(checkpoint),id=crypto.getRandomValues(new Uint32Array(4)).join('-');
+  console.info('exact dev reload: checkpoint',m.reload);
+  const saved=await fetch('${base}/checkpoint?id='+id+'&seq='+m.reload+'&revision='+encodeURIComponent(m.revision??''),{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(checkpoint)});
+  // Input and builds can arrive during the handoff. Only a current checkpoint may leave this document.
+  if(boundary.reason||m!==latest||stable(capture(logic))!==state)continue;
+  if(saved.status===403){console.info('exact dev reload: no checkpoint at this scope; a fresh load');location.reload();return}
+  if(!saved.ok)throw new Error('checkpoint handoff answered '+saved.status);
+  const next=new URL(location.href);next.searchParams.set('__exactDev',id);
+  if(admission)for(const [k,v]of admission)if(!next.searchParams.has(k))next.searchParams.set(k,v);
+  location.replace(next.href);return;
+}
+}).catch(e=>{boundary.thaw();reloading=false;console.error('exact dev reload: current page retained; checkpoint handoff failed',e)})}})()</script>`;
   const checkpoints = new Map();
   /** A scrub's design: the compiler's, with its text in place of the design file's; written nowhere. */
   const scrubDesign = designOf;
@@ -1029,7 +1093,8 @@ es.onmessage=e=>{const m=JSON.parse(e.data);if(m.kind==='forma-batch'||m.kind===
       return res.end(bytes);
     }
     // Inspect mode's half in the page (LLP 1122 T2b, the JS target): the
-    // dev client loads it; it is in no build.
+    // dev client loads it; it is in no build. It may write inside the root,
+    // so every build reads it for what the sheet keeps (build.mjs `cutSheet`).
     if (url.pathname === '/__dev/inspect.js' && (req.method === 'GET' || req.method === 'HEAD')) {
       res.writeHead(200, { 'content-type': 'text/javascript; charset=utf-8', 'cache-control': 'no-store' });
       return res.end(req.method === 'HEAD' ? undefined : readFileSync(resolve(root, 'host/web-js/inspect-dev.js')));
@@ -1244,4 +1309,56 @@ es.onmessage=e=>{const m=JSON.parse(e.data);if(m.kind==='forma-batch'||m.kind===
   console.log('plan ready');
   listening = true; for (const line of held.splice(0)) console.log(line);
   await new Promise(() => {});
+}
+
+/** A reload commits between interactions (LLP 1029.000.002 D7, D9): it waits for whatever `engagement`
+ * (host/web/engagement.js, the wasm host's too) says the person holds. The new document keeps no field, so it
+ * always waits for a composition to end. Written into the dev page's script as source with `engagement`'s, so it
+ * names nothing else outside itself. */
+function replacementBoundary(engagement) {
+  let waiter = null, queued = false, frozen = false;
+  const commits = [];
+  const thaw = () => {
+    frozen = false;
+    for (const commit of commits.splice(0)) commit();
+  };
+  const channel = new MessageChannel();
+  const settle = () => {
+    if (waiter && !queued && !held()) {
+      queued = true;
+      channel.port2.postMessage(null);
+    }
+  };
+  // Before `engagement` hears it: a document that leaves drops what it deferred.
+  addEventListener('pagehide', () => {
+    commits.length = 0;
+    frozen = false;
+    waiter?.(false); waiter = null;
+  }, true);
+  // The person's input ends a checkpoint's freeze: what it changes is in the next one.
+  const held = engagement(e => { if (e) thaw(); settle(); });
+  channel.port1.onmessage = () => {
+    queued = false;
+    if (waiter && !held()) {
+      const resolve = waiter;
+      waiter = null;
+      resolve(true);
+    }
+  };
+  for (const type of ['input', 'change', 'keydown', 'click', 'wheel', 'focusin', 'focusout']) addEventListener(type, thaw, true);
+  return {
+    freeze() { frozen = true; },
+    thaw,
+    defer(commit) {
+      if (!frozen) return false;
+      commits.push(commit);
+      return true;
+    },
+    get pending() { return waiter ? held() : null; },
+    get reason() { return held(); },
+    wait() {
+      waiter?.(false);
+      return new Promise(resolve => { waiter = resolve; settle(); });
+    },
+  };
 }

@@ -2,7 +2,7 @@
 
 The Kotlin side of Android's Canvas host (LLP 1076 §3.3), in the repository by LLP 1115.001 D2 (Charlie, 2026-10-11).
 
-An app on Android is its Rust, built for `aarch64-linux-android` (`host/painted`: the runner, the kernel, layout, text
+An app on Android is its Rust, built for `aarch64-linux-android` or `x86_64-linux-android` (`host/painted`: the runner, the kernel, layout, text
 and the paint walk), and this. The Rust records what it paints as an op stream (`host/painted/src/canvas.rs`). The
 reader replays that stream onto Android's own Canvas: a `RenderNode` for each row, scroller and animated layer,
 hardware bitmaps for pictures, `drawGlyphs` for text the Rust has shaped (below Android 12, the glyphs' outlines:
@@ -20,7 +20,7 @@ one line in the log, `exact canvas: unknown op …; the frame stops here`.
 | `gradlew`, `gradle/` | the Gradle wrapper (9.8.0), committed. Its jar is Gradle's own (sha256 `238e777f…`, as services.gradle.org publishes it) and the distribution's sha256 is pinned in `gradle-wrapper.properties` |
 
 minSdk the app's manifest's `host.android.minimumOS` gives: 31 (Android 12) without one, 29 at `"10"` ("Android 10
-and 11", below). targetSdk 36, compileSdk 37.2, AGP 9.4.1, Kotlin 2.4.10, `arm64-v8a` only. Views, with no Compose,
+and 11", below). targetSdk 36, compileSdk 37.2, AGP 9.4.1, Kotlin 2.4.10, `arm64-v8a` by default. Views, with no Compose,
 AppCompat or Material library.
 
 An `iframe` with `sandbox`, including `sandbox=""`, is refused before a WebView is created or navigated. The log
@@ -66,8 +66,9 @@ transform or an ancestor's) use the live-subtree scale path instead: it draws th
 transform, where the raster would fly upright. The largest corner radius is
 used while flying. Reversal preserves position, not velocity.
 
-This supports in-page transitions. Separate native dialog panes, presentation
-zooms and the platform's edge-stretch deformation are not covered. The Android
+This supports in-page transitions. Separate native dialog panes and the
+platform's edge-stretch deformation are not covered. Route zooms use the
+stage's container transform (below). The Android
 reader and Rust recorder must be rebuilt together after a stream change.
 
 ### Build
@@ -85,6 +86,16 @@ and the build warns before Gradle starts. Set `JAVA_HOME` to a fixed JDK: 17.0.1
 The warning does not change JVM options or disappear when you set a JIT workaround. After Gradle fails, a matching
 `hs_err_pid*.log` in its working directory is named; check its date, since it may belong to an earlier run.
 
+`--abis x86_64` builds for an Intel emulator; `--abis arm64-v8a,x86_64`
+packages both architectures. The default remains `arm64-v8a`, including release
+builds. Install the selected Rust targets for the pinned toolchain first.
+Each ABI gets its own app library, GPU modules and sound arm, with 16 KB alignment.
+TypeScript apps need a Hermes bundle for each selected ABI. The pinned v6 release
+supplies Android arm64 only. Until an x86_64 bundle is published, set
+`HERMES_LEAN_SYS_DIR_x86_64_linux_android` to a complete x86_64 Android bundle.
+The resolver validates its receipt, ICU archives and filters, and bytecode version
+against the pinned host compiler. An arm64 or host bundle cannot substitute for it.
+
 The build:
 
 1. writes the app's launcher icon and TV banner, from its manifest's `icons` (LLP 1163 D6), as resources under
@@ -93,10 +104,10 @@ The build:
    slot refuses (smaller than the slot, or a glyph with no transparent pixels) fails the build here, before anything
    compiles; and the launch theme in its `background_color` and with its `host.android.launchImage`, where it names
    either, under `app/build/<app>/launch/res/` ([the launch window](#the-devices-colours-llp-1115001-d4));
-2. builds the app's `android/` crate for `aarch64-linux-android` at `host-dev` (`--release`: at `release` with fat
+2. builds the app's `android/` crate for each selected ABI (arm64 by default) at `host-dev` (`--release`: at `release` with fat
    LTO, as a production build links, for measuring). The crate is a cdylib whose source is `exact_painted::canvas_jni!(<the data source>, hatches =
    crate::exact_hatches())`, with a build script that bakes the plan and calls `contract::native::android_entry`,
-   which writes the app's hatches' install (`hatches.rs`) and the plan's uses (`uses.txt`) beside it; `apps/caltrain/android` is the one to copy for an app whose data is Rust and
+   which writes the app's hatches' install (`hatches.rs`), launch list (`launch.rs`) and the plan's uses (`uses.txt`) beside it. Each `app.json` `launch` module must provide `android/launch.rs`; the list runs once before the host boots, with the app's cache directory available. `apps/caltrain/android` is the one to copy for an app whose data is Rust and
    `apps/shelf/android` for one whose data is TypeScript (three files each, and a line in the root `Cargo.toml`'s
    `members`). A game's is generated in its `.shells/` (`game/app/shells.mjs`). An app with GPU modules (LLP 1009;
    every game) is built as a Linux bake is (`buildBake`): the modules first, then the crate, whose bake records each
@@ -104,7 +115,7 @@ The build:
    macOS, signed 64-bit Mach-O code omits the signature and normalizes its three size fields, matching
    the definition in `update/src/gpu.rs` through a parity-tested host copy; other files hash whole. Completed development receipts always
    bind the whole file. Both the process cache and Android's persistent cache distinguish these digests;
-3. copies the library to `app/build/<app>/rust/jniLibs/arm64-v8a/libexactcanvas.so`, the GPU module and each of
+3. copies the library to `app/build/<app>/rust/jniLibs/<abi>/libexactcanvas.so`, the GPU module and each of
    `gpu.modules` beside it under its own name, the app's `assets/` to `app/build/<app>/rust/assets/app/assets/`, and a GPU module's shaders
    (`gpu/shaders/*.wgsl`, as a Linux bake packs them) to `app/build/<app>/rust/assets/app/shaders/`, where the host
    registers them from before a canvas is made;
@@ -126,8 +137,9 @@ shell's build directory (`-PappBuildDir`), the reader's (`-PcanvasBuildDir`), Gr
 (`--project-cache-dir`) and Kotlin's session files, under `app/build/<app>`, `canvas/build/<app>`, `.gradle/apps/<app>`
 and `.kotlin/apps/<app>` for an app of this repository and under the app's own `target/android/` for one outside it, so
 builds of two apps at once do not wait on each other or mix outputs. The library is stripped with the NDK it was linked
-with (`-PndkPath`). Beside the APK, `exact-build.json` records when the build began, the library and the Kotlin it
-compiled: a drive refuses an APK older than its sources by it. `--install` then installs the APK on the device a drive
+with (`-PndkPath`). Beside the APK, `exact-build.json` records when the build began, the selected ABIs, every app library and the Kotlin it
+compiled: a drive checks every ABI’s inputs and refuses an APK older than its sources. Automatic verification rebuilds and
+suggested rebuild commands preserve those ABIs. `--install` then installs the APK on the device a drive
 would use (`--run`: and launches it). The package id and the label are the app's
 `app.json` (`host.android.id`, defaulting to `app.id` with `-` as `_`; `app.name`), which the build passes to
 Gradle as `-PapplicationId` and `-PappName`; the app module requires both. `--variant <name>` builds
@@ -345,6 +357,11 @@ Not built: a drive leaves the phone's night mode, font scale and locale as they 
 (`prefer` tells the app, not the phone); and a touch through Android's own input (`adb shell input`, or a
 `UiAutomation`) is still the only way to test what the reader does with a finger.
 
+The reader transfers the launch environment through JNI before booting Rust.
+This also reaches the library's libc on an emulator using ARM translation,
+where Android's `Os.setenv` can update a separate environment. Production builds
+ignore driver extras as before.
+
 ## Attaching a driver
 
 The reader drives nothing by itself. A benchmark, or a test, that scrolls and taps an app from outside subclasses the
@@ -487,8 +504,8 @@ Not built of D7:
   a scroller nested in a list's row, and the page itself are drawn inside their surroundings, so they move when
   exact2's paint arrives; the frame waits up to 2 ms for it, as it does for a drag's moves. They have no stretch at
   their ends either. Giving each a node needs the recorder to open a group inside a row's recording.
-- A sheet's part in the hand-off is a later stage. A hosted `EditText` takes part as a child of a ScrollView
-  does (below).
+- A sheet and its list do not transfer ownership during a contact ([Sheets](#sheets-and-route-motion-llp-1115001-d10-d12)).
+  A hosted `EditText` takes part as a child of a ScrollView does (below).
 - A mouse's wheel and a trackpad do not scroll (`onGenericMotionEvent`), and nothing scrolls for TalkBack.
 - A pressable under the finger shows its press at the down, not after the platform's tap delay, so a row may flash
   as a scroll starts.
@@ -539,6 +556,15 @@ blue) keeps its table pair.
 in `AccentColor` as reported, with `AccentColorText` drawn on it (a check, a switch's thumb, a filled button's title):
 the device's `primary` and `onPrimary`. The painter's own blue is desktop Linux's alone, where nothing is reported.
 The controls' shapes are still the desktop painter's (D9).
+
+**An icon button is Material's** (D9; `host/painted/src/paint/icon_button.rs`): a button holding a symbol and no
+title is a round 40 dp container round a 24 dp icon (the `icon-button-` rows, Compose Material 3 1.4's
+`SmallIconButtonTokens`), in a 48 dp touch target. Its `buttonStyle` picks which: unsaid or `plain` the standard
+`IconButton` (no container, in `onSurface`), `tinted` the `FilledTonalIconButton`, `filled` the
+`FilledIconButton`, any other said style the `OutlinedIconButton`. With an `aria-pressed` it is that button's toggle
+(`IconToggleButton` and the rest), in `IconButtonDefaults`' checked and unchecked colours. The oracle draws it
+beside Compose's as the `icon-button`, `icon-button-tonal`, `icon-button-outlined` and `icon-toggle-checked`
+specimens.
 
 **A press is Material's ripple** (D9; `host/painted/src/paint/ripple.rs`): on a button, a segment, a field that opens
 something, a checkbox and a radio (in the 40 dp circle round the mark, from its middle), a list's row and any other
@@ -608,7 +634,7 @@ capability has a call of its own.
 | 14 | whether a canvas receives pad input (LLP 1133.022 D4) | one word: 1 or 0 | observes controller buttons and joystick motion, consuming them only while 1; Android's fallback keys always pass through for navigation | none |
 | 15 | a GPU surface's haptic message (LLP 1009 D10) | the canvas's view id (a surface id is its module's, and two modules count from 1), then a string: the message's JSON as `exact_gpu::haptics` writes it (a texture's `intensity` and `sharpness`, its stop, or a pattern); exact2 sends a stop when the surface goes | `SurfaceHaptics`, on the vibrator ("Haptics", below); nothing while the activity is paused | none |
 | 16 | Contract sound operations | a JSON string: asset `files`, `reset`, monotonic `submitted` seconds and `ops` (play 1, end 2, change 4), each with a voice id and `at` in monotonic seconds; play has a sound index, gain, rate and pan, change has optional gain, rate and pan and a ramp in seconds | `SoundOutput` opens `libexact_sound.so` at the first play; AAudio runs the shared mixer against its speaker timestamp; the existing focus owner applies `audio_session` | none; under the driver, `state.sounds.output` remains `"agent"` |
-| 17 | open an auth session | three strings: the granted authorization URL, callback endpoint and state | opens the default browser, with a Custom Tab when supported; keeps a ten-minute wait across activity recreation | `opened` acknowledges the wait without settling; `unavailable` (501), `failed` (502), or `cancelled` (499 on return after a stop without a callback, at the bound, or with no attached activity); a callback with a matching state arrives through `Native.open` and the runner checks it; a stale callback consumes the return without ending the wait |
+| 17 | open an auth session | three strings: the granted authorization URL, callback endpoint and state | opens Auth Tab for HTTPS when the default browser supports it, otherwise a plain browser returning through a verified App Link; custom-scheme callbacks use a Custom Tab when supported; keeps a ten-minute wait across activity recreation | `opened` acknowledges the wait without settling; `unavailable` (501), `failed` (502), or `cancelled` (499 on an Auth Tab cancellation result, a return from another browser after a stop without a callback, the bound, or no attached activity); a callback with a matching state arrives through `Native.open` and the runner checks it; a stale callback consumes the return without ending the wait |
 | 18 | a file input's `showPicker` (LLP 1069.002) | the input node, `multiple` (1 or 0), the count of `accept` types, then each type as a string | the system photo picker when its filters fit and it is available, otherwise `ACTION_OPEN_DOCUMENT`; offers HEIC/HEIF for conversion as below and copies the selected URIs into the app's cache off the UI thread (`FilePicker`) | a JSON array of `{path, name, type, extension, extensions, converted, name_type}` records: staging path, display name, nullable MIME type and storage extension, the chooser's mapping of extension tokens to MIME types, whether conversion occurred, and Android's MIME for the display-name suffix. Null or an empty array cancels; other text is a refusal reason. The presenter copies into `app:/tmp/picked/`, removes the reader's copies, and fires `change` or journals the refusal and fires `cancel` |
 | 19 | end an auth wait | one word: the request id from kind 17 | removes the wait; the browser owns its tab | none |
 | 20 | a signed update activated with its own assets (LLP 1030.006 D1, D5) | the generation's asset directory as a string, empty for the APK's | opens every video and page again, and the next sound batch its files, under `Native.assetRoot()` (`AssetRoot`); calls `Native.drew()` after its next drawing, which makes the new generation's boot good | none |
@@ -766,6 +792,14 @@ to reserve its pan. A drag on an axis the enclosing page cannot scroll stays wit
 pointer before interception gives it the pinch and the rest of that sequence. A down stops a running fling and
 reaches the hosted view.
 Declining the down leaves the scroller's drag and velocity tracking intact, including when the down stopped a fling.
+A `modal` route's sheet takes an up-and-down drag from a hosted view as a parent intercepts one: Material's
+`BottomSheetBehavior` takes its drag in its `CoordinatorLayout`'s `onInterceptTouchEvent`, which a child's
+[requestDisallowInterceptTouchEvent](https://developer.android.com/reference/android/view/ViewParent#requestDisallowInterceptTouchEvent(boolean))
+forbids. Past touch slop the view gets `ACTION_CANCEL` and the sheet follows the finger, unless the view disallowed
+interception before the crossing move; then the drag is the view's and the sheet stays where it rests, whether or not
+it could move (`closedby="none"` with one detent). The hit reply marks that claim as the sheet's
+(`Presenter::reader_under`, bit 2 of the claims). The sheet decides once, at the crossing move: a view that passes
+`false` later in the sequence keeps the drag. A drag on an axis an Exact gesture claims is still that gesture's.
 A field keeps a selection drag if it disallowed interception before the crossing move; otherwise scrolling gets
 that move first.
 The reader holds events until the hit reply arrives and replays them in order, including subsequent taps; a long press
@@ -799,7 +833,9 @@ the foreground or leaves it, `preferred(values)` for the agent's values, and `re
 again, which is where it reads again what the person changed in Settings, since Android sends no event for it. Its
 `ExtensionContext` gives the application, the activity in front, `agent`, `now()` (the session's clock, the agent's
 under the agent), `label` (`main`, the same at every launch), `data`, `cache` and `temporary` (the directories behind
-`app:/data`, `app:/cache` and `app:/tmp`, the drive's store under the agent), `foreground`, `changed(topic)`, which asks the topic's readers again, `wake(event, args, id,
+`app:/data`, `app:/cache` and `app:/tmp`, the drive's store under the agent), `scratch` (whether they are a drive's
+store, which a drive that binds the package still has: what an implementation keeps outside them it keeps apart from
+the app's by this), `foreground`, `changed(topic)`, which asks the topic's readers again, `wake(event, args, id,
 ended)`, which raises one of the interface's wake events and hears its outcome (LLP 1133.017 D8; `woke(id, outcome)`
 too), and
 `requestPermissions(permissions, done)`: one platform request, answered by `onRequestPermissionsResult`, or by the
@@ -1216,9 +1252,13 @@ below the status bar (expo/exact#234).
 
 It slides up as it opens (350 ms, emphasized decelerate) and down as it leaves (200 ms, emphasized accelerate) from
 where it was, its last drawing kept for that (`paint/tape.rs`), so a sheet the app closes slides out too. A drag
-anywhere on it that no scroller of its own takes (its handle, a header, a form's rows) moves it once past the
-system's 8 dp slop, letting go of what the finger pressed; let go, it rests on the detent its speed carries it to,
-or leaves the window. A tap on the scrim dismisses it. Either dismissal closes the sheet whole, with any route
+on its handle, a header or a form's rows moves it once past the system's 8 dp slop, letting go of what the
+finger pressed. Over a vertical scroller, a sheet with several detents takes an upward drag below its tallest
+detent and a downward drag when the scroll chain is at its start and none hears `refresh`. A short or empty
+refreshing list keeps its pulls, as does a single-detent sheet's list. A horizontal drag retires the pending sheet
+drag. Let go and the sheet rests on the detent its speed carries it to, or leaves the window. A drag that began
+on a module view that disallowed interception is the view's
+("Pickers and hatches" above). A tap on the scrim dismisses it. Either dismissal closes the sheet whole, with any route
 pushed inside it: a root that hears `navigate` is sent to the location beneath the sheet, else Back goes once for
 each route it holds. `closedby="none"` keeps it: the scrim takes the tap and the sheet does not go below its
 lowest detent. System Back is the route's own (D6), so Back from a route pushed inside a sheet goes to the route
@@ -1237,6 +1277,25 @@ other side and fades in over the rest (`FastOutSlowIn`). The top app bar crosses
 in the page for the crossing. A popped route is drawn from its kept drawing. Under the agent a sheet and a crossing
 move on its clock: `clock settle` ends them.
 
+**A pushed or full-screen route with `navigationSource`** uses Material's container transform when the named
+source is visible in the route beneath. It picks the first matching `id` by node id, as the iOS zoom does, and
+uses the source's last painted rectangle, including scrolling and transforms. The route's whole box grows
+from that rectangle, fitted by width and clipped to the moving container's height, with corners rounding to
+16 dp at the source and content fading in over the first 30 %. The route beneath stays at rest. Back shrinks
+the kept drawing into the source, fading out over the last 30 %; it rechecks the source's current geometry
+and visibility, including rounded overflow clips. A missing, hidden, fully clipped or offscreen source uses
+the shared axis for a pushed route and a cut for a full-screen route, on both entrance and return.
+Reader-owned transform or opacity tracks on the source or an ancestor also take this fallback, since the
+stage cannot read their live samples. A full-screen entrance without a usable source keeps no drawing
+and offers no predictive Back preview. The source binding follows the live route, including changes and clearing it,
+and survives switching tabs until the route leaves its stack. A predictive
+Back's committed return starts at the preview's pose. Inside a sheet the shared axis stays; Remove animations
+cuts. This transforms the whole route rather than aligning to a matching image inside it as UIKit can.
+
+The timing follows Material's `MaterialContainerTransform`: `motionDurationMedium4` (400 ms) entering,
+`motionDurationMedium3` (350 ms) returning, and `motionEasingEmphasizedInterpolator` (the two-segment
+[Material 3 emphasized path](https://github.com/material-components/material-components-android/blob/master/lib/java/com/google/android/material/motion/res/values/tokens.xml)).
+
 **Predictive Back** (Android 14, `OnBackAnimationCallback`, `Native.backProgress`): the reader passes the gesture's
 start, progress and edge, and its cancel. Where Back would pop a route, the route shrinks toward 90 %, moves toward
 the side the swipe came from by a twentieth of the width less 8 dp and rounds its corners to 28 dp, the route it
@@ -1254,9 +1313,10 @@ inside a sheet and popped with Back, the keyboard raising a sheet, and a push an
 agent's clock. The callback registers as an animation callback (`CoreBackPreview`), but a swipe `adb` injects is not
 the system's Back gesture, so the preview itself was seen only in the presenter's tests.
 
-Not built: the hand-off between a sheet and a scroller in it (a list at its top dragged down moves the list's edge,
-not the sheet); a tab switch's fade-through; a `fullscreen` route's own entrance; a sheet's window of its own
-(the IME's insets move it by ending the page, as they move any page).
+Not built: continuous hand-off between a sheet and a scroller in it. Ownership stays fixed for each contact:
+after raising the sheet to its tallest detent, lift and swipe again to scroll the list. Also not built: a tab
+switch's fade-through; a `fullscreen` route's entrance without a visible `navigationSource`; a sheet's window of
+its own (the IME's insets move it by ending the page, as they move any page).
 
 ## The bars (LLP 1115.001 D11)
 
@@ -1389,12 +1449,14 @@ Not built of D11:
 - **The medium and large top app bars**, which collapse as the content scrolls (S3); the colour change as a
   transition; a centred title; an overflow menu for buttons that do not fit (they are all placed, and the title
   is cut first).
-- **The segmented buttons** for a `tablist` in the content, and for one in a header (it stays in the page, as the
-  search field does). A `radiogroup` of radios is built (`kernel/src/segmented.rs`, `paint/segment.rs`): Compose's
-  `SingleChoiceSegmentedButtonRow`, its numbers the schema's `segmented-button-` rows, seen through the presenter on
-  a Mac and not yet on a phone or beside the oracle's `segmented-buttons` specimen. Owed there: Compose's motion
-  (the label slides and the check grows as the choice moves; here both change at once).
-  **List items** and their dividers (rows as cells land on every host at once).
+- **Segmented-button qualification and motion.** Content and header `tablist`s, and `radiogroup`s, use
+  Compose's `SingleChoiceSegmentedButtonRow` treatment (`kernel/src/segmented.rs`, `host/painted/src/paint/segment.rs`).
+  A header's tablist stays in the page under the bar, as its search field does. Tabs keep their tab semantics
+  and `aria-selected`; root navigation tabs keep the navigation bar, and `appearance="none"` keeps authored paint.
+  Headless kernel and presenter tests cover the treatment. A phone run and comparison with the Material oracle's
+  `segmented-buttons` specimen remain owed, as does Compose's motion (the label slides and the check grows;
+  here both change at once).
+- **List items** and their dividers (rows as cells land on every host at once).
 - **A header's rich title**: the avatar, the subtitle and the tap on the title that iOS shows are not read here.
 - **`onSecondaryContainer`** for the selected symbol, badges, a navigation rail on a wide window, and hiding the
   navigation bar for a route pushed while the tablist is hidden (the bar follows the tablist's own `display`).

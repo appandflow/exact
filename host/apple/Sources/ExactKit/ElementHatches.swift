@@ -16,7 +16,7 @@ import AppKit
 import UIKit
 #endif
 
-final class ElementHatches {
+final class ElementHatches: ElementHatching {
     unowned let presenter: Presenter
     private struct Entry {
         let node: NodeView
@@ -36,9 +36,9 @@ final class ElementHatches {
     private var unhandledByPlan: Set<String> = []
     /// What hatches told the agent of what they made (HatchRegions.swift).
     lazy var regions = HatchRegions(presenter)
-    /// Hatched frames whose web view waits for the module's hatches, and
+    /// Hatched frames and videos waiting for the module's hatches, and
     /// nodes that heard `configuring` before their `built`.
-    private var waitingFrames: [UInt32: () -> NodeView?] = [:]
+    private var waiting: [UInt32: () -> NodeView?] = [:]
     private var configured: Set<UInt32> = []
 
     init(_ presenter: Presenter) { self.presenter = presenter }
@@ -69,7 +69,7 @@ final class ElementHatches {
 
     private func build(_ node: NodeView) {
         guard let known = nodes[node.id], known.node === node, !known.told, presenter.views[node.id] === node,
-              let natives = presenter.session?.natives, natives.hatchesConnected, let word = node.props["hatch"] else { return }
+              let natives = presenter.session?.nativeViews, natives.hatchesConnected, let word = node.props["hatch"] else { return }
         // A word the installed module was not built to handle is never
         // called (LLP 1075.003.000.001 §4.3): shown, journaled once, listed.
         if let handled = natives.handledHatches, !handled.contains(word) {
@@ -88,7 +88,7 @@ final class ElementHatches {
 
     /// A hatched node's props changed: its hatch hears new `data-*` words.
     func propsChanged(_ id: UInt32) {
-        presenter.session?.natives.rootPropsChanged(id)   // a root's words are the app hatch's (ScopeHatches.swift)
+        presenter.session?.nativeViews?.rootPropsChanged(id)   // a root's words are the app hatch's (ScopeHatches.swift)
         guard var entry = nodes[id], entry.node.props["dataset"] ?? "" != entry.data else { return }
         entry.data = entry.node.props["dataset"] ?? ""
         nodes[id] = entry
@@ -109,12 +109,12 @@ final class ElementHatches {
         say(word, node: node, inList: entry.inList, reusable: reusable)
     }
 
-    /// A hatched frame's arm is about to make its web view: its hatch hears
-    /// `configuring` with the `WKWebViewConfiguration` (LLP 1020.002 §9).
+    /// A frame's web view or a video's item is about to be made: its hatch
+    /// hears `configuring` synchronously, before construction (LLP 1133 D3).
     /// Within a batch or a held leaf's release, so the node may not be in
     /// `presenter.views` yet, nor have a superview.
     func configuring(_ node: NodeView, _ configuration: AnyObject) {
-        guard let word = node.props["hatch"], let natives = presenter.session?.natives, natives.hatchesConnected,
+        guard let word = node.props["hatch"], let natives = presenter.session?.nativeViews, natives.hatchesConnected,
               natives.handledHatches?.contains(word) != false else { return }
         let count = (calls[word]?[RouteHatchEvent.configuring.name] ?? 0) + 1
         calls[word, default: [:]][RouteHatchEvent.configuring.name] = count
@@ -122,22 +122,24 @@ final class ElementHatches {
         natives.elementHatch(node, event: RouteHatchEvent.configuring.rawValue, platform: configuration, quiet: count > 1 && Self.inList(node, presenter))
     }
 
-    /// Whether a hatched frame's web view waits: until the module's hatches
-    /// connect, so its hatch hears `configuring` before the first one, on a
+    /// Whether a hatched frame's web view or video's item waits for the module
+    /// to connect, so its hatch hears `configuring` before the first one, on a
     /// cold launch's first screen too. A word the module does not handle,
     /// or a module that will not connect, waits for nothing.
     func waits(_ node: NodeView) -> Bool {
-        guard let word = node.props["hatch"], presenter.session?.natives.hatchesMayConnect(word) == true else { return false }
-        waitingFrames[node.id] = { [weak node] in node }
+        guard let word = node.props["hatch"], presenter.session?.nativeViews?.hatchesMayConnect(word) == true else { return false }
+        waiting[node.id] = { [weak node] in node }
         return true
     }
 
-    /// The hatches connected, or never will: the waiting frames are made.
-    func releaseFrames() {
-        let waiting = waitingFrames
-        waitingFrames = [:]
+    /// The hatches connected, or never will: the waiting objects are made.
+    func releaseConfigurations() {
+        let waiting = waiting
+        self.waiting = [:]
         for id in waiting.keys.sorted() {
-            if let node = waiting[id]?(), presenter.views[id] === node { node.embedFrame(presenter) }
+            if let node = waiting[id]?(), presenter.views[id] === node {
+                if node.kind == "video" { node.video?.update() } else { node.embedFrame(presenter) }
+            }
         }
         // Outside a batch: a held frame outside a list's rows is made now, as
         // at a batch's end, not by the tick, which makes only the near ones.
@@ -157,7 +159,7 @@ final class ElementHatches {
     /// A node the batch destroys: its hatch hears `ended` while its view is
     /// still there.
     func destroyed(_ id: UInt32) {
-        waitingFrames[id] = nil
+        waiting[id] = nil
         // Configured and not yet built: its element ends too.
         guard let entry = nodes.removeValue(forKey: id), configured.remove(id) != nil || entry.told else { return }
         call(.ended, entry)
@@ -167,16 +169,16 @@ final class ElementHatches {
     func reset() {
         for id in nodes.keys.sorted() { destroyed(id) }
         nodes = [:]
-        waitingFrames = [:]
+        waiting = [:]
         configured = []
         regions.reset()
         // The window and the app end with them, and are built again after a reload (ScopeHatches.swift).
-        presenter.session?.natives.scopesReset()
+        presenter.session?.nativeViews?.scopesReset()
     }
 
     /// The module connected after these were built (LLP 1075.003 Q3 (c)).
     func replay() {
-        releaseFrames()
+        releaseConfigurations()
         for id in nodes.keys.sorted() { if let entry = nodes[id], !entry.told { build(entry.node) } }
     }
 
@@ -191,8 +193,8 @@ final class ElementHatches {
         // counts the rest, so a fling does not flood the journal.
         let quiet = entry.inList && (calls[word]?[event.name] ?? 0) > 1
         // A development build notices a recognizer the call added and did not declare (§3.4).
-        let had = HatchDiagnostics.measuring && event != .ended ? regions.recognizers(under: entry.node) : nil
-        let reusable = presenter.session?.natives.elementHatch(entry.node, event: event.rawValue, platform: Self.platform(of: entry.node, presenter), quiet: quiet) ?? false
+        let had = HatchDiagnosticsLink.measuring && event != .ended ? regions.recognizers(under: entry.node) : nil
+        let reusable = presenter.session?.nativeViews?.elementHatch(entry.node, event: event.rawValue, platform: Self.platform(of: entry.node, presenter), quiet: quiet) ?? false
         if let had { regions.undeclared(under: entry.node, by: "element \(word)") { had.contains(ObjectIdentifier($0)) } }
         // A frame's arm says what the call changed of what it owns (LLP 1020.002 §9).
         if entry.node.kind == "iframe", event != .ended { presenter.session?.webviews.hatched(id) }
@@ -250,7 +252,7 @@ final class ElementHatches {
     /// `state.hatches`: under `words`, per word, how many are live, what they
     /// gave up, and the calls so far (LLP 1075.003.000.001 §3.3: words are
     /// apart from the reply's other fields, so no word can be taken for one).
-    func observation(_ diagnostics: HatchDiagnostics?) -> [String: Any] {
+    func observation(_ diagnostics: (any HatchDiagnosing)?) -> [String: Any] {
         var live: [String: Int] = [:], reused: [String: Int] = [:]
         for entry in nodes.values {
             let word = entry.node.props["hatch"] ?? ""
@@ -268,7 +270,7 @@ final class ElementHatches {
         }
         // What each hatch counted and published, and the other scopes (HatchDiagnostics.swift).
         var reply = diagnostics?.state(words: out) ?? ["words": out]
-        if let handled = presenter.session?.natives.handledHatches { reply["platform"] = handled.sorted() }
+        if let handled = presenter.session?.nativeViews?.handledHatches { reply["platform"] = handled.sorted() }
         reply["unhandled"] = unhandledByPlan.sorted().map { ["word": $0, "reason": "plan"] } + unhandled.sorted().map { ["word": $0, "reason": "module"] }
         reply["refused"] = refused
         reply["inFlight"] = inFlight
@@ -303,12 +305,13 @@ final class ElementHatches {
 
     /// The platform object of the node's kind, or nil: a text field or view,
     /// a control (a switch, slider, date picker…), an iframe's `WKWebView` or
-    /// a local PDF's `PDFView` (LLP 1020.002 §9), a scroll view.
+    /// a local PDF's `PDFView` (LLP 1020.002 §9), a video's `AVPlayer`, a scroll view.
     static func platform(of node: NodeView, _ presenter: Presenter) -> AnyObject? {
+        if node.kind == "video" { return node.video?.platform }
         #if os(iOS) || os(tvOS)
-        node.field ?? node.textArea ?? presenter.controls.controls[node.id] ?? presenter.segments.control(of: node.id) ?? node.web ?? node.scrollView
+        return node.field ?? node.textArea ?? presenter.controls.controls[node.id] ?? presenter.segments.control(of: node.id) ?? node.web ?? node.scrollView
         #else
-        node.field ?? node.textArea ?? presenter.controls.controls[node.id] ?? presenter.segments.control(of: node.id) ?? node.web ?? node.scroll
+        return node.field ?? node.textArea ?? presenter.controls.controls[node.id] ?? presenter.segments.control(of: node.id) ?? node.web ?? node.scroll
         #endif
     }
 
@@ -323,7 +326,12 @@ final class ElementHatches {
     /// when refused.
     @discardableResult
     func later(_ id: UInt32, _ name: String, bytes: Int = 0, _ work: @escaping () -> Void) -> Bool {
-        let what = presenter.views[id]?.props["hatch"].map { "element \($0) #\(id)" } ?? "node #\(id)"
+        later(presenter.views[id]?.props["hatch"].map { "element \($0) #\(id)" } ?? "node #\(id)", name, bytes: bytes, work)
+    }
+
+    /// The same, for an act the journal names by `what` rather than by a node.
+    @discardableResult
+    func later(_ what: String, _ name: String, bytes: Int = 0, _ work: @escaping () -> Void) -> Bool {
         guard queue.count < Self.maxQueued, queuedBytes + bytes <= Self.maxBytes else {
             refused += 1
             presenter.session?.log("hatch \(what): \(name) refused: the act queue is full")
@@ -456,14 +464,18 @@ final class ElementHatches {
     }
 }
 
-extension NodeView {
-    /// An iframe's web view, made once the node has its props: the arm then
-    /// builds it with the frame's `partition`, and a hatched frame's moment
-    /// before construction has the node's word and `data-*`. A hatched one
-    /// waits for the module's hatches (LLP 1020.002 §9).
-    func embedFrame(_ presenter: Presenter) {
-        guard kind == "iframe", !presenter.elements.waits(self) else { return }
-        presenter.leaves.embed(self)
-        updateEmbedded()
-    }
+extension ElementHatches {
+    func decorateRegions(_ tree: [String: Any]) -> [String: Any] { regions.decorate(tree) }
+    func regionOwner(of view: PlatformView) -> String? { regions.owner(of: view) }
+    func regionPart(owning object: AnyObject) -> String? { regions.part(owning: object) }
+    func regionPart(_ id: String, of node: UInt32) -> PlatformView? { regions.part(id, of: node)?.1 }
+    func regionCoverage(joined: Set<String>) -> [[String: Any]] { regions.coverage(joined: joined) }
+}
+
+// The family's own code reaches its objects through the core's holders.
+extension Presenter {
+    var hatchElements: ElementHatches? { elements as? ElementHatches }
+}
+extension ExactSession {
+    var nativeViews: NativeViews? { natives as? NativeViews }
 }

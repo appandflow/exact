@@ -838,6 +838,21 @@ test('D6 GPU modules bake beside the primary and each surface has one owner', as
   } finally { rmSync(dir, {recursive:true, force:true}); }
 });
 
+test('a package supplies a GPU module without an app GPU crate', async () => {
+  const { gpuModules, readManifest } = await import('./app.mjs');
+  const dir = mkdtempSync(resolve(import.meta.dir, '../target/package-gpu-'));
+  const pkg = resolve(dir, 'node_modules/@fixture/sky');
+  try {
+    mkdirSync(pkg, { recursive: true });
+    writeFileSync(resolve(dir, 'package.json'), JSON.stringify({ dependencies: { '@fixture/sky': '1.0.0' } }));
+    writeFileSync(resolve(pkg, 'package.json'), JSON.stringify({ exports: { '.': './exact.json' } }));
+    writeFileSync(resolve(pkg, 'exact.json'), JSON.stringify({ kind: 'interface', name: '@fixture/sky', version: '1.0.0',
+      gpu: { crate: 'rust', exactGpu: '0.4', surfaces: { sky: { arity: 1, factory: 'sky::surface' } } } }));
+    const modules = gpuModules(readManifest(dir, 'sky'));
+    assert.deepEqual(modules.map(({ name, surfaces }) => ({ name, surfaces })), [{ name: 'fixture-sky', surfaces: ['sky'] }]);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
 test('declared shader packs merge, reject duplicates and links, and preserve a rejected live candidate', async () => {
   const { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, symlinkSync } = await import('node:fs');
   const { resolve } = await import('node:path');
@@ -1339,8 +1354,8 @@ test('game web, release and unwired gpu-dev bakes never open registry generation
       const dir=${JSON.stringify(dir)};
       for(const [platform,profile,target] of [['web','web','wasm32-unknown-unknown'],['linux','release',${JSON.stringify(bakeTarget('linux'))}],['linux','gpu-dev',${JSON.stringify(bakeTarget('linux'))}]]) {
         const name='fixture-'+platform;
-        const host={id:name,name,targets:[{kind:[platform==='web'?'cdylib':'bin'],name:'fixture'}]};
-        const gpu={id:'fixture-gpu',name:'fixture-gpu',targets:[{kind:['cdylib'],name:'surface'}]};
+        const host={id:name,name,manifest_path:dir+'/host/Cargo.toml',targets:[{kind:[platform==='web'?'cdylib':'bin'],name:'fixture'}]};
+        const gpu={id:'fixture-gpu',name:'fixture-gpu',manifest_path:dir+'/gpu/Cargo.toml',targets:[{kind:['cdylib'],name:'surface'}]};
         const metadata={workspace_root:dir,packages:[host,gpu],resolve:{nodes:[{id:host.id,deps:[]},{id:gpu.id,deps:[]}]}};
         const app={dir,workspace:dir,target:dir+'/target',hasGpu:true,manifest:{app:{id:'fixture'},rust:false,game:{}},crate:kind=>'fixture-'+kind,prepare:()=>metadata};
         const before=builds.length;

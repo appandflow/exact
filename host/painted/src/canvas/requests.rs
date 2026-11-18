@@ -19,6 +19,15 @@ impl<D: DataSource + Default> CanvasHost<D> {
     /// The reader calls this after every turn of the host, which is where
     /// the journal is written out when asked for (`canvas/journal.rs`).
     pub fn requests(&mut self) -> Option<Vec<i32>> {
+        if !self.launch.done() {
+            if !self.p.module_pending() {
+                self.launch.activated();
+            }
+            self.launch.turn(&crate::launch_marks::items(
+                &self.p.host().runner().outstanding(),
+            ));
+        }
+        self.launch.record_done();
         self.echo_journal();
         if self.p.host.sound.ready() {
             let files = self
@@ -59,14 +68,7 @@ impl<D: DataSource + Default> CanvasHost<D> {
     /// between turns: its answer, -1 when refused. A view hosted or let go
     /// paints again.
     pub fn hatch_act(&mut self, node: u32, kind: i32, text: Option<&str>) -> i64 {
-        let answer = crate::hatches::reader::act(node, kind, text);
-        if answer >= 0 {
-            self.p.hatch_turn();
-            if matches!(kind, 13 | 14) {
-                self.p.hatch_views_changed();
-            }
-        }
-        answer
+        self.p.reader_hatch_act(node, kind, text)
     }
 
     /// An app module's event, only for the session and allocation whose view the reader still holds.
@@ -131,6 +133,17 @@ impl<D: DataSource + Default> CanvasHost<D> {
     /// from Activity and promoted service ownership. Release gated streams before returning.
     pub fn page_hidden(&mut self, hidden: bool, eligible: bool) {
         self.force |= self.p.page_execution(hidden, eligible);
+    }
+
+    /// Whether the data module is active (`Native.dataActive`): 1, 0 while
+    /// its image loads, -1 when it failed to activate. With `unshown`, a
+    /// host no reader takes a frame from activates it now (LLP 1133.017 D7).
+    pub fn data_active(&mut self, unshown: bool) -> i32 {
+        if unshown {
+            self.p.activate_unshown();
+            self.force = true;
+        }
+        self.p.data_state()
     }
 
     /// The reader drew a frame (`Native.drew`): whether it should say so

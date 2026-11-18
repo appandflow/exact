@@ -45,8 +45,11 @@ same set. On a CI worker, `bun <exact2>/scripts/exact.mjs setup --check
 --platform ios --device` checks the archive's prerequisites; `--platform
 android` checks the APK/AAB prerequisites, including JDK 17+ and the NDK's
 actual compiler paths. A scoped check fails when a prerequisite is missing
-and does not check unrelated web tools. Native `--platform` scopes are check-only;
-install commands are in the platform's CI recipe. `setup --platform web` installs
+and does not check unrelated web tools. Run from an app's directory, a check
+requires a Hermes bundle only when the app links Hermes, as that platform's build
+decides: iOS by `app.ts`, Android, macOS and Linux by the cargo graph of the app's
+crate. Elsewhere it reports the bundles as needed for TypeScript apps.
+Native `--platform` scopes are check-only; install commands are in the platform's CI recipe. `setup --platform web` installs
 [web prerequisites](#web-ci-preparation). The general check still reports
 optional tools separately (LLP 1086 D6).
 
@@ -124,7 +127,7 @@ The driver imports wasm-bindgen glue (`snapback4/ts/generated/`, never
 committed). The bake of an app that mounts the driver writes it with
 `snapback4/web/build.mjs`, which builds only when the inputs recorded in the
 glue's header have changed, and needs the `wasm32-unknown-unknown` target and
-`wasm-bindgen` 0.2.127 (`cargo install wasm-bindgen-cli --version 0.2.127`).
+`wasm-bindgen` 0.2.130 (`cargo install wasm-bindgen-cli --version 0.2.130`).
 
 The canonical [Messages](../apps/messages/README.md) app is the Exact port of Expo's
 chat demo, with model conversations through a local OpenRouter service. It belongs
@@ -344,7 +347,9 @@ the plan, so this is not an original-source revision guarantee.
 
 `fmt --stdout` previews source-preserving formatting; `--check` prints a diff
 and exits nonzero when formatting differs. Plain `fmt <file>` writes the result
-explicitly. Formatting never runs automatically on save.
+explicitly. `fmt --stdin <file>` formats stdin's text to stdout, an editor's
+unsaved buffer: the file names the text and is not read. Formatting never runs
+automatically on save.
 
 ## Contract evaluation limits
 
@@ -679,9 +684,10 @@ the installed app is one declaration in Web App Manifest vocabulary:
 `handle_links: "preferred"` claims `app.origin` narrowed to `scope` (absent:
 `start_url`'s directory, `/` for most apps) and each `scope_extensions` origin
 whole. `"auto"` (what an absent member means) and `"not-preferred"` claim
-nothing natively. Exact's own paths under `/.exact/` (the web's sign-in
-callback page) and an https `auth.callback` on a claimed origin are never
-claimed, so a sign-in that returns there in a browser stays in the browser.
+nothing natively. These navigation claims exclude Exact's own paths under
+`/.exact/` and HTTPS auth callbacks. Android registers a separate exact-path
+App Link for a native `auth.callback`, so a browser without Auth Tab can return
+to the app. The web popup's `/.exact/auth/callback` stays in the browser.
 A link that opens the app arrives as any incoming URL does: its path is the
 launch location, or one `navigate` event while the app runs.
 
@@ -697,8 +703,10 @@ The web build (either target) writes `app.origin`'s files into the build:
 `/.well-known/apple-app-site-association`, whose `applinks` `components`
 exclude `/.exact/*` and each callback path before `<scope>*`, and
 `/.well-known/assetlinks.json` with a `delegate_permission/common.handle_all_urls`
-statement beside any passkeys' `get_login_creds` (the JS target writes no
-credential entries). They need `host.ios.team` and `host.android.certificates`;
+statement beside any passkeys' `get_login_creds`. A JavaScript build without a
+bake writes `webcredentials` for an HTTPS auth callback on `app.origin`, but no
+passkey `get_login_creds`. A production JavaScript build that copies a bake keeps
+the bake's credential entries. The files need `host.ios.team` and `host.android.certificates`;
 the build line names a missing one. For every other origin a claim names, the
 build prints the files it must serve, including each extension origin's
 `/.well-known/web-app-origin-association`, keyed by the manifest's processed
@@ -1018,6 +1026,10 @@ companion inside the iOS bundle. `--watchos --run --sim <iPhone udid>
 A device build of the iPhone app (`--device`, `--archive`, `--unsigned`) embeds
 the watch app in its `Watch/` folder, built for arm64 from watchOS 26: it runs
 on Series 9 and later and Ultra 2 and later (LLP 1126.002 D7).
+In development, install the watch app directly with
+`xcrun devicectl device install app --device <watch-udid> <watch-app-path>`,
+using the watch app bundle inside the iPhone app's `Watch/` folder.
+Installing the iPhone app may not install its watch companion.
 `--extensions` without `watch` leaves it out. Signed, the watch app and its
 complications each embed a profile of the iPhone app's team, App ID prefix and
 method, for `<id>.watchkitapp` and `<id>.watchkitapp.widgets`, each granting the
@@ -1036,8 +1048,65 @@ module sources. The watch bake refuses a TypeScript dependency by name until
 the watch Hermes gate passes (LLP 1126.001 §5 Q3); a mixed bake declares its
 Rust ownership through `build_mixed_with`'s source list. Such an app's complications are still omitted
 with a message, including its Rust refreshes. Rust-only apps' complications
-refresh against the watch's own App Group and store. No account transfer is
-performed.
+refresh against the watch's own App Group and store.
+
+Select phone-owned values explicitly in `watch.sync`:
+
+```json
+"watch": {
+  "source": "watch.contract", "component": "Watch",
+  "sync": { "state": ["liked"], "secrets": ["totp.entries"] }
+}
+```
+
+State names must be root `persist` states with matching types in both entries.
+Watch actions cannot assign them. Secrets require ordinary `secret.keep` grants;
+presence policies, including optional ones, are refused. Watch data sources and complication processes cannot
+write selected secrets or persisted states. Files, databases and kept resource answers do not transfer.
+Changing the selection, or a selected state's type, requires a new binary. The watch rechecks a retained context
+when its selection grows or shrinks, even at an already accepted revision. Removing a selection deletes only
+previously imported names after accepting a snapshot under the new selection.
+Removing the entire selection retires its state replicas the next time the watch app or
+a complication runs, and its secrets the next time the watch app runs, even if the app no
+longer uses storage or WatchConnectivity. Only the app reaches their Keychain group by then.
+
+Open the watch app once to create its device-local Keychain key and send its
+public key to the phone. The phone uses CryptoKit HPKE to seal the secrets before
+placing them in WatchConnectivity's retained application context. State stays
+plaintext; secret plaintext never enters that context. The watch imports secrets
+into its Keychain with `AfterFirstUnlockThisDeviceOnly` accessibility. Reinstalling
+the watch app generates a new key; a replacement pairing needs the new watch to
+run and announce its key. Old encrypted contexts cannot initialize that watch.
+
+The phone sends a complete snapshot at first pixel, after each durable change
+(a session's write, or a launch function's `set_secret` or `forget_secret`) and
+when a watch announces its key. Apple schedules delivery, so submission is not
+acknowledgement and intermediate values may be skipped. A send WatchConnectivity
+refuses is tried again while the app runs, after 1 s and then at doubling waits
+up to 32 s, and at each foreground. A snapshot whose application context would
+exceed 60,000 bytes is not sent: the session log says so once, the watch keeps
+its last copy, and the next change that fits is sent. A snapshot's revision is
+spent only when WatchConnectivity takes it.
+
+At launch the watch opens readers on its last applied store without waiting for
+WatchConnectivity activation, so stored state and secrets are available offline
+at once. With no stored copy, readers see the app's initial state. When activation
+completes, the watch imports the retained context and refreshes the live session;
+a context for an old key or schema leaves the last applied store unchanged.
+An unfinished import keeps new readers closed. The watch app tries a failed
+import again while it is active, at the same waits, at each foreground and at
+each later delivery, without restarting. A phone edit, deletion or logout
+reaches it only after delivery and successful import.
+A watch already holding a TOTP seed can keep generating codes until that seed is
+replaced at the service; local logout does not revoke that copy remotely.
+Imports and replica retirement invalidate cached complication timelines and request
+a reload. A complication's refresh waits up to 100 ms for an import that overlaps
+its store read. If the import is still unfinished the refresh is refused without
+asking its source, and the import's end reloads the timeline. An app that selects nothing links
+no WatchConnectivity session or replication crypto path.
+
+See Apple's [application context](https://developer.apple.com/documentation/watchconnectivity/wcsession/updateapplicationcontext(_:))
+and [HPKE](https://developer.apple.com/documentation/cryptokit/hpke) documentation.
 For `accessoryInline`, emit exactly one `text` or `time` leaf plus at most one
 optional image. Only that leaf and image survive the inline archive; a
 container's background and layout do not. The bake evaluates the preview at
@@ -1119,13 +1188,51 @@ Each platform selects independently; tvOS keeps its asset catalogs and does
 not inherit the iOS selection. There is no `.icon` discovery. The selected
 project must be inside the app and cannot coexist with a primary
 `AppIcon.appiconset`, or a set with the project's name, in that platform's
-catalogs. On iOS, other `.appiconset` sets in the catalogs compile as alternate
-icons, also with a raster primary. Pass the set's basename, without the extension,
-to `UIApplication.setAlternateIconName`; `nil` restores the primary. Missing paths
-and paths that are not `.icon` directories fail by name. The project and its
-layers compile in the same `actool` pass as the app's catalogs; changing them
-requires a new native build. `icons` still supplies the web and the native
-raster fallback when the platform has no `icon` selection.
+catalogs. Missing paths and paths that are not `.icon` directories fail by name.
+The project and its layers compile in the same `actool` pass as the app's
+catalogs; changing them requires a new native build. `icons` still supplies the
+web and the native raster fallback when the platform has no `icon` selection.
+
+An app may ship icons the person chooses for the Home Screen instead
+(LLP 1163.000). `alternate_icons` in `app.json` lists them in the order a
+picker shows them, each a `name` (ASCII letters and digits, starting with a
+letter, at most 32, unique regardless of case) and the icons it is made from,
+written and picked as the app's own are: `icons` with at least one square `any`
+or `maskable`, `color_scheme_dark.icons`, a `monochrome` glyph for the tinted
+icon. iOS and iPadOS build each one: from its own `host.ios.icon` project, else
+an `.appiconset` of its name in the app's catalogs, else its icons. It is the
+only roster: a catalog `.appiconset` that no entry names, other than the
+primary's, is refused, as is a name that is `AppIcon`, the primary project's
+or another asset's in the catalogs. Alternates need a primary. The names are in
+the iOS compatibility id, so adding, removing, renaming or reordering one needs
+a new binary; other hosts build none. `@exact/app-icon` reads the choice and
+asks for another:
+
+```
+use appIcon, setAppIcon, AppIconStatus from "@exact/app-icon"
+
+  resource shown = appIcon() as shape AppIconStatus else empty()
+  mutation chosen as shape AppIconStatus refreshes shown
+  action pick(name: string)
+    send chosen = setAppIcon(icon=name)
+  action pickPrimary
+    send chosen = setAppIcon()
+```
+
+`appIcon()` answers `available` (the platform switches icons, and the binary
+ships an alternate or one still shows), `icon` (the alternate shown, `none` for
+the primary; it may name one an update removed) and `icons` (the roster when
+available). `setAppIcon(icon=)` is a request: call it only from the action a
+person's choice runs, never from a timer, a resource's answer or launch, since
+iOS shows its own alert for each change and the runner does not enforce this.
+The icon already shown answers at once with no alert, and `setAppIcon()`, with
+no icon, always restores the primary. It refuses `NotAllowedError` (`person-required` from a tool or a
+wake, or the app not in the foreground), `NotSupportedError` where `available`
+is false (every target but iOS and iPadOS), `NotFoundError` for a name the
+binary does not ship, and `UnknownError` with `apple: {domain, code}` when iOS
+refuses. Under the agent the roster is the word `app-icon.icons` (`prefer`),
+and each change holds an `app-icon` ticket standing for iOS's alert
+(`docs/recipes/alternate-app-icons.md`).
 
 What shows before the first frame is `app.json`'s Web App Manifest
 `background_color`, and in a dark scheme `color_scheme_dark.background_color`
@@ -1308,6 +1415,66 @@ receipt, and signed GPU frameworks (primary and named modules). Copy those
 frameworks intact into the embedding app's `Frameworks/`; their binaries must
 retain the baked digests.
 
+### Optional Apple host products
+
+An external Swift host links `ExactKit` plus each capability product its plans
+use, then calls that product's public `install()` before creating sessions.
+The generated `--embed` composition lists the capabilities to link.
+
+| Product | Capability | Installation |
+| --- | --- | --- |
+| `ExactMarkdown` | Markdown text and editing | `ExactMarkdown.install()` |
+| `ExactCollections` | Windowed lists, swipe rows, reorder groups and iOS list row cells | `ExactCollections.install()` |
+| `ExactDrag` | Reorder, height and transform drags | `ExactDrag.install()` |
+| `ExactGroupedLists` | Native grouped lists | `ExactGroupedLists.install()` |
+| `ExactSurfaces` | GPU and Canvas surfaces | `ExactSurfaces.install()`; links `ExactImages`, which Canvas 2D images read through |
+| `ExactImages` | Image files, animated images and package pictures; icons in text | `ExactImages.install()` |
+| `ExactMediaPicker` | Native media picking | `ExactMediaPicker.install()` |
+| `ExactAuthSession` | Authentication sessions | `ExactAuthSession.install()` |
+| `ExactNumerals` | Numeric content transitions | `ExactNumerals.install()` |
+| `ExactTips` | Platform tips | `ExactTips.install()` |
+| `ExactPresence` | Native presence checks | `ExactPresence.install()` |
+| `ExactEffects` | CSS `filter` on a box | `ExactEffects.install()` |
+| `ExactSvg` | SVG elements, SVG images and icons (links `ExactEffects` too) | `ExactSvg.install()` |
+
+Development builds log a missing Markdown or drag installation once per session,
+with the product and installation call. Without it, Markdown remains literal
+text and drag gestures are unavailable.
+
+### Replacing an embedded app's plan
+
+`ExactApp.apply` and `applyGeneration` answer `ExactApplyResult`: `.applied`,
+`.held(reason)` or `.refused(error)`. A replacement waits while a field is
+composing text, a pointer is down or a gesture is under way. The host asks
+the platform, not the app's handlers. On macOS that is marked text in a
+window's first responder, a mouse button down in the app, a trackpad
+gesture's fingers, a tracking loop AppKit runs (a menu, a control's press, a
+scroller) and a gesture recognizer that has begun in a session's window. On
+iOS and tvOS it is a touch UIKit has not ended, a press of a remote's or a
+game controller's button (tvOS's Select has no touch) and, in a session's
+window, a first responder with marked text, a scroll view tracking or
+dragging, a gesture recognizer that has begun and a view controller
+transition. An embedder's own recognizers and scroll views in that window
+hold it too. A row the keyboard lifted to reorder holds it until the drop or
+the cancel.
+Loading a candidate's data module and finishing the running module's
+requests also hold it; the reason names which. The app keeps the held candidate as bytes, with its assets,
+modules and commit closure, and prepares it once the hold clears, so it carries the state
+of that moment. A newer candidate supersedes it. Do not poll or submit it
+again.
+
+`ExactAppLifecycle.generationStarted` reports that a candidate applied.
+`replacementEnded` reports, once, with its token and reason, that a held
+candidate was refused when prepared, superseded, or dropped because every
+session it was held for was destroyed or, for a generation from `connect`'s
+URL, because `disconnect` or another `connect` closed that connection.
+`state.replacement.pending` in the
+agent's `state` names the hold. `ExactSession.apply`, which replaces one
+session's plan, refuses instead of holding. The rule covers development saves
+and `immediate` production updates (LLP 1029.000.002 D7, D9). The dev menu's
+Reload is the person's own act: it ends a composition as a click elsewhere
+does, keeping the marked text, and commits at once.
+
 ### Mac development signing
 
 `EXACT_IDENTITY=<certificate-sha1>` selects a Keychain signing identity;
@@ -1323,6 +1490,14 @@ resolve it, the build refuses and names `DEVELOPMENT_TEAM=<team-id>`,
 including an ordinary `secret.keep` app. With no identity at all, a build without
 profile requirements or extensions can still sign ad hoc. Developer ID profile
 ambiguity names `EXACT_DEVELOPER_ID=<sha1>`, the release identity selector.
+
+Local builds made by `mac --bundle` omit the hardened runtime, so an ad hoc
+host can load its ad hoc native modules. An external host signed ad hoc with
+`codesign --options runtime` can start and pass strict signature verification,
+but macOS library validation refuses its native modules because neither has a
+Team ID. For a hardened host, sign the host and every native module with valid
+certificates of the same team. A successful launch alone does not check module
+loading; exercise the plan's native view or module call too.
 
 Certificate signing keeps the app's login Keychain access stable across
 rebuilds (LLP 1018 D7). Before each local development sign (`--timestamp=none`),
@@ -1340,7 +1515,9 @@ Some entitlements hold on a Mac only under a provisioning profile that
 authorizes them (Apple TN3125), and the Mac build signs them from one (LLP
 1133.010 D7): push's `com.apple.developer.aps-environment` (`device.push`), App
 Attest's environment (`device.attestation`), the Declared Age Range
-(`device.age-range`), Group Activities (`device.shareplay`), the iCloud key-value store (`device.icloud-kv`), Sensitive Content Analysis (`device.sensitive-content-analysis`), the keychain group a locked secret is kept in
+(`device.age-range`), Group Activities (`device.shareplay`), CloudKit
+(`device.cloudkit`), the iCloud key-value store (`device.icloud-kv`), Sensitive
+Content Analysis (`device.sensitive-content-analysis`), the keychain group a locked secret is kept in
 (`secret.keep` with a presence policy), and a passkey's associated domains
 (`auth.passkey`). An app whose grants need any of them is built from the
 newest installed macOS profile for its id (or the team's wildcard) that allows
@@ -1357,7 +1534,8 @@ With a profile, the build signs with its team's identity (Apple Development, or 
 release; one `EXACT_IDENTITY` or `EXACT_DEVELOPER_ID` names must be of that
 kind and team, or the build is refused), writes the application identifier,
 the team and each entitlement (an environment `development` under a
-development profile, `production` otherwise), embeds the profile as
+development profile, `production` otherwise; CloudKit uses `Development` and
+`Production`), embeds the profile as
 `Contents/embedded.provisionprofile`, and always assembles the `.app`, where
 the profile holds.
 
@@ -1366,12 +1544,27 @@ for each grant, what the app then reports (`available: false`,
 `NotSupportedError`). A release build is refused (`grant-needs-profile`) for
 App Attest, the age range, the iCloud key-value store, Sensitive Content
 Analysis, a passkey or a locked secret that is not `optional`; one granting
-push or SharePlay ships without it, the package reporting it unavailable.
+push, SharePlay or CloudKit ships without it, the package reporting it unavailable.
 An app with Mac widgets signs both under one profile, of the widgets' team,
 chosen among the profiles that grant the widgets' App Group and shared
 Keychain group and the grants' entitlements; with none that grants both, the
 grants sign nothing. An ad hoc build (`EXACT_IDENTITY=-`) signs no profile's
 entitlements.
+
+`device.cloudkit` derives one container, `iCloud.<bundle id>`, or selects the one
+written as `device.cloudkit iCloud.<name>`; it takes no purpose. A second container
+is refused. On iOS and iPadOS, and under a Mac profile, it signs
+`com.apple.developer.icloud-services = ["CloudKit"]`,
+`com.apple.developer.icloud-container-identifiers = [<container>]` and
+`com.apple.developer.icloud-container-environment = "Development"` or `"Production"`
+by the signature's kind. A distribution archive uses `Production` (ITMS-90046).
+The profile's services must include CloudKit and its containers must allow the
+selected identifier; a profile for another container is refused. No push or
+`remote-notification` mode is derived, and no `ubiquity-*` entitlement. tvOS,
+App Clips and extensions sign none. A bound package declaring
+`"hostEvents": ["cloudkit-share"]` receives shares and gets `CKSharingSupported`
+and `ExactHostEvents` only where the grant is signed; a Mac build without a
+profile claims neither.
 
 ### Web CI preparation
 
@@ -1598,7 +1791,8 @@ change ships as a new build and a production build needs no update signing
 keys or receipt. At `"A"` it takes signed plans, assets and TypeScript
 modules, never native code (LLP 1030.006), and a production build needs
 `deploy.signing.keys` and `EXACT_UPDATE_RECEIPT` or `EXACT_UPDATE_GENESIS=1`,
-as iOS does.
+as iOS does. The [over-the-air updates recipe](recipes/over-the-air-updates.md)
+covers the key, `app.json`, the first build, publishing and an in-app banner.
 
 ### Build an iOS app on a CI machine
 
@@ -1685,6 +1879,104 @@ is `true` in a binary baked with production trust (for example, Apple's
 `--release`, `--distribution`, or `exact release`) and `false` in a development
 build.
 
+## Over-the-air updates
+
+The [recipe](recipes/over-the-air-updates.md) goes from a signing key to an
+update banner. This section is what it leaves out (LLP 1030).
+
+`keygen` writes the private key to `~/.config/exact/keys/<id>.pem`, or to the
+directory `EXACT_SIGNING_KEY_DIR` names; keep it out of the repository. A
+binary takes only updates signed by a key its `app.json` named when it was
+built. The web has no update store: there `exactDelivery().staged` stays
+false.
+
+### The origin a binary checks
+
+A production binary checks the origin its build read from
+`deploy.channels.<channel>` in `app.json`, and no other. Serve at that URL,
+over HTTPS, the directory that `deploy --origin <dir>` and `push --origin
+<dir>` write. In both commands `--origin` takes precedence over the manifest.
+An `https://` origin is read-only to them, so `deploy --yes` and `push` need
+`--origin` naming the directory it serves.
+
+The channel `"appdrop"` is AppDrop's origin for the signing key, with no
+account and no server. Run `deploy` and `push` without `--origin`: with a
+directory they publish there while installed apps check AppDrop. AppDrop
+holds update streams only, so `deploy` publishes no web root to it.
+
+`bun exact.mjs serve --origin <dir>` serves a directory that `deploy`
+published a web root to, on this machine (port 8765, loopback unless
+`--lan`). To watch an app take an update locally, name that URL as the
+channel before the release build (`"prod": "http://127.0.0.1:8765"`): a
+binary built with another URL never asks the local server, and logs `exact
+update: refused:` with the URL it could not reach.
+
+### Starting and continuing a stream
+
+A stream is a channel and a compatibility id: the binaries that run the same
+updates. A release build for a platform with an update store bakes production
+trust and needs one of two variables, and refuses without either:
+
+- `EXACT_UPDATE_GENESIS=1` starts a new stream. The binary embeds sequence
+  zero.
+- `EXACT_UPDATE_RECEIPT=<file>` builds a binary for a stream that has
+  releases. The file is a release record that `deploy` or `push` wrote,
+  `<origin dir>/.exact/<channel>/<compatibility id>/releases/<release>.json`,
+  and it must name exactly the plan and assets the build embeds. The binary
+  embeds that release's sequence.
+
+`deploy.store.<platform>` is `"A"` for a binary with an update store and
+`"0"` for one without, on `ios`, `macos`, `linux` and `android`. The first
+`ios`, `mac` or `linux` build of an app writes `"0"` for its platform, and an
+absent `android` is `"0"`, so set `"A"` for each platform that takes updates
+before its release build.
+
+### What `deploy` publishes
+
+`deploy` builds each platform's update, which takes minutes, and its dry run
+prints what each stream takes as an update and what needs a new binary. For
+iOS it compiles the device target, which a Mac set up only for the simulator
+lacks: `bun <exact2>/scripts/exact.mjs setup --check` names what is missing,
+and `--platform <p>`, repeated, publishes only the platforms named.
+
+`deploy` publishes the commit at `HEAD` of the app's repository and refuses
+when the files it reads differ from that commit. `--dirty` publishes the
+working tree instead, uncommitted edits and files git ignores included; the
+table is marked `(DIRTY)` and lists them. An app outside the Exact checkout
+is refused without `--dirty` even when committed, because ignored files count
+as source: the `.exact/` its builds write, and generated files in the Exact
+checkout. So commit, pass `--dirty`, and read the list. An app's first build
+for a platform edits `app.json`: commit after it. `push` always publishes the
+working tree.
+
+### When a staged update applies
+
+- `next-launch`: the next cold launch boots it; `deliveryActivate()` applies
+  it sooner.
+- `app-decides`: only `deliveryActivate()` applies it. No launch boots it,
+  and `staged` stays true across launches.
+- `immediate`: it applies as soon as a check stages it while the app is in
+  the foreground, otherwise when the app next comes to the foreground.
+
+Applying an update while the app runs (`deliveryActivate()`, `immediate`)
+waits until no request is in flight when the update carries a data module,
+as every update of an app with `app.ts` does. A resource still loading, a
+mutation still sending and a stream that has not delivered its first value
+are in flight; a stream that has is not. The running app keeps the ask and
+applies the update when the requests finish or are cancelled, without a
+second `deliveryActivate()`. The wait has no deadline and cancels nothing, so
+a request that never ends, such as a socket that never connects, holds the
+update for as long as the app runs. The next cold launch boots it under
+`next-launch` and `immediate`; under `app-decides` it is still staged and
+waits for `deliveryActivate()` again. An update without a data module applies
+with requests in flight. Every host also waits while text is being composed,
+a pointer is down or a gesture is under way, including an interactive Back,
+and applies the update when that ends, without a second `deliveryActivate()`.
+
+A check runs when the app comes to the foreground, at most once a minute,
+and every `deploy.check.interval` seconds (900 by default) while it stays
+there; never in the background. `deliveryCheck()` checks at once.
+
 ## Install a development build beside the release one (variants)
 
 A variant is the app under another identity, so a development or staging build installs beside the store's
@@ -1734,6 +2026,23 @@ specific grant advice only where tests apply those lines, including companion
 grants, through the bake and platform writer. Other derived keys cannot be set
 there. For a key Exact never writes, record a `bun exact.mjs feedback note` from
 the app directory naming the key and what the native module needs.
+
+### Language and direction on macOS
+
+The Mac window and a document's unsaid layout direction follow AppKit's process
+direction. An Arabic strings table alone leaves them left to right on an English
+Mac. Set `host.macos.layoutDirection: "rtl"` in `app.json` to mirror the window,
+split view, toolbar and sidebar, even with an English table. Omission or `"auto"`
+keeps AppKit's direction. A launch argument naming `AppleTextDirection` or
+`NSForceRightToLeftWritingDirection` takes precedence over the setting.
+
+The setting applies before AppKit starts and requires a new binary. The host
+checks both the application's direction and each window's
+[`windowTitlebarLayoutDirection`](https://developer.apple.com/documentation/appkit/nswindow/windowtitlebarlayoutdirection).
+A mismatch prints a development diagnostic; the agent's `state.layoutDirection`
+reports the request, launch override, applied directions and whether both are
+right to left. `language.dir` reports the document's applied layout direction.
+iOS and the web continue to take their direction from the strings table.
 
 ## Apple privacy manifests
 
@@ -1834,6 +2143,24 @@ publish whose file would pass its bound is refused with the same numbers.
 Every client checks the index against the envelope's card before it reads a
 card, and a signed head covers the index through its digest.
 
+Agent replies carry `generation`, `epoch`, `incarnation` and `clock` (LLP 1029.000.002 D10).
+`generation` starts at 1 and advances once for each committed replacement or
+reboot, including a return to an earlier plan. A refused candidate leaves it unchanged.
+The JS target carries it through its development document reload. `epoch` counts commits
+that change the kernel and continues across replacements. `incarnation` counts resets
+of one kernel; a replacement creates another kernel, so its incarnation can repeat.
+Use `generation` to wait for a replacement. The terminal's JSON inspection replies
+(`layout`, `plan`, `runner-tree` and `node`) carry these tags too.
+
+`state.replacement` is null before a replacement while none waits. Afterwards it reports `at`, the
+replacement's clock in milliseconds, and `dropped`, the root slots that could not carry.
+`pending` names what a waiting replacement waits for (such as `"composition"`, `"pointer"`,
+`"gesture"`, `"module"` or `"requests"`), or is null.
+Each entry has `what: "state"`, `name`, and `why`: `"no place"` when the slot is gone,
+or `"type changed"` when its value does not fit the new declaration. The replacement's
+first journal line gives the same report. Component state, view identity, scroll,
+selection, composition and Undo preservation are later pieces of that LLP.
+
 Agent sessions use `exactTime()` launch facts `seed: 1` (LLP 1069.007), `locale: "en-US"`,
 `timeZone: "UTC"` and `epochAtZero` 2026-01-01T00:00:00Z (LLP 1027.000.000 D3, with the
 zone's `utcOffset` at that instant, answered again when the virtual date crosses a DST change) on every host. Override them at session setup with
@@ -1867,6 +2194,8 @@ read once by the driver at launch, for a drive against a live backend on real ti
 `EXACT_AGENT_SEED`, `EXACT_AGENT_LOCALE`, `EXACT_AGENT_TIME_ZONE` and `EXACT_AGENT_EPOCH`
 (milliseconds), and `EXACT_AGENT_FORMAT_LOCALE` when given; direct agent launches can set these too. Web agent pages accept
 `?agent=1&seed=42&locale=fr-CA&timeZone=America/Toronto&epoch=1790000000000` (and `&formatLocale=`).
+`agent` alone, or `agent=` with its empty value, asks for agent mode as `agent=1` does; any other value, `agent=0`
+among them, asks for none, and a production build ignores the parameter (LLP 1069.007 D2).
 The driver supplies its own defaults unless an option (or `open({env: ...})`)
 overrides them. `clock +N` moves the date (`epochAtZero + performanceNow()`); `state.time`
 reports all five facts. Before the first host report, the runner
@@ -1877,6 +2206,12 @@ Linux takes its locale from the first nonempty `LC_ALL`, `LC_MESSAGES`, or `LANG
 none set, `formatLocale` is the locale),
 normalizes POSIX names to BCP 47 (`C`/`POSIX` use `en-US`), and reads the zone from
 `TZ` when it names a zoneinfo entry, otherwise the system's IANA zone (UTC fallback).
+Windows takes `locale` from the first preferred UI language and `formatLocale`
+from the user's regional format. A 12/24-hour choice that differs from that
+region's default adds `-u-hc-h12` or `-u-hc-h23` to `formatLocale`. It reads the
+system's IANA zone unless `TZ` names one. Windows settings and time-change
+notifications refresh these facts without changing the launch seed. Agent
+launches keep the drive's supplied facts.
 
 A drive changes visibility with the `prefer` name/value pair `visibility-state hidden`
 (`"prefer visibility-state hidden"`), and returns with `"prefer visibility-state visible"`.
@@ -2025,7 +2360,7 @@ The globals beyond the language are the browser's on the web and these on Hermes
 
 | Available on every executor | Notes on Hermes |
 | --- | --- |
-| `fetch`, `Headers`, `Response` | Grant-checked; `signal` aborts, and the host cancels the request (below). A request `body` accepts a string, `URLSearchParams`, or bytes from an `ArrayBuffer` or view (such as `storage.fs.readFile`'s bytes). Unless `headers` already names a `Content-Type` (case-insensitively, even an empty value), a string adds `text/plain;charset=UTF-8` and `URLSearchParams` adds `application/x-www-form-urlencoded;charset=UTF-8`, including empty strings and forms. The prelude adds none for bytes or an absent body; on Apple, URLSession adds `application/x-www-form-urlencoded` to an untyped POST with a body, including bytes. As Fetch does, a body on a GET or HEAD, or a view on a `SharedArrayBuffer` or resizable buffer, rejects, and a detached buffer sends no bytes. Natively, in the wasm target's module realms and with `exactStream` on the web JS target, a `ReadableStream` request body rejects with a `TypeError` before sending; collect it with `await new Response(stream).arrayBuffer()` first. `exactBodyFrom: "app:/tmp/…"` sends an app file instead: the host opens it when it sends the request, under `fs.read` as `readFile` is, and streams it from disk as the request goes out, with the size it had when opened as its `Content-Length`; the bytes never enter JavaScript, so a 2 MB upload costs the answer's step nothing, and a 300 MB video costs half a megabyte of memory (LLP 1133.008.000 D4). Exact sets no bound on its size; the server answers 413 for one it will not take. A file cut shorter while it is sent fails the request, naming the path; a file changed in place while it is sent sends a mix, so leave it alone until the reply. Two hosts still read the file whole and refuse one over 64 MiB, naming why: the web, for a file the app wrote with `writeFile` or `appendFile` (a picked file, a recorded video or an `exactBodyTo` reply is the browser's own Blob, and streams), and the asynchronous executor (`EXACT_HTTP_ASYNC`), with kind `Unsupported`. With `body`, or on a GET or HEAD, it is a `TypeError`, and a missing file or a denied path rejects the fetch (`FetchError`, kind `Refused`, naming why) before anything is sent, as does a host with no app files (a drive with no scratch store) or none built yet (Windows), with kind `Unsupported`; Exact adds no Content-Type (Apple's POST default above still applies; LLP 1108 D6 R2). An older binary's prelude would send it as an empty body, so a native app with a TypeScript data module carries `typescriptRuntime` in its compatibility id: the first build after this change gives every such app a new id, and each needs a new binary once. `exactBodyTo: "app:/cache/…"` is the reverse, for a download: the host writes a 2xx reply's body into that app file as it arrives, under `fs.write` as `writeFile` is, and the bytes never enter JavaScript, so a large file costs neither the answer's step nor the engine's 64 MiB heap. The body goes to a staging file beside the target, which replaces the target only once the body is complete; a failure, an abort, the deadline or a body over the bound leaves the target as it was. The bound is `exactIndependentHttp.maxResponseBytes`, which may then be up to 1 GiB, or 1 GiB when none is given. The `Response` resolves once the file is in place, with `status`, `ok` and `headers` as received, an empty body, and `exactBodyTo: {path, bytes}`, the bytes written (absent or `null` on any other response). A reply that is not 2xx is not written: the file is untouched and its body is read as usual, at most 1 MiB, so the server's error is readable. A path that is not a plain `app:/` one, a HEAD, or `exactStream` beside it is a `TypeError`; a denied path or a missing folder rejects the fetch (`FetchError`, kind `Refused`) before anything is sent, and a host with no app files does so with kind `Unsupported`. It may come with a `body` or `exactBodyFrom`. On the web the body becomes a Blob the browser holds, stored in the page's store in one transaction (LLP 1108 D6 R2, 2026-10-26). An older prelude would ignore it and read the body into memory, so it moves `typescriptRuntime` to 4. `redirect` is Fetch's: `follow` (the default), `error` (a redirect rejects the fetch), or `manual`, which answers with the 3xx itself; natively its `Location` header is readable (an OAuth step whose redirect names an app scheme), while a browser gives its opaque redirect (status 0, no headers); any other word is a `TypeError`. An older prelude would ignore it and follow, so it moves `typescriptRuntime` to 2: such an app needs a new binary once more, and a cohort on an older binary gets no bundle that relies on it. `cache` is Fetch's `"default"` (unsaid), `"no-store"`, `"reload"`, `"no-cache"`, `"force-cache"` or `"only-if-cached"`, controlling the native cache for a resource's `GET` and the browser's cache on the web; any other value is a `TypeError`, and a module that names it needs `typescriptRuntime` 11. A `Response` has `status`, `ok`, `statusText`, `headers`, `bodyUsed`, `text()`, `json()`, `arrayBuffer()`, `clone()`, as Fetch's does: a body reads once, a clone of a read one is a `TypeError`, a fetched reply's headers and a redirect's take no change, and a response's own refuse `Set-Cookie`; no `body` getter, `Request`, `Blob` or `FormData`. `new Response(body, init)`, `Response.json` and `Response.redirect` make a reply as Fetch does (a demo's server in the app), from a string, `URLSearchParams`, bytes or a `ReadableStream`. A stream brings no Content-Type; `text()`, `json()` and `arrayBuffer()` read its `Uint8Array` chunks to the end, rejecting any other chunk with a `TypeError` and propagating stream errors. A locked or already-read stream is refused; `bodyUsed` tracks reads and cancellation, and `clone()` tees an unread, unlocked stream so each response reads independently. A module that names `.clone`, `statusText` or `bodyUsed` needs `typescriptRuntime` 7, as an older prelude makes one with no status and no body, reads a body again, or throws. `Response`, `ReadableStream`, `TransformStream`, `CompressionStream` and `DecompressionStream` require runtime 8 so stream bodies cannot reach an older prelude that stringifies them. Natively and in the wasm target's module realms, `Response.redirect` takes only an absolute URL (a relative one is a `TypeError`; the web JS executor resolves it as the browser does), and natively a fetched reply's `statusText` is `""`; in the wasm target's browser realms, which are not hardened, a `Response`'s headers take no guard, and an app that replaces an intrinsic there (a prototype's method, `Math`, a `WeakMap`'s `get`) changes what `Response` does, as it changes what any code in that realm does, while what an app gives a `Response` (an object's own properties, its iterator, its conversion hooks) is read as Fetch reads it on every host |
+| `fetch`, `Headers`, `Response` | Grant-checked; `signal` aborts, and the host cancels the request (below). A request `body` accepts a string, `URLSearchParams`, or bytes from an `ArrayBuffer` or view (such as `storage.fs.readFile`'s bytes). Unless `headers` already names a `Content-Type` (case-insensitively, even an empty value), a string adds `text/plain;charset=UTF-8` and `URLSearchParams` adds `application/x-www-form-urlencoded;charset=UTF-8`, including empty strings and forms. The prelude adds none for bytes or an absent body; on Apple, URLSession adds `application/x-www-form-urlencoded` to an untyped POST with a body, including bytes. As Fetch does, a body on a GET or HEAD, or a view on a `SharedArrayBuffer` or resizable buffer, rejects, and a detached buffer sends no bytes. Natively, in the wasm target's module realms and with `exactStream` on the web JS target, a `ReadableStream` request body rejects with a `TypeError` before sending; collect it with `await new Response(stream).arrayBuffer()` first. Natively a request holds at most 4 MiB, its URL, headers and body together: a larger one is refused before anything is sent (`FetchError`, kind `Refused`, `native request exceeds 4 MiB …`), so send a larger body from a file with `exactBodyFrom`. `exactBodyFrom: "app:/tmp/…"` sends an app file instead: the host opens it when it sends the request, under `fs.read` as `readFile` is, and streams it from disk as the request goes out, with the size it had when opened as its `Content-Length`; the bytes never enter JavaScript, so a 2 MB upload costs the answer's step nothing, and a 300 MB video costs half a megabyte of memory (LLP 1133.008.000 D4). Exact sets no bound on its size; the server answers 413 for one it will not take. A file cut shorter while it is sent fails the request, naming the path; a file changed in place while it is sent sends a mix, so leave it alone until the reply. Two hosts still read the file whole and refuse one over 64 MiB, naming why: the web, for a file the app wrote with `writeFile` or `appendFile` (a picked file, a recorded video or an `exactBodyTo` reply is the browser's own Blob, and streams), and the asynchronous executor (`EXACT_HTTP_ASYNC`), with kind `Unsupported`. With `body`, or on a GET or HEAD, it is a `TypeError`, and a missing file or a denied path rejects the fetch (`FetchError`, kind `Refused`, naming why) before anything is sent, as does a host with no app files (a drive with no scratch store) or none built yet (Windows), with kind `Unsupported`; Exact adds no Content-Type (Apple's POST default above still applies; LLP 1108 D6 R2). An older binary's prelude would send it as an empty body, so a native app with a TypeScript data module carries `typescriptRuntime` in its compatibility id: the first build after this change gives every such app a new id, and each needs a new binary once. `exactBodyTo: "app:/cache/…"` is the reverse, for a download: the host writes a 2xx reply's body into that app file as it arrives, under `fs.write` as `writeFile` is, and the bytes never enter JavaScript, so a large file costs neither the answer's step nor the engine's 64 MiB heap. The body goes to a staging file beside the target, which replaces the target only once the body is complete; a failure, an abort, the deadline or a body over the bound leaves the target as it was. The bound is `exactIndependentHttp.maxResponseBytes`, which may then be up to 1 GiB, or 1 GiB when none is given. The `Response` resolves once the file is in place, with `status`, `ok` and `headers` as received, an empty body, and `exactBodyTo: {path, bytes}`, the bytes written (absent or `null` on any other response). A reply that is not 2xx is not written: the file is untouched and its body is read as usual, at most 1 MiB, so the server's error is readable. A path that is not a plain `app:/` one, a HEAD, or `exactStream` beside it is a `TypeError`; a denied path or a missing folder rejects the fetch (`FetchError`, kind `Refused`) before anything is sent, and a host with no app files does so with kind `Unsupported`. It may come with a `body` or `exactBodyFrom`. On the web the body becomes a Blob the browser holds, stored in the page's store in one transaction (LLP 1108 D6 R2, 2026-10-26). An older prelude would ignore it and read the body into memory, so it moves `typescriptRuntime` to 4. `redirect` is Fetch's: `follow` (the default), `error` (a redirect rejects the fetch), or `manual`, which answers with the 3xx itself; natively its `Location` header is readable (an OAuth step whose redirect names an app scheme), while a browser gives its opaque redirect (status 0, no headers); any other word is a `TypeError`. An older prelude would ignore it and follow, so it moves `typescriptRuntime` to 2: such an app needs a new binary once more, and a cohort on an older binary gets no bundle that relies on it. `cache` is Fetch's `"default"` (unsaid), `"no-store"`, `"reload"`, `"no-cache"`, `"force-cache"` or `"only-if-cached"`, controlling the native cache for a resource's `GET` and the browser's cache on the web; any other value is a `TypeError`, and a module that names it needs `typescriptRuntime` 11. A `Response` has `status`, `ok`, `statusText`, `headers`, `bodyUsed`, `text()`, `json()`, `arrayBuffer()`, `clone()`, as Fetch's does: a body reads once, a clone of a read one is a `TypeError`, a fetched reply's headers and a redirect's take no change, and a response's own refuse `Set-Cookie`; no `body` getter, `Request`, `Blob` or `FormData`. `new Response(body, init)`, `Response.json` and `Response.redirect` make a reply as Fetch does (a demo's server in the app), from a string, `URLSearchParams`, bytes or a `ReadableStream`. A stream brings no Content-Type; `text()`, `json()` and `arrayBuffer()` read its `Uint8Array` chunks to the end, rejecting any other chunk with a `TypeError` and propagating stream errors. A locked or already-read stream is refused; `bodyUsed` tracks reads and cancellation, and `clone()` tees an unread, unlocked stream so each response reads independently. A module that names `.clone`, `statusText` or `bodyUsed` needs `typescriptRuntime` 7, as an older prelude makes one with no status and no body, reads a body again, or throws. `Response`, `ReadableStream`, `TransformStream`, `CompressionStream` and `DecompressionStream` require runtime 8 so stream bodies cannot reach an older prelude that stringifies them. Natively and in the wasm target's module realms, `Response.redirect` takes only an absolute URL (a relative one is a `TypeError`; the web JS executor resolves it as the browser does), and natively a fetched reply's `statusText` is `""`; in the wasm target's browser realms, which are not hardened, a `Response`'s headers take no guard, and an app that replaces an intrinsic there (a prototype's method, `Math`, a `WeakMap`'s `get`) changes what `Response` does, as it changes what any code in that realm does, while what an app gives a `Response` (an object's own properties, its iterator, its conversion hooks) is read as Fetch reads it on every host |
 | `structuredClone` | No transfer list |
 | `ReadableStream`, `WritableStream`, `TransformStream`, their readers, writers and controllers, `CountQueuingStrategy`, `ByteLengthQueuingStrategy` | WHATWG Streams, with `pipeTo`, `pipeThrough`, `tee`, `for await` and `ReadableStream.from`. No byte streams: `type: "bytes"` and a BYOB reader are a `TypeError` |
 | `DecompressionStream`, `CompressionStream` | WHATWG Compression's `"deflate"`, `"deflate-raw"` and `"gzip"`, worked by native code in the turn that writes each chunk: 8 MB of JSON inflates from 1.4 MB in about 25 ms of that turn's budget, and writing it in slices with `await scheduler.yield()` between spreads it over turns of their own. Its errors are the standard's `TypeError`s: corrupt data, data after the end, input that ends before its end at `close()`, a chunk that is not an `ArrayBuffer` or view. One stream may span many writes: Discord's `zlib-stream` (one zlib stream across a socket's messages, each ending in a sync flush) inflates message by message, each write's output queued once it settles; keep a `read()` pending, as a write waits for one |
@@ -2102,6 +2437,11 @@ A mutation's answer hands over one request at a time, in order. Sends of the
 same `parallel` mutation overlap, up to three at a time on the six shared
 workers. They wait for everything before them except the other sends of
 their mutation; later work waits for them. Replies retain the order asked.
+The six workers, a source's scoped requests and the launch's preloads share
+one connection pool natively (LLP 1162 D5), so a read reuses a connection
+another left open to its origin, and on Apple their reads of an HTTP/2 or
+HTTP/3 origin share one connection. The ordered lane keeps a pool of its
+own, and a stream opens its own connection.
 
 Native hosts keep a resource's `GET` reply when it says how long it is fresh
 or carries a validator (LLP 1162 D4): in memory, 16 MiB per runtime, gone with
@@ -2375,9 +2715,67 @@ that reads storage or calls the native module; show a placeholder), `'agent'` (a
 no scratch store, `--storage <name>`), `'unsupported'` (a host with no app
 storage). The operation was refused: `'denied'` (the grants do not cover it),
 the filesystem's POSIX name (`'ENOENT'`, `'EEXIST'`, `'ENOTDIR'`, `'EISDIR'`,
-`'ENOTEMPTY'`, `'EBUSY'`), `'full'` (256 operations already wait behind the
+`'ENOTEMPTY'`, `'EBUSY'`, `'EACCES'`), `'full'` (256 operations already wait behind the
 one in flight: the module's storage queue is full, LLP 1097), else `'failed'`. Branch on the code, never the
 message: `catch (e) { if (e.code === 'ENOENT') return empty; throw e; }`.
+
+On macOS, Linux and Windows, `desktop:/`, `documents:/`, `downloads:/`, `music:/`,
+`pictures:/`, `videos:/` and `screenshots:/` name the person's well-known
+folders (LLP 1173 D4). Declare `fs.write pictures:/` for the whole folder, or
+`fs.write pictures:/Exports` for a subtree. `fs.read` and `sqlite.open` lines
+on these namespaces are refused at build.
+
+These paths take only `writeFile`, `atomicWriteFile`, `mkdir`, `realpath`, and
+`copyFile` from an `app:/` file with `fs.read` on its source. Files are created
+exclusively: an existing name returns `'EEXIST'`, including an atomic write or
+copy. For `mkdir`, every component below the root must be new; an existing
+component returns `'EEXIST'` without creating anything below it. Retry with
+another name. `realpath` uses the write grant and returns the
+native path of an existing item. Reads, listing, watching, appending, replacing,
+renaming and removal are refused. No link below the resolved root is followed.
+On macOS and Linux, a link at or above the root is followed only where the
+app's write grants cannot replace it. Windows opens the OS-selected root,
+including UNC paths, and refuses name-surrogate reparse tags below it while
+admitting cloud placeholders.
+
+```ts
+export const grants = 'fs.read app:/tmp\nfs.write screenshots:/';
+await storage.fs.copyFile('app:/tmp/capture.png', 'screenshots:/Shot.png');
+```
+
+Each operation resolves the folder again. A role whose settings the app can
+write returns `'EACCES'`, including after relaunch: those settings may already
+contain the app's changes. This covers all seven roles on Linux and only
+`screenshots:` on macOS. Settings with multiple hard links also refuse, since
+another name may be app-writable. Storage and process admission share this
+resolver and retain every session's restrictions across sessions and reloads.
+This prevents a write to the settings from widening the folder grant. macOS uses the account's folders
+(`videos:` is Movies); `screenshots:` reads Screenshot's `location-screenshot`
+preference, then `location`, then defaults to Desktop. A destination that is
+not an existing folder returns `'ENOENT'`. Linux reads `$XDG_CONFIG_HOME/user-dirs.dirs`
+(default `~/.config`), expanding only `$HOME`; unset, relative and disabled
+entries return `'ENOENT'`. Linux's `screenshots:` is the Pictures folder's
+untranslated `Screenshots`, and returns `'ENOENT'` when absent. Under the agent,
+all seven resolve inside `--home`, or its temporary home, never the person's folders.
+Links below the drive's home are refused. Windows asks `SHGetKnownFolderPath`
+on each use, following redirected folders, and creates Screenshots if Pictures
+exists. Controlled folder access may refuse a write with `'EACCES'`.
+
+Windows folder writes are implemented but remain unqualified on Windows.
+Run `cargo run -p exact-windows --example known-folders` there with a
+OneDrive-backed Pictures and a UNC-redirected folder. The probe reports each
+folder's path, attributes, reparse tag, exclusive creation and no-replace
+rename, and removes its temporary subdirectories. Append `-- pictures OnlineOnly`
+with the name of an existing online-only child to exercise placeholder recall.
+Claim the Windows cell only
+after that probe and an app drive copying an `app:/` capture into `screenshots:/`,
+retrying the same name (`'EEXIST'`) and confirming the first file's bytes.
+
+The web, Apple mobile platforms and Android refuse these paths with
+`NotSupportedError` (`code: 'failed'`):
+`well-known folders are unavailable on this host`. Platform access denial is
+`'EACCES'`. A sandboxed Mac build admits Downloads, Pictures, Music and Movies
+through their entitlements and refuses Desktop, Documents and Screenshots.
 
 A drive's app storage is a scratch store it names (`--storage <name>`), on a
 native host `default` when it names none, or none (a web drive naming none).
@@ -2392,9 +2790,10 @@ interrupted drive, the next drive refuses before resetting or opening its profil
 names the profile and PID; close that browser or use another store name. A drive also refuses when the profile's
 owner cannot be verified. A data module's `secret.keep` rides that same
 store: files under the named tree on Apple and Linux, `localStorage` in the named
-web profile. Apple native modules receive the same named data, cache and temporary
-roots across launches. A fresh drive clears them; the picker's temporary documents
-alone are cleared on each launch. A web drive with no `--storage` refuses app storage (`storage is unavailable
+web profile ([web sessions](recipes/web-sessions.md)). Apple native modules receive
+the same named data, cache and temporary roots across launches. A fresh drive clears
+them; the picker's temporary documents alone are cleared on each launch. A web drive
+with no `--storage` refuses app storage (`storage is unavailable
 in agent mode unless the drive names a scratch store (--storage <name>)`; a file
 read rejects `ENOENT` instead, as an empty store's) and keeps
 no secrets. The driver's `state.storage` says
@@ -2493,22 +2892,30 @@ exchange, headers and body: `fetch(url, { exactTimeout: 10000 })`. When it
 passes the request is cancelled and the fetch rejects with a `FetchError`
 whose `kind` is `Timeout` (`the request timed out after 10000 ms`). The same
 holds on Apple, Linux, the web's wasm host and the web build; a stream
-(`exactStream`) takes none, except an upload (below).
+(`exactStream`) takes none, except an upload (below). Any other stream stays
+open as long as the server holds it, however quiet it is, as in a browser: no
+limit of the platform's ends it once it is open. Natively a WebSocket has
+about 10 s to connect and 15 s for its handshake, and so has an HTTP stream
+for its connection and its response's head off Apple.
 
-A WebSocket stream can stay open and carry nothing. Give it
-`exactIdleTimeout`, in milliseconds (1 to 3600000), and the host ends it
-when nothing has arrived for that long: `fetch('wss://…', { exactStream,
-exactIdleTimeout: 60000 })` (LLP 1016.000 D11). The count starts when the
-socket is asked, and starts again at its opening and at each message;
-protocol pings and pongs do not count, and nothing the app sends does. The
+So a stream can stay open and carry nothing. Give it `exactIdleTimeout`, in
+milliseconds (1 to 3600000), and the host ends it when nothing has arrived
+for that long: `fetch('wss://…', { exactStream, exactIdleTimeout: 60000 })`
+(LLP 1016.000 D11). The count starts when the stream is asked. On a
+WebSocket it starts again at the opening and at each message; protocol
+pings and pongs do not count. On an event stream or a byte stream it starts
+again at any bytes of the body, an event stream's comment lines included
+(the `: keep-alive` a server sends every 15 s to hold a quiet stream open),
+but not at the response's head; a byte stream waiting for its mapper to take
+what it holds is not counted as quiet. Nothing the app sends counts. The
 mapper is then called once more, with `{ type: 'error', kind: 'Timeout',
 message: 'nothing arrived for 60000 ms' }`, after what it had already
 received (each message, in order), and the stream is over; the app opens it again by refreshing the
 resource. The time is real time on every host, under the driver too, so
-`clock +60000` ends no socket: test it with a short timeout against a peer
-that stays silent, and wait with `clock until state …`. Only a WebSocket
-stream takes it: on an event stream, a byte stream, a long poll or an upload
-it is a `TypeError`, and the web's wasm host and a Rust module across the
+`clock +60000` ends no stream: test it with a short timeout against a peer
+that stays silent, and wait with `clock until state …`. A long poll and an
+upload do not take it, nor does a URL of another scheme: it is a
+`TypeError` there, and the web's wasm host and a Rust module across the
 logic ABI refuse a request that has it, by name.
 
 A stream's request is never sent at build, so an option the host refuses on one
@@ -2613,7 +3020,7 @@ on messages waiting behind an unsettled mapper still applies. The body's end is 
 stream ended`. A 204, a 205 and a `HEAD` have no body and stay the one answer.
 The request carries `Accept: text/event-stream`, as every stream's does, unless
 the source names an `accept` header; name one where the server negotiates by
-it. The web JS target, macOS, iOS and Linux read it; the web's wasm host, Rust
+it. The web JS target, macOS, iOS, Linux and Android read it; the web's wasm host, Rust
 sources and worker-placed sources still take such a body as the one answer.
 A caller's abort signal maps an `error` with kind `Aborted` while the resource
 is still held. New arguments, `refresh` or the resource leaving the view close
@@ -2914,9 +3321,15 @@ allow an immediate retry. Returning focus to the app does not end the wait.
 
 `openAuthSession` answers 501 on the headless Linux host and Windows, and on Android
 when no system browser resolves or `ephemeral: true` is requested (this build has no
-ephemeral browser API). Android supports custom-scheme callbacks from
-`auth.callback` grants; HTTPS App Links and loopback callbacks answer 501. Returning
-to the activity after it stopped, without a callback, cancels with 499, whether by
+ephemeral session support). Android supports custom-scheme and claimed HTTPS callbacks
+from `auth.callback` grants. HTTPS uses Auth Tab when the selected browser supports
+it, otherwise a verified App Link on the callback's exact path. The bake writes
+the filter; the callback host must serve `assetlinks.json` with the app's package
+and signing fingerprints. See the [OAuth recipe](recipes/oauth.md) for the domain
+associations and publishing. HTTP loopback and reserved `/.exact/auth/callback`
+web popup callbacks answer 501. An Auth Tab wait ends on its result or the ten-minute
+bound; returning to the activity alone keeps it. For a custom-scheme or App Link wait,
+returning after the activity stopped without a callback cancels with 499, whether by
 Back or another link that brings the activity forward. A pause without a stop,
 such as a permission dialog or a multi-window focus change, keeps the wait. Callbacks
 are routed by endpoint and state: a stale, wrong-state or missing-state callback is
@@ -3026,8 +3439,8 @@ grant beside this one: see [Push](#push).
   completion as superseded; a response still awaiting declarations waits for
   the replacement.
 - On Android (LLP 1133.004.000 D5) an action is a button that brings the
-  app forward, with `foreground=false` too: Android has no headless session
-  yet, so no handler could run with the app in the background. Android shows
+  app forward, with `foreground=false` too: an action boots no session with
+  no view yet, so no handler runs with the app closed. Android shows
   three actions; a fourth is dropped there and journaled. A chosen action is
   raised only while the app still declares it as the post wrote it: a button
   posted before an update changed or removed it brings the app forward and
@@ -3146,8 +3559,9 @@ register beside them under this grant.
   system's answer: the subscription, or `AbortError` with the system's
   message.
 - `pushSubscription()` reads `{apple: {deviceToken}}`, the token's bytes in
-  lowercase hex, on Android `{android: {installationId}}`, the app's Firebase
-  Installation ID once FCM has registered it, or null. It never asks: its
+  lowercase hex, or on Android `{android: {installationId, token, appId}}`, the
+  Firebase Installations ID, FCM registration token and installed package id.
+  Otherwise it reads null. It never asks: its
   first read in a launch registers once when permission is already granted, as
   Apple asks of every launch (on Android, once the app has subscribed), and a
   new token or ID is a new value, which the app sends to its server again. Read
@@ -3172,11 +3586,15 @@ bundle id), APNs's own `aps` dictionary and one key of Exact's:
 
 The system shows it, with the app in front too. Its tap opens the top-level
 `navigate` string, warm or at launch, as a local notification's `navigate=`
-opens: reduced by `location_of` to the app's own location whatever its scheme
-or origin, never through the app's `protocol_handlers`. Nothing else of the
+opens. A push sent through the Expo push service (its payload has Expo's
+`experienceId` or `scopeKey`) carries the message's `data` in a `body` object,
+so there a `navigate` in `data` is opened; a top-level one comes first. Another
+sender's `body` is not read. Either way `location_of` reduces the location to one of the
+app's own, whatever its scheme or origin, never through the app's
+`protocol_handlers`. Nothing else of the
 payload is read and no event is raised; without `navigate` the app only comes
 forward. A server writes that string, so a route must not act on being opened.
-Exact runs no Contract or TypeScript when a push arrives: `content-available`
+On Apple, Exact runs no Contract or TypeScript when a push arrives: `content-available`
 does nothing and the `remote-notification` background mode is refused. An iOS
 or iPadOS app may instead put one app-authored Swift
 `UNNotificationServiceExtension` subclass named `NotificationService` under
@@ -3228,18 +3646,18 @@ names (for a file CI writes). The build reads it without the Google Services
 Gradle plugin. A release build without it is refused
 (`push-google-services-missing`); a development build says so and reads
 `available: false`. Firebase starts at the package's first call, not with the
-process. The app is addressed by its installation ID
-(`firebase_messaging_installation_id_enabled`, Firebase's registration since
-firebase-messaging 25.1.0), and FCM registers it at `subscribePush()`, then
-once a launch at the first read that finds an ID, never before the app
-subscribes. `subscribePush()` waits up to a minute for FCM's answer, then is
-refused `AbortError`.
+process. `subscribePush()` obtains the FCM registration token with `getToken()`
+and the installation ID with Firebase Installations. Messaging uses token mode
+(`firebase_messaging_installation_id_enabled=false`), since Firebase's FID
+messaging mode disables the token Expo needs. `onNewToken` keeps and announces
+rotations. Registration is checked once per launch after the app subscribes;
+`subscribePush()` waits up to a minute, then refuses `AbortError`.
 
-The server sends an FCM v1 notification message to the installation ID
-(`fid`), with `navigate` in `data`:
+The server sends an FCM v1 notification message to `android.token`, with
+`navigate` in `data`:
 
 ```json
-{ "message": { "fid": "…",
+{ "message": { "token": "…",
   "notification": { "title": "Delayed", "body": "The 9:41 now leaves at 9:52" },
   "android": { "priority": "high", "notification": { "channel_id": "delays", "tag": "trip-941" } },
   "data": { "navigate": "/trips/941" } } }
@@ -3251,9 +3669,121 @@ shows it), on its `channel_id` when the app declares that channel
 icon. Leave out `icon` and `color`: Firebase honours them for a notification it
 shows. A `tag` replaces a shown notification with that tag, a local one
 included, and `closeNotification(tag)` closes it. Its tap opens `navigate`,
-warm or at launch, as on Apple; the other `data` keys are not read. A data
-message (no `notification`) shows nothing and raises nothing: as a wake it
-waits for Android's headless session.
+warm or at launch, as on Apple. The top-level `navigate` takes precedence.
+When it is absent and `data` carries Expo's `experienceId` or `scopeKey`,
+Exact reads `navigate` from the JSON object encoded in `body` by the Expo push
+service. A blank or non-string location, or a malformed body, opens nothing.
+Another sender's `body` and the other `data` keys are not read.
+
+A data-only message raises `push` on the root with `PushEvent = {data: string}`:
+`JSON.parse(e.data)` reads the FCM `data` map. It uses the live session, or
+boots a headless session with no activity. Boot, queueing and handler work
+share ten seconds from receipt; at expiry its pending work is cancelled.
+The handler has origin `wake`, even in front: it may fetch and post a local
+notification under an existing grant, but cannot ask permission or open UI.
+A notification message follows the presentation path above and raises no
+`push` event. Delivery remains subject to FCM, Doze and the phone's battery
+policy; a server must keep alerts available for the app to reconcile.
+
+`getExpoPushTokenAsync(subscription, manifest)` from `@exact/push/expo`
+exchanges `android.token` through Expo's service. Pass the app's imported
+`app.json`: `extra.eas.projectId` names its EAS project. The subscription's
+`android.appId` supplies the installed package id, including normalization and
+the selected variant's suffix. Expo's `deviceId` is a UUID derived from the
+first 16 bytes of the case-sensitive Firebase installation ID's SHA-256,
+with the v4 version and variant bits set. It stays the same while the
+installation ID does, including across FCM token rotations, without separate
+storage. It returns `{type: "expo", data: "ExponentPushToken[…]"}`. An HTTP
+refusal throws with Expo's status and the first 500 characters of its reply;
+if the reply cannot be read, the error still carries the status.
+Grant `net.fetch https://exp.host`, exchange again when the live subscription
+changes, and send the Expo token to your server. The [push recipe](recipes/push.md)
+includes the handler, channel and backend send.
+
+### Android Expo push example
+
+The backend sends a data-only message, with title and body inside `data`, as
+the [push recipe](recipes/push.md) shows. Expo wraps that object as JSON in
+`envelope.body`; the handler reads it and posts the notification itself.
+Top-level `title` or `body` makes Expo send a notification message instead:
+Firebase shows it in the background and Exact shows it in front, without
+raising `push` ([FCM message types](https://firebase.google.com/docs/cloud-messaging/customize-messages/set-message-type)).
+
+The Contract subscribes from a press and hears the Push API's `push` event
+on its root. A live subscription refreshes the token exchange after rotation.
+Merge these declarations and the root's `push` handler into the app:
+
+```text
+use subscribePush, pushSubscription, PushSubscription, push, PushEvent from "@exact/push"
+
+shape ExpoToken
+  type: string
+  data: string
+
+component App
+  resource subscription = pushSubscription() as shape option<PushSubscription>
+  resource expoToken = exchangePush(subscription) as shape ExpoToken
+  mutation subscribed as shape PushSubscription
+  mutation delivered as shape bool
+  action subscribe
+    send subscribed = subscribePush()
+  action received(e: PushEvent)
+    send delivered = receivePush(e.data)
+  view
+    main push=received
+      button press=subscribe
+        text "Enable alerts"
+```
+
+In `app.ts`, keep the app's literal `appId` and add the grants and answer
+branches below. Replace the backend origin with the app's own. The exchange
+uses the same request fields and JSON header as
+[expo-notifications](https://github.com/expo/expo/blob/main/packages/expo-notifications/src/getExpoPushTokenAsync.ts).
+It returns `{type: "expo", data}`; store `data` on the backend for this guard.
+An offline exchange throws; refresh the resource to retry.
+
+```ts
+import type { Answer } from './app.contract.d.ts';
+import manifest from './app.json';
+import { getExpoPushTokenAsync } from '@exact/push/expo';
+import { showNotification } from '@exact/notifications';
+
+export const appId = 'com.example.guard';
+export const grants = `device.notifications purpose.notifications
+device.push
+net.fetch https://exp.host
+net.fetch https://guard.example`;
+
+export const answer: Answer = async (source, args) => {
+  if (source === 'exchangePush') {
+    const [subscription] = args;
+    if (!subscription?.android) return { type: 'expo', data: '' };
+    const token = await getExpoPushTokenAsync(subscription, manifest);
+    const saved = await fetch('https://guard.example/push-token', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ token: token.data }),
+    });
+    if (!saved.ok) throw new Error('Could not save the push token');
+    return token;
+  }
+  if (source === 'receivePush') {
+    const envelope = JSON.parse(args[0]);
+    // Expo encodes the sender's data-only payload in body.
+    const alert = JSON.parse(envelope.body || '{}');
+    await showNotification({ title: alert.title || 'Urgency',
+      body: alert.body, tag: alert.id, navigate: alert.navigate,
+      android: { channelId: 'urgencies' } });
+    return true;
+  }
+  throw new Error(`Unknown source ${source}`);
+};
+```
+
+The handler may also refresh the urgencies resource. Await notification and
+network work inside its mutation so the wake owns it. A socket's
+`exactStream` mapper cannot post; have its mapped counter key a resource
+whose answer calls `showNotification` instead.
+
 
 Under the agent nothing reaches APNs or FCM, and `pushSubscription()` reads null
 while the permission is not granted, as on the phone. A subscribe while
@@ -3262,11 +3792,11 @@ while the permission is not granted, as on the phone. A subscribe while
 @t '{"apple":{"deviceToken":"ab12"}}'`); `prefer extension
 push.pushSubscription=<json>` sets the value later, as a rotation.
 
-On Android, run under the agent only: the substitute's ticket and rotation,
-and a build carrying Firebase's client with no start-up provider and no
-`google-services.json`, whose calls are refused as above. Not yet run: a
-registration with a Firebase project and a send through FCM to `fid`, in
-front, in the background and after the process ended, and on a phone.
+Android's data-message routing, deadline, registration and token rotation have
+JVM coverage; Expo's exchange request is checked with mocked fetch. Real
+registration and FCM/Expo delivery need the app's Firebase project and have
+not been verified here. The [device checklist](../packages/push/test/checklist.md)
+names the foreground, background and killed-process checks.
 
 Run on an iOS 27 simulator: the real prompt; a registration the simulator
 answered with a token; a relaunch that only reads `pushSubscription()`
@@ -3858,7 +4388,43 @@ asks, from a press. [Recipe](recipes/displays.md).
 | macOS | `NSScreen.screens` flipped at the primary's top, `visibleFrame` for the work area, `CGDisplayIsBuiltin`, `localizedName`; the pointer from `NSEvent.mouseLocation` |
 | web | the browser's `window.getScreenDetails()` (Chromium on the desktop), `screenschange`, `currentscreenchange`; no pointer (`NotSupportedError`); elsewhere `available: false` |
 | Linux | the one display the host fills: the KMS connector (`label` its name, `isInternal` for eDP, LVDS and DSI) or the headless buffer, at the host's scale; the pointer the host draws |
-| Windows, iPadOS, Android | not built: `NotSupportedError` |
+| Windows | `EnumDisplayMonitors` and `GetMonitorInfoW` (`rcMonitor`, `rcWork` for the work area), each scale `GetDpiForMonitor`'s times the Text size setting, laid out into CSS pixels as Chromium lays monitors out, so the numbers are a page's in Chrome on the same machine; `label` (the EDID name, else empty) and `isInternal` from `QueryDisplayConfig` (an LVDS or DSI panel is internal here and not in Chrome); the pointer from `GetCursorPos`; `clientRect`, `clientX` and `clientY` from physical pixels over the window's own scale, which the Text size setting does not change. A run with no window (an agent's session) reports the buffer it paints as its one display, as the Linux host does |
+| iPadOS, Android | not built: `NotSupportedError` |
+
+### Still desktop capture (`@exact/screen-capture`)
+
+`captureScreens({directory, type?, quality?})` writes a still of every
+display, in display-list order, without a picker or window activation
+(LLP 1178). It answers `{captures: [{path, width, height, type, screen}]}`:
+physical pixel sizes and the corresponding `ScreenDetailed`, with
+`clientRect` in the session window's CSS pixels (null without a window).
+`directory` is an `app:/` root such as `app:/tmp` or a directory below one.
+The default is one `screen-<n>.png` per display. Encoding options follow
+`captureCanvas`. The grants are `device.screen-recording <usage-key>` and
+`fs.write <directory>`; drawing a file also needs `fs.read`.
+
+`screenRecordingStatus()` is a live `{available, state}` fact.
+`requestScreenRecording()` requests permission from a foreground app;
+capture itself refuses without permission and never prompts. A tool or
+wake cannot request or capture. Files publish in call order after all
+encodes finish; cancellation before publication leaves previous files.
+A failure before publication preserves every previous file; a failure
+between renames reports `EncodingError` and may leave some files new.
+Limits are 8,192² pixels per display and 2²⁷ per call, checked before
+allocation (`QuotaExceededError`). Unsupported encodings fall back to PNG;
+JPEG is supported on both desktop hosts.
+
+On macOS, status is `prompt` until this install has asked, `denied` after an
+unsuccessful request, and `granted` when the OS permits capture. It is read
+again when the app becomes active. A denial is changed in System Settings.
+See the [capture recipe](recipes/screen-capture.md) for setup and fixtures.
+
+| host | still capture |
+| --- | --- |
+| macOS 14+ | `SCScreenshotManager`, sRGB at backing pixels, without the pointer; Screen Recording permission, checked at each capture |
+| Windows | per-monitor `BitBlt` with `SRCCOPY \| CAPTUREBLT`, physical pixels, no pointer or permission dialog; GDI's SDR colors, tagged sRGB |
+| web, Linux | deterministic fixture images under the agent; real capture answers `NotSupportedError` |
+| mobile, TV, watch, terminal | unavailable |
 
 ### Pick a file of any type
 
@@ -4047,6 +4613,340 @@ upload the original when it already fits. Under the agent it runs for real with
 is one call; a crop that misses the picture rejects with `code` `outside`
 (LLP 1133.019 D15).
 
+### A camera track's calibration
+
+Calibration stays in a package. A package can read the camera behind an open
+`@exact/media-capture` video track; it needs no new core API and opens no second
+camera. Keep a consumer, such as `exact-camera`, showing the track while reading.
+
+The complete example is [@fixture/camera-calibration](../packages/fixtures/camera-calibration/).
+Its [interface](../packages/fixtures/camera-calibration/exact.json),
+[package exports](../packages/fixtures/camera-calibration/package.json),
+[Android implementation manifest](../packages/fixtures/camera-calibration/android/exact.json)
+and [Apple implementation manifest](../packages/fixtures/camera-calibration/apple/exact.json)
+are part of the fixture. Copy it into your package, or add it to an app by path:
+
+```sh
+bun add @fixture/camera-calibration@file:/absolute/path/to/exact/packages/fixtures/camera-calibration
+```
+
+Pass a video track ID, not its stream ID. For example, place this component beside
+the viewfinder after the app's `getUserMedia` has returned a track:
+
+```contract
+use getCameraCalibration, CameraCalibration from "@fixture/camera-calibration"
+
+component App
+  view
+    Calibration(track="camera-track")
+
+component Calibration
+  props
+    track: string
+  resource calibration = getCameraCalibration(track=track) as shape CameraCalibration else empty()
+  action read
+    refresh calibration
+  view
+    column
+      button press=read
+        text "Read calibration"
+      text calibration.reason
+```
+
+The read is a snapshot. Refresh it after the viewfinder starts, and after changing
+camera, format, focus or zoom. The fixture's agent substitute returns empty arrays
+with `reason="agent"`; bind the implementation to inspect a real camera.
+
+| Field | Meaning |
+|---|---|
+| `intrinsicMatrix` | Nine row-major values, `[[fx, skew, cx], [0, fy, cy], [0, 0, 1]]`; focal lengths and principal point in reference-frame pixels |
+| `referenceFrame`, `referenceDimensions` | The matrix's coordinate system and its width and height |
+| `distortion` | Android's five `LENS_DISTORTION` coefficients, in the platform's order; empty on the iOS video path |
+| `focalLengths` | Android's available focal lengths in millimetres, not the current frame's focal length |
+| `sensorSize`, `pixelArraySize` | Android's physical sensor width and height in millimetres, and full pixel-array width and height |
+| `preCorrectionActiveArray` | Android's `[left, top, right, bottom]` rectangle in the full pixel array |
+| `deviceId` | The native camera identifier, for associating the answer with the camera |
+| `reason` | Empty when intrinsics are present; otherwise why they are absent. Other fields may still be present |
+
+An empty array means unreported or unavailable, never zero distortion or a guessed
+calibration. Record the reference dimensions and camera identity with the matrix.
+
+#### Android
+
+`VideoSource.camera` in [Tracks.kt](../host/android/canvas/src/main/java/dev/exact/canvas/Tracks.kt)
+is the bound CameraX `Camera`. The package's manifest names the same
+`androidx.camera:camera-camera2:1.6.2` as the capture package, so it can use
+[Camera2CameraInfo](https://developer.android.com/reference/androidx/camera/camera2/interop/Camera2CameraInfo)
+and `getCameraCharacteristic`. Read on the main thread through the track table.
+
+`LENS_INTRINSIC_CALIBRATION` is `[fx, fy, cx, cy, skew]`. Its origin is the top-left
+of `SENSOR_INFO_PRE_CORRECTION_ACTIVE_ARRAY_SIZE`, before distortion correction,
+not the full sensor's origin and not the preview's. `LENS_DISTORTION` is
+`[k1, k2, k3, p1, p2]` in Camera2's model. Many devices omit either or both;
+keep null characteristics empty. See [CameraCharacteristics](https://developer.android.com/reference/android/hardware/camera2/CameraCharacteristics#LENS_INTRINSIC_CALIBRATION).
+
+This is the complete Kotlin implementation, compiled by the reader's Kotlin unit
+tests. It reads the camera characteristics without binding another
+use case or taking another camera lease:
+
+```kotlin
+package fixture.calibration
+
+import android.hardware.camera2.CameraCharacteristics as Keys
+import androidx.camera.camera2.interop.Camera2CameraInfo
+import androidx.camera.camera2.interop.ExperimentalCamera2Interop
+import androidx.camera.core.Camera
+import dev.exact.canvas.ExactExtension
+import dev.exact.canvas.ExtensionContext
+import org.json.JSONArray
+import org.json.JSONObject
+
+class CalibrationModule(context: ExtensionContext) : ExactExtension(context) {
+    override fun later(name: String, args: JSONObject, reply: (JSONObject) -> Unit) {
+        if (name != "getCameraCalibration") return reply(JSONObject().put("error", "NotSupportedError"))
+        val track = context.tracks.lookup(args.optString("track"))
+        val camera = track?.video?.invoke()?.camera as? Camera
+        reply(if (camera == null) empty("track-not-running") else read(camera))
+    }
+
+    companion object {
+        fun empty(reason: String) = JSONObject().apply {
+            put("reason", reason)
+            put("deviceId", "")
+            put("referenceFrame", "")
+            for (key in listOf("intrinsicMatrix", "distortion", "focalLengths", "sensorSize",
+                "pixelArraySize", "preCorrectionActiveArray", "referenceDimensions")) put(key, JSONArray())
+        }
+
+        @OptIn(ExperimentalCamera2Interop::class)
+        fun read(camera: Camera): JSONObject {
+            val info = try { Camera2CameraInfo.from(camera.cameraInfo) }
+                catch (_: IllegalArgumentException) { return empty("camera2-unavailable") }
+            val k = info.getCameraCharacteristic(Keys.LENS_INTRINSIC_CALIBRATION)
+            val distortion = info.getCameraCharacteristic(Keys.LENS_DISTORTION)
+            val focal = info.getCameraCharacteristic(Keys.LENS_INFO_AVAILABLE_FOCAL_LENGTHS)
+            val sensor = info.getCameraCharacteristic(Keys.SENSOR_INFO_PHYSICAL_SIZE)
+            val pixels = info.getCameraCharacteristic(Keys.SENSOR_INFO_PIXEL_ARRAY_SIZE)
+            val active = info.getCameraCharacteristic(Keys.SENSOR_INFO_PRE_CORRECTION_ACTIVE_ARRAY_SIZE)
+            return empty(if (k?.size == 5) "" else "intrinsics-not-reported").apply {
+                put("deviceId", info.cameraId)
+                put("referenceFrame", "pre-correction-active-array")
+                if (k?.size == 5) put("intrinsicMatrix", JSONArray(listOf(
+                    k[0], k[4], k[2], 0f, k[1], k[3], 0f, 0f, 1f)))
+                if (distortion != null) put("distortion", JSONArray(distortion.toList()))
+                if (focal != null) put("focalLengths", JSONArray(focal.toList()))
+                if (sensor != null) put("sensorSize", JSONArray(listOf(sensor.width, sensor.height)))
+                if (pixels != null) put("pixelArraySize", JSONArray(listOf(pixels.width, pixels.height)))
+                if (active != null) {
+                    put("preCorrectionActiveArray", JSONArray(listOf(active.left, active.top, active.right, active.bottom)))
+                    put("referenceDimensions", JSONArray(listOf(active.width(), active.height())))
+                }
+            }
+        }
+    }
+}
+```
+
+These are static, default-pixel-mode sensor characteristics. They are insufficient
+by themselves to map a processed video pixel back to a ray: account for crop,
+scaling, rotation, mirroring, zoom and distortion correction. A logical camera may
+switch physical lenses. A package recording frames should also retain the frame's
+capture-result metadata, camera identity and image transform; the available focal
+length list is not a per-frame measurement. Camera2's maximum-resolution pixel mode
+has separate calibration keys.
+
+#### iOS
+
+Attach an `AVCaptureVideoDataOutput` through
+[`ExactVideoSource.configure(stopped: true)`](../host/apple/modules/ExactPackage.swift).
+With `stopped: true`, Exact stops a running session for this configuration and
+resumes it afterwards;
+Apple requires intrinsic delivery to be enabled before `startRunning()`. Check
+[`isCameraIntrinsicMatrixDeliverySupported`](https://developer.apple.com/documentation/avfoundation/avcaptureconnection/iscameraintrinsicmatrixdeliverysupported)
+before setting
+[`isCameraIntrinsicMatrixDeliveryEnabled`](https://developer.apple.com/documentation/avfoundation/avcaptureconnection/iscameraintrinsicmatrixdeliveryenabled).
+Support depends on the active format and connection, including stabilization.
+The `.photo` session preset does not itself request calibration.
+
+Read [`kCMSampleBufferAttachmentKey_CameraIntrinsicMatrix`](https://developer.apple.com/documentation/coremedia/kcmsamplebufferattachmentkey_cameraintrinsicmatrix)
+from each delivered sample you need to associate with a frame. Its `CFData` holds
+a column-major `matrix_float3x3`, whose SIMD columns contain padding; it is not nine
+packed floats. The focal lengths are in pixels, with origin at the frame's upper
+left. The fixture copies the native matrix and serializes nine row-major numbers,
+with the sample's dimensions. It leaves the connection's image orientation alone.
+
+This complete Swift implementation shares one output for concurrent reads, returns
+the first frame's matrix and removes the output. It answers `output-unavailable`,
+`intrinsics-not-supported`, `intrinsics-not-reported` or `no-frame` when it cannot
+supply a matrix; its two-second frame deadline starts after session configuration
+and restart finish. A camera change restarts pending reads on a new output and
+discards callbacks from the old one. It takes no lease.
+The macOS build returns `intrinsics-not-supported` because Apple's connection
+switches are unavailable there.
+
+```swift
+import AVFoundation
+import ExactPackage
+import Foundation
+import simd
+
+public final class CalibrationModule: ExactPackage {
+    private let context: ExactPackageContext
+    public init(context: ExactPackageContext) { self.context = context }
+
+    public func later(_ name: String, _ args: [String: Any], preferred: Any?, reply: @escaping ([String: Any]) -> Void) {
+        guard name == "getCameraCalibration" else { return reply(["error": "NotSupportedError"]) }
+        guard let track = args["track"] as? String, let source = context.tracks.lookup(track)?.video?() else {
+            return reply(VideoCalibration.empty("track-not-running"))
+        }
+        let calibration = source.shared("fixture.camera-calibration") { VideoCalibration(source) }
+        calibration.read(reply)
+    }
+}
+
+// One output per capture, shared by concurrent reads and removed after the first frame.
+final class VideoCalibration: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
+    private weak var source: ExactVideoSource?
+    private var deviceId = ""
+    private let frames = DispatchQueue(label: "fixture.camera-calibration.frames")
+    private var output: AVCaptureVideoDataOutput?
+    private var waiting: [([String: Any]) -> Void] = []
+    private var deadline: DispatchWorkItem?
+    private let scheduleDeadline: (DispatchWorkItem) -> Void
+
+    init(_ source: ExactVideoSource, scheduleDeadline: @escaping (DispatchWorkItem) -> Void = {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2, execute: $0)
+    }) {
+        self.source = source
+        self.scheduleDeadline = scheduleDeadline
+    }
+
+    static func empty(_ reason: String) -> [String: Any] {
+        ["reason": reason, "deviceId": "", "referenceFrame": "", "intrinsicMatrix": [Double](),
+         "distortion": [Double](), "focalLengths": [Double](), "sensorSize": [Double](),
+         "pixelArraySize": [Double](), "preCorrectionActiveArray": [Double](), "referenceDimensions": [Double]()]
+    }
+
+    func read(_ reply: @escaping ([String: Any]) -> Void) {
+        guard let source else { return reply(Self.empty("track-not-running")) }
+        waiting.append(reply)
+        if output != nil, deviceId == source.device.uniqueID { return }
+        start(source)
+    }
+
+    private func start(_ source: ExactVideoSource) {
+        detach()
+        deviceId = source.device.uniqueID
+        let output = AVCaptureVideoDataOutput()
+        self.output = output
+        output.alwaysDiscardsLateVideoFrames = true
+        output.setSampleBufferDelegate(self, queue: frames)
+        source.configure(stopped: true) { session in
+            var reason: String?
+            if session.canAddOutput(output) {
+                session.addOutput(output)
+                #if os(iOS)
+                if let connection = output.connection(with: .video), connection.isCameraIntrinsicMatrixDeliverySupported {
+                    connection.isCameraIntrinsicMatrixDeliveryEnabled = true
+                } else { reason = "intrinsics-not-supported" }
+                #else
+                reason = "intrinsics-not-supported"
+                #endif
+            } else { reason = "output-unavailable" }
+            if let reason { DispatchQueue.main.async { self.finish(output, Self.empty(reason)) } }
+        }
+        source.run { _ in
+            DispatchQueue.main.async {
+                guard self.output === output else { return }
+                let timeout = DispatchWorkItem { self.finish(output, Self.empty("no-frame")) }
+                self.deadline = timeout
+                self.scheduleDeadline(timeout)
+            }
+        }
+    }
+
+    func captureOutput(_ output: AVCaptureOutput, didOutput sample: CMSampleBuffer, from connection: AVCaptureConnection) {
+        let answer = Self.decode(sample)
+        DispatchQueue.main.async { self.finish(output, answer) }
+    }
+
+    private func detach() {
+        guard let output else { return }
+        output.setSampleBufferDelegate(nil, queue: nil)
+        self.output = nil
+        deadline?.cancel(); deadline = nil
+        source?.configure { session in
+            if session.outputs.contains(where: { $0 === output }) { session.removeOutput(output) }
+        }
+    }
+
+    private func finish(_ output: AVCaptureOutput, _ answer: [String: Any]) {
+        guard output === self.output else { return }
+        if let source, source.device.uniqueID != deviceId {
+            start(source)
+            return
+        }
+        detach()
+        var answer = answer
+        answer["deviceId"] = deviceId
+        let replies = waiting
+        waiting.removeAll()
+        for reply in replies { reply(answer) }
+    }
+
+    static func decode(_ sample: CMSampleBuffer) -> [String: Any] {
+        guard let data = CMGetAttachment(sample, key: kCMSampleBufferAttachmentKey_CameraIntrinsicMatrix,
+                                         attachmentModeOut: nil) as? Data,
+              data.count == MemoryLayout<matrix_float3x3>.size else { return empty("intrinsics-not-reported") }
+        // SIMD columns have padding; copy the platform matrix before serializing its nine entries.
+        var matrix = matrix_identity_float3x3
+        _ = withUnsafeMutableBytes(of: &matrix) { data.copyBytes(to: $0) }
+        var answer = empty("")
+        answer["intrinsicMatrix"] = (0..<3).flatMap { row in (0..<3).map { column in Double(matrix[column][row]) } }
+        answer["referenceFrame"] = "sample-buffer"
+        if let description = CMSampleBufferGetFormatDescription(sample) {
+            let dimensions = CMVideoFormatDescriptionGetDimensions(description)
+            answer["referenceDimensions"] = [Int(dimensions.width), Int(dimensions.height)]
+        }
+        return answer
+    }
+}
+```
+
+A video attachment supplies the intrinsic matrix, not physical sensor dimensions
+or lens distortion tables. [`AVCameraCalibrationData`](https://developer.apple.com/documentation/avfoundation/avcameracalibrationdata)
+comes with supported depth or photo delivery: read `AVDepthData.cameraCalibrationData`
+from a depth output or depth-enabled photo, or `AVCapturePhoto.cameraCalibrationData`
+from a calibration-enabled photo capture. For the latter, check
+[`isCameraCalibrationDataDeliverySupported`](https://developer.apple.com/documentation/avfoundation/avcapturephotooutput/iscameracalibrationdatadeliverysupported)
+and request `AVCapturePhotoSettings.isCameraCalibrationDataDeliveryEnabled`.
+Apple's photo support requires constituent photo delivery and disabled geometric
+and content-aware distortion correction. A plain video output cannot return this
+object, and the camera's ordinary `takePhoto` does not enable those settings.
+
+When depth/photo calibration is present, store its
+[`intrinsicMatrixReferenceDimensions`](https://developer.apple.com/documentation/avfoundation/avcameracalibrationdata/intrinsicmatrixreferencedimensions),
+`pixelSize`, `lensDistortionCenter`, `lensDistortionLookupTable` and
+`inverseLensDistortionLookupTable` with the matrix. Apple's distortion tables are
+not Android's five coefficients. For a clip, read the attachment on the same
+samples the recording package encodes, preserving timestamps and any image
+transform; this one-shot read is a camera-model snapshot, not a per-frame log.
+
+#### Verification
+
+The camera's [Apple suite](../packages/camera/test/apple.mjs) compiles this Swift
+file with the track hooks for macOS and iOS. Its calibration tests check that
+configuration stops and resumes a running session, leaves an idle session idle,
+and decodes a sample-buffer matrix with its reference dimensions; missing or
+truncated attachments return a reason. Pending reads follow a camera switch,
+reject old frames, and start the frame deadline after restart completes.
+A controlled scheduler checks when the deadline is armed and its `no-frame` reply.
+The Android reader's
+`CalibrationTest` compiles the Kotlin implementation and checks all six
+characteristics through an open track, including partial and absent data.
+A [phone check](../packages/camera/test/checklist.md) is still needed to establish
+what an individual camera delivers.
+
 ### Save an edit of a photo (`storage.fs.transformImage`)
 
 `storage.fs.transformImage(from, to, options)` decodes the image at `from`
@@ -4225,6 +5125,12 @@ rather than normalizing it; current builds cannot embed one, and older binaries
 embed no handlers. The handles end with the session, unless
 the app keeps what the person chose (below).
 
+On Windows, the three document pickers, file inputs and `saveFile` use the
+shell's common item dialogs, owned by the app's window. A headless host refuses
+them; under the agent they remain held pickers. Document pickers offer every
+file until the Windows build carries `file_handlers`. File inputs copy the
+chosen files into `app:/tmp/picked/` and leave the originals in place.
+
 **Where a picker opens** (LLP 1173 D2). The three pickers and `saveFile`
 take the File System Access API's `startIn=`: a well-known folder by name,
 or a `doc:` path the person chose earlier.
@@ -4256,14 +5162,14 @@ component Capture
 | iOS | Ignored: iOS has no such folders | The document picker's `directoryURL` |
 | Web (Chromium) | Passed as is; `screenshots` is `pictures` | The handle |
 | Linux desktop | The portal's `current_folder`, from `user-dirs.dirs`; `screenshots` is the pictures folder's `Screenshots` | `current_folder` |
+| Windows | The shell's known folder, including a redirected folder; `screenshots` is its Screenshots folder. Used as a default only when Windows has no last-used folder | The held document's folder, overriding the last-used folder |
 
 A name that does not resolve here (Linux's Downloads disabled, the Screenshot
 app saving to the Clipboard), a value that is neither a name nor a `doc:` path,
 and a handle the session does not hold are journalled as
 `<command>: startIn: refused: …`, and the panel opens where it would have.
 Linux's `saveFile` has no panel, so `startIn` there reaches only the pickers.
-Windows has no file dialogs yet. Under the agent the held picker's `args` carry
-`startIn`.
+Under the agent the held picker's `args` carry `startIn`.
 
 **A change on disk asks the answer again** (LLP 1069.010.000 D1). An answer
 that calls `storage.fs.watch(path)` is asked again when the file, a folder's
@@ -4773,7 +5679,7 @@ below any later popover, without exposing the page or a lower modal.
 
 | Scope | Swift (`ExactModule`) | Page module (`modules/web/index.js`) |
 |---|---|---|
-| A node marked `hatch="word"` | `element(_:)`, `elementEnded(_:)`; a frame's `elementConfiguration(_:_:)` | `element(e)`, `elementEnded(e)` |
+| A node marked `hatch="word"` | `element(_:)`, `elementEnded(_:)`; a frame or video's `elementConfiguration(_:_:)` | `element(e)`, `elementEnded(e)` |
 | A route, a navigation stack, tabs (iOS; the web's elements) | `route`, `routeEnded`, `navigation`, `tabs`, `tabContainer` | `route`, `routeEnded`, `navigation`, `tabs` |
 | The window toolbar (macOS) | `toolbar(_:)` | none |
 | The app: its facts, by the web's names, and the root node's `data-*` words as `data` (each in `app.json` `data`, which `hatch --app` adds; Swift reads `data-booted` as `app.data[.booted]`) | `app(_:)`, `appEnded(_:)` | `app(a)`, `appEnded(a)` |
@@ -4808,6 +5714,16 @@ there: the node may not be in the tree yet. A hatched frame's first web view
 waits for the module to connect, so this call comes before the web view is
 made. The web view then arrives at `built`; if `built` has no `platform` (as
 on macOS or in an iOS list row), the `changed` after this call hands it.
+
+A hatched `video` on Apple calls `elementConfiguration(_:_:)` synchronously
+before each item, including a changed source or `load(id)`. It hands an
+`NSMutableDictionary`: `url` is the resolved source `URL`; set `asset` to an
+`AVURLAsset` for custom loading. The arm applies the authored playback and
+rendition preferences to that asset's item. `element.platform` then hands the
+`AVPlayer` at `built`, or `changed` for a deferred player. The arm owns the item,
+playback and authored preferences; retain any resource-loader delegate yourself.
+See [video loading](contract-for-agents.md#sound-midi-and-media) for an example
+and AirPlay/FairPlay limits. Android has no video player hook yet.
 
 **Linux, Windows and Android paint their own pixels**, so there is no platform
 object to hand over. A hatch there is Rust: one type that implements
@@ -4943,11 +5859,81 @@ the shape declares them. `bun exact.mjs contract rust app.contract -o
 /tmp/shapes.rs` writes each shape as a struct with its fields in that order.
 It includes native-module call records only when an authored shape or a data
 source's parameter or result type reaches them; `contract::module_rust`
-generates the module bindings. For a build script,
+generates the module bindings. A data crate's build script calls
+`contract::build_rust(Path::new("../app.contract"))` to write `OUT_DIR/shapes.rs`.
+Exact refreshes the generated Rust before each Cargo build, writing it only
+when its contents change. The first build creates the file; Cargo establishes
+its watch on the following build. Once warm, a view edit leaves the data crate
+fresh when its shapes stay the same. Compiler flags, features and other Cargo
+inputs still trigger builds. The dev watcher follows the generator's Contract
+source graph even when the generated Rust stays unchanged. Existing build scripts
+keep working. Replace their shape-generation calls with `contract::build_rust`
+to get this reuse. Direct Cargo builds watch the Contract source graph. For custom generation,
 `contract::compile_path_for_rust` returns the plan and call-record names to
 pass to `contract::rust`; the names are compiler metadata, outside the binary
-plan. Both map scoped names such as `Point__exact` to `PointExact`.
+plan. Scoped names such as `Point__exact` become `PointExact`.
 `Value::Number`, `Value::str`, `Value::Bool` and `Value::list` are the rest.
+
+### GPU device requirements
+
+A package declares `gpu.limits.required` and `gpu.limits.optional` as objects of
+WebGPU limit names to integer values in its main `exact.json`. It declares
+`gpu.features.required` and `gpu.features.optional` as lists of WebGPU feature names.
+The Contract compiler validates names and bounds in the declaration. A package
+artifact requests its own requirements before its device is created. Optional values
+are clamped to the adapter, with alignment minima ordered in reverse. Buffer binding
+sizes also raise `maxBufferSize`; workgroup dimensions also raise
+`maxComputeInvocationsPerWorkgroup`. A required value that exceeds either adapter
+limit is refused; an optional value is clamped to both. An unavailable required limit or
+feature refuses the owning package's surfaces while the other surfaces keep drawing.
+The web backend does not expose `subgroups`, `primitive-index` or `immediates`:
+optional requests omit them and required requests refuse the package's surfaces;
+native grants them where the adapter offers them.
+An app without requirements retains the existing device request.
+
+`Surface::device_ready(&mut self, features: wgpu::Features, limits: wgpu::Limits)`
+receives the actual grant, including on recovery and target reattachment. A fixture
+requests the same grant through `exact_gpu::fixture::device_with_requirements`.
+An authored GPU module passes a static `&[exact_gpu::grants::Requirements]` as the
+second argument to `exact_gpu::module!`. See [the GPU module recipe](recipes/gpu-module.md)
+for a declaration and [package GPU surfaces](contract-for-agents.md#a-packages-gpu-surfaces)
+for packaging. Packages declare `exactGpu: "0.4"` and depend on `exact-gpu = "0.4"`.
+
+### GPU storage
+
+On Apple (macOS, iOS and tvOS), Android, Linux and Windows, a surface may implement:
+
+```rust
+fn storage(&mut self, data: &std::path::Path, cache: &std::path::Path,
+    temporary: &std::path::Path) {
+    self.cache = Some(cache.to_path_buf());
+}
+```
+
+The host calls this hook once for each canvas, after creation and before its first
+`bind`. The three absolute paths resolve that session's `app:/data`, `app:/cache`
+and `app:/tmp`. They are borrowed for the call; copy any path the surface keeps.
+The native ABI preserves Unix path bytes and Windows UTF-16 code units, including
+non-Unicode names. On Android, Linux and Windows, a storage delivery failure keeps
+the canvas and logs once at creation. The module does not create directories or retain
+paths for a surface that ignores them. Create a directory when needed and handle
+filesystem errors in the surface. Device recovery keeps the surface and its paths; a recreated canvas receives them
+again. Keep paths on the surface, since a loaded artifact can serve several sessions.
+
+A file written under `cache` can be shown with `image "app:/cache/<name>"`, shared
+by that path, or read as an asset. Use distinct names for changed snapshots. Cache
+and temporary files may be removed by the platform; durable files belong in `data`.
+An agent drive's named store supplies its own roots. An unnamed drive uses temporary
+process storage, not the installed app's files.
+
+The web does not call `storage`. Its GPU artifact is WebAssembly with generated
+wasm-bindgen JavaScript; Exact supplies it no filesystem or browser-storage bridge.
+A GPU module that needs persistence must supply its own browser API integration.
+The app's data module can separately use Exact's `storage.fs` and `storage.sqlite`
+APIs, backed by IndexedDB in this repo. Those APIs are not injected into GPU modules
+and supply no paths usable by `std::fs` or native SQLite.
+`exact-gpu` 0.4 carries the hook and the native `gpu_storage` export; rebuild GPU
+artifacts with the host.
 
 ### An authored workspace
 
@@ -5102,9 +6088,19 @@ impl DataSource for Scores {
 `Store` (`store.get`, `store.set`, under `secret.keep <name>`) is for
 **secrets**: a session token, a key. Apple keeps them in the Keychain, Linux
 in a file per secret only the user can read (`0600`, under
-`$XDG_DATA_HOME/exact/<app id>/secrets`; not encrypted), and the web in
-`localStorage`; Windows keeps them in memory for now. The host reads them into a snapshot before boot, so a
-read is synchronous, and a scripted drive never keeps them. A best time is not
+`$XDG_DATA_HOME/exact/<app id>/secrets`; not encrypted), Android in AES-GCM
+files with Android Keystore-wrapped keys, and the web in origin-readable
+`localStorage`; Windows keeps them in memory for now.
+**For web refresh and session tokens, use a server-set HttpOnly, Secure cookie:**
+[web sign-in tokens and sessions](recipes/web-sessions.md) covers the shared
+native/web flow, selected at run time by `exactHost()` inside an answer
+(`'web'` or `'native'`, no grant; also on web workers). It refuses at module
+initialization and outside an answer; the bake leaves its answers for the host.
+Web `secret.keep` does not protect against injected scripts.
+Opening Android's secret store deletes legacy
+plaintext files without reading them; only encrypted entries are restored.
+The host reads secrets into a snapshot before boot, so a read is synchronous,
+and a scripted drive never keeps them. A best time is not
 a secret: keep it in app storage. A lease on a secret (`SharedSecrets::acquire`,
 from `configure_secrets`) needs the same grant: on Apple a name the grants do not
 keep reads and writes as `denied: secret.keep`.
@@ -5288,6 +6284,14 @@ crate: the source digest reads every arm, so an edit to any of them moves it
 `target_arch = "wasm32"` arms, never one for the device's `target_os`. A crate
 whose module can be replaced should branch on nothing else
 ([pitfall](agent-pitfalls.md#actions)).
+
+The digest also covers the path crates the data crate is built from, and
+theirs in turn, including an optional one no default feature enables: the
+build that links the crate can enable it. One case is not covered. A path
+crate that `[patch]` puts in place of a registry or git dependency counts
+only where Cargo's default-feature resolve reaches it. When only an optional
+dependency that resolve leaves off reaches it, an edit to it does not move
+the id; declare that dependency with `path` to have it counted.
 
 The repository's app entries use `contract::rust_entry` to select a concrete
 factory at bake time. A custom host adapter must do the same (and depend on

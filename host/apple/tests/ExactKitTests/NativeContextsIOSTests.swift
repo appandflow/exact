@@ -2,6 +2,7 @@
 import UIKit
 import XCTest
 @testable import ExactKit
+@testable import ExactCollections
 
 /// LLP 1069.011.000 on UIKit: a native button goes where a button goes, read
 /// through its face (D1) — a swipe action drawn from its symbol and accent
@@ -141,7 +142,7 @@ final class NativeContextsIOSTests: XCTestCase {
             faces: [4: face("Delete", symbol: "trash"), 5: face(nil, symbol: "bell", label: "Hide alerts"), 6: face("Pin", symbol: "pin", label: "Pin"), 9: face("Flag", symbol: "flag", label: "Flag"),
                     11: face(nil, symbol: "archivebox", label: "Archive")])
         let owner = try XCTUnwrap(p.views[1])
-        p.swipeActions.touch(owner)
+        p.swipeHost.touch(owner)
         let table = try XCTUnwrap(owner.subviews.compactMap { $0 as? UITableView }.first)
         XCTAssertTrue(table.touchesShouldCancel(in: NativeButtonIOS(configuration: .bordered())), "a pan takes a native body button's touch")
         let configuration = try XCTUnwrap(table.delegate?.tableView?(table, trailingSwipeActionsConfigurationForRowAt: IndexPath(row: 0, section: 0)))
@@ -325,29 +326,30 @@ final class NativeContextsIOSTests: XCTestCase {
     }
 
     func testSegmentLabelsKeepSelectionAndAvailabilityCurrent() throws {
+        guard Presenter.axRuntimeLoaded else { throw missing("accessibility", "UIKit makes a segment's element only for an assistive client") }
         let control = LabelledSegmentedControl(items: ["One", "Two"])
         control.frame = CGRect(x: 0, y: 0, width: 300, height: 32)
         control.segmentIDs = ["one", "two"]
         control.selectedSegmentIndex = 0
         control.layoutIfNeeded()
-        let segments = control.segmentViews
+        let segments = control.accessibilitySegments
         XCTAssertEqual(segments.count, 2)
         guard segments.count == 2 else { return }
         XCTAssertTrue(segments[0].accessibilityTraits.contains(.selected))
         control.selectedSegmentIndex = 1
-        control.labelSegments()
+        _ = control.accessibilitySegments
         XCTAssertFalse(segments[0].accessibilityTraits.contains(.selected))
         XCTAssertTrue(segments[1].accessibilityTraits.contains(.selected))
         control.segmentUnavailable = [false, true]
-        control.labelSegments()
+        _ = control.accessibilitySegments
         XCTAssertTrue(segments[1].accessibilityTraits.contains(.notEnabled))
         control.isEnabled = false
-        control.labelSegments()
+        _ = control.accessibilitySegments
         XCTAssertTrue(segments.allSatisfy { $0.accessibilityTraits.contains(.notEnabled) })
         control.isEnabled = true
         control.segmentUnavailable = [false, false]
         control.selectedSegmentIndex = 0
-        control.labelSegments()
+        _ = control.accessibilitySegments
         XCTAssertTrue(segments[0].accessibilityTraits.contains(.selected))
         XCTAssertFalse(segments[1].accessibilityTraits.contains(.selected))
         XCTAssertFalse(segments.contains { $0.accessibilityTraits.contains(.notEnabled) })

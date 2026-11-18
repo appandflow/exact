@@ -44,7 +44,7 @@ final class IframeCaptureSessionTests: XCTestCase {
         XCTAssertTrue(document.write(to: file))
         // A hatch's moments, counted by the host before it calls the app's
         // module; no module is loaded here, so none is called.
-        session.natives.hatchesConnected = true
+        session.nativeViews!.hatchesConnected = true
         session.presenter.press(try XCTUnwrap(node("show")).id)
         let mounted = try XCTUnwrap(node("doc"))
         // A missing local PDF starts on the PDF's view, as named (its read fails later).

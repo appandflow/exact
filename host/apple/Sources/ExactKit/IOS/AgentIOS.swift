@@ -562,7 +562,7 @@ extension Agent {
            req["wheel"] == nil, req["hover"] == nil, req["contextmenu"] == nil, req["dblclick"] == nil,
            tapHitsControl(node, request: req),
            let activated = presenter.controls.activate(node, before: { nativePointer(node, request: req, at: $0) }) {
-            if var unsupported = presenter.controls.unopened(node) {
+            if var unsupported = presenter.controls.family.unopened(node) {
                 unsupported["reason"] = (unsupported["reason"] as? String ?? "") + "; an iOS simulator can use --touch platform for a real touch"
                 return unsupported
             }
@@ -850,7 +850,7 @@ extension Agent {
         }
         guard let node, !node.inert else { return .nothing }
         let local = node.local(p)
-        if node.kind == "svg", let element = presenter.svg.target(node.id, at: local) { return .part(node, "SVG element #\(element)", element) }
+        if node.kind == "svg", let element = presenter.svg?.target(node.id, at: local) { return .part(node, "SVG element #\(element)", element) }
         if let run = node.inlineActivationTarget(at: local) { return .part(node, "inline run #\(run.id)", run.id) }
         if let href = node.inlineLink(at: local) { return .part(node, "the link \(href)", nil) }
         if session.canvases.wantsInput(node.id), !node.isSurfaceControl { return .canvas(node) }
@@ -1047,7 +1047,18 @@ extension Agent {
             }
             return ["typed":v.id, "key":key, "delivery":"recognized"]
         }
-        if req["key"] == nil, let reply = presenter.controls.type(v, req["text"] as? String ?? "") { return reply }
+        if req["key"] == nil, let reply = presenter.controls.family.type(v, req["text"] as? String ?? "") { return reply }
+        #if os(iOS)
+        if let key = req["key"] as? String, let reply = presenter.controls.family.rangeKey(v, key, phase: req["phase"] as? String, repeats: req["repeat"] as? Bool == true) {
+            if req["phase"] as? String == "down", let token = req["releaseKey"] as? String {
+                keyReleases[token] = { [weak presenter, weak v] in
+                    if let v { _ = presenter?.controls.family.rangeKey(v, key, phase: "up") }
+                    return ["phase": "up", "delivery": "host-activation"]
+                }
+            }
+            return reply
+        }
+        #endif
         if v.props["editable"] == "false", req["key"] == nil || ["Enter", "Backspace"].contains(req["key"] as? String ?? "") { return ["error": "view \(v.id) is readonly"] }
         // @ref LLP 1038 D11 — type on the root delivers a location.
         if v.props["navigationBack"] != nil, req["key"] == nil {

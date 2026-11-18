@@ -83,6 +83,28 @@ function productionAppleReceiptFixture() {
   return { root, app, bake, evidence, localChanges, relocatedChanges, write, dispose: () => rmSync(root, { recursive: true, force: true }) };
 }
 
+test('receipts resolve GPU sources and build scripts in their own Cargo workspace', () => {
+  const fixture = productionAppleReceiptFixture(), { root, app, write, bake } = fixture;
+  try {
+    app.gpuWorkspace = resolve(root, 'module');
+    app.manifest.gpu = { modules: { sky: ['sky'] } };
+    write('module/Cargo.toml', '[workspace]\n[package]\nname="receipt-gpu-sky"\nversion="0.1.0"\nedition="2021"\n[lib]\ncrate-type=["cdylib"]\n');
+    write('module/src/lib.rs', '#[no_mangle] pub extern "C" fn color() -> u8 { include!("color.rs") }');
+    write('module/src/color.rs', '42');
+    write('module/build.rs', 'mod helper; fn main() { helper::watch(); }');
+    write('module/helper.rs', 'pub fn watch() { println!("cargo:rerun-if-changed=src/color.rs"); }');
+    const locked = spawnSync('cargo', ['generate-lockfile', '--offline'], { cwd: app.gpuWorkspace, encoding: 'utf8' });
+    assert.equal(locked.status, 0, locked.stderr);
+    const receipt = bake();
+    for (const path of ['src/lib.rs', 'src/color.rs', 'build.rs', 'helper.rs', 'Cargo.toml', 'Cargo.lock']) {
+      assert.ok(receipt.binary.inputs.some(input => input.path === resolve(app.gpuWorkspace, path)), path);
+    }
+    assert.deepEqual(pendingBuildInputs(receipt), []);
+    write('module/src/color.rs', '43');
+    assert.ok(pendingBuildInputs(receipt).some(name => name.endsWith('/src/color.rs')));
+  } finally { fixture.dispose(); }
+}, 30000);
+
 test.skipIf(process.platform === 'win32')('production Apple receipts retain main module-root link behavior', async () => {
   const fixture = productionAppleReceiptFixture(), { root, bake, evidence, localChanges, relocatedChanges } = fixture;
   try {
@@ -217,7 +239,7 @@ async function fixture(body) {
   try {
     // These fixtures assert the workspaces' default target paths.
     delete process.env.CARGO_TARGET_DIR;
-    for (const path of ['scripts/app.mjs','scripts/variants.mjs','scripts/links.mjs','scripts/help.mjs','scripts/forma-design-path.mjs','scripts/app-icons.mjs','scripts/notification-service.mjs','scripts/png.mjs','host/web/beside.mjs','scripts/bun.mjs','js/bake/src/__exact_env.mjs','scripts/contract-diagnosis.mjs','scripts/filesystem.mjs','scripts/tools.mjs','scripts/kept.mjs','scripts/paths.mjs','scripts/file-dependencies.mjs','scripts/cargo-check.mjs','scripts/app-shells.mjs','scripts/document-utis.mjs','scripts/document-utis.json','scripts/web-head.mjs','scripts/share-target.mjs','scripts/rust.mjs','scripts/origin.mjs','scripts/install-page.mjs','scripts/sweep.mjs','scripts/app.schema.json','host/web/stages.mjs','host/web/build-lock.mjs','host/web/look.mjs','host/web-js/glue.mjs','host/web-js/route-pattern.js','host/apple/assets.mjs','host/apple/buildinfo.mjs','host/apple/shader-libraries.mjs','host/apple/svg-filter.mjs','host/apple/toolchain.mjs','host/apple/plist.mjs','scripts/grant-advice.mjs','host/apple/link.mjs','host/apple/privacy.mjs','game/app/shells.mjs','game/inputs.mjs','game/app/crates.mjs','game/.cargo/config.toml','scripts/cargo-dep-info.mjs','scripts/package-libraries.mjs','scripts/linked-plan.mjs','scripts/app-cli.mjs','scripts/rustc/exact-rustc','js/bake/src/__exact_portable.mjs','js/bake/src/__exact_binding.mjs','js/bake/src/__exact_launch_setting.mjs','js/bake/src/typescript.mjs','host/apple/image.mjs','host/apple/metal.mjs','scripts/deploy-signing.mjs']) {
+    for (const path of ['scripts/app.mjs','scripts/variants.mjs','scripts/links.mjs','scripts/help.mjs','scripts/forma-design-path.mjs','scripts/app-icons.mjs','scripts/notification-service.mjs','scripts/png.mjs','host/web/beside.mjs','scripts/bun.mjs','js/bake/src/__exact_env.mjs','scripts/contract-diagnosis.mjs','scripts/filesystem.mjs','scripts/tools.mjs','scripts/kept.mjs','scripts/paths.mjs','scripts/file-dependencies.mjs','scripts/cargo-check.mjs','scripts/app-shells.mjs','scripts/document-utis.mjs','scripts/document-utis.json','scripts/web-head.mjs','scripts/share-target.mjs','scripts/rust.mjs','scripts/origin.mjs','scripts/install-page.mjs','scripts/sweep.mjs','scripts/app.schema.json','host/web/stages.mjs','host/web/build-lock.mjs','host/web/look.mjs','host/web-js/glue.mjs','host/web-js/route-pattern.js','host/apple/assets.mjs','host/apple/buildinfo.mjs','host/apple/shader-libraries.mjs','host/apple/svg-filter.mjs','host/apple/toolchain.mjs','host/apple/plist.mjs','scripts/grant-advice.mjs','host/apple/link.mjs','host/apple/Package.swift','host/apple/privacy.mjs','game/app/shells.mjs','game/inputs.mjs','game/app/crates.mjs','game/.cargo/config.toml','scripts/cargo-dep-info.mjs','scripts/package-libraries.mjs','scripts/linked-plan.mjs','scripts/app-cli.mjs','scripts/rustc/exact-rustc','js/bake/src/__exact_portable.mjs','js/bake/src/__exact_binding.mjs','js/bake/src/__exact_launch_setting.mjs','js/bake/src/typescript.mjs','host/apple/image.mjs','host/apple/metal.mjs','scripts/deploy-signing.mjs']) {
       write(path, readFileSync(resolve(import.meta.dir,'..',path)));
     }
     // The rustc wrapper the scripts' cargo calls run on a Mac (`withHostDeployment`), found beside the copied scripts.
@@ -1247,6 +1269,45 @@ test('a crate beside app.json joins the generated workspace by naming it, and on
   }
 }, 120_000);
 
+test('host data and GPU lock refreshes preserve compatible captured versions', async () => {
+  const { GPU_LOCK, lockShells, staleLock } = await import('./app-shells.mjs');
+  const dir = pinned(realpathSync(mkdtempSync(resolve(import.meta.dir, '../target/lock-refresh-'))));
+  try {
+    for (const [kind, file] of [['data', 'Cargo.lock'], ['gpu', GPU_LOCK]]) {
+      const workspace = resolve(dir, kind), member = resolve(workspace, 'member'), captured = resolve(dir, file);
+      mkdirSync(resolve(member, 'src'), { recursive: true });
+      writeFileSync(resolve(member, 'src/lib.rs'), '');
+      writeFileSync(resolve(workspace, 'Cargo.toml'), '[workspace]\nmembers = ["member"]\nresolver = "2"\n');
+      const manifest = (json, width) => writeFileSync(resolve(member, 'Cargo.toml'), `[package]\nname = "fixture-${kind}"\nversion = "0.1.0"\nedition = "2021"\n\n[dependencies]\nserde_json = "${json}"\nunicode-width = "${width}"\n`);
+      manifest('=1.0.154', '=0.2.2');
+      lockShells(dir, workspace, captured);
+      // Keep a captured lock even when the SDK eventually holds these versions too.
+      writeFileSync(captured, readFileSync(resolve(workspace, 'Cargo.lock')));
+      const before = readFileSync(captured, 'utf8');
+      assert.match(lockShells(dir, workspace, captured), /current; no changes$/);
+      // Both the SDK's serde_json 1.0.151 and unicode-width 0.1.14 fit these ranges.
+      manifest('1', '>=0.1.14, <=0.2.2');
+      assert.match(lockShells(dir, workspace, captured), /current; no changes$/);
+      assert.equal(readFileSync(captured, 'utf8'), before);
+      assert.equal(readFileSync(resolve(workspace, 'Cargo.lock'), 'utf8'), before);
+      assert.match(lockShells(dir, workspace, captured), /current; no changes$/);
+      // A changed requirement still lets Cargo update a captured version.
+      manifest('=1.0.151', '=0.1.14');
+      assert.match(lockShells(dir, workspace, captured), /resolved\n/);
+      const packages = Bun.TOML.parse(readFileSync(captured, 'utf8')).package;
+      for (const [name, version] of [['serde_json', '1.0.151'], ['unicode-width', '0.1.14']])
+        assert.deepEqual(packages.filter(p => p.name === name).map(p => p.version), [version]);
+      const older = readFileSync(captured, 'utf8');
+      manifest('1', '>=0.1.14, <=0.2.2');
+      assert.match(lockShells(dir, workspace, captured), /current; no changes$/);
+      assert.equal(readFileSync(captured, 'utf8'), older);
+    }
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+  assert.ok(staleLock('error: cannot update the lock file /app/Cargo.lock because --locked was passed to prevent this'));
+  assert.ok(staleLock('error: the lock file /app/Cargo.lock needs to be updated but --locked was passed to prevent this'));
+  assert.ok(!staleLock('error: failed to download `rustix v1.1.5`\n\nCaused by:\n  attempting to make an HTTP request, but --offline was specified'));
+}, 120_000);
+
 // LLP 1153.003 D1.4, a game's rule (LLP 1046.011 D2): an app captures a lock only when its crates leave exact2's.
 test('a generated workspace captures no lock until a dependency leaves exact2\'s, and keeps a captured one across a rewrite', async () => {
   const { createApp } = await import('../game/new.mjs');
@@ -1270,21 +1331,26 @@ test('a generated workspace captures no lock until a dependency leaves exact2\'s
     settleLock(dir, workspace);
     assert.match(lockShells(dir, workspace), /resolves against exact2's lock; the app's crates there add nothing, so it commits no Cargo\.lock of its own/);
     assert.equal(existsSync(resolve(dir, 'Cargo.lock')), false);
-    if (!other) return; // no second itoa in this machine's cache to leave exact2's lock with
-    data(`itoa = "=${other}"\n`);
-    assert.throws(() => settleLock(dir, workspace), new RegExp(`the app's crates need versions exact2's lock does not hold \\(itoa ${other.replaceAll('.', '\\.')} [^)]*\\)\\. An app whose crates add dependencies commits a lock of its own: \`bun exact\\.mjs lock\``));
-    assert.match(lockShells(dir, workspace), /Cargo\.lock: captured \(\d+ packages\); commit it/);
-    const captured = readFileSync(resolve(dir, 'Cargo.lock'), 'utf8');
-    assert.match(captured, new RegExp(`name = "itoa"\nversion = "${other.replaceAll('.', '\\.')}"`));
-    settleLock(dir, workspace);
-    // A rewrite of the shell (here, its stamp as a moved checkout leaves it) keeps the captured lock.
-    writeFileSync(resolve(workspace, '.stamp.json'), '{}\n');
-    assert.equal(ensureShells(dir).wrote, true);
-    assert.equal(readFileSync(resolve(workspace, 'Cargo.lock'), 'utf8'), captured);
-    // A dependency changed since the capture is the lock's to settle, never a build's.
-    data(`itoa = "=${held}"\n`);
-    assert.throws(() => settleLock(dir, workspace), /Cargo\.lock does not match the app's crates [^]*`bun exact\.mjs lock` in /);
-    assert.match(lockShells(dir, workspace), new RegExp(`Cargo\\.lock: resolved\nitoa ${other.replaceAll('.', '\\.')} → ${held.replaceAll('.', '\\.')}`));
+    if (other) {
+      data(`itoa = "=${other}"\n`);
+      assert.throws(() => settleLock(dir, workspace), new RegExp(`the app's crates need versions exact2's lock does not hold \\(itoa ${other.replaceAll('.', '\\.')} [^)]*\\)\\. An app whose crates add dependencies commits a lock of its own: \`bun exact\\.mjs lock\``));
+      assert.match(lockShells(dir, workspace), /Cargo\.lock: captured \(\d+ packages\); commit it/);
+      const captured = readFileSync(resolve(dir, 'Cargo.lock'), 'utf8');
+      assert.match(captured, new RegExp(`name = "itoa"\nversion = "${other.replaceAll('.', '\\.')}"`));
+      settleLock(dir, workspace);
+      // A rewrite of the shell (here, its stamp as a moved checkout leaves it) keeps the captured lock.
+      writeFileSync(resolve(workspace, '.stamp.json'), '{}\n');
+      assert.equal(ensureShells(dir).wrote, true);
+      assert.equal(readFileSync(resolve(workspace, 'Cargo.lock'), 'utf8'), captured);
+      // A dependency changed since the capture is the lock's to settle, never a build's.
+      data(`itoa = "=${held}"\n`);
+      assert.throws(() => settleLock(dir, workspace), /Cargo\.lock does not match the app's crates [^]*`bun exact\.mjs lock` in /);
+      assert.match(lockShells(dir, workspace), new RegExp(`Cargo\\.lock: resolved\nitoa ${other.replaceAll('.', '\\.')} → ${held.replaceAll('.', '\\.')}`));
+    }
+    data('rustls-platform-verifier = "=0.7.1"\n');
+    assert.match(lockShells(dir, workspace), /Cargo\.lock: (?:resolved|captured)|resolves against exact2's lock/);
+    const locked = Bun.TOML.parse(readFileSync(resolve(workspace, 'Cargo.lock'), 'utf8')).package;
+    assert.deepEqual(locked.filter(p => p.name === 'rustls-platform-verifier').map(p => p.version), ['0.7.1']);
   } finally { rmSync(scratch, { recursive: true, force: true }); }
 }, 180_000);
 
@@ -1309,7 +1375,7 @@ test('rust.data generates host crates over the data crate, composed with app.ts 
     const read = file => readFileSync(resolve(workspace, file), 'utf8');
     assert.match(read('Cargo.toml'), /^members = \["web", "apple", "linux", "android", "module", "\.\.\/\.\.\/data"\]$/m);
     for (const kind of ['web', 'apple', 'linux', 'android']) {
-      assert.equal(read(`${kind}/build.rs`), `fn main() {\n    exact_bake::host::app("${kind}", "../../..", pins_data::Pins::new(3));\n}\n`);
+      assert.equal(read(`${kind}/build.rs`), `fn main() {\n    let source = pins_data::Pins::new(3);\n    let host_work = exact_bake::hands_out_work!(source);\n    exact_bake::host::app("${kind}", "../../..", source, host_work);\n}\n`);
       assert.match(read(`${kind}/Cargo.toml`), /^pins-data = \{ path = "\.\.\/\.\.\/\.\.\/data" \}$/m);
       assert.doesNotMatch(read(`${kind}/Cargo.toml`), /exact-js/);
     }
@@ -1329,7 +1395,7 @@ test('rust.data generates host crates over the data crate, composed with app.ts 
     // With app.ts beside it, the crates compose the two: Rust answers its RUST_SOURCES, app.ts the rest.
     writeFileSync(resolve(dir, 'app.ts'), 'export const grants = "";\n');
     assert.equal(ensureShells(dir).wrote, true);
-    assert.match(read('web/build.rs'), /exact_js_bake::build_beside\([^]*&pins_data::Pins::new\(3\),\n\s*pins_data::RUST_SOURCES,/);
+    assert.match(read('web/build.rs'), /exact_js_bake::build_beside\([^]*&pins_data::Pins::new\(3\),\n\s*exact_js_bake::hands_out_work!\(pins_data::Pins::new\(3\)\),\n\s*pins_data::RUST_SOURCES,/);
     assert.match(read('apple/src/lib.rs'), /exact_data::Mixed::new\([^]*TYPESCRIPT_SOURCES,\n\s*pins_data::RUST_SOURCES,/);
     // A data crate that names no app takes the module's identity, which `Mixed` requires both sides to share.
     for (const file of ['web/build.rs', 'apple/src/lib.rs']) assert.match(read(file), /Placed::new\(pins_data::Pins::new\(3\), [^)]+\)\.named\(&app\)/);
@@ -1380,6 +1446,13 @@ test('a GPU crate builds in .exact/gpu, apart from the host\'s graph, and captur
     assert.equal(names(workspace).some(name => name === 'field-log-gpu' || name === 'exact-gpu' || name === 'wgpu'), false);
     assert.match(lockShells(dir, own, resolve(dir, GPU_LOCK)), /resolves against exact2's lock; the app's crates there add nothing, so it commits no Cargo\.gpu\.lock of its own/);
     assert.equal(existsSync(resolve(dir, GPU_LOCK)), false);
+    // mln-rs 0.0.11 needs these versions in the same GPU graph (#426).
+    gpu('rustls-platform-verifier = "=0.7.1"\nwasm-bindgen = "=0.2.130"\n');
+    assert.match(lockShells(dir, own, resolve(dir, GPU_LOCK)), /resolves against exact2's lock|Cargo\.gpu\.lock: captured/);
+    const locked = Bun.TOML.parse(readFileSync(resolve(own, 'Cargo.lock'), 'utf8')).package;
+    for (const [name, version] of [['rustls-platform-verifier', '0.7.1'], ['wasm-bindgen', '0.2.130']]) {
+      assert.deepEqual(locked.filter(p => p.name === name).map(p => p.version), [version]);
+    }
     if (other) {
       gpu(`itoa = "=${other}"\n`);
       assert.match(lockShells(dir, own, resolve(dir, GPU_LOCK)), /Cargo\.gpu\.lock: captured \(\d+ packages\); commit it/);

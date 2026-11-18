@@ -16,6 +16,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
     // The flags, together after `id`: each `Bool` between wider fields
     // took a word of its own, and every view pays its stored properties
     // (a 768-byte block, from 1,024).
+    var intersectListening = false
     var clipboardListening = false
     var paintLifted = false
     var paintGhost = false
@@ -87,7 +88,9 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         }
     }
     package var props: [String: String] = [:] { didSet { presenter?.propsChanged(self) } }
-    package var style: NodeStyle = [:]
+    package var style: NodeStyle = [:] {
+        didSet { if oldValue["display"] != style["display"] { Self.scrollLayoutEpoch &+= 1 } }
+    }
     /// Whether the host hid this view, whatever CSS's `display` says: what a
     /// projection or a placement saves and restores, since `isHidden` also
     /// reads `display: none` (review B1: restoring that wrote CSS's bit into
@@ -118,6 +121,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
     package var handlers: Set<String> = [] {
         didSet {
             trackClipboardHandlers(true)
+            trackIntersections()
             updateContextGestures()
             updateSwipeGesture()
             updateLayoutPan()
@@ -261,6 +265,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
     }
     weak package var presenter: Presenter? {
         didSet {
+            trackIntersections(previous: oldValue)
             if clipboardListening { oldValue?.clipboardHandlerCount -= 1; clipboardListening = false }
             trackClipboardHandlers(true)
             oldValue?.owedText.remove(id)
@@ -296,7 +301,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         }
     }
     /// Off the accessibility tree: projected away, inert, or `aria-hidden`.
-    var hidesAccessibility: Bool {
+    package var hidesAccessibility: Bool {
         placementHidden || props["inert"] == "true" || props["accessibilityElementsHidden"] == "true"
     }
     /// The assigned flag before placeholder suppression, for save and restore.
@@ -380,13 +385,9 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         }
         set { super.isAccessibilityElement = newValue }
     }
-    /// A native module's box whose view has elements of its own, named by
-    /// the Contract (`aria-label`): VoiceOver says the name entering them. A table and a `dl` are `tableContainerType`.
+    /// Semantic groups name their contents without combining their accessible elements.
     package override var accessibilityContainerType: UIAccessibilityContainerType {
-        get {
-            guard kind == "native", authoredLabel != nil, presenter?.session?.natives.speaksForItself(self) == true else { return tableContainerType ?? super.accessibilityContainerType }
-            return .semanticGroup
-        }
+        get { authoredContainerType ?? super.accessibilityContainerType }
         set { super.accessibilityContainerType = newValue }
     }
     /// It hears focus, blur, keys or clipboard events (`focusEvents`), names a tabindex, or is a canvas taking input
@@ -537,24 +538,24 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
     func loadImage(_ source: String) {
         let previousSource = imageSource, previousGeneration = loadGeneration
         imageSource = source
-        if source.hasPrefix("symbol:") { presenter?.session?.rasters.cancel(id); raster = nil; updateSymbol(); return }
+        if source.hasPrefix("symbol:") { presenter?.session?.rasters?.cancel(id); raster = nil; updateSymbol(); return }
         loadGeneration += 1
         clearSymbol(); image = nil
         if previousSource?.hasPrefix("symbol:") == true { presenter?.intrinsic(id, nil) }
         guard let session = presenter?.session else { return }
-        if !session.rasters.load(self, source: ImageArrivals.shared.asking(self, for: source), resolver: session.app.resolver) {
+        if session.rasters?.load(self, source: ImageArrivals.shared.asking(self, for: source), resolver: session.app.resolver) != true {
             imageSource = previousSource; loadGeneration = previousGeneration
         }
     }
 
     /// The lease is this load's: shown, its natural size answered for the
     /// loader to report (`RasterLoader.reconcile`, one report per turn).
-    func acceptRaster(_ lease: NativeRasterLease, generation: Int) -> CGSize? {
+    package func acceptRaster(_ lease: any ImageLease, generation: Int) -> CGSize? {
         guard loadGeneration == generation, let presenter, presenter.views[id] === self else { return nil }
-        raster = lease; ImageArrivals.shared.arriving(self); AnimatedRasters.shared.attach(self); applyImageLayer()
+        raster = lease; ImageArrivals.shared.arriving(self); ImageLink.animated?.attach(self); applyImageLayer()
         self.setNeedsDisplay()
         if let c = canvasAbove { c.needsCapture = true; canvases?.scheduleCapture() }
-        presenter.boxFilters.changed(self)
+        presenter.boxFilters?.changed(self)
         return lease.image.naturalSize
     }
 
@@ -571,7 +572,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
             let generation = loadGeneration
             image = name.isEmpty ? faceSymbol.flatMap { FaceSymbol.image($0, points: points) } : symbolImage(name, symbolShape(SymbolMeasure.configuration(points: points, weight: weight)))
             symbolFound = image != nil; if points <= 0 { image = nil }
-            if name.isEmpty, props["symbolPath"] == nil, props["symbolAsset"] == nil, !source.hasPrefix("symbol:sf/"), source != "symbol:", symbolRefusal != source { symbolRefusal = source; presenter?.session?.log("image \(RasterRetry.withoutQuery(source)) refused: unknown symbol role") }
+            if name.isEmpty, props["symbolPath"] == nil, props["symbolAsset"] == nil, !source.hasPrefix("symbol:sf/"), source != "symbol:", symbolRefusal != source { symbolRefusal = source; presenter?.session?.log("image \(sourceWithoutQuery(source)) refused: unknown symbol role") }
             if !name.isEmpty || props["symbolAsset"] != nil || source.hasPrefix("symbol:sf/") || source == "symbol:" { symbolRefusal = nil }
             let leaf = symbolView ?? UIImageView()
             if symbolView == nil { symbolView = leaf; (clipBox ?? self).addSubview(leaf) }
@@ -605,7 +606,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         cachedTextLayout = nil
         dropTextRaster()
         loadGeneration += 1; ImageArrivals.shared.forget(self)
-        presenter?.session?.rasters.cancel(id)
+        presenter?.session?.rasters?.cancel(id)
         buttonRasterView = nil
         raster = nil
         imageSource = nil
@@ -617,7 +618,10 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         presenter = nil
     }
 
-    deinit { if clipboardListening { presenter?.clipboardHandlerCount -= 1 } }
+    deinit {
+        if clipboardListening { presenter?.clipboardHandlerCount -= 1 }
+        if intersectListening { presenter?.intersectHandlerCount -= 1 }
+    }
 
     init(id: UInt32, kind: String, presenter: Presenter) {
         self.id = id
@@ -666,7 +670,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         // a `color-scheme` above it included (LLP 1034 §8).
         presenter?.session?.noteAppearance(self)
         // An `svg`'s paints are resolved into its scene's layers.
-        presenter?.svg.reappear(id, dark: drawsDark, clock: presenter?.session?.clock, tint: viewTint)
+        presenter?.svg?.reappear(id, dark: drawsDark, clock: presenter?.session?.clock, tint: viewTint)
         presenter?.requestTextPublication()
         if let presenter, superview === presenter.root { presenter.paintCanvas() }
     }
@@ -703,36 +707,6 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
     /// Where layout put this box and where it is drawn (`PixelGridIOS.swift`).
     package var grid: GridPlace?
 
-    /// The end the reader was following moved during their interaction:
-    /// settle there when it ends, as a browser's scroll anchoring does.
-    package func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
-        if !decelerate { presenter?.session?.frameHealth.endScroll(scrollView) }; pagedDragEnded(scrollView)
-        guard scrollView === self.scrollView else { return }
-        // A follow of the end that animates ends with its animation.
-        if !decelerate, !followEndIfOwed() { endScroll() }
-    }
-    package func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) { presenter?.session?.frameHealth.endScroll(scrollView); if scrollView === self.scrollView, !followEndIfOwed() { scrollMayHaveEnded(scrollView) } }
-    package func scrollViewDidEndScrollingAnimation(_ scrollView: UIScrollView) {
-        guard scrollView === self.scrollView, presenter?.elementScrolls.cutting !== scrollView else { return }
-        followingEndAnimated = false; authoredScrollAnimating = false
-        presenter?.elementScrolls.revealEnded(scrollView)
-        // A smooth correction's driver ends its own motion (`OffsetDriver`);
-        // a UIKit animation's end is not its end.
-        if let c = presenter?.collections, c.offsetDrivers[id] != nil || c.startOwed.contains(id) { return }
-        presenter?.collections.animationEnded(id, atTarget: endedAtTarget(scrollView))
-        scrollMayHaveEnded(scrollView)
-    }
-    /// Whether it started an animation.
-    @discardableResult private func followEndIfOwed() -> Bool {
-        guard followsEndAfterInteraction, let sv = scrollView else { return false }
-        followsEndAfterInteraction = false
-        let maximum = max(-sv.adjustedContentInset.top, sv.contentSize.height + sv.adjustedContentInset.bottom - sv.bounds.height)
-        anchoredScrollTop = maximum
-        guard sv.contentOffset.y >= maximum - 80, abs(sv.contentOffset.y - maximum) > 0.5, !authorOwnsScroll(sv) else { return false }
-        sv.setContentOffset(PixelGrid.offset(CGPoint(x: sv.contentOffset.x, y: maximum), in: sv), animated: true)
-        return true
-    }
-
     package func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
         if let session = presenter?.session { session.frameHealth.beginScroll(scrollView, session: session) }
         presenter?.elementScrolls.userScrolled(scrollView) // its own scroller, or a grouped list's collection
@@ -740,17 +714,18 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         followingEndAnimated = false; authoredScrollAnimating = false; pageIfPager(scrollView)
         presenter?.collections.animationEnded(id, dragging: true)
         presenter?.collections.userIntent(id, travel: true)
-        retainedScrollTop = nil
+        retainedScrollTop = nil; dropCarriedScroll()
         if handlers.contains("scrolldragstart") { presenter?.scrollDrag(id, nil) }
         #if os(iOS)
         if #available(iOS 27.1, *) { presenter?.arrangements.cancelScrollHandoff(id) }
-        if swipeOwner { presenter?.swipeActions.painted.began(self) }
+        if swipeOwner { presenter?.swipeActions.paintedBegan(self) }
         #endif
     }
 
     /// A scroll under a canvas repaints it (LLP 1014 D4 c).
     package func scrollViewDidScroll(_ scrollView: UIScrollView) {
         guard scrollView === self.scrollView, let presenter else { return }
+        if scrollView.scrollsItself { dropCarriedScroll() }
         let post = Presenter.signpostLog.signpostsEnabled ? Presenter.beginScrollSignpost() : nil
         #if DEBUG
         if post != nil { presenter.scrollSignpostIntervals += 1 }
@@ -760,13 +735,15 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
             if let post { Presenter.endScrollSignpost(post) }
             HostPhases.shared.end(phase)
         }
+        presenter.collections.advanceScrollSequence(id)
+        presenter.scrollPump.sampleScroll(self)
         // The kernel's authored frames already include this content room.
         // Keep the physical UI inset basis, but do not count native padding twice.
         let room = extras?.nativeScrollContentInsets ?? .zero
         presenter.onScrolled?(id, Double(scrollView.contentOffset.x + room.left), Double(scrollView.contentOffset.y + room.top + pageBand.top))
-        presenter.stickies.scrolled(id); presenter.collections.changed(id, user: true)
+        presenter.stickies.scrolled(id); presenter.collections.changed(id, user: true, sequenceAdvanced: true)
         #if os(iOS)
-        if swipeOwner, scrollView.isTracking { presenter.swipeActions.painted.scrolled(self) }
+        if swipeOwner, scrollView.isTracking { presenter.swipeActions.paintedScrolled(self) }
         #endif
         presenter.transformGeometry.changed()
         presenter.tipsScrolled()
@@ -985,7 +962,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
 
     // Resolve the same light-dark() wire value as the shared paragraph builder.
     // @ref LLP 1034 D1/D2
-    var drawsDark: Bool { traitCollection.userInterfaceStyle == .dark }
+    package var drawsDark: Bool { traitCollection.userInterfaceStyle == .dark }
     package func channels(_ key: String, dark: Bool? = nil) -> [Double]? {
         style[key].flatMap { $0.channels(dark: dark ?? drawsDark, contrast: drawsHighContrast, elevated: drawsElevated, tint: ownTint(for: $0)) }
     }
@@ -1021,14 +998,36 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
     }
 
     // A pane hidden by its native container retains its scroll position as display:none does.
+    // An ancestor's display or parent changes every descendant's answer.
+    static var scrollLayoutEpoch: UInt64 = 0
+    private var scrollLayoutSeen: UInt64?
+    private var scrollLayoutBox = true
+    #if DEBUG
+    static var scrollLayoutWalksForTests = 0
+    #endif
     var hasScrollLayoutBox: Bool {
+        #if os(iOS)
+        // UIKit can hide an arranged pane without a batch or a reparenting.
+        let cacheable: Bool
+        if #available(iOS 27.1, *) {
+            cacheable = presenter?.arrangements.entries.isEmpty != false
+        } else { cacheable = true }
+        #else
+        let cacheable = true
+        #endif
+        if cacheable, scrollLayoutSeen == Self.scrollLayoutEpoch { return scrollLayoutBox }
+        #if DEBUG
+        Self.scrollLayoutWalksForTests += 1
+        #endif
+        scrollLayoutSeen = Self.scrollLayoutEpoch
+        scrollLayoutBox = true
         var ancestor: UIView? = self
         while let current = ancestor {
             if let node = current as? NodeView,
-               node.style["display"]?.string == "none" || node.presenter?.arrangementHides(node.id) == true { return false }
+               node.style["display"]?.string == "none" || node.presenter?.arrangementHides(node.id) == true { scrollLayoutBox = false; break }
             ancestor = current.superview
         }
-        return true
+        return scrollLayoutBox
     }
 
     var materialView: UIVisualEffectView? {
@@ -1052,7 +1051,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
             if supported {
                 let effect = kind == "backdrop" ? BackdropEffectView() : UIVisualEffectView()
                 effect.isUserInteractionEnabled = Materials.glass(kind)
-                effect.frame = bounds
+                effect.frame = materialFrame
                 effect.autoresizingMask = [.flexibleWidth, .flexibleHeight]
                 (glassSlot?.contentView ?? self).insertSubview(effect, at: 0)
                 materialView = effect
@@ -1079,7 +1078,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
     }
     func applyMaterialRadius() {
         guard let materialView else { return }
-        let radius = BorderPaint.clip(materialView.layer, in: bounds, radii: effectiveCornerSizes(in: bounds))
+        let radius = BorderPaint.clip(materialView.layer, in: materialBox, radii: effectiveCornerSizes(in: materialBox))
         if #available(iOS 26.0, tvOS 26.0, *) {
             materialView.cornerConfiguration = .corners(radius: .fixed(Double(radius)))
         } else {
@@ -1170,7 +1169,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         if kind == "image", let src = props["imageSource"], src != imageSource { loadImage(src) }
         if kind == "image", props["imageSource"] == nil, imageSource != nil {
             loadGeneration += 1
-            presenter?.session?.rasters.cancel(id)
+            presenter?.session?.rasters?.cancel(id)
             raster = nil
             imageSource = nil
             clearSymbol()
@@ -1186,22 +1185,22 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
     }
 
     /// CSS `filter` (LLP 1055.000 D14), as a picture or the layer's own effect.
-    private(set) var boxFilter: BoxFilter?
+    package private(set) var boxFilter: (any BoxFilterEffect)?
     var hasBoxFilter: Bool { boxFilter != nil }
     func applyFilter() {
         // A node with no `filter` and none before makes no `BoxFilter` (three
         // layers) to learn so: every styled node passes through here.
         guard boxFilter != nil || style["filter"] != nil else { return }
         defer { refreshPressOpacity() }
-        let f = boxFilter ?? BoxFilter()
+        guard let f = boxFilter ?? BoxFilterLink.make?() else { return }
         if f.set(style["filter"]) {
             boxFilter = f
-            presenter?.boxFilters.add(self) { [weak self] in self?.renderFilter(fresh: $0) }
+            presenter?.boxFilters?.add(self) { [weak self] in self?.renderFilter(fresh: $0) }
             redrawFilter()
         } else if let f = boxFilter {
             f.remove()
             boxFilter = nil
-            presenter?.boxFilters.remove(self)
+            presenter?.boxFilters?.remove(self)
             applyBoxMask()
             presenter?.afterBatch { [weak self] in self?.filterPublished() }
         }
@@ -1209,7 +1208,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
 
     /// In a batch, the picture is drawn once as it ends, with the whole batch in it.
     private func redrawFilter() {
-        if presenter?.applying == true { presenter?.boxFilters.touched(self) } else { renderFilter() }
+        if presenter?.applying == true { presenter?.boxFilters?.touched(self) } else { renderFilter() }
     }
     func renderFilter(fresh: Bool = true) {
         defer { overflowClipGeometryChanged() }
@@ -1219,7 +1218,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         let shown = window.map { convert(bounds, to: $0).intersects($0.bounds) } ?? true
         // A placed canvas child's picture is drawn from the box as asked, and shows only through its surface.
         let render = { f.render(self.layer, clip: self.resolvedClipMask(), scale: self.window?.screen.scale ?? self.traitCollection.displayScale, dark: self.drawsDark,
-                                node: self.id, fresh: fresh, shown: shown) { [weak self] in if let self { self.overflowClipGeometryChanged(); self.presenter?.boxFilters.landed(self); self.filterPublished() } } }
+                                node: self.id, fresh: fresh, shown: shown) { [weak self] in if let self { self.overflowClipGeometryChanged(); self.presenter?.boxFilters?.landed(self); self.filterPublished() } } }
         let before = f.picture.sublayers?.first?.contents as AnyObject?
         let draw = { if let box = self.layer as? NodeLayer, box.drawnElsewhere { box.asAsked(render); f.picture.isHidden = true } else { render() } }
         // The filter's input raises the box's opacity and puts it back: no author's change (`passing`).
@@ -1231,6 +1230,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
     /// (`GlassGroups.moving`, boot navigation): no authored reparenting.
     static var containerMoves = 0
     package override func didMoveToSuperview() {
+        Self.scrollLayoutEpoch &+= 1
         if Self.containerMoves == 0 { pressEpoch &+= 1; cancelPressContact(reparenting: true); presenter?.unshown(self) } // a new parent: shown elsewhere
         super.didMoveToSuperview()
         Self.textRasterAncestryChanged(self)
@@ -1249,7 +1249,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         let origin = style["transform_origin"]
         let old = style
         style = s
-        if kind == "image", old["image_rendering"] != s["image_rendering"] { presenter?.session?.rasters.resized(self) }
+        if kind == "image", old["image_rendering"] != s["image_rendering"] { presenter?.session?.rasters?.resized(self) }
         if old["display"] != s["display"] || old["visibility"] != s["visibility"] { isHidden = hostHidden }
         if old["zoom"] != s["zoom"], kind == "iframe" { updateEmbedded() } // the guest's page zoom (LLP 1020.002 D6)
         if old["color_scheme"] != s["color_scheme"] { applyColorScheme() }
@@ -1342,11 +1342,11 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
 
     var scrollWaits: Bool { swipeOwner && !scrollNeeded && !handlers.contains("scroll") && !handlers.contains("scrollend") }
     /// The node's overflow scrolls, and its scroll view is still waiting.
-    var scrollDormant: Bool {
+    package var scrollDormant: Bool {
         !groupedOwner && scrollView == nil && (["scroll", "auto"].contains(style["overflow_x"]?.string ?? "") || ["scroll", "auto"].contains(style["overflow_y"]?.string ?? ""))
     }
 
-    func needScroll() {
+    package func needScroll() {
         guard scrollDormant else { return }
         scrollNeeded = true
         syncScroll()
@@ -1394,7 +1394,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         if materialView != nil { applyMaterialRadius(); syncDefaultSurfaceScroll() } // its corners, at its size
         syncEllipticalClip()
         if style["perspective"] != nil { applyPerspective() }
-        if kind == "image" { if flightLook == nil { presenter?.session?.rasters.resized(self) }; if raster != nil { applyImageLayer() } }
+        if kind == "image" { if flightLook == nil { presenter?.session?.rasters?.resized(self) }; if raster != nil { applyImageLayer() } }
         presenter?.collections.changed(id)
         presenter?.transformGeometry.changed()
         presenter?.videoVisibility?.changed()
@@ -1407,7 +1407,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
     }
 
     /// The reduced radii; the layer fast path additionally requires circles.
-    func cornerSizes(in rect: CGRect, inset: CGFloat = 0) -> [CGSize] {
+    package func cornerSizes(in rect: CGRect, inset: CGFloat = 0) -> [CGSize] {
         BorderPaint.reduced(BorderPaint.radii(style, in: rect, inset: inset), in: rect)
     }
     func cornerRadii(in rect: CGRect, inset: CGFloat = 0) -> [CGFloat] {
@@ -1446,7 +1446,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
             let styles = ["top", "right", "bottom", "left"].map { style["border_style_" + $0]?.string ?? "solid" }
             BorderPaint.paint(ctx, box: bounds, widths: widths, colors: colors, radii: radii, styles: styles, shape: CornerShape(style["corner_shape"]))
         }
-        if !cssVisibilityHidden, kind == "image", symbolView == nil, flightLook == nil || imageLayer == nil, !(imageLayer is PixelatedImageLayer) || Capture.capturing, let bitmap = raster?.image {
+        if !cssVisibilityHidden, kind == "image", symbolView == nil, flightLook == nil || imageLayer == nil, ImageLink.pixelated?.owns(imageLayer) != true || Capture.capturing, let bitmap = raster?.image {
             // CSS object-fit over the content box (the frame inside border
             // and padding), clipped to the content edge's curve: `fill`
             // stretches, `contain`/`cover` keep the ratio, `none` is the
@@ -1460,7 +1460,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
             clipToContentEdge(ctx, content)
             ctx.translateBy(x: rect.minX, y: rect.maxY)
             ctx.scaleBy(x: 1, y: -1)
-            RasterGeometry.draw(ctx, AnimatedRasters.shared.frame(for: self) ?? bitmap.image, in: CGRect(origin: .zero, size: rect.size), tint: channels("tint_color").map { TextEngine.color($0).cgColor }, rendering: style["image_rendering"]?.string)
+            RasterGeometry.draw(ctx, ImageLink.animated?.frame(for: self) ?? bitmap.image, in: CGRect(origin: .zero, size: rect.size), tint: channels("tint_color").map { TextEngine.color($0).cgColor }, rendering: style["image_rendering"]?.string)
             ctx.restoreGState()
         }
         if isParagraph, rollsNumerals {

@@ -163,8 +163,11 @@ pub(crate) fn page_at(
 /// ([`activate_js`]): an `eager` page's after its first paint, once the
 /// document is parsed; an `idle` page's when the browser is idle after
 /// `load`; an `interaction` page's at the first press or edit, or at once
-/// where the device keeps a secret (LLP 1048.003 D5); and every page's at a
-/// press that comes first.
+/// where the device keeps a secret (LLP 1048.003 D5); every page's at a
+/// press that comes first; and, in a development build, whose head says it
+/// admits agent mode (`<meta name="exact-agent">`, LLP 1069.007 D2), every
+/// page's once the document is parsed where the query asks for agent mode
+/// (`agent` alone or `agent=1`).
 pub fn capture_js() -> &'static str {
     concat!(
         include_str!("../../web/scheme.js"),
@@ -407,6 +410,12 @@ fn lang_attr(shell: &str, lang: &str) -> String {
 /// compete with the page for the link. The shell a `client` route is sent
 /// keeps it at the default priority: that page cannot paint until it runs.
 fn push_low(out: &mut String, line: &str) {
+    // The TypeScript seam's line, which only the shell keeps: a page starts
+    // from its checkpoint and loads the seam at its first ask (LLP 1047.003
+    // D6).
+    if line.contains(ASKS) {
+        return;
+    }
     let tag = line.trim_end_matches('\n').trim_end_matches('>');
     out.push_str(tag);
     out.push_str(" fetchpriority=\"low\">\n");
@@ -1115,6 +1124,8 @@ fn tag_end(tag: &str) -> Option<usize> {
 
 /// A `modulepreload` in the JavaScript shell's head (`host/web-js/build.mjs`).
 const MODULE_PRELOAD: &str = "<link rel=\"modulepreload\" href=\"";
+/// The mark on the shell's preload of the TypeScript seam (LLP 1047.003 D6).
+pub(crate) const ASKS: &str = " data-exact-asks>";
 
 #[cfg(test)]
 mod tests {
@@ -1272,6 +1283,20 @@ mod tests {
             );
             assert_eq!(preloads(&shell, &js.at).len(), 1, "{shell}");
         }
+    }
+
+    /// LLP 1047.003 D6: the shell's preload of the TypeScript seam is the
+    /// shell's alone; a page's head keeps the entry's, at low priority.
+    #[test]
+    fn a_page_head_leaves_out_the_seams_preload() {
+        let shell = "<!doctype html>\n<html lang=\"en\">\n<meta charset=\"utf-8\">\n<base href=\"/\">\n<title>Site</title>\n<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n<link rel=\"modulepreload\" href=\"./app.js\">\n<link rel=\"modulepreload\" href=\"./ts-data.js\" data-exact-asks>\n<style></style>\n<div id=\"exact-root\"></div>\n<script type=\"module\" data-entry src=\"./app.js\"></script>\n";
+        let js = Js::of(shell).unwrap();
+        let head = head_js(shell, &js, "", "ltr", true, false);
+        assert!(
+            head.contains("<link rel=\"modulepreload\" href=\"./app.js\" fetchpriority=\"low\">\n"),
+            "{head}"
+        );
+        assert!(!head.contains("ts-data.js"), "{head}");
     }
 
     /// LLP 1115.000 D4.6: a rendered page keeps the manifest's `lang`, which

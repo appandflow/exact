@@ -87,8 +87,8 @@ extension Presenter {
         selection.renewed(view)
         elements.destroyed(id)
         elements.created(view)
-        svg.forget(id)
-        if let flight = flights[id] { landFlight(flight) }
+        svg?.forget(id); boxAnimations.forget(id)
+        flightHost.land(id)
         // The old item's image left the document: its floating window closes, as at a destroy.
         PictureInPictureHost.gone(view)
         if let session, session.viewDark.removeValue(forKey: id) != nil { session.noteAppearance(view) }
@@ -162,7 +162,7 @@ extension NodeView {
     /// does, where any other keeps the old one meanwhile (`loadImage`).
     func renewSource() {
         guard let presenter, presenter.renewing.contains(id), raster != nil || image != nil || hasSymbolLeaf else { return }
-        presenter.session?.rasters.cancel(id)
+        presenter.session?.rasters?.cancel(id)
         raster = nil; image = nil
         clearSymbol()
         applyImageLayer()

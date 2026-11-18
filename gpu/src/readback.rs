@@ -100,8 +100,11 @@ impl Readback {
 
 impl Module {
     /// Render and capture directly into caller-owned RGBA bytes, reusing GPU
-    /// storage until the size, format, or device changes.
+    /// storage until the size, format, or device changes, or the surface clears.
     pub fn readback_into(&mut self, id: u32, frame: &Frame, out: &mut [u8]) -> Option<bool> {
+        if let Some(error) = self.refused_instance(id) {
+            return self.fail(error);
+        }
         self.check_device();
         if let Some(why) = shaders::missing(self.registry.shaders) {
             self.error = why;
@@ -145,6 +148,12 @@ impl Module {
         if out.len() < len {
             self.error = format!("readback: {} bytes for {} pixels", out.len(), len / 4);
             return None;
+        }
+        if inst.surface.is_empty() {
+            out[..len].fill(0);
+            inst.dirty = false;
+            inst.drain();
+            return Some(false);
         }
         // The host composes these untagged RGBA8 bytes as sRGB, even when
         // this surface normally draws into a Display P3 swapchain.

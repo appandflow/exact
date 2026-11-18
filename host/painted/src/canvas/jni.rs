@@ -47,6 +47,7 @@ macro_rules! canvas_jni {
         static EXACT_ALLOCATOR: $crate::canvas::jni::Allocator = $crate::canvas::jni::Allocator;
 
         $crate::canvas_jni_tls!();
+        include!(concat!(env!("OUT_DIR"), "/transfers.rs"));
 
         mod exact_canvas_jni {
             #![allow(clippy::missing_safety_doc, unsafe_code)]
@@ -59,6 +60,25 @@ macro_rules! canvas_jni {
 
             const PLAN: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/app.plan"));
             const COMPAT: &str = include_str!(concat!(env!("OUT_DIR"), "/compat.json"));
+            include!(concat!(env!("OUT_DIR"), "/launch.rs"));
+
+            #[no_mangle]
+            pub unsafe extern "system" fn Java_dev_exact_canvas_Native_environment(
+                env: *mut JNIEnv,
+                _class: jclass,
+                values: $crate::canvas::jni_sys::jbyteArray,
+            ) {
+                // The reader calls once before starting host threads. Copy through JNI:
+                // Android's Os.setenv may belong to another libc under ARM translation.
+                let values = $crate::canvas::jni::utf8(env, values);
+                for entry in values.split('\0') {
+                    if let Some((name, value)) = entry.split_once('=') {
+                        if !name.is_empty() {
+                            std::env::set_var(name, value);
+                        }
+                    }
+                }
+            }
 
             fn pipeline_cache() {
                 use std::hash::{Hash, Hasher};
@@ -676,6 +696,17 @@ macro_rules! canvas_jni {
                 tool: jint,
             ) {
                 with(|h| h.touch(action, x, y, tool));
+            }
+
+            /// Whether a touch is down on the view, before the reader routes
+            /// it (`touching`). Whether a replacement waited for the lift.
+            #[no_mangle]
+            pub unsafe extern "system" fn Java_dev_exact_canvas_Native_touching(
+                _env: *mut JNIEnv,
+                _class: jclass,
+                on: jboolean,
+            ) -> jboolean {
+                flag(with(|h| h.touching(on == JNI_TRUE)).unwrap_or(false))
             }
 
             /// A finger past the touch's first (0 down, 1 up, 2 move, 3

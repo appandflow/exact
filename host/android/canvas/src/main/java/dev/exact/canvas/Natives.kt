@@ -196,6 +196,14 @@ class Natives(
         @Volatile var window = 0L
         /** Rows (and 0, the unrowed stream) that draw it. */
         val rows = HashSet<Int>()
+        val directRows = HashSet<Int>()
+        /** Retained drawings and the rows that draw each one. */
+        val layers = HashMap<Int, HashSet<Int>>()
+        fun updateRows() {
+            rows.clear()
+            rows.addAll(directRows)
+            for (layer in layers.values) rows.addAll(layer)
+        }
         var fullWindow = false
         val presentation = CanvasPresentation()
         var copying = false
@@ -208,6 +216,9 @@ class Natives(
         var asked = 0L
         var drawn = -1L
         val wrapped = HashMap<Long, android.graphics.Bitmap>()
+        /** The frame time, in milliseconds, after which its cap leaves the window's vote unless it draws again
+         * ([vote]). */
+        var rests = 0L
         /** Without its view ([near]): [view] is the stand-in, and [wanted] the props its view starts from. */
         var parked = false
         var wanted = ""
@@ -232,11 +243,30 @@ class Natives(
     private fun poll() {
         if (polling) return
         polling = true
-        Choreographer.getInstance().postFrameCallback {
+        Choreographer.getInstance().postFrameCallback { nanos ->
             polling = false
+            val now = nanos / 1_000_000
             var any = false
+            var capped = false
             var live = false
+            val drew = ArrayList<Element>()
             for (e in elements.values.toList()) {
+                if (e.kind == 3) {
+                    val status = Native.canvasReady(e.id)
+                    if (status == 3 && !e.presentation.awaitingFrame) {
+                        e.presentation.discard()
+                        e.last = null
+                        e.wrapped.clear(); e.drawn = -1L
+                        if (e.view is SurfaceView || e.view is TextureView) replacePresentation(e, false)
+                        record(e); finishRedraws(e); any = true
+                    }
+                    if (e.presentation.awaitingFrame) {
+                        live = true
+                        if (e.view is TextureView && status != 3) { record(e); any = true }
+                    }
+                    if (status == 3) continue
+                    if (e.view is TextureView && !e.presentation.ready) live = true
+                }
                 if (e.view is SurfaceView) {
                     if (e.copying) { live = true; continue }
                     if (!e.presentation.ready) {
@@ -274,15 +304,24 @@ class Natives(
                 e.presentation.bufferFrame()
                 e.last = bmp
                 if (e.w <= 0 || e.h <= 0) continue
+                if (votes(e)) e.rests = now + (1000 / e.view.requestedFrameRate).toLong() + VOTE_HOLD_MS
+                drew.add(e)
+            }
+            // Recorded now that every canvas with a new frame is known: a capped one's vote counts them all ([vote]).
+            for (e in drew) {
+                val bmp = e.last!!
                 e.node.setPosition(0, 0, e.w, e.h)
                 val c = e.node.beginRecording(e.w, e.h)
                 src.set(0, 0, bmp.width, bmp.height); dst.set(0, 0, e.w, e.h)
                 c.drawBitmap(bmp, src, dst, bitmapPaint)
+                if (votes(e)) { vote(e, c, now); capped = true } else any = true
                 e.node.endRecording()
                 if (e.fullWindow && windowCanvas && !e.presentation.failed) presentation(e, true)
-                any = true
             }
-            if (any) frame()
+            // A frame only capped canvases drew is not asked for through [frame]: the view that draws would vote a
+            // category by its size, beside which SurfaceFlinger drops the window's rate on a panel of fixed modes
+            // (`FrameRate::isVoteValidForMrr`). The window is told its drawing changed, and records no view for it.
+            if (any) frame() else if (capped) parent?.onDescendantInvalidated(this, this)
             if (live) poll()
         }
     }
@@ -348,6 +387,33 @@ class Natives(
         clipChildren = false
         // Laid out, attached and "visible" to themselves, but drawn only through their nodes.
         setWillNotDraw(true)
+    }
+
+    /**
+     * Whether [e] is a canvas drawn here from its buffers that asks for a frame rate. A view's requested rate reaches
+     * its window only when the view is recorded after it was invalidated
+     * ([View.setRequestedFrameRate](https://developer.android.com/reference/android/view/View#setRequestedFrameRate(float))),
+     * and this canvas's view draws nothing, so [poll] has it vote with each frame ([vote]). The window keeps the rate
+     * between those frames: `ViewRootImpl` drops it at a frame drawn with no such vote more than 100 ms after the
+     * last, which a cap under 10 fps meets whenever the window draws anything else.
+     */
+    private fun votes(e: Element) = e.buffers && android.os.Build.VERSION.SDK_INT >= 35 && e.view.requestedFrameRate > 0f
+
+    /**
+     * Casts the window's rate with a frame of [e], whose node [c] records, at frame time [now]: [e]'s view,
+     * invalidated, is recorded, empty, beside the frame. The window has one rate, so the vote is the highest cap of
+     * the canvases drawn here from their buffers that are still drawing, whichever of them drew: given two rates in
+     * one frame of which neither divides the other, `ViewRootImpl.votePreferredFrameRate` sends the window's layer
+     * neither (Android 15 and 16). A canvas is still drawing until an interval of its cap and [VOTE_HOLD_MS] pass
+     * with no new frame of it, so one that rests stops raising the others' vote about when the view root would have
+     * dropped its rate had it drawn alone. Each canvas still paces its own cap.
+     */
+    private fun vote(e: Element, c: Canvas, now: Long) {
+        val own = e.view.requestedFrameRate
+        e.view.requestedFrameRate =
+            elements.values.maxOf { if (votes(it) && now <= it.rests) it.view.requestedFrameRate else 0f }
+        e.view.invalidate(); drawChild(c, e.view, drawingTime)
+        e.view.requestedFrameRate = own
     }
 
     /** Moving a controller to where it is drawn ([placeControls]): not a change of its drawing. */
@@ -422,16 +488,19 @@ class Natives(
         if (e.w <= 0 || e.h <= 0) return
         e.node.setPosition(0, 0, e.w, e.h)
         val c = e.node.beginRecording(e.w, e.h)
-        if (e.kind == 3 && !e.presentation.ready && e.last != null) {
+        if (e.kind == 3 && !e.presentation.ready && (e.presentation.awaitingFrame || e.last != null)) {
             if (e.view is TextureView) {
                 // TextureView latches its first image during draw; its update callback can run here.
                 val save = c.saveLayerAlpha(0f, 0f, e.w.toFloat(), e.h.toFloat(), 0)
                 e.view.draw(c)
                 c.restoreToCount(save)
             }
-            val bmp = e.last!!
-            src.set(0, 0, bmp.width, bmp.height); dst.set(0, 0, e.w, e.h)
-            c.drawBitmap(bmp, src, dst, bitmapPaint)
+            val bmp = e.last
+            if (bmp == null) c.drawColor(Color.TRANSPARENT, android.graphics.PorterDuff.Mode.CLEAR)
+            else {
+                src.set(0, 0, bmp.width, bmp.height); dst.set(0, 0, e.w, e.h)
+                c.drawBitmap(bmp, src, dst, bitmapPaint)
+            }
         } else if (e.view is SurfaceView && e.presentation.ready) c.drawColor(Color.TRANSPARENT, android.graphics.PorterDuff.Mode.CLEAR)
         else if (!e.stale) e.view.draw(c)
         e.node.endRecording()
@@ -498,6 +567,39 @@ class Natives(
     /** The node op 28 draws for [id] (main thread). */
     fun node(id: Int): RenderNode? = elements[id]?.node
 
+    private val layerElements = HashMap<Int, HashSet<Int>>()
+
+    /** A retained layer keeps the native nodes its drawing references, even when its ops are not sent again. */
+    private fun inLayer(layer: Int, e: Element, row: Int) {
+        e.layers.getOrPut(layer) { HashSet() }.add(row)
+        layerElements.getOrPut(layer) { HashSet() }.add(e.id)
+    }
+
+    internal fun layerAgain(layer: Int, walk: () -> Unit) {
+        val before = layerElements.remove(layer)
+        walk()
+        for (id in before ?: emptySet()) if (layerElements[layer]?.contains(id) != true) leaveLayer(layer, id)
+    }
+
+    internal fun layerFreed(layer: Int) {
+        for (id in layerElements.remove(layer) ?: return) leaveLayer(layer, id)
+    }
+
+    private fun leaveLayer(layer: Int, id: Int) {
+        val e = elements[id] ?: return
+        e.layers.remove(layer)
+        e.updateRows()
+        if (e.layers.isEmpty() && e.directRows.isEmpty()) release(e)
+    }
+
+    /** A kept layer is drawn by another row without another set of its drawing. */
+    internal fun retained(layer: Int, id: Int, row: Int) {
+        val e = elements[id] ?: return
+        val rows = e.layers[layer] ?: return
+        rows.add(row)
+        e.rows.add(row)
+    }
+
     internal var origins: PaintedOrigins? = null
     internal fun transform(view: View, matrix: android.graphics.Matrix): Boolean =
         byView[view]?.let { origins?.transform(it.node, matrix) } == true
@@ -511,7 +613,7 @@ class Natives(
     fun snapshot(): Map<Int, RenderNode> = nodes ?: elements.mapValues { it.value.node }.also { nodes = it }
 
     /** Op 28 seen while ingesting a stream: make or update the element; [row] draws it (0: not in a row). */
-    fun ensure(id: Int, kind: Int, w: Int, h: Int, props: String, row: Int, fullWindow: Boolean = false) {
+    fun ensure(id: Int, kind: Int, w: Int, h: Int, props: String, row: Int, fullWindow: Boolean = false, layer: Int? = null) {
         // A top-level WebView cannot enforce an iframe's sandbox (LLP 1020 D2).
         if (kind == 1 && !JSONObject(props).isNull("sandbox")) {
             elements[id]?.let { release(it, reuse = false) }
@@ -544,8 +646,10 @@ class Natives(
         if (kind == 3) {
             presentation(e, e.fullWindow && windowCanvas)
             if (e.view is SurfaceView && e.presentation.replaced(Native.canvasReady(id))) { e.dirty = true; poll() }
+            poll()
         }
         if (json != null && kind == 2) e.disabled = json.optBoolean("disabled")
+        if (layer == null) e.directRows.add(row) else inLayer(layer, e, row)
         e.rows.add(row)
         e.wanted = props
         if (e.w != w || e.h != h) {
@@ -741,16 +845,24 @@ class Natives(
         if (e.dirty) record(e)
     }
 
-    /** A row was freed: its elements that no other row draws go. */
+    /** A row was freed: native nodes no row or retained layer draws go. */
     fun rowFreed(row: Int) {
-        val gone = elements.values.filter { it.rows.remove(row) && it.rows.isEmpty() }
+        val gone = elements.values.filter {
+            it.directRows.remove(row)
+            for (rows in it.layers.values) rows.remove(row)
+            it.rows.remove(row)
+            it.directRows.isEmpty() && it.layers.isEmpty()
+        }
         for (e in gone) release(e)
     }
 
-    /** The unrowed stream was replaced: elements only it drew and [seen] does not name go. */
+    /** The unrowed stream was replaced: drop its references to elements [seen] does not name. */
     fun unrowed(seen: Set<Int>) {
-        val gone = elements.values.filter { it.rows.contains(0) && !seen.contains(it.id) }
-        for (e in gone) { e.rows.remove(0); if (e.rows.isEmpty()) release(e) }
+        val gone = elements.values.filter { it.directRows.contains(0) && !seen.contains(it.id) }
+        for (e in gone) {
+            e.directRows.remove(0); e.updateRows()
+            if (e.directRows.isEmpty() && e.layers.isEmpty()) release(e)
+        }
     }
 
     private fun obtain(kind: Int, json: JSONObject, id: Int = 0): View? = when (kind) {
@@ -1033,11 +1145,13 @@ class Natives(
         // and the main thread would wait out that work in its first draw.
         Exact.attachSurface(e.id, surface, w, h) { e.window = it }
         frameRate(e)
+        poll()
     }
 
     /** The frame rates GPU canvases ask for ([Native.frameRates]: view and rate pairs, 0 for the display's): a
      * canvas with a window of its own votes on its surface (Android 11 and later); one drawn in the reader's window
-     * votes on its view (Android 15 and later). These are platform hints; the module still paces its cap (LLP 1009). */
+     * votes on its view (Android 15 and later, [votes]). These are platform hints; the module still paces its cap
+     * (LLP 1009). */
     fun frameRates(rates: IntArray) {
         for (k in 0 until rates.size / 2) {
             val e = elements[rates[2 * k]] ?: continue
@@ -1125,6 +1239,7 @@ class Natives(
 
     fun destroyAll() {
         for (e in elements.values.toList()) release(e, forget = false)
+        layerElements.clear()
         for (w in webPool) { removeView(w); w.destroy() }
         webPool.clear()
         for (v in videoPool) { players.remove(v)?.release(); removeView(v) }
@@ -1137,6 +1252,9 @@ class Natives(
 /** A module's views kept for reuse: what a row leaving lends the row arriving. A kept view holds all a shown one does
  * (a MapLibre map ~135 MB on a Pixel 10 Pro XL), so a feed of them must not keep one for every row that ever left. */
 private const val MODULE_POOL = 2
+/** How long `ViewRootImpl` keeps a voted frame rate after the last vote for it (`FRAME_RATE_SETTING_REEVALUATE_TIME`,
+ * Android 15 and 16). */
+private const val VOTE_HOLD_MS = 100
 
 /** Video views kept with their players for reuse: the one a row leaving lends the row arriving, and one more for
  * two video rows near at once (a Media3 player holds a decoder and its threads; making one costs ~40 ms here). */

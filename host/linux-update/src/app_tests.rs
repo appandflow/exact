@@ -8,6 +8,10 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
+/// The host work these tests hand out (LLP 1047.001 D12).
+struct TestWork;
+impl exact_runner::HostWork for TestWork {}
+
 const UPDATE_COMPAT: &str = r#"{"id":"fixture00000000","inputs":{"app":"com.exact.fixture","keys":null,"trust":"development","store":{"L":"A"},"rustMode":"wasm"},"delivery":{"channel":"prod","origin":"https://updates.example"}}"#;
 /// Dev binaries check only a named origin; name the fixture's.
 const ORIGIN: &str = "https://updates.example";
@@ -111,6 +115,7 @@ fn selected_config(dir: &Path, baked: &[u8], client: Client) -> Config {
 
 fn selected_config_as(compat: &str, dir: &Path, baked: &[u8], client: Client) -> Config {
     let mut config = Config {
+        output_rotation: Default::default(),
         content_region: None,
         launch: "/".into(),
         plan: baked.to_vec().into(),
@@ -183,6 +188,7 @@ fn a_fetched_plan_refused_at_boot_falls_back_to_baked() {
     foreign.app_id = "com.exact.foreign".into();
     let baked = contract::compile(source).unwrap().encode();
     let mut config = Config {
+        output_rotation: Default::default(),
         content_region: None,
         launch: "/".into(),
         plan: foreign.encode().into(),
@@ -259,6 +265,7 @@ fn a_partial_initial_dev_plan_falls_back_without_counting_the_store() {
     let record = client.dir().join("record.json");
     let updates = Updates::from_client(client).unwrap();
     let mut config = Config {
+        output_rotation: Default::default(),
         content_region: None,
         launch: "/".into(),
         plan: b"EXPL".to_vec().into(), // the compiler was interrupted mid-write
@@ -1081,7 +1088,7 @@ fn failed_post_pixel_rust_activation_does_not_bless_the_selected_bundle() {
 }
 
 #[test]
-fn a_live_rust_swap_refuses_before_loading_while_a_request_is_pending() {
+fn a_live_rust_swap_waits_without_loading_while_a_request_is_pending() {
     use exact_runner::{Answer, Store};
     #[derive(Clone)]
     struct Held(Arc<std::sync::atomic::AtomicUsize>);
@@ -1123,12 +1130,11 @@ fn a_live_rust_swap_refuses_before_loading_while_a_request_is_pending() {
         receipt: String::new(),
         bytes: Vec::new(),
     };
-    let error = presenter
-        .reload_module(&plan, source, Some(module), false)
-        .unwrap_err();
-    assert!(
-        matches!(error, exact_painted::host::HostError::RequestsPending),
-        "{error}"
+    assert_eq!(
+        presenter
+            .reload_module(&plan, source, Some(module), false)
+            .unwrap(),
+        exact_painted::presenter::ReloadResult::Held("requests")
     );
     assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 0);
     assert_eq!(presenter.host().runner().pending(), pending);
@@ -1143,7 +1149,9 @@ fn delivered_module_reads_wait_for_requests_and_all_assets_verify_before_commit(
             Err(DataError::UnknownSource(name.into()))
         }
         fn answer(&mut self, _: &mut Store, _: &str, _: &[Value]) -> Result<Answer, DataError> {
-            Ok(Answer::Later(exact_runner::Request::continuation(1)))
+            Ok(Answer::Later(
+                exact_runner::Request::continuation::<TestWork>(1),
+            ))
         }
         fn replacement(&self, _: &[u8], _: &str, _: Vec<u8>) -> Result<Self, DataError> {
             Ok(Self)

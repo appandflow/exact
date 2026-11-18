@@ -11,7 +11,7 @@
 //
 // The host's table, handed to the module once (`module_connect`):
 //
-//    0  u32 size                192
+//    0  u32 size                200
 //    8  resolve(host, routeKey, keyLen, id, idLen) → node (0: none)
 //   16  act(host, node, action) → 0 done   action 0 click, 1 focus, 2 blur
 //   24  log(host, text, len)
@@ -52,6 +52,9 @@
 //        with len 0 for no answer
 //  184  after_coalescing(host, token, ms): refresh at the next clock instant
 //        at or past the deadline, without adding a seek stop (HatchClock.swift)
+//  192  tab_intent(host, kind, text, len) → 0 queued: an intent of a tab
+//        container the app owns (LLP 1075.003 §3.6), kind 0 Back, 1 open the
+//        URL `text`, 2 select the tab whose index is `text`; queued like `act`
 //
 // `host` is the session's runtime handle, as for `changed` and `now`: a
 // destroyed session's is answered with nothing. Service queries use the
@@ -66,26 +69,6 @@ import AppKit
 #else
 import UIKit
 #endif
-
-/// What a native container covers of a box (LLP 1075.003 §3.5): bars over
-/// its edges, added to its padding, or the whole box, which a native bar
-/// replaces (`display: none`).
-package enum HostCover: Equatable {
-    package struct Edges: Equatable {
-        var top: CGFloat, right: CGFloat, bottom: CGFloat, left: CGFloat
-        package init(top: CGFloat, right: CGFloat, bottom: CGFloat, left: CGFloat) {
-            self.top = top; self.right = right; self.bottom = bottom; self.left = left
-        }
-    }
-    case edges(Edges)
-    case whole
-    /// A scroller UIKit insets (a route's collapsing or bottom-edge
-    /// scroller): the kernel lays its content out between these insets
-    /// (LLP 1116.000 D1.2).
-    case inset(top: CGFloat, bottom: CGFloat)
-    /// Space occupied by native scrollers, measured after tiling.
-    case gutter(right: CGFloat, bottom: CGFloat)
-}
 
 /// The module's hatch entries (NativeModule.swift reads them from its table).
 typealias HatchConnectFn = @convention(c) (UnsafeMutableRawPointer?, UnsafeRawPointer?) -> Void
@@ -119,20 +102,28 @@ private let hatchResolve: HatchResolveFn = { host, key, keyLength, id, idLength 
 }
 
 private let hatchAct: HatchActFn = { host, node, action in
-    hatchSession(host)?.presenter.elements.act(node, action) == true ? 0 : 1
+    hatchSession(host)?.presenter.hatchElements?.act(node, action) == true ? 0 : 1
 }
 
 private typealias HatchInputFn = @convention(c) (UnsafeMutableRawPointer?, UInt32, UnsafePointer<UInt8>?, UInt32) -> Int32
 private let hatchInputText: HatchInputFn = { host, node, bytes, length in
-    hatchSession(host)?.presenter.elements.input(node, hatchText(bytes, length)) == true ? 0 : 1
+    hatchSession(host)?.presenter.hatchElements?.input(node, hatchText(bytes, length)) == true ? 0 : 1
+}
+
+private let hatchTabIntent: HatchInputFn = { host, kind, bytes, length in
+    #if os(iOS) || os(tvOS)
+    hatchSession(host)?.presenter.navigation.tabIntent(kind, hatchText(bytes, length)) == true ? 0 : 1
+    #else
+    1
+    #endif
 }
 
 private typealias HatchFramesFn = @convention(c) (UnsafeMutableRawPointer?, UInt64, Int32) -> Void
 private typealias HatchAfterFn = @convention(c) (UnsafeMutableRawPointer?, UInt64, Double) -> Void
-private let hatchFrames: HatchFramesFn = { host, token, on in hatchSession(host)?.natives.hatchClock.frames(token, on: on != 0) }
-private let hatchAfter: HatchAfterFn = { host, token, ms in hatchSession(host)?.natives.hatchClock.after(token, ms: ms) }
+private let hatchFrames: HatchFramesFn = { host, token, on in hatchSession(host)?.nativeViews?.hatchClock.frames(token, on: on != 0) }
+private let hatchAfter: HatchAfterFn = { host, token, ms in hatchSession(host)?.nativeViews?.hatchClock.after(token, ms: ms) }
 private let hatchAfterCoalescing: HatchAfterFn = { host, token, ms in
-    hatchSession(host)?.natives.hatchClock.after(token, ms: ms, coalescing: true)
+    hatchSession(host)?.nativeViews?.hatchClock.after(token, ms: ms, coalescing: true)
 }
 
 private typealias HatchArrangementFn = @convention(c) (UnsafeMutableRawPointer?, UInt32, UnsafeMutableRawPointer?) -> Int32
@@ -152,12 +143,12 @@ private let hatchArrangement: HatchArrangementFn = { host, node, object in
 private typealias HatchOwnsFn = @convention(c) (UnsafeMutableRawPointer?, UnsafePointer<UInt8>?, UInt32, UInt32, UInt32, UnsafeMutableRawPointer?, UnsafePointer<UInt8>?, UInt32, UInt32) -> Int32
 private typealias HatchPartsFn = @convention(c) (UnsafeMutableRawPointer?, UInt32, UnsafePointer<UInt8>?, UInt32, UnsafePointer<UnsafeMutableRawPointer?>?, UInt32) -> Int32
 private let hatchOwns: HatchOwnsFn = { host, scope, scopeLength, node, kind, object, what, whatLength, flags in
-    guard let regions = hatchSession(host)?.presenter.elements.regions else { return 1 }
+    guard let regions = hatchSession(host)?.presenter.hatchElements?.regions else { return 1 }
     let bound = object.map { Unmanaged<AnyObject>.fromOpaque($0).takeUnretainedValue() }
     return regions.owns(scope: hatchText(scope, scopeLength), node: node, kind: kind, object: bound, what: hatchText(what, whatLength), surface: flags & 1 != 0) ? 0 : 1
 }
 private let hatchParts: HatchPartsFn = { host, node, json, length, views, count in
-    guard let elements = hatchSession(host)?.presenter.elements, let json,
+    guard let elements = hatchSession(host)?.presenter.hatchElements, let json,
           let rows = try? JSONSerialization.jsonObject(with: Data(bytes: json, count: Int(length))) as? [[String: String]], rows.count == Int(count) else { return 1 }
     let word = elements.presenter.views[node]?.props["hatch"] ?? ""
     let list = rows.enumerated().map { index, row in
@@ -304,14 +295,6 @@ private let hatchToolbarItem: HatchToolbarFn = { host, toolbar, item in
     #endif
 }
 
-private typealias HatchRecordFn = @convention(c) (UnsafeMutableRawPointer?, UInt32, UInt32, UnsafePointer<UInt8>?, UInt32, UnsafePointer<UInt8>?, UInt32, Double, UnsafePointer<UInt8>?, UInt32) -> UInt64
-
-private let hatchRecord: HatchRecordFn = { host, kind, node, scope, scopeLength, name, nameLength, value, text, textLength in
-    guard let store = HatchDiagnostics.store(for: ExactRuntime(UInt(bitPattern: host))) else { return 0 }
-    return store.record(kind: kind, node: node, scope: hatchText(scope, scopeLength), name: hatchText(name, nameLength), value: value,
-                        text: text.map { Data(bytes: $0, count: Int(textLength)) } ?? Data())
-}
-
 private typealias HatchFormaFn = @convention(c) (UnsafeMutableRawPointer?, UnsafeMutableRawPointer?, UnsafePointer<UInt8>?, UInt32, UnsafeMutablePointer<UInt8>?, UInt32) -> UInt32
 
 /// `forma(host, view, request, len, out, cap) → len` (LLP 1121 D12): a
@@ -376,20 +359,16 @@ private typealias HatchPictureFn = @convention(c) (UnsafeMutableRawPointer?, UIn
 private let hatchPicture: HatchPictureFn = { host, kind, bytes, length in
     let source = hatchText(bytes, length)
     // From any thread: the loader is the main thread's.
-    DispatchQueue.main.async {
+    let apply = {
         guard let session = hatchSession(host) else { return }
-        if kind == 1 { session.rasters.revokePicture(source) } else { session.rasters.pictureChanged(source) }
+        if kind == 1 { session.rasters?.revokePicture(source) }
+        else {
+            session.rasters?.pictureChanged(source)
+            session.presenter.canvas2d.pictureChanged(source)
+        }
     }
+    if Thread.isMainThread { apply() } else { DispatchQueue.main.async(execute: apply) }
 }
-
-/// The diagnostics' call table, which a development build's host table names.
-private let hatchDiagnosticsTable: UnsafeRawPointer = {
-    let t = UnsafeMutableRawPointer.allocate(byteCount: 16, alignment: 8)
-    t.initializeMemory(as: UInt8.self, repeating: 0, count: 16)
-    t.storeBytes(of: UInt32(16), as: UInt32.self)
-    t.storeBytes(of: unsafeBitCast(hatchRecord, to: UnsafeRawPointer.self), toByteOffset: 8, as: UnsafeRawPointer.self)
-    return UnsafeRawPointer(t)
-}()
 
 /// Queries a loaded service and returns its JSON answer to the app module.
 private let hatchService: @convention(c) (UnsafeMutableRawPointer?, UnsafePointer<UInt8>?, UInt32, UnsafePointer<UInt8>?, UInt32, UnsafeMutableRawPointer?,
@@ -405,7 +384,7 @@ private let hatchService: @convention(c) (UnsafeMutableRawPointer?, UnsafePointe
 /// The host's callbacks, one table for the process: each finds its session
 /// by the handle it is called with.
 private let hatchHostTable: UnsafeRawPointer = {
-    let size = 192
+    let size = 200
     let t = UnsafeMutableRawPointer.allocate(byteCount: size, alignment: 8)
     t.initializeMemory(as: UInt8.self, repeating: 0, count: size)
     t.storeBytes(of: UInt32(size), as: UInt32.self)
@@ -414,7 +393,7 @@ private let hatchHostTable: UnsafeRawPointer = {
     t.storeBytes(of: unsafeBitCast(hatchLog, to: UnsafeRawPointer.self), toByteOffset: 24, as: UnsafeRawPointer.self)
     t.storeBytes(of: unsafeBitCast(hatchDelegate, to: UnsafeRawPointer.self), toByteOffset: 32, as: UnsafeRawPointer.self)
     t.storeBytes(of: unsafeBitCast(hatchToolbarItem, to: UnsafeRawPointer.self), toByteOffset: 40, as: UnsafeRawPointer.self)
-    if HatchDiagnostics.available { t.storeBytes(of: hatchDiagnosticsTable, toByteOffset: 48, as: UnsafeRawPointer.self) }
+    if let diagnostics = HatchDiagnosticsLink.table { t.storeBytes(of: diagnostics, toByteOffset: 48, as: UnsafeRawPointer.self) }
     t.storeBytes(of: unsafeBitCast(hatchInputText, to: UnsafeRawPointer.self), toByteOffset: 56, as: UnsafeRawPointer.self)
     t.storeBytes(of: unsafeBitCast(hatchFrames, to: UnsafeRawPointer.self), toByteOffset: 64, as: UnsafeRawPointer.self)
     t.storeBytes(of: unsafeBitCast(hatchAfter, to: UnsafeRawPointer.self), toByteOffset: 72, as: UnsafeRawPointer.self)
@@ -431,17 +410,13 @@ private let hatchHostTable: UnsafeRawPointer = {
     t.storeBytes(of: unsafeBitCast(hatchArrangement, to: UnsafeRawPointer.self), toByteOffset: 168, as: UnsafeRawPointer.self)
     t.storeBytes(of: unsafeBitCast(hatchService, to: UnsafeRawPointer.self), toByteOffset: 176, as: UnsafeRawPointer.self)
     t.storeBytes(of: unsafeBitCast(hatchAfterCoalescing, to: UnsafeRawPointer.self), toByteOffset: 184, as: UnsafeRawPointer.self)
+    t.storeBytes(of: unsafeBitCast(hatchTabIntent, to: UnsafeRawPointer.self), toByteOffset: 192, as: UnsafeRawPointer.self)
     return UnsafeRawPointer(t)
 }()
 
-/// A route or element hatch's moment; `configuring` is a hatched frame's
-/// before its web view is made (LLP 1020.002 §9).
-enum RouteHatchEvent: UInt32 {
-    case built = 0, changed = 1, ended = 2, configuring = 3
-    var name: String { switch self { case .built: "built"; case .changed: "changed"; case .ended: "ended"; case .configuring: "configuring" } }
-}
 
 extension NativeViews {
+    var hasTabHatches: Bool { tabCalls != nil }
     /// `tabs` for Exact's tab container (`built`), or its end.
     func tabsHatch(_ controller: AnyObject?, event: UInt32, index: Int = 0) {
         guard hatchesConnected, let instance, let (tabs, _) = tabCalls else { return }
@@ -467,7 +442,7 @@ extension NativeViews {
     func timedHatch<T>(_ scope: String, _ moment: String, site: Int? = nil, counts: Bool = true, _ body: () -> T) -> T {
         if let crumbSlot { HatchBreadcrumb.shared?.push(crumbSlot, name: scope, moment: moment, incarnation: hatchIncarnation) }
         defer { if let crumbSlot { HatchBreadcrumb.shared?.pop(crumbSlot) } }
-        guard let store = session?.hatchDiagnostics else { return body() }
+        guard let store = session?.natives.diagnostics else { return body() }
         return store.timed(scope, moment, site: site, counts: counts, body)
     }
 
@@ -502,10 +477,10 @@ extension NativeViews {
         return owned
     }
 
-    /// `element` (built, changed), `elementEnded` or, for a frame before its
-    /// web view is made, `elementConfiguration` for a hatched node (LLP
+    /// `element` (built, changed), `elementEnded` or, before a frame's web
+    /// view or video's item is made, `elementConfiguration` (LLP
     /// 1075.003.000, LLP 1020.002 §9): its view, its kind's platform object
-    /// (the `WKWebViewConfiguration` for `configuring`), and
+    /// (a `WKWebViewConfiguration` or video's `NSMutableDictionary` at `configuring`), and
     /// `{"hatch", "node", "id", "kind", "data"}`. `quiet` leaves the call out
     /// of the journal (a list row's after the first; `state` counts them).
     /// True when the hatch set `reusable` (LLP 1075.003.000.000 §8).
@@ -514,10 +489,10 @@ extension NativeViews {
     /// node's last call finds what its first kept, the runner's node being
     /// gone by then.
     private func planSite(_ id: UInt32, ended: Bool) -> Int? {
-        guard HatchDiagnostics.measuring, let session else { return nil }
+        guard HatchDiagnosticsLink.measuring, let session else { return nil }
         if ended { return hatchSites.removeValue(forKey: id) ?? nil }
         if let known = hatchSites[id] { return known }
-        let reply = try? JSONSerialization.jsonObject(with: Data(session.agent("{\"op\":\"node\",\"id\":\(id)}").utf8)) as? [String: Any]
+        let reply = try? JSONSerialization.jsonObject(with: Data(session.runtime.ask(exact_node, "{\"id\":\(id)}").utf8)) as? [String: Any]
         let site = (reply?["site"] as? NSNumber)?.intValue
         hatchSites[id] = .some(site)
         return site
@@ -541,7 +516,7 @@ extension NativeViews {
             }
         }
         // A span its hatch left open ends with the node, abandoned.
-        if event == 2 { session?.hatchDiagnostics.ended(node: node.id) }
+        if event == 2 { session?.natives.diagnostics?.ended(node: node.id) }
         return flags & 1 != 0
     }
 
@@ -560,7 +535,7 @@ extension NativeViews {
     /// called: its frame clock and diagnostics work from here.
     func openHatches(_ connect: HatchConnectFn, _ module: UnsafeMutableRawPointer) {
         // A new module is a new incarnation: its counts start at nothing.
-        session?.hatchDiagnostics.reset()
+        session?.natives.diagnostics?.reset()
         takeBreadcrumb()
         connect(module, hatchHostTable)
     }
@@ -610,6 +585,6 @@ extension NativeViews {
                       j.bindMemory(to: UInt8.self).baseAddress, UInt32(json.count))
             }
         }
-        if event == .ended { session?.presenter.elements.regions.ended(scope: "route \(key)") }
+        if event == .ended { session?.presenter.hatchElements?.regions.ended(scope: "route \(key)") }
     }
 }

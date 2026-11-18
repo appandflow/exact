@@ -17,6 +17,7 @@ mod symbol;
 use exact_kernel::svg::Paint;
 use exact_kernel::SortedMap;
 use exact_kernel::{Kernel, NodeFacts, NodeRef, NodeType, ObjectFit, PropId, PropValue, StyleId};
+pub use semantic::{attributes_by_data, tags_by_data};
 pub(super) use svg::svg_props;
 pub use svg::{attribute_rows, svg_props_of};
 
@@ -126,7 +127,7 @@ pub(super) fn folded(kernel: &Kernel, node: &NodeRef<'_>, handled: bool) -> bool
                 &node.facts(),
                 &p.facts(),
                 outer.as_ref(),
-                p.children().len() == 1,
+                p.child_nodes().len() == 1,
                 handled,
             )
         })
@@ -138,10 +139,10 @@ pub(super) fn holds_folded(
     node: &NodeRef<'_>,
     handled: &dyn Fn(exact_kernel::ViewId) -> bool,
 ) -> bool {
-    let children = node.children();
+    let mut children = node.child_nodes();
     let outer = node.parent.and_then(|o| kernel.node(o)).map(|o| o.facts());
     children.len() == 1
-        && kernel.node(children[0]).is_some_and(|c| {
+        && children.next().is_some_and(|c| {
             c.node_type == NodeType::Text
                 && folds(
                     &c.facts(),
@@ -1436,7 +1437,12 @@ impl<D: exact_runner::DataSource> super::Host<D> {
 
     /// Refresh child dependencies: text folds (LLP 1007.001), button metrics
     /// and a progress's or canvas's width in block flow.
-    pub(super) fn refold(&mut self, id: exact_kernel::ViewId, batch: &mut crate::batch::Batch) {
+    pub(super) fn refold(
+        &mut self,
+        id: exact_kernel::ViewId,
+        batch: &mut crate::batch::Batch,
+        visited: &mut exact_kernel::id::IdSet<exact_kernel::ViewId>,
+    ) {
         let kernel = self.runner.kernel();
         let children = kernel.node(id).map(|n| n.children()).unwrap_or_default();
         // A button's fold reads its parent's rows ([`content_tall`]): a
@@ -1458,6 +1464,11 @@ impl<D: exact_runner::DataSource> super::Host<D> {
                 && !is_progress(&node.facts())
                 && node.node_type != NodeType::Canvas
             {
+                continue;
+            }
+            // A changed text or button also occurs in its parent's visit.
+            // All visits read the final tree and the same handler metadata.
+            if !visited.insert(child) {
                 continue;
             }
             let css = self.view_css(&node);

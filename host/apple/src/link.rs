@@ -37,14 +37,18 @@ pub fn linked() -> Uses {
     LINKED.get().copied().unwrap_or(ALL)
 }
 
-/// The kernel's style grammars a native host links by use (LLP 1047.001
-/// D3): each `Some` is registered at boot.
+/// The kernel's style grammars and grid layout, which a native host links
+/// by use (LLP 1047.001 D3, D10), and the families' kernel code the host's
+/// core paths reach ([`families`]): each `Some` is registered at boot.
 #[derive(Clone, Copy)]
 pub struct Grammars {
     backdrop: Option<fn()>,
     segments: Option<fn()>,
     timelines: Option<fn()>,
     wide_colors: Option<fn()>,
+    grid: Option<fn()>,
+    svg: Option<fn()>,
+    effects: Option<fn()>,
 }
 
 impl Grammars {
@@ -72,6 +76,21 @@ impl Grammars {
                 None
             },
             wide_colors: Some(exact_kernel::style::link_wide_colors),
+            grid: if uses.has(Capability::Grid) {
+                Some(exact_kernel::layout::link_grid_layout)
+            } else {
+                None
+            },
+            svg: if uses.has(Capability::Svg) {
+                Some(families::link_svg)
+            } else {
+                None
+            },
+            effects: if uses.has(Capability::Effects) {
+                Some(families::link_effects)
+            } else {
+                None
+            },
         }
     }
 
@@ -82,12 +101,62 @@ impl Grammars {
             self.segments,
             self.timelines,
             self.wide_colors,
+            self.grid,
+            self.svg,
+            self.effects,
         ]
         .into_iter()
         .flatten()
         {
             link();
         }
+    }
+}
+
+/// The families' kernel code the host's core paths call (LLP 1047.001 D10):
+/// registered at boot when the composition links the family ([`Grammars`]),
+/// so an archive without it names none of that code. Unregistered, each
+/// answers what a plan without the family needs, which is all admission lets
+/// such an archive run.
+pub(crate) mod families {
+    use exact_kernel::svg::filter::{Filter, FilterList};
+    use exact_kernel::{style::ColorValue, Kernel, NodeRef, ViewId};
+    use std::{collections::HashSet, sync::OnceLock};
+
+    type Sources = fn(&Kernel, ViewId) -> HashSet<ViewId>;
+    type Blended = fn(&Kernel, &NodeRef<'_>) -> bool;
+    type BoxFilter = fn(&FilterList, ColorValue, bool) -> Option<Filter>;
+
+    static SVG: OnceLock<(Sources, Blended)> = OnceLock::new();
+    static EFFECTS: OnceLock<BoxFilter> = OnceLock::new();
+
+    /// SVG: the nodes a scene reads, and whether a node is drawn into one.
+    pub fn link_svg() {
+        let _ = SVG.set((
+            exact_kernel::svg::scene_sources,
+            exact_kernel::svg::in_blended_scene,
+        ));
+    }
+
+    /// Box effects: a box's `filter` resolved to its program.
+    pub fn link_effects() {
+        let _ = EFFECTS.set(exact_kernel::svg::scene::box_filter);
+    }
+
+    /// The nodes `root`'s scene reads; none without SVG.
+    pub(crate) fn scene_sources(kernel: &Kernel, root: ViewId) -> HashSet<ViewId> {
+        SVG.get()
+            .map_or_else(HashSet::new, |svg| (svg.0)(kernel, root))
+    }
+
+    /// Whether `node` is drawn into an SVG's pixels; never without SVG.
+    pub(crate) fn in_blended_scene(kernel: &Kernel, node: &NodeRef<'_>) -> bool {
+        SVG.get().is_some_and(|svg| (svg.1)(kernel, node))
+    }
+
+    /// A box's `filter` as its program; none without box effects.
+    pub(crate) fn box_filter(list: &FilterList, text: ColorValue, dark: bool) -> Option<Filter> {
+        EFFECTS.get().and_then(|filter| filter(list, text, dark))
     }
 }
 
@@ -104,10 +173,33 @@ pub struct IoLinks {
     pub snapshot: StoreSnapshot,
     /// Start the executor: [`crate::executor::start_io`].
     pub start: StartIo,
+    /// Write a canvas capture's image under the app's `fs.write` grants.
+    pub write_file: AppFileWrite,
+    /// Copy an app file a share names for the sheet, under the app's
+    /// `fs.read` grants: [`crate::picker::share_copy`].
+    pub share_copy: ShareCopy,
 }
 
-/// Read a linked app's stores through its endowed bindings.
-pub type StoreSnapshot = fn(Option<&ibex2::host::Bindings>, &str) -> Vec<(String, Vec<u8>)>;
+/// How [`IoLinks`] copies an app file a share names (`{"path","to"}`) under
+/// the grants, from the app's roots (none where it has no storage), and
+/// answers the share's JSON.
+pub type ShareCopy = fn(&str, &str, Option<&[std::path::PathBuf; 3]>) -> String;
+
+/// How [`IoLinks`] writes an image at an app path among the app's roots
+/// (`app:/data`, `app:/cache`, `app:/tmp`), under the `fs.write` lines of
+/// the grants narrowed by a source's scope, or names the refusal.
+pub type AppFileWrite = fn(
+    &[std::path::PathBuf; 3],
+    &str,
+    Option<&str>,
+    &str,
+    &[u8],
+) -> Result<(), (&'static str, String)>;
+
+/// Read a linked app's stores through its endowed bindings, or say why the
+/// read cannot be used.
+pub type StoreSnapshot =
+    fn(Option<&ibex2::host::Bindings>, &str) -> Result<Vec<(String, Vec<u8>)>, String>;
 
 /// How [`IoLinks`] starts the executor: over the bindings, for the grants,
 /// waking the presenter through the hook.
@@ -124,7 +216,47 @@ impl IoLinks {
         endow: crate::store::endowed::<true>,
         snapshot: crate::store::snapshot_for,
         start: crate::executor::start_io,
+        write_file: crate::host::canvas_capture::write,
+        share_copy: crate::picker::share_copy,
     };
+}
+
+/// A turn's family work after its commits (LLP 1047.001 D10), which
+/// `Host::finish` runs in this order: the documents a source's answers
+/// watch (I/O), then, after the resize rounds, the SVG scenes the batch owes.
+/// Each is `None` when the composition does not link its family, so the
+/// archive names none of its code.
+pub struct TurnLinks<D: DataSource> {
+    /// Reconcile the watched documents with the answers' (`doc_watch`).
+    pub documents: Option<fn(&mut crate::Host<D>)>,
+    /// Send the SVG scenes laid out, moved or restyled this turn.
+    pub svg: Option<fn(&mut crate::Host<D>, &mut crate::batch::Batch)>,
+}
+
+impl<D: DataSource> Clone for TurnLinks<D> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+
+impl<D: DataSource> Copy for TurnLinks<D> {}
+
+impl<D: DataSource> TurnLinks<D> {
+    /// What `uses` needs.
+    pub const fn of(uses: Uses) -> TurnLinks<D> {
+        TurnLinks {
+            documents: if uses.has(Capability::Io) {
+                Some(crate::Host::<D>::sync_documents)
+            } else {
+                None
+            },
+            svg: if uses.has(Capability::Svg) {
+                Some(crate::Host::<D>::emit_svg_scenes)
+            } else {
+                None
+            },
+        }
+    }
 }
 
 /// What a boot links (LLP 1047.001 D3): the runner's capabilities, its
@@ -146,6 +278,11 @@ pub struct Links<D: DataSource> {
     /// What the motion engine plays: everything, or settled values only
     /// when the plan animates nothing.
     pub engine: &'static exact_motion::EngineLinks,
+    /// The runner's optional parts: native modules, tool calls and presence
+    /// secrets (LLP 1047.001 D11).
+    pub modules: exact_runner::ModuleLinks<D>,
+    /// A turn's family work after its commits.
+    pub turn: TurnLinks<D>,
 }
 
 impl<D: DataSource> Clone for Links<D> {
@@ -157,6 +294,8 @@ impl<D: DataSource> Clone for Links<D> {
             grammars: self.grammars,
             io: self.io,
             engine: self.engine,
+            modules: self.modules,
+            turn: self.turn,
         }
     }
 }
@@ -170,6 +309,8 @@ impl<D: DataSource> Links<D> {
         grammars: Grammars::ALL,
         io: Some(IoLinks::LINKED),
         engine: &exact_motion::EngineLinks::ALL,
+        modules: exact_runner::ModuleLinks::ALL,
+        turn: TurnLinks::of(ALL),
     };
 
     /// What `uses` needs; evaluated in a `const`, so nothing else is named.
@@ -268,14 +409,48 @@ impl<D: DataSource> Links<D> {
             } else {
                 &exact_motion::EngineLinks::SETTLE
             },
+            modules: exact_runner::ModuleLinks {
+                modules: if uses.has(Capability::Modules) {
+                    exact_runner::ModuleLinks::<D>::ALL.modules
+                } else {
+                    exact_runner::ModuleLinks::<D>::NONE.modules
+                },
+                tools: if uses.has(Capability::Tools) {
+                    exact_runner::ModuleLinks::<D>::ALL.tools
+                } else {
+                    exact_runner::ModuleLinks::<D>::NONE.tools
+                },
+                presence: if uses.has(Capability::Presence) {
+                    exact_runner::ModuleLinks::<D>::ALL.presence
+                } else {
+                    exact_runner::ModuleLinks::<D>::NONE.presence
+                },
+            },
+            turn: TurnLinks::of(uses),
         }
     }
 }
 
 /// The capabilities `plan` uses that `linked` lacks, by name; `None` when
-/// it links them all.
+/// it links them all. A `data:` image that is an SVG uses SVG, as the bake
+/// counts it, so a plan applied after the bake is held to the same rule; a
+/// bundled asset's bytes are the bake's alone to read.
 pub fn missing(plan: &exact_plan::Plan, linked: Uses) -> Option<String> {
-    let missing = exact_runner::uses(plan).beyond(linked);
+    let mut uses = exact_runner::uses::apple_uses(plan);
+    let data_svg = exact_runner::uses::image_sources(plan)
+        .iter()
+        .any(|source| {
+            source
+                .bundled()
+                .and_then(|name| name.strip_prefix("data:"))
+                .is_some_and(|url| {
+                    exact_runner::uses::data_url(url).is_none_or(|b| exact_svg_file::sniff(&b))
+                })
+        });
+    if data_svg {
+        uses = uses.with(Capability::Svg).with(Capability::Effects);
+    }
+    let missing = uses.beyond(linked);
     (!missing.is_empty()).then(|| missing.to_string())
 }
 
@@ -329,5 +504,58 @@ mod tests {
         assert_eq!(missing(&grouped, without).as_deref(), Some("grouped_lists"));
         assert_eq!(missing(&grouped, ALL), None);
         assert_eq!(missing(&plain, Uses::NONE), None);
+        // A grid and a table both lay out by the grid algorithm (D10).
+        let without = Capability::ALL
+            .into_iter()
+            .filter(|c| *c != Capability::Grid)
+            .fold(Uses::NONE, Uses::with);
+        for view in [
+            "view display=\"grid\"\n      text \"a\"",
+            "table\n      tr\n        td\n          text \"a\"",
+        ] {
+            let plan = contract::compile(&format!("component A\n  view\n    {view}\n")).unwrap();
+            assert_eq!(missing(&plan, without).as_deref(), Some("grid"), "{view}");
+            assert_eq!(missing(&plan, ALL), None);
+        }
+    }
+
+    /// D5 for the native roster: on hello's binary, which links nothing
+    /// beyond the core, a plan that uses an entry is refused by its name.
+    #[test]
+    fn hellos_binary_refuses_each_native_entry_by_name() {
+        let tools = contract::compile(
+            "component A\n  state n = 0\n  tool bump writes \"Add one.\" = bump\n  action bump\n    n = n + 1\n  view\n    text \"a\"\n",
+        )
+        .unwrap();
+        let mut view = contract::compile("component A\n  view\n    text \"a\"\n").unwrap();
+        view.add_view("swatch-box", ("swatch", "@fixture/swatch"), true, &[], "");
+        let compile = |view: &str, act: &str| {
+            contract::compile(&format!(
+                "component A\n  state on = true\n  action go\n    {act}\n  view\n    {view}\n"
+            ))
+            .unwrap()
+        };
+        let svg = compile(
+            "svg viewBox=\"0 0 10 10\"\n      circle cx=5 cy=5 r=4",
+            "on = false",
+        );
+        let image = compile("image \"assets/a.png\"", "on = false");
+        let hatch = compile("view hatch=\"avatar\"", "on = false");
+        let control = compile("input type=\"checkbox\"", "on = false");
+        let traced = compile("button \"b\" press=go", "startTrace_EXPERIMENTAL()");
+        let filtered = compile("text \"a\" filter=\"blur(2px)\"", "on = false");
+        for (plan, name) in [
+            (&tools, "tools"),
+            (&view, "modules, native_views"),
+            (&svg, "effects, svg"),
+            (&image, "images"),
+            (&hatch, "native_views"),
+            (&control, "controls"),
+            (&traced, "traces"),
+            (&filtered, "effects"),
+        ] {
+            assert_eq!(missing(plan, Uses::NONE).as_deref(), Some(name));
+            assert_eq!(missing(plan, ALL), None);
+        }
     }
 }

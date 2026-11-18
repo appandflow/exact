@@ -259,6 +259,13 @@ pub enum Step {
         /// Where.
         span: Span,
     },
+    /// Answer the pending user-presence prompt through the driver's `tap @presence`.
+    Presence {
+        /// `allow`, `cancel`, `fail`, `lockout` or `invalidated`.
+        answer: String,
+        /// Where.
+        span: Span,
+    },
     /// `type "testId" copy`, `… cut`, `… paste "text"`: the clipboard's
     /// event at the node, a paste carrying `text` as the clipboard's.
     Clipboard {
@@ -330,6 +337,21 @@ pub enum Step {
         /// Where.
         span: Span,
     },
+    /// `expect layout "testId" width|height ==|<=|>= n`: the node's laid-out size, the
+    /// width or height of the box the agent's `layout <target>` reports (LLP 1012:
+    /// viewport points, two decimals, presentation transforms folded in).
+    ExpectLayout {
+        /// The node, by `testId`.
+        target: String,
+        /// `width` or `height`.
+        dimension: String,
+        /// `Equal`, `AtLeast` or `AtMost`.
+        comparison: StateComparison,
+        /// The size, in points.
+        value: f64,
+        /// Where.
+        span: Span,
+    },
     /// `expect text "testId" == "value"`: the node's text — its `text` prop,
     /// else its descendants' text in order (the web's `textContent`), else a
     /// field's value.
@@ -364,8 +386,7 @@ pub enum Step {
     },
     /// `expect state name <comparison> literal`: a slot, derive, or resource from the
     /// `state` reply, or a field of one (`name.field.field`, feed F10), or a
-    /// list index (`rows.0`, drums R7), compared to a number (negative
-    /// included), string, bool, or `none`.
+    /// list index (`rows.0`, drums R7), compared to a value literal.
     ExpectState {
         /// The declaration's name, then fields and list indexes, joined by `.`.
         name: String,

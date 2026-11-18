@@ -176,7 +176,7 @@ impl DrawRequest<'_> {
             "{{\"canvas\":{},\"generation\":{},\"seq\":{},\"surface\":",
             self.canvas, self.generation, self.seq
         );
-        crate::agent::quote(self.surface, &mut s);
+        crate::json::quote(self.surface, &mut s);
         s.push_str(",\"args\":");
         let named = !self.names.is_empty();
         s.push(if named { '{' } else { '[' });
@@ -185,7 +185,7 @@ impl DrawRequest<'_> {
                 s.push(',');
             }
             if named {
-                crate::agent::quote(&self.names[i], &mut s);
+                crate::json::quote(&self.names[i], &mut s);
                 s.push(':');
             }
             crate::instance::value_json(v, &mut s);
@@ -195,8 +195,8 @@ impl DrawRequest<'_> {
         let _ = write!(
             s,
             ",\"frame\":{{\"time\":{},\"mounted\":{},\"cause\":\"{}\",\"causes\":[",
-            crate::agent::num(f.time),
-            crate::agent::num(f.mounted),
+            crate::json::num(f.time),
+            crate::json::num(f.mounted),
             f.cause.primary()
         );
         for (i, c) in f.cause.names().iter().enumerate() {
@@ -208,11 +208,11 @@ impl DrawRequest<'_> {
         let _ = write!(
             s,
             "],\"width\":{},\"height\":{},\"pixelWidth\":{},\"pixelHeight\":{},\"scale\":{}}}}}",
-            crate::agent::num(f.width),
-            crate::agent::num(f.height),
+            crate::json::num(f.width),
+            crate::json::num(f.height),
             f.pixel_width,
             f.pixel_height,
-            crate::agent::num(f.scale)
+            crate::json::num(f.scale)
         );
         s.pop();
         if let Some(c) = self.current_color {
@@ -222,7 +222,7 @@ impl DrawRequest<'_> {
                 c.r,
                 c.g,
                 c.b,
-                crate::agent::num(c.a)
+                crate::json::num(c.a)
             );
         }
         if self.p3 {
@@ -438,6 +438,8 @@ pub trait CanvasEngine {
     fn image(&mut self, src: &str, result: Result<(u32, u32), String>, also: &[u64]);
     /// [`Runner::canvas_image_released`].
     fn release_image(&mut self, src: &str);
+    /// [`Runner::canvas_image_named`].
+    fn image_named(&self, src: &str) -> bool;
     /// [`Runner::canvas_fonts_loaded`].
     fn fonts_loaded(&mut self);
     /// Bind a capture to its mounted lifetime and minimum completed sequence,
@@ -480,7 +482,16 @@ impl Canvases {
             .collect();
         for v in gone {
             let r = self.records.remove(&v).expect("listed");
-            self.retired.push((r.lifetime, r.generation));
+            self.retire(&r);
+        }
+    }
+
+    /// A canvas lifetime ends: its source's recorders and the handles it
+    /// asked for let it go.
+    fn retire(&mut self, r: &Record) {
+        self.retired.push((r.lifetime, r.generation));
+        if let Some(t) = self.table() {
+            t.forget(r.lifetime);
         }
     }
 }
@@ -512,7 +523,7 @@ impl CanvasEngine for Canvases {
                 }
                 _ => {
                     if let Some(old) = self.records.remove(&u.view) {
-                        self.retired.push((old.lifetime, old.generation));
+                        self.retire(&old);
                     }
                     self.records.insert(
                         u.view,
@@ -824,6 +835,14 @@ impl CanvasEngine for Canvases {
             ));
         }
         r.in_flight = None;
+        if let Some(t) = self
+            .images
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .as_ref()
+        {
+            t.drew(lifetime);
+        }
         let mut gradients = r.gradients.clone();
         let mut ops = 0;
         for l in &reply.lists {
@@ -922,7 +941,7 @@ impl CanvasEngine for Canvases {
                 s.push(',');
             }
             let _ = write!(s, "{{\"view\":{view},\"surface\":");
-            crate::agent::quote(&r.surface, s);
+            crate::json::quote(&r.surface, s);
             let requested = r.next_seq - 1;
             let _ = write!(
                 s,
@@ -944,7 +963,7 @@ impl CanvasEngine for Canvases {
                         ",\"width\":{},\"height\":{},\"scale\":{},\"stretch\":{},\"colorSpace\":\"{}\",\"colorType\":\"{}\"",
                         b.pixel_width,
                         b.pixel_height,
-                        crate::agent::num(b.scale),
+                        crate::json::num(b.scale),
                         b.stretch,
                         if b.settings.p3 { "display-p3" } else { "srgb" },
                         if b.settings.float16 { "float16" } else { "unorm8" }
@@ -957,7 +976,7 @@ impl CanvasEngine for Canvases {
             s.push_str(",\"lastDraw\":");
             match r.last_draw {
                 Some(t) => {
-                    let _ = write!(s, "{}", crate::agent::num(t));
+                    let _ = write!(s, "{}", crate::json::num(t));
                 }
                 None => s.push_str("null"),
             }
@@ -967,13 +986,13 @@ impl CanvasEngine for Canvases {
                 if i > 0 {
                     s.push(',');
                 }
-                crate::agent::quote(b, s);
+                crate::json::quote(b, s);
             }
             s.push(']');
             for (key, v) in [("error", &r.error), ("refused", &r.refused)] {
                 let _ = write!(s, ",\"{key}\":");
                 match v {
-                    Some(e) => crate::agent::quote(e, s),
+                    Some(e) => crate::json::quote(e, s),
                     None => s.push_str("null"),
                 }
             }
@@ -1121,6 +1140,10 @@ impl CanvasEngine for Canvases {
         if let Some(t) = self.table() {
             t.release(src);
         }
+    }
+
+    fn image_named(&self, src: &str) -> bool {
+        self.table().is_some_and(|t| t.named(src))
     }
 
     fn fonts_loaded(&mut self) {
@@ -1372,12 +1395,20 @@ impl<D: DataSource> Runner<D> {
         }
     }
 
-    /// The host let the decoded `src` go (a cache past its budget): a later
-    /// draw that uses it requests it again (LLP 1056 D9).
+    /// The host let `src` go (a cache past its budget, a changed file, or
+    /// no canvas drawing it), decoded, broken or still loading: a later draw
+    /// that uses it requests it again (LLP 1056 D9).
     pub fn canvas_image_released(&mut self, src: &str) {
         if let Some(c) = self.canvases.as_mut() {
             c.release_image(src);
         }
+    }
+
+    /// Whether a mounted canvas's latest draw, or the one under way, asked
+    /// for `src`, decoded or not: a host whose file changed decodes it
+    /// again only then.
+    pub fn canvas_image_named(&self, src: &str) -> bool {
+        self.canvases.as_ref().is_some_and(|c| c.image_named(src))
     }
 
     /// A font finished loading (the web, LLP 1056 D8): every canvas whose

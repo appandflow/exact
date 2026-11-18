@@ -415,7 +415,7 @@ final class FieldSelectionMacTests: XCTestCase {
         p.fieldSelections.onReplacement = { _, value, s in events.append("\(value):\(s.start)-\(s.end)") }
         for id in [UInt32(2), UInt32(3)] {
             events.removeAll()
-            XCTAssertTrue(p.elements.input(id, "Palo"))
+            XCTAssertTrue(p.hatchElements!.input(id, "Palo"))
             p.elements.drain()
             XCTAssertEqual(events, ["Palo:4-4"])
             XCTAssertEqual(p.edited, id)

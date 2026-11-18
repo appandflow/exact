@@ -2,6 +2,10 @@ use super::*;
 use exact_runner::exact_canvas::{Context2d, DrawError, Frame};
 use serde_json::{json, Value as Json};
 
+/// The host work these tests hand out (LLP 1047.001 D12).
+struct TestWork;
+impl exact_runner::HostWork for TestWork {}
+
 struct Dot;
 
 impl DataSource for Dot {
@@ -621,7 +625,9 @@ fn live_batches_flush_presenter_and_executor_work() {
             Err(DataError::UnknownSource(name.into()))
         }
         fn answer(&mut self, _: &mut Store, _: &str, _: &[Value]) -> Result<Answer, DataError> {
-            Ok(Answer::Later(exact_runner::Request::continuation(1)))
+            Ok(Answer::Later(
+                exact_runner::Request::continuation::<TestWork>(1),
+            ))
         }
         fn continuation(&mut self, _: u64) -> Option<Box<dyn FnOnce() -> Outcome + Send>> {
             let ran = self.0.clone();
@@ -771,4 +777,50 @@ fn a_pick_after_preparation_refuses_a_candidate_that_would_reuse_its_path() {
             .picked_path("photo.jpg"),
         path
     );
+}
+
+#[test]
+fn module_validation_keeps_the_live_sequence_and_root_drop_report() {
+    let plan = |second: bool| {
+        contract::compile(&format!(
+        "component App\n  state kept = 1\n  state retyped = {}\n{}  view\n    text `${{kept}}`\n",
+        if second { "\"new\"" } else { "1" },
+        if second { "" } else { "  state removed = 1\n" },
+    ))
+        .unwrap()
+        .encode()
+    };
+    let mut bridge = Bridge::new();
+    bridge.boot(
+        &plan(false),
+        StorageModule::default(),
+        Hooks::none(),
+        400.,
+        400.,
+    );
+    bridge.data_ready();
+    let epoch = bridge.host.as_ref().unwrap().runner().kernel().epoch();
+    let bytes = plan(true);
+    bridge.input_write(&bytes);
+    bridge.prepare_module(
+        [bytes.len(), 0, 0],
+        StorageModule::default(),
+        Hooks::none(),
+        400.,
+        400.,
+    );
+    assert_eq!(bridge.host.as_ref().unwrap().runner().generation(), 1);
+    assert!(bridge.prepared.is_some());
+    bridge.commit_plan();
+    let runner = bridge.host.as_ref().unwrap().runner();
+    let state: Json = serde_json::from_str(&exact_runner::agent::state(runner)).unwrap();
+    assert_eq!(
+        state["replacement"]["dropped"],
+        json!([
+            {"what": "state", "name": "retyped", "why": "type changed"},
+            {"what": "state", "name": "removed", "why": "no place"},
+        ])
+    );
+    assert_eq!(runner.generation(), 2);
+    assert!(runner.kernel().epoch() > epoch);
 }

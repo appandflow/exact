@@ -5,8 +5,12 @@ use super::*;
 
 impl<D: DataSource> Host<D> {
     pub(super) fn finish_collection(&mut self) -> String {
+        // Rearming an edge changes its window even without a view receipt.
+        let mut batch = Batch::new();
+        let error = self.emit_collections(&mut batch).err();
         let deadline = self.runner.collection_timer_due_ms();
-        if self.finished_deadline == Some(self.route_overflow_due(deadline))
+        if error.is_none()
+            && self.finished_deadline == Some(self.route_overflow_due(deadline))
             && !self.presence.unauthored
             && !self.layout_owed
             && !self.layout_withheld
@@ -27,7 +31,9 @@ impl<D: DataSource> Host<D> {
                 }
             }
             self.request_route_overflow();
-            if self.finished_deadline == Some(self.route_overflow_due(deadline)) {
+            if batch.repeatable()
+                && self.finished_deadline == Some(self.route_overflow_due(deadline))
+            {
                 if let Some(key) = self.quiet_collection_key() {
                     if let Some((previous, reply)) = &self.quiet_collection {
                         if *previous == key {
@@ -36,11 +42,10 @@ impl<D: DataSource> Host<D> {
                     }
                 }
             }
-            let mut batch = Batch::new();
             self.state_onto(&mut batch);
             return self.write_batch(batch, None, true);
         }
-        self.finish(Batch::new(), None)
+        self.finish(batch, error)
     }
 
     pub(super) fn quiet_collection_key(&self) -> Option<[u64; 8]> {
@@ -70,7 +75,9 @@ impl<D: DataSource> Host<D> {
         // Clear the mark first: the resize handlers below commit the app's own moves
         self.presence.unauthored = false;
         let _roles = self.runner.bind_roles(); // Its own, crossing (LLP 1121 stage 5).
-        crate::doc_watch::sync(&mut self.doc_watch, &mut self.runner);
+        if let Some(documents) = self.turn.documents {
+            documents(self);
+        }
         let (mut batch, error) = self.resize_rounds(batch, error);
         self.route_overflow.settled =
             error.is_none() && !batch.layout_provisional && !self.layout_owed;
@@ -157,15 +164,35 @@ impl<D: DataSource> Host<D> {
         }
         self.resize_pending = self.runner.resize_settled();
         // Layout-only batches also owe SVG scenes, even without motion or a commit.
-        for note in self.svg.emit(
+        self.emit_svg(&mut batch);
+        (batch, error)
+    }
+
+    /// The SVG scenes, when the composition links SVG, and then the box
+    /// animations this batch owes.
+    pub(super) fn emit_svg(&mut self, batch: &mut Batch) {
+        if let Some(scenes) = self.turn.svg {
+            scenes(self, batch);
+        }
+        self.svg
+            .emit_boxes(self.runner.kernel(), &self.engine, batch);
+    }
+
+    /// [`crate::link::TurnLinks`]'s SVG scenes.
+    pub(crate) fn emit_svg_scenes(&mut self, batch: &mut Batch) {
+        for note in self.svg.emit_scenes(
             self.runner.kernel(),
             &self.engine,
             &self.paint.motion,
-            &mut batch,
+            batch,
         ) {
             self.runner.log(note);
         }
-        (batch, error)
+    }
+
+    /// [`crate::link::TurnLinks`]'s documents.
+    pub(crate) fn sync_documents(&mut self) {
+        crate::doc_watch::sync(&mut self.doc_watch, &mut self.runner);
     }
 }
 

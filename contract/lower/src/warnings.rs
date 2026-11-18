@@ -18,6 +18,7 @@ use exact_kernel::StyleId;
 use exact_plan::Stdlib;
 use std::collections::{BTreeMap, BTreeSet};
 
+mod border;
 mod container;
 mod counts;
 mod fixed_beside;
@@ -30,11 +31,11 @@ mod navigation_back;
 mod nested_header;
 mod parts;
 mod roles;
-mod root_replace;
 mod routeless_header;
 mod rows;
 mod screens;
 mod scroll_bound;
+mod select_after_push;
 mod sounds;
 mod states;
 mod svg;
@@ -97,6 +98,7 @@ pub(crate) fn with_text_styles(
             }
             out.extend(roles::button(tag, attrs, visit, span).filter(|_| fresh));
             out.extend(roles::dialog_role(tag, attrs, span).filter(|_| fresh));
+            out.extend(roles::alert_font(tag, attrs, &checked.file.styles).filter(|_| fresh));
             out.extend(roles::level_without_heading(tag, attrs, span).filter(|_| fresh));
             out.extend(roles::keys(attrs, visit, span, &controlled).filter(|_| fresh));
             if fresh {
@@ -132,8 +134,7 @@ pub(crate) fn with_text_styles(
     }
     (checked.file.styles.iter()).for_each(|s| line_height::multiplier(&s.attrs, &mut out));
     out.extend(screens::screen_by_state(checked));
-    // A `replace` the router refuses on a root route's screen, a `select` after a push.
-    out.extend(root_replace::router(checked));
+    out.extend(select_after_push::select_after_push(checked));
     out.extend(counts::count_plural(&checking));
     // @ref LLP 1116.016 D4 — a row that searches another data list; LLP 1017.003 D3, its own; LLP 1142 D6, a key by position.
     out.extend(rows::row_lookup(&checking));
@@ -161,6 +162,7 @@ pub(crate) fn with_text_styles(
     width::width_padding(&checked_view, &checked.file.styles, &mut out);
     scroll_bound::scroll_grows(&checked_view, &checked.file.styles, &mut out);
     container::flex_on_block(&checked_view, &checked.file.styles, &mut out);
+    border::check(&checked_view, &checked.file.styles, lowered, &mut out);
     width::text_px_width(&checked_view, &checked.file.styles, lowered, &mut out);
     svg::use_foreign_object(&checked_view, &mut out);
     out.extend(

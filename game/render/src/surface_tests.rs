@@ -232,6 +232,7 @@ fn restore_and_load_are_seen_by_render_without_a_bind_or_tick() {
 #[test]
 fn seekable_observers_make_no_clock_calls_and_long_advances_time_only_retained_ticks() {
     use crate::perf::CLOCK_READS;
+    use exact_game::TickObserver;
     let world = World::new(60, 0);
     let mut render = None;
     let mut perf = Perf::default();
@@ -248,11 +249,12 @@ fn seekable_observers_make_no_clock_calls_and_long_advances_time_only_retained_t
             &mut trace,
             &mut error,
             &mut hook_poses,
-            measure,
-            3600,
+            measure.then_some(Clock::Seekable),
+            None,
         );
         for left in (0..3600).rev() {
-            after(&world, left);
+            after.before_tick(u64::from(left) + 1);
+            after.after_tick(&world, left);
         }
         assert_eq!(CLOCK_READS.with(|n| n.get()), if measure { 480 } else { 0 });
     }
@@ -335,7 +337,10 @@ fn replacement_device_rechecks_storage_capacity_without_changing_world() {
             gpu.device.limits().max_storage_buffers_per_shader_stage
         );
         s.device_lost();
-        s.device_ready(exact_gpu::wgpu::Features::empty());
+        s.device_ready(
+            exact_gpu::wgpu::Features::empty(),
+            exact_gpu::wgpu::Limits::downlevel_defaults(),
+        );
         s.prepare_assets(limited, queue, wgpu::TextureFormat::Rgba8Unorm);
         let needed = if ASSETS {
             crate::STORAGE_BINDINGS
@@ -349,7 +354,10 @@ fn replacement_device_rechecks_storage_capacity_without_changing_world() {
         assert!(s.take_error().is_none());
         assert_eq!(s.carry().unwrap().unwrap(), saved);
         s.device_lost();
-        s.device_ready(exact_gpu::wgpu::Features::empty());
+        s.device_ready(
+            exact_gpu::wgpu::Features::empty(),
+            exact_gpu::wgpu::Limits::downlevel_defaults(),
+        );
         s.restore(&saved, Restore::Open).unwrap();
         let after = fixture::render(gpu, &mut s, &frame(0.)).unwrap().0;
         assert!(s.take_error().is_none());
@@ -716,7 +724,10 @@ fn device_state_reports_target_before_first_draw_and_after_loss() {
         .agent(r#"{"op":"state"}"#)
         .unwrap()
         .contains("\"device\":false"));
-    s.device_ready(exact_gpu::wgpu::Features::empty());
+    s.device_ready(
+        exact_gpu::wgpu::Features::empty(),
+        exact_gpu::wgpu::Limits::downlevel_defaults(),
+    );
     assert!(s.render.is_none());
     assert!(s
         .agent(r#"{"op":"state"}"#)
@@ -759,7 +770,10 @@ fn peer_assets_finish_gpu_work_before_loaded_and_restore_keeps_the_loading_windo
     let bytes = exact_game::asset::encode_model(&model);
     let fresh = || {
         let mut s = WorldSurface::<Art, crate::ModelExecutor, true>::default();
-        s.device_ready(exact_gpu::wgpu::Features::empty());
+        s.device_ready(
+            exact_gpu::wgpu::Features::empty(),
+            exact_gpu::wgpu::Limits::downlevel_defaults(),
+        );
         s.bind(&[], None).unwrap();
         s
     };
@@ -871,7 +885,10 @@ fn peer_assets_finish_gpu_work_before_loaded_and_restore_keeps_the_loading_windo
             hashes,
             "device loss does not rehash retained CPU content"
         );
-        restored.device_ready(exact_gpu::wgpu::Features::empty());
+        restored.device_ready(
+            exact_gpu::wgpu::Features::empty(),
+            exact_gpu::wgpu::Limits::downlevel_defaults(),
+        );
         restored.prepare_assets(&gpu.device, &gpu.queue, wgpu::TextureFormat::Rgba8Unorm);
         assert_eq!(
             crate::models::model_hash_count(),
@@ -937,7 +954,7 @@ fn performance_recording_arms_only_through_diagnostic_state() {
     let state = s.agent(r#"{"op":"state","perf":true}"#).unwrap();
     assert!(state.contains("\"p50\":4"));
     let state = s.agent(r#"{"op":"state","perf_reset":true}"#).unwrap();
-    assert!(state.contains("\"p50\":0"));
+    assert!(state.contains("\"p50\":null"));
 }
 
 #[test]
@@ -1289,7 +1306,10 @@ fn offsets_move_socketed_props_with_their_owner_and_alone() {
     // The blue prop's pixel centre, (x, y).
     let drawn = |owner_x: f64, prop_y: f64, carrier_x: f64| {
         let mut surface = WorldSurface::<Socketed, crate::ModelExecutor, true>::default();
-        surface.device_ready(exact_gpu::wgpu::Features::empty());
+        surface.device_ready(
+            exact_gpu::wgpu::Features::empty(),
+            exact_gpu::wgpu::Limits::downlevel_defaults(),
+        );
         surface
             .bind(
                 &[

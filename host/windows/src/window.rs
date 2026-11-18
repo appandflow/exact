@@ -23,11 +23,14 @@ use winit::{
 };
 
 mod edit_menu;
+mod file_dialog;
 mod frames;
 mod lifecycle;
 mod presents;
+mod service;
 mod tray;
 use frames::{next_frame_deadline, presentation_resumes, FrameSchedule};
+use presents::direct_device;
 
 struct App<D: DataSource> {
     service_causes: u8,
@@ -49,6 +52,9 @@ struct App<D: DataSource> {
     focused: bool,
     cursor: CursorIcon,
     buttons: u32,
+    /// A button or a finger was down when the window lost the focus, and its
+    /// release may go to another window.
+    unheard: bool,
     clicks: crate::clicks::Clicks,
     touches: crate::touch::Touches,
     scale: f64,
@@ -76,6 +82,7 @@ struct App<D: DataSource> {
     ime: crate::ime::InputMethod,
     appearance: crate::appearance::Changes,
     modal: crate::modal::Schedule,
+    dialogs: crate::file_dialog::Dialogs,
     desktop: Rc<crate::desktop::Desktop>,
     /// The app called `close()`: the window closes, never hides.
     closing: bool,
@@ -123,11 +130,6 @@ fn system_theme<D: DataSource>(p: &mut Presenter<D>, theme: Theme) {
             eprintln!("exact-windows: appearance: {error}");
         }
     }
-}
-
-fn direct_device(painter: exact_painted::presenter::PainterChoice, device: Option<&str>) -> bool {
-    painter == exact_painted::presenter::PainterChoice::Ink
-        && exact_ink::device::direct_d3d11(device).is_some()
 }
 
 pub(crate) fn boot_phase(name: &str) {
@@ -230,6 +232,7 @@ pub(super) fn run<D: DataSource + Default + 'static>(
         return 1;
     }
     if !config.windowed() {
+        crate::displays::install_headless();
         return crate::clipboard::run_headless::<D>(&mut config, started);
     }
     let instance = match lifecycle::claim(frame_limit.is_some(), compat, name) {
@@ -304,6 +307,7 @@ pub(super) fn run<D: DataSource + Default + 'static>(
         clicks: Default::default(),
         touches: Default::default(),
         buttons: 0,
+        unheard: false,
         scale: 1.,
         next_frame: started,
         redraw_pending: false,
@@ -328,6 +332,7 @@ pub(super) fn run<D: DataSource + Default + 'static>(
         ime,
         appearance: Default::default(),
         modal: Default::default(),
+        dialogs: Default::default(),
         desktop,
         refit_after_scale: false,
         closing: false,
@@ -344,6 +349,11 @@ pub(super) fn run<D: DataSource + Default + 'static>(
     // A launch from here on is the app's next instance, not this ending one's.
     state.instance.take();
     exact_painted::set_event_waker(None);
+    if let Some(p) = &mut state.presenter {
+        for failure in p.drain_file_exports() {
+            eprintln!("exact: {failure}");
+        }
+    }
     // However the loop ended (the window closed, a bounded run, a failure): the store's writes, made on a thread of
     // their own, are on disk before the process ends, and what failed is said.
     if !exact_painted::host::drain_store_writes(std::time::Duration::from_secs(5)) {
@@ -894,7 +904,10 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<crate::accessibility:
                 self.appearance
                     .install(handle.hwnd.get(), self.proxy.clone());
                 self.modal.install(handle.hwnd.get(), self.proxy.clone());
+                self.dialogs
+                    .install(handle.hwnd.get(), self.modal.clone(), self.proxy.clone());
                 self.desktop.set_window(handle.hwnd.get());
+                crate::displays::install(handle.hwnd.get());
                 if let Err(error) = self.clicks.install(handle.hwnd.get()) {
                     self.fail(events, error);
                     return;
@@ -958,6 +971,9 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<crate::accessibility:
                         lifecycle::window_commands(&mut p, &self.proxy);
                     }
                 }
+                if self.dialogs.available() {
+                    p.serve_file_dialogs();
+                }
                 p.set_window_active(self.focused);
                 // The window's clock owns time (the timers RFC, D1)
                 p.use_native_timers(true);
@@ -970,7 +986,11 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<crate::accessibility:
                 self.tray_start();
                 self.hidden = self.launches_hidden();
                 let hidden = self.hidden;
-                self.tell_page(|page| page.hidden = hidden);
+                let can_open_files = self.dialogs.available();
+                self.tell_page(|page| {
+                    page.hidden = hidden;
+                    page.can_open_files = can_open_files;
+                });
             }
             Err(e) => {
                 self.fail(events, e);
@@ -1010,6 +1030,9 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<crate::accessibility:
             return;
         }
         match event {
+            crate::accessibility::Event::TrayAccess(request) => {
+                return self.tray_access(events, request)
+            }
             crate::accessibility::Event::Focus => self.bring_forward(),
             crate::accessibility::Event::Hide => self.hide_by_app(),
             _ => {}
@@ -1126,6 +1149,26 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<crate::accessibility:
         // sample past the time it was asked for
         let now = p.host().now();
         let (x, y) = self.pointer;
+        // A button or a finger down when the focus went: each event the
+        // person makes here asks Windows whether it is still down.
+        if self.unheard
+            && matches!(
+                event,
+                WindowEvent::Focused(true)
+                    | WindowEvent::CursorEntered { .. }
+                    | WindowEvent::CursorMoved { .. }
+                    | WindowEvent::MouseInput { .. }
+                    | WindowEvent::Touch(_)
+            )
+        {
+            let up = self.buttons & !buttons_down();
+            if up != 0 {
+                self.buttons &= !up;
+                p.buttons_released(up);
+            }
+            self.touches.prune(p, crate::touch::in_contact);
+            self.unheard = self.buttons != 0 || self.touches.any_down();
+        }
         match event {
             WindowEvent::ThemeChanged(theme) => system_theme(p, theme),
             WindowEvent::Moved(_) => self.ime.reposition(),
@@ -1145,9 +1188,12 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<crate::accessibility:
                 self.focused = focused;
                 p.surface_lifecycle(self.minimized || self.occluded || self.hidden, !focused);
                 if !focused {
-                    self.buttons = 0;
-                    self.touches.forget(p);
-                    let _ = p.pointer_lost(now);
+                    // The contact ends, its release perhaps going to another
+                    // window; each button and finger down holds a replacement
+                    // until its release, or until Windows says it is up
+                    // (`unheard`, LLP 1029.000.002 D9).
+                    self.touches.forget(p, now);
+                    self.unheard = self.buttons != 0 || self.touches.any_down();
                     p.set_window_active(false);
                     // Unfocused, the pads are not read: what they were is no longer known.
                     p.forget_pads();
@@ -1321,177 +1367,44 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<crate::accessibility:
         }
     }
     fn about_to_wait(&mut self, events: &ActiveEventLoop) {
+        self.file_dialog_answers();
         self.handed_launches();
         self.tray_input(events);
         self.unshown_first_pixel();
         self.wait(events, |p| {
             (p.painter_retry_deadline(), p.painter_present_deadline())
         });
+        self.queue_file_dialogs();
         self.tray_sync();
-    }
-}
-
-impl<D: DataSource + Default + 'static> App<D> {
-    fn wait(
-        &mut self,
-        events: &ActiveEventLoop,
-        deadlines: impl FnOnce(&Presenter<D>) -> (Option<Instant>, Option<Instant>),
-    ) {
-        let causes = if counters::enabled() {
-            std::mem::take(&mut self.service_causes)
-        } else {
-            0
-        };
-        counters::service(causes);
-        let _span = crate::probe::Span::new("carrier service", causes);
-        crate::probe::sample();
-        let now = self.now();
-        for fired in self.timers.take_due(now) {
-            self.deliver_timer(fired, now);
-        }
-        if let Some(p) = self.presenter.as_mut() {
-            p.windows_field_edits(self.started.elapsed().as_secs_f64() * 1000.);
-            p.timer_visibility(self.minimized || self.occluded || self.hidden);
-            if let Some(e) = p.follow_local_offset() {
-                eprintln!("exact-windows: {e}");
-            }
-            let now = self.started.elapsed().as_secs_f64() * 1000.0;
-            if p.wake_due_ms().is_some_and(|due| due <= now) {
-                if let Some(e) = p.advance(now) {
-                    eprintln!("exact-windows: {e}");
-                }
-            }
-            // Deliver nonvisual effects even when this turn needs no presentation
-            if let Some(e) = p.pump(self.started.elapsed().as_secs_f64() * 1000.0) {
-                eprintln!("exact-windows: {e}");
-            }
-            p.run_commands(D::default);
-            if let Some(window) = &self.window {
-                self.tooltip.update(
-                    p,
-                    window,
-                    (self.pointer_inside && self.focused && self.buttons == 0)
-                        .then_some(self.pointer),
-                    false,
-                );
-            }
-            crate::orientation::apply(p);
-            p.hatch_turn();
-            if let Some(e) = p.admit_idle_timer(self.started.elapsed().as_secs_f64() * 1000.0) {
-                eprintln!("exact-windows: {e}");
-            }
-        }
-        if self.appearance.take() {
-            if let (Some(window), Some(p)) = (&self.window, &mut self.presenter) {
-                system_theme(p, window.theme().unwrap_or(Theme::Light));
-                if let Some(scale) = self.appearance.text_scale() {
-                    if let Some(error) = p.set_text_scale(scale) {
-                        eprintln!("exact-windows: text size: {error}");
-                    }
-                }
-                window.request_redraw();
-            }
-        }
-        if let Err(error) = self.blink(Instant::now()) {
-            self.fail(events, error);
-            return;
-        }
-        let Some(p) = &mut self.presenter else { return };
-        let wake = self.presents.poll(p, self.started);
-        let retirement = presents::sooner(p.collect_painter_retirement(Instant::now()), wake);
-        let pads_active = self.focused && !self.minimized && p.has_gamepad_input();
-        if self.pads_active != pads_active {
-            self.pads_active = pads_active;
-            self.pads.forget();
-            p.forget_pads();
-        }
-        if pads_active {
-            let at = self.started.elapsed().as_secs_f64() * 1000.;
-            self.pads.poll(
-                Instant::now(),
-                crate::pads::read,
-                |index, connected, buttons, axes| {
-                    crate::pads::register(index, connected, buttons, axes);
-                    p.hardware_pad(index, connected, buttons, axes, at)
-                },
-            );
-        }
-        if let Err(e) = self.timers.update(
-            p.native_timer_generation(),
-            p.host().runner().native_timers(),
-            self.started.elapsed().as_secs_f64() * 1000.0,
-        ) {
-            self.fail(events, e);
-            return;
-        }
-        if let Some(due) = p.wake_due_ms() {
-            let deadline = self.started + Duration::from_secs_f64((due / 1000.).max(0.));
-            events.set_control_flow(ControlFlow::WaitUntil(deadline));
-        } else {
-            events.set_control_flow(ControlFlow::Wait);
-        }
-        let continuous =
-            self.frame_limit.is_some() || p.wants_display_frames() || p.needs_animation_frame();
-        let unpaced =
-            self.frame_limit.is_some() && std::env::var_os("EXACT_AGENT_WINDOW_UNPACED").is_some();
-        let (retry, present) = deadlines(p);
-        let schedule = FrameSchedule {
-            cadence: (continuous && !unpaced).then_some(self.next_frame),
-            retry,
-            present,
-        };
-        let now = Instant::now();
-        let redraw = (!self.minimized && !self.occluded && !self.hidden)
-            .then(|| schedule.redraw(now, p.dirty() || continuous || self.redraw_pending))
-            .flatten();
-        if let Some(due) = redraw {
-            if now >= due {
-                if let Some(window) = &self.window {
-                    window.request_redraw();
-                }
-            }
-            if !matches!(events.control_flow(), ControlFlow::WaitUntil(t) if t <= due) {
-                events.set_control_flow(ControlFlow::WaitUntil(due));
-            }
-        }
-        if let Some(due) = self.timers.next_delivery() {
-            let deadline = self.started + Duration::from_secs_f64(due / 1000.0);
-            if !matches!(events.control_flow(), ControlFlow::WaitUntil(t) if t <= deadline) {
-                events.set_control_flow(ControlFlow::WaitUntil(deadline));
-            }
-        }
-        if let Some(due) = retirement {
-            if !matches!(events.control_flow(), ControlFlow::WaitUntil(t) if t <= due) {
-                events.set_control_flow(ControlFlow::WaitUntil(due));
-            }
-        }
-        // Only an app with an input canvas needs controller discovery wakes.
-        if pads_active {
-            let soon = self.pads.next_poll(Instant::now());
-            if !matches!(events.control_flow(), ControlFlow::WaitUntil(t) if t <= soon) {
-                events.set_control_flow(ControlFlow::WaitUntil(soon));
-            }
-        }
-        if self.focused
-            && !self.minimized
-            && !self.occluded
-            && !self.hidden
-            && !p.dirty()
-            && !p.wants_display_frames()
-            && !p.needs_animation_frame()
-        {
-            if let Some(soon) = self.caret.deadline() {
-                if !matches!(events.control_flow(), ControlFlow::WaitUntil(t) if t <= soon) {
-                    events.set_control_flow(ControlFlow::WaitUntil(soon));
-                }
-            }
-        }
-        self.modal.wait_until(match events.control_flow() {
-            ControlFlow::WaitUntil(deadline) => Some(deadline),
-            _ => None,
-        });
     }
 }
 
 #[cfg(test)]
 pub(crate) mod tests;
+
+/// The mouse buttons down now, as `pointer_aux` numbers them (1 the primary).
+/// [GetAsyncKeyState](https://learn.microsoft.com/windows/win32/api/winuser/nf-winuser-getasynckeystate)
+/// reads the physical buttons, so a swapped primary is read as the right one.
+#[allow(unsafe_code)]
+fn buttons_down() -> u32 {
+    use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
+        GetAsyncKeyState, VK_LBUTTON, VK_MBUTTON, VK_RBUTTON, VK_XBUTTON1, VK_XBUTTON2,
+    };
+    use windows_sys::Win32::UI::WindowsAndMessaging::{GetSystemMetrics, SM_SWAPBUTTON};
+    let swapped = unsafe { GetSystemMetrics(SM_SWAPBUTTON) } != 0;
+    let (primary, secondary) = if swapped {
+        (VK_RBUTTON, VK_LBUTTON)
+    } else {
+        (VK_LBUTTON, VK_RBUTTON)
+    };
+    [
+        (primary, 1),
+        (secondary, 2),
+        (VK_MBUTTON, 4),
+        (VK_XBUTTON1, 8),
+        (VK_XBUTTON2, 16),
+    ]
+    .into_iter()
+    .filter(|(key, _)| unsafe { GetAsyncKeyState(i32::from(*key)) } < 0)
+    .fold(0, |bits, (_, bit)| bits | bit)
+}

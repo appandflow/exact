@@ -15,8 +15,8 @@ mod sensors;
 mod stdio;
 
 use crate::presenter::Presenter;
-use exact_runner::agent::{error, field_bool, field_num, field_str, num};
 use exact_runner::instance::collection::Align;
+use exact_runner::json::{error, field_bool, field_num, field_str, num};
 use exact_runner::DataSource;
 use std::io::Write;
 
@@ -93,7 +93,7 @@ pub fn serve<D: DataSource + Default>(
         p.node_count()
     );
     match boot_error {
-        Some(e) => exact_runner::agent::quote(e, &mut ready),
+        Some(e) => exact_runner::json::quote(e, &mut ready),
         None => ready.push_str("null"),
     }
     ready.push('}');
@@ -118,39 +118,9 @@ pub fn serve<D: DataSource + Default>(
 
 pub use stdio::{handle, handle_for_window};
 
-/// Every reply carries the runner's `epoch`, `incarnation` and `clock`
-/// (LLP 1035.002 D3), read after the operation; a reply that already has a
-/// `clock` (where a `clock` call landed) keeps it. The runner's own replies
-/// (`tree`, `state`, `node`) are tagged at the source; an error is left
-/// alone.
-fn tagged<D: DataSource>(p: &Presenter<D>, line: &str, mut reply: String) -> String {
-    let op = field_str(line, "op");
-    let host_reply = op.is_some();
-    if !host_reply || !reply.ends_with('}') || reply.starts_with("{\"error\"") {
-        return reply;
-    }
-    if field_num(&reply, "epoch").is_some() {
-        return reply;
-    }
-    let tags = p.host().agent("{\"op\":\"tags\"}");
-    let (Some(epoch), Some(incarnation), Some(clock)) = (
-        field_num(&tags, "epoch"),
-        field_num(&tags, "incarnation"),
-        field_num(&tags, "clock"),
-    ) else {
-        return reply;
-    };
-    reply.pop();
-    reply.push_str(&format!(
-        ",\"epoch\":{},\"incarnation\":{}",
-        num(epoch),
-        num(incarnation)
-    ));
-    if !reply.contains("\"clock\":") {
-        reply.push_str(&format!(",\"clock\":{}", num(clock)));
-    }
-    reply.push('}');
-    reply
+/// Add the session identity after the host's operation (LLP 1029.000.002 D10).
+fn tagged<D: DataSource>(p: &Presenter<D>, _line: &str, reply: String) -> String {
+    exact_runner::agent::tagged(p.host().runner(), reply)
 }
 
 pub(crate) fn answer<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
@@ -206,12 +176,13 @@ fn answer_line<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
         Some("perf") => p.hatch_sites(p.host().agent(line)),
         Some("state") => {
             p.boxes();
+            p.tell_replacement_pending();
             // Host-only sections report `unavailable` instead of disappearing
             // (LLP 1035.002 D2), distinguishing no keyboard from no report.
             let mut s = p.host().agent(line);
             if s.ends_with('}') && !s.starts_with("{\"error\"") {
                 s.pop();
-                s.push_str(&format!(",\"painter\":{}", p.painter_state()));
+                s.push_str(&p.state_sections());
                 let mut decorations: Vec<_> = p
                     .brush
                     .field_text
@@ -1021,7 +992,7 @@ fn clock<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
         let reply = match e {
             Some(e) => {
                 let mut s = String::from("{\"error\":");
-                exact_runner::agent::quote(&format!("clock: {e}"), &mut s);
+                exact_runner::json::quote(&format!("clock: {e}"), &mut s);
                 format!("{s},\"clock\":{}}}", num(landed))
             }
             None => format!("{{\"clock\":{}}}", num(landed)),
@@ -1052,7 +1023,7 @@ fn land_data<D: DataSource>(p: &mut Presenter<D>, bound: std::time::Duration) ->
     };
     let refused = |p: &Presenter<D>, error: &str| {
         let mut s = String::from("{\"error\":");
-        exact_runner::agent::quote(&format!("clock data: {error}"), &mut s);
+        exact_runner::json::quote(&format!("clock data: {error}"), &mut s);
         format!("{s},\"clock\":{}}}", num(p.host().now()))
     };
     for _ in 0..16 {
@@ -1076,7 +1047,7 @@ fn land_data<D: DataSource>(p: &mut Presenter<D>, bound: std::time::Duration) ->
         p.sync_surfaces();
         if let Some(e) = e {
             let mut s = String::from("{\"error\":");
-            exact_runner::agent::quote(&format!("clock: {e}"), &mut s);
+            exact_runner::json::quote(&format!("clock: {e}"), &mut s);
             return format!("{s},\"clock\":{}}}", num(landed));
         }
         // A `then` that sent asks again; what it sends lands in the next round.
@@ -1141,7 +1112,7 @@ fn clock_within<D: DataSource>(
         let (landed, e) = sensors::clock_framed(p, to, deadline);
         if let Some(e) = e {
             let mut s = String::from("{\"error\":");
-            exact_runner::agent::quote(&format!("clock: {e}"), &mut s);
+            exact_runner::json::quote(&format!("clock: {e}"), &mut s);
             return format!("{s},\"clock\":{}}}", num(landed));
         }
         p.sync_surfaces();
