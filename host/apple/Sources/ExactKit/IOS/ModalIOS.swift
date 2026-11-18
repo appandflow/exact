@@ -135,6 +135,7 @@ private final class ModalController: UIViewController, UIGestureRecognizerDelega
         // started push or pop holds the style.
         let resolve = { [weak self] in self?.host?.presenter.resolveStatusBar(settled: true) }
         if !(transitionCoordinator?.animate(alongsideTransition: nil, completion: { _ in resolve() }) ?? false) { resolve() }
+        host?.probeTouches(in: view.window)
         #endif
         guard backdropTap == nil, let container = presentationController?.containerView else { return }
         let tap = UITapGestureRecognizer(target: self, action: #selector(tappedBackdrop))
@@ -388,7 +389,12 @@ final class ModalHost: NSObject, UIAdaptivePresentationControllerDelegate {
         super.init()
         traceObservers = SheetTrace.watch(self)
     }
-    deinit { traceObservers.forEach(NotificationCenter.default.removeObserver) }
+    deinit {
+        traceObservers.forEach(NotificationCenter.default.removeObserver)
+        #if os(iOS)
+        if let probe = touchProbe { probe.view?.removeGestureRecognizer(probe) }
+        #endif
+    }
 
     #if os(iOS)
     /// Why a word of a bound `navigationDetent` is dropped.
@@ -864,7 +870,22 @@ final class ModalHost: NSObject, UIAdaptivePresentationControllerDelegate {
     func traceLayers(_ edge: String) {
         guard !layers.isEmpty || !retiring.isEmpty else { return }
         SheetTrace.note("\(edge): " + (layers.map(traceState).joined(separator: " | ")) + (retiring.isEmpty ? "" : " retiring=\(retiring.count)"))
+        #if os(iOS)
+        if let top = layers.last?.controller { SheetTrace.note("\(edge) scrolls: \(SheetTrace.scrolls(in: top))") }
+        #endif
     }
+
+    #if os(iOS)
+    private var touchProbe: SheetTrace.TouchProbe?
+    /// Trace the touches on the window a sheet shows in (`SheetTrace.TouchProbe`).
+    func probeTouches(in window: UIWindow?) {
+        guard let window, touchProbe?.view !== window else { return }
+        if let old = touchProbe { old.view?.removeGestureRecognizer(old) }
+        let probe = SheetTrace.TouchProbe { [weak self] in self?.layers.last?.controller }
+        window.addGestureRecognizer(probe)
+        touchProbe = probe
+    }
+    #endif
 
     func presentationControllerDidAttemptToDismiss(_ presentationController: UIPresentationController) {
         SheetTrace.note("didAttemptToDismiss top=\(layers.last?.controller === presentationController.presentedViewController) \(layers.last.map(traceState) ?? "no layer")")
