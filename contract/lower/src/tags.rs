@@ -580,8 +580,6 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "preload" => AttrTarget::Prop(p("preload")),
         "playsinline" => AttrTarget::Prop(p("playsinline")),
         "crossorigin" => AttrTarget::Prop(p("crossorigin")),
-        "fadeDuration" => AttrTarget::Prop(p("fadeDuration")),
-        "loading" => AttrTarget::Prop(p("loading")),
         "controlslist" => AttrTarget::Prop(p("controlslist")),
         "disablepictureinpicture" => AttrTarget::Prop(p("disablepictureinpicture")),
         "disableremoteplayback" => AttrTarget::Prop(p("disableremoteplayback")),
