@@ -194,10 +194,9 @@ public final class ExactView: UIView {
         session.presenter.navigation.appearanceChanged()
     }
     /// UIKit snapshots a backgrounded scene for the app switcher in both
-    /// appearances, flipping `userInterfaceStyle` and back. Telling each flip
-    /// re-renders the app twice on main while the snapshot waits, and a quick
-    /// return finds the screen frozen until it ends: the background holds
-    /// the report, and the return tells what differs from the last one.
+    /// appearances, flipping `userInterfaceStyle` and back, and each report
+    /// lays the app out again on main: the background holds the report, and
+    /// the return tells what differs from the last one.
     private func appearanceTraitsChanged() {
         if window?.windowScene?.activationState == .background { return }
         if let told = reportedTraits, told == (traitCollection.userInterfaceStyle, traitCollection.displayScale, traitCollection.accessibilityContrast) { return }
