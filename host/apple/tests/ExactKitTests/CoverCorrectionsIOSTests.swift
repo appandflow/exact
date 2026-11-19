@@ -2,6 +2,7 @@
 import UIKit
 import XCTest
 @testable import ExactKit
+@testable import ExactNavigation
 
 /// A chain of covers corrections, a change no answer causes and what the runtime's answers to its deliveries make in
 /// turn, has eight passes, however its answers branch and whether they apply at once or wait behind a slice; a change no
@@ -10,7 +11,7 @@ final class CoverCorrectionsIOSTests: XCTestCase {
     func testCoversThatNeverSettleBehindASliceStopAfterEightPasses() {
         let session = ExactApp.shared.makeSession(label: "covers-oscillation-behind-a-slice")
         defer { session.destroy() }
-        let navigation = session.presenter.navigation
+        let navigation = session.presenter.navigationHost
         var told = 0
         session.presenter.onCovers = { _ in
             told += 1
@@ -39,7 +40,7 @@ final class CoverCorrectionsIOSTests: XCTestCase {
     func testAnswersThatBranchShareTheirChainsEightPasses() {
         let session = ExactApp.shared.makeSession(label: "covers-branching-answers")
         defer { session.destroy() }
-        let navigation = session.presenter.navigation
+        let navigation = session.presenter.navigationHost
         var told = 0
         // Two answers to each delivery, each moving its own scroller, which changes that scroller's cover again
         session.presenter.onCovers = { _ in
@@ -65,7 +66,7 @@ final class CoverCorrectionsIOSTests: XCTestCase {
     func testAReportOutsideTheChainDuringItsEighthAnswerIsDeliveredInAChainOfItsOwn() {
         let session = ExactApp.shared.makeSession(label: "covers-change-in-the-eighth-answer")
         defer { session.destroy() }
-        let navigation = session.presenter.navigation
+        let navigation = session.presenter.navigationHost
         var told: [UInt32] = []
         session.presenter.onCovers = { changes in
             told += changes.map(\.0)
@@ -97,7 +98,7 @@ final class CoverCorrectionsIOSTests: XCTestCase {
     func testALiftAnAnswerMakesHoldsUntilItsOwnDeliverysAnswer() {
         let session = ExactApp.shared.makeSession(label: "covers-lift-in-an-answer")
         defer { session.destroy() }
-        let navigation = session.presenter.navigation
+        let navigation = session.presenter.navigationHost
         var heldBetween: Bool?, lifted = false
         session.presenter.onCovers = { _ in session.whenIdle(bound: true) { session.apply(wireBatch([])) } }
         // The first delivery's answer lifts another header, as `coverLifted` does inside a batch
@@ -124,7 +125,7 @@ final class CoverCorrectionsIOSTests: XCTestCase {
     func testACarriedPositionWaitsWhenAnEarlierWriteReportsCovers() throws {
         let session = ExactApp.shared.makeSession(label: "covers-carried-writes-recheck")
         defer { session.destroy() }
-        let p = session.presenter, navigation = p.navigation
+        let p = session.presenter, navigation = p.navigationHost
         let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 402, height: 874))
         p.viewport.frame = window.bounds
         window.addSubview(p.viewport)
@@ -168,7 +169,7 @@ final class CoverCorrectionsIOSTests: XCTestCase {
     func testChangesWaitingBehindASliceAreEachDelivered() {
         let session = ExactApp.shared.makeSession(label: "covers-changes-behind-a-slice")
         defer { session.destroy() }
-        let navigation = session.presenter.navigation
+        let navigation = session.presenter.navigationHost
         var told: [HostCover] = []
         // The runtime's answers change nothing
         session.presenter.onCovers = { changes in
@@ -191,7 +192,7 @@ final class CoverCorrectionsIOSTests: XCTestCase {
     func testAChainKeepsItsPassesAmongChangesThatWaitBetweenItsAnswers() {
         let session = ExactApp.shared.makeSession(label: "covers-chain-among-changes")
         defer { session.destroy() }
-        let navigation = session.presenter.navigation
+        let navigation = session.presenter.navigationHost
         var corrections = 0, others: [HostCover] = []
         // The runtime's answer to scroller 1's cover moves it, which changes its cover again; scroller 2's settles
         session.presenter.onCovers = { changes in

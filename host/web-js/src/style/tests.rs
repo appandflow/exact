@@ -514,6 +514,7 @@ fn a_computed_transition_is_checked_as_an_authors() {
 
 #[test]
 fn bound_spring_transitions_match_the_static_css_writer() {
+    exact_kernel::style::link_all();
     assert_spring_transitions(&TRANSITION_MAP, false);
 }
 
@@ -730,6 +731,7 @@ fn bound_basic_clips_reach_css() {
 
 #[test]
 fn computed_basic_clip_admission_matches_the_kernel() {
+    exact_kernel::style::link_all();
     let values = [
         "circle()",
         "ellipse()",

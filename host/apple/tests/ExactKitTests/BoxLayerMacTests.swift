@@ -4,6 +4,7 @@ import ImageIO
 import XCTest
 import CExact
 @testable import ExactKit
+@testable import ExactVideo
 @testable import ExactImages
 
 /// A box Core Animation can paint keeps no bitmap on AppKit, as on UIKit

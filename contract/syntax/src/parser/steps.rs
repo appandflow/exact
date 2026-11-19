@@ -422,34 +422,6 @@ impl Parser {
         })
     }
 
-    /// A state's name, then fields and list indexes at any depth, joined by
-    /// `.` (`gateway.state`, `rows.0`: feed F10, drums R7).
-    fn state_path(&mut self) -> R<String> {
-        let (mut name, _) = self.ident()?;
-        while self.eat_punct(".") {
-            name.push('.');
-            match self.peek_kind().clone() {
-                TokenKind::Number(n)
-                    if n.fract() == 0.0 && (0.0..=u32::MAX as f64).contains(&n) =>
-                {
-                    self.next();
-                    name.push_str(&format!("{}", n as u64));
-                }
-                TokenKind::Ident(_) => name.push_str(&self.ident()?.0),
-                other => {
-                    return self.err(
-                        "syntax-expected-name",
-                        format!(
-                            "expected a field or a list index after `.`, found {}",
-                            describe(&other)
-                        ),
-                    );
-                }
-            }
-        }
-        Ok(name)
-    }
-
     /// `clock until state <path> == <literal> within <ms>` (rules/DEFERRED.md,
     /// "Agent API", 2026-10-26), after `until`: the driver's own words, the
     /// literal as JSON text.
@@ -463,25 +435,17 @@ impl Parser {
         self.next();
         let path = self.state_path()?;
         self.expect_punct("==")?;
-        let token = self.next();
-        let value = match token.kind {
-            TokenKind::Str(s) => json_string(&s),
-            // A number too large for a double is no JSON the driver reads back.
-            TokenKind::Number(n) if n.is_finite() => format!("{n}"),
-            TokenKind::Punct("-") if matches!(self.peek_kind(), TokenKind::Number(n) if n.is_finite()) => {
-                format!("-{}", self.step_number("a number")?)
+        let value = if self.eat_punct("[") {
+            let mut items = Vec::new();
+            while !self.eat_punct("]") {
+                if !items.is_empty() {
+                    self.expect_punct(",")?;
+                }
+                items.push(self.until_scalar(&path)?);
             }
-            TokenKind::Ident(w) if w == "true" || w == "false" || w == "null" => w,
-            other => {
-                return Err(SyntaxError {
-                    id: "syntax-expected-step",
-                    message: format!(
-                        "`clock until state {path} ==` takes a string, a number, true, false or null, not {}",
-                        describe(&other)
-                    ),
-                    span: token.span,
-                })
-            }
+            format!("[{}]", items.join(","))
+        } else {
+            self.until_scalar(&path)?
         };
         if !self.at_ident("within") {
             let found = describe(&self.peek_kind().clone());
@@ -499,6 +463,30 @@ impl Parser {
             );
         }
         Ok(format!("until state {path} == {value} within {ms}"))
+    }
+
+    /// One scalar of `clock until state`'s literal, as JSON text.
+    fn until_scalar(&mut self, path: &str) -> R<String> {
+        let token = self.next();
+        Ok(match token.kind {
+            TokenKind::Str(s) => json_string(&s),
+            // A number too large for a double is no JSON the driver reads back.
+            TokenKind::Number(n) if n.is_finite() => format!("{n}"),
+            TokenKind::Punct("-") if matches!(self.peek_kind(), TokenKind::Number(n) if n.is_finite()) => {
+                format!("-{}", self.step_number("a number")?)
+            }
+            TokenKind::Ident(w) if w == "true" || w == "false" || w == "null" => w,
+            other => {
+                return Err(SyntaxError {
+                    id: "syntax-expected-step",
+                    message: format!(
+                        "`clock until state {path} ==` takes a string, a number, true, false, null or a list of them, not {}",
+                        describe(&other)
+                    ),
+                    span: token.span,
+                })
+            }
+        })
     }
 
     /// A JSON value from its tokens, as JSON text: a request's body. Its
@@ -1076,6 +1064,11 @@ impl Parser {
                     Step::FailFetch { prefix, times, span }
                 }
             }
+            "drop" => {
+                self.expect_word("stream")?;
+                let prefix = self.launch_str("drop stream", "a URL prefix")?;
+                Step::DropStream { prefix, span }
+            }
             "answer" => {
                 self.expect_word("fetch")?;
                 let prefix = self.launch_str("answer fetch", "a URL prefix")?;
@@ -1243,36 +1236,7 @@ impl Parser {
                         self.expect_word("failures")?;
                         Step::ExpectNoFailures { span }
                     }
-                    "state" => {
-                        let name = self.state_path()?;
-                        let comparison = if self.eat_punct("==") {
-                            StateComparison::Equal
-                        } else if self.eat_punct(">=") {
-                            StateComparison::AtLeast
-                        } else if self.eat_punct("<=") {
-                            StateComparison::AtMost
-                        } else if self.at_ident("in") {
-                            self.next();
-                            StateComparison::In
-                        } else {
-                            return self.err("syntax-expected-step", "`expect state` takes `==`, `>=`, `<=`, or `in`");
-                        };
-                        let value = match comparison {
-                            StateComparison::AtLeast | StateComparison::AtMost => Expr::Number(self.step_number("a numeric bound")?, span),
-                            StateComparison::In => {
-                                let mut values = vec![self.state_literal()?];
-                                while !matches!(self.peek_kind(), TokenKind::Newline | TokenKind::Dedent | TokenKind::Eof) {
-                                    values.push(self.state_literal()?);
-                                }
-                                Expr::List(values, span)
-                            }
-                            StateComparison::Equal => self.state_literal()?,
-                        };
-                        if !matches!(self.peek_kind(), TokenKind::Newline | TokenKind::Dedent | TokenKind::Eof) {
-                            return self.err("syntax-expected-step", "`expect state` compares literals, not expressions");
-                        }
-                        Step::ExpectState { name, comparison, value, span }
-                    }
+                    "state" => self.expect_state(span)?,
                     other => {
                         // r32 t1 tried `expect value` for a field.
                         let hint = if other == "value" || other == "checked" {

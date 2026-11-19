@@ -313,6 +313,10 @@ pub trait Hooks: Default {
     fn pending_reason(&self) -> &str {
         "render hook resources pending"
     }
+    /// A JSON object of the game's own presentation counters, read with `state`. Diagnostics only.
+    fn report(&self) -> Option<&str> {
+        None
+    }
     /// Last rejected shader/pipeline update, even if a previous set still draws.
     fn error(&self) -> Option<&str> {
         None

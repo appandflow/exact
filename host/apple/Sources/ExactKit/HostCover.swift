@@ -7,7 +7,7 @@ import CoreGraphics
 /// replaces (`display: none`).
 package enum HostCover: Equatable {
     package struct Edges: Equatable {
-        var top: CGFloat, right: CGFloat, bottom: CGFloat, left: CGFloat
+        package var top: CGFloat, right: CGFloat, bottom: CGFloat, left: CGFloat
         package init(top: CGFloat, right: CGFloat, bottom: CGFloat, left: CGFloat) {
             self.top = top; self.right = right; self.bottom = bottom; self.left = left
         }

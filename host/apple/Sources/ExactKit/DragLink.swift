@@ -1,10 +1,11 @@
-// @ref LLP 1047.001 D4 — drags (height, transform and reorder handles) are a
-// linked capability: their holds and gestures are the `ExactDrag` module,
-// which an app's composition links only when its plan has a drag, and
-// installs here. The core holds them through these protocols; without the
-// module a node never takes a drag gesture, and a plan that has one is
-// refused at boot (`Unlinked("drag")`). What a List's reorder shares with a
-// grouped list's (`ReorderParts`) stays in the core.
+// @ref LLP 1047.001 D4 — drags (height and transform handles) are a linked
+// capability: their holds and gestures are the `ExactDrag` module, which an
+// app's composition links only when its plan has a drag, and installs here.
+// The core holds them through these protocols; without the module a node
+// never takes a drag gesture, and a plan that has one is refused at boot
+// (`Unlinked("drag")`). The module keeps a presenter's handles too
+// (`DragHandles`): their bindings, their geometry reports and the packets
+// the runtime reads. A list's reorder is the lists family's (`ReorderLink`).
 #if canImport(UIKit)
 import UIKit
 #else
@@ -13,12 +14,12 @@ import AppKit
 
 /// What the core asks of the capability.
 package protocol DragCapability: AnyObject {
+    /// A presenter's transform and height handles.
+    func handles(_ presenter: Presenter) -> DragHandles
     #if os(macOS)
     /// A presenter's mouse drags.
     func mouseDrags(_ presenter: Presenter) -> MouseDrags
     #else
-    /// A node's reorder handle, after its props changed.
-    func updateReorderGesture(_ view: NodeView)
     /// A node's transform drag, after its binding changed.
     func updateTransformGesture(_ view: NodeView)
     /// A node's height drag, after its binding changed.
@@ -28,6 +29,33 @@ package protocol DragCapability: AnyObject {
     func shouldBegin(_ view: NodeView, _ gesture: UIGestureRecognizer) -> Bool?
     /// The agent's pinch on a transform handle: why it was refused, or nil.
     func recognizedPinch(_ handle: NodeView, scale: Double, focal: CGPoint) -> String?
+    #endif
+}
+
+/// A presenter's transform and height handles, bound by the batch's
+/// `transformDrag` and `heightDrag` ops.
+package protocol DragHandles: AnyObject {
+    /// A `transformDrag` or `heightDrag` op: the nodes it names, its handle
+    /// first, or none when it binds nothing.
+    func bind(_ kind: BatchOp.Kind, _ payload: [String: Any]) -> [UInt32]
+    func retire(_ id: UInt32)
+    func reset()
+    /// What may have moved a transform handle's geometry did.
+    func geometryChanged()
+    #if EXACT_AGENT
+    /// The clip of `id`'s transform handle, if it is one.
+    func transformClip(_ id: UInt32) -> UInt32?
+    #endif
+}
+
+/// An app without the capability: no node is a handle.
+final class NoDragHandles: DragHandles {
+    func bind(_ kind: BatchOp.Kind, _ payload: [String: Any]) -> [UInt32] { [] }
+    func retire(_ id: UInt32) {}
+    func reset() {}
+    func geometryChanged() {}
+    #if EXACT_AGENT
+    func transformClip(_ id: UInt32) -> UInt32? { nil }
     #endif
 }
 
@@ -41,14 +69,6 @@ package protocol DragInput: AnyObject {
 
 extension DragInput {
     package func retire(runtime: UInt64, token: UInt64) {}
-}
-
-/// The presenter's lifted List row.
-package protocol ReorderLift: AnyObject {
-    func observe(_ next: ReorderState?)
-    func raiseLifted()
-    func lifts(_ view: UInt32) -> Bool
-    func abandon()
 }
 
 /// The Drag module, installed by the composition.
@@ -68,27 +88,29 @@ package protocol MouseTransform: MouseDrag {
     func magnify(_ node: NodeView, event: NSEvent) -> Bool
 }
 
-/// A presenter's three mouse drags, in the chain's order.
+/// A presenter's two mouse drags, in the chain's order (the reorder's is
+/// `ReorderHosting.mouse`).
 package struct MouseDrags {
-    package let reorder: MouseDrag
     package let transform: MouseTransform
     package let height: MouseDrag
-    package init(reorder: MouseDrag, transform: MouseTransform, height: MouseDrag) {
-        self.reorder = reorder; self.transform = transform; self.height = height
+    package init(transform: MouseTransform, height: MouseDrag) {
+        self.transform = transform; self.height = height
     }
     /// An app without the capability: no mouse drag arms.
-    static let none = MouseDrags(reorder: NoMouseDrag(), transform: NoMouseDrag(), height: NoMouseDrag())
+    static let none = MouseDrags(transform: NoMouseDrag(), height: NoMouseDrag())
 }
 
-private final class NoMouseDrag: MouseTransform {
-    var armed: NodeView? { nil }
-    var engaged: Bool { false }
-    func arm(_ node: NodeView, event: NSEvent) {}
-    func drag(_ event: NSEvent) -> Bool { false }
-    func up(_ event: NSEvent) -> Bool { false }
-    func cancel() {}
-    func retire(_ id: UInt32) {}
-    func scroll(_ node: NodeView, event: NSEvent) -> Bool { false }
-    func magnify(_ node: NodeView, event: NSEvent) -> Bool { false }
+/// A mouse drag that never arms.
+package final class NoMouseDrag: MouseTransform {
+    package init() {}
+    package var armed: NodeView? { nil }
+    package var engaged: Bool { false }
+    package func arm(_ node: NodeView, event: NSEvent) {}
+    package func drag(_ event: NSEvent) -> Bool { false }
+    package func up(_ event: NSEvent) -> Bool { false }
+    package func cancel() {}
+    package func retire(_ id: UInt32) {}
+    package func scroll(_ node: NodeView, event: NSEvent) -> Bool { false }
+    package func magnify(_ node: NodeView, event: NSEvent) -> Bool { false }
 }
 #endif

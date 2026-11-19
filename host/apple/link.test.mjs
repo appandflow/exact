@@ -955,14 +955,14 @@ test('production links the baked set; development links costly frameworks by use
   const graph = { uses: ['markdown', 'picker'] };
   const baked = linked => ({ inputs: { linked } });
   const auth = { inputs: { linked: ['auth_session', 'media_picker', 'numerals', 'tips'] }, reach: { auth: { sessions: true } } };
-  assert.deepEqual(appleComposition(graph, true, [], baked(graph.uses)), { link: 'markdown,picker', products: ['ExactMarkdown'] });
+  assert.deepEqual(appleComposition(graph, true, [], baked(graph.uses)), { link: 'markdown,picker', products: ['ExactMarkdown', 'ExactPickers'] });
   assert.deepEqual(appleComposition({ uses: [] }, true, [], baked([])), { link: 'none', products: [] });
-  assert.deepEqual(appleComposition(graph, true, [], baked([...graph.uses, 'auth_session'])).products, ['ExactMarkdown', 'ExactAuthSession']);
-  assert.deepEqual(appleComposition(graph, false).products, ['ExactGroupedLists', 'ExactMarkdown', 'ExactCollections', 'ExactSurfaces', 'ExactDrag', 'ExactPresence', 'ExactEffects', 'ExactSvg', 'ExactImages']);
+  assert.deepEqual(appleComposition(graph, true, [], baked([...graph.uses, 'auth_session'])).products, ['ExactMarkdown', 'ExactPickers', 'ExactAuthSession']);
+  assert.deepEqual(appleComposition(graph, false).products, ['ExactGroupedLists', 'ExactMarkdown', 'ExactCollections', 'ExactSurfaces', 'ExactDrag', 'ExactPickers', 'ExactPresence', 'ExactEffects', 'ExactSvg', 'ExactImages', 'ExactNativeViews', 'ExactControls', 'ExactFlights', 'ExactSticky', 'ExactNotifications', 'ExactHostEventMailbox', 'ExactActivities', 'ExactWakeCarriers', 'ExactGradients', 'ExactTraces', 'ExactWakeLock', 'ExactContentRegions', 'ExactVideo', 'ExactWebViews', 'ExactSound', 'ExactMIDI', 'ExactAnimations', 'ExactNavigation', 'ExactTextSelection', 'ExactWidgetPublication', 'ExactToolDoor', 'ExactIndexMirror', 'ExactDialogs', 'ExactSharing']);
   assert.deepEqual(appleComposition(graph, false, [], auth).products,
-    ['ExactGroupedLists', 'ExactMarkdown', 'ExactCollections', 'ExactSurfaces', 'ExactDrag', 'ExactAuthSession', 'ExactPresence', 'ExactEffects', 'ExactSvg', 'ExactImages']);
+    ['ExactGroupedLists', 'ExactMarkdown', 'ExactCollections', 'ExactSurfaces', 'ExactDrag', 'ExactPickers', 'ExactAuthSession', 'ExactPresence', 'ExactEffects', 'ExactSvg', 'ExactImages', 'ExactNativeViews', 'ExactControls', 'ExactFlights', 'ExactSticky', 'ExactNotifications', 'ExactHostEventMailbox', 'ExactActivities', 'ExactWakeCarriers', 'ExactGradients', 'ExactTraces', 'ExactWakeLock', 'ExactContentRegions', 'ExactVideo', 'ExactWebViews', 'ExactSound', 'ExactMIDI', 'ExactAnimations', 'ExactNavigation', 'ExactTextSelection', 'ExactWidgetPublication', 'ExactToolDoor', 'ExactIndexMirror', 'ExactDialogs', 'ExactSharing']);
   assert.deepEqual(appleComposition({ uses: ['picker', 'media_picker'] }, false, [], auth).products,
-    ['ExactGroupedLists', 'ExactMarkdown', 'ExactCollections', 'ExactSurfaces', 'ExactDrag', 'ExactMediaPicker', 'ExactAuthSession', 'ExactPresence', 'ExactEffects', 'ExactSvg', 'ExactImages']);
+    ['ExactGroupedLists', 'ExactMarkdown', 'ExactCollections', 'ExactSurfaces', 'ExactDrag', 'ExactPickers', 'ExactMediaPicker', 'ExactAuthSession', 'ExactPresence', 'ExactEffects', 'ExactSvg', 'ExactImages', 'ExactNativeViews', 'ExactControls', 'ExactFlights', 'ExactSticky', 'ExactNotifications', 'ExactHostEventMailbox', 'ExactActivities', 'ExactWakeCarriers', 'ExactGradients', 'ExactTraces', 'ExactWakeLock', 'ExactContentRegions', 'ExactVideo', 'ExactWebViews', 'ExactSound', 'ExactMIDI', 'ExactAnimations', 'ExactNavigation', 'ExactTextSelection', 'ExactWidgetPublication', 'ExactToolDoor', 'ExactIndexMirror', 'ExactDialogs', 'ExactSharing']);
   assert.deepEqual(appleComposition(graph, false, ['auth_session']).products.includes('ExactAuthSession'), true);
   assert.deepEqual(appleComposition({ uses: ['numerals'] }, false).products.includes('ExactNumerals'), true);
   assert.ok(!appleComposition(graph, false).products.includes('ExactNumerals'));
@@ -1057,7 +1057,7 @@ test.skipIf(process.platform !== 'darwin' || helloBake().length === 0)('an app w
 const agentSymbolCheck = process.platform !== 'darwin' ? notApplicable('Darwin only')
   : process.env.EXACT_GLUE_FAST === '1' ? notApplicable('the async glue step builds no Apple apps; metrics --long builds and checks these artifacts')
   : need('Apple Hello builds', missingAgentHelloBakes());
-agentSymbolCheck('production omits the agent, hatch diagnostics, CSS filter, SVG and images while development links them (LLP 1047.001)', () => {
+agentSymbolCheck('production omits the agent, hatch diagnostics, CSS filter, SVG, images and the native module while development links them (LLP 1047.001)', () => {
   const names = (binary) => {
     const raw = spawnSync('xcrun', ['llvm-nm', '--demangle', binary], { encoding: 'utf8', maxBuffer: 1 << 28 });
     assert.equal(raw.status, 0, raw.stderr);
@@ -1088,7 +1088,7 @@ agentSymbolCheck('production omits the agent, hatch diagnostics, CSS filter, SVG
       assert.match(symbols, line('_exact_outstanding$'), `${bake.platform} positive control for the exports`);
       assert.doesNotMatch(symbols, line('_exact_agent$'), `${bake.platform} production agent dispatcher`);
       assert.doesNotMatch(symbols, line('exact_runner::agent::handle'), `${bake.platform} production agent dispatcher`);
-      assert.doesNotMatch(symbols, line('ExactSvg\\.SvgHost|exact_svg_islands|ExactImages\\.|ExactCollections\\.'), `${bake.platform} production SVG, images or lists`);
+      assert.doesNotMatch(symbols, line('ExactSvg\\.SvgHost|exact_svg_islands|ExactImages\\.|ExactCollections\\.|ExactNativeViews\\.|ExactControls\\.|ExactFlights\\.|ExactSticky\\.|ExactNotifications\\.|ExactHostEventMailbox\\.|ExactActivities\\.|ExactWakeCarriers\\.|ExactPickers\\.|ExactTraces\\.|ExactWakeLock\\.|ExactGradients\\.|ExactContentRegions\\.|ExactMarkdown\\.|ExactKit\\.(?:AtomIcons|TextAtomIcon)(?:[ .(]|$)|ExactTextSelection\\.TextSelectionHost|ExactWidgetPublication\\.|HeadlessSession|ExactAnimations\\.|ExactNavigation\\.|ExactToolDoor\\.|ExactIndexMirror\\.|ExactDialogs\\.|ExactFormaBinding\\.|ExactKit\\.PlanURL|ExactKit\\.ExactApp\\.design\\(|ExactVideo\\.|ExactWebViews\\.|ExactSound\\.|ExactMIDI\\.|ExactHeavyLeaves\\.|ExactSharing\\.'), `${bake.platform} production SVG, images, lists, native module, form controls, flights, sticky, session families, the tool door, the content index, pickers, traces, wake lock, gradients, content regions, icons in text, Forma or the plan connection`);
     } else {
       assert.match(symbols, line('_exact_agent$'), `${bake.platform} agent dispatcher`);
       assert.match(symbols, line(GRID_LAYOUT), `${bake.platform} grid layout`);
@@ -1098,7 +1098,7 @@ agentSymbolCheck('production omits the agent, hatch diagnostics, CSS filter, SVG
       assert.match(symbols, line('ExactKit\\.HatchDiagnostics\\.perf\\(tags:'), `${bake.platform} hatch diagnostics`);
       assert.match(symbols, line('ExactEffects\\.BoxFilter'), `${bake.platform} CSS filter`);
       assert.match(symbols, line('ExactSvg\\.SvgHost'), `${bake.platform} SVG`);
-      for (const family of ['ExactImages\\.RasterLoader', 'ExactCollections\\.CollectionHost\\.']) assert.match(symbols, line(family), `${bake.platform} ${family}`);
+      for (const family of ['ExactImages\\.RasterLoader', 'ExactCollections\\.CollectionHost\\.', 'ExactVideo\\.VideoView', 'ExactWebViews\\.WebViews', 'ExactSound\\.SoundOutput', 'ExactMIDI\\.MIDIOutput', 'ExactNavigation\\.NavigationHost', ...(bake.platform === 'iOS' ? ['ExactDialogs\\.DialogSheets'] : [])]) assert.match(symbols, line(family), `${bake.platform} ${family}`);
     }
   }
 }, 60_000);

@@ -4,10 +4,11 @@ Put an `ExactModule` in `modules/apple/*.swift`; `let exactModule` names its cla
 No app.json entry. A native module is for what only the platform knows, through public API
 alone; this one reads `ProcessInfo.thermalState`, which TypeScript cannot.
 
-A value a launch gives the app (an origin a test sets) is not a native module's: mark it
-`{ "name": "API_BASE_URL", "launch": true }` in app.json's `env` and read it in app.ts as
-`import.meta.env.API_BASE_URL`, which holds it before the module's first request. A launch
-sets it in the process's environment (`SIMCTL_CHILD_API_BASE_URL=…` on a simulator;
+For a value supplied at launch, mark
+`{ "name": "API_BASE_URL", "launch": true }` in app.json's `env`. In `app.ts` or an app-local
+module it imports transitively, declare `const API = import.meta.env.API_BASE_URL`, which
+holds its value before the first request. A launch sets it in the process's environment
+(`SIMCTL_CHILD_API_BASE_URL=…` on a simulator;
 `contract vocab env` has the rest); `-API_BASE_URL value` as an argument sets `UserDefaults`
 instead. Android and the web read the build's value.
 

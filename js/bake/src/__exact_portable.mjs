@@ -2,6 +2,10 @@
 // module runs (LLP 1027 D5, "Package code"): the check `typescript.mjs` runs on
 // every JavaScript file the capture bundles, and the syntax helpers it shares.
 // The native bake writes it beside that file in its stage (js/bake/src/resident.rs `PORTABLE`).
+import { builtinModules } from 'node:module';
+
+const BUILTIN=new Set(builtinModules);
+export const builtin=(spec)=>spec.startsWith('node:') || BUILTIN.has(spec) || BUILTIN.has(spec.split('/')[0]);
 
 // The standard library is what every executor runs: the browser, and Hermes
 // natively (js/src/standard.js fills what it lacks of ES2023). ES2024's
@@ -513,4 +517,15 @@ export function moduleSpecifiers(file, text, parseSync) {
   };
   visit(program);
   return out;
+}
+
+/** The checker runs before the bundle refuses a Node built-in, and says only "Cannot find module 'node:fs'… Try
+ * `npm i --save-dev @types/node`", which changes nothing (expo/exact-build#183). Said here as the bundle says it. */
+export function nodeNote(diagnostics) {
+  // TS2591 names an import's specifier as a module ("Cannot find module 'fs'") or, as the bake's checker words a
+  // `node:` import, a name ("Cannot find name 'node:fs'"); a bare name there (`process`) is a global, said below.
+  const modules=[...new Set([...diagnostics.matchAll(/Cannot find module '([^']+)'|Cannot find name '(node:[^']+)'/g)].map(match=>match[1] ?? match[2]).filter(builtin))];
+  const names=/Cannot find name '(?:require|process|Buffer|__dirname|__filename)'/.test(diagnostics);
+  if (!modules.length && !names) return '';
+  return `\nnote: ${modules.length ? `${modules.map(m=>`'${m}'`).join(', ')} ${modules.length>1 ? "are Node's built-ins" : "is Node's built-in"}` : "Node's globals are"}: a data module runs on Hermes and in the browser, which have no Node modules, so @types/node does not help; import a part of the package that needs none, or another package\n`;
 }

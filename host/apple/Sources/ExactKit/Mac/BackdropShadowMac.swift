@@ -145,8 +145,11 @@ extension NodeView {
 
     // A present op's opacity (an enter's, an exit's), the disabled look's.
     package override var alphaValue: CGFloat {
-        get { super.alphaValue }
-        set { super.alphaValue = newValue; if shadowStand != nil { followShadowStand() } }
+        get { offstageAlpha ?? super.alphaValue }
+        set {
+            if offstageAlpha != nil { offstageAlpha = newValue; return }
+            super.alphaValue = newValue; if shadowStand != nil { followShadowStand() }
+        }
     }
 }
 

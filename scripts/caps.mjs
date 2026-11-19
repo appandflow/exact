@@ -208,6 +208,7 @@ export function runCaps(root = process.cwd()) {
   windowsNames(files);
   harnesses(root, files);
   helps(root);
+  lockedWorkspaces(root, files);
 
   return { problems, counted };
 }
@@ -296,6 +297,27 @@ function harnesses(root, files) {
     if (!tests && harnessed.length && !on.length) skipped += 1;
   }
   counted.push(`workspace packages without tests: ${skipped}, every library and binary test harness skipped`);
+}
+
+/**
+ * Every workspace `package.json` declares has its entry in `bun.lock`. A missing one makes `bun install
+ * --frozen-lockfile` refuse the checkout, which stops every app that builds against it (expo/exact#892). Read from
+ * the tracked files: a workspace is a tracked `package.json` one level under a `workspaces` glob's directory.
+ */
+function lockedWorkspaces(root, files) {
+  const lockPath = resolve(root, 'bun.lock'), manifestPath = resolve(root, 'package.json');
+  if (!existsSync(lockPath) || !existsSync(manifestPath)) return;
+  const globs = JSON.parse(readFileSync(manifestPath, 'utf8')).workspaces ?? [];
+  const lock = readFileSync(lockPath, 'utf8');
+  const dirs = globs.filter((g) => g.endsWith('/*')).map((g) => g.slice(0, -1));
+  const workspaces = files.filter((f) => dirs.some((d) => f.startsWith(d) && f.slice(d.length).split('/').length === 2 && f.endsWith('/package.json')))
+    .map((f) => f.slice(0, -'/package.json'.length));
+  const missing = workspaces.filter((w) => !lock.includes(`"${w}": {`));
+  counted.push(`bun.lock: ${workspaces.length} workspaces, ${missing.length} without an entry`);
+  if (missing.length) {
+    fail('lock:workspaces', `bun.lock has no entry for ${missing.join(', ')}.`,
+      'Run `bun install` and commit bun.lock: a frozen install refuses a lockfile that would change.');
+  }
 }
 
 /**

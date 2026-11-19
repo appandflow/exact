@@ -90,7 +90,7 @@ export async function answer(req) {
   const why = value != null ? h.check?.(value) ?? (h.capability === 'share' ? 'answered by tap, not type' : null) : null;
   if (why) return { error: `@${h.ticket} (${h.capability}): ${why}` };
   Holds.splice(at, 1); inflight.n--;
-  const n = value == null ? 0 : paths(value).length;
+  const n = value == null ? 0 : (h.capability === 'pick' ? paths(value) : documentPaths(value)).length;
   say(`device ${h.capability} ${h.ticket} ${value == null ? (req.choice === 'cancel' ? 'cancelled' : `answered: ${req.choice}`) : h.capability === 'pick' ? `answered: ${n} ${n === 1 ? 'file' : 'files'}` : h.capability === 'export' ? 'answered: a file' : `answered: ${n} ${n === 1 ? 'item' : 'items'}`}`);
   const out = await h.answer(value, req);
   return { ticket: h.ticket, capability: h.capability, answered: value == null ? req.choice : 'value', delivery: 'substituted', ...out };
@@ -107,7 +107,14 @@ export const deliveredType = (mime, accept) => {
   const heic = mime === 'image/heic' || mime === 'image/heif', keeps = accept.some(t => ['*/*', 'image/*', 'image/heic', 'image/heif', '.heic', '.heif'].includes(t));
   return heic && !keeps && accept.some(t => t.startsWith('image/')) ? 'image/jpeg' : mime;
 };
-const paths = v => { const l = v.split('\n').map(s => s.trim()).filter(Boolean); return v.includes('\n') ? l : String(v).trim().split(/\s+/).filter(Boolean); };
+const documentPaths = v => v.split('\n').map(s => s.trim()).filter(Boolean);
+const paths = v => v.includes('\n') ? documentPaths(v) : String(v).trim().split(/\s+/).filter(Boolean);
+// Paths belong to the driver, which may run on Windows even when the browser does not.
+const isAbsolutePath = path => {
+  if (path.startsWith('/') || /^[a-z]:[/\\]/i.test(path)) return true;
+  if (path.startsWith('\\\\?\\') || /^[/\\]{2}\.[/\\]/.test(path)) return true;
+  return /^[/\\]{2}[^/\\]+[/\\][^/\\]+/.test(path);
+};
 Hosts.showPicker = id => {
   const found = byId(String(id ?? ''));
   const el = found?.el.localName === 'input' && found.el.type === 'file' ? found.el : null;
@@ -159,7 +166,7 @@ Hosts.saveFile = (...args) => {
   const r = text !== undefined ? { present: true, view: found.view, text, suggestedName } : { present: true, view: found.view, from, suggestedName };
   if (clock.agent) {
     hold('export', found.el, { ...(text !== undefined ? { id, text, suggestedName } : { id, from, suggestedName }), ...(startIn != null && { startIn }) }, (value, req) => counted(glue().then(m => m.answerSave({ node: found.view, answered: value == null ? 'cancel' : 'value', request: r }, req.text))));
-    Holds.at(-1).check = v => { v = v.trim(); return (v.startsWith('/') || /^.:\\/.test(v)) && !/[\\/]$/.test(v) ? null : 'type an absolute file path to save to'; };
+    Holds.at(-1).check = v => { v = v.trim(); return isAbsolutePath(v) && !/[\\/]$/.test(v) ? null : 'type an absolute file path to save to'; };
     return;
   }
   // The save picker starts inside the press's activation, else a download.
@@ -277,7 +284,7 @@ for (const [name, [capability, usage]] of Object.entries(PICKERS)) Hosts[name] =
   if (clock.agent) {
     hold(capability, found.el, { ...(capability === 'open-file' ? { id, multiple } : capability === 'save-file' ? { id, suggestedName } : { id }), ...(startIn != null && { startIn }) },
       (value, req) => counted(docs().then(m => m.answer({ node: found.view, answered: value == null ? 'cancel' : 'value' }, name, req.files))));
-    Holds.at(-1).check = v => { const list = paths(v); return !list.length || list.some(p => !p.startsWith('/')) ? 'type an absolute path' : list.length > 1 && !multiple ? `one path, not ${list.length}` : null; };
+    Holds.at(-1).check = v => { const list = documentPaths(v); return !list.length || list.some(p => !isAbsolutePath(p)) ? 'type an absolute path' : list.length > 1 && !multiple ? `one path, not ${list.length}` : null; };
     return;
   }
   // A save without the browser's picker downloads (documents-glue.js), as `saveFile` does.

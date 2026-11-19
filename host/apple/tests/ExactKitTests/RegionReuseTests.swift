@@ -1,3 +1,5 @@
+// The region text service is the Mac's (RegionService.swift).
+#if os(macOS)
 import Foundation
 import CoreGraphics
 import XCTest
@@ -712,3 +714,4 @@ private final class PreparedLifetimeEvidence: @unchecked Sendable {
     var metadata: RegionParagraph?
     var shared = false, sourceMatched = false, survivesFirstDrop = false, dropsLast = false, worker = false
 }
+#endif

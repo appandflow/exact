@@ -14,6 +14,8 @@ import { bakeOutput, bakeTarget, buildBake } from './app.mjs';
 import * as asyncLane from './async.mjs';
 import { gameAppleLeg } from './affected.mjs';
 import { pinned } from './test-workspace.mjs';
+import { packageSpecifier } from './exact.mjs';
+import { pathFrom } from './paths.mjs';
 const {changedPaths, failures, owners, retainSkippedFailures} = asyncLane;
 
 test('identical deploy bakes reuse compilation and retain each run receipt', () => {
@@ -213,8 +215,8 @@ test('the Swappable executor rename moves the cohort and refuses the old executo
     const old = classifyArtifacts(candidate, installed);
     expect(old.binary).toBe(true);
     expect(old.bundle).toBe(false);
-    expect(old.missing).toEqual(['app.plan: executors.wasmi']);
-    expect(classifyArtifacts(candidate, cohortReceipt(candidate))).toEqual({ binary: false, bundle: true, missing: [], warnings: [] });
+    expect([old.missing, old.needsBinary]).toEqual([['app.plan: executors.wasmi'], ['app.plan: executors.wasmi']]);
+    expect(classifyArtifacts(candidate, cohortReceipt(candidate))).toEqual({ binary: false, bundle: true, missing: [], needsBinary: [], warnings: [] });
     const independent = structuredClone(candidate);
     delete independent.graph.artifacts[0].requires.executors;
     expect(classifyArtifacts(independent, installed).bundle).toBe(true);
@@ -712,7 +714,7 @@ test('Cargo manifests and JVM crash reports do not grow deployment Git arguments
   expect(crashes).toBe(before);
 });
 
-test('an external app installs its own captured lockfile before Contract discovery', () => {
+test('an external app installs its captured lockfile and keeps SDK mounts frozen', () => {
   const root = mkdtempSync(join(fixture, 'app-lock-'));
   const exact = join(root, 'exact'), dir = join(root, 'app');
   const compiler = contractCompiler(resolve(import.meta.dir, '..'));
@@ -729,30 +731,72 @@ test('an external app installs its own captured lockfile before Contract discove
     git(repo, 'add', '-A');
     git(repo, '-c', 'user.name=Exact Test', '-c', 'user.email=exact@example.invalid', 'commit', '-qm', 'fixture\n\nCo-Authored-By: GPT-6.1 Sol <noreply@openai.com>');
   };
-  const pkg = { name: 'app', private: true, dependencies: { '@fixture/ui': 'file:../exact/packages/ui' } };
-  write('app/.gitignore', 'node_modules/\n');
+  mkdirSync(join(dir, '.exact'), { recursive: true });
+  mkdirSync(exact);
+  symlinkSync(realpathSync(exact), join(dir, '.exact/checkout'), process.platform === 'win32' ? 'junction' : 'dir');
+  const pkg = { name: 'app', private: true, dependencies: { '@fixture/ui': packageSpecifier(dir, 'ui', exact) } };
+  const mount = pathFrom(dir, join(exact, 'snapback4/ts'));
+  write('app/.gitignore', 'node_modules/\n.exact/\n');
   write('app/package.json', JSON.stringify(pkg));
-  write('app/app.json', JSON.stringify({ name: 'Test', app: { id: 'com.exact.test', name: 'Test' } }));
+  write('app/exact.mjs', 'const seed = "../exact";\n');
+  write('app/app.json', JSON.stringify({ name: 'Test', app: { id: 'com.exact.test', name: 'Test' }, typescript: { sources: { snapback4: mount } } }));
   write('app/app.contract', 'use Label from "@fixture/ui"\n\ncomponent App\n  view\n    Label()\n');
   write('exact/packages/ui/package.json', JSON.stringify({ name: '@fixture/ui', version: '1.0.0', exports: './index.contract' }));
+  write('exact/scripts/app-cli.mjs', '');
   write('exact/packages/ui/index.contract', 'component Label\n  view\n    text "Captured package"\n');
   write('exact/packages/extra/package.json', JSON.stringify({ name: '@fixture/extra', version: '1.0.0' }));
+  write('exact/snapback4/ts/driver.ts', 'export const driver = "captured";');
   const installed = spawnSync(process.execPath, ['install'], { cwd: dir, encoding: 'utf8' });
   expect(installed.status, installed.stderr).toBe(0);
   for (const repo of [exact, dir]) { git(repo, 'init', '-q'); commit(repo); }
   const app = { name: 'test', dir, workspace: join(dir, '.exact/shells'), manifest: {} };
   const lock = readFileSync(join(dir, 'bun.lock'));
-  let snapshot = snapshotOf(app, { compiler }, exact);
+  // Games can omit app.json; each app's bootstrap link is still machine-local.
+  for (const [name, file, content] of [
+    ['two', 'app.json', '{"app":{"id":"com.exact.two","name":"Two"}}'],
+    ['game', 'app.contract', 'component App\n  view\n    text "Game"\n'],
+    ['launcher', 'exact.mjs', 'const seed = "../../exact";\n'],
+  ]) {
+    write(`app/${name}/${file}`, content);
+    write(`app/${name}/.gitignore`, '/.exact/\n');
+    mkdirSync(join(dir, name, '.exact'));
+    symlinkSync(realpathSync(exact), join(dir, name, '.exact/checkout'), process.platform === 'win32' ? 'junction' : 'dir');
+  }
+  commit(dir);
+  const game = { name: 'game', dir: join(dir, 'game'), workspace: join(dir, 'game'), manifest: {} };
+  const gameSnapshot = snapshotOf(game, { compiler }, exact);
+  try {
+    expect(existsSync(join(game.dir, 'app.json'))).toBe(false);
+    expect(gameSnapshot.dirty).toBe(false);
+  } finally { disposeSnapshot(gameSnapshot); }
+  let snapshot = snapshotOf(app, { compiler });
   try {
     expect(snapshot.dirty).toBe(false);
+    write('exact/snapback4/ts/driver.ts', 'export const driver = "edited after capture";');
     const captured = materializeSnapshot(snapshot, join(root, 'run'), app);
+    for (const name of ['two', 'game', 'launcher'])
+      expect(realpathSync(join(captured.app.dir, name, '.exact/checkout'))).toBe(captured.exactRoot);
     const library = join(captured.app.dir, 'node_modules/@fixture/ui/index.contract');
     expect(readFileSync(library, 'utf8')).toContain('Captured package');
     expect(realpathSync(library).startsWith(captured.sourceRoot + sep)).toBe(true);
     expect(readFileSync(join(captured.app.dir, 'bun.lock'))).toEqual(lock);
+    const mounted = realpathSync(resolve(captured.app.dir, JSON.parse(readFileSync(join(captured.app.dir, 'app.json'), 'utf8')).typescript.sources.snapback4));
+    expect(mounted).toBe(join(captured.exactRoot, 'snapback4/ts'));
+    expect(readFileSync(join(mounted, 'driver.ts'), 'utf8')).toBe('export const driver = "captured";');
+    expect(pkg.dependencies['@fixture/ui']).toBe('file:.exact/checkout/packages/ui');
+    expect(mount).toBe('.exact/checkout/snapback4/ts');
   } finally { disposeSnapshot(snapshot); }
 
-  pkg.dependencies['@fixture/extra'] = 'file:../exact/packages/extra';
+  write('exact/snapback4/ts/driver.ts', 'export const driver = "captured";');
+  write('app/two/.exact/source.txt', 'an ignored input remains source');
+  expect(() => snapshotOf(app, { compiler }, exact)).toThrow('two/.exact/source.txt');
+  rmSync(join(dir, 'two/.exact/source.txt'));
+  rmSync(join(dir, 'two/.exact/checkout'));
+  symlinkSync(realpathSync(fixture), join(dir, 'two/.exact/checkout'), process.platform === 'win32' ? 'junction' : 'dir');
+  expect(() => snapshotOf(app, { compiler }, exact)).toThrow('escapes the captured source repositories');
+  rmSync(join(dir, 'two/.exact/checkout'));
+  symlinkSync(realpathSync(exact), join(dir, 'two/.exact/checkout'), process.platform === 'win32' ? 'junction' : 'dir');
+  pkg.dependencies['@fixture/extra'] = 'file:.exact/checkout/packages/extra';
   write('app/package.json', JSON.stringify(pkg));
   commit(dir);
   snapshot = snapshotOf(app, { compiler }, exact);

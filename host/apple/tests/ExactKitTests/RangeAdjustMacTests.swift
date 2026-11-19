@@ -2,6 +2,7 @@
 import AppKit
 import XCTest
 @testable import ExactKit
+@testable import ExactControls
 
 /// An assistive app's increment and decrement of a native range over
 /// `range-adjust.contract`, compiled and run: the range's arrow key first,

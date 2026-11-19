@@ -2,6 +2,7 @@
 // decoded: each shape's path made and each animation read once
 // (`SvgLink.prepare`).
 import Foundation
+import ExactAnimations
 import ExactKit
 import ExactEffects
 

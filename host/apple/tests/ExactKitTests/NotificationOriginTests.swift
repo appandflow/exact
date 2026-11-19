@@ -4,6 +4,7 @@ import ObjectiveC
 import XCTest
 import UserNotifications
 @testable import ExactKit
+@testable import ExactNotifications
 
 private final class StubRequest: UNNotificationRequest {
     static var triggerValue: UNNotificationTrigger?

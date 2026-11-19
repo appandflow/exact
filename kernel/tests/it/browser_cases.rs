@@ -15,6 +15,7 @@ pub(crate) type Rows = Vec<(StyleId, StyleValue<'static>)>;
 
 /// A case's declarations, each its author's (`written`), as a page's CSS is.
 pub(crate) fn props(rows: &Rows) -> StyleProps {
+    exact_kernel::style::link_all();
     let mut p = StyleProps::default();
     for (row, value) in rows {
         p.set_dynamic(*row, value).unwrap();

@@ -8,6 +8,7 @@ import { resolve } from 'node:path';
 import { digest, lockClosure, workspaceManifest } from './kept.mjs';
 import { cargoOnPath } from './cargo-check.mjs';
 import { ROOT, RustMissing, fromSet, fromSets, hostTriple, rustMissing } from './tools.mjs';
+import { offlineMiss } from './filesystem.mjs';
 
 const pin = Bun.TOML.parse(readFileSync(resolve(ROOT, 'rust-toolchain.toml'), 'utf8')).toolchain.channel;
 const sha = (text) => createHash('sha256').update(text).digest('hex');
@@ -111,3 +112,11 @@ for (const [arch, triple] of [['x64', 'x86_64-pc-windows-msvc'], ['arm64', 'aarc
     } finally { rmSync(home, { recursive: true, force: true }); }
   }));
 }
+
+// LLP 1156.006.000 D11: the three offline Cargo sites with no fetch-and-retry name the checkout's own setup, by path.
+test('an offline Cargo miss names this checkout\'s setup, and another failure gains nothing', () => {
+  assert.equal(offlineMiss('error: failed to download `js-sys v0.3.77`\n  attempting to make an HTTP request, but --offline was specified'),
+    `\n\`bun ${resolve(ROOT, 'scripts/exact.mjs')} setup\` fetches the crates this checkout locks`);
+  assert.equal(offlineMiss('error: could not compile `exact-web-js`'), '');
+  assert.equal(offlineMiss(undefined), '');
+});

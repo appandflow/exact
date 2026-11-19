@@ -143,7 +143,8 @@ impl<D: DataSource> Runner<D> {
                 self.persist_slots();
                 self.journal_refused();
                 self.log_store_writes(c.store.writes);
-                self.transport_stood();
+                let audio = self.seams.audio;
+                audio.transport_stood(self);
                 self.samples_stood();
                 self.invocations_let_go();
             }
@@ -241,7 +242,8 @@ impl<D: DataSource> Runner<D> {
         }
         self.refused_unsent.clear();
         // What a refused commit's gate step read is let go (LLP 1125 D2).
-        self.transport.pending = None;
+        let audio = self.seams.audio;
+        audio.let_go(self);
         self.hear_forgotten();
         // Every commit ends so: what the source set aside is kept or let go.
         self.keep_sent(refused);
@@ -788,7 +790,7 @@ impl<D: DataSource> Runner<D> {
                 self.commands.push(command);
                 continue;
             }
-            match crate::instance::collection::IntoView::from_command(&command.args) {
+            match crate::list_api::IntoView::from_command(&command.args) {
                 Ok(request) => self.into_view.push(request),
                 Err(why) => self.log(format!("scrollIntoView refused: {why}")),
             }
@@ -808,7 +810,8 @@ impl<D: DataSource> Runner<D> {
             for line in commands {
                 self.log(line);
             }
-            self.apply_sounds(first_command);
+            let audio = self.seams.audio;
+            audio.apply_sounds(self, first_command);
             self.run_module_effects(effects);
         }
         result
@@ -1045,6 +1048,7 @@ impl<D: DataSource> Runner<D> {
             fetch: request.fetch,
             keepable: keepable.then(|| request.clone()),
             stream: sockets::stream_count(&request),
+            stream_url: super::faults::stream_url(&request),
             upload: request.stream && request.upload_progress,
             sent: false,
             grant: request

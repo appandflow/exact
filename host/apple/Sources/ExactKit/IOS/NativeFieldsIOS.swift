@@ -133,7 +133,7 @@ extension NodeView {
     /// alert prompt's: `headerField`). UIKit sets default attributes over the
     /// whole text, a composition's marked text too, so not while one is
     /// marked: its end (`unmarkText`, `fieldChanged`) applies it.
-    func applyFieldDirection() {
+    package func applyFieldDirection() {
         let alignment = NSTextAlignment(rawValue: textAlignmentCode) ?? .left
         for f in [field, headerField].compactMap({ $0 }) where f.markedTextRange == nil {
             if f.textAlignment != alignment { f.textAlignment = alignment } // a stand-in's too: CSS's side, not UIKit's
@@ -154,7 +154,7 @@ extension NodeView {
     /// overrides that role (LLP 1121 D9), else none, as before (the page
     /// shows through the box Exact paints; a search field's chrome keeps
     /// UIKit's fill).
-    var fieldGroundColor: UIColor? {
+    package var fieldGroundColor: UIColor? {
         guard isNativeTextControl, !wrote("background_color") else { return nil }
         return ThemeRoles.color("Field", in: self)
     }

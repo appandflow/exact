@@ -2,7 +2,8 @@
 //! this order:
 //!
 //! - The host's own custom property (`var(--exact-safe-area-inset-top)`,
-//!   LLP 1123 D9), which is left for the kernel.
+//!   `var(--exact-keyboard-inset-bottom)`, LLP 1123 D7, D9), which is left
+//!   for the kernel.
 //! - The design's token `name`, written as the name before anything reads
 //!   the row (scoping, the types, the design's retention): by the loader for
 //!   a file, and by `contract::compile` for a source text. It lowers exactly
@@ -410,6 +411,11 @@ enum Why {
     /// A token of another kind than a length stands where a custom property
     /// holds one.
     NotLength(String),
+    /// It names an `--exact-` name no host defines.
+    Host(String),
+    /// It reads an owner segment in a row that reads none: an inset override
+    /// or a row that is no length (LLP 1123 D16).
+    Segment(String),
 }
 
 /// Whether `a`'s rows read a runtime custom property: lengths, which the
@@ -657,8 +663,27 @@ fn text(
                 name,
                 fallback,
             } => {
+                // An owner segment is read by a length or a declaration alone: an inset
+                // override, whose insets no segment report reaches, reads none (D16)
+                if !runtime
+                    && exact_kernel::style::calc::SegmentRead::named(&format!("--{name}")).is_some()
+                {
+                    return Err(Why::Segment(name));
+                }
+                // The host's observation stays for the kernel, and its
+                // fallback is checked as an author property's is (LLP 1123 D5)
                 if host_property(&name) {
+                    if let Some(f) = fallback {
+                        let written = (&mut out, &mut fallbacks, &mut undeclared, &mut at);
+                        fallback_value(text, f, tokens, runtime, written)?;
+                    }
                     continue;
+                }
+                // Any other `--exact-` name is the host's, and none is defined (LLP 1081 D5),
+                // but for a role's, whose refusal names the role
+                let role = crate::theme::role_named(&format!("-{name}")).is_some();
+                if name.starts_with("exact-") && !role {
+                    return Err(Why::Host(name));
                 }
                 if !tokens.declares(&name) {
                     // Exact reserves dotted names for design tokens, so no node declares one
@@ -675,21 +700,8 @@ fn text(
                     }
                     // The call stays for the kernel, its fallback a value of its own
                     if let Some(f) = fallback {
-                        let inner = (self::text)(
-                            &text[f.clone()],
-                            tokens,
-                            false,
-                            &mut None,
-                            runtime,
-                            true,
-                        )?;
-                        if let Some((inner, mut dropped, mut unknown)) = inner {
-                            out.push_str(&text[at..f.start]);
-                            out.push_str(&inner);
-                            at = f.end;
-                            fallbacks.append(&mut dropped);
-                            undeclared.append(&mut unknown);
-                        }
+                        let written = (&mut out, &mut fallbacks, &mut undeclared, &mut at);
+                        fallback_value(text, f, tokens, runtime, written)?;
                     }
                     continue;
                 }
@@ -722,12 +734,42 @@ fn text(
     Ok(Some((out, fallbacks, undeclared)))
 }
 
-/// Whether `name` (after its `--`) is a custom property the host sets.
+/// Check the fallback `f` of a call that stays for the kernel as a value of
+/// its own, writing what it lowers to in place of its bytes of `text`: the
+/// output, the dropped fallbacks, the undeclared calls and the position
+/// written to.
+fn fallback_value(
+    text: &str,
+    f: std::ops::Range<usize>,
+    tokens: &Tokens,
+    runtime: bool,
+    (out, fallbacks, undeclared, at): (
+        &mut String,
+        &mut Vec<String>,
+        &mut Vec<Undeclared>,
+        &mut usize,
+    ),
+) -> Result<(), Why> {
+    let inner = (self::text)(&text[f.clone()], tokens, false, &mut None, runtime, true)?;
+    if let Some((inner, mut dropped, mut unknown)) = inner {
+        out.push_str(&text[*at..f.start]);
+        out.push_str(&inner);
+        *at = f.end;
+        fallbacks.append(&mut dropped);
+        undeclared.append(&mut unknown);
+    }
+    Ok(())
+}
+
+/// Whether `name` (after its `--`) is a custom property the host sets: a
+/// box's observation of a family on an edge, the safe area's
+/// (`exact-safe-area-inset-top`), the keyboard's
+/// (`exact-keyboard-inset-bottom`, LLP 1123 D7, D9) or a layout region's
+/// (`exact-layout-margins-inset-left`, D8, D10), or a native target's raw
+/// safe area (`exact-native-2-safe-area-inset-top`, D9), or a field of the
+/// owner's segment (`exact-viewport-segment-width-0-0`, D16).
 fn host_property(name: &str) -> bool {
-    let prefix = exact_kernel::style::env::LOCAL_PREFIX.trim_start_matches('-');
-    name.strip_prefix(prefix)
-        .and_then(exact_kernel::style::Edge::from_name)
-        .is_some()
+    exact_kernel::style::calc::host_name(&format!("--{name}"))
 }
 
 /// Each `var(` in `text` outside a quoted string, in order.
@@ -849,6 +891,18 @@ fn refusal(a: &Attr, why: Why, literal: &str, span: Span, tokens: &Tokens) -> Lo
         Why::Computed => (
             "lower-attr-value",
             format!("{written}: a `var()` names its token whole; a token's name from data is the value itself (`{}=name`), which the runtime reads against the design", a.name),
+        ),
+        Why::Host(name) => (
+            "lower-attr-value",
+            format!("{written}: `--{name}` is no name a host defines: `--exact-*` names are the host's own, and a value reads only {}; a style is the author's `-exact-` name", crate::values::HOST_NAMES),
+        ),
+        Why::Segment(name) if tags::rows(a).into_iter().any(local_inset) => (
+            "lower-attr-value",
+            format!("{written}: `{}` sets the content owner's inset, which no report of the owner's segments reaches, so it reads no owner segment (`--{name}`); write the length it holds, or read the segment in the lengths that pad by the inset", a.name),
+        ),
+        Why::Segment(name) => (
+            "lower-attr-value",
+            format!("{written}: `--{name}` is a field of the owner's segment, a length that a length (`padding`, `width`, …) or a declaration reads; `{}` reads none", a.name),
         ),
         Why::NotLength(name) => (
             "lower-attr-value",
@@ -1038,7 +1092,7 @@ mod tests {
         );
         assert_eq!(
             written("var(--exact-safe-area-inset-middle)"),
-            Err(Why::Unknown("exact-safe-area-inset-middle".into(), false))
+            Err(Why::Host("exact-safe-area-inset-middle".into()))
         );
     }
 

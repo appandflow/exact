@@ -373,35 +373,6 @@ export const answer = () => value as never;
   }
 }, 30000);
 
-test('web validation drops unused package exports before refusing their environment reads', () => {
-  if (webCompiler().cmd === 'cargo') throw new Error('build the compiler first: cargo build -p exact-web-js');
-  const root = resolve(import.meta.dir, '../..'), dir = mkdtempSync(resolve(root, 'target/web-unused-exports-'));
-  const pkg = resolve(dir, 'node_modules/debug-helper'), out = resolve(dir, 'dist');
-  try {
-    mkdirSync(pkg, { recursive: true });
-    writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ name: 'Unused', app: { id: 'test.unused', name: 'Unused' } }));
-    writeFileSync(resolve(dir, 'app.contract'), 'component App\n  resource message = message() as shape string\n  view\n    column\n      text message\n      canvas surface=spark() width=10 height=10\n');
-    writeFileSync(resolve(pkg, 'package.json'), JSON.stringify({ name: 'debug-helper', version: '1.0.0', type: 'module', exports: './index.js', types: './index.d.ts' }));
-    writeFileSync(resolve(pkg, 'index.js'), 'export const debug = () => import.meta.env.DEBUG;\n');
-    writeFileSync(resolve(pkg, 'index.d.ts'), 'export declare const debug: () => string;\n');
-    const build = () => spawnSync(process.execPath, ['host/web-js/build.mjs', dir, '--out', out, '--render', 'none'],
-      { cwd: root, encoding: 'utf8', env: { ...process.env, EXACT_APP_DIR: dir } });
-    const base = "export const grants = '';\nexport const surfaces = { spark: 0 };\nexport const draw = () => false;\n";
-    writeFileSync(resolve(dir, 'app.ts'), base + "export const answer = () => 'ready';\nexport { debug } from 'debug-helper';\n");
-    const built = build();
-    expect(built.status, built.stdout + built.stderr).toBe(0);
-    expect(readFileSync(resolve(out, builtFile(out, 'app.js')), 'utf8')).not.toContain('import.meta.env');
-    for (const source of [
-      base + 'export const answer = () => debug();\n',
-      base.replace('() => false', '() => !!debug()') + "export const answer = () => 'ready';\n",
-    ]) {
-      writeFileSync(resolve(dir, 'app.ts'), "import { debug } from 'debug-helper';\n" + source);
-      const refused = build();
-      expect(refused.status).toBe(1);
-      expect(refused.stderr).toContain('debug-helper@1.0.0 (index.js:1:28) reads import.meta.env');
-    }
-  } finally { rmSync(dir, { recursive: true, force: true }); }
-}, 30000);
 
 test('the web build resolves drawing exports through the module graph', async () => {
   if (webCompiler().cmd === 'cargo') throw new Error('build the compiler first: cargo build -p exact-web-js');
@@ -1322,7 +1293,7 @@ export const answer: Answer = (name) => sources[name]();
     writeFileSync(resolve(dir, '__exact_entry.ts'), "export * from './app.ts';\n");
     writeFileSync(resolve(dir, 'app.contract.d.ts'), declarations);
     writeFileSync(resolve(dir, '__exact_paths.json'), JSON.stringify({app:dir, mounts:snapback ? [['adapter',resolve(root,'snapback4/online')]] : []}));
-    configure(dir, false, parseSync); // as build.mjs configures a stage
+    await configure(dir, false, parseSync); // as build.mjs configures a stage
     return check(dir, resolve(libraries, 'tsc'), libraries);
   };
   try {

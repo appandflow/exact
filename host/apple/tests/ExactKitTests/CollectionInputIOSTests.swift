@@ -2,6 +2,7 @@
 import UIKit
 import XCTest
 @testable import ExactKit
+@testable import ExactNavigation
 @testable import ExactCollections
 
 /// LLP 1070.000 §2.5 under UIKit: an input counts against the request under
@@ -42,22 +43,22 @@ final class CollectionInputIOSTests: XCTestCase {
         defer { p.listHost.reset() }
         let entry = try XCTUnwrap(p.listHost.entries[1]), scroll = try XCTUnwrap(p.views[1]?.scroll)
         let route = RouteController(try XCTUnwrap(p.views[1]))
-        p.navigation.scrollsToTopAnimated = false
+        p.navigationHost.scrollsToTopAnimated = false
         scroll.contentOffset.y = 600
-        p.navigation.scrollToTop(route, since: [1: 0])
+        p.navigationHost.scrollToTop(route, since: [1: 0])
         XCTAssertFalse(entry.gesture, "a request the press made, under way, is its answer to the tap")
         XCTAssertEqual(scroll.contentOffset.y, 600, accuracy: 0.5, "which the scroll to the top gives way to")
-        p.navigation.scrollToTop(route, since: [:])
+        p.navigationHost.scrollToTop(route, since: [:])
         XCTAssertEqual(scroll.contentOffset.y, 600, accuracy: 0.5, "as to one in a list the press made")
         // The next press's request was `done` at once: the port already showed its row.
         p.apply(wireBatch([["op": "collections", "items": [["view": 1, "revision": 2, "scrollSequence": 0, "count": 50, "totalExtent": 2000,
             "rows": [["view": 10, "root": 10, "epoch": 1]], "correction": NSNull(), "lastRequest": 2]]]]))
-        p.navigation.scrollToTop(route, since: [1: 1])
+        p.navigationHost.scrollToTop(route, since: [1: 1])
         XCTAssertEqual(scroll.contentOffset.y, 600, accuracy: 0.5, "and so is one done at once, its row already shown")
         // A press that asked for nothing: the request under way is from before the tap.
         p.apply(wireBatch([["op": "collections", "items": [["view": 1, "revision": 3, "scrollSequence": 0, "count": 50, "totalExtent": 2000,
             "rows": [["view": 10, "root": 10, "epoch": 1]], "correction": NSNull(), "waiting": true, "request": 3, "lastRequest": 3]]]]))
-        p.navigation.scrollToTop(route, since: [1: 3])
+        p.navigationHost.scrollToTop(route, since: [1: 3])
         XCTAssertTrue(entry.gesture, "a request made before the tap ends")
         XCTAssertEqual(scroll.contentOffset.y, -scroll.adjustedContentInset.top, accuracy: 0.5, "and the list goes to its top")
     }

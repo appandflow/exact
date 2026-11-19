@@ -6,6 +6,7 @@ import android.view.View
 import android.widget.FrameLayout
 import androidx.media3.ui.PlayerView
 import dev.exact.canvas.MediaSink
+import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -181,6 +182,70 @@ class MediaPlayerTest {
         reader.requestFocus()
         view.showController(); idle(); view.hideController(); idle()
         assertTrue(reader.isFocused)
+    }
+
+    @Test fun theWholeContentFrameFollowsThePictureWhileControlsKeepTheElementBounds() {
+        val activity = Robolectric.buildActivity(Activity::class.java).setup().get()
+        val p = player(); p.bind(Events())
+        val root = FrameLayout(activity).apply { addView(p.view, 160, 80) }
+        activity.setContentView(root)
+        val cases = listOf(
+            "contain" to listOf(0f, .5f, 1f, .5f),
+            "cover" to listOf(-1f, 0f, 2f, 1f),
+            "fill" to listOf(0f, 0f, 1f, 1f),
+            "none" to listOf(.75f, .875f, .25f, .125f),
+            "scale-down" to listOf(.75f, .875f, .25f, .125f),
+        )
+        for ((fit, rect) in cases) {
+            p.update(props("controls" to true, "fit" to fit, "objectRect" to JSONArray(rect)), 160, 80, null)
+            val view = p.controller as PlayerView
+            view.setControllerAnimationEnabled(false)
+            view.showController()
+            view.setCustomErrorMessage("Cannot play")
+            val content = view.findViewById<FrameLayout>(androidx.media3.ui.R.id.exo_content_frame)
+            val leaves = listOf(view.videoSurfaceView!!, view.subtitleView!!,
+                view.findViewById(androidx.media3.ui.R.id.exo_shutter), view.findViewById<View>(androidx.media3.ui.R.id.exo_artwork))
+            leaves.forEach { it.visibility = View.VISIBLE }
+            root.measure(View.MeasureSpec.makeMeasureSpec(200, View.MeasureSpec.EXACTLY), View.MeasureSpec.makeMeasureSpec(120, View.MeasureSpec.EXACTLY))
+            root.layout(0, 0, 200, 120)
+            val (x, y, w, h) = listOf(rect[0] * 160, rect[1] * 80, rect[2] * 160, rect[3] * 80)
+            assertEquals(fit, listOf(x, y, w, h), listOf(content.x, content.y, content.width.toFloat(), content.height.toFloat()))
+            for (leaf in leaves) {
+                assertEquals(fit, content, leaf.parent)
+                assertEquals(fit, listOf(0, 0, w.toInt(), h.toInt()), listOf(leaf.left, leaf.top, leaf.width, leaf.height))
+            }
+            val error = view.findViewById<View>(androidx.media3.ui.R.id.exo_error_message)
+            assertEquals(fit, content, error.parent)
+            assertEquals(fit, w / 2, error.left + error.width / 2f, 1f)
+            val controller = view.findViewById<View>(androidx.media3.ui.R.id.exo_controller)
+            assertEquals(fit, listOf(0, 0, 160, 80), listOf(controller.left, controller.top, controller.width, controller.height))
+            val visible = android.graphics.Rect()
+            assertTrue(fit, content.getLocalVisibleRect(visible))
+            assertEquals(fit, android.graphics.Rect((-x).coerceAtLeast(0f).toInt(), (-y).coerceAtLeast(0f).toInt(),
+                w.coerceAtMost(160 - x).toInt(), h.coerceAtMost(80 - y).toInt()), visible)
+        }
+        activity.finish()
+    }
+
+    @Test fun captionsWithoutControlsFollowTheWholePictureBeforeClipping() {
+        val activity = Robolectric.buildActivity(Activity::class.java).setup().get()
+        val p = player(); p.bind(Events())
+        val root = FrameLayout(activity).apply { addView(p.view, 160, 80) }
+        activity.setContentView(root)
+        for (rect in listOf(listOf(-.5f, 0f, 2f, 1f), listOf(0f, -.5f, 1f, 2f), listOf(.75f, .875f, .25f, .125f))) {
+            p.update(props("controls" to false, "objectRect" to JSONArray(rect)), 160, 80, null)
+            root.measure(View.MeasureSpec.makeMeasureSpec(200, View.MeasureSpec.EXACTLY), View.MeasureSpec.makeMeasureSpec(120, View.MeasureSpec.EXACTLY))
+            root.layout(0, 0, 200, 120)
+            val frame = p.view as FrameLayout
+            val captions = (0 until frame.childCount).map { frame.getChildAt(it) }.filterIsInstance<androidx.media3.ui.SubtitleView>().single()
+            val (x, y, w, h) = listOf(rect[0] * 160, rect[1] * 80, rect[2] * 160, rect[3] * 80)
+            assertEquals(rect.toString(), listOf(x, y, w, h), listOf(captions.x, captions.y, captions.width.toFloat(), captions.height.toFloat()))
+            val visible = android.graphics.Rect()
+            assertTrue(captions.getLocalVisibleRect(visible))
+            assertEquals(android.graphics.Rect((-x).coerceAtLeast(0f).toInt(), (-y).coerceAtLeast(0f).toInt(),
+                w.coerceAtMost(160 - x).toInt(), h.coerceAtMost(80 - y).toInt()), visible)
+        }
+        activity.finish()
     }
 
     private fun idle() = shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(1))

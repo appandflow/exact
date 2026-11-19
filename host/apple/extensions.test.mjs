@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test';
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { basename, resolve } from 'node:path';
+import { basename, join, resolve } from 'node:path';
 import { plistFile } from './assets.mjs';
 import { EXTENSION_KINDS, extensionKinds, packageShareExtension, withoutExtensions } from './extensions.mjs';
 import { hasEntries, platformWidgetEntries, activityEntries } from './widgets.mjs';
@@ -134,4 +134,23 @@ test("the share extension's page script answers the page's title, its canonical 
     }
   }
   expect(new Set(selected)).toEqual(new Set(['link[rel~="canonical" i][href]']));
+});
+
+// LLP 1156.006.000 D14: a module cache compiled at another path (a copied app folder) is removed and the step run once
+// more; the path removed is the invocation's own argument, and another failure is left as it is.
+test('a module cache compiled at another path is removed and the step tried again', async () => {
+  const { runApple } = await import('./build.mjs'), { staleModuleCache } = await import('./extensions.mjs');
+  const said = "error: PCH was compiled with module cache path '/old/app/target/cache', but the path is currently '/new/app/target/cache'";
+  expect(staleModuleCache(['swiftc', '-module-cache-path', '/new/app/target/cache', 'a.swift'], said)).toBe('/new/app/target/cache');
+  expect(staleModuleCache(['swiftc', 'a.swift'], said)).toBe(null);
+  expect(staleModuleCache(['swiftc', '-module-cache-path', '/new/app/target/cache'], 'error: cannot find type')).toBe(null);
+  const dir = mkdtempSync(join(tmpdir(), 'exact-stale-cache-')), cache = join(dir, 'cache');
+  try {
+    mkdirSync(cache); writeFileSync(join(cache, 'SwiftShims.pcm'), '');
+    // Fails with clang's words while the cache holds a file, as a compile against a copied cache does.
+    const script = `[ -e "$1/SwiftShims.pcm" ] && { echo "${said}" >&2; exit 1; }; exit 0`;
+    expect(runApple('sh', ['-c', script, '-module-cache-path', cache], { stdio: 'pipe' }).status).toBe(0);
+    expect(existsSync(cache)).toBe(false);
+    expect(() => runApple('sh', ['-c', `echo "${said}" >&2; exit 1`, '-module-cache-path', cache], { stdio: 'pipe' })).toThrow('sh failed (1)');
+  } finally { rmSync(dir, { recursive: true, force: true }); }
 });

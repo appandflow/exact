@@ -882,18 +882,14 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> Surface
                 self.ready_work.unwrap_or(work).json(),
                 self.ready_work.map_or_else(Default::default, |before| work.since(before)).json()));
             if H::ENABLED {
-                if let Some((renderer, _)) = &self.render {
-                    if let Some(metrics) = &renderer.hook_metrics {
-                        metrics.append(
-                            &mut reply,
-                            self.hooks.work(),
-                            self.hooks.needs(),
-                            self.hooks.item_name(),
-                            self.hook_clock.budget.as_deref(),
-                            H::ALLOWANCE,
-                        );
-                    }
-                }
+                crate::hooks::metrics::append_state(
+                    self.render
+                        .as_ref()
+                        .and_then(|(r, _)| r.hook_metrics.as_deref()),
+                    &mut reply,
+                    &self.hooks,
+                    self.hook_clock.budget.as_deref(),
+                );
             }
             // Only the agent's armed timing is the agent's to report.
             if let Some(timing) = self.gpu_timing.as_mut().filter(|t| t.armed()) {

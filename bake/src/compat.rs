@@ -851,6 +851,15 @@ fn compatibility_with_trust(
         inputs["variant"] = variant.clone();
     }
     if matches!(platform, "macos" | "ios") {
+        // A share target's claim is `ExactSharing`'s (LLP 1133.024), which
+        // the composition links for it; an app without one has no key.
+        if manifest
+            .json
+            .get("share_target")
+            .is_some_and(|t| !t.is_null())
+        {
+            inputs["shareTarget"] = Value::Bool(true);
+        }
         if let Some(handlers) = manifest.json.get("protocol_handlers") {
             if !handlers.as_array().is_some_and(Vec::is_empty) {
                 inputs["protocolHandlers"] = handlers.clone();

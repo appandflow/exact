@@ -91,7 +91,7 @@ parts: use X from "exact:content"; an option is none or some(…)
   RoundButton(label="Start", tint=some("-exact-system-green"), press=toggle, disabled=false, testId="start")
   AnswerTile(label="Paris", status="idle", press=pick("Paris"), testId="answer-paris")
 
-test steps (app.test.contract; every other form: docs/contract-grammar.md)
+test steps (app.test.contract, docs/contract-grammar.md)
   tap "id" (… contextmenu)
   type "id" "text", type "id" key "Enter"
   expect text "id" == "…"
@@ -100,6 +100,7 @@ test steps (app.test.contract; every other form: docs/contract-grammar.md)
   back
   presence allow (cancel, fail, lockout, invalidated)
   fail fetch "<prefix>", pass fetch …
+  drop stream "<prefix>"
   answer fetch "<prefix>" with 200 {"text":"Hello"}
   request POST "/items" {…} as grace expect 409
   size 390x844, at "/item/7#moves", epoch, time-zone, locale, seed, before data
@@ -111,6 +112,7 @@ ops: a target is a testId, else a view's exact text or label
   type <target> <text>|key <Name>   (a select, date or checkbox: its value)
   clock data|settle|held|+<ms> [real]    replies · transitions · push
   check [dark|both]  what is wrong · screenshot <png> [over <ms> every <ms>] [window]  window: bars
+  Android reader drives refuse film and play layers only under --live. Record a live or normal run with adb shell screenrecord.
   screenshot <png> compare <ref> · prefer <feature> <value> · fail|pass fetch <prefix>
 
 how (snippets compile)
@@ -158,7 +160,7 @@ a timer: `every(ms, action)` repeats; `after(ms, action)` runs once. Options: `w
   action step
     now = performanceNow()
   text `${now}`
-keeping a value: Root `state` only: a number, string or bool (or an option or list of one) up to 16 KB. Records go in a source (`files-and-grants`).
+keeping a value: `persist`: root `state`, a number, string or bool (or an option or list of one) up to 16 KB. Records go in a source (`files-and-grants`).
   state units = "C" persist
 colour: Leave the accent unsaid (a brand is an app.forma) and controls unpainted; elsewhere a role (follows the scheme): text `label`, `secondary-label`; a card `secondary-background`; a fill `secondary-fill`; a hue `system-red`…. No hex.
   main

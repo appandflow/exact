@@ -844,6 +844,7 @@ mod tests {
 
     #[test]
     fn delayed_lights_share_their_ordinary_rows() {
+        exact_motion::link_animations();
         let mut shared = SharedStyles::default();
         let lights: Vec<_> = (0..141)
             .map(|i| {
@@ -907,6 +908,7 @@ mod tests {
 
     #[test]
     fn animation_declarations_share_across_ordinary_styles() {
+        exact_motion::link_animations();
         let style = |opacity: f64, delay: i32| {
             let mut s = StyleProps::default();
             s.set_dynamic(StyleId::Opacity, &StyleValue::Number(opacity))

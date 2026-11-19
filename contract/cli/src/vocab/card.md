@@ -138,7 +138,7 @@ action step
 text `${now}`
 ```
 ### keeping a value
-Root `state` only: a number, string or bool (or an option or list of one) up to 16 KB. Records go in a source (`files-and-grants`).
+`persist`: root `state`, a number, string or bool (or an option or list of one) up to 16 KB. Records go in a source (`files-and-grants`).
 ```contract
 state units = "C" persist
 ```

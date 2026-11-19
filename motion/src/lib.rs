@@ -70,7 +70,7 @@ pub use engine::{
     TransformHold, TransitionEnds, HOLD_DEADLINE,
 };
 pub use filter::{FilterKind, FilterStep, FilterValue};
-pub use parse::ParseError;
+pub use parse::{link_transitions, ParseError};
 pub use path::{PathCommand, PathValue};
 pub use property::{Property, Value};
 pub use spring::{Keyframe, SpringConfig, SpringError, SpringSample};

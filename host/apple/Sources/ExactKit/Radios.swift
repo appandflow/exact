@@ -58,7 +58,7 @@ extension NodeView {
 extension ControlHost {
     /// The radios of `id`'s group, itself alone when the kernel has none.
     func radioMembers(_ id: UInt32) -> [UInt32] {
-        let group = radioGroup?(id).group ?? []
+        let group = self.group(id)?.group ?? []
         return group.isEmpty ? [id] : group
     }
 
@@ -73,7 +73,7 @@ extension ControlHost {
     /// at once, then `input` and `change` carry its value (HTML's, `on` when
     /// it has none); a checked one fires nothing. True when it was checked.
     @discardableResult
-    func checkRadio(_ id: UInt32) -> Bool {
+    package func checkRadio(_ id: UInt32) -> Bool {
         guard let node = presenter.views[id], node.isRadio, !node.formDisabled, !node.inert, !radioShows(id) else { return false }
         for other in radioMembers(id) where other != id { family.showRadio(other, false) }
         family.showRadio(id, true)
@@ -104,7 +104,7 @@ extension ControlHost {
             checkRadio(node.id)
             return true
         case "ArrowDown", "ArrowRight", "ArrowUp", "ArrowLeft":
-            let group = radioGroup?(node.id)
+            let group = self.group(node.id)
             let forward = name == "ArrowDown" || name == "ArrowRight"
             guard let to = (forward ? group?.next : group?.previous).flatMap({ presenter.views[$0] }) else { return true }
             focusRadio(to, keyboard: true)
@@ -115,10 +115,11 @@ extension ControlHost {
         }
     }
 
+    #if EXACT_AGENT
     /// The agent's `type <radio> true`: checked as a click checks it. A
     /// radio is never typed `false`: HTML unchecks one only by checking
     /// another of its group.
-    func typeRadio(_ node: NodeView, _ value: String) -> [String: Any] {
+    package func typeRadio(_ node: NodeView, _ value: String) -> [String: Any] {
         guard value == "true" else {
             return ["error": value == "false" ? "radio \(node.id) cannot be typed false: a radio is unchecked by checking another of its group"
                 : "radio \(node.id) takes true, not \"\(value)\""]
@@ -126,6 +127,7 @@ extension ControlHost {
         if !radioShows(node.id), activate(node) != true { return ["error": "control #\(node.id) is disabled, inert or not shown"] }
         return ["typed": Int(node.id), "checked": radioShows(node.id), "delivery": "host-activation", "native": "control"]
     }
+    #endif
 }
 
 extension ControlHost {

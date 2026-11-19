@@ -8,7 +8,9 @@ import ExactCore
 
 final class SharedStoreRefresh {
     var replicate: (() -> Void)?
-    var observer: WidgetStoreObserver?
+    /// The widgets family's store observer, kept for the app's lifetime.
+    var observer: AnyObject?
+    var observing = false
     private var drawn = false
     private var reloads: [() -> Void] = []
     func firstPixel() { drawn = true; let work = reloads; reloads = []; work.forEach { $0() } }
@@ -22,14 +24,22 @@ extension ExactApp {
         set { sharedStore.replicate = newValue }
     }
 
+    /// The store's observer is asked of the widgets family as the first session is made: an
+    /// embedder installs its capabilities before it makes sessions, not before it first reads
+    /// `ExactApp.shared`.
+    func observeSharedStoreOnce() {
+        if !sharedStore.observing { observeSharedStore() }
+    }
+
     func observeSharedStore(root: URL? = nil, appID: String? = nil, kinds: [String]? = nil, reload: (([String]?) -> Void)? = nil) {
         #if canImport(UIKit)
         let foreground = [UIApplication.willEnterForegroundNotification, UIApplication.didBecomeActiveNotification]
         #else
         let foreground = [NSApplication.didBecomeActiveNotification]
         #endif
+        sharedStore.observing = true
         let writtenKinds = kinds ?? Bundle.main.object(forInfoDictionaryKey: "ExactWidgetKinds") as? [String]
-        sharedStore.observer = WidgetContainer.observeStore(root: root, appID: appID, kinds: kinds, foreground: foreground, needsRefresh: { [weak self] in
+        sharedStore.observer = WidgetLink.publication?.observeStore(root: root, appID: appID, kinds: kinds, foreground: foreground, needsRefresh: { [weak self] in
             self?.sessions.contains { $0.booted && $0.state != .destroyed && $0.storeRefresh.pending } ?? false
         }) { [weak self] retryOnly, finished in
             guard let self else { finished(true); return }
@@ -37,7 +47,7 @@ extension ExactApp {
                 if success {
                     self.sharedStore.reloadAfterPixel {
                         DispatchQueue.main.async {
-                            if let reload { reload(writtenKinds) } else { WidgetContainer.reloadAfterStoreChange(kinds: writtenKinds) }
+                            if let reload { reload(writtenKinds) } else { WidgetLink.publication?.reloadAfterStoreChange(kinds: writtenKinds) }
                         }
                     }
                 }

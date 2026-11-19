@@ -140,6 +140,7 @@ extension Presenter {
             }
             let n = liveView(v)
             if let n { e["node"] = Int(n.id) }
+            else if let staged = v as? NodeView, staged.held { e["role"] = "staged"; entries.append(e); return } // LLP 1072 T13
             else if leaving.contains(ObjectIdentifier(v)) { e["role"] = "leaving" }
             else if let parent, let a = inspectionAccount(v, in: parent, owner: owner) { e["role"] = a.role; if let o = a.owner { e["owner"] = Int(o) } }
             else { e["role"] = "unaccounted" }

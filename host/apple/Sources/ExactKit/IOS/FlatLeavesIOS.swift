@@ -28,21 +28,22 @@ private final class FlatRunAction: NSObject, CALayerDelegate {
     func action(for layer: CALayer, forKey event: String) -> CAAction? { NSNull() }
 }
 
-final class FlatLeaf {
-    let id: UInt32
+package final class FlatLeaf {
+    package let id: UInt32
     let layer = CALayer()
-    var style: NodeStyle
+    package var style: NodeStyle
     /// Its paint, read from `style` on the owner thread (LLP 1072 stage 4).
     var paint: FlatPaint
     /// Its frame drawn, on the device's pixel grid, in its parent's drawn
     /// coordinates, and as layout sent it (`PixelGridIOS.swift`).
-    var frame = CGRect.zero, layout = CGRect.zero
+    var frame = CGRect.zero
+    package internal(set) var layout = CGRect.zero
     /// Its absolute origin on the grid, which its children are placed from.
     var origin = GridOrigin.zero
     /// Its content box and padding as layout sent them (`fieldContent`),
     /// kept for the view it becomes: a leaf paints only its fill.
     var content: (box: CGRect, padding: [CGFloat?]?)?
-    var opacity: Float = 1
+    package var opacity: Float = 1
     /// Its paint rank among its siblings (LLP 1083.000): zero for a root.
     var rank: Int64 = 0
     /// The node whose children op placed it: a view, or a flat box.
@@ -59,10 +60,10 @@ final class FlatLeaf {
     }
 }
 
-final class FlatLeaves {
+package final class FlatLeaves {
     unowned let presenter: Presenter
     init(_ presenter: Presenter) { self.presenter = presenter }
-    private(set) var leaves: [UInt32: FlatLeaf] = [:]
+    private(set) package var leaves: [UInt32: FlatLeaf] = [:]
     /// Each parent's children in order: a view's when it holds a flat
     /// leaf, and a flat box's when it has any (all of them flat).
     private var order: [UInt32: [UInt32]] = [:]
@@ -70,7 +71,7 @@ final class FlatLeaves {
     /// layer, not a view.
     func holdsLeaves(_ parent: UInt32) -> Bool { order[parent]?.isEmpty == false }
     /// `parent`'s children in order, its flat leaves among them, when it holds one.
-    func children(of parent: UInt32) -> [UInt32]? { order[parent] }
+    package func children(of parent: UInt32) -> [UInt32]? { order[parent] }
     /// Since launch: made flat, and promoted to views (`state`).
     private(set) var made = 0, promoted = 0
     private(set) var placements = 0
@@ -218,7 +219,7 @@ final class FlatLeaves {
     func containerChanged(_ id: UInt32) { if order[id] != nil { dirty.insert(id) } }
 
     /// A style op for `id`: applied (true), or the leaf was promoted.
-    func style(_ id: UInt32, _ op: BatchOp) -> Bool {
+    package func style(_ id: UInt32, _ op: BatchOp) -> Bool {
         guard let leaf = leaves[id] else { return false }
         let style = op.style
         guard let flat = op.flat ?? FlatPaint(style), !(flat.clips && holdsLeaves(id)),
@@ -357,7 +358,7 @@ final class FlatLeaves {
         dirty.insert(p)
         if leaves[p] != nil, let host = hostID(of: leaf.id) { dirty.insert(host) }
     }
-    func opacity(_ id: UInt32, _ value: Float) {
+    package func opacity(_ id: UInt32, _ value: Float) {
         guard let leaf = leaves[id] else { return }
         leaf.opacity = value
         if leaf.layer.opacity != value { leaf.layer.opacity = value; changed(leaf); touch(leaf) }

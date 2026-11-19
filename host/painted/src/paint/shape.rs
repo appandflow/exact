@@ -1,5 +1,6 @@
 //! A box with corner radii and shapes: what a background, a border and a clip are cut to.
 use super::{border, Rect4};
+use vello::kurbo::{BezPath, PathEl};
 
 /// A rectangle with per-corner radii (top-left, top-right, bottom-right,
 /// bottom-left), reduced by CSS's one factor so neighbours never overlap.
@@ -63,6 +64,44 @@ impl Shape {
         )
         .with_corners(self.corners)
     }
+}
+
+/// CSS permits a radius larger than half the shorter side when adjacent radii fit.
+pub(crate) fn bezier_outline(shape: &Shape) -> BezPath {
+    let mut ops = Vec::new();
+    border::shape_path(&mut ops, shape);
+    bezier_path(&ops)
+}
+
+pub(crate) fn bezier_path(ops: &[border::PathOp]) -> BezPath {
+    use border::PathOp;
+    ops.iter()
+        .map(|op| match *op {
+            PathOp::Move(x, y) => PathEl::MoveTo(point(x, y)),
+            PathOp::Line(x, y) => PathEl::LineTo(point(x, y)),
+            PathOp::Cubic(a, b, c, d, x, y) => {
+                PathEl::CurveTo(point(a, b), point(c, d), point(x, y))
+            }
+            PathOp::Close => PathEl::ClosePath,
+        })
+        .collect()
+}
+
+pub(crate) fn svg_bezier_path(path: &exact_kernel::svg::Path) -> BezPath {
+    use exact_kernel::svg::Seg;
+    path.0
+        .iter()
+        .map(|seg| match *seg {
+            Seg::Move(x, y) => PathEl::MoveTo(point(x, y)),
+            Seg::Line(x, y) => PathEl::LineTo(point(x, y)),
+            Seg::Cubic(a, b, c, d, x, y) => PathEl::CurveTo(point(a, b), point(c, d), point(x, y)),
+            Seg::Close => PathEl::ClosePath,
+        })
+        .collect()
+}
+
+fn point(x: f32, y: f32) -> vello::kurbo::Point {
+    vello::kurbo::Point::new(f64::from(x), f64::from(y))
 }
 
 /// A resolved outline and the map from viewport points into its own space.

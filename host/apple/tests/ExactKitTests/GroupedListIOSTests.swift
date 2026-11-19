@@ -2,13 +2,13 @@
 import UIKit
 import XCTest
 @testable import ExactKit
+@testable import ExactNavigation
 @testable import ExactCollections
 @testable import ExactGroupedLists
-/// LLP 1084 on UIKit: a grouped list (`listStyle`) is a UICollectionView
-/// with a list layout as the list's only scroller;
-/// its rows are list cells configured from the kernel's model (D5); a tap
-/// selects, highlights and presses; a toggle flips its control; a custom
-/// row's views are carried into their cell and given back before a batch.
+/// LLP 1084 on UIKit: a grouped list (`listStyle`) is a UICollectionView with a list layout as the
+/// list's only scroller; its rows are list cells configured from the kernel's model (D5); a tap
+/// selects, highlights and presses; a toggle flips its control; a custom row's views are carried
+/// into their cell and given back before a batch.
 /// UIKit, so a simulator runs it: bun host/apple/build.mjs --test --ios
 class GroupedListFixture: XCTestCase {
     var window: UIWindow!
@@ -725,8 +725,8 @@ final class GroupedListIOSTests: GroupedListFixture {
         XCTAssertFalse(toggle.isOn)
     }
 
-    /// A carried custom row given a new box outside a batch keeps it, and is
-    /// carried into its cell again on the next turn.
+    /// A carried custom row given a new box outside a batch keeps it, and is carried into its cell again on the next turn;
+    /// a regrid (a new display scale), which draws every box again, carries it again before it returns.
     func testAReplayedBoxReachesACarriedRow() throws {
         let p = presenter { self.model(custom: true) }
         let row = try XCTUnwrap(p.views[21])
@@ -737,6 +737,8 @@ final class GroupedListIOSTests: GroupedListFixture {
         let after = try cell(p, 21)
         XCTAssertEqual(row.frame.height, 80, "the replayed box, not the one saved at the last carry")
         XCTAssertTrue(row.superview === after.contentView, "carried again")
+        p.regridAll()
+        XCTAssertTrue(row.superview === (try cell(p, 21)).contentView, "carried again before the regrid returns")
     }
 
     /// A card-less section (`section background-color="transparent"`): its
@@ -1210,8 +1212,8 @@ final class GroupedListIOSTests: GroupedListFixture {
             ["op": "create", "id": 95, "kind": "view", "props": [:], "style": [:]],
             ["op": "roots", "ids": [95]],
         ]))
-        p.modals.present(try XCTUnwrap(p.views[90]), navigation: UIViewController(), from: background, preceding: nil, owner: owner)
-        XCTAssertEqual(p.modals.routes.count, 1, "the sheet is up")
+        p.modalHost.present(try XCTUnwrap(p.views[90]), navigation: UIViewController(), from: background, preceding: nil, owner: owner)
+        XCTAssertEqual(p.modalHost.routes.count, 1, "the sheet is up")
 
         // The refresh, under the sheet: a "next up" section first, a new row
         // under the others, and row 21 grown.
@@ -1240,11 +1242,11 @@ final class GroupedListIOSTests: GroupedListFixture {
         let l = try list(p)
         p.onViewportFit = {
             l.mount()
-            p.modals.closeTop(animated: false)
+            p.modalHost.closeTop(animated: false)
         }
         p.apply(wireBatch([["op": "props", "id": 95, "set": ["viewportFit": "cover"], "clear": [String]()]]))
         p.onViewportFit = nil
-        XCTAssertTrue(p.modals.routes.isEmpty, "the sheet closed")
+        XCTAssertTrue(p.modalHost.routes.isEmpty, "the sheet closed")
         func shown(_ id: UInt32, _ height: CGFloat, _ what: String) throws {
             let cell = try self.cell(p, id), row = try XCTUnwrap(p.views[id])
             XCTAssertTrue(row.superview === cell.contentView, "\(what): carried into its cell")
@@ -1463,7 +1465,7 @@ final class GroupedListIOSTests: GroupedListFixture {
         view.frame = root.view.bounds
         view.layoutIfNeeded()
         let spin = { (seconds: Double) in RunLoop.main.run(until: Date().addingTimeInterval(seconds)) }
-        let p = session.presenter, nav = try XCTUnwrap(p.navigation.primaryNavigation)
+        let p = session.presenter, nav = try XCTUnwrap(p.navigationHost.primaryNavigation)
         func node(_ testId: String) throws -> NodeView { try XCTUnwrap(p.views.values.first { $0.props["testId"] == testId }, "no \(testId)") }
         func settle(_ count: Int, _ what: String) {
             let deadline = Date().addingTimeInterval(5)

@@ -7,24 +7,28 @@ import AppKit
 extension NodeView {
     /// The colour of row `key` for a face Exact bakes into an image, as `channels` gives it: AppKit
     /// resolves the tint by the nearest accent wherever the node is (`carriedChannels` on UIKit)
-    func carriedChannels(_ key: String, dark: Bool) -> [Double]? { channels(key, dark: dark) }
+    package func carriedChannels(_ key: String, dark: Bool) -> [Double]? { channels(key, dark: dark) }
     func textChannels(_ key: String, dark: Bool? = nil) -> [Double]? { style[key].flatMap { $0.textChannels(dark: dark ?? drawsDark, contrast: drawsHighContrast, tint: ownTint(for: $0)) } }
     package func color(_ key: String, _ fallback: NSColor) -> NSColor { cgColor(key).flatMap { NSColor(cgColor: $0) } ?? fallback }
     /// CSS `::placeholder { color }` (LLP 1104 D3); nil, the platform's.
-    var placeholderColor: NSColor? { cgColor("placeholder_color").flatMap { NSColor(cgColor: $0) } }
+    package var placeholderColor: NSColor? { cgColor("placeholder_color").flatMap { NSColor(cgColor: $0) } }
     /// CSS `::backdrop { background-color }` on a dialog (LLP 1035.001 D11); nil, the platform's.
     var backdropColor: NSColor? { cgColor("backdrop_color").flatMap { NSColor(cgColor: $0) } }
     /// A colour row as Core Graphics draws it (LLP 1100 D2).
-    func cgColor(_ key: String, dark: Bool? = nil) -> CGColor? { style[key].flatMap { $0.cgColor(dark: dark ?? drawsDark, contrast: drawsHighContrast, elevated: window is SheetWindow, tint: ownTint(for: $0)) } }
+    package func cgColor(_ key: String, dark: Bool? = nil) -> CGColor? { style[key].flatMap { $0.cgColor(dark: dark ?? drawsDark, contrast: drawsHighContrast, elevated: window is SheetWindow, tint: ownTint(for: $0)) } }
 
     /// The node whose `accent-color` is this view's tint: the nearest at or
-    /// above it whose accent is a colour (`auto`, or one naming the tint
-    /// itself, leaves the one above). AppKit gives a view no tint to
-    /// inherit, so it is read up the view chain.
+    /// above it that sets one other than the tint itself, where that is a
+    /// colour. Where it is `auto` there is none, so beneath it is the app's
+    /// accent, as AppKit draws a control that sets no tint (LLP 1115.000 D3
+    /// item 4). AppKit gives a view no tint to inherit, so it is read up the
+    /// view chain.
     private var accentNode: NodeView? {
         var view: NSView? = self
         while let at = view {
-            if let node = at as? NodeView, let row = node.style["accent_color"], !row.namesTint, row.channels(dark: false) != nil { return node }
+            if let node = at as? NodeView, let row = node.style["accent_color"], !row.namesTint {
+                return row.channels(dark: false) != nil ? node : nil
+            }
             view = at.superview
         }
         return nil
@@ -34,15 +38,16 @@ extension NodeView {
     /// tint on the Mac too, as it is UIKit's inherited `tintColor` on iOS
     /// (LLP 1116.001 D2): every row beneath that names the tint
     /// (`AccentColor`, a symbol that names it, an `svg`'s paint) resolves by
-    /// the nearest one, not only a control. Nil with none: the system's
-    /// accent. The colour follows the appearance it is asked in, as a
-    /// `light-dark()` accent must. Reading it records whose it was
-    /// (`tintSource`), so a move under another accent is known (`retint`).
-    var nearestAccent: NSColor? {
+    /// the nearest one, not only a control. Nil with none, or beneath a
+    /// written `auto`: the app's accent. The colour follows the appearance
+    /// it is asked in, as a `light-dark()` accent must. Reading it records
+    /// whose it was (`tintSource`), so a move under another accent is known
+    /// (`retint`).
+    package var nearestAccent: NSColor? {
         let node = accentNode
         tintSource = node.map(ObjectIdentifier.init)
-        // No authored accent above: the theme's `AccentColor`, if it sets one
-        // (LLP 1095 D4), else the system's.
+        // The app's accent where no authored one reaches: the theme's
+        // `AccentColor`, if it sets one (LLP 1095 D4), else the system's
         guard let node else { return ThemeRoles.color("AccentColor", in: self) }
         return NSColor(name: nil) { [weak node] appearance in
             let dark = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua

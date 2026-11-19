@@ -234,6 +234,8 @@ pub fn check_design_cached(design: Design, vocab: &Vocab) -> Result<Folding, Vec
 }
 
 fn check_uncached(mut design: Design, vocab: &Vocab) -> Result<Folding, Vec<Diagnostic>> {
+    // A design's motion tokens read as the motion crate reads a transition.
+    exact_motion::link_transitions();
     // The checker's own bounds first: a value past them is refused where it
     // is written, before anything reads it (`bound::preflight`).
     let over = bound::preflight(&design);

@@ -306,7 +306,7 @@ extension Presenter {
         if n.placementHidden { return "placement" }
         if segments.hides(n) { return "segments" }
         if menus.hides(n) { return "menus" }
-        if navigation.controllers.values.contains(where: { $0.lifted === n }) { return "navigation" }
+        if navigation.routeSurfaces.values.contains(where: { $0.lifted === n }) { return "navigation" }
         if swipeActions.hides(n) { return "swipe" }
         if groupedLists?.hides(n) == true { return "grouped-list" }
         return nil
@@ -501,7 +501,7 @@ extension Presenter {
             guard seen[id] === v, v.window != nil else { report.skip("offWindow"); continue }
             if v.placedAncestor != nil { report.skip("placed"); continue }
             if menus.projects(v) || swipeActions.projects(v) || groupedLists?.projects(v) == true { report.skip("projected"); continue }
-            if navigation.controllers[id]?.node === v { report.skip("route"); continue }
+            if navigation.routeSurfaces[id]?.node === v { report.skip("route"); continue }
             if f.transformed || !CATransform3DIsIdentity(v.layer.transform) { report.skip("transformed"); continue }
             if geometryAnimating(v.layer) { report.skip("animating"); continue }
             let sv = v.superview

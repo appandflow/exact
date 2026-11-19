@@ -316,7 +316,7 @@ final class ShortcutMenu: NSMenu {
     }
 }
 
-final class ShortcutHost: NSObject, NSMenuItemValidation {
+package final class ShortcutHost: NSObject, NSMenuItemValidation {
     private weak var presenter: Presenter?
     private weak var fileMenu: NSMenu?
     private weak var applicationMenu: NSMenu?
@@ -397,7 +397,7 @@ final class ShortcutHost: NSObject, NSMenuItemValidation {
         if let event, !shortcut.matches(event) { return "" }
         return shortcut.keyEquivalent
     }
-    func sync() {
+    package func sync() {
         if let selected = DevMenu.session, selected.presenter !== presenter,
            let menu = viewMenu, menu.supermenu === NSApp.mainMenu { return }
         guard let fileMenu else { return }
@@ -751,7 +751,7 @@ final class ShortcutHost: NSObject, NSMenuItemValidation {
         // A native button's children are its face, not views (LLP 1069.011.000 D1).
         if view.isNativeButton { return view.face?.title ?? "" }
         if view.kind == "text" { return view.paragraphSpec().runs.map(\.text).joined() }
-        return view.container.subviews.compactMap { $0 as? NodeView }.map(title).filter { !$0.isEmpty }.joined(separator: " ")
+        return view.childNodes.map(title).filter { !$0.isEmpty }.joined(separator: " ")
     }
     /// A window's command is enabled while its window is key with no sheet
     /// and no modal dialog over the button. One in the app menu or Help is
@@ -763,7 +763,7 @@ final class ShortcutHost: NSObject, NSMenuItemValidation {
         if appWide.contains(view.id) { return !view.authoredInert }
         return !view.inert && (!key || view.window === NSApp.keyWindow) && view.window?.attachedSheet == nil
     }
-    func validateMenuItem(_ item: NSMenuItem) -> Bool {
+    package func validateMenuItem(_ item: NSMenuItem) -> Bool {
         guard let id = (item.representedObject as? NSNumber)?.uint32Value,
               let view = nodes().first(where: { $0.id == id }) else { return false }
         return enabled(view, key: true)

@@ -10,7 +10,6 @@ import { tmpdir } from 'node:os';
 import { basename, delimiter, dirname, relative, resolve } from 'node:path';
 import { appleArtifacts, appleRunBinary } from '../host/apple/build.mjs';
 import { notBuildInput, receiptChanges, refuseBinaryBackend } from './agent-launch.mjs';
-import { moduleGraph } from './module-graph.mjs';
 import { directoryInputSnapshot } from './cargo-dep-info.mjs';
 import { buildArgs, buildFirst, buildReason, childFailure, failureSummary, linuxRebuild, lockHolder, logged, nativeBuild, overrideDir, planOverride, planSource, planSources, ownVerb, prebuild, rebuildCommand, refuseBuild } from './agent-build.mjs';
 import { openStdio } from './agent-stdio.mjs';
@@ -801,6 +800,7 @@ test('a plan-only edit runs its bake on the existing build; any other edit, or a
     write('server/index.ts', "import { Database } from 'bun:sqlite';\nimport { routes } from './routes';\n");
     write('server/routes.ts', 'export const routes = {};\n');
     write('server/fixtures.json', '{}\n');
+    write('.exact/typescript-inputs.json',JSON.stringify({modules:['app.ts','lib/model.ts','lib/seed.json','lib/format.mjs','lib/digits.mjs'].map(file=>[file,resolve(dir,file)]),types:[['types.ts',resolve(dir,'types.ts')]]}));
     for (const file of ['app.contract', 'app.ts', 'types.ts', 'lib/model.ts', 'lib/seed.json', 'lib/format.mjs', 'lib/digits.mjs', 'scripts/export.mjs', 'server/index.ts', 'server/routes.ts', 'server/fixtures.json', 'app.json', 'exact.mjs']) stamp(file, -60);
     // The build: its receipt names the plan its build script baked, beside which is the module receipt it paired.
     const target = 'aarch64-apple-ios-sim', out = resolve(app.target, target, 'host-dev/build/plan-log-apple-0123/out');
@@ -832,8 +832,6 @@ test('a plan-only edit runs its bake on the existing build; any other edit, or a
     const reset = () => { said.length = builds.length = bakes.length = 0; };
     const kept = () => planOverride('ios', app, nativeBuild('ios', app));
 
-    // What app.ts imports is the plan's; what it does not import is no input at all (LLP 1116.003 D1.1).
-    assert.deepEqual([...moduleGraph(dir, app.manifest)].map(p => p.slice(dir.length + 1)).sort(), ['app.ts', 'lib/digits.mjs', 'lib/format.mjs', 'lib/model.ts', 'lib/seed.json', 'types.ts']);
     // A script app.ts never imports is no input, a `.mjs` as a `.ts`; one it imports, through another, is.
     const input = notBuildInput(dir);
     assert.deepEqual(['scripts/export.mjs', 'lib/format.mjs', 'lib/digits.mjs', 'server/index.ts'].map(f => input(resolve(dir, f))), [true, false, false, true]);

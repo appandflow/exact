@@ -23,7 +23,7 @@ export function helperClassifications(group) {
     ["runner:runner/src/viewport_reads.rs", "Media::holds Reads::any Reads::key Reads::media Reads::of Reads::reads"],
     ["runner:runner/src/viewport.rs",
       "Contrast::keyword DisplayMode::keyword even_segments Fold::validate Gamut::keyword Geometry::field Geometry::of Geometry::restore Hover::keyword " +
-      "Pointer::keyword Posture::from_bits Posture::from_keyword Posture::keyword Preferences::bits Preferences::color_scheme Preferences::from_bits Update::keyword " +
+      "Pointer::keyword Posture::from_bits Posture::from_keyword Posture::keyword Preferences::bits Preferences::color_scheme Preferences::from_bits ScreenReader::from_bits ScreenReader::keyword Update::keyword " +
       "Viewport::field Viewport::sized Viewport::validate"],
     ["runner:runner/src/wakelock.rs", "bound bound_prop holders"],
   ]),
@@ -34,16 +34,16 @@ export function helperClassifications(group) {
     ["runner:runner/src/save_file.rs", "arm chosen_name covered request SaveFile::from_args SaveFile::summary"],
   ]),
   group("fills", ["one-shot"], "collection/view generation, window and fill token", "UI-owned",
-    "The named public runner-crate source is the fills API or its value/admission helper. runner/src/runner/collection.rs validates feedback/fill against the current collection; instance/collection/index.rs versions rows and into_view.rs versions reveal requests.", [
-    ["runner:runner/src/instance/collection/api.rs",
+    "The named public runner-crate source is the fills API or its value/admission helper. runner/src/runner/list_seam.rs validates feedback/fill against the current collection; instance/collection/index.rs versions rows and into_view.rs versions reveal requests.", [
+    ["runner:runner/src/instance/collection/into_view.rs", "Tree::into_view_json"],
+    ["runner:runner/src/instance/collection/nest.rs", "Tree::kept_positions_json"],
+    ["runner:runner/src/instance/collection/traversal.rs", "Tree::collection Tree::collection_data Tree::collection_mounted Tree::collections Tree::collections_bounded Tree::collections_shallow"],
+    ["runner:runner/src/list_api/feedback.rs",
       "CollectionFeedback::decode CollectionFeedback::decode_with_fill CollectionFeedback::encode CollectionFeedback::encode_with CollectionSnapshot::json " +
       "CollectionSnapshot::write_json ListAxis::name snapshots_json"],
-    ["runner:runner/src/instance/collection/into_view.rs", "Align::parse Tree::into_view_json"],
-    ["runner:runner/src/instance/collection/mod.rs", "set_bootstrap_extent set_lead_scale"],
-    ["runner:runner/src/instance/collection/nest.rs", "Tree::kept_positions_json"],
-    ["runner:runner/src/instance/collection/reorder_api.rs", "ReorderEnding::name ReorderGeometry::decode ReorderGeometry::encode ReorderPhase::name ReorderStep::from_key ReorderToken::list ReorderToken::serial"],
-    ["runner:runner/src/instance/collection/shown.rs", "RowsShown::extend"],
-    ["runner:runner/src/instance/collection/traversal.rs", "Tree::collection Tree::collection_data Tree::collection_mounted Tree::collections Tree::collections_bounded Tree::collections_shallow"],
+    ["runner:runner/src/list_api/into_view.rs", "Align::parse"],
+    ["runner:runner/src/list_api/mod.rs", "RowsShown::extend set_bootstrap_extent set_lead_scale"],
+    ["runner:runner/src/list_api/reorder.rs", "ReorderEnding::name ReorderGeometry::decode ReorderGeometry::encode ReorderPhase::name ReorderStep::from_key ReorderToken::list ReorderToken::serial"],
   ]),
   group("sockets and listens", ["subscription"], "source stream/watch and pending subscription in a session", "UI-owned",
     "The named public runner-crate source is the sockets and listens API or its value/admission helper. runner/src/runner/sockets.rs and listen.rs associate reader facts with source requests; retirement of the source removes the UI observer.", [
@@ -210,7 +210,7 @@ export function helperClassifications(group) {
     ["painted:host/painted/src/flights.rs", "Host::flying Host::start_flights"],
     ["painted:host/painted/src/presenter/arrive.rs", "Presenter::focus_landed"],
     ["painted:host/painted/src/presenter/reveal.rs", "Presenter::reveal_flights"],
-    ["painted:host/painted/src/presenter/stage/authored.rs", "Presenter::drawn_at Presenter::entrance Presenter::hold_arriving Presenter::top_of"],
+    ["painted:host/painted/src/presenter/stage/authored.rs", "Presenter::entrance Presenter::hold_arriving Presenter::top_of"],
     ["painted:host/painted/src/presenter/stage/zoom.rs", "Presenter::navigation_container Presenter::source_node Presenter::source_rect Presenter::sync_sources"],
   ]),
   group("module announcements", ["subscription"], "bound module, app topic and its current readers", "UI-owned",
@@ -223,7 +223,7 @@ export function helperClassifications(group) {
   ]),
   group("region and text", ["one-shot"], "current layout region, paragraph or content measurement", "UI-owned",
     "exact_region_fallback and exact_text_paragraph_bases answer the current region and text request; painted stage.rs fit_content measures the current sheet.", [
-    ["apple:host/apple/src/abi/exports.rs", "exact_region_fallback"],
+    ["apple:host/apple/src/content_region/exports.rs", "exact_region_fallback"],
     ["apple:host/apple/src/textflow.rs", "exact_text_paragraph_bases"],
     ["painted:host/painted/src/presenter/stage.rs", "Presenter::fit_content"],
   ]),

@@ -4,20 +4,23 @@
 // imports the module that loads it).
 import { owned } from './ts-fetch.js';
 // A database's and a statement's methods refuse as storage's do, in the queue. A query in an answer watches the
-// database's topic, and an execute or a transaction that changed rows tells the app's other tabs (LLP 1030.004 D2;
-// js/src/storage.js `changedRows` says why only DML that changed rows counts).
-const changedRows = (sql, v) => typeof sql === 'string' && /^\s*(insert|update|delete|replace|with)\b/i.test(sql) && v?.changes > 0;
-const changed = (m, args, v, prepared) => m === 'transaction'
-  ? Array.isArray(v) && Array.isArray(args[0]) && v.some((r, i) => changedRows(args[0][i]?.sql, r))
-  : m === 'execute' && changedRows(prepared ?? args[0], v);
-const wrap = (o, convert, path, queued, shared, call, prepared) => Object.freeze(Object.fromEntries(Object.entries(convert).map(([m, then]) =>
+// database's topic, and an execute or a transaction that changed the database tells the app's other tabs, from the
+// worker's `changed`, which the app does not get (LLP 1030.004 D2; js/src/storage.js `written`).
+const execution = ({ changes, lastInsertRowid }) => ({ changes, lastInsertRowid });
+const written = (m, v, relay) => {
+  if (m !== 'execute' && m !== 'transaction') return v;
+  const results = m === 'execute' ? [v] : v;
+  if (results.some(r => r.changed)) relay();
+  return m === 'execute' ? execution(v) : v.map(execution);
+};
+const wrap = (o, convert, path, queued, shared, call) => Object.freeze(Object.fromEntries(Object.entries(convert).map(([m, then]) =>
   [m, (...args) => {
     const topic = [`sqlite:${path}`];
     if (m === 'query') shared.watch(topic, call);
-    const done = queued(`${m} ${path}`, () => o[m](...args)).then(v => { if (changed(m, args, v, prepared)) shared.relay(topic); return v; });
-    return owned((then ? done.then(v => then(v, path, args[0])) : done), true);
+    const done = queued(`${m} ${path}`, () => o[m](...args)).then(v => written(m, v, () => shared.relay(topic)));
+    return owned((then ? done.then(v => then(v, path)) : done), true);
   }])));
-const statement = (queued, shared, call) => (s, path, sql) => wrap(s, { execute: null, query: null, close: null }, path, queued, shared, call, sql);
+const statement = (queued, shared, call) => (s, path) => wrap(s, { execute: null, query: null, close: null }, path, queued, shared, call);
 // Each entry's sql and params read once; options as a record with no
 // prototype, so `__proto__` stays a key the validation refuses.
 const batchNow = c => Array.isArray(c) ? c.map(e => {

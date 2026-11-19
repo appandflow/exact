@@ -575,6 +575,7 @@ mod tests {
     /// LLP 1003.002 D9: a `blur()` → `none` run stacks until it ends.
     #[test]
     fn a_transition_covering_filter_stacks_at_rest() {
+        exact_motion::link_transitions();
         let covering = |text: &str| {
             let mut s = crate::StyleProps::default();
             s.transition = exact_motion::Transitions::parse(text).unwrap();

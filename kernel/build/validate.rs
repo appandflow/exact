@@ -257,10 +257,10 @@ fn write_validate_domain(w: &mut String, schema: &Schema) {
                 writeln!(w, "        if self.mask.has(StyleId::{id}) && !self.{field}.is_valid() {{ return Err(StyleDomainError::InvalidGridSpan(StyleId::{id})); }}").unwrap();
             }
             Codec::Transitions => {
-                writeln!(w, "        if self.mask.has(StyleId::{id}) {{ self.{field}.validate().map_err(StyleDomainError::InvalidTransition)?; }}").unwrap();
+                writeln!(w, "        if self.mask.has(StyleId::{id}) {{ self.{field}.validate_linked().map_err(StyleDomainError::InvalidTransition)?; }}").unwrap();
             }
             Codec::Animations => {
-                let check = ["validate", "validate_ending"][row.ends as usize];
+                let check = ["validate_linked", "validate_ending_linked"][row.ends as usize];
                 writeln!(w, "        if self.mask.has(StyleId::{id}) {{ self.{field}.{check}().map_err(StyleDomainError::InvalidAnimation)?; }}").unwrap();
             }
             _ => {}

@@ -86,10 +86,10 @@ fn angle(t: &str) -> Option<f32> {
 }
 
 impl FilterList {
-    /// CSS's grammar: `none`, or functions separated by white space. On the
-    /// web, once linked ([`crate::style::link_effects`]).
+    /// CSS's grammar: `none`, or functions separated by white space, once
+    /// linked ([`crate::style::link_filter`]).
     pub fn parse(css: &str) -> Option<FilterList> {
-        crate::style::effects::parse(css, |e| e.filter)
+        crate::style::effects::filter(css)
     }
 
     /// [`Self::parse`]'s grammar.

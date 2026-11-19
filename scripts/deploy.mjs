@@ -48,6 +48,7 @@ import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSyn
 import { homedir, tmpdir } from 'node:os';
 import { basename, delimiter, dirname, isAbsolute, parse, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { checkoutOf } from './paths.mjs';
 import { buildRust, publishedSignature, rustBundle, rustPackage } from './rust.mjs';
 import { appleProduction } from '../host/apple/link.mjs';
 import { assertOwnTarget, bakedEntryAssets, bakeOutput, cargoReproducibilityFlags, readManifest, buildBake, bakeTarget, readBake, readBuilds, classifyArtifacts, resolveApp, shaderWatchRoots } from './app.mjs';
@@ -343,7 +344,12 @@ function validateCapturedTree(source, sources, env, tree) {
     }
     if (isAbsolute(target)) absoluteLinks.push({ name: entry.name, originalTarget });
   }
-  return absoluteLinks;
+  const files = new Set(entries.filter(entry => entry.mode === '100644' || entry.mode === '100755').map(entry => entry.name));
+  const checkoutLinks = new Set(entries.filter(entry => entry.mode === '120000'
+    && /(?:^|\/)\.exact\/checkout$/.test(entry.name)
+    && ['app.json', 'exact.mjs', 'app.contract'].some(file => files.has(entry.name.replace(/\.exact\/checkout$/, file))))
+    .map(entry => entry.name));
+  return { absoluteLinks, checkoutLinks };
 }
 
 function addCapturedPaths(repo, env, paths, force, what) {
@@ -399,11 +405,14 @@ function captureRepository(source, sources, captureRoot, stagedRoot, common, app
       'could not inventory captured changes', { env }).split('\0').filter(Boolean);
     if (status.length % 2 !== 0) refuse(`${source.repo}: malformed captured change inventory`);
     const changes = [];
-    for (let index = 0; index < status.length; index += 2) changes.push(`${status[index].padEnd(2)} ${status[index + 1]}`);
+    const { absoluteLinks, checkoutLinks } = validateCapturedTree(source, sources, env, tree);
+    for (let index = 0; index < status.length; index += 2) {
+      // The bootstrap link is captured and relocated, but its machine-local target is not an authored edit.
+      if (!checkoutLinks.has(status[index + 1])) changes.push(`${status[index].padEnd(2)} ${status[index + 1]}`);
+    }
     const destination = resolve(stagedRoot, relative(common, source.repo));
     if (!inside(stagedRoot, destination)) refuse(`${source.repo}: cannot be placed under the private source root`);
     mkdirSync(destination, { recursive: true });
-    const absoluteLinks = validateCapturedTree(source, sources, env, tree);
     gitResult(source.repo, ['checkout-index', '--all', '--force', `--prefix=${destination}${sep}`],
       'could not materialize the captured source tree', { env });
     // An absolute link into a captured repository has safe source semantics,
@@ -424,8 +433,9 @@ function captureRepository(source, sources, captureRoot, stagedRoot, common, app
 /** The snapshot (LLP 1030.000 D3 item 1): capture every repository and every
  * dirty source byte the bake can read. Ignored files are source too, outside
  * the precise roots sourcePaths excludes. */
-export function snapshotOf(app, opts, exactRoot = ROOT) {
+export function snapshotOf(app, opts, exactRoot) {
   app.prepare?.(true);
+  exactRoot ??= existsSync(resolve(app.dir, 'exact.mjs')) ? checkoutOf(app.dir) : ROOT;
   const compiler = opts.compiler ? resolve(opts.compiler) : contractCompiler(exactRoot);
   const sourceRoots = [
     { role: 'app', cwd: canonicalPath(app.dir) },

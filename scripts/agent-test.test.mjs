@@ -9,7 +9,7 @@ import { Readable } from 'node:stream';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { failureMark, backendFetchPrefixes, churnLines, disabledExpectation, focusedExpectation, layoutExpectation, nativeFetchOrigins, NO_FAILURES, perfExpectation, pickHint, propertyHolds, testMutationClock, refusalExpectation, refuseDisabled, runTests, stateHolds, serverRequest, testScope, textExpectation, treeExpectation, unarranged } from './agent-test.mjs';
+import { failureMark, backendFetchPrefixes, churnLines, disabledExpectation, focusedExpectation, layoutExpectation, nativeFetchOrigins, NO_FAILURES, perfExpectation, pickHint, propertyHolds, testMutationClock, refusalExpectation, refuseDisabled, reloadWeb, runTests, serverRequest, testScope, textExpectation, treeExpectation, unarranged } from './agent-test.mjs';
 import { axFindings } from './agent-ax.mjs';
 import { withEpoch } from './agent-launch.mjs';
 import { serveBuildTree } from '../host/web/serve.mjs';
@@ -900,6 +900,7 @@ test('authored preferences use the drive parser, override by name, and survive r
   writeFileSync(contract, `shape Viewport
   prefersColorScheme: string
   prefersReducedMotion: bool
+  displayMode: string
 shape Page
   onLine: bool
 component App
@@ -920,9 +921,12 @@ test "inherits"
   reload
   expect text "scheme" == "dark"
   prefer prefers-color-scheme light
+  prefer display-mode standalone
   expect text "scheme" == "light"
+  expect state viewport.displayMode == "standalone"
   reload
   expect text "scheme" == "light"
+  expect state viewport.displayMode == "standalone"
   prefer prefers-color-scheme dark
   expect text "scheme" == "dark"
   prefer prefers-color-scheme light
@@ -997,12 +1001,17 @@ test "a host refuses an unsupported page fact"
       expect(textExpectation((await s.tree()).nodes, 'scheme', dark ? 'dark' : 'light')).toBeNull();
       expect(await rootSize()).toBe(fontSize);
       if (t.launch.media.online != null) expect((await s.state()).resources.page.onLine).toBe(false);
+      // A new session starts without the last one's display mode; a drive's reload, which sends no preference again,
+      // keeps it from the new document's boot (LLP 1039 D7).
+      const display = t.launch.media['display-mode'];
+      expect((await s.state()).device.displayMode).toBe(display ?? 'browser');
+      if (display) { await reloadWeb(s); expect((await s.state()).device.displayMode).toBe(display); }
       ends.push(t.launch.media);
       return {};
     } });
     expect(r.results.map(t => t.end?.error)).toEqual(Array(12).fill(undefined));
     expect(r.results.map(t => t.failures.length)).toEqual([0, 0, 1, 1, 1, 0, 0, 0, 0, 1, 0, 1]);
-    for (const [index, line, name, value] of [[2, 24, 'prefers-color-scheme', 'banana'], [3, 28, 'unknown', 'dark'], [4, 33, 'prefers-color-scheme', 'banana']]) {
+    for (const [index, line, name, value] of [[2, 27, 'prefers-color-scheme', 'banana'], [3, 31, 'unknown', 'dark'], [4, 36, 'prefers-color-scheme', 'banana']]) {
       const hint = name === 'unknown' ? 'did you mean `prefer prefers-color-scheme dark`? ' : '';
       expect(r.results[index].failures[0]).toContain(`line ${line}: prefer: ${name} ${value}: ${hint}expected`);
     }
@@ -1010,7 +1019,7 @@ test "a host refuses an unsupported page fact"
     expect(r.results[11].failures[0]).toContain('prefer: keyboard-navigation: true is not a page fact this host sets');
     expect(r.results[11].failures[0]).not.toContain('test prefer:');
     expect(ends).toEqual([
-      { 'prefers-color-scheme': 'light', 'prefers-reduced-motion': 'reduce' },
+      { 'prefers-color-scheme': 'light', 'prefers-reduced-motion': 'reduce', 'display-mode': 'standalone' },
       { 'prefers-color-scheme': 'light', 'prefers-reduced-motion': 'reduce' },
       { 'prefers-color-scheme': 'dark', 'prefers-reduced-motion': 'reduce', online: false },
       { 'prefers-color-scheme': 'dark', 'prefers-reduced-motion': 'reduce' },
@@ -1214,6 +1223,8 @@ test('a native run resolves a fetch fault under the API a setting names', async 
     const dir = join(parent, 'site'), env = { EXACT_BUN_LOADED: '' };
     createApp(dir);
     applyPattern(dir, 'site');
+    mkdirSync(join(dir,'.exact'),{recursive:true});
+    writeFileSync(join(dir,'.exact/typescript-inputs.json'),JSON.stringify({modules:[['app.ts',join(dir,'app.ts')]],types:[]}));
     expect(nativeFetchOrigins(dir, env)).toEqual(['http://127.0.0.1:8787']);
     writeFileSync(join(dir, '.env.local'), 'API_BASE_URL=http://127.0.0.1:9123\n');
     const faults = () => [{ steps: [{ op: 'fail-fetch', prefix: '/planets' }, { op: 'pass-fetch', prefix: '/planets' }] }];
@@ -1224,6 +1235,21 @@ test('a native run resolves a fetch fault under the API a setting names', async 
     writeFileSync(join(dir, 'app.ts'), "// const origin = 'http://comment.invalid';\nexport const origin = ('http://127.0.0.1:4410' satisfies string);\n");
     expect(nativeFetchOrigins(dir, env)).toEqual(['http://127.0.0.1:4410']);
   } finally { rmSync(parent, { recursive: true, force: true }); }
+});
+
+test('a module setting leaves native literal fetch grants available to faults', () => {
+  const dir = mkdtempSync(join(import.meta.dir, '../target/issue-859-origins-'));
+  try {
+    mkdirSync(join(dir, 'src'));
+    writeFileSync(join(dir, 'app.json'), JSON.stringify({ env: ['API_BASE_URL'] }));
+    writeFileSync(join(dir, 'src/api.ts'), "export const API = import.meta.env.API_BASE_URL ?? 'https://built.example';\n");
+    writeFileSync(join(dir, 'app.ts'), "import { API } from './src/api';\nexport const grants = 'net.fetch https:' + '\\nnet.fetch http://127.0.0.1:9123';\nexport const answer = () => API;\n");
+    mkdirSync(join(dir,'.exact'),{recursive:true});
+    writeFileSync(join(dir,'.exact/typescript-inputs.json'),JSON.stringify({modules:['app.ts','src/api.ts'].map(file=>[file,join(dir,file)]),types:[]}));
+    const origins = nativeFetchOrigins(dir, {});
+    expect(origins).toEqual(['http://127.0.0.1:9123']);
+    expect(backendFetchPrefixes([{ steps: [{ op: 'fail-fetch', prefix: '/items' }] }], origins)[0].steps[0].prefix).toBe('http://127.0.0.1:9123/items');
+  } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
 // LLP 1103: a fault on a path is the API's. The driver arms it under the one origin the grants name, and the host
@@ -1238,89 +1264,6 @@ test('a fault on a path is armed under the API, and fails that API\'s absolute U
     expect(takeFault('http://127.0.0.1:4791/planets/5')).toBe(false);
   } finally { delete globalThis.__exactFaults; }
 });
-
-test('script state comparisons use inclusive numeric bounds and typed literal membership', () => {
-  const holds=(got,comparison,value)=>stateHolds(got,{comparison,value});
-  expect(holds(-2,'at-least',-2)).toBe(true); expect(holds(2,'at-most',2)).toBe(true);
-  expect(holds(-3,'at-least',-2)).toBe(false); expect(holds(3,'at-most',2)).toBe(false);
-  for (const got of ['2',null,false,[],{}]) { expect(holds(got,'at-least',1)).toBe(false); expect(holds(got,'at-most',3)).toBe(false); }
-  for (const got of [-2,'ready',false,null,[]]) expect(holds(got,'in',[-2,'ready',false,null,[]])).toBe(true);
-  expect(holds('2','in',[2])).toBe(false); expect(holds(2,'in',['2'])).toBe(false);
-  expect(holds([],'equal',[])).toBe(true);
-});
-
-test('script state equality compares lists and records structurally', () => {
-  const holds = (got, value) => stateHolds(got, { comparison: 'equal', value });
-  expect(holds(['a', 'b'], ['a', 'b'])).toBe(true);
-  expect(holds(['a', 'b'], ['a', 'c'])).toBe(false);
-  expect(holds(['a', 'b'], ['a'])).toBe(false);
-  expect(holds(['a', 'b'], ['b', 'a'])).toBe(false);
-  expect(holds([[1, -2], [], [3]], [[1, -2], [], [3]])).toBe(true);
-  expect(holds([[1, -2], [], [3]], [[1, 2], [], [3]])).toBe(false);
-  expect(holds([], [])).toBe(true);
-  expect(holds([], [1])).toBe(false);
-  expect(holds([1], ['1'])).toBe(false);
-  expect(holds({ id: 'a', position: { x: 1, y: -2 } }, { position: { y: -2, x: 1 }, id: 'a' })).toBe(true);
-  expect(holds({ id: 'a' }, { key: 'a' })).toBe(false);
-  expect(holds({}, [])).toBe(false);
-  expect(holds([NaN], [null])).toBe(false);
-  expect(holds([NaN], [NaN])).toBe(false);
-  expect(holds([-0], [0])).toBe(true);
-});
-
-engineTest.chromium('authored state literals compare whole values and report mismatches', async () => {
-  const root = fileURLToPath(new URL('..', import.meta.url));
-  const dir = mkdtempSync(join(root, 'target/state-literals-'));
-  const app = join(dir, 'app.contract'), file = join(dir, 'app.test.contract');
-  const plan = join(dir, 'app.plan'), dist = join(dir, 'dist');
-  const server = createServer((req, res) => serveBuildTree(dist, req, res));
-  try {
-    writeFileSync(app, `shape Point
-  x: number
-  y: number
-component App
-  state picks = ["a", "b"]
-  state grid = [[1, -2], [], [3]]
-  state empty: number[] = []
-  state picked = some(["a", "b"])
-  state point = Point(x=1, y=-2)
-  view
-    text "Hi"
-`);
-    writeFileSync(file, `test "equal literals"
-  expect state picks == ["a", "b"]
-  expect state grid == [[1, -2], [], [3,],]
-  expect state empty == []
-  expect state picked == some(["a", "b"])
-  expect state point == Point(y=-2, x=1)
-test "unequal literals"
-  expect state picks == ["a", "c"]
-  expect state picks == ["a"]
-  expect state grid == [[1, 2], [], [3]]
-  expect state empty == [1]
-  expect state picked == none
-  expect state point == Point(x=2, y=-2)
-`);
-    const compiler = join(process.env.CARGO_TARGET_DIR ?? join(root, 'target'), 'debug', 'contract');
-    const compile = spawnSync(compiler, ['build', app, '-o', plan], { cwd: root, encoding: 'utf8' });
-    expect(compile.status, compile.stderr).toBe(0);
-    const build = spawnSync(process.execPath, ['host/web-js/build.mjs', 'ui-gallery', '--plan', plan, '--out', dist, '--render', 'none'], { cwd: root, encoding: 'utf8' });
-    expect(build.status, build.stderr).toBe(0);
-    await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
-    const r = await runTests({ host: 'web', file, app: 'ui-gallery', url: `http://127.0.0.1:${server.address().port}/` });
-    expect([r.passed, r.failed]).toEqual([1, 1]);
-    expect(r.results[0].failures).toEqual([]);
-    const messages = r.results[1].failures.map(f => f.slice(f.indexOf(': ', f.indexOf(':') + 1) + 2));
-    expect(messages).toEqual([
-      'picks is ["a","b"], expected ["a","c"]',
-      'picks is ["a","b"], expected ["a"]',
-      'grid is [[1,-2],[],[3]], expected [[1,2],[],[3]]',
-      'empty is [], expected [1]',
-      'picked is ["a","b"], expected null',
-      'point is {"x":1,"y":-2}, expected {"x":2,"y":-2}',
-    ]);
-  } finally { server.close(); rmSync(dir, { recursive: true, force: true }); }
-}, 180_000);
 
 // Run with a private module registry: only the carrier is stubbed, not compilation or backend resets.
 test('fresh resets Snapback beside an owned app server, with file and test seeds', () => {
@@ -1364,6 +1307,25 @@ test('fresh resets Snapback beside an owned app server, with file and test seeds
     expect(r.status, r.stdout + r.stderr).toBe(0);
     expect(r.stdout).toContain('completed');
   } finally {rmSync(dir, {recursive:true, force:true});}
+}, 30000);
+
+// LLP 1156.006.000 D8: with no build, every test of a run would fail alike, so the run stops at the first; another
+// launch failure of an app with a server is still that test's.
+test('a missing build stops a test run at its first test', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'exact-test-nobuild-')), script = join(dir, 'check.mjs');
+  writeFileSync(join(dir, 'app.contract'), 'component App\n  view\n    text "Test"\n'); writeFileSync(join(dir, 'app.test.contract'), 'test "one"\n  expect state ready == true\ntest "two"\n  expect state ready == true\n');
+  writeFileSync(script, `
+    import assert from 'node:assert/strict'; import {mock} from 'bun:test';
+    let opens = 0, missing = true;
+    mock.module(${JSON.stringify(fileURLToPath(new URL('./agent.mjs', import.meta.url)))}, () => ({open: async (o) => { opens++; assert.equal(o.ax, true, 'the launch asks for the accessibility runtime (D15)'); throw Object.assign(new Error('run bun exact.mjs android first'), {missingBuild: missing}); }}));
+    const {runTests} = await import(${JSON.stringify(fileURLToPath(new URL('./agent-test.mjs', import.meta.url)))});
+    const run = () => runTests({host:'linux', app:${JSON.stringify(dir)}, file:${JSON.stringify(join(dir, 'app.test.contract'))}, running:{beforeTest:async()=>{}, check(){}}, ax:true});
+    await assert.rejects(run(), /run bun exact.mjs android first/); assert.equal(opens, 1);
+    missing = false; opens = 0;
+    const r = await run(); assert.equal(r.failed, 2); assert.equal(opens, 2); console.log('completed');
+  `);
+  try { const r = spawnSync(process.execPath, [script], {encoding:'utf8', timeout:30000}); expect(r.status, r.stdout + r.stderr).toBe(0); expect(r.stdout).toContain('completed'); }
+  finally { rmSync(dir, {recursive:true, force:true}); }
 }, 30000);
 
 test('replay selects the original ordinal among duplicate names and host variants', () => {

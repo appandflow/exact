@@ -34,6 +34,7 @@ pub fn rank(id: &str, message: &str) -> u8 {
         | "lower-scroll-grows"
         | "lower-flex-on-block"
         | "lower-border-unstyled"
+        | "lower-tablist-conditional"
         | "lower-width-padding"
         | "lower-swipe-wiring"
         | "lower-transform-drag-ineligible"

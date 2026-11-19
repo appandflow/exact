@@ -2,6 +2,8 @@
 import UIKit
 import XCTest
 @testable import ExactKit
+@testable import ExactNavigation
+@testable import ExactNativeViews
 
 /// x2apps codeedit #2 on UIKit: a field's `input` reports the selection its
 /// edit left; `setSelectionRange` fires `select`, never focuses, and waits
@@ -166,7 +168,7 @@ final class FieldSelectionIOSTests: XCTestCase {
         let node = try XCTUnwrap(p.views[3])
         node.applyProps(set: ["type": "search"], clear: [])
         node.handlers.formUnion(["beforeinput", "selectionchange"])
-        let search = HeaderSearch(host: p.navigation)
+        let search = HeaderSearch(host: p.navigationHost)
         search.field = node
         let bar = search.controller.searchBar
         bar.frame = CGRect(x: 0, y: 180, width: 350, height: 60)

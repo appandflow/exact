@@ -23,7 +23,7 @@
 #if os(iOS) || os(tvOS)
 import UIKit
 
-final class MenuFocus {
+package final class MenuFocus {
     private weak var presenter: Presenter?
     private weak var held: UIResponder? { didSet { heldIncarnation = (held as? NodeView)?.incarnation } }
     /// The held node's incarnation: a view the node pool has since lent to
@@ -81,7 +81,7 @@ final class MenuFocus {
     /// recognizer per bar, and one on the page the bar is over: the
     /// viewport, or the presentation the bar's navigation is mounted in
     /// (LLP 1123 D2).
-    func watch(_ bar: UINavigationBar) {
+    package func watch(_ bar: UINavigationBar) {
         if !(bar.gestureRecognizers ?? []).contains(where: { $0 is BarTouch }) { bar.addGestureRecognizer(BarTouch(focus: self, bar: true)) }
         let page = presenter?.port(of: bar)
         if let view = page, !(view.gestureRecognizers ?? []).contains(where: { $0 is BarTouch }) {

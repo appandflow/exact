@@ -12,7 +12,7 @@ extension NodeView {
 
 /// Stable projection inputs survive row fills; a batch that can change them
 /// discards the cache before and after it applies.
-final class ListRowDependencies {
+package final class ListRowDependencies {
     let back: String?
     let scrolls: Set<String>
     let invoked: Set<String>
@@ -48,7 +48,7 @@ final class ListRowDependencies {
         var read = chrome.ids("role:tablist").union(chrome.ids("role:radiogroup")).union(chrome.ids("navigationBack"))
         for name in [back].compactMap({ $0 }) + Array(scrolls) { read.formUnion(chrome.named[name] ?? []) }
         let targets = invoked.reduce(into: Set<UInt32>()) { $0.formUnion(chrome.named[$1] ?? []) }
-        read.formUnion(navigation.controllers.keys)
+        read.formUnion(navigation.routeSurfaces.keys)
         self.back = back; self.scrolls = scrolls; self.invoked = invoked
         self.read = read; self.targets = targets
         scrollers = presenter.scrollers
@@ -95,13 +95,14 @@ extension Presenter {
     /// projection names that port. A node on the way up that the projection reads
     /// (a header, a tab, tablist or tabpanel, a route, the stack's Back
     /// control), a list that is a route or a routes' owner, or one inside a
-    /// header, a tab or the Back control makes the op count. Read before the batch applies,
+    /// header, a tab or the Back control makes the op count, and so does a batch that says the
+    /// root tabs (`rootTabs`), which the projection reads. Read before the batch applies,
     /// while its destroys still have views.
     func onlyListRows(_ batch: Batch) -> Bool {
-        guard !batch.controls else { return false }
+        guard !batch.controls, batch.rootTabs == nil else { return false }
         if batch.ops.isEmpty { return true }
         let dependencies = listRowDependencies ?? ListRowDependencies(self, scrolls: Set(
-            navigation.controllers.values.compactMap { $0.node.props["navigationScroll"] }))
+            navigation.routeSurfaces.values.compactMap { $0.node.props["navigationScroll"] }))
         listRowDependencies = dependencies
         let back = dependencies.back, scrolls = dependencies.scrolls, invoked = dependencies.invoked
         let read = dependencies.read, targets = dependencies.targets

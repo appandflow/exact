@@ -717,7 +717,25 @@ pub(crate) fn redirect_step(
     }))
 }
 
+/// Whether every byte of `url` is one a URI may hold (RFC 3986's reserved
+/// and unreserved characters, and `%`).
+fn is_uri(url: &str) -> bool {
+    url.bytes()
+        .all(|b| b.is_ascii_alphanumeric() || b"-._~:/?#[]@!$&'()*+,;=%".contains(&b))
+}
+
 pub(crate) fn prepare_body(mut request: Request) -> Result<Request, HostError> {
+    // A URL holding a character a URI cannot (`>`, a space, a quote) is sent
+    // as the web sends it, percent-encoded by the URL Standard's parser
+    // (https://url.spec.whatwg.org/#query-state); the portable transport
+    // refused it as "invalid uri character" (Exact patch 50). Any other URL
+    // goes out as written, and one the parser refuses is left for the hop's
+    // own checks to refuse.
+    if !is_uri(&request.url) {
+        if let Ok(parsed) = url::Url::parse(&request.url) {
+            request.url = parsed.into();
+        }
+    }
     if request.body_file.is_some() && (request.body.is_some() || request.form_data.is_some()) {
         return Err(HostError::InvalidArgument(
             "request has both a file body and another".into(),
@@ -1265,5 +1283,29 @@ mod tests {
             origin_of("https://example.com:8443/x").unwrap(),
             Origin::new("https", "example.com", 8443)
         );
+    }
+
+    /// Exact patch 50: a URL with a character a URI cannot hold goes out as a
+    /// browser serializes it; any other is sent as written, to both transports.
+    #[test]
+    fn a_url_the_web_would_encode_is_sent_encoded() {
+        let sent = |url: &str| prepare_body(Request::get(url)).unwrap().url;
+        assert_eq!(
+            sent("https://api.example.test/rows?select=*&details->>status=eq.open&q=a b"),
+            "https://api.example.test/rows?select=*&details-%3E%3Estatus=eq.open&q=a%20b"
+        );
+        assert_eq!(
+            sent("https://api.example.test/a path/\"x\""),
+            "https://api.example.test/a%20path/%22x%22"
+        );
+        for written in [
+            "https://api.example.test",
+            "https://api.example.test/rows?id=eq.1&select=a,b#top",
+            "http://[::1]:8787/x%20y",
+        ] {
+            assert_eq!(sent(written), written);
+        }
+        // Not a URL: left for the hop's checks.
+        assert_eq!(sent("not a url >"), "not a url >");
     }
 }

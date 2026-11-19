@@ -49,7 +49,7 @@ For an SDK-named folder such as `exact`, `--name Everbloom` supplies the crate p
 a prefix that still collides gains `-app`. The prefix stays in `package.json`'s `name` across
 updates and directory renames. Authored host crates keep their own names.
 `bun <exact2>/scripts/exact.mjs setup` takes a few minutes, a first macOS or iOS build ten to fifteen on a laptop, later builds a minute or two.
-Before a platform's first build, `bun <exact2>/scripts/exact.mjs setup --check --platform ios` (or `macos`, `android`, …) names what it lacks, the Xcode it needs among them: `exact new`'s table shows the web's rows alone.
+Before a platform's first build, `bun <exact2>/scripts/exact.mjs setup --check --platform ios` (or `macos`, `android`, …) names what it lacks, the Xcode it needs among them: `exact new`'s table shows the web's rows alone. A build for a phone (`share`, `ios --device`) needs more than a simulator's: add `--device`.
 Run each once and let it finish, in the background with a completion notification if your tool has one, rather than polling its log.
 
 On Linux or Windows through WSL, install the [iOS cross tools](../README.md#building-for-ios-on-linux-and-wsl)
@@ -90,19 +90,23 @@ when its source signatures change. `test` and `agent` build and refresh it on
 Rust/TypeScript apps with a composer (such as Fieldnotes), which also refresh the
 editor copy before type-checking. `contract build` reports a refresh on stderr.
 `contract types --check app.contract` checks freshness without writing.
-Committed launcher, schema and guide paths are relative to the app. An app first
-created inside a linked git worktree keeps its default checkout path
-relative to the app's location in the main worktree, including when that folder does
-not exist there yet. Its launcher works before and after the app is merged.
-`app.json`'s `$schema`, guide paths, Snapback readme and game-notes paths use that
-same main-tree location, so scaffolding and updates write identical committed
-bytes in either tree. An editor opened inside a worktree at a different depth
-may not resolve those paths; open the main-tree file or use `bun exact.mjs docs`
-for the guides. The launcher's Git fallback finds the checkout for running from
-the nested worktree. `update` refreshes the paths when the checkout moves.
+Each working tree has a gitignored `.exact/checkout` link to its local Exact checkout
+(a junction on Windows). First run `bun exact.mjs --help` to create it before opening
+the guides or installing packages. Committed schema paths, guide links, package
+`file:` dependencies, Snapback mounts and authored Cargo paths all pass through that
+link, so they have the same meaning in main and linked worktrees.
 
-`bun exact.mjs update` refreshes scaffold files and absolute `@exact/*` package paths for the
-checkout it runs from. It reports when `exact.mjs`'s default checkout path changes, including in a linked worktree. Run `bun install` when it reports changed package paths. An older Android
+The launcher uses `EXACT` first, then an existing link, then its recorded discovery
+seed. A relative `EXACT` is resolved from the app directory, regardless of cwd.
+A missing seed is also tried from the app's place in the main worktree, then beside
+the app and repository. Ambiguous discovery asks for `EXACT=<checkout>`.
+The seed is only a hint; build tools use the link's physical target.
+
+`bun exact.mjs update` refreshes scaffold files and migrates every relative or absolute
+`@exact/*` file dependency, override and resolution to `.exact/checkout`. It excludes
+that link from authored Cargo workspaces. Run
+`bun install` when it reports changed package paths. Retargeting the local link
+refreshes installed `file:` packages before checkout code consumes them. An older Android
 scaffold moves `canvas_jni!` to `exact-painted`; an authored dependency form gets the manual
 edit in the report. `update` also reports lock drift; `bun exact.mjs lock` refreshes it.
 
@@ -205,6 +209,7 @@ For EAS Build, use [iOS](recipes/eas-ios.md) or [Android](recipes/eas-android.md
 |a voice note's waveform, a bubble's tail (SVG in a row)|`waveform-and-tail`|
 |data the app ships and only reads (a JSON file `app.ts` imports)|`shipped-data`|
 |a long list or grid that loads more|`long-lists`|
+|a large local history with live arrivals and offline sends|[`large-live-list`](recipes/large-live-list.md)|
 |a document or article longer than a screen, a long Markdown note|`long-text`|
 |a welcome at first launch|`first-launch`|
 |a tip that teaches a control until it is used (TipKit)|`tips`|
@@ -318,8 +323,9 @@ component Groceries
   validation and button enablement follow typing. A text field fires `change` on Enter or
   blur; its handler should normalize the draft. Use `submit` for explicit submission.
 - **Expressions** are TypeScript's: what compiles means what it means in TypeScript, and
-  what does not is refused with what to write. The web's string and array methods are
-  methods (`s.trim()`, `xs.filter(x => …)`, `xs.length`); the rest are functions
+  what does not is refused with what to write. Nineteen of the web's string and array
+  methods are methods (`s.trim()`, `xs.filter(x => …)`), with `xs.length`: `trim`, `split`, `slice`, `includes`, `startsWith`, `endsWith`, `indexOf`, `replaceAll`, `toLowerCase`, `toUpperCase`, `at`, `concat`, `map`, `filter`, `join`, `flat`, `toFixed`, `toString`, `isEmpty`.
+  Any other (`trimEnd`, `find`, `sort`) is refused; the rest are functions
   (`first(xs)`, `round(n)`). What differs: no truthiness; absence is an option (`none`,
   `some(x)`, `match`), not `null`; a value never changes (`xs.concat([x])`, a record copy
   `Shape(old, field=value)`); `==` compares lists and records by value; a stored number is
@@ -353,9 +359,11 @@ component Groceries
 field fails a resource or voids a mutation’s reply, whose slot keeps its old value.
 Type the function returning a reply (`Promise<Result<'post'>>`) so the build names
 an extra field. It reaches only what its `grants` name. A value fixed at build, such as an
-API's origin, is `const API = import.meta.env.API_BASE_URL` at its top level, the name declared
-in `app.json`'s `env` ([your own REST server](recipes/rest-backend.md)). A failed read should
-fail its resource so Exact can retain its previous answer; a mutation may return
+API's origin, is `const API = import.meta.env.API_BASE_URL` in a top-level const of `app.ts`
+or an app-local module it imports transitively, the name declared
+in `app.json`'s `env` ([your own REST server](recipes/rest-backend.md)). Type-only imports
+read no settings.
+A failed read should fail its resource so Exact can retain its previous answer; a mutation may return
 a shaped domain refusal for its action to handle
 ([fetch with loading, error and retry](recipes/fetch-loading-error.md)). The clock and
 randomness are refused there; time comes as an argument. A date from a value
@@ -434,7 +442,7 @@ snapshot. The backend’s clock stays its own.
 | --- | --- | --- |
 | A node is there, or not | `expect tree has "<testId>"`, `expect tree missing "<testId>"` | `lacks`, `contains`, `not has`. It matches a `testId` only, never a label or text, unlike `tap` |
 | A node's text | `expect text "<testId>" == "the whole text"` | `contains`, `!=`. The text is compared whole, and a node with no text of its own reads its descendants' joined: a row's testId reads its buttons' labels too, so put the testId on the text node |
-| State | `expect state lib.notes.0.title == "Milk"` (two list indexes in a row take a space: `grid.0 .1`; a drive's `clock until state` takes the same path), `== []`, `== none`, `== true`; numeric bounds `>= 90`, `<= 110`; literal alternatives `in 0 1 2` | an expression on the right |
+| State | `expect state lib.notes.0.title == "Milk"` (two list indexes in a row take a space: `grid.0 .1`; a drive's `clock until state` takes the same path), `== []`, `== ["a", "b"]`, `== none`, `== true`, `!= "hint"`; numeric bounds `>= 90`, `<= 110`; literal alternatives `in 0 1 2`. Each also takes `state <path>` on the right: `expect state pinned == state locked`, `expect state mode in state allowedModes` | an arbitrary expression on the right |
 | A failed resource or mutation request | `expect text` on the view's `match failure(x) { case some(f) => f.code, case none => "" }`; `failed(x)` accepts either slot | `failure(x).code` without extracting the option. A thrown refusal is a request failure; an authored `{ok: false}` is a normal result |
 
 ## Pitfalls that cost the most

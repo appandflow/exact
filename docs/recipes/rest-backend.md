@@ -41,12 +41,21 @@ and stop it after; start none of your own for them. They find it this way:
   `"commands": { "server": ["bun", "server/main.ts"] }`. Another program runs as written
   (`["python3", "server.py"]`), told `DB` and `PORT` as Bun's is; its first argument that is a file
   of the app is the entry checked for `DB`. Arguments after the entry are passed through in order.
-- **Its address:** the first `http://127.0.0.1:<port>` in `app.ts` as the build has it, a setting's
-  value in place of its read (or in a module it imports, as the starter's `API`). To use another port, change it there; the server reads it from the same constant.
+- **Its address:** a local setting read by `app.ts`, else the first local setting in its
+  transitive imports, walked depth-first in source order, each module before its imports,
+  else the first literal `http://127.0.0.1:<port>` in that order. Settings are inlined at build.
+  Different local settings in the first module are ambiguous: keep the server's setting
+  in `app.ts` and other clients' settings in their modules.
+  Type-only imports and declarations supply no settings or addresses.
+  Discovery reads the build's record of its modules and the names its resolutions would
+  have chosen: `test` and `verify` build first, as a wrapper using
+  `withAppServer` must, and a newly added preferred extension needs a rebuild.
+  To use another port, change the setting; the server receives the same value.
   An origin fixed at build (a deployed API's) is a setting: `"env": ["API_BASE_URL"]` in `app.json`,
-  `const API = import.meta.env.API_BASE_URL ?? 'http://127.0.0.1:8080'` in `app.ts`, its value from the
-  environment, `.env.local` or `.env`, in that order. Keep the local server's address as the default.
-  The value is inlined into the module on every host, so a secret does not belong there.
+  `const API = import.meta.env.API_BASE_URL ?? 'http://127.0.0.1:8080'` in a top-level const of
+  `app.ts` or an app-local module it imports transitively. Its value comes from the environment,
+  `.env.local` or `.env`, in that order. Keep the local server's address as the default.
+  The value ships on every host, so a secret does not belong there.
 - **Its database:** the path in `DB`, which the entry or a module it imports reads:
   `new Database(process.env.DB ?? 'data.db')`.
   If the server keeps no database, set `"server": { "database": false }` beside

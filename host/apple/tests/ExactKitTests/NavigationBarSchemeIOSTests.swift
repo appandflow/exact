@@ -2,13 +2,14 @@
 import UIKit
 import XCTest
 @testable import ExactKit
+@testable import ExactNavigation
 
 extension NavigationBarIOSTests {
     /// A drawn face is an image for one scheme: the scheme changing while
     /// it shows draws it again in the other ink, though the app sends no batch.
     func testADrawnBarItemIsDrawnAgainWhenTheSchemeChanges() throws {
         let session = try fixture("scheme-face", module: false, plan: "BAR_FACE_SCHEME")
-        let nav = try XCTUnwrap(session.presenter.navigation.primaryNavigation)
+        let nav = try XCTUnwrap(session.presenter.navigationHost.primaryNavigation)
         let navigationItem = try XCTUnwrap(nav.topViewController?.navigationItem)
         let title = { ((navigationItem.leftBarButtonItems ?? []) + (navigationItem.rightBarButtonItems ?? [])).first { $0.accessibilityIdentifier == "title-home" } }
         // The brightest red among the face's opaque pixels: near 0 in black ink, near 255 in white.

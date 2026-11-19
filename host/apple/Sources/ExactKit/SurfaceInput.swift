@@ -113,8 +113,8 @@ extension Agent {
 
 #if os(iOS) || os(tvOS)
 /// Whether a hit view's touches are a surface's (a scroll or a modal lets them go).
-enum CanvasInputs {
-    static func owns(_ hit: UIView?) -> Bool {
+package enum CanvasInputs {
+    package static func owns(_ hit: UIView?) -> Bool {
         guard let view = hit as? NodeView else { return false }
         return !view.disabled && !view.inert && (view.canvases?.wantsInput(view.id) == true || view.isSurfaceControl)
     }

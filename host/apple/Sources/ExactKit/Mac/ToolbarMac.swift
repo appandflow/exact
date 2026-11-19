@@ -19,7 +19,7 @@
 #if os(macOS)
 import AppKit
 
-final class WindowToolbarHost: NSObject, NSToolbarItemValidation {
+package final class WindowToolbarHost: NSObject, NSToolbarItemValidation {
     unowned let presenter: Presenter
     private(set) weak var window: NSWindow?
     private(set) var toolbar: NSToolbar?
@@ -388,7 +388,7 @@ final class WindowToolbarHost: NSObject, NSToolbarItemValidation {
     }
 
     private func children(_ node: NodeView) -> [NodeView] {
-        node.container.subviews.compactMap { $0 as? NodeView }
+        node.childNodes
     }
 
     /// A native button's prominent style is a prominent item, tinted by its
@@ -568,7 +568,7 @@ final class WindowToolbarHost: NSObject, NSToolbarItemValidation {
         if let said { presenter.session?.log("window header: \(said)") }
     }
 
-    func sync() {
+    package func sync() {
         guard !syncing else { return }
         let adopted = header?.segments
         syncing = true
@@ -622,8 +622,8 @@ final class WindowToolbarHost: NSObject, NSToolbarItemValidation {
         // A list beside its detail (LLP 1115.002 D4): the bar's items stop
         // at the divider between them and begin again after it, so each
         // header's buttons are over its own column.
-        let split = presenter.navigation.split, columns = declared == nil && split.active && split.controller?.view.window === window
-        let listIsOwner = header == nil || header?.route === split.shown?.list
+        let split = presenter.navigation.stackSplit, columns = declared == nil && split.active && split.window === window
+        let listIsOwner = header == nil || header?.route === split.shownSplit?.list
         let (over, after): (WindowHeader?, WindowHeader?) = !columns ? (header, nil) : listIsOwner ? (header, beside) : (beside, header)
         let installing = toolbar == nil
         if installing {
@@ -845,14 +845,14 @@ final class WindowToolbarHost: NSObject, NSToolbarItemValidation {
             return NSTrackingSeparatorToolbarItem(identifier: identifier, splitView: split, dividerIndex: 0)
         }
         // The same for the divider between a list and its detail (LLP 1115.002 D4).
-        if identifier == Self.listSeparatorIdentifier, let controller = presenter.navigation.split.controller {
-            return NSTrackingSeparatorToolbarItem(identifier: identifier, splitView: controller.splitView, dividerIndex: controller.listDivider)
+        if identifier == Self.listSeparatorIdentifier, let divider = presenter.navigation.stackSplit.listDivider {
+            return NSTrackingSeparatorToolbarItem(identifier: identifier, splitView: divider.view, dividerIndex: divider.index)
         }
         if let group = segments.item, group.itemIdentifier == identifier { return group }
         if let field = search.item, field.itemIdentifier == identifier { return field }
         return items.values.first { $0.itemIdentifier == identifier } ?? appItems.first { $0.itemIdentifier == identifier }
     }
-    func validateToolbarItem(_ item: NSToolbarItem) -> Bool {
+    package func validateToolbarItem(_ item: NSToolbarItem) -> Bool {
         syncAccessibility()
         if item === backItem { return toolbar != nil && window?.toolbar === toolbar && presenter.navigation.canGoBack }
         if item === historyItem { return syncHistory() }

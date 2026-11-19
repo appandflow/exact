@@ -49,12 +49,16 @@ mod reorder_group;
 pub use intersect::Intersection;
 pub use shown::BlockPlacement;
 mod box_resize;
+mod geometry_facts;
 mod resize;
 pub use resize::{ResizeRect, UNDELIVERED as RESIZE_UNDELIVERED};
 mod held;
 mod live;
 mod mode;
 pub use held::Asked;
+mod audio_seam;
+#[cfg(test)]
+mod audio_seam_tests;
 mod forma;
 mod root_font;
 mod shown;
@@ -112,6 +116,9 @@ pub(crate) mod kept;
 mod kept_tests;
 mod kept_wait;
 mod lines;
+mod list_seam;
+#[cfg(test)]
+mod list_seam_tests;
 mod lists;
 mod media_session;
 pub mod outstanding;
@@ -125,12 +132,14 @@ mod perf;
 pub mod persist;
 mod query;
 mod queue;
+mod render;
 mod resource_inspection;
 mod world_origin;
 pub use queue::QUEUE_BOUND;
 mod history;
 pub mod router;
-pub use lists::{ListTextPolicy, ListTextPosition};
+pub use crate::list_api::{ListTextPolicy, ListTextPosition};
+mod revalidation;
 mod settlement;
 pub(crate) use settlement::zero;
 mod sockets;
@@ -150,8 +159,11 @@ pub use presence_secrets::{PresenceAnswer, PresenceAsk};
 mod processes;
 mod provenance;
 mod seams;
+pub use audio_seam::{Audio, LinkedAudio, NoAudio};
+pub use list_seam::Lists;
+pub(crate) use processes::refusal as process_refusal;
 pub use provenance::CallOrigin;
-pub use seams::{ModuleLinks, PresenceSecrets, Tools};
+pub use seams::{ModuleLinks, PresenceSecrets, TextAxes, Tools};
 mod wakes;
 pub use wakes::WakeHow;
 #[cfg(test)]
@@ -207,6 +219,10 @@ struct ResourceState {
     /// readiness (LLP 1027.005 D3). Settlement and rollback copy this with
     /// its value; activation or losing that identity consumes it.
     kept_seed: bool,
+    /// The rendered page's answer, seeded from its checkpoint (LLP 1048.000
+    /// D6), until another value replaces it: what the first frame showed is
+    /// the page's, not the last session's.
+    from_page: bool,
     /// The sequence when this answer was asked (0 for a compiled, kept,
     /// carried or placeholder value): a write that landed before it is
     /// answered by it (`writes.rs`).
@@ -278,6 +294,7 @@ struct PendingReq {
     keepable: Option<Request>,
     /// An answer that keeps coming (LLP 1016.000): what it has delivered.
     stream: Option<StreamCount>,
+    stream_url: Option<Box<str>>,
     /// An upload's answer ([`Request::upload_progress`]), including its reply's later turns.
     upload: bool,
     /// The upload has begun to go out (`UPLOAD_SENDING`, or its first bytes
@@ -365,6 +382,8 @@ pub struct Runner<D: DataSource> {
     strings: vm::Strings,
     sites: crate::instance::SiteIndex,
     inspection_digest: std::cell::OnceCell<String>,
+    /// The plan's tab panel sites and whether each needs a navigation controller (`Runner::panels_need_navigation`).
+    panel_navigation: std::cell::OnceCell<(Vec<NodesId>, Vec<bool>)>,
     /// [`Runner::keeps_midi`], made at the first agent read.
     keeps_midi: std::cell::OnceCell<bool>,
     action_binding_origin: std::rc::Rc<()>,
@@ -396,7 +415,8 @@ pub struct Runner<D: DataSource> {
     /// Its role overrides, its own (LLP 1121 stage 5; [`Runner::roles`]).
     roles: exact_kernel::style::roles::Installed,
     /// The session the owner's token names (LLP 1094 D4).
-    reorder_session: Option<Box<reorder_group::Session>>,
+    /// Only the list engine makes one (`reorder_group::Session`).
+    reorder_session: Option<Box<dyn std::any::Any>>,
     /// A grouped drop's source while its `reorderdrop` runs (D2).
     dropping_from: Option<exact_kernel::NodeKey>,
     ids: Ids,
@@ -407,7 +427,7 @@ pub struct Runner<D: DataSource> {
     batch: u64,
     commands: Vec<Command>,
     /// `scrollIntoView` commands an action stated, run after its update.
-    into_view: Vec<crate::instance::collection::IntoView>,
+    into_view: Vec<crate::list_api::IntoView>,
     /// Where the host last showed each scroller (`frame`, LLP 1051.000 D1).
     scrolled: crate::geometry::Scrolled,
     /// Each `resize` handler's node and the content box last delivered.
@@ -419,7 +439,7 @@ pub struct Runner<D: DataSource> {
     /// Views the next applied batch renews (LLP 1078): rebound list rows.
     renewed: Vec<ViewId>,
     /// Rows the next batch mounts out of their port, and those that showed (LLP 1055 D13).
-    shown: crate::instance::collection::shown::RowsShown,
+    shown: crate::list_api::RowsShown,
     /// Retiring list rows are rebound to new items ([`Runner::set_row_reuse`]).
     reuse: bool,
     /// The 2D canvases (LLP 1056 D4), when Canvas 2D is linked.
@@ -579,6 +599,8 @@ pub struct Runner<D: DataSource> {
     // @ref LLP 1039 D2 — the layout size before settlement.
     viewport: crate::Viewport,
     viewport_geometry: crate::viewport::Geometry,
+    // @ref LLP 1123 D6 — the geometry facts' answers and their bound.
+    geometry: geometry_facts::Facts,
     // @ref LLP 1069.000 D2 — visibility, connectivity, the share sheet.
     page: crate::page::Page,
     presented: crate::page::Presented, // `exactPage().presented` (LLP 1069.000 D2)
@@ -586,7 +608,7 @@ pub struct Runner<D: DataSource> {
     // @ref LLP 1027.000.000 — the date, once the host says it.
     time: crate::time::WallTime,
     live_times: live_time::LiveTimes,
-    text_axes: text_axes::TextAxes,
+    text_axes: seams::TextAxesState,
     place: crate::time::Place,
     host_direction: Option<exact_kernel::Direction>, // the platform's, told at launch ([`Runner::direction`])
     surface_records: exact_kernel::SortedMap<String, String>,
@@ -606,12 +628,9 @@ pub struct Runner<D: DataSource> {
     device_holds: Vec<device::Hold>,
     /// Replies landed for held requests, by target (LLP 1016.000 D9): `clock held`'s evidence.
     held_replies: Vec<(String, u64)>,
-    /// The voice table (LLP 1096 D5): what the app's sounds scheduled.
-    sounds: crate::sound::Sounds,
-    /// The transport (LLP 1125 D3): the sequence playing and its record.
-    transport: crate::transport::Transport,
-    /// MIDI (LLP 1125 D6–D8): the ports, the queue and what inputs delivered.
-    midi: crate::midi::Midi,
+    /// The voice table (LLP 1096 D5), the transport (LLP 1125 D3) and the
+    /// MIDI queue, behind the audio seam.
+    audio: audio_seam::AudioState,
     /// The app's `setRootFontSize` over the host's size (LLP 1069.000 D3).
     root_font: root_font::RootFont,
     /// What a development host holds over the app's own, and what the app asked of it (LLP 1122 T7).
@@ -687,6 +706,9 @@ impl<D: DataSource> Runner<D> {
     ) -> Result<Runner<D>, RunnerError> {
         let program = plan.into();
         let plan = &*program;
+        if let Some(preferences) = crate::time::launch_preferences() {
+            viewport.preferences = preferences;
+        }
         viewport.device_pixel_ratio = kernel
             .reported_display_scale()
             .map(f64::from)
@@ -839,15 +861,24 @@ impl<D: DataSource> Runner<D> {
         let booting = exact_kernel::style::roles::bind(&roles);
         root_font::bold_text_facts(&mut kernel, &plan, viewport.preferences.bold_text); // LLP 1115.000 D12.3
         let viewport_geometry = crate::viewport::Geometry::of(&kernel);
-        let seams = seams.for_plan(&plan, !store.presence_names().is_empty());
+        let seams = seams.for_plan(
+            &plan,
+            !store.presence_names().is_empty(),
+            links.lists.is_some(),
+        );
+        // The instance tree's list table runs only beside the runner's half.
+        let links = RunnerLinks {
+            lists: links.lists.filter(|_| seams.lists.linked()),
+            ..links
+        };
         let mut runner = Runner {
             sites,
             strings,
             failed_mut: vec![None; plan.mutations.len()],
-            transport: crate::transport::Transport::new(&plan),
-            midi: crate::runner::midi::queue(&plan, &data),
+            audio: audio_seam::AudioState(seams.audio.state(&plan, &data)),
             plan,
             inspection_digest: std::cell::OnceCell::new(),
+            panel_navigation: std::cell::OnceCell::new(),
             keeps_midi: std::cell::OnceCell::new(),
             action_binding_origin: std::rc::Rc::new(()),
             completion_identity: Default::default(),
@@ -885,7 +916,6 @@ impl<D: DataSource> Runner<D> {
             clock: Default::default(),
             batch: 0,
             commands: Vec::new(),
-            sounds: Default::default(),
             root_font: Default::default(),
             held: Default::default(),
             fonts: Default::default(),
@@ -954,11 +984,12 @@ impl<D: DataSource> Runner<D> {
             delivery,
             viewport,
             viewport_geometry,
+            geometry: Default::default(),
             page: Default::default(),
             presented: crate::page::Presented::at_boot(),
             time: crate::time::launch_time(),
             live_times: Default::default(),
-            text_axes: Default::default(),
+            text_axes: seams::TextAxesState(seams.text_axes.state()),
             place: launched_place.clone().unwrap_or_default(),
             window_name: crate::time::launch_window_name(),
             host_direction: crate::time::launch_direction(),
@@ -1022,6 +1053,7 @@ impl<D: DataSource> Runner<D> {
                         store_revision: runner.store.revision(),
                         placeholder: false,
                         kept_seed: false,
+                        from_page: false,
                         answered_for: None,
                         asleep: false,
                         slept: false,
@@ -1082,7 +1114,8 @@ impl<D: DataSource> Runner<D> {
         // No commit's end follows the boot's settlement: what it did here.
         runner.hear_forgotten();
         runner.keep_sent(false);
-        runner.transport_stood();
+        let audio = runner.seams.audio;
+        audio.transport_stood(&mut runner);
         // First frame.
         let mut ids = std::mem::take(&mut runner.ids);
         ids.tabs.carried = carried.map(|c| c.panels.clone()).unwrap_or_default();

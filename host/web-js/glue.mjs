@@ -15,7 +15,7 @@ export const HOST_WEB_GLUE = [
   // Virtualized lists' browser half; animated images on the agent's clock (agent.js only); Canvas 2D's replayer.
   'collection-glue.js', 'list-selection.js', 'image-glue.js', 'canvas2d-glue.js',
   // An iframe's navigation records and commands (commands.js, rt.js `onFrameNavigation`; LLP 1020.002).
-  'frame-navigation.js', 'frame-messages.js',
+  'frame-navigation.js', 'frame-messages.js', 'symbol-geometry.js',
   // Sign-in, storage, request bodies, injected faults and the local network's spaces (ts-data.js, auth.js, admission.js, agent.js, modules.js).
   'auth-glue.js', 'storage-environment.js', 'http-body.js', 'faults.js', 'address-space.js',
   // The scroll to a location's fragment, at its first (router.js; LLP 1153 D5).
@@ -55,6 +55,7 @@ export function driverRuntime(root) {
 
 /** A runtime module's `../web/…` imports, pointed at the copies beside it. */
 export const localImports = text => text
+  .replaceAll('"../web/symbol-geometry.js"', '"./symbol-geometry.js"')
   .replaceAll("'../web/grant-admission.js'", "'./grant-admission.js'")
   .replaceAll("'../web/faults.js'", "'./faults.js'")
   .replaceAll("'../web/address-space.js'", "'./address-space.js'")

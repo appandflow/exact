@@ -9,6 +9,8 @@
 //! trusted. There is no closure, no heap of the VM's own, no ambient read that
 //! is not an operand: `performanceNow()` reads the clock the runner passes in.
 
+mod constant;
+pub use constant::{eval_constant, ConstantFailure};
 mod column;
 pub use column::Column;
 mod constants;
@@ -56,6 +58,9 @@ pub const MAX_VALUE_DEPTH: u32 = 64;
 /// each item `join` prints is a step. A body is straight-line code with
 /// forward jumps, so this bounds how many instructions an evaluation runs.
 pub const MAX_LIST_STEPS: u32 = 1 << 16;
+
+/// The deepest executable derive calls may nest in one evaluation.
+pub const MAX_CALL_DEPTH: u16 = 64;
 
 /// Only extents at least this large are remembered: smaller ones cost less
 /// to walk again than to look up.
@@ -670,7 +675,7 @@ fn eval_machine(
     allowed_writes: &[u32],
     scratch: &mut Scratch,
 ) -> Result<Outcome, Trap> {
-    eval_machine_main(code, env, allowed_writes, scratch, |_| ()).0
+    eval_machine_main::<false, _>(code, env, allowed_writes, scratch, |_| ()).0
 }
 
 fn eval_machine_accounted(
@@ -679,7 +684,7 @@ fn eval_machine_accounted(
     allowed_writes: &[u32],
     scratch: &mut Scratch,
 ) -> (Result<Outcome, Trap>, Accounting) {
-    eval_machine_main(code, env, allowed_writes, scratch, |run| Accounting {
+    eval_machine_main::<false, _>(code, env, allowed_writes, scratch, |run| Accounting {
         calls: run.calls,
         list_steps: run.steps,
         call_depth: run.depth,
@@ -688,14 +693,14 @@ fn eval_machine_accounted(
 
 // The generic capture is unit on the ordinary path, so that instantiation
 // neither constructs an Accounting nor reads the counters after evaluation.
-fn eval_machine_main<R>(
+fn eval_machine_main<const CONSTANT: bool, R>(
     code: &[u8],
     env: &Env<'_>,
     allowed_writes: &[u32],
     scratch: &mut Scratch,
-    capture: impl FnOnce(&Run<'_, '_>) -> R,
+    capture: impl FnOnce(&Run<'_, '_, CONSTANT>) -> R,
 ) -> (Result<Outcome, Trap>, R) {
-    let mut run = Run {
+    let mut run = Run::<CONSTANT> {
         env,
         code,
         allowed_writes,
@@ -713,6 +718,7 @@ fn eval_machine_main<R>(
         steps: 0,
         calls: 0,
         depth: 0,
+        refused_read: None,
     };
     let value = machine::run(&mut run, &mut scratch.machine);
     let captured = capture(&run);
@@ -877,7 +883,7 @@ impl Val for Value {
 }
 
 /// One evaluation's environment, effects and bounds: the machine's host.
-struct Run<'e, 'a> {
+struct Run<'e, 'a, const CONSTANT: bool> {
     env: &'e Env<'a>,
     code: &'e [u8],
     allowed_writes: &'e [u32],
@@ -890,13 +896,29 @@ struct Run<'e, 'a> {
     steps: u32,
     calls: u32,
     depth: u16,
+    refused_read: Option<String>,
 }
 
-impl Host<Value> for Run<'_, '_> {
-    type Extent = Extent;
+impl<const CONSTANT: bool> Run<'_, '_, CONSTANT> {
+    #[inline]
+    fn fetch_instruction(&mut self, pos: usize) -> Result<Option<(Instruction, usize)>, Trap> {
+        let found = self.decode_instruction(pos)?;
+        let read = if CONSTANT {
+            found
+                .as_ref()
+                .and_then(|(ins, _)| constant::read(self.env.plan, ins))
+        } else {
+            None
+        };
+        if let Some(name) = read {
+            self.refused_read = Some(name);
+            return Err(Trap::Malformed { pc: pos });
+        }
+        Ok(found)
+    }
 
     #[inline]
-    fn fetch(&mut self, pos: usize) -> Result<Option<(Instruction, usize)>, Trap> {
+    fn decode_instruction(&mut self, pos: usize) -> Result<Option<(Instruction, usize)>, Trap> {
         if pos >= self.code.len() {
             return Ok(None);
         }
@@ -920,6 +942,15 @@ impl Host<Value> for Run<'_, '_> {
         let next = self.cursor.position();
         self.decoded.keep(pos, ins, next);
         Ok(Some((ins, next)))
+    }
+}
+
+impl<const CONSTANT: bool> Host<Value> for Run<'_, '_, CONSTANT> {
+    type Extent = Extent;
+
+    #[inline]
+    fn fetch(&mut self, pos: usize) -> Result<Option<(Instruction, usize)>, Trap> {
+        self.fetch_instruction(pos)
     }
 
     #[inline]
@@ -957,7 +988,7 @@ impl Host<Value> for Run<'_, '_> {
             if self.calls > 65_536 {
                 return Err(Trap::CallLimit { pc });
             }
-            if self.depth >= 64 {
+            if self.depth >= MAX_CALL_DEPTH {
                 return Err(Trap::CallDepth { pc });
             }
             let frames = env
@@ -970,7 +1001,7 @@ impl Host<Value> for Run<'_, '_> {
                 ..*env
             };
             let code = env.plan.code(row.body);
-            let mut nested = Run {
+            let mut nested = Run::<CONSTANT> {
                 env: &nested_env,
                 code,
                 allowed_writes: &[],
@@ -986,8 +1017,10 @@ impl Host<Value> for Run<'_, '_> {
                 steps: self.steps,
                 calls: self.calls,
                 depth: self.depth + 1,
+                refused_read: None,
             };
             let value = machine::run(&mut nested, &mut Machine::default());
+            self.refused_read = nested.refused_read;
             self.steps = nested.steps;
             self.calls = nested.calls;
             self.extents = nested.extents;

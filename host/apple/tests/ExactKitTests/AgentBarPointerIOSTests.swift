@@ -2,6 +2,7 @@
 import UIKit
 import XCTest
 @testable import ExactKit
+@testable import ExactNavigation
 
 final class AgentBarPointerIOSTests: XCTestCase {
     private var session: ExactSession?
@@ -45,7 +46,7 @@ final class AgentBarPointerIOSTests: XCTestCase {
         view.frame = host.view.bounds
         view.layoutIfNeeded()
         until {
-            session.presenter.navigation.primaryNavigation?.topViewController is RouteController &&
+            session.presenter.navigationHost.primaryNavigation?.topViewController is RouteController &&
                 !Agent(session: session).nativeInFlight()
         }
         return session
@@ -87,9 +88,9 @@ final class AgentBarPointerIOSTests: XCTestCase {
     private func checkABarItemIsPlacedOnlyAtItsOwnControl() throws {
         let session = try fixture("EXACT_BAR_OVERFLOW_PLAN"), p = session.presenter, agent = Agent(session: session)
         p.press(try node(session, "open-board").id)
-        until { p.navigation.primaryNavigation?.viewControllers.count == 2 && !agent.nativeInFlight() }
+        until { p.navigationHost.primaryNavigation?.viewControllers.count == 2 && !agent.nativeInFlight() }
         try requireFront(window)
-        let nav = try XCTUnwrap(p.navigation.primaryNavigation), bar = nav.navigationBar
+        let nav = try XCTUnwrap(p.navigationHost.primaryNavigation), bar = nav.navigationBar
         let navigationItem = try XCTUnwrap(nav.topViewController?.navigationItem)
         let appPress = p.onPress
         var presses: [UInt32] = []
@@ -200,8 +201,8 @@ final class AgentBarPointerIOSTests: XCTestCase {
 
     private func assertVisibleSegmentPoint(_ session: ExactSession, _ testId: String) throws {
         let p = session.presenter, tab = try node(session, testId), agent = Agent(session: session)
-        until { p.navigation.barSegment(tab) != nil && !agent.nativeInFlight() }
-        let shown = try XCTUnwrap(p.navigation.barSegment(tab))
+        until { p.navigationHost.barSegment(tab) != nil && !agent.nativeInFlight() }
+        let shown = try XCTUnwrap(p.navigationHost.barSegment(tab))
         let point = shown.control.convert(CGPoint(x: shown.segment.midX, y: shown.segment.midY), to: nil)
         let expected = p.client(point)
         var samples: [PointerSample] = []
@@ -235,10 +236,10 @@ final class AgentBarPointerIOSTests: XCTestCase {
     func testABarReadoutBubblesPointersWithoutPressing() throws {
         let session = try fixture(), p = session.presenter, agent = Agent(session: session)
         p.press(try node(session, "open-plain").id)
-        until { (p.navigation.primaryNavigation?.topViewController as? RouteController)?.node.props["testId"] == "route-plain" && !p.navigation.inTransition }
+        until { (p.navigationHost.primaryNavigation?.topViewController as? RouteController)?.node.props["testId"] == "route-plain" && !p.navigationHost.inTransition }
         try node(session, "navigation").handlers.formUnion(["pointerdown", "pointerup"])
         let readout = try node(session, "readout-plain")
-        let route = try XCTUnwrap(p.navigation.primaryNavigation?.topViewController as? RouteController)
+        let route = try XCTUnwrap(p.navigationHost.primaryNavigation?.topViewController as? RouteController)
         var events: [String] = [], presses: [UInt32] = []
         p.onPointer = { _, kind, sample in
             events.append(kind == .down ? "down" : "up")
@@ -258,7 +259,7 @@ final class AgentBarPointerIOSTests: XCTestCase {
             XCTAssertTrue(presses.isEmpty, "a readout has no press action")
         }
         var checked = false
-        let refused = p.navigation.activateChrome(readout, before: { _ in checked = true; return false })
+        let refused = p.navigationHost.activateChrome(readout, before: { _ in checked = true; return false })
         XCTAssertTrue(checked)
         XCTAssertNotNil(refused?["error"], "a refused pointer delivery is not acknowledged as a tap")
         // A readout the bar does not show has no place for a pointer
@@ -282,7 +283,7 @@ final class AgentBarPointerIOSTests: XCTestCase {
             }
         }
         p.onPress = { presses.append($0) }
-        XCTAssertNotNil(p.navigation.barSegment(tab))
+        XCTAssertNotNil(p.navigationHost.barSegment(tab))
         _ = Agent(session: session).tap(["id": Int(tab.id)])
         XCTAssertEqual(downs, 1)
         XCTAssertTrue(tab.ariaUnavailable)

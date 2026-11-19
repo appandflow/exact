@@ -2,10 +2,11 @@
 // `svg`'s scene, an SVG document an image or an icon draws, and the island
 // and filter modules. The core reaches it only through what this file
 // declares, and `ExactSvg.install()` sets its slots; without it no file reads
-// as SVG, and a plan with an `svg` is refused at boot (`Unlinked("effects, svg")`). Box
-// animations are the core's (`BoxAnimations`). SVG's filters run on box
-// effects' filter engine (`BoxFilterLink`), so the SVG product depends on
-// that one, never the other way, and a composition that links SVG links it.
+// as SVG, and a plan with an `svg` is refused at boot (`Unlinked("effects, svg")`).
+// SVG's filters run on box effects' filter engine (`BoxFilterLink`), so the
+// SVG product depends on that one, never the other way, and a composition
+// that links SVG links it. Its elements' CSS animations play through the
+// animations product's code (`CssAnimations`), which it links with it.
 import CoreGraphics
 import CoreText
 import Foundation

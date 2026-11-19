@@ -12,6 +12,7 @@ fn css(rows: &[(StyleId, StyleValue)], fonts: &[&str]) -> String {
 
 #[test]
 fn explicit_transition_none_covers_no_property_in_the_browser() {
+    exact_kernel::style::link_all();
     assert_eq!(css(&[], &[]), "");
     assert_eq!(
         css(
@@ -80,6 +81,7 @@ fn cursor_emits_the_css_keyword_including_explicit_auto_override() {
 /// text had them, byte for byte.
 #[test]
 fn composed_declarations_keep_their_text() {
+    exact_kernel::style::link_all();
     let cases = [
         css(
             &[(StyleId::FontFamily, StyleValue::Number(0.0))],
@@ -232,6 +234,7 @@ fn layout_rows_keep_their_css() {
 
 #[test]
 fn every_grid_row_has_css_and_none_is_skipped() {
+    exact_kernel::style::link_all();
     fn t(s: &str) -> StyleValue<'_> {
         StyleValue::Text(s.into())
     }
@@ -382,6 +385,7 @@ fn a_capsule_control_takes_no_curve() {
 
 #[test]
 fn background_image_is_one_declaration_over_the_colour() {
+    exact_kernel::style::link_all();
     fn t(s: &str) -> StyleValue<'_> {
         StyleValue::Text(s.into())
     }
@@ -419,6 +423,7 @@ fn background_image_is_one_declaration_over_the_colour() {
 /// authored transition list intact; 1 needs no effect.
 #[test]
 fn a_press_scale_keeps_the_authored_scale_and_transitions() {
+    exact_kernel::style::link_all();
     let n = StyleValue::Number;
     fn t(s: &str) -> StyleValue<'_> {
         StyleValue::Text(s.into())
@@ -456,6 +461,7 @@ fn a_press_scale_keeps_the_authored_scale_and_transitions() {
 /// its picture every frame).
 #[test]
 fn only_a_pressable_node_animates_the_scale_custom_property() {
+    exact_motion::link_animations();
     use exact_motion::animation::{Animations, Keyframes};
     let mut list = Animations::parse("grow 1s linear infinite, fade 2s").unwrap();
     list.0[0].keyframes = Keyframes::parse("from{scale:1;translate:0px 0px}to{scale:1.6}").unwrap();

@@ -111,6 +111,7 @@ impl<D: DataSource> Runner<D> {
             fetch: None,
             keepable: None,
             stream: None,
+            stream_url: None,
             upload: false,
             sent: false,
             grant: None,

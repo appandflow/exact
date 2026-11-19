@@ -22,9 +22,9 @@ impl ClipPath {
     /// Basic shapes in px or %, `none`, `url(#id)`, or `path()`: a fill rule, then
     /// SVG path data in a quoted string. Data with any error is refused
     /// whole, as CSS refuses the declaration; so is data that draws nothing.
-    /// On the web, once linked ([`crate::style::link_effects`]).
+    /// Once linked ([`crate::style::link_clip_path`]).
     pub fn parse(css: &str) -> Option<Self> {
-        crate::style::effects::parse(css, |e| e.clip_path)
+        crate::style::effects::clip_path(css)
     }
 
     /// [`Self::parse`]'s grammar.

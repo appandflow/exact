@@ -1,17 +1,28 @@
 //! Authored tests: a `test` block and its steps (LLP 1017 P7).
 use crate::{Expr, Span, TapForm};
 
-/// The literal comparison in an authored `expect state` step.
+/// The comparison in an authored `expect state` step.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StateComparison {
-    /// Structural literal equality.
+    /// Structural equality.
     Equal,
+    /// Structural inequality.
+    NotEqual,
     /// A numeric lower bound, inclusive.
     AtLeast,
     /// A numeric upper bound, inclusive.
     AtMost,
-    /// Membership in a list of literal alternatives.
+    /// Membership in a list of alternatives.
     In,
+}
+
+/// The right operand of an authored state assertion.
+#[derive(Debug, Clone, PartialEq)]
+pub enum StateOperand {
+    /// A value literal, or the alternatives for `in`.
+    Literal(Expr),
+    /// A declaration followed by fields and list indexes, joined by `.`.
+    State(String),
 }
 
 /// `test "name"` with steps: the agent API's own operations (LLP 1012) and
@@ -175,6 +186,13 @@ pub enum Step {
     /// `pass fetch "…"`: the prefix stops failing or answering (LLP 1103).
     PassFetch {
         /// The prefix a `fail fetch` armed.
+        prefix: String,
+        /// Where.
+        span: Span,
+    },
+    /// End open network streams whose URL starts with the prefix.
+    DropStream {
+        /// The URL prefix.
         prefix: String,
         /// Where.
         span: Span,
@@ -384,16 +402,16 @@ pub enum Step {
         /// Where.
         span: Span,
     },
-    /// `expect state name <comparison> literal`: a slot, derive, or resource from the
+    /// `expect state name <comparison> <operand>`: a slot, derive, or resource from the
     /// `state` reply, or a field of one (`name.field.field`, feed F10), or a
-    /// list index (`rows.0`, drums R7), compared to a value literal.
+    /// list index (`rows.0`, drums R7).
     ExpectState {
         /// The declaration's name, then fields and list indexes, joined by `.`.
         name: String,
         /// The comparison.
         comparison: StateComparison,
-        /// The literal, or a list of alternatives for `in`.
-        value: Expr,
+        /// A literal or another state path.
+        value: StateOperand,
         /// Where.
         span: Span,
     },

@@ -38,6 +38,11 @@ mod tree;
 use tree::props_json;
 pub use tree::tagged;
 
+/// Whether this launch carries the native agent in either clock mode.
+pub fn carried() -> bool {
+    matches!(std::env::var("EXACT_AGENT").as_deref(), Ok("1" | "live"))
+}
+
 /// Answer one request: `{"op":"tree"}`, `{"op":"state"}`,
 /// `{"op":"logs","since":N}`, `{"op":"node","id":V}` — the runner's half
 /// of `layout <node>` (LLP 1035.002 D1) — or `{"op":"tags"}`, the identity
@@ -780,6 +785,11 @@ pub fn state<D: DataSource>(runner: &Runner<D>) -> String {
 
 /// [`state`] for a request, which may ask `"sounds":"all"` (LLP 1096 D10).
 pub fn state_with<D: DataSource>(runner: &Runner<D>, request: &str) -> String {
+    state_at(runner, request, runner.now_ms())
+}
+
+/// Read committed state, evaluating the sound journal at the observation time.
+pub fn state_at<D: DataSource>(runner: &Runner<D>, request: &str, observed_ms: f64) -> String {
     let plan = runner.plan();
     let mut s = String::new();
     let _ = write!(
@@ -859,6 +869,8 @@ pub fn state_with<D: DataSource>(runner: &Runner<D>, request: &str) -> String {
     );
     s.push_str(",\"displayMode\":");
     quote(media.display_mode.keyword(), &mut s);
+    s.push_str(",\"screenReader\":");
+    quote(media.screen_reader.keyword(), &mut s);
     s.push_str(",\"navigationType\":");
     quote(page.navigation_type(), &mut s);
     let _ = write!(
@@ -998,7 +1010,7 @@ pub fn state_with<D: DataSource>(runner: &Runner<D>, request: &str) -> String {
         s.push_str(",\"wake\":");
         s.push_str(&wake.to_string());
     }
-    sound::state(runner, request, &mut s);
+    sound::state(runner, request, observed_ms.max(runner.now_ms()), &mut s);
     crate::wakelock::state(runner, &mut s);
     crate::orientation::state(runner, &mut s);
     crate::desktop::state(runner, &mut s);
@@ -1236,6 +1248,9 @@ fn faults<D: DataSource>(runner: &Runner<D>, request: &str) -> String {
     let table = runner.faults();
     let full_request = request;
     let request = after_key(request, "faults").unwrap_or("{}");
+    if after_key(request, "dropStream").is_some() {
+        return error("drop stream is unavailable on this host");
+    }
     if let Some(prefix) = field_str(request, "answer") {
         let value: serde_json::Value = match serde_json::from_str(full_request) {
             Ok(v) => v,
@@ -1263,6 +1278,24 @@ fn faults<D: DataSource>(runner: &Runner<D>, request: &str) -> String {
         }
     }
     format!("{{\"faults\":{}}}", table.json())
+}
+
+/// Handle an immediate stream fault before the host's read-only agent operations.
+/// The host publishes the returned commits and cancels the retired transports.
+pub fn drop_stream<D: DataSource>(
+    runner: &mut Runner<D>,
+    request: &str,
+) -> Option<Result<crate::Advanced, String>> {
+    if field_str(request, "op").as_deref() != Some("prefer") {
+        return None;
+    }
+    let faults = after_key(request, "faults")?;
+    after_key(faults, "dropStream")?;
+    let prefix = field_str(faults, "dropStream").filter(|s| !s.is_empty());
+    Some(match prefix {
+        Some(prefix) => runner.drop_streams(&prefix),
+        None => Err("drop stream needs a URL prefix".into()),
+    })
 }
 
 #[cfg(test)]

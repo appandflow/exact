@@ -105,6 +105,40 @@ final class IconPathTests: XCTestCase {
         XCTAssertTrue(v.symbolFound)
     }
 
+    @MainActor func testSFBackedTemplatesPositionTheirMeasuredNativeBox() throws {
+        let p = presenter(icon(2, [:], sf: "heart.fill")), node = try XCTUnwrap(p.views[2])
+        let natural = try XCTUnwrap(node.image).size
+        let positions: [([Any]?, CGFloat, CGFloat)] = [
+            (nil, 0.5, 0.5), ([7.0, 11.0], 7, 11),
+            ([["pct": 25.0], ["pct": 75.0]], 0.25, 0.75), (["invalid", 11.0], 0.5, 0.5)
+        ]
+        for fit in ["contain", "cover", "fill", "none", "scale-down"] {
+            let contain = min(160 / natural.width, 80 / natural.height)
+            let scale = fit == "none" ? 1 : fit == "scale-down" ? min(1, contain)
+                : fit == "cover" ? max(160 / natural.width, 80 / natural.height) : contain
+            let size = fit == "fill" ? CGSize(width: 160, height: 80)
+                : CGSize(width: natural.width * scale, height: natural.height * scale)
+            for (position, x, y) in positions {
+                var style: [String: Any] = ["font_size": 24.0, "object_fit": fit]
+                if let position { style["object_position"] = position }
+                p.apply(wireBatch([["op": "style", "id": 2, "style": style],
+                                  ["op": "frame", "id": 2, "x": 0.0, "y": 0.0, "w": 160.0, "h": 80.0]]))
+                node.layoutSymbol()
+                let leaf = try XCTUnwrap(node.symbolView)
+                var rect = leaf.frame
+                #if os(macOS)
+                if leaf.superview?.isFlipped == false { rect.origin.y = 80 - rect.maxY }
+                #endif
+                let lengths = position?.first is Double
+                XCTAssertEqual(rect.minX, lengths ? x : (160 - size.width) * x, accuracy: 0.001, fit)
+                XCTAssertEqual(rect.minY, lengths ? y : (80 - size.height) * y, accuracy: 0.001, fit)
+                XCTAssertEqual(rect.width, size.width, accuracy: 0.001, fit)
+                XCTAssertEqual(rect.height, size.height, accuracy: 0.001, fit)
+                XCTAssertEqual(node.image?.size, natural, "placement keeps native symbol metrics")
+            }
+        }
+    }
+
     func testThePathFillsItsViewBoxInItsAspect() throws {
         let path = try XCTUnwrap(IconPath.path(square))
         XCTAssertEqual(path.boundingBox, CGRect(x: 2, y: 2, width: 20, height: 20))
@@ -112,16 +146,137 @@ final class IconPathTests: XCTestCase {
         let t = IconPath.fitted(IconPath.viewBox("0 0 24 24"), in: CGRect(x: 0, y: 0, width: 48, height: 24))
         XCTAssertEqual(CGPoint(x: 0, y: 0).applying(t), CGPoint(x: 12, y: 0))
         XCTAssertNil(IconPath.path("Q 1 2"), "a verb it doesn't send")
-        // The em square placed by object-fit, as Linux places it (the widget snapshot's model).
+        // The object viewport placed by object-fit, shared with the widget snapshot.
         let box = CGRect(x: 0, y: 0, width: 96, height: 48)
-        XCTAssertEqual(IconPath.placed(em: 24, fit: "fill", in: box), CGRect(x: 24, y: 0, width: 48, height: 48))
-        XCTAssertEqual(IconPath.placed(em: 24, fit: "cover", in: box), CGRect(x: 0, y: -24, width: 96, height: 96))
-        XCTAssertEqual(IconPath.placed(em: 24, fit: "none", in: box), CGRect(x: 36, y: 12, width: 24, height: 24))
-        XCTAssertEqual(IconPath.placed(em: 24, fit: "scale-down", in: box).width, 24, "it fits: its own size")
-        XCTAssertEqual(IconPath.placed(em: 64, fit: "scale-down", in: box).width, 48, "it doesn't: contained")
+        XCTAssertEqual(IconPath.placed(viewBox: IconPath.viewBox("0 0 24 24"), em: 24, fit: "fill", in: box), box)
+        XCTAssertEqual(IconPath.placed(viewBox: IconPath.viewBox("0 0 24 24"), em: 24, fit: "cover", in: box), CGRect(x: 0, y: -24, width: 96, height: 96))
+        XCTAssertEqual(IconPath.placed(viewBox: IconPath.viewBox("0 0 24 24"), em: 24, fit: "none", in: box), CGRect(x: 36, y: 12, width: 24, height: 24))
+        XCTAssertEqual(IconPath.placed(viewBox: IconPath.viewBox("0 0 24 24"), em: 24, fit: "scale-down", in: box).width, 24, "it fits: its own size")
+        XCTAssertEqual(IconPath.placed(viewBox: IconPath.viewBox("0 0 24 24"), em: 64, fit: "scale-down", in: box).width, 48, "it doesn't: contained")
+    }
+
+    @MainActor func testNonSquareTemplatesPlaceTheirViewBoxAndReuseFractionalImages() throws {
+        for (w, h) in [(799.1, 184.0), (184.0, 799.1)] {
+            let viewBox = "0 0 \(w) \(h)"
+            var ops = icon(2, ["font_size": 20.0])
+            var props = ops[0]["props"] as! [String: Any]
+            props["symbolViewBox"] = viewBox
+            props["symbolPath"] = "M 0 0 L \(w) 0 L \(w) \(h) L 0 \(h) Z"
+            ops[0]["props"] = props
+            let p = presenter(ops), node = try XCTUnwrap(p.views[2])
+            let natural = IconPath.natural(IconPath.viewBox(viewBox), em: 20)
+            XCTAssertEqual(max(natural.width, natural.height), 20, accuracy: 0.001)
+            XCTAssertEqual(natural.width / natural.height, w / h, accuracy: 0.001)
+            for fit in ["contain", "fill", "cover", "none", "scale-down"] {
+                p.apply(wireBatch([["op": "style", "id": 2, "style": ["font_size": 20.0, "object_fit": fit, "object_position": [["pct": 25.0], ["pct": 75.0]]]],
+                                  ["op": "frame", "id": 2, "x": 0.0, "y": 0.0, "w": 160.0, "h": 80.0]]))
+                node.layoutSymbol()
+                let rect: CGRect
+                #if os(iOS)
+                let leaf = try XCTUnwrap(node.symbolView)
+                let content = CGRect(x: 0, y: 0, width: 160, height: 80)
+                rect = IconPath.placed(viewBox: IconPath.viewBox(viewBox), em: 20, fit: fit,
+                                       position: node.style["object_position"]?.array, in: content)
+                XCTAssertEqual(leaf.frame, rect.intersection(content), fit)
+                let drawn = leaf.image
+                node.layoutSymbol()
+                XCTAssertTrue(leaf.image === drawn, "fractional requested sizes reuse their template")
+                #else
+                rect = try XCTUnwrap(node.symbolShape).group.frame
+                #endif
+                if fit == "fill" {
+                    XCTAssertEqual(rect, CGRect(x: 0, y: 0, width: 160, height: 80))
+                    continue
+                }
+                XCTAssertEqual(rect.width / rect.height, w / h, accuracy: 0.001, fit)
+                XCTAssertEqual(rect.minX, (160 - rect.width) * (fit == "fill" ? 0.5 : 0.25), accuracy: 0.001, fit)
+                XCTAssertEqual(rect.minY, (80 - rect.height) * (fit == "fill" ? 0.5 : 0.75), accuracy: 0.001, fit)
+                switch fit {
+                case "contain":
+                    XCTAssertEqual(w > h ? rect.width : rect.height, w > h ? 160 : 80, accuracy: 0.001, fit)
+                case "cover":
+                    XCTAssertEqual(w > h ? rect.height : rect.width, w > h ? 80 : 160, accuracy: 0.001, fit)
+                default:
+                    XCTAssertEqual(rect.size.width, natural.width, accuracy: 0.001, fit)
+                    XCTAssertEqual(rect.size.height, natural.height, accuracy: 0.001, fit)
+                }
+            }
+            p.reset()
+        }
+    }
+
+    @MainActor func testTemplatePositionCalculationsDecodeBeforePlacement() throws {
+        var ops = icon(2, ["font_size": 20.0, "object_fit": "none", "object_position": [
+            ["calc": "max(25%, 20px)", "env": [0, 0, 0, 0, 400, 800, 1, 1, 0, 0, 16]],
+            ["calc": "max(10%, 11px)", "env": [0, 0, 0, 0, 400, 800, 1, 1, 0, 0, 16]]
+        ]])
+        var props = ops[0]["props"] as! [String: Any]
+        props["symbolViewBox"] = "0 0 400 100"
+        props["symbolPath"] = "M 0 0 L 400 0 L 400 100 L 0 100 Z"
+        ops[0]["props"] = props
+        ops[1] = ["op": "frame", "id": 2, "x": 0.0, "y": 0.0, "w": 160.0, "h": 80.0]
+        let p = presenter(ops), node = try XCTUnwrap(p.views[2])
+        node.layoutSymbol()
+        #if os(iOS)
+        let rect = try XCTUnwrap(node.symbolView).frame
+        #else
+        let rect = try XCTUnwrap(node.symbolShape).group.frame
+        #endif
+        XCTAssertEqual(rect, CGRect(x: 35, y: 11, width: 20, height: 5))
+    }
+
+    @MainActor func testFillClipsOverflowingPathsAtTheObjectViewport() throws {
+        var ops = icon(2, ["font_size": 20.0, "object_fit": "fill"])
+        var props = ops[0]["props"] as! [String: Any]
+        props["symbolViewBox"] = "0 0 400 100"
+        props["symbolPath"] = "M 0 0 L 400 0 L 400 200 L 0 200 Z"
+        ops[0]["props"] = props
+        ops[1] = ["op": "frame", "id": 2, "x": 0.0, "y": 0.0, "w": 160.0, "h": 80.0]
+        let p = presenter(ops), node = try XCTUnwrap(p.views[2])
+        node.layoutSymbol()
+        #if os(iOS)
+        let leaf = try XCTUnwrap(node.symbolView)
+        XCTAssertEqual(leaf.frame, CGRect(x: 0, y: 0, width: 160, height: 80))
+        let cg = try XCTUnwrap(leaf.image?.cgImage)
+        let ctx = try XCTUnwrap(CGContext(data: nil, width: 160, height: 80, bitsPerComponent: 8, bytesPerRow: 640,
+                                          space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        ctx.draw(cg, in: CGRect(x: 0, y: 0, width: 160, height: 80))
+        let pixels = try XCTUnwrap(ctx.data).assumingMemoryBound(to: UInt8.self)
+        XCTAssertLessThan(pixels[(10 * 160 + 80) * 4 + 3], 128)
+        XCTAssertGreaterThan(pixels[(70 * 160 + 80) * 4 + 3], 128)
+        #else
+        let shape = try XCTUnwrap(node.symbolShape)
+        XCTAssertEqual(shape.group.frame, CGRect(x: 0, y: 0, width: 160, height: 80))
+        XCTAssertEqual(shape.shapes.first?.path?.boundingBox, CGRect(x: 0, y: 20, width: 160, height: 80))
+        XCTAssertTrue(shape.group.masksToBounds)
+        #endif
     }
 
     #if os(iOS)
+    @MainActor func testCoverRasterizesOnlyTheVisiblePartOfAWidePath() throws {
+        var ops = icon(2, ["object_fit": "cover", "object_position": [["pct": 0], ["pct": 0]]])
+        var props = ops[0]["props"] as! [String: Any]
+        props["symbolViewBox"] = "0 0 120 1"
+        props["symbolPath"] = "M 60 0 L 120 0 L 120 1 L 60 1 Z"
+        ops[0]["props"] = props
+        ops[1] = ["op": "frame", "id": 2, "x": 0.0, "y": 0.0, "w": 32.0, "h": 32.0]
+        let p = presenter(ops), node = try XCTUnwrap(p.views[2]), leaf = try XCTUnwrap(node.symbolView)
+        node.layoutSymbol()
+        XCTAssertEqual(leaf.frame, CGRect(x: 0, y: 0, width: 32, height: 32))
+        let left = try XCTUnwrap(leaf.image)
+        XCTAssertEqual(left.size, CGSize(width: 32, height: 32))
+        XCTAssertEqual(try Self.inked(left, at: [12]), [false])
+
+        p.apply(wireBatch([["op": "style", "id": 2, "style": [
+            "font_size": 24.0, "object_fit": "cover", "object_position": [["pct": 100], ["pct": 0]]
+        ]]]))
+        node.layoutSymbol()
+        XCTAssertEqual(leaf.frame, CGRect(x: 0, y: 0, width: 32, height: 32))
+        let right = try XCTUnwrap(leaf.image)
+        XCTAssertEqual(right.size, left.size)
+        XCTAssertEqual(try Self.inked(right, at: [12]), [true])
+    }
+
     /// Drawn again at a box it fills, and its em square again once centred.
     @MainActor func testAPathIconFollowsItsBoxAndIsItsEmSquareCentred() throws {
         let p = presenter(icon(2, [:]))
@@ -131,41 +286,8 @@ final class IconPathTests: XCTestCase {
         XCTAssertEqual(leaf.image?.size.width, 96, "drawn at the box it fills")
         p.apply(wireBatch([["op": "style", "id": 2, "style": ["font_size": 24.0, "object_fit": "none"]]]))
         v.layoutSymbol()
-        XCTAssertEqual(leaf.contentMode, .center)
+        XCTAssertEqual(leaf.contentMode, .scaleToFill)
         XCTAssertEqual(leaf.image?.size.width, 24, "its em square, not the box's bitmap")
-    }
-
-    /// A wide viewBox is drawn in its own aspect: as wide as its box, not squeezed into a square as tall as it.
-    @MainActor func testAWidePathIconKeepsItsAspectInItsBox() throws {
-        var ops = icon(2, ["object_fit": "contain"])
-        var props = ops[0]["props"] as! [String: Any]
-        props["symbolViewBox"] = "0 0 96 24"; props["symbolPath"] = "M 0 0 L 96 0 L 96 24 L 0 24 Z"
-        ops[0]["props"] = props
-        let p = presenter(ops)
-        let v = try XCTUnwrap(p.views[2]), leaf = try XCTUnwrap(v.symbolView)
-        p.apply(wireBatch([["op": "frame", "id": 2, "x": 0.0, "y": 60.0, "w": 160.0, "h": 40.0]]))
-        v.layoutSymbol()
-        XCTAssertEqual(leaf.image.map { [$0.size.width, $0.size.height].map { $0.rounded() } }, [160, 40], "contained: the box's width")
-        p.apply(wireBatch([["op": "style", "id": 2, "style": ["font_size": 24.0, "object_fit": "cover"]]]))
-        v.layoutSymbol()
-        XCTAssertEqual(leaf.image.map { [$0.size.width, $0.size.height].map { $0.rounded() } }, [160, 40], "covered, the same box: the same size")
-        p.apply(wireBatch([["op": "frame", "id": 2, "x": 0.0, "y": 60.0, "w": 160.0, "h": 160.0]]))
-        v.layoutSymbol()
-        XCTAssertEqual(leaf.image.map { [$0.size.width, $0.size.height].map { $0.rounded() } }, [640, 160], "covered, a square box: as tall as it")
-        // Scaled down: its glyph (96 x 24 in a 24 em, so 24 x 6) fits a box shorter than its em, so it keeps its own size.
-        p.apply(wireBatch([["op": "style", "id": 2, "style": ["font_size": 24.0, "object_fit": "scale-down"]],
-                           ["op": "frame", "id": 2, "x": 0.0, "y": 60.0, "w": 160.0, "h": 20.0]]))
-        v.layoutSymbol()
-        XCTAssertEqual(leaf.contentMode, .center, "not enlarged to the box")
-        // A viewBox that doesn't divide its box evenly is drawn once, not again at each layout.
-        p.apply(wireBatch([["op": "props", "id": 2, "set": ["symbolViewBox": "0 0 799.1 184"]],
-                           ["op": "style", "id": 2, "style": ["font_size": 24.0, "object_fit": "contain"]],
-                           ["op": "frame", "id": 2, "x": 0.0, "y": 60.0, "w": 160.0, "h": 37.0]]))
-        v.layoutSymbol()
-        let drawn = try XCTUnwrap(leaf.image)
-        XCTAssertEqual(drawn.size.width, 160, accuracy: 0.5)
-        v.layoutSymbol()
-        XCTAssertTrue(leaf.image === drawn, "the same image")
     }
     #endif
 

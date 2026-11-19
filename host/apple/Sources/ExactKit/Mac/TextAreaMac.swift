@@ -323,7 +323,7 @@ package final class TextArea: NSTextView {
 
     var placeholder = "" { didSet { needsDisplay = true } }
     /// The authored `::placeholder` colour (LLP 1104 D3); nil, the platform's.
-    var placeholderColor: NSColor? { didSet { if placeholderColor != oldValue { needsDisplay = true } } }
+    package var placeholderColor: NSColor? { didSet { if placeholderColor != oldValue { needsDisplay = true } } }
     package override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
         decorations?.drawLines(in: self)

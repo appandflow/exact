@@ -237,7 +237,7 @@ export function packageKeys(bound, target) {
 /** The host events a package's Apple implementation may take (`"hostEvents"`, LLP 1133.001.000 D2): a call the system
  * makes on the app's or the scene's delegate, which ExactKit holds until the package drains it. Each names its
  * platforms, the device grant it needs signed, and the Info.plist keys that ask the system to deliver it, written only
- * where it is taken, so an app claims to receive only what something takes. ExactKit's `HostEvents.swift` installs
+ * where it is taken, so an app claims to receive only what something takes. The host event mailbox's `HostEvents.swift` installs
  * the selectors of the same names; a test keeps the two lists alike. A package that needs another event amends this
  * list. */
 export const HOST_EVENTS = new Map([
@@ -367,7 +367,7 @@ export function appleMetadataOwners() {
     [['ios'], ['UIApplicationShortcutItems']],
     [['macos'], ['ExactShortcutItems']],
     [['ios'], ['NSAppClip']],
-    [['ios', 'macos'], ['ExactAppGroup', 'ExactAppIdentifier', 'ExactWidgetKinds', 'ExactWidgetTypeScript', 'ExactWidgetGeneration', 'ExactKeychainAccessGroup', 'ExactWatchSync']],
+    [['ios', 'macos'], ['ExactAppGroup', 'ExactAppIdentifier', 'ExactWidgetKinds', 'ExactWidgetEntities', 'ExactWidgetTypeScript', 'ExactWidgetGeneration', 'ExactKeychainAccessGroup', 'ExactWatchSync']],
     [['ios'], ['NSSupportsLiveActivities', 'NSSupportsLiveActivitiesFrequentUpdates']],
     [['macos'], ['ExactWidgetRequiresSecrets']],
     [['ios', 'macos'], ['ExactFirstFrameModules']],
@@ -401,6 +401,7 @@ export function appleMetadataOwners() {
   for (const [platform, keys] of [
     ['ios', ['application-identifier', 'com.apple.developer.team-identifier', 'keychain-access-groups', 'get-task-allow',
       'com.apple.security.application-groups', 'com.apple.developer.parent-application-identifiers',
+      'com.apple.developer.on-demand-install-capable', 'com.apple.developer.associated-appclip-app-identifiers',
       'com.apple.developer.associated-domains', 'com.apple.developer.web-browser', MEMORY_ENTITLEMENT,
       'com.apple.developer.applesignin', 'com.apple.developer.in-app-payments']],
     ['macos', ['com.apple.application-identifier', 'com.apple.developer.team-identifier', 'com.apple.security.application-groups',

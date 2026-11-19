@@ -91,6 +91,9 @@ pub struct Batch {
     /// Whether the app must finish work an answer started, when that
     /// changed (`Host::finish_moved`).
     pub must_finish: Option<bool>,
+    /// Every navigation root's tabs, a JSON array, when they changed
+    /// (`Host::root_tabs_moved`, LLP 1115.001 D11).
+    pub root_tabs: Option<String>,
 }
 
 pub use exact_runner::json::quote;
@@ -442,6 +445,7 @@ impl Batch {
             && self.wakelock.is_none()
             && self.orientationlock.is_none()
             && self.must_finish.is_none()
+            && self.root_tabs.is_none()
     }
 
     /// Mounted collection metadata from the runner's common JSON array writer.
@@ -874,7 +878,7 @@ impl Batch {
                 .push("{\"op\":\"activity\",\"demand\":true}".into());
         }
         let playing =
-            (boot || !runner.plan().sequences.is_empty()).then(|| runner.transport().playing());
+            (boot || !runner.plan().sequences.is_empty()).then(|| runner.transport_playing());
         self.sound(runner.take_sounds(), boot.then(|| runner.plan()), playing);
         let uses = boot && exact_runner::uses::uses_midi(runner.plan());
         if let Some(op) = exact_runner::midi::batch_op(&runner.take_midi(), uses) {
@@ -1187,6 +1191,9 @@ impl Batch {
         }
         if let Some(must) = self.must_finish {
             let _ = write!(s, ",\"mustFinish\":{must}");
+        }
+        if let Some(tabs) = &self.root_tabs {
+            let _ = write!(s, ",\"rootTabs\":{tabs}");
         }
         for (key, srcs) in [
             ("canvasImages", &self.images),

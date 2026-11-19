@@ -12,7 +12,7 @@
 #if os(iOS) || os(tvOS)
 import UIKit
 
-final class MenuHost {
+package final class MenuHost {
     private(set) weak var presenter: Presenter?
     var touchObserver: PopoverTouch?
     private var overlays: [UInt32: UIButton] = [:]
@@ -44,7 +44,7 @@ final class MenuHost {
     /// Under the agent, the popovers open in their painted presentation
     /// (LLP 1021 D4), by `id`: each in the top layer while open, as macOS's
     /// and the web's are, out of its parent and back at its index after.
-    private var agentOpen: [String: Lifted] = [:]
+    package var agentOpen: [String: Lifted] = [:]
     private var checking = false
     func beginCheck() {
         checking = true
@@ -102,7 +102,7 @@ final class MenuHost {
     var nativeConfirmation: NodeView? { confirmation?.finishing == false ? confirmation?.popover : pendingConfirmations.first?.popover }
     /// How many popovers the agent has opened: each one's place in the stack.
     private var opened = 0
-    private final class Lifted {
+    package final class Lifted {
         var placement = PositionArea.History()
         /// The region its option sized it in, as the kernel was told it (`PositionArea.place`).
         var block: HostBlock?
@@ -145,12 +145,12 @@ final class MenuHost {
     private(set) lazy var context = ContextMenuHost(presenter: presenter!, menus: self)
     #endif
     /// The focus a native menu sets aside while it shows (MenuFocusIOS.swift).
-    private(set) lazy var focus = MenuFocus(presenter: presenter!)
-    /// A `dialog` that is not a confirmation, as UIKit's sheet (DialogSheetIOS.swift).
-    private(set) lazy var sheets = DialogSheets(presenter: presenter!)
+    private(set) package lazy var focus = MenuFocus(presenter: presenter!)
+    /// The presenter's dialog sheets (`DialogLink`).
+    private var sheets: any DialogHosting { presenter!.dialogs }
 
     private func isDialog(_ node: NodeView) -> Bool { node.props["semanticTag"] == "dialog" }
-    func isConfirmation(_ node: NodeView) -> Bool {
+    package func isConfirmation(_ node: NodeView) -> Bool {
         isDialog(node) || node.props["accessibilityRole"] == "alertdialog"
     }
     /// The `id` of what `source` invokes, as HTML resolves it (`Invocation`).
@@ -431,7 +431,7 @@ final class MenuHost {
     /// The order a menu shows its rows in for its trigger's `menuOrder`
     /// `word`; unsaid, UIKit's `.automatic`, which shows a menu that opens
     /// upward last row first (LLP 1115 §2: unsaid, the platform's).
-    static func order(_ word: String?) -> UIContextMenuConfiguration.ElementOrder {
+    package static func order(_ word: String?) -> UIContextMenuConfiguration.ElementOrder {
         switch word {
         case "fixed": .fixed
         case "priority": .priority
@@ -451,7 +451,7 @@ final class MenuHost {
     /// a top-level `UIMenu` title draws a taller header and sets the rows
     /// about 10 pt lower. A bar item's pull-down is a hand-built bar item's
     /// `UIMenu(title:)`, taller header and all (LLP 1021, amended 2026-10-16).
-    func pullDown(of v: NodeView, titled heading: String, inBar: Bool = false) -> UIMenu {
+    package func pullDown(of v: NodeView, titled heading: String, inBar: Bool = false) -> UIMenu {
         let rows = rows(of: v, inBar: inBar, heading: heading)
         if heading.isEmpty { return UIMenu(children: [rows]) }
         return inBar ? UIMenu(title: heading, children: [rows]) : UIMenu(children: [UIMenu(title: heading, options: .displayInline, children: [rows])])
@@ -630,7 +630,7 @@ final class MenuHost {
             if preservingPending { DispatchQueue.main.async { [weak self] in self?.resumeAfterRouteDismissal() } }
         }
     }
-    func retire(over controller: UIViewController, removing route: NodeView) -> () -> Void {
+    package func retire(over controller: UIViewController, removing route: NodeView) -> () -> Void {
         let endSheets = sheets.retire(over: controller, removing: route)
         discardPendingConfirmations { presenter?.authored($0.popover, inside: route) == true }
         guard let owner = confirmation, ViewPresentation.isPresented(owner.alert, above: controller) else { return endSheets }
@@ -656,7 +656,7 @@ final class MenuHost {
         }
     }
     func preservesFocus(_ id: UInt32) -> Bool { sheets.preservesFocus(id) || pendingConfirmations.contains { $0.fields.contains { $0.node?.id == id && $0.node === presenter?.views[id] && $0.node?.incarnation == $0.incarnation } } }
-    func resumeAfterRouteDismissal(attempt: Int = 0) {
+    package func resumeAfterRouteDismissal(attempt: Int = 0) {
         guard let presenter, !presenter.modals.inTransition, !presenter.navigation.inTransition, sheets.resumeAfterRouteDismissal(),
               confirmation == nil else { return }
         while confirmation == nil, let pending = pendingConfirmations.first {
@@ -706,10 +706,10 @@ final class MenuHost {
     private var laidOut = Set<UInt32>()
     private var coverPending = false
     /// Whether `box`, a `dialog` or popover, is given back to layout now.
-    func isLaidOut(_ box: NodeView) -> Bool { laidOut.contains(box.id) }
+    package func isLaidOut(_ box: NodeView) -> Bool { laidOut.contains(box.id) }
     /// `box` laid out now, before it shows in Exact's views: a sheet, the
     /// top layer, a context menu's preview.
-    func layOut(_ box: NodeView) {
+    package func layOut(_ box: NodeView) {
         guard let session = presenter?.session, laidOut.insert(box.id).inserted else { return }
         session.apply(session.runtime.covers([(box.id, nil)]))
         var stack: [UIView] = [box]
@@ -760,7 +760,7 @@ final class MenuHost {
     /// After one closes: what shows in Exact's views no more is covered
     /// again, after this turn, unless it has stopped being a box of the top
     /// layer (the host gave it back for good).
-    func coverClosed() {
+    package func coverClosed() {
         guard !laidOut.isEmpty, !coverPending else { return }
         coverPending = true
         DispatchQueue.main.async { [weak self] in self?.coverClosedNow() }
@@ -812,11 +812,11 @@ final class MenuHost {
         }
     }
     /// Revisit only the hosts captured at opening, including after UIKit detaches one.
-    func rehostPopovers() {
+    package func rehostPopovers() {
         guard !agentOpen.isEmpty else { return }
         for entry in agentOpen.values.sorted(by: { $0.order < $1.order }) { lift(entry) }
     }
-    func replacePopoverHost(_ old: UIViewController, with controller: UIViewController) {
+    package func replacePopoverHost(_ old: UIViewController, with controller: UIViewController) {
         for entry in agentOpen.values { entry.layer.replaceHost(old, with: controller) }
     }
 
@@ -894,7 +894,7 @@ final class MenuHost {
 
     /// Whether `node`, a popover, is open: its confirmation presented, or,
     /// under the agent, its painted presentation shown.
-    func isOpen(_ node: NodeView) -> Bool {
+    package func isOpen(_ node: NodeView) -> Bool {
         if pendingConfirmations.contains(where: { $0.matches(node) }) || confirmation?.popover === node && confirmation?.finishing == false || sheets.isOpen(node) { return true }
         #if os(iOS)
         if context.isOpen(node) || overlays.values.contains(where: { ($0 as? MenuButton).map { $0.popover === node && $0.isMenuOpen } == true }) { return true }
@@ -1096,7 +1096,7 @@ final class MenuHost {
         return nil
     }
     func unmounted() { focus.reset(); resetConfirmation(); sheets.reset() }
-    var inTransition: Bool {
+    package var inTransition: Bool {
         #if os(iOS)
         if context.inTransition { return true }
         #endif
@@ -1229,7 +1229,7 @@ final class MenuHost {
 
     /// The controller a presentation from `view` goes over: its own, or the
     /// dialog sheet or route presentation that is already up over it.
-    func controller(for view: UIView) -> UIViewController? {
+    package func controller(for view: UIView) -> UIViewController? {
         guard let found = ViewPresentation.controller(for: view) else { return nil }
         if let top = sheets.top ?? presenter?.modals.owner, top !== found,
            found.presentedViewController != nil, top.view.window === found.view.window { return top }
@@ -1292,7 +1292,7 @@ final class MenuHost {
     /// LLP 1115.000 D11.5: a `dialog` that is not a confirmation by its rows
     /// is a sheet, its content laid out by the kernel (DialogSheetIOS.swift).
     func isSheet(_ node: NodeView) -> Bool {
-        isDialog(node) && node.props["popover"] == nil && (sheets.owns(node) || DialogSheets.paintsOwnSurface(node) || unconfirmable(node, modal: true) != nil)
+        isDialog(node) && node.props["popover"] == nil && (sheets.owns(node) || DialogShape.paintsOwnSurface(node) || unconfirmable(node, modal: true) != nil)
     }
     private func busy(_ controller: UIViewController) -> Bool {
         controller.presentedViewController != nil || controller.isBeingDismissed || controller.isBeingPresented
@@ -1354,7 +1354,7 @@ final class MenuHost {
         // has no other presentation here.
         // A dialog its author painted is the author's box in the top layer,
         // whatever its rows (LLP 1035.001 D11).
-        if let why = DialogSheets.paintsOwnSurface(pop) && isDialog(pop) ? "" : unconfirmable(pop, modal: modal) {
+        if let why = DialogShape.paintsOwnSurface(pop) && isDialog(pop) ? "" : unconfirmable(pop, modal: modal) {
             guard isDialog(pop), pop.props["popover"] == nil else { return refuse(why) }
             guard let controller = controller(for: source ?? pop), !busy(controller) else { return false }
             return sheets.show(pop, from: source, over: controller)

@@ -276,6 +276,13 @@ takes the APK `agent-android.mjs build <app> --apk` made (`EXACT_ANDROID_BIN=<ap
 launches it under a driver and speaks the agent API's JSON lines to it. `ANDROID_SERIAL` picks the phone, and
 `--variant <name>` the variant's package, as it did to the build; an APK built as another package is refused.
 
+`bun scripts/agent.mjs android --live --app <app> "tap <target>" "perf frames live 1000"` drives the reader on
+platform time with layer playback enabled. `clock` is refused. Use `perf frames live <ms>` to keep the app open
+while the animation plays. Start `adb shell screenrecord /sdcard/exact-motion.mp4` in another terminal before
+running the drive. Stop the recording with Ctrl+C and copy it with `adb pull /sdcard/exact-motion.mp4`.
+Set `ANDROID_SERIAL` for both terminals if more than one device is connected.
+A live drive reports activity and foreground-service changes through `exactPage().frozen`.
+
 Before launch the driver reports a focused Android permission dialog on stderr, leaving JSON stdout unchanged.
 It reads only window focus lines on Android 10 and later, and reports a dialog even if the read fails after
 returning its focus line. If the read fails without a dialog or omits focus, it logs the error and continues
@@ -287,12 +294,12 @@ dismiss it on the device and retry. The drive does not grant or revoke permissio
 launch says `agent=<name>`: a socket of that name in the abstract namespace, served only to adb's own user (shell
 or root: any app on the phone can reach an abstract socket). adb forwards it; the carrier's process
 (`agent-android.mjs relay`) carries lines between `agent.mjs`'s stdio carrier and the socket. Each request is one
-call, `Native.agent(line)`, on exact2's thread, into `host/painted/src/canvas/agent.rs`, which hands it to the handler
-the headless carrier uses (`exact_painted::agent::handle`). The drive's `EXACT_AGENT` and `EXACT_AGENT_*` (its store,
-epoch, locale, seed and fetch faults), and a `--url`'s `EXACT_DEV_PLAN`, reach the app as `x_<name>` launch extras; a launch whose environment does
-not say `EXACT_AGENT=1` answers no request, and a production bake drops that variable (LLP 1069.007 D2).
+call, `Native.agent(line)`, on exact2's thread, into `host/painted/src/canvas/agent.rs`. A live drive uses the
+window handler and publishes through the reader's normal frame path. The drive's `EXACT_AGENT` and `EXACT_AGENT_*`
+(its store, epoch, locale, seed and fetch faults), and a `--url`'s `EXACT_DEV_PLAN`, reach the app as `x_<name>` launch extras.
+`EXACT_AGENT=1` and `EXACT_AGENT=live` enable the carrier in development builds (LLP 1069.007 D2).
 
-**What the Canvas host adds to that handler**, which assumes a host with no display:
+**What the reader adds to the headless handler in a default drive:**
 
 - *Its paints reach the reader.* The handler paints as it goes, each paint a stream that defines faces, pictures
   and rows the next ones draw with, and the recorder kept one finished stream. A stream finished over one the
@@ -301,8 +308,7 @@ not say `EXACT_AGENT=1` answers no request, and a production bake drops that var
 - *What it painted was displayed.* A display admits a touch only on what its last displayed frame showed, and the
   handler's paints are not displayed frames: after each request the host takes one display turn, so the next
   request can tap what this one made.
-- *The clock is the driver's.* From the first request the host's turns run at the runner's clock, which only a
-  `clock` request moves: no timer fires and no motion advances between requests.
+- *Clock ownership.* The drive starts on the runner's clock. Clock requests and synthesized contact holds advance it.
 
 **Frame timing** (LLP 1079.000 §6.2). In a driver's launch the reader measures two sources, which `perf frames`
 reads as `exact.frame-health.metrics/2` (`health`) and `exact.frame-health/2` (`report`):
@@ -318,9 +324,11 @@ reads as `exact.frame-health.metrics/2` (`health`) and `exact.frame-health/2` (`
 
 Neither observes presentation, and a GPU canvas's `SurfaceView` is drawn outside the window. Under the driver's clock
 a frame is virtual and nothing is recorded: `perf frames capture start [ms]` lends the display the clock for the
-lease, refusing a `clock` request meanwhile, and `capture stop` (or the lease's end) gives the driver its clock back
-where the display left it. `perf frames live <ms>` is a lease of its own, which reads both sources from its start to
-its end. A production bake collects nothing.
+lease. During the lease, `clock` is refused and contact holds wait in real time. `capture stop` (or the lease's end)
+gives the driver its clock back where the display left it. `perf frames live <ms>` is a lease of its own, which reads
+both sources from its start to its end. In `--live`, the display owns time for the whole drive.
+Both sources' `coverage.liveAgent` identify the clock as `platform-clock`, `virtual-clock`, or `lent-wall-clock`.
+A production bake collects nothing.
 
 **The operations**, each tried on a Pixel 10 Pro XL with Shelf:
 
@@ -328,15 +336,15 @@ its end. A production bake collects nothing.
 |---|---|
 | `tree`, `state`, `logs`, `layout` | answered by the handler as on Linux; `layout` is in points, in the page the reader placed (the viewport the system's bars and the keyboard leave) |
 | `tap <target>` | the presenter's addressed press, as on Linux: it is not a touch through Android's input, so the reader's own gesture code (its slop, its long-press timer, a field's touch) is not what is tested. A row of an open alert or menu is chosen by its authored node, and so is what a bar stands for: a header's button, a tab, the Back control the Up arrow stands for ("The bars", below) |
-| `tap <target> contextmenu` | opens the menu the node names, as a finger held on it does (`Presenter::long_press`) |
+| `tap <target> contextmenu` | runs a long press on the nearest node with a `contextmenu` handler or `contextPopover` (`Presenter::long_press`); a handler needs no popover |
 | `type <target> <text>` | sets the field's value through the presenter; the hosted `EditText` then shows it, focused, with its keyboard up. Not typed through the keyboard: nothing composes |
-| `clock data`, `clock settle`, `clock +<ms>` | as on Linux. What the reader plays itself is outside the clock: a fling, the keyboard's slide, a `Dialog`'s own fade. A drive launches with `lower=0`, so no layer plays on the reader's clock |
+| `clock data`, `clock settle`, `clock +<ms>` | as on Linux. A default drive samples authored motion in the engine with `lower=0`. The reader plays flings, the keyboard's slide and a `Dialog`'s fade on platform time. A `--live` drive refuses `clock` and plays layers on platform time as well |
 | `screenshot <png>` | the device's own picture (`screencap`), taken 400 ms after the operation before it so the reader has drawn: the whole screen, bars and keyboard included, in device pixels. `window` changes nothing; `over … every …` is refused |
 | `prefer` | the handler's: it changes what the app is told (`prefers-color-scheme light` turned Shelf light on a phone in night mode), not the phone's settings |
 | `perf` | the runner's table by plan site. `perf frames health`, `report`, `capture` and `live` read the reader's own frames in the Apple host's formats (above, "Frame timing"); `perf frames track` answers unavailable |
 | `fail fetch`, `pass fetch`, a test's `reload` | work (Shelf's tests use them) |
 | `check` | refused by `agent.mjs` for every Android carrier ("the web and iOS hosts carry it") |
-| `--plan`, `--world`, a launch URL | refused: the reader boots the plan its APK bakes. `--size` is refused too, since the reader runs at the phone's size, and a test that names a `size` is skipped with that reason (`--headless` takes a size). `resize`, a drag and a wheel were not tried |
+| Launch options | `--plan` selects a local plan and `--url share:?…` claims a share at launch. The reader refuses `--world` and local route URLs. It runs at the phone's size, so it refuses `--size` and skips tests that name a size (`--headless` takes one). `resize`, a drag and a wheel were not tried |
 | `tree --ax` | the reader's own answer ("Accessibility", below): what Android has for the window in front, joined to the views |
 
 Shelf's own tests (`apps/shelf/app.test.contract`, eleven) pass on the reader. They found three things on the way,
@@ -582,10 +590,11 @@ the shape their state layer had (below), and so do the top layer's menu rows and
 `system_surface_dark` (`res/values-v34`, `values-night-v34`), the colour the first frame's unsaid background has, with
 the bars' icons set for it. On Android 12 and 13 the platform has no `surface` to name in a theme, and the launch
 window is the device theme's own day or night background (`?android:attr/colorBackground`). An app whose manifest
-names a `background_color` launches on it instead, and on `color_scheme_dark.background_color` in night mode, as its
-iOS launch screen and its web page's first paint do: the build writes a theme over `ExactLaunch` with that colour
-behind the window and on Android 12's starting window, and the bars' icons dark over a light colour
-(`agent-android.mjs` `androidLaunch`).
+names a launch colour launches on it instead in each scheme it names one for (`background_color` in both,
+`color_scheme_light` or `color_scheme_dark` in one, LLP 1163 D2), as its iOS launch screen and its web page's first
+paint do, following the device's scheme: the build writes a theme over `ExactLaunch` for each scheme, with the colour
+behind the window and on Android 12's starting window and the bars' icons dark over a light colour where the scheme
+names one (`agent-android.mjs` `androidLaunch`).
 
 From Android 12 the starting window shows the launcher icon on that colour, as the platform has it; before 12 the
 window has no icon. `host.android.launchImage` replaces the icon with a picture, as iOS's launch screen has one: from
@@ -633,7 +642,7 @@ capability has a call of its own.
 | 13 | the session's orientation lock (LLP 1133.029 D6) | 0 for none; or 1, the orientations its types allow as bits (portrait-primary 1, portrait-secondary 2, landscape-primary 4, landscape-secondary 8), whether a holder says `natural`, whether one says `current`, a count, and for each holder its node and its word as a string | sets the activity's `requestedOrientation` (`Orientation.told`): the manifest's mapping for the set, `locked` for `current`, the manifest's value for none; on a display 600 dp wide or wider only `current` | none by id: `Native.orientationApplied` reports what was asked, for `state.orientationlock.applied` |
 | 14 | whether a canvas receives pad input (LLP 1133.022 D4) | one word: 1 or 0 | observes controller buttons and joystick motion, consuming them only while 1; Android's fallback keys always pass through for navigation | none |
 | 15 | a GPU surface's haptic message (LLP 1009 D10) | the canvas's view id (a surface id is its module's, and two modules count from 1), then a string: the message's JSON as `exact_gpu::haptics` writes it (a texture's `intensity` and `sharpness`, its stop, or a pattern); exact2 sends a stop when the surface goes | `SurfaceHaptics`, on the vibrator ("Haptics", below); nothing while the activity is paused | none |
-| 16 | Contract sound operations | a JSON string: asset `files`, `reset`, monotonic `submitted` seconds and `ops` (play 1, end 2, change 4), each with a voice id and `at` in monotonic seconds; play has a sound index, gain, rate and pan, change has optional gain, rate and pan and a ramp in seconds | `SoundOutput` opens `libexact_sound.so` at the first play; AAudio runs the shared mixer against its speaker timestamp; the existing focus owner applies `audio_session` | none; under the driver, `state.sounds.output` remains `"agent"` |
+| 16 | Contract sound operations | a JSON string: asset `files`, `reset`, monotonic `submitted` seconds and `ops` (play 1, end 2, change 4), each with a voice id and `at` in monotonic seconds; play has a sound index, gain, rate and pan, change has optional gain, rate and pan and a ramp in seconds | `SoundOutput` opens `libexact_sound.so` at the first play; AAudio runs the shared mixer against its speaker timestamp; the existing focus owner applies `audio_session` | no answer; `state.sounds.output` reports AAudio in live drives and `"agent"` in seekable drives |
 | 17 | open an auth session | three strings: the granted authorization URL, callback endpoint and state | opens Auth Tab for HTTPS when the default browser supports it, otherwise a plain browser returning through a verified App Link; custom-scheme callbacks use a Custom Tab when supported; keeps a ten-minute wait across activity recreation | `opened` acknowledges the wait without settling; `unavailable` (501), `failed` (502), or `cancelled` (499 on an Auth Tab cancellation result, a return from another browser after a stop without a callback, the bound, or no attached activity); a callback with a matching state arrives through `Native.open` and the runner checks it; a stale callback consumes the return without ending the wait |
 | 18 | a file input's `showPicker` (LLP 1069.002) | the input node, `multiple` (1 or 0), the count of `accept` types, then each type as a string | the system photo picker when its filters fit and it is available, otherwise `ACTION_OPEN_DOCUMENT`; offers HEIC/HEIF for conversion as below and copies the selected URIs into the app's cache off the UI thread (`FilePicker`) | a JSON array of `{path, name, type, extension, extensions, converted, name_type}` records: staging path, display name, nullable MIME type and storage extension, the chooser's mapping of extension tokens to MIME types, whether conversion occurred, and Android's MIME for the display-name suffix. Null or an empty array cancels; other text is a refusal reason. The presenter copies into `app:/tmp/picked/`, removes the reader's copies, and fires `change` or journals the refusal and fires `cancel` |
 | 19 | end an auth wait | one word: the request id from kind 17 | removes the wait; the browser owns its tab | none |
@@ -1274,8 +1283,8 @@ shows beneath the route only where that route's author wrote a background.
 **A push and a pop cross on Material's shared X axis**, in the page or inside a sheet: the route that leaves moves
 30 dp toward where it goes and fades over the first 35 % of 300 ms, the one that arrives moves in 30 dp from the
 other side and fades in over the rest (`FastOutSlowIn`). The top app bar crosses with its route: the bars are drawn
-in the page for the crossing. A popped route is drawn from its kept drawing. Under the agent a sheet and a crossing
-move on its clock: `clock settle` ends them.
+in the page for the crossing. A popped route is drawn from its kept drawing. In a seekable drive, `clock settle` ends
+sheet and route transitions. To see them play in an `android --live` drive, record it with `adb shell screenrecord`.
 
 **A pushed or full-screen route with `navigationSource`** uses Material's container transform when the named
 source is visible in the route beneath. It picks the first matching `id` by node id, as the iOS zoom does, and
@@ -1286,8 +1295,8 @@ the kept drawing into the source, fading out over the last 30 %; it rechecks the
 and visibility, including rounded overflow clips. A missing, hidden, fully clipped or offscreen source uses
 the shared axis for a pushed route and a cut for a full-screen route, on both entrance and return.
 Reader-owned transform or opacity tracks on the source or an ancestor also take this fallback, since the
-stage cannot read their live samples. A full-screen entrance without a usable source keeps no drawing
-and offers no predictive Back preview. The source binding follows the live route, including changes and clearing it,
+stage cannot read their live samples. A full-screen entrance without a usable source offers no
+predictive Back preview. The source binding follows the live route, including changes and clearing it,
 and survives switching tabs until the route leaves its stack. A predictive
 Back's committed return starts at the preview's pose. Inside a sheet the shared axis stays; Remove animations
 cuts. This transforms the whole route rather than aligning to a matching image inside it as UIKit can.
@@ -1295,6 +1304,32 @@ cuts. This transforms the whole route rather than aligning to a matching image i
 The timing follows Material's `MaterialContainerTransform`: `motionDurationMedium4` (400 ms) entering,
 `motionDurationMedium3` (350 ms) returning, and `motionEasingEmphasizedInterpolator` (the two-segment
 [Material 3 emphasized path](https://github.com/material-components/material-components-android/blob/master/lib/java/com/google/android/material/motion/res/values/tokens.xml)).
+
+**A switch to another stack** (a tab selected by the navigation bar or an app's own `select`, or a root replaced)
+uses Material's **fade through** over 300 ms. As in
+[`MaterialFadeThrough`](https://github.com/material-components/material-components-android/blob/master/lib/java/com/google/android/material/transition/MaterialFadeThrough.java),
+M3's emphasized easing drives both the fade and scale: the leaving route fades out over the first 35 % of eased
+progress, the arriving route fades in over the rest, and its scale grows from 92 % to 100 % about the window's
+centre over the whole transition. Each route's top app bar fades at its resting size and window position.
+In a tabbed root the whole tabpanel crosses, not only its route. The top page's drawing, including a `fullscreen`
+page, is kept before a switch can remove it, and released when the crossing ends. A switch with a sheet open,
+inside a sheet, or under reduced motion cuts. Pushes and pops inside a tab keep the shared axis.
+
+Both crossings are drawn where the page draws the routes, so each route keeps its ancestors' transform, opacity and
+clip, its place in the stacking order, and is hit only where it shows. A route that a commit removed is drawn from
+its kept drawing relative to its nearest surviving ancestor, under that ancestor's current transform, scroll and
+compositing. The complete removed branch keeps its backgrounds, borders, shadows and compositing; its placement
+is applied once, including row-local and scroll offsets. Sticky constraints follow surviving scrollers' current
+offsets; a removed scroller stays as recorded. The drawing takes no touch.
+The drawing is kept on every frame by walking the branch a second time. A retained list row goes into it with its
+portable draw commands and a reference, its `RenderNode` kept until no drawing holds it. Those commands are recorded
+on first attachment and reused until the row changes. A filter rasterizes the commands at replay, including when
+an ancestor gains a filter during the fade. Scrolling an unchanged, unfiltered list walks none of its rows twice,
+and a switch mid-scroll fades.
+Subtree paint bounds include the outgoing drawing at its current placement, so a shrinking ancestor's filter,
+offscreen plane or retained row does not crop it. Authored clips and masks still apply.
+A kept drawing scaled or turned (Back's preview, an authored exit, an ancestor's transform) draws such a row with
+op 55, which places its `RenderNode` by a matrix where op 17 places it by a translation.
 
 **Predictive Back** (Android 14, `OnBackAnimationCallback`, `Native.backProgress`): the reader passes the gesture's
 start, progress and edge, and its cancel. Where Back would pop a route, the route shrinks toward 90 %, moves toward
@@ -1314,9 +1349,9 @@ agent's clock. The callback registers as an animation callback (`CoreBackPreview
 the system's Back gesture, so the preview itself was seen only in the presenter's tests.
 
 Not built: continuous hand-off between a sheet and a scroller in it. Ownership stays fixed for each contact:
-after raising the sheet to its tallest detent, lift and swipe again to scroll the list. Also not built: a tab
-switch's fade-through; a `fullscreen` route's entrance without a visible `navigationSource`; a sheet's window of
-its own (the IME's insets move it by ending the page, as they move any page).
+after raising the sheet to its tallest detent, lift and swipe again to scroll the list. Also not built: a
+`fullscreen` route's entrance without a visible `navigationSource`; a sheet's window of its own (the IME's insets
+move it by ending the page, as they move any page).
 
 ## The bars (LLP 1115.001 D11)
 
@@ -1413,8 +1448,9 @@ change in one frame. The reader's two views are made with the reader and laid ou
 where they are: a statement often arrives while the page's view is being drawn, where a layout asked of the parent
 would come a frame late. They sit in a layer of their own over the page (the window's size, drawing nothing itself
 and taking no touch), which the frame's drawing reaches after the page's view and records again in that same pass.
-Filmed at 120 frames a second, a tab switch changes the page, the title and the indicator in one frame. A cold
-launch was not read frame by frame: it is under the launcher's own opening animation.
+On a tab switch, the bar statement arrives on the frame the crossing starts. The page and title then fade
+through over 300 ms; the navigation bar's indicator updates on that first frame. A cold launch was not read
+frame by frame: it is under the launcher's own opening animation.
 
 **Addressing what is in a bar.** A driver reads the bars from the agent's `state.bars`: each one's frame in the
 window, what it says, and each target's authored node and box (`kind` is `up`, `item` or `tab`). `tap` names a node
@@ -1453,9 +1489,10 @@ Not built of D11:
   Compose's `SingleChoiceSegmentedButtonRow` treatment (`kernel/src/segmented.rs`, `host/painted/src/paint/segment.rs`).
   A header's tablist stays in the page under the bar, as its search field does. Tabs keep their tab semantics
   and `aria-selected`; root navigation tabs keep the navigation bar, and `appearance="none"` keeps authored paint.
-  Headless kernel and presenter tests cover the treatment. A phone run and comparison with the Material oracle's
-  `segmented-buttons` specimen remain owed, as does Compose's motion (the label slides and the check grows;
-  here both change at once).
+  Headless kernel and presenter tests cover the treatment. The Material oracle's `segmented-buttons` specimen
+  matches Compose's height, corners, outline, colours and baselines, headless and on an API 36 emulator; a hugging
+  group is 2 dp wider (QUEUE). The outline is whole pixels, as `Modifier.border` rounds it. A phone run remains
+  owed, as does Compose's motion (the label slides and the check grows; here both change at once).
 - **List items** and their dividers (rows as cells land on every host at once).
 - **A header's rich title**: the avatar, the subtitle and the tap on the title that iOS shows are not read here.
 - **`onSecondaryContainer`** for the selected symbol, badges, a navigation rail on a wide window, and hiding the

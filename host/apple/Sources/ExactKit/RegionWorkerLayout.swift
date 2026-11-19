@@ -1,32 +1,33 @@
+#if os(macOS)
 import Foundation
 import CoreText
 import CryptoKit
 
-enum RegionFlowFallback: Error { case incomplete }
+package enum RegionFlowFallback: Error { case incomplete }
 
 // Only live layouts own this preparation. It never crosses the worker queue or
 // attaches to Sendable source/metadata. Attributed and opaque typesetter storage
 // now live as long as their last layout; pixel/index budgets do not cover them.
-final class RegionPreparedSource {
-    let source: RegionTextSource
-    let sourceSHA256: String
-    let attributed: NSAttributedString
-    let typesetter: CTTypesetter
-    let sourceMap: SourceMap
-    let emergencyBreaks: [Int]
-    let emergencyHyphens: Bool
-    lazy var flow = TextFlowSource(attributed: attributed, typesetter: typesetter,
+package final class RegionPreparedSource {
+    package let source: RegionTextSource
+    package let sourceSHA256: String
+    package let attributed: NSAttributedString
+    package let typesetter: CTTypesetter
+    package let sourceMap: SourceMap
+    package let emergencyBreaks: [Int]
+    package let emergencyHyphens: Bool
+    package lazy var flow = TextFlowSource(attributed: attributed, typesetter: typesetter,
                                   overflowWrap: source.overflowWrap, whiteSpace: source.whiteSpace)
     // Unicode opportunities depend on this exact source, never its width.
-    lazy var lineBreakBoundaries: [Int] = TextEngine.lineBreaks(attributed.string as NSString, length: attributed.length)
-    lazy var breakPlan: LineBreakPlan = {
+    package lazy var lineBreakBoundaries: [Int] = TextEngine.lineBreaks(attributed.string as NSString, length: attributed.length)
+    package lazy var breakPlan: LineBreakPlan = {
         var plan = LineBreakPlan()
         plan.boundaries = lineBreakBoundaries
         plan.prepare(attributed.string as NSString, length: attributed.length, emergency: emergencyBreaks)
         return plan
     }()
 
-    init(_ source: RegionTextSource, allowEmergency: Bool = true) {
+    package init(_ source: RegionTextSource, allowEmergency: Bool = true) {
         precondition(!Thread.isMainThread, "region preparation must be worker-owned")
         self.source = source
         emergencyHyphens = allowEmergency && source.emergencyHyphens
@@ -55,16 +56,16 @@ final class RegionPreparedSource {
 }
 // This record is deliberately NOT Sendable. CTLines and index survive all
 // viewport queries on one queue, then die there before metadata publication.
-final class RegionWorkerLayout {
-    let source: RegionTextSource
-    let lines: [CTLine]
-    let baselines: [CGFloat]
-    let metadata: RegionParagraph
-    let preparation: RegionPreparedSource
+package final class RegionWorkerLayout {
+    package let source: RegionTextSource
+    package let lines: [CTLine]
+    package let baselines: [CGFloat]
+    package let metadata: RegionParagraph
+    package let preparation: RegionPreparedSource
     private var viewportLines: [Int: CTLine] = [:]
-    var lineCount: Int { metadata.lines.count }
-    func beginViewport() { viewportLines.removeAll(keepingCapacity: true) }
-    func line(at index: Int) -> CTLine {
+    package var lineCount: Int { metadata.lines.count }
+    package func beginViewport() { viewportLines.removeAll(keepingCapacity: true) }
+    package func line(at index: Int) -> CTLine {
         if !lines.isEmpty { return lines[index] }
         if let cached = viewportLines[index] { return cached }
         let r = metadata.lines[index].range
@@ -75,7 +76,7 @@ final class RegionWorkerLayout {
         return value
     }
     /// Immutable event geometry; CoreText stays on this worker.
-    func selectionRects(_ selection: NSRange, in box: CGRect) -> [CGRect] {
+    package func selectionRects(_ selection: NSRange, in box: CGRect) -> [CGRect] {
         precondition(!Thread.isMainThread)
         guard selection.location >= 0, selection.length > 0,
               selection.location <= source.utf16Count,
@@ -109,11 +110,11 @@ final class RegionWorkerLayout {
         self.source = source; self.lines = lines; self.baselines = baselines; self.metadata = metadata
         self.preparation = preparation
     }
-    static func shape(_ source: RegionTextSource, width: CGFloat, retainHits: Bool = true,
+    package static func shape(_ source: RegionTextSource, width: CGFloat, retainHits: Bool = true,
                       preparation: RegionPreparedSource? = nil, compact: Bool = false) -> RegionWorkerLayout {
         shape(source, width: width, retainHits: retainHits, preparation: preparation, compact: compact, beforeMetadata: {})
     }
-    static func shape(_ source: RegionTextSource, width: CGFloat, retainHits: Bool = true,
+    package static func shape(_ source: RegionTextSource, width: CGFloat, retainHits: Bool = true,
                       preparation: RegionPreparedSource? = nil, compact: Bool = false,
                       beforeMetadata: () throws -> Void) rethrows -> RegionWorkerLayout {
         precondition(!Thread.isMainThread, "region shape must be worker-owned")
@@ -261,7 +262,7 @@ final class RegionWorkerLayout {
                                   metadata: metadata, preparation: preparation)
     }
 
-    static func shapeFlow(_ source: RegionTextSource, width: CGFloat, exclusions: [TextFlowShape],
+    package static func shapeFlow(_ source: RegionTextSource, width: CGFloat, exclusions: [TextFlowShape],
                           preparation: RegionPreparedSource? = nil,
                           beforeMetadata: () throws -> Void = {}) throws -> RegionWorkerLayout {
         precondition(!Thread.isMainThread)
@@ -295,7 +296,7 @@ final class RegionWorkerLayout {
                                   metadata: metadata, preparation: preparation)
     }
 
-    func exactIndex(at point: CGPoint, in bounds: CGRect) -> Int {
+    package func exactIndex(at point: CGPoint, in bounds: CGRect) -> Int {
         precondition(!Thread.isMainThread)
         if point.y < bounds.minY { return 0 }
         if point.y > bounds.maxY { return source.utf16Count }
@@ -306,7 +307,7 @@ final class RegionWorkerLayout {
         return metadata.sourceIndex(value)
     }
 
-    static func minimumWidth(_ source: RegionTextSource) -> CGFloat {
+    package static func minimumWidth(_ source: RegionTextSource) -> CGFloat {
         precondition(!Thread.isMainThread)
         if source.whiteSpace == 2 || source.whiteSpace == 4 {
             return shape(source, width: .infinity, retainHits: false).metadata.width
@@ -329,8 +330,8 @@ final class RegionWorkerLayout {
         let emergency = Set(preparation.emergencyBreaks.map { $0 + 1 })
         let boundaries = preparation.lineBreakBoundaries.filter { !emergency.contains($0) }
         struct Piece: Hashable {
-            let text: NSAttributedString
-            let hyphenated: Bool
+            package let text: NSAttributedString
+            package let hyphenated: Bool
         }
         var words: [Piece: CGFloat] = [:]
         var bytes = 0
@@ -354,3 +355,4 @@ final class RegionWorkerLayout {
     }
 
 }
+#endif

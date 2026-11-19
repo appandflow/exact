@@ -139,6 +139,13 @@ impl Typing {
         }
     }
 
+    pub(super) fn constants<'a>(
+        &'a self,
+        fns: &'a [contract_syntax::FnDecl],
+    ) -> crate::keyframes::Context<'a> {
+        crate::keyframes::Context::new(fns, &self.scope, &self.shapes)
+    }
+
     /// This typing with its scope as `push` leaves it.
     pub(crate) fn pushed(&self, push: impl FnOnce(&mut contract_types::Scope)) -> Typing {
         let mut scope = (*self.scope).clone();

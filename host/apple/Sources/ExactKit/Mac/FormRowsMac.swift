@@ -18,7 +18,7 @@ private final class RowBezel: NSButton {
 }
 
 extension NodeView {
-    var inGroupedForm: Bool {
+    package var inGroupedForm: Bool {
         for view in sequence(first: self as NSView, next: \.superview) {
             if let node = view as? NodeView, node.kind == "list" { return node.props["listStyle"] != nil }
         }
@@ -33,7 +33,7 @@ extension NodeView {
     /// far past its last part as its first is in, as high as its content.
     func layoutRowBezel() {
         let existing = subviews.first { $0 is RowBezel } as? RowBezel
-        let parts = subviews.compactMap { $0 as? NodeView }.filter { !$0.isHidden && $0.frame.width > 0 }
+        let parts = NodeView.committed(subviews, reader: self).filter { !$0.isHidden && $0.frame.width > 0 }
         guard drawsRowBezel, let end = parts.map(\.frame.maxX).max() else { existing?.removeFromSuperview(); return }
         let content = contentBox(), lead = padding("left")
         let box = NSRect(x: content.minX - lead, y: content.minY, width: end + lead - (content.minX - lead), height: content.height)

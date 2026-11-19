@@ -138,8 +138,8 @@ func agentReady() {
 
 /// The one screen: the view fills the controller's view; the plan boots at
 /// the view's first layout (`ExactView.fit`).
-/// The build's launch colour (the manifest's `background_color`); unset, the
-/// platform's background, as the system's own launch screen then is and
+/// The build's launch colour (host/apple/assets.mjs `launchScreen`); unset,
+/// the platform's background, as the system's own launch screen then is and
 /// the view under it (`ExactView`): never a fixed white (LLP 1115 D2).
 let launchColor = launchScreenColor ?? .platformBackground(in: nil)
 
@@ -206,14 +206,14 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
         }
         session = exact.makeSession(delegate: adapter, label: "main")
         // Before any scene connects: the delegate methods of the host events this build takes (LLP 1133.001.000 D2).
-        exact.installHostEvents(applicationDelegate: nil, sceneDelegate: SceneDelegate.self)
+        ExactComposition.installHostEvents(on: exact, applicationDelegate: nil, sceneDelegate: SceneDelegate.self)
         #if !os(tvOS)
         // A notification's background action that launched the app with no scene boots it with none (LLP 1133.004 stage 2).
-        exact.installNotificationClicks(boot: { $0.bootForWake() }, activate: nil)
+        ExactComposition.installNotificationClicks(on: exact, boot: { $0.bootForWake() }, activate: nil)
         // A wake that launched the app with no scene boots it with none (LLP 1133.017 D7).
-        exact.installWakes { session.bootForWake() }
+        ExactComposition.installWakes(on: exact) { session.bootForWake() }
         // A tool call that launched the app with no scene boots it the same way (LLP 1133.023 D7).
-        exact.installReach { session.bootForWake() }
+        ExactComposition.installReach(on: exact) { session.bootForWake() }
         #endif
         // The one session owns its window and the process (LLP 1075.003.000.001 §2.1.1).
         session.hatchesOwnWindow = true
@@ -226,7 +226,7 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
     }
     #if !os(tvOS)
     func application(_ application: UIApplication, handleEventsForBackgroundURLSession identifier: String, completionHandler: @escaping () -> Void) {
-        exact.handleTransferEvents(identifier, completion: completionHandler)
+        ExactComposition.handleTransferEvents(on: exact, identifier, completion: completionHandler)
     }
     #endif
     func application(_ application: UIApplication, configurationForConnecting connectingSceneSession: UISceneSession, options: UIScene.ConnectionOptions) -> UISceneConfiguration {
@@ -274,9 +274,9 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         // @ref LLP 1038 D8 — consume the launch URL before constructing the view.
         #if !os(tvOS)
         let notificationResponse = connectionOptions.notificationResponse
-        if let notificationResponse { exact.openNotification(notificationResponse) }
+        if let notificationResponse { ExactComposition.openNotification(on: exact, notificationResponse) }
         // A taken host event that launched the app (an accepted iCloud share); the URLs below route as ever.
-        exact.hostEvents(connectionOptions: connectionOptions)
+        ExactComposition.hostEvents(on: exact, connectionOptions: connectionOptions)
         #endif
         let contexts = connectionOptions.urlContexts.map(\.url).sorted { $0.absoluteString < $1.absoluteString }
         let activities = connectionOptions.userActivities.filter { $0.activityType == NSUserActivityTypeBrowsingWeb }
@@ -285,8 +285,8 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
             : environment["EXACT_LAUNCH_URL"].flatMap { URL(string: $0) }.map { [$0] } ?? []
         // A quick action or a search result that launched the app is its launch location (LLP 1133.023 D3, D4).
         #if !os(tvOS)
-        if let item = connectionOptions.shortcutItem, let location = ExactShortcuts.location(of: item) { ExactContentIndex.open(location) }
-        for activity in connectionOptions.userActivities { if let location = ExactContentIndex.location(of: activity) { ExactContentIndex.open(location) } }
+        if let item = connectionOptions.shortcutItem, let location = ExactShortcuts.location(of: item) { exact.open(location: location) }
+        for activity in connectionOptions.userActivities { if let location = ExactComposition.location(of: activity) { exact.open(location: location) } }
         #endif
         // A file is a document from Files ("Open in"), opened in place
         // (LLP 1069.010 slice 4); it lands once the session has booted.
@@ -335,14 +335,14 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
     func scene(_ scene: UIScene, continue userActivity: NSUserActivity) {
         if userActivity.activityType == NSUserActivityTypeBrowsingWeb, let url = userActivity.webpageURL { open([url]) }
         #if !os(tvOS)
-        if let location = ExactContentIndex.location(of: userActivity) { ExactContentIndex.open(location) }
+        if let location = ExactComposition.location(of: userActivity) { exact.open(location: location) }
         #endif
     }
     #if !os(tvOS)
     /// A quick action while the app runs (LLP 1133.023 D3).
     func windowScene(_ windowScene: UIWindowScene, performActionFor shortcutItem: UIApplicationShortcutItem, completionHandler: @escaping (Bool) -> Void) {
         guard let location = ExactShortcuts.location(of: shortcutItem) else { return completionHandler(false) }
-        ExactContentIndex.open(location)
+        exact.open(location: location)
         completionHandler(true)
     }
     #endif

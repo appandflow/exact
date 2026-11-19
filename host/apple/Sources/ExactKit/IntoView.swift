@@ -7,11 +7,11 @@
 // and a virtualized list's window, as a reader's scroll does.
 import CoreGraphics
 
-enum IntoView {
+package enum IntoView {
     /// Where a scroller's offset goes on one axis so the target `t0..<t1`
     /// (in the scroller's content) aligns in the port `p0..<p0 + size` by
     /// CSS's `start`, `center`, `end` or `nearest`, before clamping.
-    static func aligned(_ align: String, target t0: CGFloat, _ t1: CGFloat, port p0: CGFloat, size: CGFloat) -> CGFloat {
+    package static func aligned(_ align: String, target t0: CGFloat, _ t1: CGFloat, port p0: CGFloat, size: CGFloat) -> CGFloat {
         let p1 = p0 + size, length = t1 - t0
         switch align {
         case "start": return t0
@@ -131,7 +131,7 @@ private extension CGPoint {
 /// Repeat them after navigation or presentation settles, following focus so UIKit
 /// cannot scroll back to the focused field. Keep the latest request per HTML id;
 /// a request for another element leaves the others in place.
-final class ElementScrolls {
+package final class ElementScrolls {
     private struct Held {
         weak var node: NodeView?
         let incarnation: UInt64
@@ -152,7 +152,7 @@ final class ElementScrolls {
     }
     func drop(_ name: String) { held.removeAll { $0.name == name } }
     /// A closing sheet or dialog takes its requests with it.
-    func cancel(inside root: UIView) { held.removeAll { $0.node?.isDescendant(of: root) ?? true } }
+    package func cancel(inside root: UIView) { held.removeAll { $0.node?.isDescendant(of: root) ?? true } }
     /// A new document: nothing held, and no reveal goes on moving its page.
     func cancelAll() {
         held.removeAll()
@@ -163,7 +163,7 @@ final class ElementScrolls {
     /// stays dropped, so nothing scrolls it back once the gesture ends. A
     /// reveal running on it is over: UIKit stops the animation for the drag.
     /// A swipe row open in it closes, as a table's does when it scrolls.
-    func userScrolled(_ scroll: UIScrollView) {
+    package func userScrolled(_ scroll: UIScrollView) {
         #if os(iOS)
         presenter.swipeActions.scrolling(scroll)
         #endif
@@ -180,7 +180,7 @@ final class ElementScrolls {
     /// batch; keep it while a presentation or navigation is settling. A
     /// target replaced, recycled into another row, or on an inactive route
     /// cancels its request.
-    func flush() {
+    package func flush() {
         guard !presenter.applying else { return }
         defer { presenter.flushFragment() }
         guard !held.isEmpty else { return }
@@ -235,7 +235,7 @@ final class ElementScrolls {
         reveals[ObjectIdentifier(scroll)] = Reveal(scroll: scroll, to: to, until: now + Self.revealBound, target: target, realigned: realigned, arrived: arrived)
     }
     /// UIKit's scroll animation on `scroll` ended: the reveal's, if one ran.
-    func revealEnded(_ scroll: UIScrollView) {
+    package func revealEnded(_ scroll: UIScrollView) {
         guard let reveal = reveal(on: scroll) else { return }
         reveals[ObjectIdentifier(scroll)] = nil
         reveal.arrived()
@@ -381,10 +381,10 @@ extension Presenter {
     /// A reveal still aligns inside the part of that page UIKit leaves visible.
     private func elementPageInsets(_ scroll: UIScrollView) -> UIEdgeInsets {
         var inset = scroll.adjustedContentInset
-        guard let route = scroll.superview?.next as? RouteController,
+        guard let route = scroll.superview?.next as? any RouteSurface,
               route.contentViewport === scroll else { return inset }
-        let safe = scroll.safeAreaInsets, off = NavigationHost.clearanceOff(route.node)
-        if !NavigationHost.insetsNoTop(route.node) { inset.top = max(inset.top, safe.top) }
+        let safe = scroll.safeAreaInsets, off = RouteGeometry.clearanceOff(route.node)
+        if !RouteGeometry.insetsNoTop(route.node) { inset.top = max(inset.top, safe.top) }
         if off & 2 == 0 { inset.right = max(inset.right, safe.right) }
         if off & 4 == 0 { inset.bottom = max(inset.bottom, safe.bottom) }
         if off & 8 == 0 { inset.left = max(inset.left, safe.left) }

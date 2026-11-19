@@ -30,14 +30,14 @@
 #if os(macOS)
 import AppKit
 
-final class AlertHost {
+package final class AlertHost {
     private weak var presenter: Presenter?
     init(_ presenter: Presenter) { self.presenter = presenter }
 
     /// One of the alert's buttons as presented: the authored button, the
     /// title and enablement it showed, and whether it is the cancel.
     final class Row {
-        weak var node: NodeView?
+        package weak var node: NodeView?
         let title: String, cancel: Bool
         /// A prompt's follows its button as the fields are typed in (`sync`).
         var enabled: Bool
@@ -46,7 +46,7 @@ final class AlertHost {
     /// An alert while its sheet is up, kept until the sheet has ended.
     final class Presented {
         let alert = NSAlert()
-        weak var node: NodeView?
+        package weak var node: NodeView?
         weak var source: NodeView?
         /// A source element, whether an invoker or an explicit `source=`.
         let sourced: Bool
@@ -85,7 +85,7 @@ final class AlertHost {
     /// The alertdialog that is the top modal: the one presented, or being
     /// answered. Over an open dialog its rows are its own, not the dialog's
     /// to block (`DialogHost.blocks`).
-    var modal: NodeView? { presented?.node ?? answering }
+    package var modal: NodeView? { presented?.node ?? answering }
     /// The sheet's window while an alert is up.
     var sheet: NSWindow? { presented?.alert.window }
     func isOpen(_ node: NodeView) -> Bool { presented?.node === node }

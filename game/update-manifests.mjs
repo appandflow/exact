@@ -146,10 +146,42 @@ export function exact2Placeholders(text, from) {
   return { text: out + text.slice(at), unresolved };
 }
 
+/** Cargo otherwise treats path dependencies below .exact/checkout as members of the app's workspace. */
+function excludeCheckout(text) {
+  const doc = Bun.TOML.parse(text);
+  if (!doc.workspace || doc.workspace.exclude?.includes('.exact/checkout')) return text;
+  const expected = structuredClone(doc);
+  expected.workspace.exclude = [...(doc.workspace.exclude ?? []), '.exact/checkout'];
+  const candidates = [];
+  if (doc.workspace.exclude) {
+    for (const match of text.matchAll(/\bexclude\s*=\s*\[/g)) {
+      const at = match.index + match[0].length;
+      candidates.push(text.slice(0, at) + '".exact/checkout", ' + text.slice(at));
+    }
+    expected.workspace.exclude = ['.exact/checkout', ...doc.workspace.exclude];
+  } else {
+    candidates.push(text.replace(/^(\[workspace\][^\n]*\n)/m, '$1exclude = [".exact/checkout"]\n'));
+    for (const match of text.matchAll(/\bworkspace\s*=\s*\{/g)) {
+      const at = match.index + match[0].length;
+      candidates.push(text.slice(0, at) + ' exclude = [".exact/checkout"], ' + text.slice(at));
+    }
+    candidates.push('workspace.exclude = [".exact/checkout"]\n' + text);
+  }
+  for (const next of candidates) {
+    try { if (isDeepStrictEqual(Bun.TOML.parse(next), expected)) return next; } catch {}
+  }
+  throw new Error('set workspace.exclude to include ".exact/checkout", then run update again');
+}
+
 /** Validate each edited manifest before writing it; report all refusals together. */
 export function updateManifests(dir, crates, rootText) {
   const changed = [], unresolved = [], refused = [];
-  const manifests = readdirSync(dir, { recursive: true }).filter(f => basename(f) === 'Cargo.toml' && !/^(target|dist)\//.test(f))
+  const manifestsIn = (at, prefix = '') => readdirSync(at, { withFileTypes: true }).flatMap(entry => {
+    if (['.exact', 'target', 'dist', 'node_modules', '.git'].includes(entry.name)) return [];
+    const name = prefix + entry.name;
+    return entry.isDirectory() ? manifestsIn(resolve(at, entry.name), name + '/') : entry.name === 'Cargo.toml' ? [name] : [];
+  });
+  const manifests = manifestsIn(dir)
     .map(file => {
       const path = resolve(dir, file), text = readFileSync(path, 'utf8');
       let doc; try { doc = Bun.TOML.parse(text); } catch {} // Cargo below reports invalid authored manifests with their paths.
@@ -163,7 +195,7 @@ export function updateManifests(dir, crates, rootText) {
     if (!doc) continue;
     try {
       const result = editManifest(text, dirname(path), crates, {
-        prepared: path === root.path ? rootText ?? text : text, workspaceProvider, rootProvider: path === root.path && inherited,
+        prepared: path === root.path ? existsSync(resolve(dir, '.exact/checkout')) ? excludeCheckout(rootText ?? text) : rootText ?? text : text, workspaceProvider, rootProvider: path === root.path && inherited,
       });
       if (result.unresolved) unresolved.push(file);
       if (result.text !== text) { writeFileSync(path, result.text); changed.push(file); }
@@ -231,10 +263,10 @@ function packagePaths(dir) {
   if (!existsSync(file)) return [];
   try {
     const text = readFileSync(file, 'utf8'), doc = Bun.JSONC.parse(text), paths = [];
-    for (const group of ['dependencies', 'devDependencies', 'optionalDependencies']) {
+    for (const group of ['dependencies', 'devDependencies', 'optionalDependencies', 'overrides', 'resolutions']) {
       for (const [name, spec] of Object.entries(doc[group] ?? {})) {
         const module = /^@exact\/([a-z0-9-]+)$/.exec(name)?.[1];
-        if (!module || typeof spec !== 'string' || !spec.startsWith('file:') || !isAbsolute(spec.slice(5))) continue;
+        if (!module || typeof spec !== 'string' || !spec.startsWith('file:')) continue;
         const target = resolve(ROOT, 'packages', module);
         if (!existsSync(resolve(target, 'package.json'))) continue;
         const next = 'file:' + pathFrom(dir, target);
@@ -254,7 +286,7 @@ function packagePaths(dir) {
       return { ...span, value: JSON.stringify(p.next) };
     });
     writeFileSync(file, replaceSpans(text, edits));
-    return ['package.json: refreshed absolute @exact package paths; run bun install'];
+    return ['package.json: refreshed @exact package paths; run bun install'];
   } catch (error) { return [`package.json: left unchanged; could not refresh @exact package paths (${error.message})`]; }
 }
 

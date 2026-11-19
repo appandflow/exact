@@ -60,6 +60,15 @@ impl<D: DataSource + Default> CanvasHost<D> {
             palette.tell();
         }
         let mut config = crate::app::Config::from_env_static(plan, compat);
+        config.preferences = device::configured().map(|d| exact_runner::Preferences {
+            screen_reader: if config.agent {
+                exact_runner::ScreenReader::Unknown
+            } else {
+                d.screen_reader
+            },
+            accessibility_text_size: d.accessibility_text_size(),
+            ..Default::default()
+        });
         if exact_runner::Delivery::default().with_compat(compat).store != '0' {
             let (open, base) = updates.ok_or(
                 "the baked store level requires the delivery adapter; regenerate the app entry",

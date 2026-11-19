@@ -16,7 +16,7 @@ mod svg;
 mod symbol;
 use exact_kernel::svg::Paint;
 use exact_kernel::SortedMap;
-use exact_kernel::{Kernel, NodeFacts, NodeRef, NodeType, ObjectFit, PropId, PropValue, StyleId};
+use exact_kernel::{Kernel, NodeFacts, NodeRef, NodeType, PropId, PropValue, StyleId};
 pub use semantic::{attributes_by_data, tags_by_data};
 pub(super) use svg::svg_props;
 pub use svg::{attribute_rows, svg_props_of};
@@ -313,7 +313,7 @@ pub fn host_css_of(
         css.push_str("position:relative;");
     }
     // A raster image with a `-exact-tint-color` is a template (LLP 1011 §3): its
-    // alpha masks the tint, fitted and centered in the content box as
+    // alpha masks the tint, fitted and positioned in the content box as
     // `object-fit` fits the picture, which moves out of the box, where the
     // replaced element's own clip hides it. `scale-down` needs the natural
     // size, which only the page knows: the glue sets `--exact-tint-fit`.
@@ -325,18 +325,15 @@ pub fn host_css_of(
             .str(PropId::ImageSource)
             .filter(|s| !s.starts_with("symbol:"))
         {
-            let size = match node.style.object_fit {
-                ObjectFit::Fill => "100% 100%",
-                ObjectFit::Contain => "contain",
-                ObjectFit::Cover => "cover",
-                ObjectFit::None => "auto",
-                ObjectFit::ScaleDown => "var(--exact-tint-fit,contain)",
-            };
+            if !node.style.mask.has(StyleId::ObjectPosition) {
+                css.push_str("--exact-object-position:50% 50%;");
+            }
+            if !node.style.mask.has(StyleId::ObjectFit) {
+                css.push_str("--exact-tint-size:100% 100%;");
+            }
             css.push_str("background-color:var(--exact-tint);mask-image:url(");
             css.push_str(&crate::css::css_string(source));
-            css.push_str(");mask-size:");
-            css.push_str(size);
-            css.push_str(";mask-repeat:no-repeat;mask-position:center;mask-origin:content-box;mask-clip:content-box;object-position:-100000px 0;");
+            css.push_str(");mask-size:var(--exact-tint-size);mask-repeat:no-repeat;mask-position:var(--exact-object-position,50% 50%);mask-origin:content-box;mask-clip:content-box;--exact-tint-offset:-100000px 0;object-position:var(--exact-tint-offset,var(--exact-object-position));");
         }
     }
     // @ref LLP 1053.000 D4 — linked when the plan names a material.
@@ -597,7 +594,7 @@ pub(super) fn css_style<'a>(
     node: &NodeRef<'a>,
 ) -> std::borrow::Cow<'a, exact_kernel::StyleProps> {
     let style = css_style_of(&|from, id| kernel.resolve_id(from, id), &node.facts());
-    with_style_rows(animation_style(kernel, node, style), node)
+    with_style_rows(animation_style(kernel, node, style), kernel, node)
 }
 
 pub(super) fn animation_style<'a>(
@@ -612,9 +609,10 @@ pub(super) fn animation_style<'a>(
 }
 
 /// `style` with the weight and leading a text style named on `node` gives it
-/// (LLP 1115.000 D12.2), for a writer that declares them where it is named.
+/// (LLP 1115.000 D12.2), and object-position's fallback for a tinted image.
 pub(super) fn with_style_rows<'a>(
     mut style: std::borrow::Cow<'a, exact_kernel::StyleProps>,
+    kernel: &Kernel,
     node: &NodeRef<'_>,
 ) -> std::borrow::Cow<'a, exact_kernel::StyleProps> {
     use exact_kernel::StyleId::{FontWeight, LineHeight};
@@ -627,6 +625,18 @@ pub(super) fn with_style_rows<'a>(
         let style = style.to_mut();
         style.line_height = rows.line_height;
         style.mask.set(LineHeight);
+    }
+    // Invalid object-position resets to center; mask-position would reset to top left.
+    if node.node_type == NodeType::Image
+        && node.style.mask.has(StyleId::TintColor)
+        && node.style.mask.has(StyleId::ObjectPosition)
+        && node
+            .style
+            .object_position
+            .try_resolve(&kernel.env_of(node.id))
+            .is_none()
+    {
+        style.to_mut().object_position = Default::default();
     }
     style
 }
@@ -648,6 +658,7 @@ pub fn css_style_of<'a>(
         return std::borrow::Cow::Owned(style);
     }
     if as_attributes.is_empty()
+        && node.node_type != NodeType::Video
         && !url(&node.style.fill)
         && !url(&node.style.stroke)
         && node.style.rare.clip_path.url().is_none()
@@ -664,6 +675,13 @@ pub fn css_style_of<'a>(
         return std::borrow::Cow::Borrowed(node.style);
     }
     let mut style = node.style.clone();
+    if node.node_type == NodeType::Video {
+        style.object_fit = exact_kernel::object::video_fit(
+            style.object_fit,
+            style.written.has(StyleId::ObjectFit),
+        );
+        style.mask.set(StyleId::ObjectFit);
+    }
     let mut mask = exact_kernel::StyleMask::EMPTY;
     for row in as_attributes {
         mask.set(row.0);

@@ -25,7 +25,7 @@ export function fileDependencies(appDir) {
     if (dirname(dir) === dir) return [];
   }
   let manifest;
-  try { manifest = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')); } catch { return []; }
+  try { manifest = Bun.JSONC.parse(readFileSync(join(root, 'package.json'), 'utf8')); } catch { return []; }
   const located = (name) => {
     for (let dir = resolve(appDir); ; dir = dirname(dir)) {
       if (existsSync(join(dir, 'node_modules', name, 'package.json'))) return dir;

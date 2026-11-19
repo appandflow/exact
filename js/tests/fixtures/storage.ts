@@ -169,6 +169,7 @@ function answer(source:string, args:unknown[], store:Store, storage:Storage, nat
 
 let busyOnceDone = false;
 let held: {close(): Promise<void>} | null = null;
+let kept: any = null;
 async function work(_source:string, args:unknown[], store:Store, storage:Storage, native:{available:boolean; call(request:Record<string,unknown>):Record<string,unknown>; later(request:Record<string,unknown>):Promise<Record<string,unknown>>}|null) {
   const op = String(args[0]), value = String(args[1]);
   if (op === 'later') {
@@ -196,6 +197,15 @@ async function work(_source:string, args:unknown[], store:Store, storage:Storage
     } catch(error:any) { return {text:error.message}; }
   }
   if (op === "placeholder") return {text: ""};
+  // One connection across answers, as an app keeps its database open: what a
+  // statement or a batch (its statements split at ";") counted, and the keys
+  // the app is given.
+  if (op === "kept-execute" || op === "kept-batch") {
+    if (!kept) kept = await storage.sqlite.open("app:/data/notes.db");
+    const results = op === "kept-execute" ? [await kept.execute(value)]
+      : await kept.transaction(value.split(";").map((sql: string) => ({sql})));
+    return {text: results.map((r: any) => r.changes + " " + Object.keys(r).join(",")).join("; ")};
+  }
   if (op === "doc-file-codes") {
     const out: string[] = [];
     for (const path of [value, value + "/child"]) {

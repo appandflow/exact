@@ -2,6 +2,7 @@
 import AppKit
 import XCTest
 @testable import ExactKit
+@testable import ExactFlights
 
 /// LLP 1013.000 D4.4 as amended (2026-10-05), on AppKit (`FlightScaleIOSTests`):
 /// a flying view that is not an image keeps its own layout and is scaled

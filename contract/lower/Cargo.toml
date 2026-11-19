@@ -22,6 +22,8 @@ contract-types = { path = "../types" }
 exact-kernel = { path = "../../kernel" }
 exact-svg-file = { path = "../../host/svg-file" }
 exact-plan = { path = "../../plan" }
+# Constant expressions use the runtime's VM and pure built-ins.
+exact-runner = { path = "../../runner" }
 exact-motion = { path = "../../motion" }
 exact-num = { path = "../../num" }
 # Which literal is a colour, for the one-scheme warning (LLP 1116.002 D1).

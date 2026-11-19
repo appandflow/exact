@@ -187,6 +187,15 @@ pub(crate) fn symbol_role(arena: &NodeArena, slot: u32) -> Option<&str> {
         .strip_prefix("symbol:")
 }
 
+/// A template path supplies its own intrinsic aspect at the computed font size.
+pub(crate) fn template_size(arena: &NodeArena, slot: u32) -> Option<(f32, f32)> {
+    let icon = symbol_role(arena, slot).and_then(Icon::parse)?;
+    let em = arena
+        .computed_source(slot, crate::StyleId::FontSize)
+        .font_size;
+    icon.template_size(em)
+}
+
 /// The Apple system symbol a `symbol:` role draws: an `sf/<name>`'s own
 /// name, an icon token's SF Symbol (LLP 1121 D10), or a portable role's
 /// Apple name; "" for a role with none, which draws no glyph. A role is read
@@ -265,6 +274,12 @@ impl<'a> Icon<'a> {
             svg,
             even_odd,
         })
+    }
+
+    /// A path-only template's intrinsic box; an SF Symbol keeps its host's metrics.
+    pub fn template_size(&self, em: f32) -> Option<(f32, f32)> {
+        (self.sf.is_empty() && !self.path.is_empty())
+            .then(|| crate::object::symbol_size(self.view_box, em))
     }
 
     /// The file the Apple build rasterizes, when neither an SF Symbol nor

@@ -59,6 +59,8 @@ internal class Requests(private val activity: ExactActivity) {
     private var sound: SoundOutput? = null
     private var foreground = true
 
+    fun soundState() = sound?.state()
+
     fun foreground(on: Boolean) { foreground = on; sound?.foreground(on) }
 
     private fun sounds(text: String) {

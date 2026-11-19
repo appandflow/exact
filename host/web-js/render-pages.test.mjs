@@ -245,7 +245,7 @@ export function answer(name: string, args: any[]): any {
 `, ({ status, output, dist }) => {
     const refusal = route => `route \`${route}\` is render=build, but its render drew randomness, and a page made at build would give every reader the same random values (LLP 1069.005 D2). Declare the route render=request, rendered for each request, or render=client, rendered in the browser`;
     expect([status, output.split('\n').filter(line => line.includes('drew randomness'))], output)
-      .toEqual([1, [`/product/a: ${refusal('product')}`, `/404: ${refusal('notfound')}`]]);
+      .toEqual([1, [`/product/a: ${refusal('product')}`, `/404.html: ${refusal('notfound')}`]]);
     expect([readFileSync(resolve(dist, 'index.html'), 'utf8').includes('a note'), existsSync(resolve(dist, 'product/a/index.html')), existsSync(resolve(dist, '404.html'))])
       .toEqual([true, false, false]);
   });
@@ -269,6 +269,44 @@ export function answer(name: string): any {
     expect(status, output).not.toBe(0);
     expect(output).toContain("route `product`'s pages (productPages)");
     expect(output).toContain(message);
+  });
+}, 120000);
+
+// A listed value is its route's page only where the router gives the location back to that route (LLP 1048.000 D2), and
+// the not-found document renders at /404.html, which a pattern that matches it would make its own page (D7). The build
+// names each value a route declared earlier takes, each the pattern can't hold, and the not-found document's clash,
+// renders the rest and then fails.
+test('a build names each listed value an earlier route answers and the not-found clash, renders the rest, and fails', async () => {
+  await builtPages(`routes nav
+  home "/" render=client
+    special "/product/special" render=request
+    product "/product/:id" render=build pages=productPages()
+    fresh "/story/new" render=request
+    story "/story/:id" render=build pages=storyPages()
+    post "/:slug" render=request
+  notfound render=build
+
+component App
+  view
+    main
+      text "a page"
+`, `export const grants = '';
+export function answer(name: string): any {
+  if (name === 'productPages') return ['7', 'special', ''];
+  if (name === 'storyPages') return ['new', '1'];
+  return '';
+}
+`, ({ status, output, dist }) => {
+    const refusal = (route, source, value, location, other) => `route \`${route}\`'s pages (${source}): the value "${value}" is at ${location}, which route \`${other}\`, declared before \`${route}\`, answers, so the page there is \`${other}\`'s, not \`${route}\`'s. Leave the value out of the list, or give one of the two routes another path`;
+    expect([status, output.split('\n').filter(line => line.includes('declared before'))], output).toEqual([1, [
+      refusal('product', 'productPages', 'special', '/product/special', 'special'),
+      refusal('story', 'storyPages', 'new', '/story/new', 'fresh'),
+    ]]);
+    // A value the pattern can't hold, and the not-found document's clash, are reported in the same run
+    expect(output).toContain("route `product`'s pages (productPages): the value \"\" can't be a path segment: a path parameter cannot be empty, `.` or `..`. Leave the value out of the list");
+    expect(output).toContain("the not-found document renders at /404.html, which route `post` matches, so it would be that route's page. Give `post` a pattern that doesn't match /404.html, or declare the not-found route render=request or render=client");
+    expect([readFileSync(resolve(dist, 'product/7/index.html'), 'utf8').includes('a page'), existsSync(resolve(dist, 'story/1/index.html')), existsSync(resolve(dist, 'product/special')), existsSync(resolve(dist, '404.html'))])
+      .toEqual([true, true, false, false]);
   });
 }, 120000);
 

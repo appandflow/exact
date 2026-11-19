@@ -181,13 +181,13 @@ package final class ChainingScrollView: NSScrollView {
     var collectionWillScroll: (() -> Void)?
     /// A zoomable scroller's zoom (`ScrollZoomMac.swift`).
     var zoom: ScrollZoomMac?
-    var scrollsX = true
-    var scrollsY = true
+    package var scrollsX = true
+    package var scrollsY = true
     /// `overscroll-behavior` per axis: what happens to a gesture this view
     /// has run out of room for. `auto` hands the rest to the enclosing
     /// scroller (CSS scroll chaining); `contain` and `none` keep it here.
-    var containX = false
-    var containY = false
+    package var containX = false
+    package var containY = false
     /// Whether a contained axis shows the platform's overscroll affordance —
     /// the rubber band. `contain` does, `none` does not (CSS Overscroll §3).
     var bouncesX = false
@@ -433,7 +433,7 @@ package final class ChainingScrollView: NSScrollView {
 extension NodeView {
     /// Kernel frames include the gutter; the document starts at the clip. A
     /// zoomable scroller's child is its document's box (`ScrollZoomMac.swift`).
-    func frameInScrollDocument(_ frame: NSRect) -> NSRect {
+    package func frameInScrollDocument(_ frame: NSRect) -> NSRect {
         guard let clip = superview?.superview as? NSClipView,
               let scroll = clip.superview as? ChainingScrollView,
               scroll.documentView === superview else { return frame }

@@ -25,6 +25,7 @@ fn phone() -> Device {
     Device {
         night: false,
         font_scale: 1.0,
+        screen_reader: exact_runner::ScreenReader::Unknown,
         locale: "en-US".into(),
         rtl: false,
         hour24: false,
@@ -62,6 +63,69 @@ fn a_host_that_is_told_nothing_reports_a_light_system_and_a_mouse() {
     assert_eq!(facts(&p), "light false no-preference fine hover");
     assert_eq!(width(&p, "rem"), 160.0);
     assert!(p.device().is_none() && !p.dark());
+}
+
+#[test]
+fn android_large_text_follows_the_system_scale() {
+    let source = "shape Media\n  accessibilityTextSize: bool\ncomponent App\n  resource media = exactViewport() as shape Media\n  action authorFont\n    setRootFontSize(100)\n  view\n    column\n      button \"Font\" press=authorFont\n      text `${media.accessibilityTextSize}` testId=\"facts\"\n";
+    let mut p = boot(source);
+    p.host.runner_mut().act("authorFont", vec![]).unwrap();
+    assert_eq!(p.host.runner().root_font_size(), 100.0);
+    for (font_scale, expected) in [
+        (1.29, "false"),
+        (1.3, "true"),
+        (2.0, "true"),
+        (1.0, "false"),
+    ] {
+        assert!(p
+            .set_device(&Device {
+                font_scale,
+                ..phone()
+            })
+            .is_none());
+        assert_eq!(facts(&p), expected, "font scale {font_scale}");
+        assert_eq!(p.host.runner().root_font_size(), 100.0);
+    }
+}
+
+#[test]
+fn screen_reader_readings_and_agent_preferences_reach_the_viewport() {
+    use exact_runner::ScreenReader;
+    let mut p = boot("shape Media\n  screenReader: string\ncomponent App\n  resource media = exactViewport() as shape Media\n  view\n    text media.screenReader testId=\"facts\"\n");
+    p.agent = false;
+    assert_eq!(facts(&p), "unknown");
+    for screen_reader in [ScreenReader::Off, ScreenReader::On, ScreenReader::Unknown] {
+        assert!(p
+            .set_device(&Device {
+                screen_reader,
+                ..phone()
+            })
+            .is_none());
+        assert_eq!(facts(&p), screen_reader.keyword());
+    }
+    p.agent = true;
+    for reading in ["on", "off", "unknown"] {
+        let reply = crate::agent::handle(
+            &mut p,
+            &format!(r#"{{"op":"prefer","page":{{"screen-reader":"{reading}"}}}}"#),
+        );
+        let reply: serde_json::Value = serde_json::from_str(&reply).unwrap();
+        assert!(reply.get("error").is_none(), "{reply}");
+        assert_eq!(reply["page"]["screen-reader"], reading);
+        assert_eq!(facts(&p), reading);
+        assert!(p
+            .set_device(&Device {
+                font_scale: 1.3,
+                screen_reader: ScreenReader::On,
+                ..phone()
+            })
+            .is_none());
+        assert_eq!(
+            facts(&p),
+            reading,
+            "the agent's substitute survives a system refresh"
+        );
+    }
 }
 
 #[test]

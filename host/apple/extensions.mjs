@@ -15,6 +15,15 @@ const root = resolve(fileURLToPath(new URL('../..', import.meta.url)));
  * directory rebuilt the system frameworks' modules for each, about two minutes for one alarm extension. Clang keys
  * its entries by compiler, SDK and flags, and writes them safely across concurrent builds. */
 export const extensionModuleCache = resolve(root, 'target', 'apple-extension-module-cache');
+/** The module cache an invocation named (`-module-cache-path`), when its output says that cache was compiled at another
+ * path, else null. A copied app folder or a moved checkout carries caches whose precompiled headers record where they
+ * were made, and every compile that reads one fails (clang: "PCH was compiled with module cache path '…', but the
+ * path is currently '…'"). The path is the invocation's own argument, never one read from the message
+ * (LLP 1156.006.000 D14). */
+export const staleModuleCache = (args, output) => {
+  const at = args.indexOf('-module-cache-path');
+  return at >= 0 && args[at + 1] && /was compiled with module cache path .*but the path is currently/s.test(output) ? args[at + 1] : null;
+};
 
 /** An extension executable's link: application-extension API only, entered at `NSExtensionMain`. A bundle with an
  * `@main` (WidgetKit's) keeps its `main` with `keepMain`. */

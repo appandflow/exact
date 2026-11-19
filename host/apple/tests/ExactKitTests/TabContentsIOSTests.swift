@@ -2,6 +2,8 @@
 import UIKit
 import XCTest
 @testable import ExactKit
+@testable import ExactNavigation
+@testable import ExactNativeViews
 
 /// LLP 1075.003 §3.6: a tab container the app owns sends Exact its intents
 /// (`ExactTabContents.back`, `open`), which Exact applies as the platform and
@@ -36,7 +38,7 @@ final class TabContentsIOSTests: XCTestCase {
     /// queued Back runs.
     func testTheAppsContainerGoesBackAsThePlatformsBackDoes() throws {
         let session = try fixture("contents-back")
-        let navigation = session.presenter.navigation
+        let navigation = session.presenter.navigationHost
         let owner = try XCTUnwrap(navigation.tabOwner)
         let home = try XCTUnwrap(navigation.tabStack(0) as? UINavigationController)
         try pushDetail(session, home)
@@ -56,14 +58,14 @@ final class TabContentsIOSTests: XCTestCase {
     func testTheAppsContainersBackIsRefusedUnderASheet() throws {
         guard hostedWindowScene() != nil else { throw missing("scene", "a presentation completes only in a scene's window") }
         let session = try fixture("contents-back-sheet")
-        let navigation = session.presenter.navigation
+        let navigation = session.presenter.navigationHost
         let owner = try XCTUnwrap(navigation.tabOwner)
         try tapNode(session, "detail")
         waitFor("Detail is pushed") { navigation.navigation?.viewControllers.count == 2 && !navigation.inTransition }
         // Pressed as its handler is: the button is Home's, under Detail
         session.presenter.press(try XCTUnwrap(session.presenter.views.values.first { $0.props["testId"] == "open-note" }).id)
         waitFor("Note is presented") {
-            !navigation.presentedNavigations.isEmpty && !navigation.inTransition && !session.presenter.modals.inTransition
+            !navigation.presentedNavigations.isEmpty && !navigation.inTransition && !session.presenter.modalHost.inTransition
         }
         let home = try XCTUnwrap(navigation.tabStack(0) as? UINavigationController)
         goBack(owner)
@@ -79,7 +81,7 @@ final class TabContentsIOSTests: XCTestCase {
     /// that is no URL is not taken, and Exact says so.
     func testTheAppsContainerOpensAURLAsOneThatArrived() throws {
         let session = try fixture("contents-open")
-        let navigation = session.presenter.navigation
+        let navigation = session.presenter.navigationHost
         let owner = try XCTUnwrap(navigation.tabOwner)
         let second = try XCTUnwrap(navigation.tabStack(1))
         let control = try segmentedControl(owner)
@@ -99,7 +101,7 @@ final class TabContentsIOSTests: XCTestCase {
     /// callback, and the router and the container end at the tab it opens.
     func testAnIntentSentFromInsideOnSelectLeavesTheRouterAndTheContainerAgreeing() throws {
         let session = try fixture("contents-reentry")
-        let navigation = session.presenter.navigation
+        let navigation = session.presenter.navigationHost
         let owner = try XCTUnwrap(navigation.tabOwner)
         let home = try XCTUnwrap(navigation.tabStack(0))
         let control = try segmentedControl(owner)
@@ -119,7 +121,7 @@ final class TabContentsIOSTests: XCTestCase {
     /// left keeps its stack, and the chosen tab's root has nothing beneath.
     func testABackSentFromInsideOnSelectIsTheChosenTabsBack() throws {
         let session = try fixture("contents-back-reentry")
-        let navigation = session.presenter.navigation
+        let navigation = session.presenter.navigationHost
         let owner = try XCTUnwrap(navigation.tabOwner)
         let home = try XCTUnwrap(navigation.tabStack(0) as? UINavigationController)
         let second = try XCTUnwrap(navigation.tabStack(1))
@@ -141,7 +143,7 @@ final class TabContentsIOSTests: XCTestCase {
     /// the containers after the sender did not send them.
     func testAnIntentQueuedBeforeItsContainerRetiredIsRefused() throws {
         let session = try fixture("contents-retired")
-        let navigation = session.presenter.navigation
+        let navigation = session.presenter.navigationHost
         let owner = try XCTUnwrap(navigation.tabOwner)
         let home = try XCTUnwrap(navigation.tabStack(0) as? UINavigationController)
         try pushDetail(session, home)
@@ -171,7 +173,7 @@ final class TabContentsIOSTests: XCTestCase {
     /// its container returns it from `tabContainer` once more.
     func testAnIntentQueuedBeforeItsContainerTookTheTabsAgainIsRefused() throws {
         let session = try fixture("contents-readopted")
-        let navigation = session.presenter.navigation
+        let navigation = session.presenter.navigationHost
         let owner = try XCTUnwrap(navigation.tabOwner)
         goBack(owner)
         // The container leaves the tabs and takes them again within the turn, as retiring and adopting it set them
@@ -187,7 +189,7 @@ final class TabContentsIOSTests: XCTestCase {
     /// Detail pushed on Home's stack, and the push settled.
     private func pushDetail(_ session: ExactSession, _ home: UINavigationController) throws {
         try tapNode(session, "detail")
-        waitFor("Detail is pushed") { home.viewControllers.count == 2 && !session.presenter.navigation.inTransition }
+        waitFor("Detail is pushed") { home.viewControllers.count == 2 && !session.presenter.navigationHost.inTransition }
     }
 
     /// The container's Back, and that Exact queued it.
@@ -221,7 +223,7 @@ final class TabContentsIOSTests: XCTestCase {
         view.layoutIfNeeded()
         session.nativeViews!.installArtifact(try XCTUnwrap(env["EXACT_FIXTURE_MODULE"], "build.mjs --test --ios builds the fixture's module"))
         waitFor("the app's container holds the tabs") {
-            let navigation = session.presenter.navigation
+            let navigation = session.presenter.navigationHost
             return navigation.tabController == nil && navigation.tabOwner?.viewIfLoaded?.window != nil
                 && navigation.primaryNavigation?.viewIfLoaded?.window != nil && !Agent(session: session).nativeInFlight()
         }

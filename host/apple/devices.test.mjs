@@ -393,7 +393,9 @@ test('a drive shows the software keyboard on a simulator it booted and puts the 
 
 test('an AX launch loads the runtime before launch and restores its setting, including after failure', async () => {
   const { withAccessibilityRuntime } = await import('./touches.mjs');
-  for (const initial of [undefined, '0', '1']) {
+  // An unset key in each of `defaults`' wordings: macOS's, and iOS 27's for a key and for a whole domain.
+  const UNSET = ['does not exist', "Error: Could not find key 'ApplicationAccessibilityEnabled' in domain 'com.apple.Accessibility'.", "Error: Domain 'com.apple.Accessibility' not found."];
+  for (const [n, initial] of [undefined, undefined, undefined, '0', '1'].entries()) {
     for (const fails of [false, true]) {
       let value = initial;
       const calls = [];
@@ -402,7 +404,7 @@ test('an AX launch loads the runtime before launch and restores its setting, inc
         calls.push(args);
         const [verb, domain, key] = args;
         expect([domain, key]).toEqual(['com.apple.Accessibility', 'ApplicationAccessibilityEnabled']);
-        if (verb === 'read') return { status: value == null ? 1 : 0, out: value ?? '', err: value == null ? 'does not exist' : '' };
+        if (verb === 'read') return { status: value == null ? 1 : 0, out: value ?? '', err: value == null ? UNSET[n % UNSET.length] : '' };
         value = verb === 'delete' ? undefined : args.at(-1) === 'true' ? '1' : '0';
         return { status: 0 };
       };
@@ -417,6 +419,12 @@ test('an AX launch loads the runtime before launch and restores its setting, inc
     }
   }
   await expect(withAccessibilityRuntime('our-simulator', true, () => { throw Error('must not launch'); }, async () => ({ status: 1, err: 'simulator unavailable' }))).rejects.toThrow('simulator unavailable');
+  // verify's launches try (LLP 1156.006.000 D15): a simulator that will not answer is launched without the runtime.
+  const said = [], error = console.error;
+  console.error = (line) => said.push(line);
+  try { expect(await withAccessibilityRuntime('our-simulator', 'try', async () => 'plain', async () => ({ status: -1, err: 'no answer in 10 s' }))).toBe('plain'); }
+  finally { console.error = error; }
+  expect(said).toEqual(["note: simulator accessibility: no answer in 10 s; launched without UIKit's accessibility runtime, so the accessibility tree is not read"]);
 });
 
 test('AX setup, launch and restoration share the simulator launch lock with ordinary drives', async () => {

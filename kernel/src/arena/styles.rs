@@ -38,24 +38,29 @@ impl NodeArena {
         } else {
             self.frag.containers.remove(slot);
         }
-        let read = self.readers.observed_edges.get(&slot).copied();
+        let read = self.readers.observed.get(&slot).copied();
         self.readers
             .update(slot, &self.styles[slot as usize], &style);
-        // Measure a reader again when it reads a new edge, whose input may be stale
-        let reads = self.readers.observed_edges.get(&slot).copied();
+        // Measure a reader again when it reads a new component, whose input may be stale
+        let reads = self.readers.observed.get(&slot).copied();
         if reads.unwrap_or(0) & !read.unwrap_or(0) != 0 {
             self.observations.remeasure(slot);
         }
         if read.is_some() && reads.is_none() {
             self.observations.stopped_reading(slot);
         }
-        // Measure the readers under a box that starts or stops scrolling again, since that
-        // changes what its content observes
-        let scrolled = crate::kernel::area::scroll_view(self, slot);
+        // Measure the readers under a box that starts or stops scrolling on either axis
+        // again, since that changes what its content observes, the keyboard included
+        let scrolled = crate::kernel::area::scroll_axes(self, slot);
         // Keep the boxes that reserve, which the solve checks (`check_reservations`)
         match crate::kernel::block::reservation::reserves(&style) {
             true => self.reserving.insert(slot),
             false => self.reserving.remove(slot),
+        };
+        // And those whose style makes them a bar (LLP 1123 D12)
+        match style.rare.safe_area_bar != 0 {
+            true => self.observations.bars.styled.insert(slot),
+            false => self.observations.bars.styled.remove(slot),
         };
         // And those that ignore, forgetting what one that stopped took
         if crate::kernel::ignore::ignores(&style) {
@@ -64,8 +69,18 @@ impl NodeArena {
         } else if self.ignoring.remove(slot) {
             self.observations.forget_taken(slot);
         }
+        // Measure the readers at and under a box whose margins changed again (D8): its own,
+        // what its safe area adds, which it preserves, and which side leading maps to
+        let old = &self.styles[slot as usize];
+        let margins = crate::kernel::margins::ROWS
+            .into_iter()
+            .chain([crate::StyleId::Direction]);
+        let restyled = margins.into_iter().any(|id| {
+            old.mask.has(id) != style.mask.has(id)
+                || style.mask.has(id) && old.get(id) != style.get(id)
+        });
         self.styles[slot as usize] = style;
-        if scrolled != crate::kernel::area::scroll_view(self, slot) {
+        if restyled || scrolled != crate::kernel::area::scroll_axes(self, slot) {
             self.observations.moved(slot);
         }
         self.refresh_sticky(slot);

@@ -1,3 +1,5 @@
+// The region text service is the Mac's (RegionService.swift).
+#if os(macOS)
 import Foundation
 // Actual ordinary TextEngine is the independent geometry oracle.
 import XCTest
@@ -1186,3 +1188,4 @@ private final class NumericIndexEvidence: @unchecked Sendable {
     done.wait()
     return box
 }
+#endif

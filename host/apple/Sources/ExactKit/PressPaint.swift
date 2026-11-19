@@ -81,7 +81,7 @@ extension NodeView {
     /// included, `style.rs`), its own press's (LLP 1061 D7) or a look's that
     /// holds (LLP 1121 D8), not one an ancestor lends it. A platform field
     /// takes no other (LLP 1115 D4).
-    var showsOwnTextColor: Bool {
+    package var showsOwnTextColor: Bool {
         wrote("text_color") || (pressPaint.down && style["press_color"] != nil) || pressPaint.lookInk != nil
     }
     package var pressIsDown: Bool { holds("active") || pressed && !pressPaint.outside }

@@ -6,21 +6,48 @@ import QuartzCore
 
 final class ColorReference: ExactModule {
     override func call(_ request: [String: Any]) throws -> [String: Any] {
-        guard request["op"] as? String == "colorReference" else { throw ExactNativeRefusal("unknown color reference operation") }
-        #if os(iOS)
-        if #available(iOS 26, *) { return ["available": true] }
-        #endif
-        return ["available": false]
+        switch request["op"] as? String {
+        case "colorReference":
+            #if os(iOS)
+            if #available(iOS 26, *) { return ["available": true] }
+            #endif
+            return ["available": false]
+        case "sidebarBarHeight":
+            #if os(iOS)
+            return ["height": Double(split?.sidebarBarHeight ?? 0)]
+            #else
+            return ["height": 0]
+            #endif
+        case let op:
+            throw ExactNativeRefusal("The gallery's module was asked for \(op.map { "\"\($0)\"" } ?? "no operation"), which it does not answer. Pass \"colorReference\" or \"sidebarBarHeight\" as native.call's op.")
+        }
     }
 
     #if os(iOS)
+    /// What the `sidebarBarHeight` answer watches: said whenever the split's `sidebarBarHeight` changes
+    static let sidebarBarTopic = "gallery-sidebar-bar"
+    private weak var split: GallerySplit?
     private let sharedBackgrounds = NSMapTable<UIViewController, NSNumber>.weakToStrongObjects()
 
-    override func tabContainer(_ contents: ExactTabContents) -> UIViewController? { GallerySplit(contents) }
+    /// Whether the gallery draws the header's material itself, before iOS 26, where the bar draws one of
+    /// its own: the bar's is cleared over the range bar and one material lies beneath both. From iOS 26
+    /// the bar and its scroll edge effect are UIKit's own, as in an app that sets neither, and iOS 27.0
+    /// leaves the large title undrawn under an appearance set on the item or a material over the bar.
+    private static var sharesMaterial: Bool {
+        if #available(iOS 26, *) { return false }
+        return true
+    }
+
+    override func tabContainer(_ contents: ExactTabContents) -> UIViewController? {
+        let split = GallerySplit(contents)
+        split.sidebarBarHeightChanged = { [context] in context.changed(Self.sidebarBarTopic) }
+        self.split = split
+        return split
+    }
 
     override func route(_ route: ExactRoute) {
         let shared = route.element("range-bar") != nil
-        if route.isNew || sharedBackgrounds.object(forKey: route.controller)?.boolValue != shared {
+        if Self.sharesMaterial, route.isNew || sharedBackgrounds.object(forKey: route.controller)?.boolValue != shared {
             let appearance = UINavigationBarAppearance()
             if shared {
                 // Draw the header and range controls through one material instead of overlapping two blurs
@@ -37,12 +64,6 @@ final class ColorReference: ExactModule {
             route.controller.navigationItem.compactScrollEdgeAppearance = appearance
             sharedBackgrounds.setObject(NSNumber(value: shared), forKey: route.controller)
         }
-        if #available(iOS 27.0, *) {
-            let item = route.controller.navigationItem
-            if item.navigationBarMinimization.minimizationBehavior != .onScrollDown {
-                item.navigationBarMinimization.minimizationBehavior = .onScrollDown
-            }
-        }
     }
 
     private struct Probe { weak var view: UIView?; let diagnostics: ExactDiagnostics; let kind: String; let limit: String }
@@ -54,9 +75,9 @@ final class ColorReference: ExactModule {
     override func element(_ element: ExactElement) {
         #if os(iOS)
         guard let view = element.view else { return }
-        if element.hatch == .stickyLimit, element.isNew {
-            // Keep the authored wrapper unpainted so Exact recognizes it as a native control bar. Every
-            // version clears the bar over it (`route`), so every version draws this material.
+        if Self.sharesMaterial, element.hatch == .stickyLimit, element.isNew {
+            // Keep the authored wrapper unpainted so Exact recognizes it as a native control bar. `route`
+            // clears the bar over it, so this material is the header's and the controls' one.
             let background = RangeBarBackground(frame: view.bounds)
             background.autoresizingMask = [.flexibleWidth, .flexibleHeight]
             view.insertSubview(background, at: 0)

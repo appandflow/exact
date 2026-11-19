@@ -33,7 +33,7 @@ test('a newly generated game builds, reports empty pins and captures without edi
     await run('bun', ['game/new.mjs', app]);
     // Generated adapters and the resolved lock stay under .shells; the authored
     // surface needs no manifest or app.json.
-    assert.deepEqual(readdirSync(app).sort(), ['.gitignore','.shells','.vscode','AGENTS.md','CLAUDE.md','README.md','app.contract','app.test.contract','exact.mjs','logic','pins.json','proof.mjs']);
+    assert.deepEqual(readdirSync(app).sort(), ['.exact','.gitignore','.shells','.vscode','AGENTS.md','CLAUDE.md','README.md','app.contract','app.test.contract','exact.mjs','logic','pins.json','proof.mjs']);
     assert.deepEqual(readdirSync(resolve(app, 'logic')).sort(), ['src','tests']);
     env.EXACT_APP_DIR = app;
     await run('bun', ['-e', 'import {resolveApp} from "./scripts/app.mjs"; resolveApp();']);
@@ -78,7 +78,7 @@ test('a newly generated game builds, reports empty pins and captures without edi
     assert.notEqual(JSON.parse(readFileSync(receipt, 'utf8')).inputs, before.inputs);
     assert.equal(readFileSync(hostReceipt, 'utf8'), hostBefore, 'a logic edit retains the completed host');
     assert.deepEqual(readdirSync(app).filter(file => !['.shells','artifacts','target','dist','dist.previous','app.contract.d.ts'].includes(file)).sort(),
-      ['.gitignore','.vscode','AGENTS.md','CLAUDE.md','README.md','app.contract','app.test.contract','exact.mjs','logic','pins.json','proof.mjs'], 'bakes and proofs write only ignored outputs');
+      ['.exact','.gitignore','.vscode','AGENTS.md','CLAUDE.md','README.md','app.contract','app.test.contract','exact.mjs','logic','pins.json','proof.mjs'], 'bakes and proofs write only ignored outputs');
   } finally {
     rmSync(directory, {recursive:true, force:true});
   }
@@ -92,6 +92,7 @@ test('generated commands run from an external author directory with quoted paths
   try {
     const created=spawnSync(process.execPath,[resolve(import.meta.dir,'new.mjs'),'.'],{cwd:app,encoding:'utf8'});
     assert.equal(created.status,0,created.stderr);
+    await import(resolve(app, 'proof.mjs'));
     // Its commands are its own runner's verbs, as an app's are (LLP 1086; the platformer's diary, R1).
     const verbs=created.stdout.split('\n').filter(line=>line.startsWith('  bun exact.mjs ')).map(line=>line.trim().split(/\s+/)[2]);
     assert.deepEqual(verbs,['test-rust','web','test','agent','mac','windows','prove'],created.stdout);
@@ -100,8 +101,8 @@ test('generated commands run from an external author directory with quoted paths
     for (const verb of [...verbs, 'lock', 'shells']) assert.ok(runnerVerbs.has(verb),verb);
     assert.match(readFileSync(resolve(app,'AGENTS.md'),'utf8'),/<!-- exact:begin[^]*an Exact game[^]*game[\\/]README\.md[^]*feedback status[^]*<!-- exact:end -->/);
     const inspect=resolve(directory,'inspect command.mjs');
-    writeFileSync(inspect,`import {readFileSync} from 'node:fs'; import {resolve} from 'node:path';
-      const [script,...args]=process.argv.slice(2); const path=resolve(script); readFileSync(path);
+    writeFileSync(inspect,`import {readFileSync,realpathSync} from 'node:fs'; import {resolve} from 'node:path';
+      const [script,...args]=process.argv.slice(2); const path=realpathSync(resolve(script)); readFileSync(path);
       console.log(JSON.stringify({path,args}));`);
     const run=async command=>{
       const raw=command.replace(/^bun /,`${quote(process.execPath)} ${quote(inspect)} `);
@@ -114,7 +115,8 @@ test('generated commands run from an external author directory with quoted paths
     const sdk=resolve(directory,'recording SDK');
     mkdirSync(resolve(sdk,'host/windows'),{recursive:true});
     mkdirSync(resolve(sdk,'scripts'),{recursive:true});
-    for (const file of ['app-cli.mjs', 'bun.mjs']) cpSync(resolve(import.meta.dir, '../scripts', file), resolve(sdk, 'scripts', file));
+    for (const file of ['app-cli.mjs', 'bun.mjs', 'paths.mjs']) cpSync(resolve(import.meta.dir, '../scripts', file), resolve(sdk, 'scripts', file));
+    symlinkSync(resolve(import.meta.dir, '../scripts/file-dependencies.mjs'), resolve(sdk, 'scripts/file-dependencies.mjs'));
     mkdirSync(resolve(sdk, 'js/bake/src'), { recursive: true });
     cpSync(resolve(import.meta.dir, '../js/bake/src/__exact_env.mjs'), resolve(sdk, 'js/bake/src/__exact_env.mjs'));
     // An installed checkout's: a verb that builds is refused without node_modules (app-cli.mjs).
@@ -126,6 +128,8 @@ test('generated commands run from an external author directory with quoted paths
     const forwarded=JSON.parse(windows.stdout);
     assert.deepEqual(forwarded.args,['outside-game','--release','--run']);
     assert.equal(realpathSync.native(forwarded.app),realpathSync.native(app));
+    const restored = spawnSync(process.execPath, [resolve(app, 'exact.mjs'), '--help'], { cwd: app, env: { ...process.env, EXACT: resolve(import.meta.dir, '..') }, encoding: 'utf8' });
+    assert.equal(restored.status, 0, restored.stderr);
     const readme=readFileSync(resolve(app,'README.md'),'utf8');
     assert.ok(!readme.includes('/path/to/exact2'),readme);
     const documented=[...readme.matchAll(/`(bun [^`]+)`/g)].map(match=>match[1]);

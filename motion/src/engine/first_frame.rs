@@ -62,6 +62,15 @@ impl Engine {
         Ok(started)
     }
 
+    /// The nodes no presented frame shows yet, though they are committed:
+    /// what is pending on them is not started by a present until they leave
+    /// the set, and starts at the first present after (D1). A host that
+    /// prepares a batch off screen names its nodes until it reveals them
+    /// (LLP 1072 §3.5); motion already running on any node runs on.
+    pub fn set_unshown(&mut self, nodes: impl IntoIterator<Item = u64>) {
+        self.unshown = nodes.into_iter().collect();
+    }
+
     /// Whether anything will present what a commit begins (D9, "The bound").
     /// Not (the page is hidden or frozen, the host has no surface), every
     /// hold is released at its own begin and none is made until it will
@@ -243,6 +252,10 @@ impl Engine {
         let at = move |begin: f64| (begin <= cohort).then_some(at.map_or(begin, |t| t.max(begin)));
         let keys = std::mem::take(&mut self.pending);
         for key in keys {
+            if self.unshown.contains(&key.0) {
+                self.pending.insert(key);
+                continue;
+            }
             let Some(curve) = self
                 .slots
                 .get_mut(&key)
@@ -268,6 +281,9 @@ impl Engine {
         let mut started = Vec::new();
         let nodes: Vec<u64> = self.animating.iter().copied().collect();
         for node in nodes {
+            if self.unshown.contains(&node) {
+                continue;
+            }
             let starts = self.animations.get(&node).is_some_and(|plays| {
                 plays
                     .iter()

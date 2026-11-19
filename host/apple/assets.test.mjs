@@ -4,10 +4,11 @@ import { cpSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writ
 import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
-import { appleAssets, appleAssetCatalogInventory, appleRefusals, composerFallback, rasterIconAssets, iosAssets, iosExecutableRefusal, nativeResourceMappings, plistFile, RESERVED_RESOURCE_ROOTS } from './assets.mjs';
+import { appleAssets, appleAssetCatalogInventory, appleRefusals, composerFallback, rasterIconAssets, iosAssets, iosExecutableRefusal, launchScreen, nativeResourceMappings, plistFile, RESERVED_RESOURCE_ROOTS } from './assets.mjs';
 import { pngPixels } from './image.mjs';
 import { encodePng } from '../../scripts/png.mjs';
 import { alternateIcons } from '../../scripts/app-icons.mjs';
+import { resolveVariant } from '../../scripts/variants.mjs';
 import { useXcode } from './devices.mjs';
 
 test.skipIf(process.platform !== 'darwin')('SVG icon catalogs include independent vector renditions and invalidate on an edit', () => {
@@ -63,6 +64,38 @@ test('Mac resource trees cannot replace the generated privacy manifest', () => {
   for (const to of ['Resources/PrivacyInfo.xcprivacy', 'Resources/PrivacyInfo.xcprivacy/data']) {
     assert.throws(() => nativeResourceMappings({ host: { macos: { resources: [{ from: 'shipped', to }] } } }), /host\.macos\.resources\.to/);
   }
+});
+
+test('each scheme\'s launch colour is the manifest\'s, else the app\'s own ground, else the platform\'s page', () => {
+  const dir = mkdtempSync(resolve(tmpdir(), 'exact-launch-rule-'));
+  try {
+    const rgb = (hex) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255).concat(1);
+    const color = (manifest, ground, launch) => launchScreen({ manifest }, dir, launch, null, ground).ExactLaunchColor;
+    const ground = { light: '#f5f6f8', dark: '#1c1814' };
+    // LLP 1163 D2: a top-level colour holds in every scheme unless a scheme names its own
+    assert.deepEqual(color({ background_color: '#ffffff' }, ground), { light: rgb('#ffffff') });
+    assert.deepEqual(color({ background_color: '#ffffff', color_scheme_dark: { background_color: '#123456' } }, ground), { light: rgb('#ffffff'), dark: rgb('#123456') });
+    // Named none: the app's own ground, else the platform's page
+    assert.deepEqual(color({}, ground), { light: rgb('#f5f6f8'), dark: rgb('#1c1814') });
+    assert.deepEqual(color({}, ground, 'grouped'), { light: rgb('#f5f6f8'), dark: rgb('#1c1814') });
+    assert.deepEqual(color({}, null, 'grouped'), { light: rgb('#f2f2f7'), dark: rgb('#000000') });
+    assert.equal(color({}), undefined);
+    // One scheme named: the other is the app's ground, else the page's values, which a set of its own must write out
+    const lightOnly = { color_scheme_light: { background_color: '#f4efe6' } };
+    assert.deepEqual(color(lightOnly, ground), { light: rgb('#f4efe6'), dark: rgb('#1c1814') });
+    assert.deepEqual(color(lightOnly), { light: rgb('#f4efe6'), dark: rgb('#000000') });
+    assert.deepEqual(color({ color_scheme_dark: { background_color: '#14110d' } }), { light: rgb('#ffffff'), dark: rgb('#14110d') });
+    // A scheme's own member wins over the top level; a fixed style shows its side in both
+    assert.deepEqual(color({ background_color: '#808080', color_scheme_light: { background_color: '#fafafa' } }), { light: rgb('#fafafa'), dark: rgb('#808080') });
+    assert.deepEqual(color({ userInterfaceStyle: 'dark', background_color: '#ffffff', color_scheme_dark: { background_color: '#000000' } }, ground), { light: rgb('#000000') });
+    assert.deepEqual(color({ userInterfaceStyle: 'dark' }, ground), { light: rgb('#1c1814') });
+    // One colour in two spellings is one appearance
+    assert.deepEqual(color({ background_color: '#FFF', color_scheme_dark: { background_color: '#ffffff' } }), { light: rgb('#ffffff') });
+    // Display P3 in its own space, beside an sRGB colour
+    assert.deepEqual(color({ background_color: '#ffffff', color_scheme_dark: { background_color: 'color(display-p3 0.5 0.25 0)' } }),
+      { light: rgb('#ffffff'), dark: { 'display-p3': [0.5, 0.25, 0, 1] } });
+    assert.throws(() => color({ background_color: 'color(display-p3 1.5 0 0)' }), /background_color is "color\(display-p3 1\.5 0 0\)", which is not a colour app\.json takes/);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
 test.skipIf(process.platform !== 'darwin')('the host receives the catalogue launch components without resolving an asset', () => {
@@ -155,6 +188,36 @@ test.skipIf(process.platform !== 'darwin')('alternate icons are the declared ros
     // A name actool did not compile is refused, not shipped: a catalog set it cannot read.
     writeFileSync(resolve(catalog, 'Card.appiconset/Contents.json'), JSON.stringify({ images: [{ filename: 'missing.png', idiom: 'universal', platform: 'ios', size: '1024x1024' }], info: { author: 'x', version: 1 } }));
     assert.throws(() => iosAssets(app([paper, night, card]), dir, false), /did not compile the alternate icon Card/);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+}, 120_000);
+
+test.skipIf(process.platform !== 'darwin')("a variant's Icon Composer project is its build's primary icon, and the app's build keeps the app's", () => {
+  useXcode();
+  const dir = mkdtempSync(resolve(tmpdir(), 'exact-variant-icon-'));
+  try {
+    for (const name of ['Base', 'Dev']) cpSync(new URL('../../scripts/fixtures/Primary.icon', import.meta.url).pathname, resolve(dir, `art/${name}.icon`), { recursive: true });
+    const manifest = {
+      app: { id: 'com.example.v', name: 'V' }, host: { ios: { icon: 'art/Base.icon' }, macos: { icon: 'art/Base.icon' } },
+      variants: { dev: { idSuffix: '.dev', name: 'V Dev', host: { ios: { icon: 'art/Dev.icon' }, macos: { icon: 'art/Dev.icon' } } } },
+    };
+    const app = (variant) => ({ dir, name: 'Variants', manifest: resolveVariant(manifest, variant) });
+    const built = (variant) => {
+      const out = mkdtempSync(resolve(dir, 'out-'));
+      const keys = iosAssets(app(variant), out, false, { catalog: true });
+      const info = JSON.parse(spawnSync('xcrun', ['assetutil', '--info', resolve(out, 'Assets.car')], { encoding: 'utf8' }).stdout);
+      return { primary: keys.CFBundleIcons.CFBundlePrimaryIcon.CFBundleIconName, stacks: [...new Set(info.filter(asset => asset.AssetType === 'IconImageStack').map(asset => asset.Name))] };
+    };
+    assert.deepEqual(built('dev'), { primary: 'Dev', stacks: ['Dev'] });
+    assert.deepEqual(built(undefined), { primary: 'Base', stacks: ['Base'] });
+    const mac = (variant) => appleAssets(app(variant), mkdtempSync(resolve(dir, 'mac-')), { platform: 'macos' }).CFBundleIconName;
+    assert.deepEqual([mac('dev'), mac(undefined)], ['Dev', 'Base']);
+    // The receipt's inventory is the variant's project, so an edit to it is a new native build.
+    assert.deepEqual(appleAssetCatalogInventory(app('dev'), 'ios').map(entry => entry.path), ['art/Dev.icon']);
+    // The project is the primary a distributed bundle needs, and a refusal names the field the author wrote.
+    assert.deepEqual(appleRefusals(app('dev'), 'ios', { archive: true }), []);
+    rmSync(resolve(dir, 'art/Dev.icon'), { recursive: true });
+    assert.deepEqual(appleRefusals(app('dev'), 'ios', { archive: true }), ['variants.dev.host.ios.icon: art/Dev.icon does not exist']);
+    assert.deepEqual(appleRefusals(app(undefined), 'ios', { archive: true }), []);
   } finally { rmSync(dir, { recursive: true, force: true }); }
 }, 120_000);
 

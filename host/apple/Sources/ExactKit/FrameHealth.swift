@@ -10,7 +10,7 @@ import AppKit
 
 /// Bounded callback and apply timing. Presentation is unmeasured; the optional native-scroll
 /// source reports deadlines with unknown cadence.
-final class FrameHealth {
+package final class FrameHealth {
     /// When a collector collects: from the start, in a development build or where `app.json` says `"core"`; on
     /// demand, in a production build (LLP 1079.000 §9): while the card shows or, where an agent can attach, its
     /// capture or scroll track holds a lease; or never, where it says `"off"`.

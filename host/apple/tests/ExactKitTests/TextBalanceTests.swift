@@ -56,13 +56,16 @@ final class TextBalanceTests: XCTestCase {
                 + Double(p.insets.at(range.location).width)
             XCTAssert(ink <= Double(width) + 1 / 64 || s == plain[i], "line \(i) overflows: \(name)", file: file, line: line)
         }
+        #if os(macOS)
         for compact in [false, true] {
             let region = region(spec, width, compact: compact)
             XCTAssertEqual(region.lines, made, "the region worker's lines, compact \(compact): \(name)", file: file, line: line)
             XCTAssertEqual(region.width, p.width, "the region worker's measure, compact \(compact): \(name)", file: file, line: line)
         }
+        #endif
         return made
     }
+    #if os(macOS)
     /// The lines the region worker makes of `spec` at `width`, and their measure.
     private func region(_ spec: Spec, _ width: CGFloat, compact: Bool) -> (lines: [String], width: CGFloat) {
         let source = RegionTextSource.capture(spec, engine: engine), made = RegionLines(), done = DispatchSemaphore(value: 0)
@@ -75,6 +78,7 @@ final class TextBalanceTests: XCTestCase {
         done.wait()
         return (made.lines, made.width)
     }
+    #endif
     /// Balanced Menlo runs of one size, each with the room its inline box
     /// takes before and after it: a `<span>`'s `padding-left` and
     /// `padding-right`.
@@ -208,8 +212,10 @@ final class TextBalanceTests: XCTestCase {
         XCTAssertEqual(lines(greedy, "these newest longer keep title"), ["these newest ", "longer keep ", "title"])
         XCTAssertEqual(greedy.width, 123.63, accuracy: 0.5)
         XCTAssertEqual(measure, greedy.width)
-        // The region worker draws and measures the same lines.
+        // The Mac's region worker draws and measures the same lines.
+        #if os(macOS)
         for compact in [false, true] { XCTAssertEqual(region(boxed, 137, compact: compact).width, greedy.width, "compact \(compact)") }
+        #endif
     }
 
     /// Core Text returns one cluster even where it overflows the room, and
@@ -341,8 +347,10 @@ final class TextBalanceTests: XCTestCase {
     }
 }
 
+#if os(macOS)
 /// What a region worker made, read after its queue signals.
 private final class RegionLines: @unchecked Sendable {
     var lines: [String] = []
     var width: CGFloat = 0
 }
+#endif

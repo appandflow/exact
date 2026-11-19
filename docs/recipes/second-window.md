@@ -55,8 +55,9 @@ What to know:
   `task sync when page.name == "main"`.
 - **One store.** A `persist` state or a store write in one window reaches the
   others' readers. So does an `app:/` file write, and a SQLite statement that
-  changed rows (an `INSERT`, `UPDATE` or `DELETE`; a `CREATE TABLE` does not
-  count): a resource that read that file or database is asked again. On the
+  changed a row or the schema (a `CREATE TABLE IF NOT EXISTS` that finds the
+  table, or a `DELETE` that matches nothing, does not): a resource that read
+  that file or database is asked again. On the
   web, two tabs cannot open one SQLite database at once.
 - **Closing.** Closing a window ends its session. `main` holds the app: under
   `keepRunning` or with a status item placed, closing it hides it, and a Dock

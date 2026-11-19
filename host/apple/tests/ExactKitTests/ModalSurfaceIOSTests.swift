@@ -2,6 +2,7 @@
 import UIKit
 import XCTest
 @testable import ExactKit
+@testable import ExactNavigation
 import ExactGroupedLists
 
 /// What a full-screen route stands on, over `scripts/fixtures/navigation-bars.contract`
@@ -45,14 +46,14 @@ final class ModalSurfaceIOSTests: XCTestCase {
         view.frame = host.view.bounds
         view.layoutIfNeeded()
         RunLoop.main.run(until: Date().addingTimeInterval(0.3))
-        let nav = try XCTUnwrap(session.presenter.navigation.primaryNavigation)
+        let nav = try XCTUnwrap(session.presenter.navigationHost.primaryNavigation)
         return (session, try XCTUnwrap(nav.topViewController as? RouteController))
     }
 
     /// `name`'s full-screen route, opened from `start` and presented: the
     /// presentation's controller and the route's.
     private func open(_ session: ExactSession, _ name: String) throws -> (UIViewController, RouteController) {
-        let navigation = session.presenter.navigation
+        let navigation = session.presenter.navigationHost
         let button = try XCTUnwrap(session.presenter.views.values.first { $0.props["testId"] == "start-open-\(name)" })
         let reply = Agent(session: session).tap(["id": Int(button.id)])
         XCTAssertNil(reply["error"], "the opener for \(name) is tapped")

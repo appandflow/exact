@@ -268,7 +268,7 @@ final class NodePool {
     /// false and leave the destroy to the caller. Nothing is destroyed or
     /// reset until the whole subtree has been found eligible.
     func retire(_ root: NodeView) -> Bool {
-        guard depth == 1, presenter.reorder == nil, !presenter.swipeActions.assistive,
+        guard depth == 1, !presenter.reorders.lifting, !presenter.swipeActions.assistive,
               !Self.leaves.contains(root.kind), list(holding: root) != nil,
               root.canvasAbove == nil, !presenter.modals.retainsRemovedView(root) else { return false }
         return park(root, under: nil)

@@ -34,7 +34,8 @@ import { spawnSync } from '../host/apple/toolchain.mjs';
 import { checkDesignName } from './forma-design-path.mjs';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, readlinkSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { basename, delimiter, dirname, isAbsolute, relative, resolve, sep, toNamespacedPath } from 'node:path';
-import { pathFrom, within } from './paths.mjs';
+import { pathFrom, preservePaths, samePath, within } from './paths.mjs';
+import { parseColour, schemeColours } from './scheme-colours.mjs';
 export { pathFrom } from './paths.mjs';
 import { homedir, tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
@@ -178,13 +179,13 @@ export function patchLines(from, path = pathFrom) {
 }
 /** An outside workspace's patches and toolchain, against this checkout's.
  * Refuses with the exact text to paste rather than letting Cargo fail later
- * on a duplicate crate or a missing wasm target. A patch path is compared as `pathFrom` writes it, through symlinks. */
+ * on a duplicate crate or a missing wasm target. Patch paths are compared by the directories they reach. */
 export function outsideWorkspaceProblems(workspace) {
   const problems = [];
   const manifest = Bun.TOML.parse(readFileSync(resolve(workspace, 'Cargo.toml'), 'utf8'));
   const theirs = manifest.patch?.['crates-io'] ?? {};
   const root = Bun.TOML.parse(readFileSync(resolve(ROOT, 'Cargo.toml'), 'utf8')).patch?.['crates-io'] ?? {};
-  const wrong = Object.entries(root).filter(([name, spec]) => !theirs[name]?.path || pathFrom(workspace, resolve(workspace, theirs[name].path)) !== pathFrom(workspace, resolve(ROOT, spec.path)));
+  const wrong = Object.entries(root).filter(([name, spec]) => !theirs[name]?.path || !samePath(resolve(workspace, theirs[name].path), resolve(ROOT, spec.path)));
   if (wrong.length) problems.push(`${workspace}/Cargo.toml: [patch.crates-io] must name exact2's vendored ${wrong.map(([name]) => name).join(', ')}. Use (or run \`bun exact.mjs update\` in an app \`exact new\` made):\n[patch.crates-io]\n${patchLines(workspace).join('\n')}`);
   // A nested workspace inherits the checkout's pinned toolchain from rustup.
   // An external workspace still needs its own pin.
@@ -411,6 +412,7 @@ export function resolveApp(nameOrCrate) {
   let dir = outside ?? resolve(ROOT, 'apps', name);
   if (!outside && !existsSync(resolve(dir, 'app.contract')) && existsSync(resolve(ROOT, 'game/games', name, 'app.contract'))) dir = resolve(ROOT, 'game/games', name);
   if (!existsSync(resolve(dir, 'app.contract'))) throw new Error(`no app at ${dir} (no app.contract)${outside ? '' : '; set EXACT_APP_DIR for an app outside this repo'}`);
+  preservePaths(dir);
   dir = realpathSync(dir);
   // The bake runs this checkout's TypeScript compiler and bundler (partial
   // fixture copies carry no package.json, as PINNED_BUN says).
@@ -439,7 +441,7 @@ export function resolveApp(nameOrCrate) {
       // authored no workspace builds in the generated one (scripts/app-shells.mjs), written when a build asks (`rust`).
       else if (outside || !manifests.some(existsSync)) workspace = authoredWorkspace(dir) ?? shellsDir(dir);
       // A crate beside app.json that names no workspace, with none above to own it, joins none (LLP 1153.003 D1.1).
-      if (workspace === dir && !existsSync(resolve(dir, 'Cargo.toml'))) refuseLoose(dir);
+      if (samePath(workspace, dir) && !existsSync(resolve(dir, 'Cargo.toml'))) refuseLoose(dir);
       // EXACT_APP_DIR may name an app of this repo; only another workspace is checked, its lock when a build asks.
       if (workspace !== ROOT && workspace !== shellsDir(dir) && existsSync(resolve(workspace, 'Cargo.toml'))) {
         const problems = outsideWorkspaceProblems(workspace);
@@ -566,8 +568,8 @@ export function readManifest(dir, name) {
       ? 'game.presentation is now game.render: rename the key, move presentation/ to render/, name the crate <name>-render and rename its "type" to "hooks" (LLP 1046.008, amendment of 2026-10-04)'
       // LLP 1163 D2: the dark launch colour moved into the W3C member.
       : /^background_color_dark: /.test(p) ? 'background_color_dark is now color_scheme_dark.background_color: "color_scheme_dark": { "background_color": "#000000" } (LLP 1163 D2)'
-      // Expo's splash keys and a host's own launch colour: the launch is the manifest's one colour on every host.
-      : /^((host\.\w+\.)?(splash\w*|windowBackground|backgroundColor|launchColor)): not a known key$/i.test(p) ? `${p.split(':')[0]}: not a known key; what shows before the first frame is background_color, and color_scheme_dark.background_color in a dark scheme, on every host (host.ios.launchImage and host.android.launchImage add a picture)`
+      // Expo's splash keys and a host's own launch colour: the launch colours are the manifest's on every host.
+      : /^((host\.\w+\.)?(splash\w*|windowBackground|backgroundColor|launchColor)): not a known key$/i.test(p) ? `${p.split(':')[0]}: not a known key; what shows before the first frame is background_color in every colour scheme, or color_scheme_light.background_color and color_scheme_dark.background_color in one, on every host (host.ios.launchImage and host.android.launchImage add a picture)`
       : /^host\.ios\.associatedDomains: expected array, got boolean$/.test(p) ? REMOVED_DOMAINS[parsed.host.ios.associatedDomains]
       : appleMetadataProblem(p)).filter((p) => !/^host\.web\.(head(\[|: )|csp|cspReportOnly)/.test(p)).concat(webHeadProblems(parsed), webCspProblems(parsed));
   if (!problems.length) problems.push(...installProblems(parsed), ...gpuModuleProblems(parsed), ...documentTypeProblems(parsed), ...shareTargetProblems(parsed), ...protocolHandlerProblems(parsed), ...linkProblems(parsed), ...appIconProblems(parsed, dir), ...launchImageProblems(parsed, dir), ...variantProblems(parsed, dir));
@@ -615,8 +617,11 @@ function protocolHandlerProblems({ protocol_handlers = [], host }) {
  * (LLP 1030 D2/D10; 1030.000 D7). A browser opens files only, so
  * `inode/directory` (the Apple bake's word for a folder) goes, and it
  * registers neither `http` nor `https`, so those handlers go too.
- * `color_scheme_dark` keeps only the W3C draft's members, and with the app's
- * `dir` each icon gets the `sizes` and `type` of its file (LLP 1163 D2). */
+ * The themeable members take the W3C form (`schemeColours`, LLP 1163 D2): the
+ * light colour as the base where it holds in a dark scheme too or a dark one is
+ * named, the dark one under `color_scheme_dark`; a light colour named alone has
+ * none, so it is left out. `background_color` is clipped to sRGB. With the
+ * app's `dir` each icon gets the `sizes` and `type` of its file. */
 export function webAppManifest(manifest, name, notes = [], dir = null) {
   const keys = ['name', 'short_name', 'description', 'id', 'start_url', 'display', 'display_override', 'theme_color', 'background_color', 'icons', 'lang', 'orientation', 'file_handlers', 'protocol_handlers', 'launch_handler', 'shortcuts', 'categories', 'handle_links', 'scope', 'scope_extensions'];
   let web = Object.fromEntries(keys.filter((k) => manifest[k] !== undefined).map((k) => [k, manifest[k]]));
@@ -625,8 +630,12 @@ export function webAppManifest(manifest, name, notes = [], dir = null) {
   // A shortcut's `apple` and `android` words are the native bakes' (LLP 1133.023 D11).
   if (web.shortcuts) web.shortcuts = web.shortcuts.map(({ apple, android, ...item }) => item);
   if (manifest.share_target) web.share_target = webShareTarget(manifest.share_target, notes);
-  const { icons: _, ...dark } = manifest.color_scheme_dark ?? {};
-  if (Object.keys(dark).length) web.color_scheme_dark = dark;
+  for (const member of ['background_color', 'theme_color']) {
+    delete web[member];
+    const { light, dark } = schemeColours(manifest, member), value = (text) => text && (member === 'background_color' ? parseColour(text, member).hex : text);
+    if (light && dark) web[member] = value(light);
+    if (dark && value(dark) !== value(light)) (web.color_scheme_dark ??= {})[member] = value(dark);
+  }
   if (dir && web.icons) web.icons = publishedIcons(web.icons, dir);
   for (const key of ['file_handlers', 'protocol_handlers', 'shortcuts']) if (!web[key]?.length) delete web[key];
   web.name ??= name;
@@ -1341,14 +1350,14 @@ export function readBuilds(app, env = process.env) {
 /** The shared dev/deploy comparison (LLP 1030 D3). A new binary and a safe
  * bundle are independent results. Compatibility-id equality decides neither. */
 export function classifyArtifacts(candidate, cohort, signingKey = null) {
-  const missing=[];
+  const missing=[], needsBinary=[]; // `needsBinary`: the misses that are proofs against the cohort's own receipt (LLP 1156.006.000 D25)
   if (!candidate?.graph?.artifacts || !cohort?.sources || !cohort?.compat?.inputs) return {binary:true,bundle:false,missing:['bake graph: the installed cohort has no authenticated capability receipt'],warnings:[]};
   const have=cohort.compat.inputs;
   if(candidate.trust==='production'&&have.store?.L!=='0') {
     if(!signingKey||have.keys?.[signingKey.id]!==signingKey.public)missing.push(`envelope: signing key ${signingKey?.id??'(not selected)'} is not carried by this cohort`);
   }
   for(const artifact of candidate.graph.artifacts) for(const [key,need] of Object.entries(artifact.requires)) {
-    const fail=(detail)=>missing.push(`${artifact.name}: ${key}${detail}`);
+    const fail=(detail,proof=true)=>{const said=`${artifact.name}: ${key}${detail}`;missing.push(said);if(proof)needsBinary.push(said);};
     if(key==='sources') {
       for(const [name,shape] of Object.entries(need)) if(canonicalBuild(cohort.sources[name]??null)!==canonicalBuild(shape)) fail(`.${name} (missing source or different parameter/result shape)`);
     } else if(key==='surfaceCalls') {
@@ -1361,7 +1370,7 @@ export function classifyArtifacts(candidate, cohort, signingKey = null) {
     } else if(key==='appleUses') { /* LLP 1047.001 D13: what the binary was composed from, as a subset; a cohort that names no set links everything, and a capability its roster predates was in its core */ if(Array.isArray(have.linked)) for(const item of need) if(!have.linked.includes(item)&&(!Array.isArray(have.linkRoster)||have.linkRoster.includes(item))) fail(`.${item} (not linked into the installed binary; that needs a new binary)`);
     } else if(['androidUses','androidExtensions','androidPermissions'].includes(key)) { /* LLP 1030.006 D4a: what the APK was composed from, as a subset */ for(const item of need) if(!have.androidLinked?.[key.slice(7).toLowerCase()]?.includes(item)) fail(`.${item} (not in the installed APK; that needs a new APK)`); } else if(key==='hermesBytecode') { if(have[key]!==need) fail(` (the module is Hermes bytecode ${need}; this cohort's APK runs ${have[key]??'none'}, which needs a new APK)`); } else if(key==='typescriptRuntime') { if(!((have[key]??0)>=need)) fail(` (requires a prelude of runtime ${need} or later; this cohort's is ${have[key]??0})`); /* LLP 1108 D6 R2: an older prelude ignores exactBodyFrom */ } else if(key==='grantCeiling') {
       const grants=new Set((have.grantCeiling??'').split('\n').filter(Boolean));
-      if(need===null||have.grantCeiling===null) fail(' (unknown baked grants)');
+      if(need===null||have.grantCeiling===null) fail(' (unknown baked grants)',false);
       else for(const grant of need.split('\n').filter(Boolean)) if(!grants.has(grant)) fail(` (${grant})`);
     } else if(canonicalBuild(have[key]??null)!==canonicalBuild(need)) fail(` (requires ${canonicalBuild(need)})`);
   }
@@ -1369,7 +1378,7 @@ export function classifyArtifacts(candidate, cohort, signingKey = null) {
   const warnings=[];
   if(changed&&!candidate.graph.artifacts.some(a=>a.name==='rust/app.module.json')&&canonicalBuild(candidate.compat.inputs.dataCrate)!==canonicalBuild(have.dataCrate)&&Object.keys(candidate.graph.sources).some(n=>!runnerOwnedSource(n)&&cohort.sources[n])) warnings.push(`same name, same shape, new native code: cohort ${cohort.compat.id} will run the old code`);
   if(changed&&Object.keys(candidate.graph.surfaceCalls??{}).length) warnings.push(`same surface name and arity: cohort ${cohort.compat.id} retains its old GPU implementation`);
-  return {binary:changed,bundle:missing.length===0&&have.store?.L!=='0',missing:have.store?.L==='0'?['store.L=0: this binary has no bundle carrier']:missing,warnings};
+  return {binary:changed,bundle:missing.length===0&&have.store?.L!=='0',missing:have.store?.L==='0'?['store.L=0: this binary has no bundle carrier']:missing,needsBinary:have.store?.L==='0'?[]:needsBinary,warnings};
 }
 
 /** Overlay the resident compiler's plan graph with the complete static

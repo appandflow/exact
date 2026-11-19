@@ -345,7 +345,7 @@ extension Presenter {
     /// scrollers laid out. No batch's `restoreScrollPositions` need follow when the covers change nothing, and one
     /// that came later would write a position over the reader's scroll made meanwhile by any means, VoiceOver's or
     /// the keyboard's among them.
-    func writeCarriedScrolls() {
+    package func writeCarriedScrolls() {
         let carried = pendingScrolls.filter { views[$0].map { $0.extras?.pendingScrollTransfer == true && $0.hasScrollLayoutBox } ?? false }
         guard !carried.isEmpty else { return }
         for id in carried where views[id]?.groupedOwner == true { views[id]?.scrollView?.layoutIfNeeded() }
@@ -400,12 +400,12 @@ extension NodeView {
 
     /// Whether a scroll newer than a position Exact carries is under way on `sv`: one the scroll view makes itself
     /// (`scrollsItself`), an element reveal, or a list's smooth correction
-    func scrollUnderWay(_ sv: UIScrollView) -> Bool {
+    package func scrollUnderWay(_ sv: UIScrollView) -> Bool {
         sv.scrollsItself || presenter?.elementScrolls.revealing(sv) != nil || presenter?.collections.animating.contains(id) == true
     }
 
     /// A replacement keeps the logical offset; an authored write takes priority.
-    func retainScrollPosition(from view: UIScrollView) {
+    package func retainScrollPosition(from view: UIScrollView) {
         let authored = extras?.pendingScrollTransfer != true && (pendingScrollTop != nil || pendingScrollLeft != nil)
         if pendingScrollTop == nil { pendingScrollTop = Double(view.contentOffset.y + scrollTopInset(view)) }
         if pendingScrollLeft == nil { pendingScrollLeft = Double(view.contentOffset.x) }

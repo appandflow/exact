@@ -60,6 +60,24 @@ fn a_curve_begun_between_frames_starts_at_the_next_frame() {
 }
 
 #[test]
+fn a_curve_on_a_node_not_yet_shown_starts_at_the_first_frame_after_it_shows() {
+    let mut e = engine(0.1, linear());
+    observe(&mut e, 1.0);
+    e.set_unshown([NODE]);
+    // Frames present while the node is prepared off screen: its curve waits.
+    for frame in [0.016, 0.100, 0.200] {
+        e.advance(frame).unwrap();
+        e.present_frame(frame, frame).unwrap();
+        assert_eq!(opacity(&e), 0.0, "at {frame}");
+    }
+    e.set_unshown([]);
+    e.present_frame(0.216, 0.216).unwrap();
+    assert_eq!(opacity(&e), 0.0, "the frame that shows it starts it");
+    e.present_frame(0.266, 0.266).unwrap();
+    assert!((opacity(&e) - 0.5).abs() < 1e-9);
+}
+
+#[test]
 fn a_pending_curve_is_not_moved_or_retired_by_another_commit() {
     let mut e = engine(0.005, linear());
     observe(&mut e, 1.0);

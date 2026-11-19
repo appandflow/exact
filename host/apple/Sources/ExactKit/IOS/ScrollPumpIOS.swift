@@ -3,7 +3,7 @@
 #if os(iOS) || os(tvOS)
 import UIKit
 
-final class ScrollPump: NSObject, UIScrollViewDelegate {
+package final class ScrollPump: NSObject, UIScrollViewDelegate {
     private weak var presenter: Presenter?
     private var queued = false
     private var afterScroll: DispatchWorkItem?
@@ -206,7 +206,7 @@ final class ScrollPump: NSObject, UIScrollViewDelegate {
         travel[id]?.top += delta
     }
     /// A scroller moved: sample a collection's travel and schedule its text.
-    func scrolled(_ node: NodeView?) {
+    package func scrolled(_ node: NodeView?) {
         guard let p = presenter, !p.applying, !inScroll else { return }
         ImageLink.pixelated?.refresh(in: p)
         inScroll = true
@@ -215,7 +215,7 @@ final class ScrollPump: NSObject, UIScrollViewDelegate {
         // The frame sampler measures a scroll's frames, UIKit's deceleration's included
         p.session?.sampler?.activity()
         armRest(after: Self.restDelay)
-        p.leaves.scrolled()
+        p.leaves?.scrolled()
         p.menus.rehostPopovers()
         // What this frame shows has its text before it commits. A pass
         // follows only for work owed: a paragraph still without all its
@@ -226,7 +226,7 @@ final class ScrollPump: NSObject, UIScrollViewDelegate {
         scheduleAfterScroll()
         start()
     }
-    func scrollViewDidScroll(_ scrollView: UIScrollView) {
+    package func scrollViewDidScroll(_ scrollView: UIScrollView) {
         presenter?.onScrolled?(nil, Double(scrollView.contentOffset.x), Double(scrollView.contentOffset.y))
         presenter?.tipsScrolled()
         FrameSampler.scrolled(scrollView, in: presenter?.session, person: false)
@@ -242,18 +242,18 @@ final class ScrollPump: NSObject, UIScrollViewDelegate {
     }
     // The page's element reveals (`IntoView.swift`).
     #if os(iOS)
-    func scrollViewShouldScrollToTop(_ scrollView: UIScrollView) -> Bool {
+    package func scrollViewShouldScrollToTop(_ scrollView: UIScrollView) -> Bool {
         presenter?.elementScrolls.userScrolled(scrollView)
         return true
     }
     #endif
-    func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
+    package func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
         presenter?.elementScrolls.userScrolled(scrollView)
         if let session = presenter?.session { session.frameHealth.beginScroll(scrollView, session: session) }
     }
-    func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) { if !decelerate { presenter?.session?.frameHealth.endScroll(scrollView) } }
-    func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) { presenter?.session?.frameHealth.endScroll(scrollView) }
-    func scrollViewDidEndScrollingAnimation(_ scrollView: UIScrollView) { presenter?.elementScrolls.revealEnded(scrollView) }
+    package func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) { if !decelerate { presenter?.session?.frameHealth.endScroll(scrollView) } }
+    package func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) { presenter?.session?.frameHealth.endScroll(scrollView) }
+    package func scrollViewDidEndScrollingAnimation(_ scrollView: UIScrollView) { presenter?.elementScrolls.revealEnded(scrollView) }
 
     func batchApplied() {
         // A list that never scrolls, or whose rows change in place (live

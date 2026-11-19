@@ -147,7 +147,7 @@ mod tests {
             .is_none());
         let strings = Strings::with_constants(&plan, Arc::clone(&pool));
         let environment = env(&plan, &strings);
-        let mut run = vm::Run {
+        let mut run = vm::Run::<false> {
             env: &environment,
             code: plan.code(code),
             allowed_writes: &[],
@@ -159,6 +159,7 @@ mod tests {
             steps: 0,
             calls: 0,
             depth: 0,
+            refused_read: None,
         };
         assert_eq!(
             crate::machine::run(&mut run, &mut vm::Machine::new()).unwrap(),

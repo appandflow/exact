@@ -437,7 +437,7 @@ package final class TextArea: UITextView {
     }
     var placeholder = "" { didSet { setNeedsDisplay() } }
     /// The authored `::placeholder` colour (LLP 1104 D3); nil, UIKit's.
-    var placeholderColor: UIColor?
+    package var placeholderColor: UIColor?
     // A scroll view's own drawing does not move with its content: the
     // decorations' lines and visible placeholder are drawn again at each offset.
     package override var contentOffset: CGPoint {

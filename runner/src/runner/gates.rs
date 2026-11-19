@@ -78,7 +78,8 @@ impl<D: DataSource> Runner<D> {
     /// it was (an `every` keeps its phase, a spent `after` stays spent).
     pub(super) fn gate_step(&mut self) -> Result<(), RunnerError> {
         // A sequence's gate, key and arguments (LLP 1125 D2).
-        self.sequence_step()?;
+        let audio = self.seams.audio;
+        audio.sequence_step(self)?;
         let mut seen = Vec::new();
         for (i, row) in self.plan.timers.iter().enumerate() {
             if row.owner.is_some() || (!row.gated && !row.keyed) {
@@ -132,7 +133,7 @@ impl<D: DataSource> Runner<D> {
         // An idle gated frame task keeps no frame source running (LLP 1092 D10).
         self.timers.iter().enumerate().any(|(i, s)| self.timer_row(i).frame && s.armed)
             // A font axis moving (LLP 1019 §13 D10).
-            || self.text_axes.running()
+            || self.text_axes_running()
     }
 
     /// Soonest timer deadline in this runner's clock domain; no host polling.
@@ -257,7 +258,7 @@ impl<D: DataSource> Runner<D> {
             // A module send the substitute answers after its span.
             self.span_due(),
             self.live_times.due(),
-            (self.text_axes.running() && !self.clock.presenting)
+            (self.text_axes_running() && !self.clock.presenting)
                 .then(|| super::virtual_frame(self.now_ms, 1)),
             self.queues
                 .next_due
@@ -277,9 +278,9 @@ impl<D: DataSource> Runner<D> {
             self.work_due(),
             self.work_owed().then_some(self.now_ms),
             // A sequence's fill, count-in's end, end and answer (LLP 1125 D3).
-            Some(self.transport.wake_due()),
-            Some(self.transport.ended_due()),
-            Some(self.transport.answer_due.min(self.midi.answer_due)),
+            Some(self.audio_due()[0]),
+            Some(self.audio_due()[1]),
+            Some(self.audio_due()[2]),
         ]
     }
 

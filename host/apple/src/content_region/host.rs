@@ -1,9 +1,17 @@
 //! Region-aware layout and completion on the owning UI/runtime thread.
 use super::*;
-use crate::content_region::{ContentRegionRegistration, NativeArtifact};
+use crate::content_region::{ContentRegionRegistration, NativeArtifact, RegionState};
 use exact_kernel::{RegionInputs, RegionTextRequest, TextMetrics};
 use std::{any::Any, rc::Rc};
 impl<D: DataSource> Host<D> {
+    /// A captured node's block moved in or out of the region's content.
+    pub(super) fn native_moved_linked(&mut self) {
+        if let Some(native) =
+            slot_region_mut(&mut self.content_region).and_then(|r| r.native.as_mut())
+        {
+            native.dirty = true;
+        }
+    }
     /// Boot one explicitly registered content region before any text layout.
     /// `facts` supplies the date, place and clock before settlement (LLP 1027.000.000 D2).
     pub fn boot_region(
@@ -41,7 +49,7 @@ impl<D: DataSource> Host<D> {
     }
     /// The one current request. The source/ticket retains no Arena/Runtime.
     pub fn pending_region_request(&self) -> Option<(u64, &RegionTextRequest)> {
-        let p = self.content_region.as_ref()?.pending.as_ref()?;
+        let p = slot_region(&self.content_region)?.pending.as_ref()?;
         Some((p.id, &p.request))
     }
     /// Source/paint snapshot for a current request, copied only by its consumer.
@@ -49,8 +57,7 @@ impl<D: DataSource> Host<D> {
         self.region_request_json_known(id, 0)
     }
     pub(crate) fn region_request_json_known(&self, id: u64, known: u64) -> Result<String, String> {
-        self.content_region
-            .as_ref()
+        slot_region(&self.content_region)
             .ok_or("no content region")?
             .request_json(
                 self.runner.kernel(),
@@ -61,11 +68,10 @@ impl<D: DataSource> Host<D> {
     }
     /// Selected immutable publication identity, including retained old content.
     pub fn region_publication_id(&self) -> Option<u64> {
-        if let Some(native) = self.content_region.as_ref()?.native.as_ref() {
+        if let Some(native) = slot_region(&self.content_region)?.native.as_ref() {
             return native.selected.as_ref().map(|a| a.serial);
         }
-        self.content_region
-            .as_ref()?
+        slot_region(&self.content_region)?
             .publication
             .as_ref()
             .map(|(id, _)| *id)
@@ -121,7 +127,11 @@ impl<D: DataSource> Host<D> {
             .kernel_mut()
             .set_content_region(None)
             .map_err(|e| format!("region native fallback: {e:?}"))?;
-        let region = self.content_region.take().unwrap();
+        let region = *self
+            .content_region
+            .take()
+            .and_then(|state| state.downcast::<RegionState>().ok())
+            .unwrap();
         batch.region(&format!("{{\"op\":\"region\",\"disabled\":\"{reason}\"}}"));
         if let Some(native) = region.native {
             let headers = native.selected.map_or_else(Vec::new, |a| a.headers);
@@ -167,7 +177,7 @@ impl<D: DataSource> Host<D> {
     }
     fn unsupported_region_paint(&self) -> bool {
         use exact_kernel::{StyleId as S, WrapFlow};
-        let Some(region) = self.content_region.as_ref().filter(|r| r.native.is_none()) else {
+        let Some(region) = slot_region(&self.content_region).filter(|r| r.native.is_none()) else {
             return false;
         };
         let kernel = self.runner.kernel();
@@ -240,7 +250,7 @@ impl<D: DataSource> Host<D> {
         }
         false
     }
-    pub(super) fn region_layout(
+    pub(super) fn region_layout_linked(
         &mut self,
         root: ViewId,
         offer: Offer,
@@ -255,7 +265,7 @@ impl<D: DataSource> Host<D> {
                 "unsupported content paint uses native views",
             );
         }
-        let Some(region) = self.content_region.as_mut() else {
+        let Some(region) = slot_region_mut(&mut self.content_region) else {
             return Ok(());
         };
         if self.height_owner.is_some() {
@@ -310,7 +320,7 @@ impl<D: DataSource> Host<D> {
         // Even a recoverable staging refusal must revoke the client's previous
         // current authority. Selected A remains unchanged until full promotion.
         let result = self.native_select(batch);
-        let region = self.content_region.as_ref().unwrap();
+        let region = slot_region(&self.content_region).unwrap();
         batch.region(&region.json(self.runner.kernel()));
         result
     }
@@ -382,28 +392,20 @@ impl<D: DataSource> Host<D> {
             Ok((host, batch))
         })
     }
-    pub(super) fn native_mode(&self) -> bool {
-        self.content_region
-            .as_ref()
-            .is_some_and(|r| r.native.is_some())
+    pub(super) fn native_mode_linked(&self) -> bool {
+        slot_region(&self.content_region).is_some_and(|r| r.native.is_some())
     }
-    pub(super) fn native_current(&self) -> bool {
-        self.content_region
-            .as_ref()
-            .is_some_and(|r| r.selected_native_current())
+    pub(super) fn native_current_linked(&self) -> bool {
+        slot_region(&self.content_region).is_some_and(|r| r.selected_native_current())
     }
-    pub(super) fn native_selected_id(&self, id: ViewId) -> bool {
-        self.content_region
-            .as_ref()
+    pub(super) fn native_selected_id_linked(&self, id: ViewId) -> bool {
+        slot_region(&self.content_region)
             .and_then(|r| r.native.as_ref())
             .and_then(|n| n.selected.as_ref())
             .is_some_and(|a| a.headers.iter().any(|h| h.id == id))
     }
-    pub(super) fn native_protected_id(&self, id: ViewId) -> bool {
-        self.native_selected_id(id) || self.native_captured_id(id)
-    }
-    pub(super) fn native_captured_id(&self, id: ViewId) -> bool {
-        let Some(region) = self.content_region.as_ref().filter(|r| r.native.is_some()) else {
+    pub(super) fn native_captured_id_linked(&self, id: ViewId) -> bool {
+        let Some(region) = slot_region(&self.content_region).filter(|r| r.native.is_some()) else {
             return false;
         };
         self.runner
@@ -411,8 +413,8 @@ impl<D: DataSource> Host<D> {
             .node(id)
             .is_some_and(|n| within(self.runner.kernel(), n.key, region.binding.content))
     }
-    pub(super) fn native_retire_removed_owner(&mut self, batch: &mut Batch) {
-        let Some(region) = self.content_region.as_ref().filter(|r| r.native.is_some()) else {
+    pub(super) fn native_retire_removed_owner_linked(&mut self, batch: &mut Batch) {
+        let Some(region) = slot_region(&self.content_region).filter(|r| r.native.is_some()) else {
             return;
         };
         if self
@@ -428,7 +430,7 @@ impl<D: DataSource> Host<D> {
         {
             return;
         }
-        let region = self.content_region.as_mut().unwrap();
+        let region = slot_region_mut(&mut self.content_region).unwrap();
         let native = region.native.as_mut().unwrap();
         native.candidate = None;
         if let Some(a) = native.selected.take() {
@@ -447,8 +449,8 @@ impl<D: DataSource> Host<D> {
         // explicit registration; no ViewId reuse can silently register a new owner.
         let _ = self.runner.kernel_mut().set_content_region(None);
     }
-    pub(super) fn native_note_receipts(&mut self, receipts: &[Timed]) {
-        let Some(region) = self.content_region.as_ref().filter(|r| r.native.is_some()) else {
+    pub(super) fn native_note_receipts_linked(&mut self, receipts: &[Timed]) {
+        let Some(region) = slot_region(&self.content_region).filter(|r| r.native.is_some()) else {
             return;
         };
         let native = region.native.as_ref().unwrap();
@@ -471,8 +473,7 @@ impl<D: DataSource> Host<D> {
                 })
         });
         if dirty {
-            self.content_region
-                .as_mut()
+            slot_region_mut(&mut self.content_region)
                 .unwrap()
                 .native
                 .as_mut()
@@ -480,8 +481,8 @@ impl<D: DataSource> Host<D> {
                 .dirty = true;
         }
     }
-    pub(super) fn native_prepare_candidate(&mut self) -> Result<(), String> {
-        let Some(region) = self.content_region.as_ref().filter(|r| r.native.is_some()) else {
+    pub(super) fn native_prepare_candidate_linked(&mut self) -> Result<(), String> {
+        let Some(region) = slot_region(&self.content_region).filter(|r| r.native.is_some()) else {
             return Ok(());
         };
         if let Some(why) = &region.refused {
@@ -546,9 +547,7 @@ impl<D: DataSource> Host<D> {
             return Ok(());
         }
         let changed = native.dirty || changed_collections;
-        let native = self
-            .content_region
-            .as_mut()
+        let native = slot_region_mut(&mut self.content_region)
             .unwrap()
             .native
             .as_mut()
@@ -627,9 +626,7 @@ impl<D: DataSource> Host<D> {
         if nodes.len() != charge.nodes {
             return Err("native capture membership changed".into());
         }
-        let native = self
-            .content_region
-            .as_mut()
+        let native = slot_region_mut(&mut self.content_region)
             .unwrap()
             .native
             .as_mut()
@@ -655,7 +652,7 @@ impl<D: DataSource> Host<D> {
         if !self.native_mode() {
             return Ok(());
         }
-        let region = self.content_region.as_ref().unwrap();
+        let region = slot_region(&self.content_region).unwrap();
         let native = region.native.as_ref().unwrap();
         let Some(receipt) = &region.receipt else {
             return Ok(());
@@ -715,9 +712,7 @@ impl<D: DataSource> Host<D> {
         // Use ordinary native f32 subtraction against the current arena parent.
         // This path never reprojects or relabels a retained/noncurrent A.
         let kernel = self.runner.kernel();
-        let mut candidate = self
-            .content_region
-            .as_mut()
+        let mut candidate = slot_region_mut(&mut self.content_region)
             .unwrap()
             .native
             .as_mut()
@@ -739,7 +734,7 @@ impl<D: DataSource> Host<D> {
                 n.mirror.content = Some(content_size(&live, kernel));
             }
         }
-        let region = self.content_region.as_ref().unwrap();
+        let region = slot_region(&self.content_region).unwrap();
         let native = region.native.as_ref().unwrap();
         if let Some(old) = &native.selected {
             if Rc::ptr_eq(&old.publication, &publication)
@@ -967,9 +962,7 @@ impl<D: DataSource> Host<D> {
                 .props
                 .insert("popoverParent", parent);
         }
-        let native = self
-            .content_region
-            .as_mut()
+        let native = slot_region_mut(&mut self.content_region)
             .unwrap()
             .native
             .as_mut()
@@ -1011,10 +1004,7 @@ impl<D: DataSource> Host<D> {
         &self,
         selected: &[exact_runner::CollectionSnapshot],
     ) -> Result<String, String> {
-        let region = self
-            .content_region
-            .as_ref()
-            .ok_or("native region missing")?;
+        let region = slot_region(&self.content_region).ok_or("native region missing")?;
         let limits = region
             .native
             .as_ref()
@@ -1032,10 +1022,8 @@ impl<D: DataSource> Host<D> {
         outside.retain(|c| !self.native_protected_id(c.view));
         crate::content_region::native_collections_json(selected, &outside, limits)
     }
-    pub(super) fn native_collections_json(&self) -> Result<String, String> {
-        let native = self
-            .content_region
-            .as_ref()
+    pub(super) fn native_collections_json_linked(&self) -> Result<String, String> {
+        let native = slot_region(&self.content_region)
             .and_then(|r| r.native.as_ref())
             .ok_or("native consumer missing")?;
         self.native_collections_with(
@@ -1044,6 +1032,71 @@ impl<D: DataSource> Host<D> {
                 .as_ref()
                 .map_or(&[], |a| a.collections.as_slice()),
         )
+    }
+}
+
+/// The region in a host's slot, which only [`LinkedRegions`] fills.
+fn slot_region(slot: &Option<Box<dyn Any>>) -> Option<&RegionState> {
+    slot.as_deref()?.downcast_ref()
+}
+fn slot_region_mut(slot: &mut Option<Box<dyn Any>>) -> Option<&mut RegionState> {
+    slot.as_deref_mut()?.downcast_mut()
+}
+
+/// The content region, for a host whose entry links `content_regions`.
+pub struct LinkedRegions;
+
+impl<D: DataSource> super::region_seam::ContentRegions<D> for LinkedRegions {
+    fn boot(
+        &self,
+        kernel: &mut exact_kernel::Kernel,
+        registration: Option<ContentRegionRegistration>,
+        native: Option<crate::content_region::NativeProjectionLimits>,
+    ) -> Result<Option<Box<dyn Any>>, String> {
+        let Some(registration) = registration else {
+            return native.map_or(Ok(None), |_| Err("native registration missing".into()));
+        };
+        let mut region = RegionState::new(kernel, registration)?;
+        if let Some(limits) = native {
+            region.native = Some(crate::content_region::NativeProjection::new(limits)?);
+        }
+        Ok(Some(Box::new(region)))
+    }
+    fn region_layout(
+        &self,
+        h: &mut Host<D>,
+        root: ViewId,
+        offer: Offer,
+        batch: &mut Batch,
+    ) -> Result<(), String> {
+        h.region_layout_linked(root, offer, batch)
+    }
+    fn native_mode(&self, h: &Host<D>) -> bool {
+        h.native_mode_linked()
+    }
+    fn native_current(&self, h: &Host<D>) -> bool {
+        h.native_current_linked()
+    }
+    fn native_selected_id(&self, h: &Host<D>, id: ViewId) -> bool {
+        h.native_selected_id_linked(id)
+    }
+    fn native_captured_id(&self, h: &Host<D>, id: ViewId) -> bool {
+        h.native_captured_id_linked(id)
+    }
+    fn native_moved(&self, h: &mut Host<D>) {
+        h.native_moved_linked()
+    }
+    fn native_retire_removed_owner(&self, h: &mut Host<D>, batch: &mut Batch) {
+        h.native_retire_removed_owner_linked(batch)
+    }
+    fn native_note_receipts(&self, h: &mut Host<D>, receipts: &[Timed]) {
+        h.native_note_receipts_linked(receipts)
+    }
+    fn native_prepare_candidate(&self, h: &mut Host<D>) -> Result<(), String> {
+        h.native_prepare_candidate_linked()
+    }
+    fn native_collections_json(&self, h: &Host<D>) -> Result<String, String> {
+        h.native_collections_json_linked()
     }
 }
 
@@ -1070,8 +1123,7 @@ mod selected_current_tests {
         }
     }
     fn wire_current(host: &Host<NoData>) -> bool {
-        host.content_region
-            .as_ref()
+        slot_region(&host.content_region)
             .unwrap()
             .json(host.runner.kernel())
             .contains("\"current\":true")
@@ -1108,9 +1160,7 @@ mod selected_current_tests {
         settle(&mut host);
         assert!(host.native_current() && wire_current(&host));
         let a_mirror = host.mirror.clone();
-        let a = host
-            .content_region
-            .as_mut()
+        let a = slot_region_mut(&mut host.content_region)
             .unwrap()
             .native
             .as_mut()
@@ -1125,9 +1175,7 @@ mod selected_current_tests {
         host.resize(330., 600.);
         settle(&mut host);
         let b_mirror = host.mirror.clone();
-        let b = host
-            .content_region
-            .as_mut()
+        let b = slot_region_mut(&mut host.content_region)
             .unwrap()
             .native
             .as_mut()
@@ -1136,7 +1184,7 @@ mod selected_current_tests {
             .replace(a)
             .unwrap();
         host.mirror = a_mirror;
-        let region = host.content_region.as_ref().unwrap();
+        let region = slot_region(&host.content_region).unwrap();
         assert!(region.receipt.as_ref().unwrap().current);
         assert!(region.native.as_ref().unwrap().candidate.is_none());
         assert!(!Rc::ptr_eq(
@@ -1175,8 +1223,7 @@ mod selected_current_tests {
             raw.contains(&format!("\"op\":\"present\",\"id\":{outside},")),
             "{raw}"
         );
-        host.content_region
-            .as_mut()
+        slot_region_mut(&mut host.content_region)
             .unwrap()
             .native
             .as_mut()
@@ -1198,8 +1245,7 @@ mod selected_current_tests {
             .finish(None, false, 0., None)
             .contains(&format!("\"op\":\"present\",\"id\":{body},")));
         // Origin and dirty-input negatives must qualify both consumers as well.
-        host.content_region
-            .as_mut()
+        slot_region_mut(&mut host.content_region)
             .unwrap()
             .receipt
             .as_mut()
@@ -1207,16 +1253,14 @@ mod selected_current_tests {
             .origin
             .x += 1.;
         assert!(!host.native_current() && !wire_current(&host));
-        host.content_region
-            .as_mut()
+        slot_region_mut(&mut host.content_region)
             .unwrap()
             .receipt
             .as_mut()
             .unwrap()
             .origin
             .x -= 1.;
-        host.content_region
-            .as_mut()
+        slot_region_mut(&mut host.content_region)
             .unwrap()
             .native
             .as_mut()
@@ -1268,9 +1312,7 @@ mod selected_current_tests {
         // The fresh public boot below must actually admit A with that bound.
         let (calibration, _) = boot(NativeProjectionLimits::default());
         assert!(calibration.pending_region_request().is_none());
-        let a_bound = calibration
-            .content_region
-            .as_ref()
+        let a_bound = slot_region(&calibration.content_region)
             .unwrap()
             .native
             .as_ref()
@@ -1289,7 +1331,7 @@ mod selected_current_tests {
         assert!(initial.contains("\"op\":\"native-region\""));
         assert!(initial.contains("\"current\":true"));
         assert!(host.pending_region_request().is_none());
-        let region = host.content_region.as_ref().unwrap();
+        let region = slot_region(&host.content_region).unwrap();
         let selected = region.native.as_ref().unwrap().selected.as_ref().unwrap();
         let serial = selected.serial;
         let publication = selected.publication.clone();
@@ -1308,7 +1350,7 @@ mod selected_current_tests {
             host.pending_region_request().is_none(),
             "B is immediately ready"
         );
-        let region = host.content_region.as_ref().unwrap();
+        let region = slot_region(&host.content_region).unwrap();
         let native = region.native.as_ref().unwrap();
         let selected = native.selected.as_ref().unwrap();
         let receipt = region.receipt.as_ref().unwrap();
@@ -1360,17 +1402,14 @@ mod selected_current_tests {
         assert!(outside.contains("outside progresses"), "{outside}");
         assert!(outside.contains("native diff admission"), "{outside}");
         assert_eq!(host.region_publication_id(), Some(serial));
-        let outside_state = host
-            .content_region
-            .as_ref()
+        let outside_state = slot_region(&host.content_region)
             .unwrap()
             .json(host.runner.kernel());
         assert!(outside_state.contains("\"current\":false"));
         let outside_revoked = outside.contains(&outside_state);
         // A bounded test-only limit restoration exercises recovery through the
         // ordinary public resize path, not direct promotion or fabricated rows.
-        host.content_region
-            .as_mut()
+        slot_region_mut(&mut host.content_region)
             .unwrap()
             .native
             .as_mut()
@@ -1381,7 +1420,7 @@ mod selected_current_tests {
         assert!(!recovered.contains("\"error\":\""), "{recovered}");
         assert!(host.native_current());
         assert_ne!(host.region_publication_id(), Some(serial));
-        let region = host.content_region.as_ref().unwrap();
+        let region = slot_region(&host.content_region).unwrap();
         let selected = region.native.as_ref().unwrap().selected.as_ref().unwrap();
         let RegionSelection::Accepted(current_b) = &region.receipt.as_ref().unwrap().selection
         else {

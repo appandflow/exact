@@ -166,6 +166,8 @@ fn has_explicit_locator(plan: Option<&str>, dev_plan: Option<&str>) -> bool {
 
 /// What the environment asked for.
 pub struct Config {
+    /// Viewport preferences the carrier read before boot (LLP 1039 D10).
+    pub preferences: Option<exact_runner::Preferences>,
     /// Explicit consumer registration before the first layout; ordinary default
     /// is None. This trial never guesses bindings from test IDs.
     pub content_region: Option<crate::content_region::ContentRegionRegistration>,
@@ -402,6 +404,7 @@ impl Config {
             })
             .unwrap_or((420.0, 860.0));
         Config {
+            preferences: None,
             content_region: None,
             // An argument, else `EXACT_LAUNCH_URL`: the Android reader's launching intent's data has no
             // command line to arrive by (LLP 1133.023 D15 item 3).
@@ -616,6 +619,7 @@ pub(crate) fn boot_presenter_with_painter<D: DataSource + Default>(
         config.launch = location.clone();
     }
     let launch_facts = exact_runner::time::Launch {
+        preferences: config.preferences,
         time: Some(exact_runner::time::WallTime {
             epoch_at_zero,
             utc_offset,

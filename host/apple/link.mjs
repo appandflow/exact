@@ -97,6 +97,11 @@ const SWIFT_CAPABILITIES = (() => {
   return rows;
 })();
 
+/** What links ExactAnimations (Package.swift's `played`): the host plays a
+ * box's transitions, drags and motion through the same `animations` op as its
+ * CSS animations. */
+const PLAYED = ['animations', 'motion', 'drag', 'timelines', 'transitions'];
+
 /** The capabilities a development build links only as production would
  * (LLP 1047.001.000 F): each links a framework that costs every iOS launch
  * its images (PhotosUI, AuthenticationServices, ~300 each; SwiftUI; TipKit),
@@ -120,7 +125,8 @@ export function appleComposition(graph, production, ahead = [], compat = null) {
   const link = !Array.isArray(byUse) ? 'all'
     : production ? [...new Set(byUse)].join(',') || 'none'
     : SWIFT_CAPABILITIES.map(([name]) => name).filter((name) => !BY_USE_IN_DEVELOPMENT.includes(name) || byUse.includes(name)).join(',');
-  const products = SWIFT_CAPABILITIES.filter(([name]) => link === 'all' || link.split(',').includes(name)).map(([, product]) => product);
+  const linked = (name) => link === 'all' || link.split(',').includes(name);
+  const products = SWIFT_CAPABILITIES.filter(([name]) => name === 'animations' ? PLAYED.some(linked) : linked(name)).map(([, product]) => product);
   return { link, products };
 }
 

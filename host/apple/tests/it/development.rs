@@ -23,7 +23,8 @@ fn swift_e(source: &str) -> std::process::Output {
     )));
     std::fs::create_dir_all(&tmp.0).unwrap();
     Command::new("swift")
-        .args(["-swift-version", "5", "-e", source])
+        // The development side of the sources, as a development build compiles them.
+        .args(["-swift-version", "5", "-D", "EXACT_INSPECT", "-e", source])
         .env("TMPDIR", &tmp.0)
         .output()
         .unwrap()
@@ -121,13 +122,7 @@ try {
 } finally { rmSync(dir, {recursive:true, force:true}); }
 "#);
     // Compile the actual Foundation-only opening code, not a parallel parser.
-    let source = include_str!("../../Sources/ExactKit/PlanURL.swift")
-        .split("public enum ExactDevelopmentLink")
-        .nth(1)
-        .unwrap()
-        .split("/// One bounded HTTP rung.")
-        .next()
-        .unwrap();
+    let source = include_str!("../../Sources/ExactKit/DevelopmentLink.swift");
     let checks = r#"
 final class ExactApp {
     static let shared = ExactApp()
@@ -181,9 +176,7 @@ precondition(admits(URL(string: scheme + "://open?token=" + token + "&url=https:
 precondition(!ExactDevelopmentLink.claims(link("https://x.test/", token)) && !ExactDevelopmentLink.open(link("https://x.test/", token)))
 "#
     .replace("PRODUCED", &format!("##\"{produced}\"##"));
-    let result = swift_e(&format!(
-        "import Foundation\npublic enum ExactDevelopmentLink{source}\n{checks}"
-    ));
+    let result = swift_e(&format!("{source}\n{checks}"));
     assert!(
         result.status.success(),
         "{}",
@@ -195,10 +188,10 @@ precondition(!ExactDevelopmentLink.claims(link("https://x.test/", token)) && !Ex
 #[test]
 #[ignore = "async lane: launches the Swift compiler; bun scripts/async.mjs runs it"]
 fn local_development_plan_loads_the_pair_and_retries_partial_writes() {
-    let source = include_str!("../../Sources/ExactKit/PlanURL.swift")
-        .split("/// Explicit development-only opening action")
-        .next()
-        .unwrap();
+    // The file form of the dev loop as the host compiles it, its package
+    // access read as internal: a script has no package.
+    let source =
+        include_str!("../../Sources/ExactKit/DevelopmentPlan.swift").replace("package ", "");
     let checks = r#"
 public enum ExactApplyResult: Equatable { case applied, held(String), refused(String) }
 struct ExactModule { let receipt: Data; let bytecode: Data }

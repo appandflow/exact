@@ -1,6 +1,7 @@
 #if os(macOS) || os(iOS)
 import XCTest
 @testable import ExactKit
+@testable import ExactControls
 #if os(macOS)
 import AppKit
 #else

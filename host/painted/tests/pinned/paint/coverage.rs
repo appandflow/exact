@@ -74,6 +74,7 @@ fn per_side_border_with_nonround_corners_matches_cpu() {
 
 #[test]
 fn coverage_clips_intersect_svg_unions_and_restore_the_parent() {
+    exact_kernel::style::link_all();
     use exact_kernel::svg::scene::{Clip, ClipShape};
     compare("coverage clips", |b| {
         let css = exact_kernel::clip::ClipPath::parse("path('M 8 7 L 122 21 Q 114 105 30 106 Z')")
@@ -275,6 +276,7 @@ fn svg_gradient_and_pattern_brushes_follow_stroked_and_filled_paths() {
 
 #[test]
 fn nested_coverage_clips_keep_the_backdrop_and_blend_destination() {
+    exact_kernel::style::link_all();
     use exact_kernel::style::{BackdropFilter, BackdropOp};
     let mut pixels = Pixmap::new(1, 1).unwrap();
     pixels.fill(tiny_skia::Color::from_rgba8(200, 80, 120, 170));

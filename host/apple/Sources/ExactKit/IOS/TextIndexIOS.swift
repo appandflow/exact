@@ -77,7 +77,7 @@ final class TextIndex {
         /// A point of reach in the viewport, in the scroller's points: more
         /// under a scale that shrinks it (`unit(_:in:)`).
         var unit: CGFloat = 1
-        init(_ scroller: UIView) { self.scroller = scroller }
+        package init(_ scroller: UIView) { self.scroller = scroller }
     }
     private static let tallLimit: CGFloat = 2048
     private var ports: [Port] = []

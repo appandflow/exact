@@ -384,13 +384,7 @@ typedef struct ExactMetrics {
                               -2 = pending native metrics for this revision */
 } ExactMetrics;
 
-/* Region completion takes one retained native artifact on every return path. */
-typedef void (*ExactRegionReleaseFn)(void *owner);
 uint32_t exact_text_ready(ExactRuntime rt, uint32_t index, uint32_t generation, uint64_t revision);
-uint32_t exact_region_request(ExactRuntime rt, uint64_t request, uint64_t known_source);
-uint32_t exact_region_complete(ExactRuntime rt, uint64_t request, ExactMetrics metrics, void *owner, ExactRegionReleaseFn release);
-/* A current incomplete flow returns the registration to native layout. */
-uint32_t exact_region_fallback(ExactRuntime rt, uint64_t request);
 
 typedef ExactMetrics (*ExactMeasureFn)(void *ctx, const ExactMeasureRequest *request);
 
@@ -473,24 +467,6 @@ void exact_set_time_format(ExactRuntime rt, ExactTimeFormatFn format);
 typedef void (*ExactConsoleFn)(uint8_t method, const uint8_t *line, size_t len);
 void exact_set_console(ExactRuntime rt, ExactConsoleFn console);
 void exact_set_measure(ExactRuntime rt, ExactMeasureFn measure, void *ctx);   /* NULL: a monospace reference measurer */
-/* LLP 1056 D8: one Canvas 2D run measured with Core Text where the draw
- * runs, with the context exact_set_measure was given. The strings live for
- * the call. v: width, left, right, ascent, descent (ink, from the run's left
- * alphabetic origin), font ascent, font descent, em ascent, em descent,
- * hanging, ideographic — CSS px. */
-typedef struct ExactCanvasText {
-    const uint8_t *text; size_t len;
-    const uint8_t *families; size_t families_len; /* names joined by ',' */
-    double size, stretch, letter_spacing, word_spacing;
-    uint16_t weight;
-    uint8_t style;   /* 0 normal, 1 italic, 2 oblique */
-    uint8_t caps;    /* fontVariantCaps index */
-    uint8_t kerning; /* 0 auto, 1 normal, 2 none */
-    uint8_t rtl;
-} ExactCanvasText;
-typedef struct ExactCanvasMetrics { double v[11]; } ExactCanvasMetrics;
-typedef ExactCanvasMetrics (*ExactCanvasTextFn)(void *ctx, const ExactCanvasText *run);
-void exact_set_canvas_text(ExactRuntime rt, ExactCanvasTextFn measure);
 /* LLP 1093 D6: each line box's bottom, in content coordinates, of the paragraph a request
  * answers, with exact_set_measure's context. Writes min(count, cap) floats and returns count.
  * NULL (the default) keeps every paragraph whole in a multi-column flow. */
@@ -554,9 +530,11 @@ uint32_t exact_boot(ExactRuntime rt, float width, float height);
  * and configuration JSON. Pure boot reads no store or secrets. Timeline refresh
  * is the only data step. */
 uint32_t exact_boot_entry(ExactRuntime rt, size_t plan, size_t kind, size_t props, size_t configuration, float width, float height);
-uint32_t exact_entry_timeline(ExactRuntime rt, double now_ms, double remaining_ms, const uint8_t *receipt, size_t receipt_len, const uint8_t *module, size_t module_len);
+/* A configured widget's refresh receives its placement's configuration: the
+ * input buffer's first `configuration` bytes, JSON, or its defaults when zero. */
+uint32_t exact_entry_timeline(ExactRuntime rt, double now_ms, double remaining_ms, size_t configuration, const uint8_t *receipt, size_t receipt_len, const uint8_t *module, size_t module_len);
 /* Gallery-only query: a fresh data seam and scratch store, no host activation. */
-uint32_t exact_refresh_entry(ExactRuntime rt, double now_ms);
+uint32_t exact_refresh_entry(ExactRuntime rt, double now_ms, size_t configuration);
 uint32_t exact_boot_plan(ExactRuntime rt, size_t len, float width, float height);
 /* First root's literal viewport-fit=cover, without settlement. Input plan
  * bytes of length len, or the baked plan when len is zero. */
@@ -590,8 +568,6 @@ uint32_t exact_pump(ExactRuntime rt, double now_ms);
 /* Presenter-owned surface work uses the ordinary runner ticket. Kinds are
  * 2 refused, 3 unsupported, 4 aborted, 6 captured bytes, 7 restored. */
 uint8_t exact_request_active(ExactRuntime rt, uint64_t ticket);
-/* The host owns the pixel copy. Call on the runtime owner before encoding. */
-uint8_t exact_canvas_snapshotted(ExactRuntime rt, uint64_t ticket);
 uint32_t exact_fulfill_surface(ExactRuntime rt, uint64_t ticket, uint32_t kind, size_t len, double now_ms);
 
 /* LLP 1038 D5/D8: input URL -> UTF-8 canonical location in exact_out.
@@ -861,6 +837,10 @@ uint32_t exact_frame_at(ExactRuntime rt, double now_ms, double wall_ms);
  * presented frame, in every host booted after; zero at the agent's takeover,
  * where what waits starts at at_ms. Returns the batch's length. */
 uint32_t exact_start_on_frame(ExactRuntime rt, uint32_t on, double at_ms);
+/* @ref LLP 1072 §3.5: the views prepared off screen and not yet revealed;
+ * motion a commit began on them starts at the first frame after they leave
+ * the list. Count 0 reveals them all. */
+void exact_unshown(ExactRuntime rt, const uint32_t *views, uint32_t count);
 /* Whether the display drives frame tasks: exact_frame turns it on; 0 when the
  * agent's clock takes over, whose advances then fire virtual frames. */
 uint32_t exact_present_frames(ExactRuntime rt, uint32_t on);
@@ -870,8 +850,6 @@ typedef double (*ExactWallFn)(void);
 uint32_t exact_set_live_clock(ExactRuntime rt, ExactWallFn wall);
 /* Input: name alone clears; name NUL JSON publishes a current record. */
 uint32_t exact_surface_record(ExactRuntime rt, size_t len);
-uint32_t exact_canvas_performance_requested(ExactRuntime rt, size_t len);
-uint32_t exact_canvas_performance_record(ExactRuntime rt, size_t len);
 /* @ref LLP 1027.000.000: the date — Unix ms at clock zero, minutes east of UTC. */
 uint32_t exact_set_time(ExactRuntime rt, double epoch_at_zero, double utc_offset);
 /* The date the next boot or candidate settles under, told before it; the
@@ -969,29 +947,11 @@ uint32_t exact_confirmation_is_alert(uint32_t texts, uint32_t actions, uint32_t 
  * the view moves to another display. */
 uint32_t exact_set_display_scale(ExactRuntime rt, double scale);
 /* @ref LLP 1039: re-answer viewport facts and relayout in the same batch. */
-/// The display's scale and physical memory for Canvas 2D (LLP 1056 D4);
-/// callable before boot. Returns the batch length.
-uint32_t exact_canvas_display(ExactRuntime rt, double scale, double memory);
-/* LLP 1056 D9: a Canvas 2D image handle the batch's "canvasImages" named,
- * decoded (ok 1, its size in pixels) or not (ok 0); the handle is the input
- * buffer's first len bytes. Returns the batch length. */
-uint32_t exact_canvas_image(ExactRuntime rt, size_t len, uint32_t width, uint32_t height, uint32_t ok);
-/* LLP 1056 D9: the presenter let a decoded Canvas 2D image handle go (the
- * input buffer's first len bytes); a canvas that draws it again asks again. */
-void exact_canvas_image_released(ExactRuntime rt, size_t len);
-/* LLP 1056 D5: a 2D canvas's replay is behind (held 1) or caught up (0);
- * while held, its frame request waits (frames drop rather than queue). */
-void exact_canvas_held(ExactRuntime rt, uint32_t view, uint32_t held);
-/* LLP 1072 §8.5: canvas draws in a turn of their own (deferred 1): every other
- * turn's batch says "canvasOwed" and exact_canvas_draw runs the draws, off the
- * turns main waits on; a tick draws in its own turn. */
-void exact_canvas_defer(ExactRuntime rt, uint32_t deferred);
 /* LLP 1079 D1: runtimes booted from now count each plan site's work for perf
  * from the first ask, exact_measure_work, not from boot (a release build's
  * choice). exact_measure_work starts this runtime's count; returns 0. */
 void exact_measure_work_later(void);
 uint32_t exact_measure_work(ExactRuntime rt);
-uint32_t exact_canvas_draw(ExactRuntime rt);
 uint32_t exact_resize(ExactRuntime rt, float width, float height);
 /* A placement root's resolved margins and its width's authorship (LLP 1126.001 WP10): exact_out
  * holds JSON [margin left, top, right, bottom, authored width 0|1, minimum border-box width] with no batch around it, or
@@ -1126,13 +1086,6 @@ uint32_t exact_radio_group(ExactRuntime rt, uint32_t view);
  * it; with none, the key is consumed where it is; null for no key or one that is
  * not the group's. */
 uint32_t exact_role_keys(ExactRuntime rt, uint32_t view, uint32_t focused, size_t len);
-/* A navigation root's tabs by the kernel's rule (LLP 1115.001 D11), JSON in the
- * output buffer, not a batch: {"tablist":view,"tabs":[view...],"panels":[view...],
- * "unsaid":bool,"covered":bool}, the tabs that name a panel and those panels in tab
- * order, whether the app left the bar's placement unsaid (the web's rule for its
- * sidebar, LLP 1116.004 D1.1), and whether the tablist is covered whole; null for
- * one stack. */
-uint32_t exact_root_tabs(ExactRuntime rt, uint32_t view);
 /* Whether the stack whose root route is `view` shows that route as a list beside
  * its detail, by the runner's rule (LLP 1115.002 D4), JSON in the output buffer,
  * not a batch: {"list":view|null,"width":number|null,"rows":[[route,row]...],

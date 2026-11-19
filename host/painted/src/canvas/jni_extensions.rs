@@ -18,29 +18,15 @@ pub(crate) fn take_bound() -> Option<String> {
     PENDING.lock().unwrap_or_else(|e| e.into_inner()).take()
 }
 
-/// The session's clock as of the host's last turn, and the wall instant it
-/// was read at: what an extension's `ExtensionContext.now()` reads from the
-/// main thread without waiting for exact2's (LLP 1133.009 D10 item 2).
-static CLOCK: std::sync::Mutex<Option<(f64, std::time::Instant)>> = std::sync::Mutex::new(None);
-
-/// The host's turn ended at session time `now_ms`.
-pub(crate) fn stamp(now_ms: f64) {
-    *CLOCK.lock().unwrap_or_else(|e| e.into_inner()) = Some((now_ms, std::time::Instant::now()));
-}
-
-/// Whether this process runs under the agent (`EXACT_AGENT=1`).
+/// Whether this process runs under the agent.
 pub fn agent() -> bool {
-    std::env::var("EXACT_AGENT").is_ok_and(|v| v == "1")
+    exact_runner::agent::carried()
 }
 
-/// The session's clock, ms: under the agent, as its last turn left it (the
-/// agent moves it); else that, plus the wall time since.
+/// The frame and input clock, ms, without waiting for the owner's thread
+/// (LLP 1133.009 D10 item 2). A capture lease shares the display's live time.
 pub fn now() -> f64 {
-    match *CLOCK.lock().unwrap_or_else(|e| e.into_inner()) {
-        Some((ms, _)) if agent() => ms,
-        Some((ms, at)) => ms + at.elapsed().as_secs_f64() * 1000.0,
-        None => 0.0,
-    }
+    crate::canvas::clock::now()
 }
 
 /// Whether extension `name` runs told it is under the agent: under the

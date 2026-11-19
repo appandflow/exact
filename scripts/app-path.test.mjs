@@ -3,8 +3,9 @@ import { afterEach, expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, relative, resolve } from 'node:path';
+import { dirname, join, relative, resolve } from 'node:path';
 import { authoredTests, resolveApp, webDist } from './app.mjs';
+import { ensureShells } from './app-shells.mjs';
 import { runTests } from './agent-test.mjs';
 import { traceLocators } from './agent-launch.mjs';
 
@@ -29,6 +30,41 @@ test('an absolute or relative path to an app resolves to that app, named by its 
     }
     expect(process.env.EXACT_APP_DIR).toBe(undefined);
   }
+});
+
+test('EXACT_APP_DIR and a path selector resolve the app before reading file dependencies', () => {
+  mkdirSync(resolve(ROOT, 'target'), { recursive: true });
+  const parent = realpathSync(mkdtempSync(resolve(ROOT, 'target/app-directory-link-')));
+  try {
+    const app = resolve(parent, 'repo/mobile'), alias = resolve(parent, 'links/mobile'), sdk = resolve(parent, 'repo/sdk');
+    for (const dir of [app, dirname(alias), sdk, resolve(app, 'node_modules/probe')]) mkdirSync(dir, { recursive: true });
+    writeFileSync(resolve(app, 'app.contract'), 'component App\n  view\n');
+    writeFileSync(resolve(app, 'package.json'), '{"dependencies":{"probe":"file:../sdk"}}');
+    for (const dir of [sdk, resolve(app, 'node_modules/probe')]) writeFileSync(resolve(dir, 'package.json'), '{"name":"probe","version":"1.0.0"}');
+    symlinkSync(app, alias, 'dir');
+    process.env.EXACT_APP_DIR = relative(process.cwd(), alias);
+    for (const selected of [app, undefined, alias, relative(process.cwd(), alias)]) {
+      const resolved = resolveApp(selected);
+      expect([resolved.dir, resolved.workspace, resolved.target]).toEqual([app, resolve(app, '.exact/shells'), resolve(app, 'target')]);
+    }
+    expect(ensureShells(alias).workspace).toBe(resolve(app, '.exact/shells'));
+  } finally { rmSync(parent, { recursive: true, force: true }); }
+});
+
+test('app selection resolves ancestor and final directory symlinks', () => {
+  const parent = realpathSync(mkdtempSync(resolve(ROOT, 'target/app-ancestor-link-')));
+  try {
+    const repo = resolve(parent, 'repo'), alias = resolve(parent, 'alias');
+    mkdirSync(resolve(repo, 'mobile'), { recursive: true });
+    writeFileSync(resolve(repo, 'mobile/app.contract'), 'component App\n  view\n');
+    symlinkSync(repo, alias, 'dir');
+    symlinkSync('mobile', resolve(repo, 'linked-mobile'), 'dir');
+    for (const name of ['mobile', 'linked-mobile']) {
+      process.env.EXACT_APP_DIR = resolve(alias, name);
+      expect(resolveApp().dir).toBe(resolve(repo, 'mobile'));
+      expect(resolveApp(resolve(alias, name)).dir).toBe(resolve(repo, 'mobile'));
+    }
+  } finally { rmSync(parent, { recursive: true, force: true }); }
 });
 
 test('resolving a path preserves the environment and later app selections after the fixture is deleted', () => {

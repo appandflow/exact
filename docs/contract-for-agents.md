@@ -2032,7 +2032,8 @@ out (LLP 1157).
   native host's randomness (`EXACT_AGENT_SEED`, 1 by default), so two launches
   draw the same session id and Convex answers the second's writes with the
   first's answers, without running them. Give each launch a new seed: `agent
-  macos --seed 7 …`.
+  macos --seed 7 …`. The tests of one file launch at the file's seed too, on
+  every host: give each test that writes its own `seed` line, first in the test.
 - **Hosts.** The web, macOS, iOS, Linux and Windows. A worker-placed source
   and any other host have no socket to send on. There, and for a read that
   need not be live, use Convex's HTTP client under `net.fetch`: `new
@@ -2183,7 +2184,7 @@ including `DEBUG` for its debug configuration. On Linux, authored `openAppWhenRu
 introduced iOS/macOS availability and scalar parameter defaults are preserved; defaults that
 cannot be represented exactly and unsupported declarations fail the build.
 Linux builds also refuse more than one App Shortcuts provider across modules and generated faces.
-A launch part can import ExactKit and call the public `ExactTools.call` door (LLP 1133.023 D15).
+A launch part can import ExactToolDoor, which a plan with a tool links, and call the public `ExactTools.call` door (LLP 1133.023 D15).
 The `--extensions` selection applies to native and generated intents alike.
 On Linux, native `IntentFile` content types may use `UTType(importedAs:)` or the constants
 `.image`, `.png`, `.jpeg`, `.heic`, `.heif` and `.data`.
@@ -3497,6 +3498,12 @@ instantiates does not link its views' implementations.
 
 ### A package's GPU surfaces
 
+To show a static glTF model, add `@exact/model-viewer` from
+`packages/model-viewer` in this checkout. Its `modelViewer` surface supplies
+the camera, picking, node styles, faded-behind rendering, clipping and
+hotspot labels as Exact children. See [the model viewer recipe](recipes/model-viewer.md)
+for a runnable example, file sources and the surface record (LLP 1133.039).
+
 Any package may declare `gpu` beside `views` in its main `exact.json` (LLP 1153.003 D5):
 
 ```json
@@ -3568,6 +3575,106 @@ error names each attempt's failure. An incompatible `exactGpu` requirement stops
 build before resolution. Neither input lock changes.
 The app commits no Rust files for a package. Modules load only when their surfaces mount;
 package WGSL is compiled into the crate, rather than shipped through `gpu.shaderRoots`.
+
+### Model viewer
+
+`cameraOrbit` is azimuth, polar angle from the top, then radius. Angles take
+`deg` or `rad`; lengths take `m`, `cm` or `mm`. A radius of `100%` fits a
+sphere around the target; `105%` leaves a margin. Unsaid, the orbit is
+`"0deg 75deg 105%"`, `cameraTarget="auto auto auto"` centres the model, and
+`fieldOfView="auto"` frames at 30°. A narrow canvas widens the vertical
+field of view to keep the model in frame. Zoom changes radius.
+
+Changing the orbit, target or field of view animates to that view.
+`postMessage("reset", "modelViewer")` returns to those authored values after
+a drag, including when a view button writes the same values again. The
+record's settled camera values can be saved and bound back as a named view.
+`interpolationDecay` is milliseconds, 50 by default; use 0 to jump, including
+when the app honours the person's reduced-motion preference.
+
+`cameraControls` is off unless written. On, drag to orbit, pinch or wheel to
+zoom, two-finger drag or a modified/right-button drag to pan; focused, use
+arrows, Shift + arrows and Page Up/Down. `disablePan` and `disableZoom` stop
+those camera moves. The canvas reserves all touches and wheels in its box
+at mount, even with zoom disabled. In a scrolling page, leave room beside
+it to scroll. To change input mode, mount another canvas, as
+[the scrolling fixture](../packages/model-viewer/test/fixture/scrolling.contract)
+does. With controls off, that fixture picks from `pointerup` by posting
+`pick <offsetX> <offsetY>` to the surface.
+
+Each `ModelNode` styles its named node and descendants. A deeper entry wins;
+for the same name, the last wins. The whole entry wins, without merging
+fields. `color=""` keeps material colours; otherwise use a CSS colour, with
+`opacity` from 0 to 1 and `visibility="visible"` or `"hidden"`. System
+colours such as `AccentColor` need platform context and are refused.
+Unnamed nodes use `#<index>`; duplicate names share a style.
+
+For the faded-behind style, mark the shell `occluder` and its inner parts
+`revealed`. The inner part draws at `occludedOpacity` where the shell hides
+it. Occluders are always opaque: use `occlusion="none"` when you want a
+translucent shell instead. A tap picks the revealed part through an
+occluder, but ordinary opaque geometry in front still blocks it. Hidden and
+clipped geometry, and non-occluders at zero opacity, cannot be picked.
+`message=pick` receives the deepest mesh node's name, or `""` for a miss.
+
+`clipPosition` is a point on the plane, in model coordinates; its `auto`
+axes use the model's centre. `clipNormal` points towards the half that
+stays. `""` disables it. Drawing, picking and hotspot anchors share the cut;
+the cut faces are not filled.
+
+A `ModelHotspot` anchors a direct canvas child by `testId`. Its position is
+in model coordinates; `position=""` uses the node subtree's bounding-box
+centre. `normal=""` skips the facing test. Labels follow the camera and dim
+to `minHotspotOpacity` (0.25 by default) behind opaque geometry outside
+their own subtree, or when their normal faces away. They stay pressable
+and accessible while dimmed; off-canvas, behind-camera, hidden-node and
+clipped anchors hide them. Write a named group and label on the canvas,
+and give hotspot buttons the same picking action as the model. On the web,
+a label that writes `filter` overrides its occlusion fade; put that filter
+on a child inside the label instead. iOS keyboard focus skips hotspots;
+VoiceOver can reach them. View buttons provide a touch alternative to orbit.
+
+`src` also accepts `app:/data/…`, `app:/cache/…` and `app:/tmp/…`. Data code
+downloads or imports a GLB, writes it under its `fs.write` grant, and returns
+the path to bind. Reading that path needs no surface grant. See
+[the fixture's cacheModel source](../packages/model-viewer/test/fixture/app.ts)
+and its scrolling route for a file created at runtime. Direct `https:`
+sources are refused. Names are ASCII, at most 128 bytes after removing
+`assets/`, with no `.` or `..` path part; files are at most 64 MiB.
+
+The reader supports `KHR_mesh_quantization` and `EXT_meshopt_compression`.
+It draws static triangles with material base colours. `OPAQUE` (the default)
+ignores material alpha; `MASK` keeps or drops the whole primitive at
+`alphaCutoff` (0.5 by default). Both use material opacity 1; `BLEND` uses
+the base colour factor's alpha. Node style `opacity` multiplies that material
+opacity, except for occluders, which stay opaque. Textures, animation, skins
+and morph targets are ignored. `.gltf`, sparse accessors and other required
+extensions are refused. On the web, parsing blocks the page once; native
+parsing runs off the frame thread.
+
+Read `exactSurface("modelViewer")` with the imported `ModelViewerState`:
+
+| Field | Use |
+|---|---|
+| `presented` | Hide the loader after the current picture is presented. |
+| `src`, `loaded`, `error` | The bound source, whether it loaded, and its error sentence (`""` on success). |
+| `triangles` | The displayed model's triangle count. |
+| `nodes` | Names and parent names (`""` at a root), for a parts list. |
+| `cameraOrbit`, `cameraTarget`, `fieldOfView` | The last settled camera, ready to save as a view. |
+| `cameraView` | `front`, `right`, `back` or `left`, optionally prefixed `upper-` or `lower-`. |
+
+A replacement keeps the old picture while loading. Failure clears it and
+sets `presented=true`, `loaded=false` and `error`. The empty frame ends the
+loader; show the error text that remains. The record belongs to the first
+live canvas of that surface name; each canvas's picks still reach its own
+handler. Import the package's shapes: records entering a GPU surface are
+positional, so their declaration order matters.
+
+The generated fixture is the tested model. Web drawing needs WebGPU. tvOS
+shows the model and accepts app view buttons, but has no remote orbit or
+focusable hotspots. Linux has no screen-reader bridge. Android, Windows and
+physical-phone behaviour remain unqualified; watchOS and the terminal have
+no GPU surface.
 
 ### Native SDK dependencies
 
@@ -3900,10 +4007,11 @@ Exact's web servers use declared routes for file-like deep links: `/profile/:han
 admits a navigation to `/profile/photos.zip`. Existing public files win; unmatched
 file paths stay 404, even with `notfound`.
 
-A route literal may hold Unicode and spaces as they are (`"/item/café"`) or escaped, but spells
-an escape as a browser sends it: the router matches a path only as written, while a host serves
-every spelling from one file. An escape of a character a URL carries as itself (`%41` for `A`)
-or one in lower case (`%c3`) is refused (`route-pattern`), naming the spelling to write. A
+A route literal may hold Unicode and spaces as they are (`"/item/café"`) or escaped; a pattern may
+not end in a space, which a browser trims: drop it, or write it `%20`. A literal spells an escape
+as a browser sends it: the router matches a path only as written, while a host serves every
+spelling from one file. An escape of a character a URL carries as itself (`%41` for `A`) or one
+in lower case (`%c3`) is refused (`route-pattern`), naming the spelling to write. A
 `render=build` page is written at its path decoded (`/item/caf%C3%A9` to
 `item/café/index.html`), but for what no file name may hold on every system, which stays escaped:
 a separator, `%`, `<>:"|?*`, a control character, a trailing dot or space, and a Windows device
@@ -3917,7 +4025,10 @@ route rendered so, `shell.html`, and `routes.json`, the route table in the plan'
 route's pattern, render policy and `notfound`. A route whose render draws randomness
 (`crypto.getRandomValues` or `crypto.randomUUID`, for example) cannot be `render=build`, since
 its page would give every reader the same random values: the build fails, naming the route;
-declare it `render=request` or `render=client` instead. An app with routes also gets `robots.txt`, which
+declare it `render=request` or `render=client` instead. A `notfound` route declared `render=build`
+renders at `/404.html`, so a route whose pattern matches that location, such as `post "/:slug"`,
+fails the build, naming the route: give it another pattern or declare the `notfound` route
+`render=request` or `render=client`. An app with routes also gets `robots.txt`, which
 allows every path, and with `app.json`'s `app.origin` a `sitemap.xml` of the pages made at build,
 by the render server's rule: not the `notfound` page, a page whose status is neither 200 nor 503
 (a render at its deadline), or one whose `head` says `robots="noindex"` or `"none"`. A page rendered per request is not made at build, so the built
@@ -4071,9 +4182,11 @@ main navigationKey=`${top(nav).id}` navigationBack="close" navigate=follow displ
   one), is drawn as written, in its colours, as the
   item's image inside the bar's capsule (a "● Clock" chip in 12-point monospace).
   The button's left and right padding is room the face keeps inside that capsule
-  (`padding="0px 7px"`). A filled box holding a text or symbol (an avatar, a badge) is drawn without the
+  (`padding="0px 7px"`). A filled box holding a text, a symbol or a picture (an avatar, a badge) is drawn without the
   capsule; on a button that says `backgroundMaterial="glass"` (or `"glass-clear"`) it
-  sits in a glass capsule of its own, as a `buttonStyle="glass"` button does. Leave the font unsaid for an ordinary Edit or Done.
+  sits in a glass capsule of its own, as a `buttonStyle="glass"` button does. A picture
+  (`image url`, an avatar's photo) fills the box by its `object-fit`, clipped to the box's
+  corners; until it loads the face is the box's fill. Leave the font unsaid for an ordinary Edit or Done.
 - A readout nothing presses (a "● Clock" or "Saved" beside the title) is
   `role="status"` in the header, beside the buttons. (A `button disabled=true` is a
   dimmed bar item, UIKit's disabled one, which VoiceOver reads as a button that cannot
@@ -4101,8 +4214,9 @@ main navigationKey=`${top(nav).id}` navigationBack="close" navigate=follow displ
 - On iOS the panels become a `UITabBarController`: a tab of one symbol over its label
   is its bar item, a filled box holding a text is the item's badge (the tab stays the
   platform's tab; the web draws the box as a badge on the symbol), and the
-  tablist's `accent-color` (inherited, as in CSS) tints the selected item; `tap tab-…`
-  works on every host. An app's `bun exact.mjs agent ios` and `test ios` drive what a
+  tablist's `accent-color` (inherited, as in CSS) tints the selected item; the unselected
+  colour, the label's font and the badge's colour and size are UIKit's, and nothing
+  authored reaches them. `tap tab-…` works on every host. An app's `bun exact.mjs agent ios` and `test ios` drive what a
   person sees (`--chrome platform`; `--chrome agent` paints the authored tablist and
   header instead, as `scripts/agent.mjs` does by default): UIKit's tab bar, navigation bars and sheets show,
   `screenshot "file" window` draws them (`display` reads the simulator's screen as it
@@ -4516,6 +4630,13 @@ which require optional capabilities. `-exact-spring(…)` (a `transition` timing
 function), `-exact-exit-animation`, `-exact-layout-transition`, and presentation timelines have
 specific documented behavior;
 they do not admit arbitrary frame callbacks or a second app-state graph.
+
+A native list (`list appearance="auto"`) applies a change at once, as UIKit
+does, unless a row carries a layout transition or an exit animation. Then a
+change in which rows it holds, or in their order, animates on iOS: rows slide
+to their new places and rows that come or go fade, with UIKit's own timing,
+not the written duration. Its first rows, a restyle and a list out of a window
+still apply at once.
 
 macOS and iOS play eligible box `translate`, `scale`, `rotate` and `opacity`
 animations and transitions in Core Animation. A transform stays sampled when
@@ -5000,7 +5121,8 @@ the box and set no view props; write `object-fit` on the camera tag to configure
 viewfinder. A renamed spelling (`fontSize`) is refused whatever is declared. Do not
 turn a missing widget or canvas operation into invented Contract syntax.
 
-Under the agent, `@exact/camera` accepts
+In an agent drive (a `*.test.contract` cannot set an extension's substitute with
+`prefer` yet), `@exact/camera` accepts
 `prefer extension camera.picture={"path":"assets/test/card.jpg"}` for a still,
 or `prefer extension camera.clip={"path":"assets/test/walk.mp4"}` for a clip.
 Both name app assets. A clip is decoded once and loops on the session clock,
@@ -5119,8 +5241,9 @@ across a launch: a root `task restore mount` with `after(1, applySize)` sets the
 stored size again. Do not multiply a scale factor into every size instead.
 
 Platform facts are reserved sources (`exactViewport`, `exactPage`, `exactDelivery`,
-`exactSurface`, `exactCanvasPerformance`, `exactTime`); the bake refuses a declared field the source does
-not have. `exactDelivery()` includes the string fields `version` and `buildNumber`: the
+`exactSurface`, `exactCanvasPerformance`, `exactTime`, `exactGeometry`, `exactNativeChain`,
+`exactSafeAreaUnsettled`); the bake refuses a declared field the source does not have.
+`exactDelivery()` includes the string fields `version` and `buildNumber`: the
 installed binary's `EXACT_VERSION` and `EXACT_BUILD_NUMBER` at bake time (defaults
 `0.1.0` and `1` only when unset). Over-the-air updates leave them unchanged; an
 older bake without them answers `""`. The web JS build uses the same variables
@@ -5136,6 +5259,49 @@ Gate a developer-only control on it, and gate what that control reads as well, s
 a production build never asks for it:
 `resource overrides = loadOverrides() when not build.production as shape Overrides`.
 
+`exactGeometry(id[, space[, node[, regions]]])` reads a node's geometry from the layout
+just committed (LLP 1123 D6). `space` is `"owner"` (the default, the document's outside
+every content owner), `"window"`, or `"node"` with the `id` of the node whose border box
+is the space; `regions` is UIKit's region query options, `"inactive"`, `"mirrored"` or
+both. Its declared shape chooses what it reads: `available`, `generation`, `size`,
+`frame`, `observations` and `margins`. `generation` is the number of the layout the
+answer reads, 0 before the first. `observations` has an inset set (`top`, `right`,
+`bottom`, `left`) per family: `safeArea`, `keyboard`, `keyboardUndocked`,
+`safeAreaCorners`, `layoutMargins`, `layoutMarginsCorners`, `readableContent`,
+`readableContentCorners`, `readableContentGuide` and `systemMinimumLayoutMargins`.
+`margins` has the `layoutMargins`, `readableContent` and `readableContentGuide`
+rectangles (`x`, `y`, `width`, `height`). Declare every field but `available` and
+`generation` an `option`, and each family and rectangle in them too: each is `none`
+before the node is laid out and wherever the host does not have it, and the bake refuses
+a shape that does not say so. `frame` is the border box as laid out, before the scroll
+offsets and transforms above it; it is `none` in `"window"`, which only the host can
+place, and in a `"node"` space in another owner. Until hosts report an owner's band,
+keyboard and margins and the session view's band (LLP 1123 stage 3), a node inside an
+owner reads `none` for its safe area and margins and 0 for the keyboard, and one outside
+every owner reads 0 for each; on the web every quantity is `none`, and the terminal host
+does not deliver the facts. A later layout that changes what it reads answers it again in
+a commit of its own, so a branch on it lays out after the layout it read; a chain of such
+commits stops after eight, holding the last answer until a layout with another cause, and
+a development build alerts `geometry-feedback`. The bake refuses a path from a geometry
+fact to what moves the geometry it reads (`bake-geometry-feedback`): any route's
+`navigation*` attributes, its bar (its first `header`) and a branch before that header,
+the root's tab bar, a toolbar the host places, the system bars, a write of the router's
+slot, a popover, a sheet's detents, a picker, full screen, picture in picture or sharing,
+a scroll position or snap, `scrollIntoView`, focus, and the window's fitting or
+orientation. The path may be direct or run through a branch, a `display` or a class that
+hides the node, a `for` key, a derive, a resource, state, a mutation, a child's prop, or
+an action that runs without the person: a task's, a sequence's `ended=`, that of an event
+the person does not make, such as an image's `load`, or that of a layout event (`resize`,
+`intersect`, `reachstart`, `reachend`, `transformgeometry`), which runs on the fact
+whenever the view reads one. An action the person runs, by a press, a key, a scroll or
+focus, may read a fact, as a UIKit app chooses a popover or a sheet by its width when a
+button is pressed: it runs once per event, so it cannot feed back. A fact may decide
+content: sizes, text and which content shows. A report that owes no layout, such as a
+band no style reads, reaches the facts at the next layout. `exactNativeChain(id)` answers
+`available` false, its `entries` `none`, until hosts report their native chains.
+`exactSafeAreaUnsettled()` answers `available`, `count`, the boxes the last layout left
+unsettled, and `ids`, the `id`s of those that have one.
+
 A TypeScript-only update currently removes the plan's source-shape requirement
 when it pairs the plan with its module. If that update first reads a field of a
 reserved source that the installed binary predates, delivery can admit the plan
@@ -5148,8 +5314,10 @@ require that ABI.
 mode on the web, `fullscreen`, `window-controls-overlay` (the tall title row
 `display_override` asks for) or `standalone` on macOS, `standalone` on other
 native hosts. Declare it on the resource's shape; `state.device.displayMode`
-reports it too. `prefer display-mode fullscreen` substitutes it on Apple;
-browser drivers refuse that override, so test real fullscreen transitions. This reads the window, not a fullscreen navigation route.
+reports it too. `prefer display-mode standalone` substitutes it on Apple and
+in Chrome, from a page's boot and through a reload, so a test on the web
+reaches an app's standalone branch; the browser's own `display-mode` media
+query does not change, and Firefox and WebKit refuse the override. This reads the window, not a fullscreen navigation route.
 `exactViewport().devicePixelRatio` is `option<number>`: display pixels per
 logical point, updated when the display scale changes. It is `none` before a
 host reports its scale, including a server render and the terminal. It is the
@@ -5202,14 +5370,30 @@ Firefox and WebKit carriers refuse both.
 of iOS's accessibility sizes (AX1 to AX5, UIKit's `isAccessibilityCategory`), where
 UIKit's own views drop decoration and stack what sat side by side; it is an Exact
 fact, not a CSS media feature, read wherever Exact draws with UIKit's metrics (iOS,
-iPadOS, tvOS, visionOS, watchOS), and false on the Mac, Android, Linux, Windows and
-the web.
+iPadOS, tvOS, visionOS, watchOS), and also true on Android at `Configuration.fontScale >= 1.3`, Exact's convention
+for Android's large-text range. It reads the system setting independently of any
+root font the app authors. It is false on the Mac, Linux, Windows and the web.
 `EmptyState` drops its symbol then. Under the agent on iOS, `prefer root-font-size
 28` (Dynamic Type's AX1 body) or more sets it. That `prefer` sets only the size of the
 text Exact draws: UIKit's own text, a native field's among them, keeps the simulator's
 text size. To see a screen at the largest size, as `verify` does, set the simulator's:
 `xcrun simctl ui <udid> content_size accessibility-extra-extra-extra-large`. With no
 size, `content_size` prints the current one: set it back after.
+`exactViewport().screenReader` is a string: `"on"`, `"off"` or `"unknown"`, live
+as the system reading changes and refreshed on resume (LLP 1039 D10). Apple reads
+VoiceOver; Android reads touch exploration, a proxy for TalkBack or another screen
+reader; Windows reads `SPI_GETSCREENREADER`. The web, the terminal, the renderer
+and Linux without detection report `"unknown"`. `"off"` means the platform reported
+it off; it never means detection was unavailable.
+Use this fact to pause disruptive self-updating content, such as rolling text or
+auto-advance, never to select a separate reduced UI. Pause on `"on"`, and treat
+`"unknown"` as possibly on for optional rotation. Keep the same content accessible
+and offer manual advance. Reduced motion is an independent reason to pause.
+Declare `screenReader: string` on the viewport shape. The agent's
+`prefer screen-reader on|off|unknown` substitutes it;
+`state.device.screenReader` reports it even without a resource.
+See [a rolling stat](recipes/rolling-stat.md).
+
 `exactViewport().gpuTier` is `low`, `mid` or `high`: how much GPU work a frame can
 afford, chosen once before the GPU device is made from what the adapter reports
 (a phone GPU of the Adreno 600 class is `low`), else from the screen (a phone-sized
@@ -6005,9 +6189,15 @@ taken after it is not a seeked run's.
 For a game canvas, JavaScript `s.tap("world", {mouse:true, at:[x,y]})` sends one
 primary mouse click on web, macOS, Windows, and Linux (on macOS any node takes
 it, so a click can land on a link inside a paragraph). `{contextmenu:true, at:[x,y]}`
-sends a right-click. Coordinates are relative to the target's top-left; omit
-`at` for its center. Both refuse invalid, covered, or offscreen points and held
-contacts. The CLI forms are `tap world mouse [at <x> <y>]` and `tap world contextmenu
+sends a right-click on desktop hosts and the web. On Android and iOS,
+`tap <target> contextmenu` delivers a recognized long press to the nearest node
+with a `contextmenu` handler or `contextPopover`. Its handler runs and its menu
+opens, where present; a handler needs no popover. Coordinates are relative to
+the target's top-left; omit `at` for its center. Invalid, covered, or offscreen
+points are refused. Mouse clicks also require held contacts to be released.
+Windows' headless agent refuses a field's native editing menu before changing
+its focus or selection; authored menus and handler cancellation still work.
+The CLI forms are `tap world mouse [at <x> <y>]` and `tap world contextmenu
 [at <x> <y>]`. `tap <target> auxclick` is the middle button and `clicks 3` a triple
 click (each press counting 1, 2, 3); every click form and a wheel take `at <x> <y>` and
 `modifiers Shift+Meta`, and `down … modifiers Shift` or `drag … modifiers Shift` holds
@@ -6391,12 +6581,18 @@ options, and a checkbox with a `checked` binding `true` or `false`; else its des
 `expect state name == <literal>`, where `name` may go on into a record's fields
 (`board.active.present`) or a list index (`rows.0`). A literal is a number (negative
 allowed), string, bool, `none`, `some(literal)`, list (`["a", "b"]`, `[[1, -2], []]`),
-or shape with literal fields (`Point(x=1, y=-2)`). Equality compares the whole value
-structurally. Numeric bounds use `>=` or `<=` (`expect state offset >= 90`
-and `expect state offset <= 110`); they require a number, without coercing strings or bools.
+or shape with literal fields (`Point(x=1, y=-2)`). `==` and `!=` compare the whole value
+structurally (`expect state shown != "hint"`). Numeric bounds use `>=` or `<=`
+(`expect state offset >= 90` and `expect state offset <= 110`); they require a number, without coercing strings or bools.
 `expect state mode in "idle" "ready"` checks literal membership; alternatives use the same
-literals as `==`, separated by spaces. A mismatch prints the actual and expected values. `expect wakelock held|released` reads
-`state.wakelock.held`: the runner's record of displayed elements requesting the
+literals as `==`, separated by spaces. Every operator also accepts a state path on the
+right: `expect state pinned == state locked`, `expect state offset >= state minimum`,
+or `expect state mode in state allowedModes`. Both paths read the same state reply.
+Bounds require two numbers; `in` requires a list whose element type matches the left.
+Incompatible path types fail compilation with both types named. A missing path on
+either side fails, including with `!=`; a present `none` compares as a value. A
+mismatch prints both values and the right-hand path when present.
+`expect wakelock held|released` reads `state.wakelock.held`: the runner's record of displayed elements requesting the
 lock, not whether the OS or browser granted it. A mismatch names the holding
 view ids and their testIds when present, or says nothing holds it.
 A failed expect names any resource that
@@ -6582,6 +6778,13 @@ border radii) accept `vw`, `vh`, `vmin`, `vmax`, and `svw/svh/lvw/lvh/dvw/dvh`.
 On native, all viewport variants follow the window; on web, CSS resolves
 small/large/dynamic viewports. Font size, line height, letter spacing, text indent,
 gaps, border widths, border spacing and shape margin accept these units too.
+Dimension rows also accept the container units `cqw`, `cqh`, `cqi`, `cqb`,
+`cqmin` and `cqmax`, alone or in a math function: a share of the nearest
+content owner's content root on each axis its host fixes, else of the small
+viewport (LLP 1123 D16). The scalar rows above, custom properties and inset
+overrides refuse them. The web writes them as CSS's, which resolve against the
+small viewport until a content root declares a container there, and leaves an
+SVG attribute in one unwritten.
 Inherited font sizes and lengths in `em` follow the resolved font on resize.
 
 Dimension rows also take `env(safe-area-inset-top|right|bottom|left)` and CSS's
@@ -7497,9 +7700,14 @@ state` compare against the text and print it masked. What the app stores (its da
 module, its store) is the app's own; an `app.test.contract` `type … append` into a
 filled password field is refused.
 
-`aria-busy=(not ready)` marks a region as still loading: assistive technology
-hears it, and time to interactive (`modules/observe`) waits until no element is
-busy.
+`aria-busy=(not ready)` marks a region as loading for assistive technology.
+The launch ledger used by `modules/observe` waits for busy elements before
+recording time to interactive. On Apple and the JavaScript web target, a
+mounted busy element holds `clock settle`, including inside a closed `dialog`.
+An indeterminate `progress` implies `aria-busy`. The settle reply names each
+busy element by test ID or view ID. Use `layout <id>` to find its source line in
+a development build. Use `clock +1` to run a task due a commit later while
+settle is blocked.
 
 `border`, `border-top/right/bottom/left` take CSS width/style/color in any order,
 resetting omitted components to medium/none/currentcolor. Widths are px/pt,

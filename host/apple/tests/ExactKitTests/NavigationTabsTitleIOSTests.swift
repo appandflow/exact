@@ -2,12 +2,13 @@
 import UIKit
 import XCTest
 @testable import ExactKit
+@testable import ExactNavigation
 
 extension NavigationTabsIOSTests {
     func testALazyTabWithShortScrollContentOpensWithItsLargeTitle() throws {
         guard hostedWindowScene() != nil else { throw missing("scene", "a tab's large title needs UIKit appearance and layout") }
         let session = try fixture("lazy-tab-title", wholeScreen: true, plan: "EXACT_LAZY_TAB_TITLE_PLAN")
-        let navigation = session.presenter.navigation
+        let navigation = session.presenter.navigationHost
         let tabs = try XCTUnwrap(navigation.tabController)
         let home = try XCTUnwrap(tabs.selectedViewController as? UINavigationController)
         guard !home.traitCollection.placesVerticalBar else { throw XCTSkip("a vertical bar has no expanding title") }

@@ -53,8 +53,9 @@ pub(in crate::presenter) enum Gesture {
 /// driver reads a contact (`agent/contact.rs`).
 #[derive(Debug, Clone, Copy)]
 pub(in crate::presenter) struct Contact {
-    at: (f32, f32),
-    event_ms: f64,
+    pub(in crate::presenter) at: (f32, f32),
+    pub(in crate::presenter) event_ms: f64,
+    pub(in crate::presenter) delivered_ms: f64,
 }
 
 impl Gesture {
@@ -246,6 +247,7 @@ impl<D: DataSource> Presenter<D> {
         let contact = Contact {
             at: (x, y),
             event_ms: now,
+            delivered_ms: now,
         };
         if y < top || x < left || x >= left + width {
             self.stage.gesture = Some(Gesture::Scrim { modal, contact });
@@ -275,11 +277,9 @@ impl<D: DataSource> Presenter<D> {
     /// The contact the stage holds where no other is down (a press on a
     /// scrim, a sheet's drag past the slop): where it is and when it was
     /// last heard.
-    pub(in crate::presenter) fn stage_contact(&self) -> Option<((f32, f32), f64)> {
+    pub(in crate::presenter) fn stage_contact(&self) -> Option<Contact> {
         match self.stage.gesture? {
-            Gesture::Scrim { contact, .. } | Gesture::Drag { contact, .. } => {
-                Some((contact.at, contact.event_ms))
-            }
+            Gesture::Scrim { contact, .. } | Gesture::Drag { contact, .. } => Some(contact),
         }
     }
 
@@ -295,11 +295,18 @@ impl<D: DataSource> Presenter<D> {
         }
     }
 
-    pub(in crate::presenter) fn stage_move(&mut self, x: f32, y: f32, now: f64) -> bool {
+    pub(in crate::presenter) fn stage_move(
+        &mut self,
+        x: f32,
+        y: f32,
+        now: f64,
+        event: f64,
+    ) -> bool {
         if let Some(gesture) = &mut self.stage.gesture {
             *gesture.contact() = Contact {
                 at: (x, y),
-                event_ms: now,
+                event_ms: event,
+                delivered_ms: now,
             };
         }
         let h = self.viewport.1;
@@ -353,7 +360,7 @@ impl<D: DataSource> Presenter<D> {
         }) = &mut self.stage.gesture
         {
             *top = (*start + y - finger.1).clamp(highest, h);
-            let dt = (now - last.1) as f32 / 1000.0;
+            let dt = (event - last.1) as f32 / 1000.0;
             if dt > 0.0 {
                 let v = (y - last.0) / dt;
                 *velocity = if dt > 0.1 {
@@ -361,7 +368,7 @@ impl<D: DataSource> Presenter<D> {
                 } else {
                     0.6 * v + 0.4 * *velocity
                 };
-                *last = (y, now);
+                *last = (y, event);
             }
             self.dirty = true;
         }

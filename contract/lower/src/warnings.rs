@@ -67,6 +67,7 @@ pub(crate) fn with_text_styles(
 ) -> Vec<LowerError> {
     let root = &checked.expanded.root;
     routeless_header::check(checked, &mut out);
+    tabs::left_out(&root.view, &mut out);
     // Track the navigation root (the outermost `navigationKey`) and its `navigationBack`.
     let checking = contract_checking::Checking::new(checked);
     let checked_view = checking.expanded();

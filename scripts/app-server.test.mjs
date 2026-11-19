@@ -5,13 +5,216 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve, toNamespacedPath } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { appServer, serverChoice, serverUrl } from './app-server.mjs';
+
+// Discovery consumes the module list recorded by a build; these unit fixtures supply that list.
+function sourceRecord(dir, modules = ['app.ts']) {
+  const path = resolve(dir,'.exact/typescript-inputs.json');
+  mkdirSync(resolve(path,'..'),{recursive:true});
+  writeFileSync(path,JSON.stringify({modules:modules.map(file=>[file,resolve(dir,file)]),types:[],edges:modules.slice(1).map(file=>['app.ts','./'+file,'import',file])}));
+}
 
 // LLP 1116.006 D3: the server an app calls, found where the rest pattern and the builders put it.
 // LLP 1116.008 D1: an entry that does not read DB (itself, or in a module it imports) is refused in one line naming it.
+test('server discovery resolves settings only in app.ts and its transitive imports', () => {
+  const dir = mkdtempSync(resolve(import.meta.dir, '../target/issue-859-server-'));
+  const put = (path, text) => { mkdirSync(resolve(dir, path, '..'), { recursive: true }); writeFileSync(resolve(dir, path), text); };
+  try {
+    put('app.json', JSON.stringify({ env: ['API_BASE_URL'], server: { database: false }, host: { macos: { resources: [{ from: 'bundled', to: 'Resources/bundled' }] } } }));
+    put('app.ts', "import { API } from 'api-client';\nexport const grants = 'net.fetch https:';\nexport const answer = () => API;\n");
+    put('tsconfig.json', JSON.stringify({compilerOptions:{paths:{'api-client':['./src/client.ts']}}}));
+    put('src/client.ts', "export { API } from './api';\n");
+    put('src/api.ts', "export const API = import.meta.env.API_BASE_URL ?? 'http://127.0.0.1:8080';\n");
+    put('server.ts', 'Bun.serve({});\n');
+    put('notes.ts', "export const debug = () => import.meta.env.DEBUG;\nconst note = 'see http://127.0.0.1:7777/docs';\n");
+    put('pictures.ts', "export const API = import.meta.env.API_BASE_URL ?? 'http://127.0.0.1:9999';\n");
+    // These trees are absent from the capture, including their defaults and literal URLs.
+    for (const tree of ['dist', 'dist.gen', 'target', '.cache', 'node_modules/client', 'bundled']) {
+      put(`${tree}/api.ts`, "export const API = import.meta.env.API_BASE_URL ?? 'http://127.0.0.1:7777';\n");
+    }
+    sourceRecord(dir, ['app.ts','src/client.ts','src/api.ts']);
+    assert.equal(serverUrl(dir, {}), 'http://127.0.0.1:8080');
+    const local = 'http://127.0.0.1:8899';
+    const server = appServer(dir, { API_BASE_URL: local });
+    assert.deepEqual([server.url, server.port, server.settings, server.note], [local, 8899, { API_BASE_URL: local }, undefined]);
+    put('.env', 'API_BASE_URL=http://localhost:9090\n');
+    assert.equal(serverUrl(dir, {}), 'http://localhost:9090');
+    const remote = appServer(dir, { API_BASE_URL: 'https://api.example.com' });
+    assert.equal(remote.url, null);
+    assert.deepEqual(remote.settings, { API_BASE_URL: 'https://api.example.com' });
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('server discovery reads the module list from a completed native build', async () => {
+  const {bakeOutput,resolveApp} = await import('./app.mjs');
+  const {bakedSettings} = await import('../js/bake/src/__exact_env.mjs');
+  const dir = mkdtempSync(resolve(import.meta.dir,'../target/issue-859-native-record-'));
+  const put = (file,code) => { mkdirSync(resolve(dir,file,'..'),{recursive:true}); writeFileSync(resolve(dir,file),code); };
+  try {
+    put('app.json',JSON.stringify({name:'Native record',app:{id:'dev.exact.native-record',name:'Native record'},env:['API_BASE_URL']}));
+    put('app.contract','component App\n  view\n    text "Ready"\n');
+    put('app.ts',"export { API } from './src/api';\n");
+    put('src/api.ts',"export const API = import.meta.env.API_BASE_URL ?? 'http://127.0.0.1:8787';\n");
+    const inputs = {modules:['app.ts','src/api.ts'].map(file=>[file,resolve(dir,file)]),types:[],edges:[['app.ts','./src/api','import','src/api.ts']]};
+    put('baked/app.module.json','{}');
+    put('baked/app.sources.json',JSON.stringify(inputs));
+    const app = resolveApp(dir), out = bakeOutput(app);
+    mkdirSync(out,{recursive:true});
+    writeFileSync(resolve(out,'macos-aarch64-apple-darwin.build.json'),JSON.stringify({version:1,compat:{inputs:{app:app.id}},...bakedSettings(resolve(dir,'baked'),dir)}));
+    assert.equal(serverUrl(dir,{}),'http://127.0.0.1:8787');
+    assert.equal(serverUrl(dir,{API_BASE_URL:'http://localhost:9000'}),'http://localhost:9000');
+  } finally { rmSync(dir,{recursive:true,force:true}); }
+});
+
+test('server discovery follows recorded imports in source order and gives app.ts settings priority', async () => {
+  const { configure } = await import('../js/bake/src/typescript.mjs');
+  const { parseSync } = await import('rolldown/utils');
+  const dir = mkdtempSync(resolve(import.meta.dir, '../target/issue-859-server-order-'));
+  const stage = resolve(dir, 'dist/.gen/typescript');
+  const put = (file, text) => {
+    for (const base of [dir, stage]) {
+      mkdirSync(resolve(base, file, '..'), {recursive:true});
+      writeFileSync(resolve(base, file), text);
+    }
+  };
+  const discover = async () => {
+    for (const file of ['app.ts','api.ts','b.ts','nested.ts']) if (existsSync(resolve(dir,file))) writeFileSync(resolve(stage,file),readFileSync(resolve(dir,file)));
+    await configure(stage, false, parseSync, true);
+    return serverUrl(dir, {});
+  };
+  try {
+    put('app.json', JSON.stringify({env:['API_BASE_URL','OTHER']}));
+    put('__exact_paths.json', JSON.stringify({app:dir,mounts:[]}));
+    put('api.ts', "export const API = import.meta.env.OTHER ?? 'http://127.0.0.1:9999';\n");
+    put('app.ts', "import './api';\nexport const API = import.meta.env.API_BASE_URL ?? 'http://127.0.0.1:8080';\n");
+    assert.equal(await discover(), 'http://127.0.0.1:8080');
+    put('app.json', JSON.stringify({env:['OTHER']}));
+    put('app.ts', "import './b';\nimport './api';\n");
+    put('b.ts', "import './nested';\nexport const API = 'http://127.0.0.1:2000';\n");
+    put('nested.ts', "export const API = 'http://127.0.0.1:3000';\n");
+    assert.equal(await discover(), 'http://127.0.0.1:9999');
+    put('app.json', '{}');
+    put('api.ts', "export const API = 'http://127.0.0.1:1000';\n");
+    assert.equal(await discover(), 'http://127.0.0.1:2000');
+    put('b.ts', "import './nested';\n");
+    assert.equal(await discover(), 'http://127.0.0.1:3000');
+    put('app.json', JSON.stringify({env:['API_BASE_URL','OTHER']}));
+    put('app.ts', "export const API = import.meta.env.API_BASE_URL ?? 'http://127.0.0.1:8080', OTHER = import.meta.env.OTHER ?? 'http://127.0.0.1:9999';\n");
+    await assert.rejects(discover, /API_BASE_URL.*8080.*OTHER.*9999.*app\.json/s);
+  } finally { rmSync(dir, {recursive:true,force:true}); }
+});
+
+test('server discovery reads the module list after a direct Cargo build', async () => {
+  const { recordBuiltSettings } = await import('../js/bake/src/__exact_env.mjs');
+  const dir = mkdtempSync(resolve(import.meta.dir, '../target/issue-859-cargo-record-'));
+  const put = (file, code) => { mkdirSync(resolve(dir, file, '..'), {recursive:true}); writeFileSync(resolve(dir, file), code); };
+  try {
+    const manifest = {env:['API_BASE_URL']};
+    put('app.json', JSON.stringify(manifest));
+    put('app.ts', "export { API } from './api';\n");
+    put('api.ts', "export const API = import.meta.env.API_BASE_URL ?? 'http://127.0.0.1:8787';\n");
+    put('build/test/out/app.module.json', JSON.stringify({env:{API_BASE_URL:{value:'http://127.0.0.1:8787',source:'default'}}}));
+    put('build/test/out/app.sources.json', JSON.stringify({modules:['app.ts','api.ts'].map(file=>[file,resolve(dir,file)]),types:[],edges:[['app.ts','./api','import','api.ts']]}));
+    const bin = resolve(dir, 'client');
+    put('client', 'executable');
+    put('client.d', `${bin}: ${resolve(dir, 'build/test/out/app.hbc')}\n`);
+    recordBuiltSettings(bin, {dir,manifest});
+    assert.equal(serverUrl(dir, {}), 'http://127.0.0.1:8787');
+  } finally { rmSync(dir, {recursive:true,force:true}); }
+});
+
+test('type-only imports do not reorder runtime imports in server discovery', async () => {
+  const { check, configure } = await import('../js/bake/src/typescript.mjs');
+  const { parseSync } = await import('rolldown/utils');
+  const libraries = resolve(fileURLToPath(import.meta.resolve(`@typescript/typescript-${process.platform}-${process.arch}/package.json`)), '../lib');
+  const dir = mkdtempSync(resolve(import.meta.dir, '../target/issue-859-type-order-')), stage = resolve(dir, 'dist/.gen/typescript');
+  const put = (file, code) => {
+    for (const base of [dir, stage]) {
+      mkdirSync(resolve(base, file, '..'), {recursive:true});
+      writeFileSync(resolve(base, file), code);
+    }
+  };
+  try {
+    put('app.json', JSON.stringify({env:['ISSUE_859_A','ISSUE_859_B']}));
+    put('__exact_paths.json', JSON.stringify({app:dir,mounts:[]}));
+    put('__exact_entry.ts', "export * from './app';\n");
+    const a = "export type Client = string;\nexport const API = import.meta.env.ISSUE_859_A ?? 'http://127.0.0.1:8001';\n";
+    const b = "export const API = import.meta.env.ISSUE_859_B ?? 'http://127.0.0.1:8002';\n";
+    for (const edge of [
+      "import type { Client } from './a';",
+      "import { type Client } from './a';",
+      "export type { Client } from './a';",
+      "export { type Client } from './a';",
+      "export type * from './a';",
+      "import { Client } from './a'; export type Selected = Client;",
+    ]) {
+      put('a.ts', a); put('b.ts', b);
+      put('app.ts', `${edge}\nimport './b';\nexport { API } from './a';\n`);
+      await configure(stage, false, parseSync, true);
+      await check(stage, resolve(libraries, 'tsc'), libraries);
+      assert.equal(serverUrl(dir, {}), 'http://127.0.0.1:8002', edge);
+    }
+    for (const edge of ["import './a';", "import { API, type Client } from './a'; export { API };", "export { API, type Client } from './a';"]) {
+      put('a.ts', a); put('b.ts', b);
+      put('app.ts', `${edge}\nimport './b';\n`);
+      await configure(stage, false, parseSync, true);
+      assert.equal(serverUrl(dir, {}), 'http://127.0.0.1:8001', edge);
+    }
+  } finally { rmSync(dir, {recursive:true,force:true}); }
+});
+
+test('web, Linux and Apple builds publish the same discovery record', async () => {
+  const { createApp } = await import('../game/new.mjs');
+  const { appSourceInputs } = await import('./app-imports.mjs');
+  const { sourceInputChanges } = await import('../js/bake/src/__exact_env.mjs');
+  const root = resolve(import.meta.dir, '..'), home = mkdtempSync(resolve(root, 'target/issue-859-hosts-'));
+  const dir = resolve(home, `record-${home.split('-').at(-1).toLowerCase()}`);
+  try {
+    createApp(dir, {with:process.platform === 'darwin' ? ['linux','macos'] : ['linux']});
+    const manifest = JSON.parse(readFileSync(resolve(dir,'app.json'),'utf8'));
+    manifest.env = ['ISSUE_859_API'];
+    writeFileSync(resolve(dir,'app.json'), JSON.stringify(manifest));
+    writeFileSync(resolve(dir,'app.contract'), 'component App\n  resource message = message() as shape string\n  view\n    text message\n');
+    writeFileSync(resolve(dir,'app.ts'), "import { API } from './api';\nexport const grants = '';\nexport const answer = () => API;\n");
+    writeFileSync(resolve(dir,'api.ts'), "export const API = import.meta.env.ISSUE_859_API ?? 'http://127.0.0.1:8787';\n");
+    const env = {...process.env,EXACT_APP_DIR:dir,EXACT_IDENTITY:'-',CARGO_TARGET_DIR:resolve(root,'target')};
+    env.EXACT_WEB_DIST = resolve(dir,'dist');
+    delete env.ISSUE_859_API;
+    const builds = [['host/web/build.mjs',dir,'--js','--render','none'],['scripts/build-linux.mjs',dir]];
+    if (process.platform === 'darwin') builds.push(['host/apple/build.mjs','--no-install']);
+    for (const args of builds) {
+      rmSync(resolve(dir,'.exact/typescript-inputs.json'), {force:true});
+      assert.equal(appSourceInputs(dir), null);
+      const built = spawnSync(process.execPath,args,{cwd:root,env,encoding:'utf8',timeout:300_000});
+      assert.equal(built.status,0,`${args.join(' ')}\n${built.stdout}\n${built.stderr}`);
+      assert.ok(appSourceInputs(dir).modules.some(([file])=>file==='api.ts'));
+      assert.deepEqual(sourceInputChanges(appSourceInputs(dir)), []);
+      assert.equal(serverUrl(dir,{}),'http://127.0.0.1:8787');
+    }
+  } finally { rmSync(home,{recursive:true,force:true}); }
+}, 600_000);
+
+test('server discovery excludes type-only edges and declarations, even after a setting refusal', () => {
+  const dir = mkdtempSync(resolve(import.meta.dir, '../target/issue-859-server-types-'));
+  const put = (file, code) => writeFileSync(resolve(dir, file), code);
+  try {
+    put('app.json', JSON.stringify({env:['API_BASE_URL']}));
+    put('types.ts', "export type Client = string;\nexport const API = import.meta.env.API_BASE_URL ?? 'http://127.0.0.1:8877';\n");
+    put('model.d.ts', "export type Model = 'http://127.0.0.1:9988';\n");
+    sourceRecord(dir);
+    for (const edge of ["import type { Client } from './types';", "import { type Client } from './types';", "export type { Client } from './types';"]) {
+      put('app.ts', edge + "\nimport { Model } from './model.d.ts';\n");
+      assert.equal(serverUrl(dir, {}), null);
+      put('app.ts', edge + "\nconst API = import.meta.env.API_BASE_URL ?? 'http://127.0.0.1:8080';\n");
+      assert.equal(serverUrl(dir, {}), 'http://127.0.0.1:8080');
+    }
+  } finally { rmSync(dir, {recursive:true,force:true}); }
+});
+
 test('the app\'s server: its entry, the URL app.ts calls, and why it cannot be run on an empty database', () => {
   const dir = mkdtempSync(resolve(tmpdir(), 'exact-server-'));
-  const put = (files) => { rmSync(dir, { recursive: true, force: true }); for (const [path, text] of Object.entries(files)) { mkdirSync(resolve(dir, path, '..'), { recursive: true }); writeFileSync(resolve(dir, path), text); } };
+  const put = (files) => { rmSync(dir, { recursive: true, force: true }); for (const [path, text] of Object.entries(files)) { mkdirSync(resolve(dir, path, '..'), { recursive: true }); writeFileSync(resolve(dir, path), text); } sourceRecord(dir, ['app.ts',...files['api.ts'] ? ['api.ts'] : []]); };
   const reads = "const db = new Database(process.env.DB ?? 'data.db');\n";
   try {
     put({ 'app.ts': "const API = 'http://127.0.0.1:6810'; // a phone reaches http://192.168.1.2:6810\n", 'server/index.ts': reads });
@@ -105,6 +308,7 @@ function stubServerRun(body) {
     save();
     writeFileSync(resolve(dir, 'app.contract'), 'component App\\n  view\\n    text "Test"\\n');
     writeFileSync(resolve(dir, 'app.ts'), 'export const origin = "http://127.0.0.1:4790";');
+    (${sourceRecord.toString()})(dir);
     const ready = resolve(dir, 'ready.json');
     const serving = ${JSON.stringify("import { writeFileSync } from 'node:fs';\nwriteFileSync('ready.json', JSON.stringify({ argv: process.argv.slice(2), db: process.env['D' + 'B'] ?? null, port: process.env.PORT }));\nsetInterval(() => {}, 1000);\n")};
     writeFileSync(resolve(dir, 'server.ts'), serving);
@@ -318,6 +522,7 @@ process.exit(0);`;
       let probe; try { probe = Bun.serve({ hostname: '127.0.0.1', port, fetch: () => new Response('') }); } catch { continue; }
       probe.stop(true); ports.add(port);
       writeFileSync(resolve(dir, 'fixture/server.ts'), `Bun.serve({hostname:'127.0.0.1', port:Number(process.env.PORT), fetch:()=>Response.json({world:${JSON.stringify(dir)}})});\n`);
+      sourceRecord(dir);
       fixtures.push(dir);
     }
     assert.equal(fixtures.length, 2, 'two unused checkout ports');
@@ -815,7 +1020,7 @@ const ownerProcess = `
     const killedOwner = async (call) => {
       writeFileSync(resolve(dir, 'owner.mjs'), ownerScript(call));
       const owner = Bun.spawn([process.execPath, 'owner.mjs'], { cwd: dir, detached: true, stdio: ['ignore', 'ignore', 'inherit'] });
-      while (!existsSync(resolve(dir, 'owned'))) { assert.equal(owner.exitCode, null, 'the owner runs'); await Bun.sleep(10); }
+      while (!existsSync(resolve(dir, 'owned')) || !existsSync(resolve(dir, 'worker.pid'))) { assert.equal(owner.exitCode, null, 'the owner runs'); await Bun.sleep(10); }
       process.kill(-owner.pid, 'SIGKILL'); await owner.exited;
     };
     writeFileSync(resolve(dir, 'worker.ts'), "import { writeFileSync } from 'node:fs'; process.on('SIGTERM', () => {}); writeFileSync('worker.pid', String(process.pid)); setInterval(() => {}, 1000);\\n");
@@ -958,6 +1163,7 @@ test('agent --test reports a crash between passing tests on a replacement server
     }}));
     mock.module(at('evidence.mjs'),()=>({recordRun(){}}));
   `);
+  sourceRecord(dir);
   try {
     const r = spawnSync(process.execPath, ['--preload', script, resolve(import.meta.dir, 'agent.mjs'), 'web', '--browser', 'firefox', '--app', dir, '--test', resolve(dir, 'app.test.contract')], {encoding:'utf8',timeout:20000});
     assert.equal(existsSync(resolve(dir, 'replacement')), true, r.stdout+r.stderr);

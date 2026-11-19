@@ -1,6 +1,7 @@
 // Coalesce data refreshes while retaining each family's layout proposal.
 #if canImport(WidgetKit)
 import ExactCore
+import ExactSnapshot
 import Foundation
 import WidgetKit
 

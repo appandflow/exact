@@ -401,6 +401,7 @@ mod effect_tests {
 
     #[test]
     fn css_clip_records_the_path_and_restores_its_scope() {
+        exact_kernel::style::link_all();
         let mut r = Recorder::new();
         let ts = Transform::from_translate(12.0, 9.0);
         let css = ClipPath::parse("path(evenodd, 'M0 0 L100 0 L0 100 Z')").unwrap();
@@ -470,6 +471,7 @@ mod effect_tests {
 
     #[test]
     fn css_curves_and_pending_clips_survive_nested_scopes() {
+        exact_kernel::style::link_all();
         let mut r = Recorder::new();
         let ts = Transform::from_translate(12., 9.);
         assert!(!r.push_css_clip(&ClipPath::default(), ts));

@@ -27,6 +27,8 @@ pub(crate) use presentation::Presentation;
 pub mod border;
 mod shape;
 pub use shape::Shape;
+pub(crate) use shape::{bezier_outline, bezier_path, svg_bezier_path};
+use space::sticky;
 mod box_filter;
 pub(crate) mod button;
 mod caret;
@@ -61,6 +63,7 @@ mod native;
 pub(crate) mod neutral;
 pub(crate) mod numerals;
 pub(crate) mod ripple;
+pub(crate) use native::object_fit_of;
 pub use native::NativeKind;
 mod order;
 mod placed;
@@ -807,9 +810,15 @@ impl Painter {
             dialog: None,
         };
         self.rows_begin(&walk);
-        for root in scene.roots {
+        let kept = self.kept_places(&walk, None, scene.roots);
+        let space = Transform::from_translate(-scene.page.0, -scene.page.1);
+        let last = self.stage_after(scene.roots);
+        for (at, root) in scene.roots.iter().enumerate() {
+            self.replay_kept(walk.scene, &kept, at, space);
             self.node(&mut walk, *root, Transform::identity(), scene.page, None);
+            self.paint_stage(&mut walk, *root, Some(*root) == last);
         }
+        self.replay_kept(walk.scene, &kept, scene.roots.len(), space);
         self.paint_ghost(&mut walk);
         self.paint_alert(&mut walk);
         self.rows_end();
@@ -1132,9 +1141,17 @@ impl Painter {
                 if self.window_canvas == Some(node.id) {
                     self.backend.split_window_canvas(content, &clips, ts);
                 } else if let Some(c) = self.canvases.get(&node.id) {
-                    self.backend.canvas(&c.pixels, content, &clips, ts);
+                    if let Some(rect) = object_fit(
+                        (c.pixels.width(), c.pixels.height()),
+                        node.style.object_fit,
+                        &node.style.object_position,
+                        content,
+                        &walk.scene.kernel.env_of(node.id),
+                    ) {
+                        self.backend.canvas(&c.pixels, rect, &clips, ts);
+                    }
                 } else {
-                    self.native(node, &clips[0], ts);
+                    self.native(walk, node, &clips[0], ts);
                 }
             }
             NodeType::Image => {
@@ -1154,7 +1171,13 @@ impl Painter {
                     } else {
                         presented_color(walk, node, self.dark)
                     };
-                    self.symbol(node, content, ink, ts);
+                    self.symbol(
+                        node,
+                        geometry.content_edge(),
+                        ink,
+                        ts,
+                        &walk.scene.kernel.env_of(node.id),
+                    );
                 } else {
                     let edge = geometry.content_edge();
                     self.row_slot(node.id, content, edge, ts);
@@ -1176,10 +1199,10 @@ impl Painter {
                 if !self.media.framed.contains(&node.key) {
                     self.picture(walk, node, content, edge, ts);
                 }
-                self.native(node, &edge, ts)
+                self.native(walk, node, &edge, ts)
             }
             NodeType::WebView | NodeType::NativeView => {
-                self.native(node, &geometry.content_edge(), ts)
+                self.native(walk, node, &geometry.content_edge(), ts)
             }
             NodeType::Control if node.props.str(PropId::Type) == Some("select") => {
                 let label =
@@ -1294,61 +1317,21 @@ impl Painter {
     }
 }
 
-/// @ref LLP 1083 D4 — a sticky box moves by its constraint's offset at its
-/// scroller's scroll: the scroller's own, the page's for a root that does
-/// not scroll itself, none for a box that only clips. Painted there, it is
-/// hit there too.
-fn sticky(scene: &Scene<'_>, id: ViewId, offset: (f32, f32)) -> (f32, f32) {
-    let kernel = scene.kernel;
-    let Some(node) = kernel
-        .node(id)
-        .filter(|n| n.layout_position() == exact_kernel::PositionType::Sticky)
-    else {
-        return offset;
-    };
-    let Some(c) = kernel.sticky_constraint(node.key) else {
-        return offset;
-    };
-    let Some(scroller) = kernel.node(c.scroller) else {
-        return offset;
-    };
-    let scroll = if effective_overflow(&scroller) != (Overflow::Visible, Overflow::Visible) {
-        scene.scroll.get(&c.scroller).copied().unwrap_or((0.0, 0.0))
-    } else if scroller.parent.is_none() {
-        scene.page
-    } else {
-        (0.0, 0.0)
-    };
-    let (dx, dy) = c.offset(scroll);
-    (offset.0 - dx, offset.1 - dy)
-}
-
-/// Where a picture goes under CSS `object-fit`, centred in the content box:
-/// `fill` stretches, `contain`/`cover` keep the ratio, `none` is the natural
-/// size, `scale-down` the smaller of none and contain (LLP 1011 §4).
-pub fn object_fit(natural: (u32, u32), fit: ObjectFit, content: Rect4) -> Option<Rect4> {
-    let (nw, nh) = (natural.0 as f32, natural.1 as f32);
-    if nw <= 0.0 || nh <= 0.0 || content.2 <= 0.0 || content.3 <= 0.0 {
-        return None;
-    }
-    let (sx, sy) = (content.2 / nw, content.3 / nh);
-    let s = match fit {
-        ObjectFit::Contain => Some(sx.min(sy)),
-        ObjectFit::Cover => Some(sx.max(sy)),
-        ObjectFit::None => Some(1.0),
-        ObjectFit::ScaleDown => Some(sx.min(sy).min(1.0)),
-        ObjectFit::Fill => None,
-    };
-    let (dw, dh) = match s {
-        Some(s) => (nw * s, nh * s),
-        None => (content.2, content.3),
-    };
-    Some((
-        content.0 + (content.2 - dw) / 2.0,
-        content.1 + (content.3 - dh) / 2.0,
-        dw,
-        dh,
-    ))
+/// CSS object-fit and object-position in the content box (LLP 1011 §4).
+pub fn object_fit(
+    natural: (u32, u32),
+    fit: ObjectFit,
+    position: &exact_kernel::object::Position,
+    content: Rect4,
+    env: &exact_kernel::Env,
+) -> Option<Rect4> {
+    exact_kernel::object::placed(
+        (natural.0 as f32, natural.1 as f32),
+        fit,
+        position,
+        content,
+        env,
+    )
 }
 
 /// A text node's paragraph spec from its rows (the kernel's defaults are

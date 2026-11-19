@@ -53,6 +53,8 @@ package protocol ImageLoader: AnyObject {
     func bootPass()
     /// A batch ended: pictures it held back may be asked again.
     func readmitPictures()
+    /// A bar started drawing an image in a hidden header.
+    func visibilityChanged()
     /// The session ends.
     func shutdown()
     /// Frame health's sample of blank images on screen.

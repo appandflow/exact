@@ -2,7 +2,7 @@
 // (`__exact_env.mjs` `inlineSettings`, `__exact_launch_setting.mjs`), what a launch's environment is to the check of a
 // build's freshness, and how js/src/launch.js names the setting in a grant refusal.
 import { expect, test } from 'bun:test';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -71,11 +71,11 @@ export const string = STRING === 'live';
       writeFileSync(resolve(app,'app.ts'),source);
       writeFileSync(resolve(stage,'app.ts'),source);
       writeFileSync(resolve(stage,'__exact_entry.ts'),"export * from './app';\n");
-      // configure is synchronous: restore the shared environment before yielding to the checker.
+      // Only configuration reads the shared environment; restore it before checking.
       const saved=Object.fromEntries(['EXACT_BACKEND_ORIGIN','EXACT_BACKEND_PROVENANCE',...names,'ISSUE_502_ORIGIN'].map(name=>[name,process.env[name]]));
       try {
         for (const name of Object.keys(saved)) delete process.env[name];
-        configure(stage,false,parseSync,web);
+        await configure(stage,false,parseSync,web);
       } finally {
         for (const [name,value] of Object.entries(saved)) { if (value===undefined) delete process.env[name]; else process.env[name]=value; }
       }
@@ -118,7 +118,7 @@ test('a marked setting is read at launch with the build\'s value behind it, an u
     expect(set.record).toEqual({API_BASE_URL:{value:'http://127.0.0.1:9999',source:'.env',launch:true},PICTURES:{value:'https://pictures.example',source:'.env'}});
     // The web's bundles, which no launch gives a value: the build's, inlined, and the same record.
     const web=inlineSettings(code,dir,parseSync,{},{launches:false});
-    expect(web).toEqual({code:'const API = ("http://127.0.0.1:9999" as string);\nconst PICTURES = ("https://pictures.example" as string);\nexport const grants = `net.fetch https:\\nnet.fetch ${PICTURES}`;\n',record:set.record});
+    expect(web).toEqual({code:'const API = ("http://127.0.0.1:9999" as string);\nconst PICTURES = ("https://pictures.example" as string);\nexport const grants = `net.fetch https:\\nnet.fetch ${PICTURES}`;\n',record:set.record,reads:set.reads});
     expect(staticFacts(set.code,parseSync).grants).toBe('net.fetch https:\nnet.fetch https://pictures.example');
     // The grants carry each marked name, which a host answers a launch's value for and no other; the bake writes them.
     expect(staticFacts(launchGrants(set.code,parseSync,['API_BASE_URL']),parseSync).grants).toBe('net.fetch https:\nnet.fetch https://pictures.example\nenv.launch API_BASE_URL');
@@ -153,7 +153,7 @@ test('a marked setting is read at launch with the build\'s value behind it, an u
     // `"launch": false`, or only a name, is the bare name: inlined, byte for byte.
     for (const entry of ['API_BASE_URL',{name:'API_BASE_URL'},{name:'API_BASE_URL',launch:false}]) {
       declare(entry);
-      expect(inline("const API = import.meta.env.API_BASE_URL ?? 'http://x';\n")).toEqual({code:'const API = ("http://x" as string);\n',record:{API_BASE_URL:{value:'http://x',source:'default'}}});
+      expect(inline("const API = import.meta.env.API_BASE_URL ?? 'http://x';\n")).toEqual({code:'const API = ("http://x" as string);\n',record:{API_BASE_URL:{value:'http://x',source:'default'}},reads:[{file:'app.ts',name:'API_BASE_URL'}]});
     }
     // The stage's launch module asks for the marked names, and the entry imports it first; with none marked, neither is there.
     const entry='import * as app from \'./app\';\nexport const answer = app.answer;\n', at=name=>resolve(dir,name);
@@ -173,7 +173,7 @@ test('a marked setting is read at launch with the build\'s value behind it, an u
       `app.json's "env": EXACT_API is marked "launch": true, and a name that begins with EXACT_ is the host's: rename the setting`,
       `app.json's "env" names TWICE twice, once marked "launch": true: name it once`,
       `app.ts:2:13: grants read API, and import.meta.env.API_BASE_URL is one a launch may give ("launch": true in app.json), while grants are fixed at build: grant what a launch may name (net.fetch https:, net.fetch http:, or each origin it may give) without API`,
-      `import.meta.env.UNREAD: app.json's "env" declares it, and app.ts reads it nowhere: read it as const X = import.meta.env.UNREAD, or remove it from "env"`,
+      `import.meta.env.UNREAD: app.json's "env" declares it, and app.ts and its app-local imports read it nowhere: read it as const X = import.meta.env.UNREAD, or remove it from "env"`,
     ].join('\n'));
     declare({name:'API_BASE_URL',launch:true});
     expect(() => inline("const origin = import.meta.env.API_BASE_URL ?? 'http://127.0.0.1:8080';\nexport const grants = { 'http://127.0.0.1:8080': 'net.fetch http://127.0.0.1:8080' };\n")).toThrow('app.ts:1:16: grants read origin, and import.meta.env.API_BASE_URL is one a launch may give');
@@ -319,8 +319,8 @@ test('a backend selection refuses a preload setting whose origin literal it rewr
     writeFileSync(resolve(app, 'app.json'), JSON.stringify({env:['API'], preload:{feed:{url:'{env:API}/feed'}}}));
     writeFileSync(resolve(stage, '__exact_paths.json'), JSON.stringify({app, mounts:[]}));
     writeFileSync(resolve(stage, 'app.ts'), "const origin = import.meta.env.API ?? 'https://built.example';\nexport const grants = `net.fetch ${origin}`;\n");
-    expect(() => configure(stage, false, parseSync)).toThrow('preload.feed.url: setting API');
-    expect(() => configure(stage, false, parseSync)).toThrow('EXACT_BACKEND_ORIGIN selects https://selected.example');
+    await expect(configure(stage, false, parseSync)).rejects.toThrow('preload.feed.url: setting API');
+    await expect(configure(stage, false, parseSync)).rejects.toThrow('EXACT_BACKEND_ORIGIN selects https://selected.example');
   } finally {
     for (const [name, value] of Object.entries(saved)) { if (value === undefined) delete process.env[name]; else process.env[name] = value; }
     rmSync(root, {recursive:true, force:true});
@@ -340,4 +340,628 @@ test('settings and preloads read the resolved shell manifest together', async ()
     writeFileSync(resolve(app, '.shells/app.json'), JSON.stringify({env:['API'], preload:{feed:{url:'{env:MISSING}/feed'}}}));
     expect(() => inlineSettings("const origin = import.meta.env.API ?? 'https://built.example';", app, parseSync, {})).toThrow('preload.feed.url: setting MISSING');
   } finally { rmSync(app, {recursive:true, force:true}); }
+});
+
+
+test('captured app modules inline settings, share defaults and read launch values before clients load', async () => {
+  const { configure, dataBundle } = await import('../src/typescript.mjs');
+  const { settingSources } = await import('../src/__exact_env.mjs');
+  const { parseSync } = await import('rolldown/utils');
+  const { rolldown } = await import('rolldown');
+  const root = mkdtempSync(resolve(import.meta.dir, '../../../target/issue-859-'));
+  const app = resolve(root, 'app'), stage = resolve(root, 'stage');
+  const put = (dir, file, text) => { const path = resolve(dir, file); mkdirSync(dirname(path), {recursive:true}); writeFileSync(path, text); };
+  const api = "export const API = import.meta.env.ISSUE_859_API ?? 'https://built.example';\n";
+  try {
+    for (const launch of [false, true]) for (const web of [false, true]) {
+      rmSync(stage, {recursive:true, force:true});
+      put(app, 'app.json', JSON.stringify({env:[launch ? {name:'ISSUE_859_API',launch:true} : 'ISSUE_859_API']}));
+      put(stage, '__exact_paths.json', JSON.stringify({app,mounts:[]}));
+      put(stage, '__exact_entry.ts', "export * from './app';\n");
+      put(stage, 'app.ts', "import { API } from './src/api';\nimport { STREAM } from './src/stream.mjs';\nexport const twin = STREAM;\nexport const value = API;\nexport const grants = 'net.fetch https:';\n");
+      put(stage, 'src/api.ts', api);
+      // A package.json does not make a captured app-local file a package.
+      put(stage, 'src/package.json', '{"name":"app-client","type":"module"}');
+      put(stage, 'src/stream.mjs', api.replace('API =', 'STREAM ='));
+      put(stage, '__exact_backend_source.json', JSON.stringify(Object.fromEntries(settingSources(stage))));
+      await configure(stage, false, parseSync, web);
+      expect(JSON.parse(readFileSync(resolve(stage, '__exact_env.json'), 'utf8'))).toEqual({ISSUE_859_API:{value:'https://built.example',source:'default',...(launch ? {launch:true} : {})}});
+      for (const file of ['src/api.ts', 'src/stream.mjs']) expect(readFileSync(resolve(stage, file), 'utf8')).not.toContain('import.meta.env');
+      const bundle = await rolldown({input:resolve(stage,'__exact_entry.ts'),...dataBundle(stage),logLevel:'silent'});
+      let code;
+      try { code = (await bundle.generate({format:'iife',name:'exact'})).output[0].code; } finally { await bundle.close(); }
+      const realm = vm.createContext({__exact_launch_settings:() => ({ISSUE_859_API:'https://launch.example'})});
+      vm.runInContext(code, realm);
+      expect(vm.runInContext('exact.value', realm)).toBe(launch && !web ? 'https://launch.example' : 'https://built.example');
+      expect(vm.runInContext('exact.twin', realm)).toBe(vm.runInContext('exact.value', realm));
+      // A second configuration must start from authored reads, including unchanged clients.
+      await configure(stage, true, parseSync, web);
+    }
+  } finally { rmSync(root, {recursive:true, force:true}); }
+});
+
+test('captured settings refuse conflicting defaults, unsupported reads and grants derived through imports', async () => {
+  const { configure } = await import('../src/typescript.mjs');
+  const { parseSync } = await import('rolldown/utils');
+  const root = mkdtempSync(resolve(import.meta.dir, '../../../target/issue-859-refusals-'));
+  const app = resolve(root, 'app'), stage = resolve(root, 'stage');
+  const put = (dir, file, text) => { const path = resolve(dir,file); mkdirSync(dirname(path),{recursive:true}); writeFileSync(path,text); };
+  const api = "export const API = import.meta.env.ISSUE_859_API ?? 'https://built.example';\n";
+  try {
+    const setup = (entry, files, launch = false) => {
+      rmSync(stage,{recursive:true,force:true});
+      put(app,'app.json',JSON.stringify({env:[launch ? {name:'ISSUE_859_API',launch:true} : 'ISSUE_859_API']}));
+      put(stage,'__exact_paths.json',JSON.stringify({app,mounts:[]}));
+      put(stage,'app.ts',entry);
+      for (const [file,code] of Object.entries(files)) put(stage,file,code);
+    };
+    setup("import './src/api';\nimport './src/stream';\nexport const grants = '';\n", {'src/api.ts':api,'src/stream.ts':api.replace('built.example','other.example')});
+    await expect(configure(stage,false,parseSync)).rejects.toThrow('give every read the same default');
+    setup("import './src/api';\nexport const grants = '';\n", {'src/api.ts':api.replace('const API', 'let API')});
+    await expect(configure(stage,false,parseSync)).rejects.toThrow('top-level const of an app-local module');
+    for (const [entry, files] of [
+      ["import { ENDPOINT as API } from './src/barrel';\nexport const grants = `net.fetch ${API}`;\n", {'src/api.ts':api,'src/barrel.ts':"export { API as ENDPOINT } from './api';\n"}],
+      ["import * as client from './src/api';\nexport const grants = `net.fetch ${client.API}`;\n", {'src/api.ts':api}],
+      ["import { API } from 'client';\nexport const grants = `net.fetch ${API}`;\n", {'src/api.ts':api,'tsconfig.json':JSON.stringify({compilerOptions:{paths:{client:['./src/api.ts']}}})}],
+    ]) {
+      setup(entry,files,true);
+      await expect(configure(stage,false,parseSync)).rejects.toThrow('while grants are fixed at build');
+    }
+  } finally { rmSync(root,{recursive:true,force:true}); }
+});
+
+test('only transitive app imports supply settings and syntax errors reach the type checker', async () => {
+  const { configure, check } = await import('../src/typescript.mjs');
+  const { parseSync } = await import('rolldown/utils');
+  const libraries = resolve(dirname(fileURLToPath(import.meta.resolve(`@typescript/typescript-${process.platform}-${process.arch}/package.json`))), 'lib');
+  const root = mkdtempSync(resolve(import.meta.dir, '../../../target/issue-859-graph-'));
+  const app = resolve(root, 'app'), stage = resolve(root, 'stage');
+  mkdirSync(app); mkdirSync(stage); mkdirSync(resolve(stage, 'src'));
+  const put = (file, code) => writeFileSync(resolve(stage, file), code);
+  try {
+    writeFileSync(resolve(app, 'app.json'), JSON.stringify({env:['ISSUE_859_API'],preload:{feed:{url:'{env:ISSUE_859_API}/feed'}}}));
+    put('__exact_paths.json', JSON.stringify({app,mounts:[]}));
+    put('__exact_entry.ts', "export * from './app';\n");
+    put('app.ts', "export { API } from './src/api';\n");
+    put('src/api.ts', "export { API } from './settings';\n");
+    const source = "export const API = import.meta.env.ISSUE_859_API ?? 'https://built.example';\n";
+    put('src/settings.ts', source);
+    put('notes.ts', "export const debug = () => import.meta.env.DEBUG;\n");
+    put('unimported.ts', source.replace('built.example', 'unused.example'));
+    await configure(stage, false, parseSync);
+    expect(JSON.parse(readFileSync(resolve(stage, '__exact_env.json'), 'utf8')).ISSUE_859_API.value).toBe('https://built.example');
+    expect(readFileSync(resolve(stage, 'unimported.ts'), 'utf8')).toContain('import.meta.env');
+    put('src/settings.ts', source + 'export const broken = ;\n');
+    await expect(configure(stage, false, parseSync)).resolves.toBeUndefined();
+    await expect(check(stage, resolve(libraries, 'tsc'), libraries)).rejects.toThrow('Expression expected');
+    put('app.ts', 'export {};\n');
+    put('notes.ts', 'export const broken = ;\n');
+    await expect(configure(stage, false, parseSync)).rejects.toThrow('read it nowhere');
+  } finally { rmSync(root, {recursive:true,force:true}); }
+});
+
+test('uncaptured files and package reads do not satisfy a declared setting', async () => {
+  const { configure, dataBundle } = await import('../src/typescript.mjs');
+  const { parseSync } = await import('rolldown/utils');
+  const { rolldown } = await import('rolldown');
+  const root = mkdtempSync(resolve(import.meta.dir, '../../../target/issue-859-packages-'));
+  const app = resolve(root,'app'), stage = resolve(root,'stage');
+  const put = (dir,file,text) => { const path=resolve(dir,file); mkdirSync(dirname(path),{recursive:true}); writeFileSync(path,text); };
+  try {
+    put(app,'app.json',JSON.stringify({env:['ISSUE_859_API']}));
+    put(app,'dist/dropped.ts',"export const API = import.meta.env.ISSUE_859_API ?? 'https://dropped.example';\n");
+    put(stage,'__exact_paths.json',JSON.stringify({app,mounts:[]}));
+    put(stage,'app.ts',"export const grants = '';\n");
+    await expect(configure(stage,false,parseSync)).rejects.toThrow('app.ts and its app-local imports read it nowhere');
+    put(app,'app.json',JSON.stringify({env:[]}));
+    put(app,'node_modules/client/package.json','{"name":"client","version":"1.0.0","type":"module","main":"index.js"}');
+    put(app,'node_modules/client/index.js',"export const API = import.meta.env.ISSUE_859_API ?? 'https://package.example';\n");
+    put(stage,'app.ts',"export { API } from 'client';\n");
+    rmSync(resolve(stage,'__exact_backend_source.json'),{force:true});
+    await configure(stage,false,parseSync);
+    const bundle = await rolldown({input:resolve(stage,'app.ts'),...dataBundle(stage),logLevel:'silent'});
+    try { await expect(bundle.generate({format:'esm'})).rejects.toThrow('client@1.0.0 (index.js:1:20) reads import.meta.env'); } finally { await bundle.close(); }
+    put(app,'app.json',JSON.stringify({env:['ISSUE_859_API']}));
+    await expect(configure(stage,false,parseSync)).rejects.toThrow('app.ts and its app-local imports read it nowhere');
+  } finally { rmSync(root,{recursive:true,force:true}); }
+});
+
+test('settings resolve the same browser entry and conditions as the bundle', async () => {
+  const { configure, dataBundle } = await import('../src/typescript.mjs');
+  const { appSettings } = await import('../../../scripts/app-imports.mjs');
+  const { serverUrl } = await import('../../../scripts/app-server.mjs');
+  const { webInputDigests } = await import('../../../scripts/agent-launch.mjs');
+  const { parseSync } = await import('rolldown/utils');
+  const { rolldown } = await import('rolldown');
+  const root = mkdtempSync(resolve(import.meta.dir, '../../../target/issue-859-resolution-'));
+  const app = resolve(root, 'app'), stage = resolve(root, 'stage');
+  const put = (dir, file, code) => { mkdirSync(resolve(dir, file, '..'), {recursive:true}); writeFileSync(resolve(dir, file), code); };
+  const source = "export const API = import.meta.env.ISSUE_859_API ?? 'https://browser.example';\n";
+  try {
+    for (const [entry, files] of [
+      ["export { API } from './client';", {'client/package.json':JSON.stringify({main:'legacy.js',module:'api.js'}), 'client/legacy.js':'export const API = 0;', 'client/api.js':source}],
+      ["export { API } from './client';", {'client/package.json':JSON.stringify({main:'legacy.js',module:'other.js',browser:'api.js'}), 'client/legacy.js':'export const API = 0;', 'client/other.js':'export const API = 1;', 'client/api.js':source}],
+      ["export { API } from './legacy.js';", {'package.json':JSON.stringify({browser:{'./legacy.js':'./api.js'}}), 'legacy.js':'export const API = 0;', 'api.js':source}],
+      ["export { API } from './api.js';", {'api.js':source, 'api.ts':source.replace('browser.example','unused.example')}],
+      ["export { API } from '#api';", {'package.json':JSON.stringify({imports:{'#api':{browser:'./api.js',default:'./legacy.js'}}}), 'legacy.js':'export const API = 0;', 'api.js':source}],
+      ["export { API } from '#api';", {'package.json':JSON.stringify({imports:{'#api':{require:'./legacy.js',import:'./api.js'}}}), 'legacy.js':'export const API = 0;', 'api.js':source}],
+      ["export const API = require('#api').API;", {'package.json':JSON.stringify({imports:{'#api':{import:'./legacy.js',require:'./api.js'}}}), 'legacy.js':'export const API = 0;', 'api.js':source}],
+    ]) {
+      for (const dir of [app, stage]) {
+        rmSync(dir, {recursive:true,force:true});
+        put(dir, 'app.json', JSON.stringify({env:['ISSUE_859_API']}));
+        put(dir, 'app.ts', entry);
+        for (const [file, code] of Object.entries(files)) put(dir, file, code);
+      }
+      put(stage, '__exact_paths.json', JSON.stringify({app,mounts:[]}));
+      await configure(stage, false, parseSync);
+      const record = JSON.parse(readFileSync(resolve(stage, '__exact_env.json'), 'utf8'));
+      expect(record.ISSUE_859_API.value).toBe('https://browser.example');
+      const bundle = await rolldown({input:resolve(stage, 'app.ts'), ...dataBundle(stage), logLevel:'silent'});
+      try {
+        const code = (await bundle.generate({format:'iife',name:'exact'})).output[0].code;
+        const realm = vm.createContext({});
+        vm.runInContext(code, realm);
+        expect(vm.runInContext('exact.API', realm)).toBe('https://browser.example');
+      } finally { await bundle.close(); }
+      const sourceInputs = JSON.parse(readFileSync(resolve(stage,'__exact_inputs.json'),'utf8'));
+      put(app,'.exact/typescript-inputs.json',JSON.stringify(sourceInputs));
+      expect(appSettings(app, {}).record).toEqual(record);
+      expect(webInputDigests({dir:app,manifest:{env:['ISSUE_859_API']}}, true, [])['import.meta.env.ISSUE_859_API']).toBe(JSON.stringify(record.ISSUE_859_API));
+      expect(serverUrl(app, {ISSUE_859_API:'http://127.0.0.1:8080'})).toBe('http://127.0.0.1:8080');
+    }
+  } finally { rmSync(root, {recursive:true,force:true}); }
+}, 30000);
+
+test('discovery and freshness use the bake across mounted imports and checker-only dependencies', async () => {
+  const { configure, check, dataBundle } = await import('../src/typescript.mjs');
+  const { parseSync } = await import('rolldown/utils');
+  const { rolldown } = await import('rolldown');
+  const { serverUrl } = await import('../../../scripts/app-server.mjs');
+  const { shown, webChanges, webInputDigests } = await import('../../../scripts/agent-launch.mjs');
+  const libraries = resolve(dirname(fileURLToPath(import.meta.resolve(`@typescript/typescript-${process.platform}-${process.arch}/package.json`))), 'lib');
+  const root = mkdtempSync(resolve(import.meta.dir, '../../../target/issue-859-record-'));
+  const dir = resolve(root, 'app'), shared = resolve(root, 'shared'), dist = resolve(dir, 'dist'), stage = resolve(dist, '.gen/typescript');
+  const manifest = {env:['ISSUE_859_API'],typescript:{sources:{core:'../shared'}}}, app = {dir,manifest};
+  const put = (dir, file, code) => { mkdirSync(dirname(resolve(dir,file)), {recursive:true}); writeFileSync(resolve(dir,file), code); };
+  try {
+    const files = {
+      'app.ts': "export { API } from './core/api';\nexport const value: import('./model').Model = 'hello';\n",
+      'settings.ts': "export const API = import.meta.env.ISSUE_859_API ?? 'https://built.example';\n",
+      'model.d.ts': '/// <reference path="./reference.d.ts" />\nexport type Model = string;\n',
+      'reference.d.ts': 'interface Referenced { value: string }\n',
+    };
+    for (const [file, code] of Object.entries(files)) { put(dir,file,code); put(stage,file,code); }
+    put(shared, 'api.ts', "export { API } from '../settings';\n");
+    put(stage, 'core/api.ts', readFileSync(resolve(shared,'api.ts'),'utf8'));
+    put(dir, 'app.json', JSON.stringify(manifest));
+    put(stage, 'app.json', JSON.stringify(manifest));
+    put(dir, '.env', 'ISSUE_859_API=http://127.0.0.1:8787\n');
+    put(stage, '__exact_paths.json', JSON.stringify({app:dir,mounts:[['core',shared]]}));
+    put(stage, '__exact_entry.ts', "export * from './app';\n");
+    put(dist,'.exact-build.json',JSON.stringify({target:'js',inputs:{},inputRoots:[]}));
+    expect(webChanges(dist,app).all).toContain(shown(resolve(dir,'app.ts')));
+    await configure(stage, false, parseSync, true);
+    await check(stage, resolve(libraries,'tsc'), libraries);
+    const resolved = JSON.parse(readFileSync(resolve(stage,'__exact_inputs.json'),'utf8'));
+    expect(resolved.reads).toContainEqual({kind:'absent',path:resolve(dir,'model.ts')});
+    const bundle = await rolldown({input:resolve(stage,'__exact_entry.ts'), ...dataBundle(stage),logLevel:'silent'});
+    try { await bundle.generate({format:'esm'}); } finally { await bundle.close(); }
+    expect(serverUrl(dir, {})).toBe('http://127.0.0.1:8787');
+    const inputs = webInputDigests(app,true,[]);
+    expect(inputs['import.meta.env.ISSUE_859_API']).toBe(JSON.stringify({value:'http://127.0.0.1:8787',source:'.env'}));
+    for (const path of [resolve(shared,'api.ts'),resolve(dir,'model.d.ts'),resolve(dir,'reference.d.ts')]) expect(inputs[shown(path)]).toBeString();
+    put(dist, '.exact-build.json', JSON.stringify({target:'js',inputs,inputRoots:[]}));
+    expect(webChanges(dist,app).all).toEqual([]);
+    // The checker tried this file before choosing model.d.ts.
+    put(dir, 'model.ts', 'export type Model = string;\n');
+    const old = new Date('2020-01-01');
+    utimesSync(resolve(dir,'model.ts'),old,old);
+    expect(webChanges(dist,app).all).toContain(shown(resolve(dir,'model.ts')));
+    rmSync(resolve(dir,'model.ts'));
+    put(dir, '.env', 'ISSUE_859_API=http://127.0.0.1:8899\n');
+    expect(webChanges(dist,app).app).toContain('import.meta.env.ISSUE_859_API');
+    put(dir, 'model.d.ts', 'export type Model = number;\n');
+    put(dir, 'reference.d.ts', 'interface Referenced { value: number }\n');
+    for (const file of ['model.d.ts','reference.d.ts']) expect(webChanges(dist,app).app).toContain(shown(resolve(dir,file)));
+    put(stage,'model.d.ts',readFileSync(resolve(dir,'model.d.ts'),'utf8'));
+    await expect(check(stage,resolve(libraries,'tsc'),libraries)).rejects.toThrow("Type 'string' is not assignable to type 'number'");
+  } finally { rmSync(root,{recursive:true,force:true}); }
+}, 30000);
+
+test('resolution metadata and new candidates invalidate recorded inputs, including mounted sources', async () => {
+  const { configure } = await import('../src/typescript.mjs');
+  const { parseSync } = await import('rolldown/utils');
+  const { receiptChanges, shown, webChanges, webInputDigests } = await import('../../../scripts/agent-launch.mjs');
+  const root = mkdtempSync(resolve(import.meta.dir, '../../../target/issue-859-candidates-'));
+  const dir = resolve(root, 'app'), shared = resolve(root, 'shared'), dist = resolve(dir, 'dist'), stage = resolve(dist, '.gen/typescript');
+  const put = (base, file, code) => { mkdirSync(dirname(resolve(base, file)), { recursive: true }); writeFileSync(resolve(base, file), code); };
+  const app = { dir, manifest: { env: ['ISSUE_859_API'], typescript: { sources: { core: '../shared' } } } };
+  try {
+    for (const mount of ['', 'core/']) {
+      rmSync(stage, { recursive: true, force: true });
+      const owner = mount ? shared : dir;
+      const entry = `export { API } from './${mount}api';\n`;
+      const source = "export const API = import.meta.env.ISSUE_859_API ?? 'https://old.example';\n";
+      put(dir, 'app.json', JSON.stringify(app.manifest));
+      put(stage, 'app.json', JSON.stringify(app.manifest));
+      put(dir, 'app.ts', entry); put(stage, 'app.ts', entry);
+      put(owner, 'api.js', source); put(stage, `${mount}api.js`, source);
+      put(shared, 'unused.ts', 'export const unused = 1;\n');
+      put(stage, 'core/unused.ts', 'export const unused = 1;\n');
+      put(stage, '__exact_paths.json', JSON.stringify({ app: dir, mounts: [['core', shared]] }));
+      const config = JSON.stringify({compilerOptions:{paths:{client:[`./${mount}client`]}}});
+      for (const base of [dir, stage]) put(base, 'tsconfig.json', config);
+      const withClient = entry + "export { value } from 'client';\n";
+      put(dir, 'app.ts', withClient); put(stage, 'app.ts', withClient);
+      for (const [file, code] of Object.entries({'client/package.json':'{"main":"one.js"}', 'client/one.js':'export const value = 1;', 'client/two.js':'export const value = 2;'})) {
+        put(owner, file, code); put(stage, `${mount}${file}`, code);
+      }
+      await configure(stage, false, parseSync, true);
+      const sourceInputs = JSON.parse(readFileSync(resolve(stage, '__exact_inputs.json'), 'utf8'));
+      expect(sourceInputs.modules).toContainEqual([`${mount}api.js`, resolve(owner, 'api.js')]);
+      put(dist, '.exact-build.json', JSON.stringify({ target: 'js', inputs: webInputDigests(app, true, [], sourceInputs), inputRoots: [], sourceInputs }));
+      const receipt = resolve(root, 'receipt.json'), native = { ...app, target: resolve(root, 'target'), workspace: dir, crate: () => 'candidate-apple' };
+      writeFileSync(receipt, JSON.stringify({ target: 'aarch64-apple-darwin', started: new Date(Date.now() + 60_000).toISOString(), build: { typescriptSources: sourceInputs } }));
+      expect(webChanges(dist, app).all).toEqual([]);
+      expect(receiptChanges(receipt, native)).toEqual([]);
+      // A name no resolution would choose is no input, beside the importer or not.
+      put(owner, 'out/shots/web.png', 'png'); put(owner, 'unrelated.ts', 'export const unrelated = 1;\n');
+      expect(webChanges(dist, app).all).toEqual([]);
+      expect(receiptChanges(receipt, native)).toEqual([]);
+      rmSync(resolve(owner, 'out'), {recursive:true}); rmSync(resolve(owner, 'unrelated.ts'));
+      put(owner, 'client/package.json', '{"main":"two.js"}');
+      const metadata = resolve(owner, 'client/package.json'), old = new Date('2020-01-01');
+      utimesSync(metadata, old, old);
+      expect(webChanges(dist, app).all).toContain(shown(metadata));
+      expect(receiptChanges(receipt, native)).toContain(shown(metadata));
+      put(owner, 'client/package.json', '{"main":"one.js"}');
+      // Older timestamps still change the resolver's preferred module.
+      put(owner, 'api.ts', source.replace('old.example', 'new.example'));
+      utimesSync(resolve(owner, 'api.ts'), old, old);
+      expect(webChanges(dist, app).all).toContain(shown(resolve(owner, 'api.ts')));
+      expect(receiptChanges(receipt, native)).toContain(shown(resolve(owner, 'api.ts')));
+      put(stage, `${mount}api.ts`, readFileSync(resolve(owner, 'api.ts'), 'utf8'));
+      await configure(stage, false, parseSync, true);
+      expect(JSON.parse(readFileSync(resolve(stage, '__exact_inputs.json'), 'utf8')).modules).toContainEqual([`${mount}api.ts`, resolve(owner, 'api.ts')]);
+      rmSync(resolve(owner, 'api.ts'));
+      rmSync(resolve(owner, 'api.js'));
+      rmSync(resolve(owner, 'client'), {recursive:true,force:true});
+    }
+  } finally { rmSync(root, { recursive: true, force: true }); }
+}, 30_000);
+
+test.each(['shadowed source', 'new runtime candidate'])('package resolution freshness: %s', async scenario => {
+  const { configure, check, dataBundle } = await import('../src/typescript.mjs');
+  const { parseSync } = await import('rolldown/utils');
+  const { rolldown } = await import('rolldown');
+  const { shown, webChanges, webInputDigests } = await import('../../../scripts/agent-launch.mjs');
+  const libraries = resolve(dirname(fileURLToPath(import.meta.resolve(`@typescript/typescript-${process.platform}-${process.arch}/package.json`))), 'lib');
+  const root = mkdtempSync(resolve(import.meta.dir, '../../../target/issue-859-package-resolution-'));
+  const dir = resolve(root, 'app'), dist = resolve(dir, 'dist'), stage = resolve(dist, '.gen/typescript');
+  const app = {dir,manifest:{}}, pkg = resolve(dir, 'node_modules/client');
+  const put = (base, file, code) => { mkdirSync(dirname(resolve(base, file)), {recursive:true}); writeFileSync(resolve(base, file), code); };
+  const build = async () => {
+    await configure(stage, false, parseSync, true);
+    await check(stage, resolve(libraries, 'tsc'), libraries);
+    const bundle = await rolldown({input:resolve(stage, '__exact_entry.ts'), ...dataBundle(stage), logLevel:'silent'});
+    try { return (await bundle.generate({format:'esm'})).output[0].code; } finally { await bundle.close(); }
+  };
+  try {
+    for (const base of [dir, stage]) {
+      put(base, 'app.json', '{}');
+      put(base, 'app.ts', "export { value } from 'client';\n");
+    }
+    put(stage, '__exact_paths.json', JSON.stringify({app:dir,mounts:[]}));
+    put(stage, '__exact_entry.ts', "export * from './app';\n");
+    put(pkg, 'package.json', JSON.stringify({name:'client',version:'1.0.0',type:'module',exports:'./index.js',types:'./index.d.ts'}));
+    put(pkg, 'index.js', "export { value } from './value';\n");
+    put(pkg, 'index.d.ts', 'export declare const value: string;\n');
+    put(pkg, 'value.js', "export const value = 'from-js';\n");
+    if (scenario === 'shadowed source') put(pkg, 'index.ts', "export const value = 'excluded';\n");
+    expect(await build()).toContain('from-js');
+    const sourceInputs = JSON.parse(readFileSync(resolve(stage, '__exact_inputs.json'), 'utf8'));
+    put(dist, '.exact-build.json', JSON.stringify({target:'js',inputs:webInputDigests(app,true,[],sourceInputs),inputRoots:[],sourceInputs}));
+    expect(webChanges(dist, app).all).toEqual([]);
+    if (scenario === 'shadowed source') {
+      put(pkg, 'index.ts', "export const value = 'changed';\n");
+      expect(webChanges(dist, app).all).toContain(shown(resolve(pkg, 'index.ts')));
+    } else {
+      put(pkg, 'value.ts', "export const value = 'from-ts';\n");
+      const old = new Date('2020-01-01');
+      utimesSync(resolve(pkg, 'value.ts'), old, old);
+      expect(webChanges(dist, app).all.length).toBeGreaterThan(0);
+      expect(await build()).toContain('from-ts');
+    }
+  } finally { rmSync(root, {recursive:true,force:true}); }
+}, 30_000);
+
+test.each(['app', 'mount', 'package'])('package entry fallback freshness: %s', async owner => {
+  const { configure, dataBundle } = await import('../src/typescript.mjs');
+  const { parseSync } = await import('rolldown/utils');
+  const { rolldown } = await import('rolldown');
+  const { appSourceFiles } = await import('../../../scripts/app-imports.mjs');
+  const { shown, webChanges, webInputDigests } = await import('../../../scripts/agent-launch.mjs');
+  const root = mkdtempSync(resolve(import.meta.dir, '../../../target/issue-859-entry-fallback-'));
+  const dir = resolve(root, 'app'), shared = resolve(root, 'shared'), dist = resolve(dir, 'dist'), stage = resolve(dist, '.gen/typescript');
+  const mounted = owner === 'mount', packaged = owner === 'package';
+  const mounts = mounted ? [['core', shared]] : [];
+  const client = resolve(packaged ? resolve(dir, 'node_modules') : mounted ? shared : dir, 'client');
+  const app = {dir, manifest:{env:packaged ? [] : ['ISSUE_859_API'], ...(mounted ? {typescript:{sources:{core:'../shared'}}} : {})}};
+  const put = (base, file, code) => { mkdirSync(dirname(resolve(base, file)), {recursive:true}); writeFileSync(resolve(base, file), code); };
+  const source = value => `export const API = ${packaged ? '' : 'import.meta.env.ISSUE_859_API ?? '}'https://${value}.example';\n`;
+  const build = async () => {
+    rmSync(stage, {recursive:true,force:true});
+    for (const [file, from] of appSourceFiles(dir, {manifest:app.manifest, mounts})) put(stage, file, readFileSync(from));
+    put(stage, '__exact_paths.json', JSON.stringify({app:dir,mounts}));
+    put(stage, '__exact_entry.ts', "export * from './app';\n");
+    await configure(stage, false, parseSync, true);
+    const bundle = await rolldown({input:resolve(stage, '__exact_entry.ts'), ...dataBundle(stage), logLevel:'silent'});
+    try { return (await bundle.generate({format:'esm'})).output[0].code; } finally { await bundle.close(); }
+  };
+  try {
+    put(dir, 'app.json', JSON.stringify(app.manifest));
+    if (!packaged) put(dir, 'tsconfig.json', JSON.stringify({compilerOptions:{paths:{client:[mounted ? './core/client' : './client']}}}));
+    put(dir, 'app.ts', "export { API } from 'client';\n");
+    put(client, 'package.json', JSON.stringify({name:'client',version:'1.0.0',type:'module',browser:'./browser/index.js',main:'./legacy.js'}));
+    put(client, 'legacy.js', source('legacy'));
+    mkdirSync(resolve(client, 'browser'));
+    expect(await build()).toContain('https://legacy.example');
+    const sourceInputs = JSON.parse(readFileSync(resolve(stage, '__exact_inputs.json'), 'utf8'));
+    put(dist, '.exact-build.json', JSON.stringify({target:'js',inputs:webInputDigests(app,true,[],sourceInputs),inputRoots:[],sourceInputs}));
+    expect(webChanges(dist, app).all).toEqual([]);
+    put(client, 'browser/index.js', source('browser'));
+    const old = new Date('2020-01-01');
+    utimesSync(resolve(client, 'browser/index.js'), old, old);
+    const changed = webChanges(dist, app).all;
+    expect(await build()).toContain('https://browser.example');
+    expect(changed).toContain(shown(resolve(client, 'browser/index.js')));
+  } finally { rmSync(root, {recursive:true,force:true}); }
+}, 30_000);
+
+test.each(['app', 'mount'])('path mapping fallback freshness: %s', async owner => {
+  const { configure, check, dataBundle } = await import('../src/typescript.mjs');
+  const { sourceInputChanges } = await import('../src/__exact_env.mjs');
+  const { parseSync } = await import('rolldown/utils');
+  const { rolldown } = await import('rolldown');
+  const { appSourceFiles } = await import('../../../scripts/app-imports.mjs');
+  const { shown, webChanges, webInputDigests } = await import('../../../scripts/agent-launch.mjs');
+  const libraries = resolve(dirname(fileURLToPath(import.meta.resolve(`@typescript/typescript-${process.platform}-${process.arch}/package.json`))), 'lib');
+  const root = mkdtempSync(resolve(import.meta.dir, '../../../target/issue-859-alias-fallback-'));
+  const dir = resolve(root, 'app'), shared = resolve(root, 'shared'), dist = resolve(dir, 'dist'), stage = resolve(dist, '.gen/typescript');
+  const mounted = owner === 'mount', mounts = mounted ? [['core', shared]] : [], local = mounted ? shared : dir;
+  const app = {dir,manifest:{...(mounted ? {typescript:{sources:{core:'../shared'}}} : {})}};
+  const put = (base, file, code) => { mkdirSync(dirname(resolve(base, file)), {recursive:true}); writeFileSync(resolve(base, file), code); };
+  const build = async () => {
+    rmSync(stage, {recursive:true,force:true});
+    for (const [file, from] of appSourceFiles(dir, {manifest:app.manifest, mounts})) put(stage, file, readFileSync(from));
+    put(stage, '__exact_paths.json', JSON.stringify({app:dir,mounts}));
+    put(stage, '__exact_entry.ts', "export * from './app';\n");
+    await configure(stage, false, parseSync, true);
+    await check(stage, resolve(libraries, 'tsc'), libraries);
+    const bundle = await rolldown({input:resolve(stage, '__exact_entry.ts'), ...dataBundle(stage), logLevel:'silent'});
+    try { return (await bundle.generate({format:'esm'})).output[0].code; }
+    finally { await bundle.close(); }
+  };
+  try {
+    put(dir, 'app.json', JSON.stringify(app.manifest));
+    put(local, 'preferred/value.d.ts', 'export declare const value: string;\n');
+    put(local, 'fallback/value.js', "export const value = 'fallback';\n");
+    for (const alias of ['client', 'client/*']) {
+      const target = alias.includes('*') ? '*' : 'value', prefix = mounted ? 'core/' : '';
+      put(dir, 'tsconfig.json', JSON.stringify({compilerOptions:{paths:{[alias]:[`./${prefix}preferred/${target}`, `./${prefix}fallback/${target}`]}}}));
+      put(dir, 'app.ts', `export { value } from '${alias.replace('*','value')}';\n`);
+      expect(await build()).toContain('"fallback"');
+      const sourceInputs = JSON.parse(readFileSync(resolve(stage, '__exact_inputs.json'), 'utf8'));
+      put(dist, '.exact-build.json', JSON.stringify({target:'js',inputs:webInputDigests(app,true,[],sourceInputs),inputRoots:[],sourceInputs}));
+      expect(sourceInputChanges(sourceInputs)).toEqual([]);
+      expect(webChanges(dist, app).all).toEqual([]);
+      put(local, 'preferred/value.js', "export const value = 'preferred';\n");
+      const changed = sourceInputChanges(sourceInputs), web = webChanges(dist, app).all;
+      expect(await build()).toContain('"preferred"');
+      expect(changed).toEqual([resolve(local, 'preferred/value.js')]);
+      expect(web).toContain(shown(resolve(local, 'preferred/value.js')));
+      rmSync(resolve(local, 'preferred/value.js'));
+    }
+  } finally { rmSync(root, {recursive:true,force:true}); }
+}, 30_000);
+
+test('type-only edges neither supply settings nor conflict with runtime defaults', async () => {
+  const { configure, check } = await import('../src/typescript.mjs');
+  const { parseSync } = await import('rolldown/utils');
+  const libraries = resolve(dirname(fileURLToPath(import.meta.resolve(`@typescript/typescript-${process.platform}-${process.arch}/package.json`))), 'lib');
+  const root = mkdtempSync(resolve(import.meta.dir, '../../../target/issue-859-type-edges-'));
+  const app = resolve(root, 'app'), stage = resolve(root, 'stage');
+  const put = (dir, file, code) => { mkdirSync(resolve(dir, file, '..'), {recursive:true}); writeFileSync(resolve(dir, file), code); };
+  const source = "export type Client = string;\nexport const API = import.meta.env.ISSUE_859_API ?? 'https://types.example';\n";
+  try {
+    put(app, 'app.json', JSON.stringify({env:['ISSUE_859_API']}));
+    put(stage, '__exact_paths.json', JSON.stringify({app,mounts:[]}));
+    put(stage, '__exact_entry.ts', "export * from './app';\n");
+    put(stage, 'types.ts', source);
+    for (const edge of ["import type { Client } from './types';", "import { Client } from './types'; export type Selected = Client;", "import { type Client } from './types';", "export type { Client } from './types';", "export { type Client } from './types';", "export type * from './types';"]) {
+      const entry = edge + "\nexport const API = import.meta.env.ISSUE_859_API ?? 'https://runtime.example';\n";
+      put(stage, 'app.ts', entry);
+      await expect(configure(stage, false, parseSync)).resolves.toBeUndefined();
+      await check(stage, resolve(libraries, 'tsc'), libraries);
+      expect(readFileSync(resolve(stage, 'types.ts'), 'utf8')).toBe(source);
+      put(stage, 'app.ts', edge);
+      await expect(configure(stage, false, parseSync)).rejects.toThrow('read it nowhere');
+    }
+    for (const edge of ["import './types';", "import { API, type Client } from './types'; export { API };", "export { API, type Client } from './types';"]) {
+      put(stage, 'app.ts', edge);
+      await configure(stage, false, parseSync);
+      expect(JSON.parse(readFileSync(resolve(stage, '__exact_env.json'), 'utf8')).ISSUE_859_API.value).toBe('https://types.example');
+      put(stage, 'types.ts', source);
+    }
+  } finally { rmSync(root, {recursive:true,force:true}); }
+});
+
+test('reachable declarations and type-only modules stay fresh without reading settings', async () => {
+  const { shown, webChanges, webInputDigests, webInputs } = await import('../../../scripts/agent-launch.mjs');
+  const { appSettings } = await import('../../../scripts/app-imports.mjs');
+  const dir = mkdtempSync(resolve(import.meta.dir, '../../../target/issue-859-declarations-'));
+  const app = {dir,manifest:{env:[]}}, dist = resolve(dir, 'dist');
+  const put = (file, code) => writeFileSync(resolve(dir, file), code);
+  try {
+    mkdirSync(dist);
+    put('app.json', JSON.stringify(app.manifest));
+    put('app.ts', "import { Model } from './model.d.ts';\nimport type { Client } from './types';\nimport type { Details } from './details';\nexport const value: Model = 'hello';\n");
+    put('model.d.ts', 'export type Model = string;\n');
+    put('details.d.ts', 'export type Details = string;\n');
+    put('types.ts', "export type Client = string;\nexport const API = import.meta.env.UNDECLARED;\n");
+    mkdirSync(resolve(dir,'.exact'),{recursive:true});
+    put('.exact/typescript-inputs.json',JSON.stringify({modules:[['app.ts',resolve(dir,'app.ts')]],types:['model.d.ts','types.ts','details.d.ts'].map(file=>[file,resolve(dir,file)])}));
+    const inputs = webInputs(app, true, -Infinity, []).app;
+    for (const file of ['model.d.ts', 'types.ts', 'details.d.ts']) expect(inputs).toContain(shown(resolve(dir, file)));
+    expect(appSettings(dir, {}).record).toEqual({});
+    put('dist/.exact-build.json', JSON.stringify({target:'js',inputs:webInputDigests(app,true,[]),inputRoots:[]}));
+    expect(webChanges(dist, app).all).toEqual([]);
+    put('model.d.ts', 'export type Model = number;\n');
+    expect(webChanges(dist, app).app).toContain(shown(resolve(dir, 'model.d.ts')));
+    put('types.ts', 'export type Client = number;\n');
+    expect(webChanges(dist, app).app).toContain(shown(resolve(dir, 'types.ts')));
+    put('model.d.ts', "export type Model = string;\nexport declare const API: typeof import.meta.env.UNDECLARED;\n");
+    expect(appSettings(dir, {}).record).toEqual({});
+  } finally { rmSync(dir, {recursive:true,force:true}); }
+});
+
+test('web settings inline app-local consts, record input changes and refuse retained package reads', async () => {
+  const {webCompiler} = await import('../../../host/web-js/module.mjs');
+  const {builtFile} = await import('../../../host/web-js/content-names.mjs');
+  const {webChanges} = await import('../../../scripts/agent-launch.mjs');
+  const {spawnSync} = await import('node:child_process');
+  if (webCompiler().cmd === 'cargo') throw new Error('build the compiler first: cargo build -p exact-web-js');
+  const root = resolve(import.meta.dir, '../../..'), dir = mkdtempSync(resolve(root, 'target/web-unused-exports-'));
+  const pkg = resolve(dir, 'node_modules/debug-helper'), out = resolve(dir, 'dist');
+  try {
+    mkdirSync(pkg, { recursive: true });
+    writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ name: 'Unused', app: { id: 'test.unused', name: 'Unused' }, env:['ISSUE_859_API'] }));
+    writeFileSync(resolve(dir, 'app.contract'), 'component App\n  resource message = message() as shape string\n  view\n    column\n      text message\n      canvas surface=spark() width=10 height=10\n');
+    writeFileSync(resolve(pkg, 'package.json'), JSON.stringify({ name: 'debug-helper', version: '1.0.0', type: 'module', exports: './index.js', types: './index.d.ts' }));
+    writeFileSync(resolve(pkg, 'index.js'), 'export const debug = () => import.meta.env.DEBUG;\n');
+    writeFileSync(resolve(pkg, 'index.d.ts'), 'export declare const debug: () => string;\n');
+    const build = () => spawnSync(process.execPath, ['host/web/build.mjs', dir, '--js', '--render', 'none'],
+      { cwd: root, encoding: 'utf8', env: { ...process.env, EXACT_APP_DIR: dir, EXACT_WEB_DIST:out } });
+    mkdirSync(resolve(dir,'src'));
+    writeFileSync(resolve(dir,'src/api.ts'), "export const API = import.meta.env.ISSUE_859_API ?? 'https://built.example';\n");
+    const base = "import './src/api';\nimport { API } from './src/api';\nexport const grants = '';\nexport const surfaces = { spark: 0 };\nexport const draw = () => false;\n";
+    writeFileSync(resolve(dir, 'app.ts'), base + "export const answer = () => API;\nexport { debug } from 'debug-helper';\n");
+    const built = build();
+    expect(built.status, built.stdout + built.stderr).toBe(0);
+    const code = readFileSync(resolve(out, builtFile(out, 'app.js')), 'utf8');
+    expect(code).not.toContain('import.meta.env');
+    expect(code).toContain('https://built.example');
+    const app = {dir,manifest:{env:['ISSUE_859_API']}};
+    expect(webChanges(out,app).all).toEqual([]);
+    writeFileSync(resolve(dir,'src/extra.ts'),"export const marker = 'extra';\n");
+    writeFileSync(resolve(dir,'app.ts'),base+"export const answer = () => API;\nexport { marker } from './src/extra';\n");
+    expect(webChanges(out,app).all).toContain(resolve(dir,'app.ts').slice(root.length+1));
+    let rebuilt=build();
+    expect(rebuilt.status,rebuilt.stdout+rebuilt.stderr).toBe(0);
+    expect(webChanges(out,app).all).toEqual([]);
+    writeFileSync(resolve(dir,'app.ts'),base+"export const answer = () => API;\n");
+    rebuilt=build();
+    expect(rebuilt.status,rebuilt.stdout+rebuilt.stderr).toBe(0);
+    // No import names it any more, so its removal changes no resolution.
+    rmSync(resolve(dir,'src/extra.ts'));
+    expect(webChanges(out,app).all).toEqual([]);
+    for (const source of [
+      base + 'export const answer = () => debug();\n',
+      base.replace('() => false', '() => !!debug()') + "export const answer = () => 'ready';\n",
+    ]) {
+      writeFileSync(resolve(dir, 'app.ts'), "import { debug } from 'debug-helper';\n" + source);
+      const refused = build();
+      expect(refused.status).toBe(1);
+      expect(refused.stderr).toContain('debug-helper@1.0.0 (index.js:1:28) reads import.meta.env');
+    }
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+}, 60000);
+
+test('a setting is a web build input by value and source, and serve finds one changed since the build', async () => {
+  const {webChanges,webInputDigests}=await import('../../../scripts/agent-launch.mjs');
+  const {changedSettings}=await import('../src/__exact_env.mjs');
+  const dir=mkdtempSync(resolve(tmpdir(),'exact-settings-')), dist=resolve(dir,'dist'), name='EXACT_TEST_SETTING', key=`import.meta.env.${name}`;
+  const app={dir,manifest:{env:[name]}};
+  const bake=env=>writeFileSync(resolve(dist,'.exact-build.json'),JSON.stringify({target:'js',inputs:webInputDigests(app,true,[]),inputRoots:[],env}));
+  try {
+    mkdirSync(dist);
+    writeFileSync(resolve(dir, 'app.json'), JSON.stringify(app.manifest));
+    writeFileSync(resolve(dir, 'app.ts'), `const API = import.meta.env.${name};\n`);
+    mkdirSync(resolve(dir,'.exact'),{recursive:true});
+    writeFileSync(resolve(dir,'.exact/typescript-inputs.json'),JSON.stringify({modules:[['app.ts',resolve(dir,'app.ts')]],types:[]}));
+    writeFileSync(resolve(dir,'.env'),`${name}=http://a.example\n`);
+    bake({[name]:{value:'http://a.example',source:'.env'}});
+    expect(webChanges(dist,app).all).toEqual([]);
+    writeFileSync(resolve(dir,'.env'),`${name}=http://b.example\n`);
+    expect(webChanges(dist,app).app).toEqual([key]);
+    expect(changedSettings(dist,{},dir)).toEqual([{name,built:{value:'http://a.example',source:'.env'},now:{value:'http://b.example',source:'.env'}}]);
+    // The same value from another source is another build input, and the same build for serve.
+    writeFileSync(resolve(dir,'.env'),`${name}=http://a.example\n`);
+    expect(webChanges(dist,app).all).toEqual([]);
+    writeFileSync(resolve(dir,'.env.local'),`${name}=http://a.example\n`);
+    expect(webChanges(dist,app).app).toEqual([key]);
+    expect(changedSettings(dist,{},dir)).toEqual([]);
+    rmSync(resolve(dir,'.env.local'));
+    process.env[name]='http://e.example';
+    try { expect(webChanges(dist,app).app).toEqual([key]); } finally { delete process.env[name]; }
+    // A build copied away from its sources: only the environment changes a value, and an unset name keeps the build's.
+    expect(changedSettings(dist,{})).toEqual([]);
+    expect(changedSettings(dist,{[name]:'http://c.example'})).toEqual([{name,built:{value:'http://a.example',source:'.env'},now:{value:'http://c.example',source:'environment'}}]);
+    // A default stands until a source sets a value, and the digest records it as the bake inlines it.
+    rmSync(resolve(dir,'.env'));
+    writeFileSync(resolve(dir,'app.json'),JSON.stringify({env:[name]}));
+    mkdirSync(resolve(dir,'src'));
+    writeFileSync(resolve(dir,'app.ts'),"export { API } from './src/api';\n");
+    writeFileSync(resolve(dir,'src/api.ts'),`export const API = import.meta.env.${name} ?? 'http://default.example';\n`);
+    writeFileSync(resolve(dir,'.exact/typescript-inputs.json'),JSON.stringify({modules:['app.ts','src/api.ts'].map(file=>[file,resolve(dir,file)]),types:[]}));
+    expect(webInputDigests(app,true)[key]).toBe(JSON.stringify({value:'http://default.example',source:'default'}));
+    bake({[name]:{value:'http://default.example',source:'default'}});
+    expect(webChanges(dist,app).all).toEqual([]);
+    expect(changedSettings(dist,{},dir)).toEqual([]);
+    expect(changedSettings(dist,{[name]:'http://d.example'},dir).map(c=>c.now)).toEqual([{value:'http://d.example',source:'environment'}]);
+  } finally { rmSync(dir,{recursive:true,force:true}); }
+});
+
+test('setting freshness follows current imports, including added and removed modules', async () => {
+  const { shown, webChanges, webInputDigests, webInputs } = await import('../../../scripts/agent-launch.mjs');
+  const { utimesSync } = await import('node:fs');
+  const dir = mkdtempSync(resolve(import.meta.dir, '../../../target/issue-859-freshness-'));
+  const app = {dir,manifest:{env:['ISSUE_859_API']}}, dist = resolve(dir, 'dist'), key = 'import.meta.env.ISSUE_859_API';
+  const put = (file, code) => writeFileSync(resolve(dir, file), code);
+  const source = value => `export const API = import.meta.env.ISSUE_859_API ?? '${value}';\n`;
+  const digest = () => webInputDigests(app, true, []);
+  const bake = () => put('dist/.exact-build.json', JSON.stringify({target:'js',inputs:digest(),inputRoots:[]}));
+  try {
+    mkdirSync(dist);
+    put('app.json', JSON.stringify(app.manifest));
+    put('app.ts', "export { API } from './settings';\nexport { default as seed } from './seed.json';\n");
+    put('seed.json', '{"count":1}');
+    put('settings.ts', source('https://old.example'));
+    put('unused.ts', source('https://unused.example'));
+    mkdirSync(resolve(dir,'.exact'),{recursive:true});
+    put('.exact/typescript-inputs.json',JSON.stringify({modules:['app.ts','settings.ts','seed.json'].map(file=>[file,resolve(dir,file)]),types:[]}));
+    expect(digest()[key]).toBe(JSON.stringify({value:'https://old.example',source:'default'}));
+    expect(webInputs(app, true, -Infinity, []).app).not.toContain(shown(resolve(dir, 'unused.ts')));
+    expect(digest()[shown(resolve(dir, 'seed.json'))]).not.toBeNull();
+    bake();
+    put('unused.ts', source('https://other.example'));
+    expect(webChanges(dist, app).all).toEqual([]);
+    put('settings.ts', source('https://new.example'));
+    expect(webChanges(dist, app).app).toContain(key);
+    bake();
+    rmSync(resolve(dir, 'settings.ts'));
+    expect(webChanges(dist, app).app).toContain(key);
+    bake();
+    // The missing import's first creation counts even with a time older than the build.
+    put('settings.ts', source('https://added.example'));
+    utimesSync(resolve(dir, 'settings.ts'), new Date(0), new Date(0));
+    expect(webChanges(dist, app).app).toContain(key);
+    expect(webChanges(dist, app).app).toContain(shown(resolve(dir, 'settings.ts')));
+    bake();
+    put('app.ts', 'export {};\n');
+    expect(webChanges(dist, app).app).toContain(shown(resolve(dir,'app.ts')));
+    put('.exact/typescript-inputs.json',JSON.stringify({modules:[['app.ts',resolve(dir,'app.ts')]],types:[]}));
+    expect(digest()[key]).toBeNull();
+  } finally { rmSync(dir, {recursive:true,force:true}); }
 });

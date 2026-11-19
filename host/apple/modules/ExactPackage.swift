@@ -629,18 +629,24 @@ public final class ExactShortcutStore {
 /// The content index's mirror, which the host keeps in the app's container
 /// and tells Spotlight the difference of (LLP 1133.023 D4). Each entry is the
 /// interface's `ContentDescription`. A change answers nil, or the web's
-/// name for its refusal (`QuotaExceededError`, `TypeError`).
+/// name for its refusal (`QuotaExceededError`, `TypeError`), and
+/// `NotSupportedError` in a build that did not link the index, which
+/// `@exact/search-index`'s names select.
 public final class ExactContentIndexStore {
     private func post(_ name: String, _ body: [String: Any]) -> NSMutableDictionary {
         let body = NSMutableDictionary(dictionary: body)
         NotificationCenter.default.post(name: Notification.Name("exact.contentIndex." + name), object: body)
         return body
     }
+    private func change(_ name: String, _ body: [String: Any]) -> String? {
+        let answer = post(name, body)
+        return answer["taken"] == nil ? "NotSupportedError" : answer["error"] as? String
+    }
     /// The entries of `kind` replaced by `entries`, in their order.
     public func set(kind: String?, entries: [[String: Any]]) -> String? {
-        post("set", ["kind": kind as Any, "entries": entries])["error"] as? String
+        change("set", ["kind": kind as Any, "entries": entries])
     }
-    public func add(_ entry: [String: Any]) -> String? { post("add", ["entry": entry])["error"] as? String }
+    public func add(_ entry: [String: Any]) -> String? { change("add", ["entry": entry]) }
     public func delete(id: String) { _ = post("delete", ["id": id]) }
     /// Every entry, in the order the app set them.
     public var entries: [[String: Any]] { post("entries", [:])["entries"] as? [[String: Any]] ?? [] }

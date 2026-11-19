@@ -14,228 +14,6 @@
 import CryptoKit
 import Foundation
 
-/// A fixed JavaScript/Rust generation crosses the data seam as one candidate.
-enum DevelopmentModules {
-    static func combine(javascript: ExactModule?, rust: ExactModule?) throws -> ExactModule? {
-        guard let javascript else { return rust }
-        guard let rust else { return javascript }
-        guard let jsReceipt = try JSONSerialization.jsonObject(with: javascript.receipt) as? [String: Any],
-              let rustReceipt = try JSONSerialization.jsonObject(with: rust.receipt) as? [String: Any] else {
-            throw CocoaError(.fileReadCorruptFile)
-        }
-        let receipt = try JSONSerialization.data(withJSONObject: [
-            "version": 1, "kind": "mixed", "javascript": jsReceipt, "rust": rustReceipt,
-            "javascriptBytes": javascript.bytecode.count,
-        ], options: .sortedKeys)
-        guard receipt.count <= 1 << 20, javascript.bytecode.count <= 32 << 20,
-              rust.bytecode.count <= (32 << 20) - javascript.bytecode.count else { throw CocoaError(.fileReadTooLarge) }
-        var bytes = javascript.bytecode
-        bytes.append(rust.bytecode)
-        return ExactModule(receipt: receipt, bytecode: bytes)
-    }
-}
-
-/// A local development bake is a plan plus its optional, inseparable module
-/// pair (LLP 1027 D7). Watch all three files: a writer can replace them in
-/// either order, and a refused partial bake must be retried when it finishes.
-public struct ExactDevelopmentPlan {
-    private let baseFiles: [URL]
-    private var files: [URL] {
-        let root = baseFiles[0].deletingLastPathComponent().appendingPathComponent("rust")
-        let found = (FileManager.default.enumerator(at: root, includingPropertiesForKeys: nil)?.allObjects as? [URL] ?? [])
-            .filter { !$0.hasDirectoryPath }.sorted { $0.path < $1.path }
-        return baseFiles + found
-    }
-    public init(_ path: String) {
-        let plan = URL(fileURLWithPath: path)
-        let directory = plan.deletingLastPathComponent()
-        baseFiles = [plan, directory.appendingPathComponent("app.module.json"), directory.appendingPathComponent("app.hbc")]
-    }
-
-    public var hasModule: Bool { files.dropFirst().contains { FileManager.default.fileExists(atPath: $0.path) } }
-
-    /// Identity and subsecond modification time, including missing files.
-    public var revision: [Double] {
-        files.flatMap { url -> [Double] in
-            let a = try? FileManager.default.attributesOfItem(atPath: url.path)
-            return [(a?[.modificationDate] as? Date)?.timeIntervalSinceReferenceDate ?? -1,
-                    (a?[.size] as? NSNumber)?.doubleValue ?? -1,
-                    (a?[.systemFileNumber] as? NSNumber)?.doubleValue ?? -1]
-        }
-    }
-
-    /// The plan and, when one is beside it, its module pair, read as one
-    /// candidate: a partial pair or an oversized file is refused.
-    private func read(for app: ExactApp) throws -> (plan: Data, module: ExactModule?) {
-        let files = self.files
-        func read(_ index: Int, limit: Int) throws -> Data {
-            let url = files[index]
-            let a = try FileManager.default.attributesOfItem(atPath: url.path)
-            guard let size = a[.size] as? NSNumber, size.intValue <= limit else {
-                throw NSError(domain: "ExactDevelopmentPlan", code: 1, userInfo: [NSLocalizedDescriptionKey: "\(url.lastPathComponent) exceeds the development artifact limit"])
-            }
-            let bytes = try Data(contentsOf: url)
-            guard bytes.count <= limit else { throw CocoaError(.fileReadTooLarge) }
-            return bytes
-        }
-        let plan = try read(0, limit: 32 << 20)
-        guard hasModule else { return (plan, nil) }
-        var javascript: ExactModule?, rust: ExactModule?
-        if files[1...2].contains(where: { FileManager.default.fileExists(atPath: $0.path) }) {
-            javascript = ExactModule(receipt: try read(1, limit: 1 << 20), bytecode: try read(2, limit: 32 << 20))
-        }
-        if files.count > baseFiles.count && !(app.rustPolicy.mode == "off" && javascript != nil) {
-            let policy = app.rustPolicy
-            let prefix = policy.mode == "wasm" ? "rust/wasm" : "rust/" + policy.mode + "/" + policy.target
-            guard policy.mode != "off",
-                  let index = files.firstIndex(where: { $0.path.hasSuffix(prefix + "/app.module.json") }) else {
-                throw NSError(domain: "ExactDevelopmentPlan", code: 1, userInfo: [NSLocalizedDescriptionKey: "no Rust replacement matching this binary's executor and target"])
-            }
-            let receiptIndex = index
-            let json = try JSONSerialization.jsonObject(with: read(index, limit: 1 << 20)) as? [String: Any]
-            guard let row = json?["module"] as? [String: Any], let name = row["file"] as? String,
-                  ["app.module.wasm", "app.module.dylib", "app.module.so", "app.module.dll", "app.module.bin"].contains(name),
-                  let index = files.firstIndex(where: { $0.path.hasSuffix(prefix + "/" + name) }) else { throw CocoaError(.fileNoSuchFile) }
-            rust = ExactModule(receipt: try read(receiptIndex, limit: 1 << 20), bytecode: try read(index, limit: 32 << 20))
-        }
-        guard let module = try DevelopmentModules.combine(javascript: javascript, rust: rust) else { throw CocoaError(.fileNoSuchFile) }
-        return (plan, module)
-    }
-
-    @discardableResult
-    public func apply(to app: ExactApp) -> ExactApplyResult { apply(to: app, now: false) }
-
-    /// `now`: the dev menu's Reload, which no interaction holds (LLP 1029.000.002 D9).
-    func apply(to app: ExactApp, now: Bool) -> ExactApplyResult {
-        do {
-            let (plan, module) = try read(for: app)
-            let label = baseFiles[0].lastPathComponent
-            return app.applyTogether(plan, label: label, resolver: app.resolver, token: 0, module: module, development: true, now: now, commit: { true })
-        } catch {
-            fputs("exact: local generation refused: \(error.localizedDescription)\n", stderr)
-            return .refused(error.localizedDescription)
-        }
-    }
-
-    /// The plan and its module pair as the launch generation (`EXACT_PLAN`
-    /// naming a local bake, LLP 1116.003): the first boot runs it as a build
-    /// that baked it would, fresh, with nothing carried from the embedded
-    /// plan. Call before the first session; nil once installed, else why not.
-    public func installInitial(on app: ExactApp) -> String? {
-        do {
-            let (plan, module) = try read(for: app)
-            guard let module else { return "\(baseFiles[0].lastPathComponent) has no module beside it" }
-            app.installInitial(ExactGeneration(plan: plan, assets: app.resolver, module: module))
-            return nil
-        } catch {
-            return "local generation refused: \(error.localizedDescription)"
-        }
-    }
-
-    /// The dev loop's file form (LLP 1007 §6): every 100 ms, a changed
-    /// revision is applied to `app`. A module pair starts unseen, so the
-    /// first tick applies it. Keep the timer for as long as the watch runs.
-    public func watch(_ app: ExactApp) -> DispatchSourceTimer {
-        var last = hasModule ? [] : revision
-        let t = DispatchSource.makeTimerSource(queue: .main)
-        t.schedule(deadline: .now() + 0.1, repeating: 0.1)
-        t.setEventHandler {
-            last = Self.seen(revision, last: last, apply: { apply(to: app) })
-        }
-        t.resume()
-        return t
-    }
-
-    /// The revision seen after a tick: each is applied once, whatever it
-    /// answers. One that must wait is the app's to apply (LLP 1029.000.002 D9).
-    static func seen(_ revision: [Double], last: [Double], apply: () -> ExactApplyResult) -> [Double] {
-        guard revision != last else { return last }
-        _ = apply()
-        return revision
-    }
-}
-
-/// Explicit development-only opening action (LLP 1030.000 §7). The locator
-/// stays an HTTP(S) URL; the outer app-specific scheme only selects the client.
-/// The scheme is derived from the public app id and the loader's identity and
-/// compatibility checks are computable by anyone, so neither is trust: a link
-/// is admitted only for the dev-server origins this build was made against,
-/// carrying the random token baked beside them (`host/apple/build.mjs`).
-public enum ExactDevelopmentLink {
-    public static func page(_ link: URL, scheme: String, origins: [String], token: String) -> URL? {
-        guard link.absoluteString.utf8.count <= 8192, validToken(token),
-              let c = URLComponents(url: link, resolvingAgainstBaseURL: false),
-              c.scheme?.lowercased() == scheme, c.host == "open",
-              c.user == nil, c.password == nil, c.port == nil, c.fragment == nil,
-              c.path.isEmpty || c.path == "/",
-              let items = c.queryItems, items.count == 2, Set(items.map(\.name)) == ["url", "token"],
-              let offered = items.first(where: { $0.name == "token" })?.value, equal(offered, token),
-              let value = items.first(where: { $0.name == "url" })?.value, let page = URL(string: value),
-              ["http", "https"].contains(page.scheme?.lowercased() ?? ""),
-              let host = page.host, !host.isEmpty, page.user == nil, page.password == nil,
-              origins.contains(where: { URL(string: $0).map { sameOrigin($0, page) } ?? false })
-        else { return nil }
-        return page
-    }
-
-    /// The scheme, origins and token a development build was baked with, or
-    /// nil: an installed or production build registers no development link.
-    private static var baked: (scheme: String, origins: [String], token: String)? {
-        let info = Bundle.main.infoDictionary ?? [:]
-        guard let scheme = info["ExactDevelopmentURLScheme"] as? String, !scheme.isEmpty,
-              let origins = info["ExactDevelopmentOrigins"] as? [String], !origins.isEmpty,
-              let token = info["ExactDevelopmentToken"] as? String, validToken(token) else { return nil }
-        return (scheme.lowercased(), origins, token)
-    }
-
-    public static func page(_ link: URL) -> URL? {
-        guard let baked else { return nil }
-        return page(link, scheme: baked.scheme, origins: baked.origins, token: baked.token)
-    }
-
-    /// A link in this build's development scheme is consumed here, admitted
-    /// or refused; it never becomes an app location (LLP 1038 D11).
-    public static func claims(_ link: URL) -> Bool {
-        guard let baked else { return false }
-        return link.scheme?.lowercased() == baked.scheme
-    }
-
-    /// True when the link was this build's to take — connected, or refused
-    /// with a line on stderr and every session left as it was.
-    @discardableResult
-    public static func open(_ link: URL) -> Bool {
-        guard claims(link) else { return false }
-        guard let page = page(link) else {
-            fputs("exact: refused a development link that does not name this build's dev server and token\n", stderr)
-            return true
-        }
-        // The existing loader still checks app identity, pairing, grants and
-        // runtime compatibility before changing any session.
-        ExactApp.shared.connect(page.absoluteString)
-        return true
-    }
-
-    private static func validToken(_ token: String) -> Bool {
-        token.utf8.count == 64 && token.utf8.allSatisfy { (48...57).contains($0) || (97...102).contains($0) }
-    }
-
-    /// Constant time over the token's length.
-    private static func equal(_ a: String, _ b: String) -> Bool {
-        let x = Array(a.utf8), y = Array(b.utf8)
-        guard x.count == y.count else { return false }
-        return zip(x, y).reduce(UInt8(0)) { $0 | ($1.0 ^ $1.1) } == 0
-    }
-
-    /// URL.origin, including the scheme's default port.
-    private static func sameOrigin(_ a: URL, _ b: URL) -> Bool {
-        func port(_ u: URL) -> Int? {
-            switch u.scheme?.lowercased() { case "http": return u.port ?? 80; case "https": return u.port ?? 443; default: return nil }
-        }
-        guard let pa = port(a), let ha = a.host?.lowercased(), !ha.isEmpty else { return false }
-        return a.scheme?.lowercased() == b.scheme?.lowercased() && ha == b.host?.lowercased() && pa == port(b)
-    }
-}
-
 /// One bounded HTTP rung. URLSession's completion-handler API buffers an
 /// entire response before the caller can inspect it; the loader instead owns
 /// a data delegate so every chunk is stopped at the rung's limit. Redirects
@@ -339,7 +117,7 @@ private final class BoundedFetch: NSObject, URLSessionDataDelegate, URLSessionTa
     }
 }
 
-final class PlanURL: NSObject, URLSessionDataDelegate {
+final class PlanURL: NSObject, URLSessionDataDelegate, PlanConnection {
     static let envelopeType = "application/vnd.exact.envelope+json"
     /// A dev loop's answer while its producers start, or after their start
     /// failed (llp/1023.001; host/web/dev-phase.mjs): a status, not a failure.
@@ -408,6 +186,24 @@ final class PlanURL: NSObject, URLSessionDataDelegate {
         return connection
     }
 
+    /// `app`'s one connection to `page` (`ExactApp.connect`): its program
+    /// pinned to the one the app runs, its generations applied to every
+    /// session together, its notices in the app's dev pills.
+    static func open(for app: ExactApp, _ page: String) -> PlanURL? {
+        let connection = open(page, program: app.devProgram, acceptProgram: { [weak app] program in
+            guard let app else { return false }
+            if let old = app.devProgram { return old == program }
+            app.devProgram = program
+            return true
+        }, current: { [weak app] in app?.devGeneration }, plan: { [weak app] in app?.sessions.first { $0.booted && $0.state != .destroyed }?.runtime.planDigest() }, design: { [weak app] in app?.design($0) ?? "closed" }, channel: { [weak app] in app?.channel($0) }, apply: { [weak app] candidate, label, now, finished in
+            guard let app else { return .refused("app closed") }
+            // A closed connection applies nothing, so the one asking is the open one.
+            return app.applyTogether(candidate.plan, label: label, resolver: candidate.assets, token: 0, identity: candidate.identity, module: candidate.module, development: true, now: now, producer: app.connection, commit: { true }, finished: finished)
+        })
+        connection?.onDevNotice = { [weak app] in app?.showDevStatus($0) } // the old one's went at its close
+        return connection
+    }
+
     let page: URL
     private let currentGeneration: () -> String?
     private let runningPlan: () -> String?
@@ -421,17 +217,11 @@ final class PlanURL: NSObject, URLSessionDataDelegate {
     private let channel: ([String: Any]) -> Void
     private let acceptProgram: (String?) -> Bool
     var terminal: String? { didSet { tellNotice() } }
-    /// What the dev loop said it is doing before it had a plan to give:
-    /// preparing (its producers' first build), or its start's error.
-    enum DevStatus: Equatable { case preparing(String), failed(String) }
-    private(set) var devStatus: DevStatus? { didSet { tellNotice() } }
+    private(set) var devStatus: DevLoopStatus? { didSet { tellNotice() } }
     /// The first line of the last save's error, until a generation is taken
     /// (LLP 1159.001 D1): the app on screen is older than the source.
     private(set) var refused: String? { didSet { tellNotice() } }
-    /// What the window's dev pill says, the first that holds (LLP 1159.001 D2):
-    /// the loop's own status, a host whose native code the server no longer
-    /// runs (`terminal`), or a save that did not apply.
-    enum DevNotice: Equatable { case loop(DevStatus), stale, refused(String) }
+    /// What the window's dev pill says (`DevNotice`).
     var notice: DevNotice? { devStatus.map(DevNotice.loop) ?? (terminal != nil ? .stale : refused.map(DevNotice.refused)) }
     /// Told each change of `notice`; nil when nothing is left to say.
     var onDevNotice: ((DevNotice?) -> Void)?
@@ -999,7 +789,7 @@ final class PlanURL: NSObject, URLSessionDataDelegate {
     /// The dev loop's status, said once a change, and asked again after its
     /// `Retry-After` (1 to 10 s; 2 s preparing, 5 s failed when it names
     /// none), with no backing off: the loop answers at once.
-    private func loopSaid(_ said: DevStatus, retry: Double?, generation: UInt64) {
+    private func loopSaid(_ said: DevLoopStatus, retry: Double?, generation: UInt64) {
         if devStatus != said {
             devStatus = said
             switch said {

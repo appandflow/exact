@@ -2,6 +2,7 @@
 import UIKit
 import XCTest
 @testable import ExactKit
+@testable import ExactDialogs
 
 /// LLP 1035.001 D11 (#109): a `dialog` whose author painted its surface is
 /// the author's box in HTML's top layer, not the platform's sheet or alert:
@@ -114,8 +115,8 @@ final class DialogTopLayerIOSTests: XCTestCase {
         XCTAssertEqual(ask.center.y, top.scroller.bounds.midY, accuracy: 0.5, "and down it")
         XCTAssertEqual(top.backdrop.backgroundColor, DialogSheetController.dimming, "over UIKit's dimming")
         XCTAssertTrue(ask.accessibilityViewIsModal)
-        XCTAssertEqual(p.menus.sheets.observation?["presentation"] as? String, "top-layer")
-        let block = try XCTUnwrap(p.menus.sheets.containingBlocks.first { $0.0 == 30 }?.1)
+        XCTAssertEqual(p.dialogHost.observation?["presentation"] as? String, "top-layer")
+        let block = try XCTUnwrap(p.dialogHost.containingBlocks.first { $0.0 == 30 }?.1)
         XCTAssertEqual(block, HostBlock(width: .size(top.scroller.bounds.width), height: .fit(top.view.bounds.height)), "its block is the window")
 
         p.dialogCommand("close", "ask")

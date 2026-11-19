@@ -2,6 +2,7 @@
 import UIKit
 import XCTest
 @testable import ExactKit
+@testable import ExactNavigation
 
 /// A header's readout (`role="status"`, LLP 1075.003 §9.15) over hand-built
 /// routes: what counts as one, what its face holds, and what its bar item's
@@ -140,9 +141,9 @@ final class BarReadoutIOSTests: XCTestCase {
                           kids: [4], more: [["op": "children", "id": 4, "ids": words ? [5, 6] : [5]]])
             let route = RouteController(try XCTUnwrap(p.views[1]))
             let shape = try XCTUnwrap(HeaderShape(route: route.node, back: nil, projected: true))
-            let view = try XCTUnwrap(p.navigation.barItems(shape.trailing, route).first?.customView as? ReadoutView)
+            let view = try XCTUnwrap(p.navigationHost.barItems(shape.trailing, route).first?.customView as? ReadoutView)
             window.addSubview(view)
-            p.navigation.showReadouts(shape, in: route)
+            p.navigationHost.showReadouts(shape, in: route)
             view.layoutIfNeeded()
             return view
         }
@@ -193,9 +194,9 @@ final class BarReadoutIOSTests: XCTestCase {
                       kids: [4], more: [["op": "children", "id": 4, "ids": [5, 6]]])
         let route = RouteController(try XCTUnwrap(p.views[1]))
         let shape = try XCTUnwrap(HeaderShape(route: route.node, back: nil, projected: true))
-        let view = try XCTUnwrap(p.navigation.barItems(shape.trailing, route).first?.customView as? ReadoutView)
+        let view = try XCTUnwrap(p.navigationHost.barItems(shape.trailing, route).first?.customView as? ReadoutView)
         window.addSubview(view)
-        p.navigation.showReadouts(shape, in: route)
+        p.navigationHost.showReadouts(shape, in: route)
         let symbol = try XCTUnwrap(view.stack.arrangedSubviews.compactMap { $0 as? UIImageView }.first, "the readout shows its symbol")
         view.tintAdjustmentMode = .dimmed
         defer { view.tintAdjustmentMode = .automatic }
@@ -213,9 +214,9 @@ final class BarReadoutIOSTests: XCTestCase {
                       kids: [4], more: [["op": "children", "id": 4, "ids": [5, 6]]])
         let route = RouteController(try XCTUnwrap(p.views[1]))
         let shape = try XCTUnwrap(HeaderShape(route: route.node, back: nil, projected: true))
-        let view = try XCTUnwrap(p.navigation.barItems(shape.trailing, route).first?.customView as? ReadoutView)
+        let view = try XCTUnwrap(p.navigationHost.barItems(shape.trailing, route).first?.customView as? ReadoutView)
         window.addSubview(view)
-        p.navigation.showReadouts(shape, in: route)
+        p.navigationHost.showReadouts(shape, in: route)
         let symbol = try XCTUnwrap(view.stack.arrangedSubviews.compactMap { $0 as? UIImageView }.first, "the readout shows its symbol")
         let words = try XCTUnwrap(view.stack.arrangedSubviews.compactMap { $0 as? UILabel }.first, "the readout shows its words")
         XCTAssertEqual(words.textColor, UIColor.tintColor, "its words in UIKit's tint")
@@ -234,9 +235,9 @@ final class BarReadoutIOSTests: XCTestCase {
                       kids: [4], more: [["op": "children", "id": 4, "ids": [6]]])
         let route = RouteController(try XCTUnwrap(p.views[1]))
         let shape = try XCTUnwrap(HeaderShape(route: route.node, back: nil, projected: true))
-        let view = try XCTUnwrap(p.navigation.barItems(shape.trailing, route).first?.customView as? ReadoutView)
+        let view = try XCTUnwrap(p.navigationHost.barItems(shape.trailing, route).first?.customView as? ReadoutView)
         window.addSubview(view)
-        p.navigation.showReadouts(shape, in: route)
+        p.navigationHost.showReadouts(shape, in: route)
         let words = try XCTUnwrap(view.stack.arrangedSubviews.compactMap { $0 as? UILabel }.first, "the readout shows its words")
         XCTAssertEqual(words.textColor, UIColor.tintColor, "UIKit's tint")
         func drawn() throws -> [Double] {
@@ -260,10 +261,10 @@ final class BarReadoutIOSTests: XCTestCase {
                       kids: [4], more: [["op": "children", "id": 4, "ids": [5, 6]]])
         let route = RouteController(try XCTUnwrap(p.views[1]))
         let shape = try XCTUnwrap(HeaderShape(route: route.node, back: nil, projected: true))
-        let items = p.navigation.barItems(shape.trailing, route)
+        let items = p.navigationHost.barItems(shape.trailing, route)
         let view = try XCTUnwrap(items.first?.customView as? ReadoutView)
         window.addSubview(view)
-        p.navigation.showReadouts(shape, in: route)
+        p.navigationHost.showReadouts(shape, in: route)
         XCTAssertEqual(view.stack.semanticContentAttribute, .forceRightToLeft, "the author's direction")
         view.layoutIfNeeded()
         XCTAssertEqual(view.stack.frame.minX, 12, "padding-left stays on the left")

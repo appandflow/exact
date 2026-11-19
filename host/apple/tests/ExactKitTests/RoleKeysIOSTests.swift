@@ -7,6 +7,7 @@
 import UIKit
 import XCTest
 @testable import ExactKit
+@testable import ExactControls
 
 final class RoleKeysIOSTests: XCTestCase {
     private var window: UIWindow!

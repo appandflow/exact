@@ -76,7 +76,7 @@ extension Presenter {
         mouseLayoutPan.retire(id)
         mouseDrags.height.retire(id)
         mouseDrags.transform.retire(id)
-        mouseDrags.reorder.retire(id)
+        reorders.mouse.retire(id)
         tables.renewed(view)
         if hoveredNodes.contains(where: { $0 === view }) {
             hoveredNodes.removeAll { $0 === view }
@@ -90,7 +90,7 @@ extension Presenter {
         svg?.forget(id); boxAnimations.forget(id)
         flightHost.land(id)
         // The old item's image left the document: its floating window closes, as at a destroy.
-        PictureInPictureHost.gone(view)
+        MediaLink.pictureGone?(view)
         if let session, session.viewDark.removeValue(forKey: id) != nil { session.noteAppearance(view) }
         view.renew()
     }

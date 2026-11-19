@@ -10,6 +10,7 @@ use std::{
     rc::Rc,
     sync::atomic::{AtomicU64, Ordering},
 };
+mod exports;
 mod ffi;
 mod wire;
 pub use ffi::{NativeRegionOwner, RegionRelease};

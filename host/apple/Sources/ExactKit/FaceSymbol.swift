@@ -53,8 +53,7 @@ package enum FaceSymbol {
         symbol.map { isCustom($0) ? icon ?? "" : $0 }
     }
 
-    /// The template image of a path's token, an em square `points` on a
-    /// side (the point size the site gives an SF Symbol); nil for a name.
+    /// A path's template image at its natural aspect and point size; nil for a name.
     package static func pathImage(_ symbol: String, points: CGFloat) -> IconImage? {
         guard isPath(symbol) else { return nil }
         var body = symbol.dropFirst(prefix.count)
@@ -63,7 +62,7 @@ package enum FaceSymbol {
         guard let bar = body.firstIndex(of: "|") else { return nil }
         let side = max(1, points.rounded(.up))
         return IconPath.image(String(body[body.index(after: bar)...]), viewBox: String(body[..<bar]),
-                              size: CGSize(width: side, height: side), rule: rule)
+                              size: IconPath.natural(IconPath.viewBox(String(body[..<bar])), em: side), rule: rule)
     }
 
     package static func configuration(_ base: SymbolMeasure.Configuration, rendering: String?, tint: PlatformColor) -> SymbolMeasure.Configuration {
@@ -157,7 +156,7 @@ package enum FaceSymbol {
 extension NodeView {
     /// The glyph this image shows on a control: an SF name, template path
     /// or raster asset token; nil when none is available.
-    var faceSymbol: String? {
+    package var faceSymbol: String? {
         if let name = props["symbolName"], !name.isEmpty { return name }
         if let asset = FaceSymbol.assetToken(props["symbolAsset"], multicolor: style["symbol_rendering"]?.string == "multicolor") { return asset }
         return FaceSymbol.token(path: props["symbolPath"], viewBox: props["symbolViewBox"], rule: props["symbolFillRule"])

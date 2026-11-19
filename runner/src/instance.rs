@@ -24,8 +24,8 @@ mod owners;
 pub use owners::OwnerInst;
 mod rare;
 mod region;
+mod retire;
 pub mod tabs;
-mod text;
 pub mod theme;
 mod trapped;
 use trapped::Evaluated;
@@ -83,9 +83,9 @@ type CreateList = fn(
     ViewId,
     &[Frame],
     &mut Vec<Child>,
-) -> Result<Option<Box<collection::Collection>>, InstanceError>;
+) -> Result<Option<Box<dyn rare::ListState>>, InstanceError>;
 type UpdateList = fn(
-    &mut collection::Collection,
+    &mut dyn rare::ListState,
     &mut Update<'_>,
     collection::DataUpdate<'_>,
 ) -> Result<(), InstanceError>;
@@ -93,8 +93,8 @@ type ListTypography = fn(&mut [Child], &mut Update<'_>, &[Frame]) -> Result<(), 
 
 /// The list engine.
 pub static LISTS: ListLinks = ListLinks {
-    create: collection::Collection::create,
-    update: collection::update_collection,
+    create: collection::create_state,
+    update: collection::update_state,
     typography: collection::invalidate_typography,
     collections_json: collection::collections_json,
     into_view: Tree::scroll_into_view,
@@ -462,7 +462,7 @@ pub struct Update<'a> {
     /// them `renewed`.
     pub renewed: Vec<ViewId>,
     /// List rows mounted out of their port, and those that showed (LLP 1055 D13).
-    pub shown: collection::shown::RowsShown,
+    pub shown: crate::list_api::RowsShown,
     /// Rebind retiring list rows to new items (LLP 1078), as the runner was
     /// told ([`crate::Runner::set_row_reuse`]).
     pub reuse: bool,
@@ -845,9 +845,9 @@ impl NodeInst {
             let wait = tabs::wait(u, node, view);
             if let Some(lists) = lists.filter(|_| !wait) {
                 let collection = (lists.create)(u, node, view, frames, &mut inst.children)?;
-                inst.set_collection(collection);
+                inst.set_list(collection);
             }
-            if !wait && inst.collection().is_none() {
+            if !wait && inst.list().is_none() {
                 inst.children = realize(u, Some(node), row.arm, frames)?;
                 inst.emit_children(u);
             }
@@ -1190,7 +1190,7 @@ impl NodeInst {
         frames: &[Frame],
     ) -> Result<(), InstanceError> {
         let plan = u.env.plan;
-        let follow = self.collection().is_some()
+        let follow = self.list().is_some()
             && plan
                 .node(self.node)
                 .bindings
@@ -1202,30 +1202,26 @@ impl NodeInst {
                 })
                 .is_some_and(|i| self.emitted(plan, u.sites, i) == Some(Value::Bool(true)));
         let keep = self
-            .collection()
+            .list()
             .and_then(|_| self.bound_prop(plan, u.sites, exact_kernel::PropId::KeepMounted));
-        let smooth = self.collection().is_some()
+        let smooth = self.list().is_some()
             && self
                 .bound_style(plan, u.sites, exact_kernel::StyleId::ScrollBehavior)
                 .is_some_and(|value| value.as_str() == Some("smooth"));
         // Its estimate and its gap, read again as they change (`sizing.rs`).
         use exact_kernel::PropId::{EstimatedItemHeight, EstimatedItemWidth};
         let estimate = (self
-            .collection()
+            .list()
             .map(|_| self.bound_prop(plan, u.sites, EstimatedItemWidth)))
         .and_then(|w| w.or_else(|| self.bound_prop(plan, u.sites, EstimatedItemHeight)));
-        let gap = (self.collection())
+        let gap = (self.list())
             .and_then(|_| self.bound_style(plan, u.sites, exact_kernel::StyleId::ColumnGap));
-        if self.collection().is_some() {
+        if self.list().is_some() {
             update_all(u, &mut self.children, frames)?;
         }
-        if let Some(collection) = rare::list_mut(&mut self.rare) {
-            collection.around = theme::Around {
-                retheme: false,
-                ..u.theme.clone()
-            };
+        if let Some(list) = self.rare.as_mut().and_then(|r| r.collection.as_deref_mut()) {
             (u.env.lists.ok_or_else(unlinked)?.update)(
-                collection,
+                list,
                 u,
                 collection::DataUpdate {
                     frames,
@@ -1245,7 +1241,7 @@ impl NodeInst {
     fn destroy(self, u: &mut Update<'_>) {
         // Destroying the view destroys its subtree in the kernel; the instance
         // tree just drops.
-        collection::work::retire_node(u, &self);
+        retire::retire_node(u, &self);
         u.ops.push(Op::DestroyView { id: self.view });
     }
 }
@@ -1395,8 +1391,8 @@ impl NodeInst {
         if self.view == view {
             return Some((self.node, self.tuple));
         }
-        if let Some(collection) = self.collection() {
-            if let Some(found) = collection.site(view, path) {
+        if let Some(list) = self.list() {
+            if let Some(found) = list.site(view, path) {
                 return Some(found);
             }
         }

@@ -67,6 +67,7 @@ mod nodes;
 mod overflow;
 pub mod params;
 mod popover_surface;
+mod provenance;
 mod resource_args;
 mod roles;
 mod root_names;
@@ -355,12 +356,6 @@ struct FontUse {
 /// At most this many refusals from one lowering.
 pub const MAX_REFUSALS: usize = 20;
 
-impl From<LowerError> for Vec<LowerError> {
-    fn from(e: LowerError) -> Self {
-        vec![e]
-    }
-}
-
 /// Lower a checked file to a plan.
 pub fn lower(
     checked: &Checked<'_>,
@@ -372,11 +367,10 @@ pub fn lower(
         .map_err(|mut all| all.swap_remove(0))
 }
 
-/// Lower, reporting every independent refusal: each element and each of its
-/// attributes is lowered whatever its siblings' fate (at most
-/// [`MAX_REFUSALS`]). `mapped` also returns the development source sites;
-/// `profile` is the surface the plan is for. `warned` collects diagnostics using
-/// the same control appearance decisions as the plan.
+/// Lower, reporting every independent refusal: each element and each of its attributes is
+/// lowered whatever its siblings' fate (at most [`MAX_REFUSALS`]). `mapped` also returns the
+/// development source sites; `profile` is the surface the plan is for. `warned` collects diagnostics
+/// using the plan's control appearance decisions. It links every row's grammar (LLP 1053.000 §2).
 pub fn lower_all(
     checked: &Checked<'_>,
     analysis: &Analysis,
@@ -385,6 +379,7 @@ pub fn lower_all(
     profile: Profile,
     warned: Option<&mut Vec<LowerError>>,
 ) -> Result<(Plan, Option<Sites>), Vec<LowerError>> {
+    exact_kernel::style::link_all();
     if mapped && checked.expanded.instances.is_empty() {
         return Err(vec![LowerError {
             id: "lower-source-sites",
@@ -611,6 +606,9 @@ fn lower_body(
                     ),
                     span: a.span,
                 }),
+                None if a.name.starts_with("--exact-") => {
+                    l.errors.extend(lint::host_name_declared(a));
+                }
                 None => {
                     let hint = (name.is_empty() && !a.name.is_empty())
                         .then(|| "; the press's opacity is `opacity` in an `:active` part (LLP 1121 D8)".to_string())
@@ -641,6 +639,7 @@ fn lower_body(
     }
     // Each component's parts and the rows its classes bring them (LLP 1139 D2).
     l.check_anatomy(file);
+    l.errors.extend(provenance::check(checked));
     let refused = l.declare_keyframes(file);
     l.errors.extend(refused);
     l.declare_shapes(file)?;

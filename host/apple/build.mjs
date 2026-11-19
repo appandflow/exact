@@ -39,9 +39,9 @@ import { writeAppleBatchReader } from '../../kernel/build/apple-batch.mjs';
 // its own (AppDrop, a store's resigner). The simulator and phone helpers live
 // in devices.mjs, shared with scripts/agent.mjs, which launches the same bundle.
 // These developer builds explicitly allow unsigned updates. --release, --distribution, --archive (or EXACT_UPDATE_TRUST=production) build a signed-update-only artifact.
-import { platformWidgetEntries, activityEntries, hasEntries, widgetGroup, prepareWidgetCore, sharedWidgetCore, placeCoreFramework, dropLeftoverCore, entryProfiles, alarmActivity } from './widgets.mjs';
+import { platformWidgetEntries, widgetEntityKeys, activityEntries, hasEntries, widgetGroup, prepareWidgetCore, sharedWidgetCore, placeCoreFramework, dropLeftoverCore, entryProfiles, alarmActivity } from './widgets.mjs';
 import { assembleMac, assembleIOS, buildIntents, shortcutKeys, placeMacDylibs } from './bundle.mjs';
-import { EXTENSION_KINDS, assertNotificationServiceGrants, extensionKinds, notificationService, notificationServiceDirectory, notificationServicePlatformRefusal, withoutExtensions } from './extensions.mjs';
+import { EXTENSION_KINDS, assertNotificationServiceGrants, extensionKinds, notificationService, notificationServiceDirectory, notificationServicePlatformRefusal, staleModuleCache, withoutExtensions } from './extensions.mjs';
 import { buildWatch, watchCompanion, watchProfiles, watchSyncSelected } from './watch.mjs';
 import { spawn, spawnSync, stepName, stillWaiting, waited } from './toolchain.mjs';
 import { metalRequired, metalToolchainInstructions } from './metal.mjs';
@@ -65,7 +65,7 @@ import { appleImplementations } from '../../js/bake/src/typescript.mjs';
 import { rebuildArgs } from './link.mjs';
 export { rebuildArgs };
 import { composedModule, moduleSeam, moduleLibraryLinkArgs, packageCompiler, rosterProbe, rosterProbeMain } from './compose.mjs';
-import { associatedDomains, clipIdentifiers, entitlementValue, grantEntitlements, grantEntitlementValues, macSigning, merchantEntitlement, signInEntitlement, signsGrant } from './presence.mjs';
+import { associatedDomains, clipEntitlements, entitlementValue, grantEntitlements, grantEntitlementValues, macSigning, merchantEntitlement, signInEntitlement, signsGrant } from './presence.mjs';
 import { writeDataKeys } from './data-keys.mjs';
 import { alternativeNames, backgroundKeys, firstFrameKeys, declaredOrigin, interfaceStyle, layoutDirection, localNetworking, memoryEntitlements, modulePlist, nfcKeys, startLocation, storeKeys, transportSecurity, updateActivation, withPackageKeys } from './plist.mjs';
 import { compileFixtures, iosTestRuns, macTests, onlyClasses } from './xctest.mjs';
@@ -89,15 +89,18 @@ const run = (cmd, args, opts = {}) => {
   if (r.status !== 0) throw new Error(`${cmd} failed (${r.status ?? r.error?.message})${r.stderr?.length ? ': ' + String(r.stderr).trim() : ''}`);
   return r;
 }; const read = (cmd, args, opts = {}) => spawnSync(...appleCargo(cmd, args, { cwd: root, encoding: 'utf8', ...opts }));
-/** Whether the pinned toolchain, which a build uses whatever RUSTUP_TOOLCHAIN says, has `target`'s std; if not, says so for `flag`. */
-const hasStd = (flag, target) => read('rustup', ['target', 'list', '--installed', '--toolchain', PINNED_RUST]).stdout?.split('\n').includes(target) || (console.error(`${flag} needs Rust's ${target} std, which the pinned toolchain lacks. Install it with \`rustup target add ${target} --toolchain ${PINNED_RUST}\``), process.exitCode = 1, false);
+/** What `flag` says when the pinned toolchain, which a build uses whatever RUSTUP_TOOLCHAIN says, lacks `target`'s std, or null; `hasStd` says it. */
+const stdRefusal = (flag, target) => read('rustup', ['target', 'list', '--installed', '--toolchain', PINNED_RUST]).stdout?.split('\n').includes(target) ? null : `${flag} needs Rust's ${target} std, which the pinned toolchain lacks. Install it with \`rustup target add ${target} --toolchain ${PINNED_RUST}\``;
+const hasStd = (flag, target) => { const refusal = stdRefusal(flag, target); if (refusal) { console.error(refusal); process.exitCode = 1; } return !refusal; };
 // Fail on deployment-target and sysroot warnings because Apple tools can still link incompatible inputs
 // @ref LLP 1008
-export const runApple = (cmd, args, opts = {}) => appleRan(cmd, args, opts, spawnSync(...appleCargo(cmd, args, appleOptions(opts))));
+export const runApple = (cmd, args, opts = {}, again = false) => appleRan(cmd, args, opts, spawnSync(...appleCargo(cmd, args, appleOptions(opts))), again);
 /** runApple for a step that can wait on another process's lock (SwiftPM's): awaited, it says every minute that it still runs. */
-export const runAppleWaited = async (cmd, args, opts = {}) => appleRan(cmd, args, opts, await waited(...appleCargo(cmd, args, appleOptions(opts))));
+export const runAppleWaited = async (cmd, args, opts = {}) => appleRan(cmd, args, opts, await waited(...appleCargo(cmd, args, appleOptions(opts))), true);
 const appleOptions = ({ cargoMessages, read, ...spawnOptions }) => ({ cwd: root, encoding: 'utf8', maxBuffer: 32 * 1024 * 1024, ...spawnOptions });
-const appleRan = (cmd, args, { cargoMessages = false, read = false }, r) => {
+const appleRan = (cmd, args, opts, r, again) => {
+  const { cargoMessages = false, read = false } = opts, stale = !again && r.status !== 0 && staleModuleCache(args, `${r.stdout ?? ''}\n${r.stderr ?? ''}`); // a copied or moved folder's cache: once more without it
+  if (stale) { rmSync(stale, { recursive: true, force: true }); console.error(`host/apple: ${stale} was compiled at another path: removed, compiling again`); return runApple(cmd, args, opts, true); }
   if (!cargoMessages && !read) process.stdout.write(quiet(r.stdout ?? '')); process.stderr.write(quiet(r.stderr ?? ''));
   if (r.status !== 0) throw new Error(`${cmd} failed (${r.status ?? r.error?.message})`);
   refuseMixedTargets(cmd, args, `${r.stdout ?? ''}\n${r.stderr ?? ''}`);
@@ -136,7 +139,8 @@ function startApple(cmd, args, log, { authored, ...opts } = {}) {
     if (repeated && r.status !== 0) return false;
     const output = readFileSync(log, 'utf8');
     process.stderr.write(quiet(output));
-    if (r.status !== 0) throw new Error(`${cmd} failed (${r.status ?? r.error?.message})`);
+    const stale = r.status !== 0 && staleModuleCache(args, output); if (stale) rmSync(stale, { recursive: true, force: true });
+    if (r.status !== 0) throw new Error(`${cmd} failed (${r.status ?? r.error?.message})${stale ? `: ${stale} was compiled at another path and is removed; run the build again` : ''}`);
     refuseMixedTargets(cmd, args, output);
     return true;
   } };
@@ -324,8 +328,8 @@ export { appClip };
 /** Device identity comes from the profile. Simulators need an app identity too: Keychain's default access group
  * is the application-identifier. A simulator's is `SIMULATORX.<id>`, with the bare id it had before kept as a
  * second Keychain group so items stored then still read and update in place (D3, measured).
- * `allows`: the signing profile's entitlements. */
-export const entitlements = (app, team = null, debuggable = true, reach = null, { simulator = false, prefix = team, allows = [], distributed = false } = {}) => {
+ * `allows`: the signing profile's entitlements; `profile`: that profile. */
+export const entitlements = (app, team = null, debuggable = true, reach = null, { simulator = false, prefix = team, allows = [], profile = null, distributed = false } = {}) => {
   const prefixed = `${SIMULATOR_PREFIX}.${app.id}`;
   const dict = {
     'application-identifier': team ? `${prefix}.${app.id}` : simulator ? prefixed : app.id,
@@ -336,8 +340,8 @@ export const entitlements = (app, team = null, debuggable = true, reach = null, 
   };
   // The clip (`clipParent`, the app's id) is its parent's App Clip: the parent's entitlements, the App Group and
   // Keychain group of the parent's included (how a clip shares data with its app), under the clip's own
-  // application-identifier (Apple, "Creating an App Clip with Xcode", the App Clip entitlement); signed, also On Demand Install Capable, which Xcode applies when it embeds the clip.
-  if (app.clipParent) Object.assign(dict, { 'com.apple.developer.parent-application-identifiers': [`${prefix ?? SIMULATOR_PREFIX}.${app.clipParent}`], ...(team ? { 'com.apple.developer.on-demand-install-capable': true } : {}) });
+  // application-identifier (Apple, "Creating an App Clip with Xcode", the App Clip entitlement).
+  Object.assign(dict, clipEntitlements(app, { prefix: prefix ?? SIMULATOR_PREFIX, profile }));
   if (hasEntries(app) && !app.widgetTV && !app.widgetHost) {
     dict['com.apple.security.application-groups'] = [widgetGroup(app)];
     const owner = app.widgetAppId ?? app.clipParent ?? app.id;
@@ -359,7 +363,7 @@ export const entitlements = (app, team = null, debuggable = true, reach = null, 
   if (all.length) dict['com.apple.developer.associated-domains'] = all;
   const values = grantEntitlementValues(app, reach);
   for (const name of grantEntitlements(app, reach?.entitlements)) dict[name] = values[name] ?? entitlementValue(name, debuggable, dict['application-identifier']);
-  Object.assign(dict, merchantEntitlement(reach, { simulator, team, allows }), clipIdentifiers(app, { team, prefix, allows }));
+  Object.assign(dict, merchantEntitlement(reach, { simulator, team, allows }));
   return plistFile({ ...dict, ...signInEntitlement(reach?.auth, { simulator, team, allows }) });
 };
 
@@ -428,7 +432,7 @@ export const infoPlist = (app, device = false, { executable = appleExecutableNam
   };
   // An entry of either kind makes the app the group store's writer (`ExactWidgetKinds`, empty with activities
   // alone, is what WidgetContainer.configure reads); the activity keys are ActivityKit's (LLP 1126.001 §1).
-  if (!tv && id === app.id && hasEntries(app)) Object.assign(dict, { ExactAppGroup: widgetGroup(app), ExactAppIdentifier: app.id, ExactWidgetKinds: platformWidgetEntries(app).map(e => e.kind),
+  if (!tv && id === app.id && hasEntries(app)) Object.assign(dict, { ExactAppGroup: widgetGroup(app), ExactAppIdentifier: app.id, ExactWidgetKinds: platformWidgetEntries(app).map(e => e.kind), ...widgetEntityKeys(app),
     ...(activityEntries(app).length ? { NSSupportsLiveActivities: true, ...(activityEntries(app).some(e => e.frequent === true) ? { NSSupportsLiveActivitiesFrequentUpdates: true } : {}) } : {}) });
   Object.assign(dict, transportSecurity(ios, localNetworking(ios, reach), { web: !tv }));
   if (ios.localNetworking) dict.NSLocalNetworkUsageDescription = typeof ios.localNetworking === 'string' ? ios.localNetworking : 'Connects to your dev server on the local network.';
@@ -587,7 +591,7 @@ async function main(args, lockHeld = false) {
   if (!ios && !args.includes('--bundle')) args = [...args, '--bundle'];
   if (tv && (args.includes('--host') || args.includes('--embed'))) { console.error('--tvos takes neither --host nor --embed'); process.exitCode = 1; return; }
   const tvTarget = device ? tvosDeviceTarget : tvosTarget, rustTarget = tv ? tvTarget : device ? 'aarch64-apple-ios' : iosTarget;
-  if (ios && !hasStd(tv ? '--tvos' : device ? '--device' : '--ios', rustTarget)) return;
+  const stdMissing = ios ? stdRefusal(tv ? '--tvos' : device ? '--device' : '--ios', rustTarget) : null; // said with the other refusals below
   const ipa = args.includes('--archive') ? resolve(process.cwd(), args[args.indexOf('--archive') + 1] ?? '') : null;
   const unsigned = args.includes('--unsigned');
   // What leaves this machine: an .ipa, or the Mac bundle `exact release` signs and notarises.
@@ -611,6 +615,7 @@ async function main(args, lockHeld = false) {
   // --extensions: which app extensions this build packages (a build service's quick development build leaves some out).
   buildStep('prepare');
   if (packaged.size < EXTENSION_KINDS.length) { app.manifest = withoutExtensions(app.manifest, packaged); console.log(`host/apple: extensions ${[...packaged].join(',') || 'none'} (--extensions)`); }
+  if (args.includes('--watchos') && stdMissing) { console.error(stdMissing); process.exitCode = 1; return; }
   if (args.includes('--watchos')) return buildWatch(app, args, { runApple, appleArtifacts, appleBuildLock, receipt, buildParent: args => main(args, true) });
   const { optimize, profile: productionProfile } = appleProduction(app, ios ? 'ios' : 'macos', args);
   // What the manifest and the app's files refuse is said before Cargo: an app with an update store ships into a stream, so the bake refuses a production
@@ -619,6 +624,11 @@ async function main(args, lockHeld = false) {
   const refused = [...(distribution && streamed && !process.env.EXACT_UPDATE_RECEIPT && process.env.EXACT_UPDATE_GENESIS !== '1' ? [`${app.name}: what is distributed bakes production trust, and with an update store (${store} is not "0") it belongs to a stream: set EXACT_UPDATE_RECEIPT to its authenticated publisher receipt (scripts/deploy.mjs), or EXACT_UPDATE_GENESIS=1 to start a new stream`] : []), ...appleRefusals(app, tv ? 'tvos' : ios ? 'ios' : 'macos', { archive: distribution })];
   const sdkName = appleSdkName(tv ? 'tvos' : ios ? 'ios' : 'macos', device); // the SDK this build compiles with
   if (process.platform === 'darwin' && compilesSwiftHost(args)) refused.push(...[xcodeRefusal(sdkName)].filter(Boolean));
+  // Everything known before Cargo is said in one run (LLP 1156.006.000 D7): Rust's std for the target first, and the
+  // Hermes bundle the bake would stop on only after the others were fixed.
+  if (stdMissing) refused.unshift(stdMissing);
+  const hermesEarly = ios && existsSync(resolve(app.dir, 'app.ts')) && process.env.EXACT_JS_ENGINE !== 'stub' && hermesBundle(rustTarget, process.env);
+  if (hermesEarly && !hermesEarly.installed) refused.push((await import('../../scripts/exact.mjs')).hermesRefusal(hermesEarly, process.env));
   if (refused.length) { console.error(refused.join('\n')); process.exitCode = 1; return; }
   if (ios && !device && !ipa && !args.includes('--no-install') && !args.includes('--prebuild')) chooseSimulator(args.includes('--sim') ? args[args.indexOf('--sim') + 1] : undefined, { tv, app: app.id, dir: app.dir, hint: '--sim <udid|name> (or EXACT_SIM)' }); // refused before anything compiles, not after (LLP 1156.000 D5)
   if (!existsSync(resolve(app.target, 'apple-swift'))) { const room = freeSpace(app.dir, [app.target, resolve(process.env.HOME ?? '', '.cache/exact')]); if (room && room.gb < ROOM_GB) console.warn(`host/apple: a first build here; ${room.text}`); } // a cold build (LLP 1156.000 D3)

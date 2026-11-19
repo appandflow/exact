@@ -51,8 +51,11 @@ pub(crate) fn name_into(
         Capability::ALL.into_iter().fold(Uses::NONE, Uses::with)
     };
     // The native roster is Apple's: another platform's set, and so its id,
-    // never names it, whatever a manifest links ahead.
-    let uses = if apple(&compat.inputs) {
+    // never names it, whatever a manifest links ahead; a macOS set never
+    // names what the Mac's core presents itself.
+    let uses = if compat.inputs["platform"] == "macos" {
+        uses.beyond(Uses::MAC_CORE)
+    } else if apple(&compat.inputs) {
         uses
     } else {
         uses.beyond(Uses::NATIVE)
@@ -72,7 +75,7 @@ pub(crate) fn name_into(
 }
 
 /// What a production artifact links: [`production_uses`], the manifest's
-/// `link` ahead of use, and the executor for what hands it work. Computed
+/// `link` ahead of use, and what those bring with them ([`dependents`]). Computed
 /// once for the bake's linked set and for what an update requires.
 pub(crate) fn composed<'a>(
     app: &std::path::Path,
@@ -84,18 +87,36 @@ pub(crate) fn composed<'a>(
 ) -> Result<Uses, String> {
     let uses = production_uses(app, plan, entries, inputs, host_work);
     let uses = linked_ahead(uses, ahead(manifest)?, inputs);
-    Ok(executor(uses, inputs, host_work))
+    Ok(dependents(uses, inputs, host_work))
 }
 
-/// `uses` with what the manifest links `ahead`; on Apple, an SVG linked
-/// ahead links box effects' engine too, which SVG's filters run on.
+/// `uses` with what the manifest links `ahead`. On Apple, an SVG linked
+/// ahead links box effects' engine too, which SVG's filters run on;
+/// `activities` linked ahead links the widgets family, whose generation a
+/// later plan's activity sends name; and `documents` or `media_picker`
+/// linked ahead links the pickers' family (`picker`), since a later plan's
+/// document pickers or photo picker present through it. A plan's own uses need no such rule: its document-picker
+/// commands and file inputs select `picker` themselves, and its drops,
+/// pastes and `requestPermission` need only the core's `doc:` table. On the
+/// Mac, what its core presents itself ([`Uses::MAC_CORE`]) is never linked.
 fn linked_ahead(uses: Uses, ahead: Vec<Capability>, inputs: &serde_json::Value) -> Uses {
-    let uses = ahead.into_iter().fold(uses, Uses::with);
+    let presents = ahead
+        .iter()
+        .any(|c| matches!(c, Capability::Documents | Capability::MediaPicker));
+    let mut uses = ahead.into_iter().fold(uses, Uses::with);
     if apple(inputs) && uses.has(Capability::Svg) {
-        uses.with(Capability::Effects)
-    } else {
-        uses
+        uses = uses.with(Capability::Effects);
     }
+    if apple(inputs) && uses.has(Capability::Activities) {
+        uses = uses.with(Capability::Widgets);
+    }
+    if apple(inputs) && presents {
+        uses = uses.with(Capability::Picker);
+    }
+    if inputs["platform"] == "macos" {
+        uses = uses.beyond(Uses::MAC_CORE);
+    }
+    uses
 }
 
 /// What a plan requires of an Apple binary it is delivered to (LLP 1047.001
@@ -122,8 +143,8 @@ pub(crate) fn apple_requirement<'a>(
 
 /// What a production artifact links for `plan`, with what its grants allow
 /// (`inputs`' ceiling); on Apple, with what the widget `entries` its boot
-/// admits use too, the I/O executor for sources that hand it work
-/// ([`executor`]), and what only the bake can read in `app`, the app's directory: whether a
+/// admits use too, what those bring with them ([`dependents`]), and what
+/// only the bake can read in `app`, the app's directory: whether a
 /// bundled image is an SVG, and whether the app ships a module artifact,
 /// which connects the app-level hatches (LLP 1075.003.000).
 pub(crate) fn production_uses<'a>(
@@ -138,6 +159,10 @@ pub(crate) fn production_uses<'a>(
         return plan_uses(plan, inputs).iter().fold(grants, Uses::with);
     }
     let plans: Vec<&exact_plan::Plan> = std::iter::once(plan).chain(entries).collect();
+    let grants =
+        exact_runner::uses::apple_grant_uses(inputs["grantCeiling"].as_str().unwrap_or(""))
+            .iter()
+            .fold(grants, Uses::with);
     let mut uses = plans.iter().fold(grants, |uses, plan| {
         plan_uses(plan, inputs).iter().fold(uses, Uses::with)
     });
@@ -145,28 +170,46 @@ pub(crate) fn production_uses<'a>(
     if plans.iter().any(|plan| bundles_svg(app, plan)) {
         uses = uses.with(Capability::Svg).with(Capability::Effects);
     }
-    // A package's Swift implementation is compiled into the artifact too.
-    if uses.has(Capability::Modules) || ships_module(app, inputs["platform"].as_str().unwrap_or(""))
-    {
+    // A share target's received shares are the sharing product's to claim.
+    if inputs["shareTarget"] == true {
+        uses = uses.with(Capability::Share);
+    }
+    // The app's own module artifact is loaded by the native module family.
+    if ships_module(app, inputs["platform"].as_str().unwrap_or("")) {
         uses = uses.with(Capability::NativeViews);
     }
-    executor(uses, inputs, host_work)
+    dependents(uses, inputs, host_work)
 }
 
-/// `uses` with the Apple I/O executor when something hands it work: a source
-/// that declares it (`host_work`, LLP 1047.001 D12), one placed on a worker,
-/// which answers through continuations (LLP 1027.002 D1), or a native module's
-/// calls. Applied once every other capability is in, entries' and
-/// link-ahead's included.
-fn executor(uses: Uses, inputs: &serde_json::Value, host_work: bool) -> Uses {
+/// `uses` with what Apple links for what it holds: [`production_uses`]
+/// applies it to the plans and grants, and [`composed`] again once
+/// link-ahead is in:
+/// - the I/O executor when something hands it work: a source that declares it
+///   (`host_work`, LLP 1047.001 D12), one placed on a worker, which answers
+///   through continuations (LLP 1027.002 D1), or a native module's calls;
+/// - the native module family, which loads a module's Swift implementation,
+///   with the runner's module seam (`modules`);
+/// - on the Mac, text selection, whatever the plan: AppKit's document text
+///   is selectable when its author says nothing (LLP 1115 D8), so the Mac's
+///   selection is in its core and the family's product is iOS's alone.
+fn dependents(uses: Uses, inputs: &serde_json::Value, host_work: bool) -> Uses {
+    if !apple(inputs) {
+        return uses;
+    }
     let placed = ["rustPlacement", "typescriptPlacement"]
         .iter()
         .any(|key| inputs[key] == "worker");
-    if apple(inputs) && (host_work || placed || uses.has(Capability::Modules)) {
-        uses.with(Capability::Io)
-    } else {
-        uses
+    let mut uses = uses;
+    if inputs["platform"] == "macos" {
+        uses = uses.with(Capability::TextSelection);
     }
+    if host_work || placed || uses.has(Capability::Modules) {
+        uses = uses.with(Capability::Io);
+    }
+    if uses.has(Capability::Modules) {
+        uses = uses.with(Capability::NativeViews);
+    }
+    uses
 }
 
 /// Whether a bundled image source of `plan` (an asset or a `data:` URL) is
@@ -207,9 +250,11 @@ fn ships_module(app: &std::path::Path, platform: &str) -> bool {
 
 /// What `plan` uses on the platform `inputs` name: on Apple, which links
 /// grid layout by use and the native roster, [`exact_runner::uses::apple_uses`]
-/// (LLP 1047.001 D10).
+/// (LLP 1047.001 D10), less on the Mac what its core presents itself.
 pub(crate) fn plan_uses(plan: &exact_plan::Plan, inputs: &serde_json::Value) -> Uses {
-    if apple(inputs) {
+    if inputs["platform"] == "macos" {
+        exact_runner::uses::apple_uses(plan).beyond(Uses::MAC_CORE)
+    } else if apple(inputs) {
         exact_runner::uses::apple_uses(plan)
     } else {
         exact_runner::uses(plan)
@@ -418,7 +463,8 @@ mod tests {
     }
 
     /// Production hello, the size row's app, links nothing beyond the core
-    /// (LLP 1047.001 D10): every roster entry is absent from its binary.
+    /// (LLP 1047.001 D10): every roster entry is absent from its binary but,
+    /// on the Mac, text selection, which is the Mac's core.
     #[test]
     fn production_hello_links_no_capability() {
         let hello = contract::compile(include_str!("../../apps/hello/app.contract")).unwrap();
@@ -427,7 +473,11 @@ mod tests {
             let inputs = serde_json::json!({ "platform": platform, "grantCeiling": "" });
             let uses =
                 super::production_uses(&hello_dir, &hello, std::iter::empty(), &inputs, false);
-            assert_eq!(uses, exact_runner::Uses::NONE, "{platform}: {uses}");
+            let core = match platform {
+                "macos" => exact_runner::Uses::NONE.with(Capability::TextSelection),
+                _ => exact_runner::Uses::NONE,
+            };
+            assert_eq!(uses, core, "{platform}: {uses}");
         }
     }
 
@@ -457,7 +507,7 @@ mod tests {
         assert_eq!(required("ios", false), Some(serde_json::json!(["grid"])));
         assert_eq!(
             required("macos", true),
-            Some(serde_json::json!(["grid", "io"]))
+            Some(serde_json::json!(["grid", "io", "text_selection"]))
         );
         assert_eq!(required("linux", true), None);
         let mut linking = manifest.clone();
@@ -471,6 +521,14 @@ mod tests {
             ahead.unwrap(),
             Some(serde_json::json!(["effects", "grid", "svg"]))
         );
+        // Activities linked ahead bring the publication their sends name.
+        linking.json["link"] = serde_json::json!(["activities"]);
+        let ahead =
+            super::apple_requirement(&hello, &table, std::iter::empty(), &inputs, &linking, false);
+        assert_eq!(
+            ahead.unwrap(),
+            Some(serde_json::json!(["grid", "activities", "widgets"]))
+        );
         let svg = contract::compile(
             "component S\n  view\n    svg viewBox=\"0 0 10 10\"\n      circle cx=5 cy=5 r=4\n",
         )
@@ -478,6 +536,65 @@ mod tests {
         let drawn =
             super::apple_requirement(&hello, &svg, std::iter::empty(), &inputs, &manifest, false);
         assert_eq!(drawn.unwrap(), Some(serde_json::json!(["effects", "svg"])));
+        // An entry's plan, as the publisher asks it of each pushed entry,
+        // needs the binary that publishes entries.
+        let widget = contract::Widget {
+            kind: "card".into(),
+            title: None,
+            description: None,
+            families: vec!["systemSmall".into()],
+            watch_families: vec![],
+            component: "Card".into(),
+            props: "Props".into(),
+            refresh: "refresh".into(),
+            requires_secrets: false,
+            preview: serde_json::json!({"title": "preview"}),
+            configuration: None,
+        };
+        let entry = contract::snapshot::compile(
+            "shape Props\n  title: string\ncomponent Card\n  props\n    title: string\n  view\n    text title\n",
+            &widget,
+        )
+        .unwrap();
+        let entry = super::apple_requirement(
+            &hello,
+            &entry,
+            std::iter::empty(),
+            &inputs,
+            &manifest,
+            false,
+        );
+        assert_eq!(entry.unwrap(), Some(serde_json::json!(["widgets"])));
+    }
+
+    /// A `dialog` needs the dialogs family on iOS and tvOS (an `ios` bake);
+    /// on the Mac the core presents it, even when the manifest links it ahead.
+    #[test]
+    fn a_dialog_requires_its_family_except_on_the_mac() {
+        let hello = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../apps/hello");
+        let mut manifest = contract::Manifest::read(&hello).unwrap();
+        let dialog =
+            contract::compile("component D\n  view\n    dialog id=\"d\"\n      text \"a\"\n")
+                .unwrap();
+        for (platform, ahead, required) in [
+            ("ios", false, serde_json::json!(["dialogs"])),
+            ("macos", false, serde_json::json!(["text_selection"])),
+            ("macos", true, serde_json::json!(["text_selection"])),
+        ] {
+            if ahead {
+                manifest.json["link"] = serde_json::json!(["dialogs"]);
+            }
+            let inputs = serde_json::json!({ "platform": platform, "grantCeiling": "" });
+            let got = super::apple_requirement(
+                &hello,
+                &dialog,
+                std::iter::empty(),
+                &inputs,
+                &manifest,
+                false,
+            );
+            assert_eq!(got.unwrap(), Some(required), "{platform} {ahead}");
+        }
     }
 
     /// A source that declares host work (LLP 1047.001 D12) and one placed on
@@ -512,10 +629,24 @@ mod tests {
             }
         }
         // Modules from wherever they come (an entry, link-ahead) bring the
-        // executor that runs their calls.
+        // executor that runs their calls and the family that loads their
+        // Swift.
         let modules = exact_runner::Uses::NONE.with(Capability::Modules);
         let ios = serde_json::json!({ "platform": "ios" });
-        assert!(super::executor(modules, &ios, false).has(Capability::Io));
+        let brought = super::dependents(modules, &ios, false);
+        assert!(brought.has(Capability::Io) && brought.has(Capability::NativeViews));
+        let linux = serde_json::json!({ "platform": "linux" });
+        assert_eq!(super::dependents(modules, &linux, false), modules);
+        // Documents or the photo picker linked ahead bring the pickers'
+        // family; a plan's own `documents` (a drop, a paste) does not.
+        for presents in [Capability::Documents, Capability::MediaPicker] {
+            let ahead = super::linked_ahead(exact_runner::Uses::NONE, vec![presents], &ios);
+            assert!(ahead.has(Capability::Picker), "{presents:?}");
+            let linux_ahead = super::linked_ahead(exact_runner::Uses::NONE, vec![presents], &linux);
+            assert!(!linux_ahead.has(Capability::Picker), "{presents:?}");
+        }
+        let dropped = exact_runner::Uses::NONE.with(Capability::Documents);
+        assert!(!super::dependents(dropped, &ios, false).has(Capability::Picker));
     }
 
     /// A TypeScript bundle reports host work for each route the prelude

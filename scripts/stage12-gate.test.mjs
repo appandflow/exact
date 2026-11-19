@@ -2,12 +2,13 @@
 // diff and its allowlist, and that every line says WAITS-ON before its parts.
 import { afterAll, expect, test } from 'bun:test';
 import { encodePng } from './png.mjs';
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { ADOPTED, APP_PLACED, KEYBOARD_UP, keyboardInset, keyboardRedrive, BEFORE_USES, RENDERED, RETIRED, STAGES, appPlaced, declares, useStage, allowOf, beforeDrift, cloneConform, flakyOf, durationMs, slotCheckTimes, conformFailures, conformRead, conformReport, conformSame, renderedIds, renderedLibrary, viewportTop, BASELINE_TAG, comparePixels, expected, lines, releaseIdentity, parse, pixelDiff, RESTYLE, SCREENS, screenOps, WEB_NOISE, readExact, mutationFails, MUTATION, drivePlan, s13cPlan, renderedComponents, sdkOf } from './stage12-gate.mjs';
 import { READS, apart, caseReads, cases as exactCases, inspectDrive, locate, matches, newTokens, packageParams, readsOf, same } from './s13c-restyle.mjs';
+import { createApp } from '../game/new.mjs';
 
 const scratches = [];
 const scratch = (prefix) => { const dir = mkdtempSync(join(tmpdir(), prefix)); scratches.push(dir); return dir; };
@@ -32,36 +33,33 @@ test('the command line', () => {
   expect([b.mode, b.copy, b.out, b.hosts]).toEqual(['baseline', '/c', '/o', ['web']]);
 });
 
-function checkOldLaunchers(env, expected) {
+test('checkout discovery reads earlier launcher seeds and applies the same override order', () => {
   const copy = mkdtempSync(join(tmpdir(), 'stage12-sdk-'));
   try {
+    for (const name of ['default', 'a', 'b']) {
+      mkdirSync(join(copy, name, 'scripts'), { recursive: true });
+      writeFileSync(join(copy, name, 'scripts/app-cli.mjs'), '');
+    }
     for (const launcher of [
-      'const path = process.env.EXACT2 ?? "../default";',
-      'const EXACT2 = resolve(import.meta.dir, process.env.EXACT2 ?? "../default");',
+      'const path = process.env.EXACT2 ?? "default";',
+      'const EXACT2 = resolve(import.meta.dir, process.env.EXACT2 ?? "default");',
+      'const path = process.env.EXACT ?? process.env.EXACT2 ?? "default";',
     ]) {
       writeFileSync(join(copy, 'exact.mjs'), launcher);
-      expect(sdkOf(copy, env)).toBe(expected ?? resolve(copy, '../default'));
+      for (const [env, expected] of [[{}, 'default'], [{ EXACT: 'a', EXACT2: 'b' }, 'a'], [{ EXACT2: 'b' }, 'b']]) {
+        expect(sdkOf(copy, env)).toBe(realpathSync(join(copy, expected)));
+      }
     }
   } finally {
     rmSync(copy, { recursive: true, force: true });
   }
-}
-
-test('older launchers use EXACT2 when both variables are set', () => {
-  checkOldLaunchers({ EXACT: '/sdk/a', EXACT2: '/sdk/b' }, '/sdk/b');
 });
 
-test('older launchers use their default when only EXACT is set', () => {
-  checkOldLaunchers({ EXACT: '/sdk/a' });
-});
-
-test('new launchers select EXACT, then EXACT2, then their default', () => {
+test('new launchers resolve their bootstrapped checkout', () => {
   const copy = mkdtempSync(join(tmpdir(), 'stage12-sdk-'));
   try {
-    writeFileSync(join(copy, 'exact.mjs'), 'const path = process.env.EXACT ?? process.env.EXACT2 ?? "../default";');
-    expect(sdkOf(copy, { EXACT: '/sdk/a', EXACT2: '/sdk/b' })).toBe('/sdk/a');
-    expect(sdkOf(copy, { EXACT2: '/sdk/b' })).toBe('/sdk/b');
-    expect(sdkOf(copy, {})).toBe(resolve(copy, '../default'));
+    createApp(join(copy, 'mobile'));
+    expect(sdkOf(join(copy, 'mobile'), {})).toBe(resolve(import.meta.dir, '..'));
   } finally {
     rmSync(copy, { recursive: true, force: true });
   }

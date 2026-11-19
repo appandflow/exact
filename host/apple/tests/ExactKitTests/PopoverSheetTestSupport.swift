@@ -2,6 +2,9 @@
 import UIKit
 import XCTest
 @testable import ExactKit
+@testable import ExactDialogs
+@testable import ExactNavigation
+@testable import ExactNativeViews
 
 extension PopoverSheetIOSTests {
     func page(session: ExactSession? = nil) throws -> Presenter {
@@ -60,7 +63,7 @@ extension PopoverSheetIOSTests {
     func show(_ name: String = "form", in p: Presenter) throws -> DialogSheetController {
         p.dialogCommand("showModal", name)
         settle { !p.menus.inTransition }
-        let sheet = try XCTUnwrap(p.menus.sheets.top as? DialogSheetController)
+        let sheet = try XCTUnwrap(p.dialogHost.top as? DialogSheetController)
         XCTAssertNotNil(sheet.view.window)
         sheet.view.layoutIfNeeded()
         return sheet
@@ -91,9 +94,9 @@ extension PopoverSheetIOSTests {
         let route = try XCTUnwrap(p.views[30]), owner = try XCTUnwrap(window?.rootViewController)
         let navigation = UIViewController()
         navigation.view.addSubview(route)
-        p.modals.present(route, navigation: navigation, from: owner, preceding: nil, owner: owner)
-        settle { !p.modals.inTransition }
-        return try XCTUnwrap(p.modals.owner)
+        p.modalHost.present(route, navigation: navigation, from: owner, preceding: nil, owner: owner)
+        settle { !p.modalHost.inTransition }
+        return try XCTUnwrap(p.modalHost.owner)
     }
 
     func flushCallbacks() {

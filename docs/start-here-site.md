@@ -109,8 +109,9 @@ the query and `fragment(top(nav))` what follows `#`.
   chooses with `if`/`else` and repeats with `for x in xs key=x.id`; there is no `form` (a
   field's Enter is its `submit`).
 - **Expressions** are TypeScript's: what compiles means what it means there, and what does
-  not is refused with what to write. String and array methods are methods (`s.trim()`,
-  `xs.filter(x => …)`, `xs.length`); the rest are functions (`first(xs)`, `round(n)`,
+  not is refused with what to write. Nineteen string and array methods are methods (`s.trim()`,
+  `xs.filter(x => …)`), with `xs.length`: `trim`, `split`, `slice`, `includes`, `startsWith`, `endsWith`, `indexOf`, `replaceAll`, `toLowerCase`, `toUpperCase`, `at`, `concat`, `map`, `filter`, `join`, `flat`, `toFixed`, `toString`, `isEmpty`.
+  Any other (`trimEnd`, `find`, `sort`) is refused; the rest are functions (`first(xs)`, `round(n)`,
   `formatNumber(n, "decimal")`). No truthiness; absence is an option (`none`, `some(x)`,
   `match x { case some(v) => …, case none => … }`), not `null`; a value never changes
   (`xs.concat([x])`); an order is `sortBy(xs, x => x.key)`, stable (`"desc"` third).
@@ -126,7 +127,9 @@ It answers with exactly the declared shape: an extra field fails a resource, so 
 record field by field. Type a source's result (`Promise<Result<'loadItems'>>`) so the build
 names one.
 It reaches only what its `grants` name: `export const grants = \`net.fetch ${API}\``, with
-`const API = import.meta.env.API_BASE_URL` (app.json's `env`). A failed read should throw,
+`const API = import.meta.env.API_BASE_URL` in `app.ts` (app.json's `env`). A client may
+also read settings in an app-local module imported transitively; type-only imports
+read no settings. A failed read should throw,
 failing its resource. It imports its own `.ts` and pure-JS npm packages; one needing Node
 (`fs`, `Buffer`) or the DOM is refused by name. A page rendered on the server has no
 storage. A source still waiting there on a `storage` call is left pending: its placeholder

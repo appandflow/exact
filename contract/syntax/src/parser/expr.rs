@@ -384,6 +384,11 @@ impl Parser {
                 // `press={() => add()}`: a JSX handler.
                 let hint = if matches!(other, TokenKind::Punct("{")) {
                     "; Contract has no `{…}`: a handler names an action (`press=add`, `press=add(item)`) and a value is written directly (`width=10`)"
+                } else if matches!(other, TokenKind::Newline)
+                    && self.pos.checked_sub(2).is_some_and(|i| matches!(&self.tokens[i].kind, TokenKind::Punct(p) if *p != "="))
+                {
+                    // `n > 1 ?` with the rest on the next line; a value missing after `=` is not told to wrap.
+                    "; an expression continues on the next line only inside parentheses: wrap the whole expression in parentheses, as in `derive label = (done ?\n    \"Done\" : \"Open\")`"
                 } else {
                     ""
                 };
@@ -579,7 +584,7 @@ fn check_state_literal(value: &mut Expr) -> R<()> {
 fn state_literal_error(span: Span) -> SyntaxError {
     SyntaxError {
         id: "syntax-expected-step",
-        message: "`expect state` compares value literals, not expressions: a number, string, bool, `none`, `some(literal)`, list, or shape with literal fields".into(),
+        message: "`expect state` compares a literal or `state <path>`; literals are numbers, strings, bools, `none`, `some(literal)`, lists, or shapes with literal fields".into(),
         span,
     }
 }

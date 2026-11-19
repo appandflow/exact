@@ -9,7 +9,7 @@ import AppKit
 /// default, Tab moves between text fields and lists; on, it reaches every
 /// control. AppKit's own controls read it (`NSButton.canBecomeKeyView`), and
 /// so do Exact's.
-enum KeyboardNavigation {
+package enum KeyboardNavigation {
     /// What stands in for the person's setting: an agent's `prefer
     /// keyboard-navigation` or a test's. Under the agent it is off from
     /// launch, the system's default and never the machine's (LLP 1069.007
@@ -19,7 +19,7 @@ enum KeyboardNavigation {
     /// The setting now. Read at each use, so a change in System Settings is
     /// the next Tab's (`Presenter.flushKeyViewLoop` rebuilds the loop when
     /// the setting it was built for is not this one).
-    static var on: Bool { agent ?? NSApp.isFullKeyboardAccessEnabled }
+    package static var on: Bool { agent ?? NSApp.isFullKeyboardAccessEnabled }
 }
 
 extension NodeView {
@@ -38,7 +38,7 @@ extension NodeView {
     /// on, every control, a button, a pressable, a radio group's or tablist's
     /// one stop and a reorder grip included. (A text field's stop is its own
     /// view's, and AppKit's.)
-    var tabStop: Bool {
+    package var tabStop: Bool {
         if let index = explicitTabIndex { return index >= 0 && roleTabStop != false }
         return (KeyboardNavigation.on || takesKeysOfItsOwn) && tabbable
     }
@@ -72,7 +72,7 @@ extension Presenter {
     /// (SheetsMac.swift, PopoversMac.swift): the open dialog's loop starts
     /// at its sheet's content, and each such popover is a loop of its own,
     /// as an `NSPopover`'s is.
-    func syncKeyViewLoop() {
+    package func syncKeyViewLoop() {
         keyViewLoopMode = KeyboardNavigation.on
         keyViewBefore.removeAllObjects()
         for scope in keyViewScopes { keyViewLoop(scope.tops, from: scope.start) }
@@ -80,7 +80,7 @@ extension Presenter {
     /// Each loop: the nodes under it, and the view it is entered from.
     private var keyViewScopes: [(tops: [NodeView], start: NSView)] {
         let page: (tops: [NodeView], start: NSView) = dialogs.active.map { ([$0], dialogs.entries.last?.sheet?.content ?? viewport) }
-            ?? (root.subviews.compactMap { $0 as? NodeView }, viewport)
+            ?? (NodeView.committed(root.subviews), viewport)
         return [page] + menus.windowed.compactMap { popover in popover.node.map { ([$0], popover.content) } }
     }
     /// The nodes under `tops` in the order Tab follows, none under an inert
@@ -92,8 +92,8 @@ extension Presenter {
         func walk(_ v: NodeView) {
             if v.inert || v.isHidden { return }
             visit(v)
-            let own = v.container.subviews.compactMap { $0 as? NodeView }
-            for child in tables.feeds[v.id]?.mounted ?? navigation.split.authored(own, in: v.container) { walk(child) }
+            let own = v.childNodes
+            for child in tables.feeds[v.id]?.mounted ?? navigation.stackSplit.authored(own, in: v.container) { walk(child) }
             for popover in menus.following(v) { walk(popover) }
         }
         for top in tops { walk(top) }

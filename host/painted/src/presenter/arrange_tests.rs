@@ -163,7 +163,7 @@ fn edge_scroll_follows_agent_event_time_and_ignores_older_frames() {
         p.tick(0.);
         p.tick(80.);
         assert_eq!(p.scroll_of(list).1, before);
-        assert_eq!(p.contact_event_ms(), Some(96.));
+        assert_eq!(p.contact_event_ms(None), Some(96.));
         p.pointer_move_at(x, y, 80., 112.).unwrap();
         assert!((p.scroll_of(list).1 - before + 720. * 0.016).abs() < 0.001);
         let before = p.scroll_of(list).1;
@@ -218,7 +218,7 @@ fn a_frame_after_an_agent_hold_steps_the_edge_once_and_frames_go_on() {
     p.tick(266.);
     assert!((before - p.scroll_of(list).1 - 720. * 0.048).abs() < 0.001);
     assert_eq!(
-        p.contact_event_ms(),
+        p.contact_event_ms(None),
         Some(298.),
         "a frame's sample keeps it"
     );

@@ -73,5 +73,6 @@ test "a send lands"
 ```
 
 - `interactive-widget` keeps the composer over the keyboard; Send keeps it up.
-- A send scrolls to the end; `scrollFollowEnd` follows only from there. Paging: `bun exact.mjs pattern chat`.
-- `pre-wrap` keeps line breaks; `break-word` breaks a URL. Yours: no name; groups name others'.
+- `scrollFollowEnd` follows from the end. Paging with `bun exact.mjs pattern chat`.
+- `pre-wrap` keeps line breaks. `break-word` wraps URLs. Name group senders.
+- [Large live histories](large-live-list.md).

@@ -2,6 +2,7 @@
 import UIKit
 import XCTest
 @testable import ExactKit
+@testable import ExactControls
 
 /// `input type="range"` is a UISlider (LLP 1069.001 D5), whose thumb moves
 /// from step to step as a browser's does.

@@ -5,10 +5,10 @@
 //! input), D8 (linked by use, the router's way); LLP 1116 D8 (decimal,
 //! currency and percent numbers); LLP 1116.020 D8 (a day's label)
 //!
-//! Nothing outside [`crate::RunnerLinks`] names this module: `ALL` fills
-//! `format` with [`formatting`], and the web registers it from
-//! `exact-web-capabilities` only for a plan that calls one of these, so an
-//! app that doesn't carries none of this code. `formatTime` is the core's
+//! [`crate::RunnerLinks::ALL`] fills `format` with [`formatting`], and the web
+//! registers it from `exact-web-capabilities` only for a plan that calls one
+//! of these, so an app that doesn't carries none of this code. The compiler's constant VM
+//! links the same formatter and refuses locale reads. `formatTime` is the core's
 //! (`stdlib.rs`), as `formatClockTime` was, in `en-US`. The strings here are
 //! `Intl`'s in `en-US`, and [`locale`]'s in the locale of the format data a
 //! plan bakes for its strings tables (LLP 1054.000.003 D6); the oracle tables

@@ -362,6 +362,12 @@ fn attribute_lengths_check_concatenated_literals() {
 }
 
 #[test]
+fn attribute_lengths_preserve_app_function_precedence() {
+    let source = "fn toString(x: string): string = \"5\"\ncomponent A\n  view\n    svg\n      line x1=(toString(\"1em\") + \"\")\n";
+    contract::compile(source).unwrap();
+}
+
+#[test]
 fn attribute_lengths_preserve_marker_keywords() {
     let mut failures = Vec::new();
     for (attr, words) in [

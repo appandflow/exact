@@ -2,6 +2,7 @@
 import UIKit
 import XCTest
 @testable import ExactKit
+@testable import ExactNavigation
 @testable import ExactGroupedLists
 
 /// The document's direction on UIKit's own chrome: the bars and sheets
@@ -52,7 +53,7 @@ final class ChromeDirectionIOSTests: XCTestCase {
         XCTAssertNil(session.boot(plan: plan, size: host.view.bounds.size).error)
         view.frame = host.view.bounds
         view.layoutIfNeeded()
-        until("the tab container is in the window") { session.presenter.navigation.tabController?.viewIfLoaded?.window != nil }
+        until("the tab container is in the window") { session.presenter.navigationHost.tabController?.viewIfLoaded?.window != nil }
         // A sheet waits for the first drawn frame, which this window never draws.
         if session.firstDrawMs == nil { session.firstDrawMs = ExactEnv.wall() }
         return session
@@ -65,10 +66,10 @@ final class ChromeDirectionIOSTests: XCTestCase {
         let other = try fixture("chrome-direction-other")
         let session = try fixture("chrome-direction")
         let p = session.presenter
-        let otherBar = try XCTUnwrap(other.presenter.navigation.tabController?.tabBar)
+        let otherBar = try XCTUnwrap(other.presenter.navigationHost.tabController?.tabBar)
         let window = try XCTUnwrap(self.window), host = try XCTUnwrap(self.host)
-        let tabs = try XCTUnwrap(p.navigation.tabController)
-        let bar = try XCTUnwrap(p.navigation.primaryNavigation?.navigationBar)
+        let tabs = try XCTUnwrap(p.navigationHost.tabController)
+        let bar = try XCTUnwrap(p.navigationHost.primaryNavigation?.navigationBar)
         let own = host.traitCollection.layoutDirection
         XCTAssertEqual(own, .leftToRight, "the simulator's language is written left to right")
 

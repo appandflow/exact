@@ -569,10 +569,10 @@ fn open_in(
                     // rows now, as it would have when made.
                     match u.env.lists {
                         Some(lists) => (lists.create)(u, n.node, n.view, frames, &mut n.children)
-                            .map(|made| n.set_collection(made)),
+                            .map(|made| n.set_list(made)),
                         None => Ok(()),
                     }
-                    .and_then(|()| match n.collection() {
+                    .and_then(|()| match n.list() {
                         Some(_) => Ok(()),
                         None => open_panel(u, n, frames).map(|made| {
                             n.children = made;

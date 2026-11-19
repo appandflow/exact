@@ -2,6 +2,7 @@
 import XCTest
 import WidgetKit
 import ExactCore
+import ExactSnapshot
 import ExactWidgetTimeline
 
 final class WidgetTimelineWaitersTests: XCTestCase {

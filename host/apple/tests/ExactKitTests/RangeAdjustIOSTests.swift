@@ -2,6 +2,7 @@
 import UIKit
 import XCTest
 @testable import ExactKit
+@testable import ExactControls
 
 /// VoiceOver's swipe up and down on a drawn `slider` and `spinbutton`
 /// (`range-adjust.contract`, compiled and run): each is adjustable, and an

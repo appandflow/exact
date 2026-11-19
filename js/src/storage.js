@@ -315,34 +315,35 @@
         }
       });
     }
-    function announcing(promise, topics, changed) {
+    function announcing(promise, topics) {
       return promise.then(function (value) {
-        if (!changed || changed(value)) announce(topics);
+        announce(topics);
         return value;
       });
     }
-    // A SQLite write announces only when it changed rows: a DML statement whose `changes` is above zero. SQLite
-    // reports changes only for DML and leaves the last DML's count after any other statement
-    // (https://www.sqlite.org/c3ref/changes.html), and a `CREATE TABLE IF NOT EXISTS` run on every read must not
-    // announce, or two windows would re-ask each other without end.
-    function changedRows(sql) {
-      return function (result) {
-        var dml = typeof sql === "string" && /^\s*(insert|update|delete|replace|with)\b/i.test(sql);
-        return dml && !!result && Number(result.changes) > 0;
-      };
+    // A SQLite write announces when it changed the database: a row, or the schema (a DROP or an ALTER). The
+    // provider says which in `changed`, which is not the app's: the app gets `changes` and `lastInsertRowid`. A
+    // `CREATE TABLE IF NOT EXISTS` run on every read changes neither, so two windows do not re-ask each other.
+    function execution(result) {
+      return { changes: result.changes, lastInsertRowid: result.lastInsertRowid };
     }
-    function changedAny(batch) {
-      return function (results) {
-        return Array.isArray(results) && results.some(function (r, i) {
-          return changedRows(batch[i] && batch[i].sql)(r);
-        });
-      };
+    function written(promise, topics) {
+      return promise.then(function (value) {
+        var results = Array.isArray(value) ? value : [value];
+        if (
+          results.some(function (result) {
+            return result.changed;
+          })
+        )
+          announce(topics);
+        return Array.isArray(value) ? value.map(execution) : execution(value);
+      });
     }
-    function statement(raw, path, sql) {
+    function statement(raw, path) {
       var topic = ["sqlite:" + path];
       return Object.freeze({
         execute: function (params) {
-          return announcing(storageCall(raw, "execute", [params]), topic, changedRows(sql));
+          return written(storageCall(raw, "execute", [params]), topic);
         },
         query: function (params) {
           watchTopics(topic);
@@ -410,7 +411,7 @@
       var topic = ["sqlite:" + path];
       return Object.freeze({
         execute: function (sql, params) {
-          return announcing(storageCall(raw, "execute", [sql, params]), topic, changedRows(sql));
+          return written(storageCall(raw, "execute", [sql, params]), topic);
         },
         query: function (sql, params) {
           watchTopics(topic);
@@ -418,7 +419,7 @@
         },
         prepare: function (sql) {
           return storageCall(raw, "prepare", [sql], function (s) {
-            return statement(s, path, sql);
+            return statement(s, path);
           });
         },
         // Read now, not when a queued call is issued: what the caller changes after the call never changes what runs.
@@ -429,7 +430,7 @@
           } catch (e) {
             return Promise.reject(storageError(String((e && e.message) || e), "failed"));
           }
-          return announcing(storageCall(raw, "transaction", args), topic, changedAny(args[0]));
+          return written(storageCall(raw, "transaction", args), topic);
         },
         // A close counts once issued; one refused or failed leaves the database open, and tracked.
         close: function () {

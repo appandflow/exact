@@ -754,6 +754,8 @@ async function rejects(action, matches) {
   const dirtyAgain = snapshotOf(internalApp, { dirty: true }, internal);
   const changedSnapshotRefused = await rejects(() => snapshotOf(internalApp, { dirty: true, snapshot: dirtySnapshot.id }, internal), error => error.message.includes('same complete source set'));
   const ignoredRootRefused = await rejects(() => snapshotOf(externalApp, {}, exact), error => error.message.includes('cargo') && error.message.includes('generated/value.txt'));
+  mkdirSync(join(external, '.exact'), { recursive: true });
+  symlinkSync(realpathSync(exact), join(external, '.exact/checkout'), process.platform === 'win32' ? 'junction' : 'dir');
   const externalSnapshot = snapshotOf(externalApp, { dirty: true }, exact);
   const partialPinRefused = await rejects(() => snapshotOf(externalApp, { dirty: true, snapshot: externalSnapshot.commit }, exact), error => error.message.includes('complete source set'));
   const pinned = snapshotOf(externalApp, { dirty: true, snapshot: externalSnapshot.id.slice(0, 12) }, exact);
@@ -815,6 +817,7 @@ async function rejects(action, matches) {
     && relative(externalMaterialized.app.dir, externalMaterialized.exactRoot) === '../exact2'
     && stagedDependencyStayedCaptured && absoluteDependencyRefused && absoluteTargetRefused
     && stagedGitSealed && escapingSymlinkRefused
+    && realpathSync(join(externalMaterialized.app.dir, '.exact/checkout')) === externalMaterialized.exactRoot
     && ignoredRootRefused && ignoredRootCaptured
     && ignoredDependencyRefused && capturedDependency
     && rendered.includes(`snapshot ${externalSnapshot.id.slice(0, 12)}`)

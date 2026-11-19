@@ -3,7 +3,7 @@
 // box out unscrolled and sends its constraint; the family moves the box as
 // its scroller scrolls, through `NodeView.stickyOffset`, which the core's
 // `applyTransform` folds in. Without the family the presenter holds
-// `NoStickies`, and no box moves. The slot's default is today's host.
+// `NoStickies`, and no box moves. `ExactSticky.install()` sets the slot.
 
 /// What the core asks of a presenter's sticky boxes.
 package protocol StickyHosting: AnyObject {
@@ -29,5 +29,5 @@ package final class NoStickies: StickyHosting {
 /// The slots are set before any session is made, and read on the main thread.
 package enum StickyLink {
     /// A presenter's sticky boxes.
-    package static var make: ((Presenter) -> any StickyHosting)? = { StickyHost($0) }
+    package static var make: ((Presenter) -> any StickyHosting)?
 }

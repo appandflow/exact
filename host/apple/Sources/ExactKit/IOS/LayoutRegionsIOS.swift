@@ -58,7 +58,7 @@ enum LayoutRegionsIOS {
     /// have (8 points, not the system minimum). `view` when it has none.
     private static func controllerView(of view: UIView) -> UIView {
         guard let controller = ViewPresentation.controller(for: view, layout: true) else { return view }
-        return (controller as? RouteController)?.surface ?? controller.view
+        return (controller as? any RouteSurface)?.surface ?? controller.view
     }
 }
 #endif

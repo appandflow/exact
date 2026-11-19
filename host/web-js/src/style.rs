@@ -896,6 +896,14 @@ static CONTROL_SIZE_MAPS: std::sync::LazyLock<[String; 2]> = std::sync::LazyLock
     ]
 });
 
+static OBJECT_POSITION_MAP: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
+    let regions = exact_kernel::style::env::Region::ALL.map(|region| region.prefix());
+    format!(
+        r#"v=>typeof v!=='string'?v:/^\s*(unset|initial)?\s*$/i.test(v)?'50% 50%':v.replace(/(env\(\s*)(?:{})(top|right|bottom|left)(?=\s*[,\)])/g,'$1safe-area-inset-$2')"#,
+        regions.join("|")
+    )
+});
+
 static TINT_MAP: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
     let mut initial = String::new();
     exact_kernel::gradient::color_css(
@@ -973,6 +981,21 @@ pub fn style_writes(id: u16, timeline: bool, written: bool) -> Result<Vec<Write>
             with("--exact-touch-floor", &CONTROL_SIZE_MAPS[1]),
         ],
         StyleId::TintColor => vec![with("--exact-tint", &TINT_MAP)],
+        StyleId::ObjectPosition => vec![
+            with("--exact-object-position", &OBJECT_POSITION_MAP),
+            with("object-position", "v=>v==null?v:'var(--exact-tint-offset,var(--exact-object-position,50% 50%))'"),
+        ],
+        // The rendered page has this fallback before the browser reads the computed fit.
+        StyleId::ObjectFit => vec![
+            with("object-fit", "v=>v"),
+            with(
+                "--exact-tint-size",
+                concat!(
+                    "v=>v==null?v:({fill:'100% 100%',contain:'contain',cover:'cover',none:'auto',",
+                    "'scale-down':'var(--exact-tint-fit,contain)'})[String(v).trim().toLowerCase()]??'100% 100%'",
+                ),
+            ),
+        ],
         StyleId::PlaceholderColor => vec![with("--exact-placeholder-color", "v=>v==null?v:/^\\s*(unset)?\\s*$/i.test(v)?'initial':v")],
         StyleId::BackdropColor => vec![with("--exact-backdrop-color", "v=>v==null?v:/^\\s*(unset)?\\s*$/i.test(v)?'initial':v")],
         // A capsule's ends are half-circles, so it takes no curve (index.html).
@@ -1209,6 +1232,7 @@ pub fn style_row(id: u16, written: bool) -> Result<(String, String), String> {
             | StyleCodec::Paint
             | StyleCodec::DashArray
             | StyleCodec::TransformOrigin
+            | StyleCodec::ObjectPosition
             | StyleCodec::PaintOrder
             | StyleCodec::Filter
             | StyleCodec::BackgroundImage

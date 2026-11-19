@@ -1,14 +1,11 @@
 #!/bin/sh
 ':' //; if [ -n "$BUN" ]; then exec "$BUN" "$0" "$@"; elif [ -x "$HOME/.bun-1.4.2/bin/bun" ]; then exec "$HOME/.bun-1.4.2/bin/bun" "$0" "$@"; elif command -v bun >/dev/null 2>&1; then exec bun "$0" "$@"; else exec "$HOME/.bun/bin/bun" "$0" "$@"; fi
-// exact — run an Exact app from a terminal on macOS, and install one so it
-// keeps running from a terminal after you close the laptop.
+// exact — build, run and install Exact apps.
 //
 //   exact run <app> [file …]     build if stale, launch in the foreground
 //   exact install <app>          a real .app in ~/Applications, plus a shim
-//   exact uninstall <app>        take both away again
 //   exact release <app>          sign for distribution, notarise, staple, package
 //   exact appstore <app>         the Mac App Store's .pkg (--ad-hoc: its configuration, to open here)
-//   exact list                   the apps this repo has, and what is installed
 //   exact new <path> [--update]  an app outside this repo, ready to run
 //   exact new <path> --game      a game outside this repo, ready to run
 //   exact new <path> --snapback  an app wired to the Snapback backend above it
@@ -52,6 +49,8 @@ const { freeSpace, ROOM_GB } = await import('./filesystem.mjs');
 import { basename, delimiter, dirname, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { grantAdvice } from './grant-advice.mjs';
+import { checkoutPath, linkCheckout } from './paths.mjs';
+import { installedFileDependencies } from './file-dependencies.mjs';
 import { addOutside, installIn, outsideSpecifier } from './package-manager.mjs';
 import { builtContract, contractTool, launch, toolEnv } from './tools.mjs';
 export { grantAdvice, grantLines } from './grant-advice.mjs';
@@ -334,9 +333,9 @@ export async function setup({check = false, platform = null, device = false, app
   const gameFailures = [], web = platform === 'web';
   if (!check && !web) { const room = freeSpace(homedir()); if (room && room.gb < ROOM_GB) console.warn(`exact setup: ${room.text}`); }
   const pin = Bun.TOML.parse(readFileSync(resolve(ROOT, 'rust-toolchain.toml'), 'utf8')).toolchain;
-  const run = (cmd, args) => {
+  const run = (cmd, args, options = {}) => {
     console.log([cmd, ...args].join(' '));
-    const result = spawnSync(cmd, args, {cwd: ROOT, stdio: 'inherit', env: cargoEnvironment()});
+    const result = spawnSync(cmd, args, {cwd: ROOT, stdio: 'inherit', env: cargoEnvironment(), ...options});
     if (result.status !== 0) throw new Error(`${cmd} failed: ${result.error?.message ?? result.status}`);
   };
   const output = (cmd, args) => {
@@ -369,10 +368,10 @@ export async function setup({check = false, platform = null, device = false, app
         const archive = resolve(stage, name), sum = `${archive}.sha256`;
         run('curl', ['-fL', '--retry', '3', '-o', archive, url]);
         run('curl', ['-fL', '--retry', '3', '-o', sum, `${url}.sha256`]);
-        const expected = readFileSync(sum, 'utf8').trim().split(/\s+/)[0];
-        if (createHash('sha256').update(readFileSync(archive)).digest('hex') !== expected) throw new Error('Binaryen checksum mismatch');
+        const expected = readFileSync(sum, 'utf8').trim().split(/\s+/)[0], bytes = readFileSync(archive);
+        if (createHash('sha256').update(bytes).digest('hex') !== expected) throw new Error('Binaryen checksum mismatch');
         mkdirSync(binaryen, {recursive: true});
-        run('tar', ['-xzf', archive, '--strip-components=1', '-C', binaryen]);
+        run('tar', ['-xzf', '-', '--strip-components=1'], {cwd: binaryen, input: bytes, stdio: ['pipe', 'inherit', 'inherit']});
         process.env.PATH = `${resolve(binaryen, 'bin')}${delimiter}${process.env.PATH ?? ''}`;
       } finally { rmSync(stage, {recursive: true, force: true}); }
     }
@@ -902,10 +901,12 @@ export function add(args, say = console.log) {
   if (!name && !process.env.EXACT_APP_DIR) throw new Error('add: name the app (bun scripts/exact.mjs add geolocation <app>), or run bun exact.mjs add in it');
   const app = resolveApp(name), at = resolve(app.dir, 'package.json'), manifest = read(at);
   if (!manifest) throw new Error(`add: ${app.dir} has no package.json; an app exact new made has one`);
+  const { retargeted } = linkCheckout(app.dir, checkoutPath(ROOT), checkoutPath(ROOT));
   if (!standard.includes(short)) return say(addOutside(app.dir, module, !args.includes('--no-install')));
   const key = `@exact/${short}`, spec = packageSpecifier(app.dir, short);
   if (manifest.dependencies?.[key] !== spec) writeFileSync(at, JSON.stringify({ ...manifest, dependencies: { ...manifest.dependencies, [key]: spec } }, null, 2) + '\n');
   const { manager, installed } = installIn(app.dir, `add: ${key} is in its package.json`, !args.includes('--no-install'));
+  if (retargeted && installed) installedFileDependencies(app.dir);
   const grants = read(resolve(ROOT, 'packages', short, 'exact.json'))?.grants ?? [];
   say(`add: ${key} is ${spec}${installed ? '' : `, not installed: run ${manager} install`}. Name what you use: use … from "${key}" in app.contract, or import from it in app.ts${grants.length ? `; and in app.ts grant ${grantAdvice(grants)} (bun exact.mjs docs a capability that asks permission)` : ''}.`);
   const maven = read(resolve(ROOT, 'packages', short, 'android/exact.json'))?.maven ?? [];

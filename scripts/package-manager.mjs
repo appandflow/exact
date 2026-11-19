@@ -2,7 +2,7 @@
 import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
-import { pathFrom } from './paths.mjs';
+import { namedPath, pathFrom } from './paths.mjs';
 
 const LOCKS = [['bun.lock', 'bun'], ['bun.lockb', 'bun'], ['pnpm-lock.yaml', 'pnpm'], ['yarn.lock', 'yarn'], ['package-lock.json', 'npm']];
 
@@ -45,7 +45,7 @@ export function addOutside(appDir, spec, install = true) {
   const manager = packageManager(appDir);
   let name, installed = true;
   if (DIRECTORY.test(spec)) {
-    const dir = resolve(spec.replace(/^file:/, ''));
+    const dir = namedPath(spec.replace(/^file:/, ''));
     name = JSON.parse(readFileSync(resolve(dir, 'package.json'), 'utf8')).name;
     if (!name) throw new Error(`add: ${resolve(dir, 'package.json')} has no name`);
     const manifest = read(), specifier = `file:${pathFrom(appDir, dir)}`;

@@ -13,7 +13,7 @@ import UIKit
 /// private class (LLP 1035.003), so they are written on the segments UIKit's
 /// accessibility container declares, as a client reads them and after each
 /// layout. A segment named by nothing is UIKit's (its title).
-class LabelledSegmentedControl: UISegmentedControl {
+open class LabelledSegmentedControl: UISegmentedControl {
     /// UIKit's parts stood in for at the frames the surface draws them at,
     /// inside a placed canvas child (PlacedAccessibilityIOS.swift).
     private let placedParts = PlacedStandIns()
@@ -30,26 +30,26 @@ class LabelledSegmentedControl: UISegmentedControl {
     private var uikitElements: [NSObject] {
         declaredElements(super.accessibilityElements, count: super.accessibilityElementCount(), at: { super.accessibilityElement(at: $0) })
     }
-    override var accessibilityElements: [Any]? {
+    public override var accessibilityElements: [Any]? {
         get { placedElements(labelled: true) ?? super.accessibilityElements }
         set { super.accessibilityElements = newValue }
     }
-    override func accessibilityElementCount() -> Int { placedElements(labelled: true)?.count ?? super.accessibilityElementCount() }
-    override func accessibilityElement(at index: Int) -> Any? {
+    public override func accessibilityElementCount() -> Int { placedElements(labelled: true)?.count ?? super.accessibilityElementCount() }
+    public override func accessibilityElement(at index: Int) -> Any? {
         guard let elements = placedElements(labelled: false) else { return super.accessibilityElement(at: index) }
         return elements.indices.contains(index) ? elements[index] : nil
     }
-    override func index(ofAccessibilityElement element: Any) -> Int {
+    public override func index(ofAccessibilityElement element: Any) -> Int {
         guard let elements = placedElements(labelled: false) else { return super.index(ofAccessibilityElement: element) }
         return elements.firstIndex { $0 === element as AnyObject } ?? NSNotFound
     }
-    var segmentLabels: [String?] = [] { didSet { if segmentLabels != oldValue { setNeedsLayout() } } }
-    var segmentIDs: [String?] = [] { didSet { if segmentIDs != oldValue { setNeedsLayout() } } }
-    var segmentOwners: [UInt32] = []
-    var segmentUnavailable: [Bool] = [] { didSet { if segmentUnavailable != oldValue { setNeedsLayout() } } }
+    package var segmentLabels: [String?] = [] { didSet { if segmentLabels != oldValue { setNeedsLayout() } } }
+    package var segmentIDs: [String?] = [] { didSet { if segmentIDs != oldValue { setNeedsLayout() } } }
+    package var segmentOwners: [UInt32] = []
+    package var segmentUnavailable: [Bool] = [] { didSet { if segmentUnavailable != oldValue { setNeedsLayout() } } }
     /// Again after each layout, so a segment a client already holds shows its
     /// selection and availability as they change.
-    override func layoutSubviews() {
+    open override func layoutSubviews() {
         super.layoutSubviews()
         labelSegments()
     }
@@ -78,7 +78,7 @@ class LabelledSegmentedControl: UISegmentedControl {
 extension UISegmentedControl {
     /// Its segments as an assistive client reads them, in segment order
     /// (`segmentElements`).
-    var accessibilitySegments: [NSObject] {
+    package var accessibilitySegments: [NSObject] {
         segmentElements(declaredElements(accessibilityElements, count: accessibilityElementCount(), at: accessibilityElement(at:)))
     }
 
@@ -101,7 +101,7 @@ extension UISegmentedControl {
     /// Writes `id` as `element`'s accessibility identifier when it differs: a
     /// view's or an element's, since `UIView` has the property without
     /// conforming to `UIAccessibilityIdentification` at runtime (iOS 27.1).
-    static func identify(_ element: NSObject, as id: String?) {
+    package static func identify(_ element: NSObject, as id: String?) {
         if let view = element as? UIView {
             if view.accessibilityIdentifier != id { view.accessibilityIdentifier = id }
         } else if let element = element as? UIAccessibilityElement, element.accessibilityIdentifier != id {
@@ -118,7 +118,7 @@ extension UISegmentedControl {
 
     /// The segment views (`UISegment`, two containers down on iOS 27), in
     /// segment order: left to right, reversed right to left.
-    var segmentViews: [UIView] {
+    package var segmentViews: [UIView] {
         var found: [UIView] = []
         func walk(_ view: UIView, _ depth: Int) {
             for child in view.subviews {
@@ -139,7 +139,7 @@ extension UISegmentedControl {
     /// (`apportionsSegmentWidthsByContent`) are unequal, and nothing public
     /// gives their boxes, so near a boundary there the share may name the
     /// neighbour (LLP 1035.003).
-    func segment(at point: CGPoint) -> Int? {
+    package func segment(at point: CGPoint) -> Int? {
         guard bounds.contains(point), numberOfSegments > 0 else { return nil }
         var index = Int((point.x - bounds.minX) / bounds.width * CGFloat(numberOfSegments))
         if effectiveUserInterfaceLayoutDirection == .rightToLeft { index = numberOfSegments - 1 - index }
@@ -150,7 +150,7 @@ extension UISegmentedControl {
 extension LabelledSegmentedControl {
     /// A title segment's accessibility label: its tab's name where that is
     /// not its words (an image segment's is its image's, `content`).
-    static func segmentLabel(_ tab: NodeView) -> String? {
+    package static func segmentLabel(_ tab: NodeView) -> String? {
         guard case .title(let title)? = tab.segmentFace, tab.accessibleName != title else { return nil }
         return tab.accessibleName
     }

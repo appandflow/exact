@@ -12,6 +12,7 @@ use exact_motion::{AnimationError, Animations, Keyframes};
 const LIT: &str = "from{color:light-dark(#4f6657, #b7c9ac);box-shadow:0 6px 32px light-dark(#171b171a, #0000004d)}to{color:#171b17;box-shadow:none}";
 
 fn rows(shorthand: &str) -> Animations {
+    exact_kernel::style::link_all();
     let rule = Keyframes::parse(LIT).unwrap();
     let mut a = Animations::parse(shorthand).unwrap();
     assert!(a.resolve(|_| Some(&rule)).is_empty());

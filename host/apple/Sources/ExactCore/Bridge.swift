@@ -76,6 +76,8 @@ public struct Batch {
     public var orientation: OrientationRequest? = nil
     /// Whether the app must finish work an answer started, when that changed (`ExactKit/Holds.swift`).
     public var mustFinish: Bool? = nil
+    /// Every navigation root's tabs, when they changed (LLP 1115.001 D11).
+    public var rootTabs: [RootTabs]? = nil
     /// The kernel transactions it carries, while the runner measures (LLP 1079 D3).
     public var seq: (UInt64, UInt64)?
     /// When `ExactSession.applyInput` marked it as a person's input: on iOS
@@ -86,9 +88,31 @@ public struct Batch {
     /// The journal's other lines, for the unified log at a lower level (LLP 1143).
     public var journal: [String] = []
     package var frameWorkTiming: FrameWorkTiming?
+    /// Where the runtime made it in the order of everything it made
+    /// (`Runtime.sequence`): batches apply in this order (LLP 1072 T13). Zero
+    /// until it is numbered.
+    package var sequence: UInt64 = 0
+    /// What the clock asked for: a frame's tick, which is per node while it
+    /// commits nothing, or a timer's advance (frame tasks and settled `then`s
+    /// included), whose next is held while it waits (LLP 1072 T13). The
+    /// bridge sets it as it reads the batch.
+    package var clockWork: ClockWork?
+    /// The native control state it changes, by control, as the runtime gave
+    /// it when it made the batch: the presenter shows this, never state the
+    /// runtime holds later (LLP 1072 §3.5). Nil for a batch the runtime did
+    /// not make: what it may change is read again from the runtime.
+    package var controlReads: [UInt32: ControlRead]?
+    package enum ClockWork { case tick, advance }
+    package func made(by clock: ClockWork) -> Batch {
+        var batch = self
+        batch.clockWork = clock
+        return batch
+    }
     /// It may change the screen when it applies: it has ops, a control's
-    /// viewless contents or page facts. The presenter resolves an orientation request separately.
-    package var changesScreen: Bool { !ops.isEmpty || controls || facts }
+    /// viewless contents, page facts, the native control state it carries or
+    /// the navigation roots' tabs, whose placement the views may not carry.
+    /// The presenter resolves an orientation request separately.
+    package var changesScreen: Bool { !ops.isEmpty || controls || facts || rootTabs != nil || controlReads?.isEmpty == false }
     package init(ops: [BatchOp], timers: Bool, motion: Bool, clock: Double?, error: String?, timerDueMs: Double? = nil, pending: Bool = false, busy: Bool = false) {
         self.ops = ops; self.timers = timers; self.motion = motion; self.clock = clock
         self.error = error; self.timerDueMs = timerDueMs; self.pending = pending
@@ -110,14 +134,26 @@ public struct Batch {
 
 }
 
+/// A native control's state that the runtime computes and no op carries, as
+/// JSON the bridge reads: a button's face (`exact_press_face`), a select's
+/// options (`exact_select_options`), a radio's group (`exact_radio_group`).
+/// In a batch, the parts it changes.
+package struct ControlRead: Equatable {
+    package var face: Data?, select: Data?, radio: Data?
+    package init(face: Data? = nil, select: Data? = nil, radio: Data? = nil) { self.face = face; self.select = select; self.radio = radio }
+    /// The parts it has, as a batch's footprint names them.
+    package var parts: Set<String> { Set([face.map { _ in "face" }, select.map { _ in "select" }, radio.map { _ in "radio" }].compactMap { $0 }) }
+}
+
 /// Immutable composition services, installed before the runtime can serve a turn.
 package struct RuntimeHooks {
     package let decodeBatch: (UnsafeBufferPointer<UInt8>, AssetResolver?) -> Batch
-    package let prepareBatch: ((inout Batch) -> Void)?
+    /// On the owner as a batch is read, with the runtime as it made it.
+    package let prepareBatch: ((Runtime, inout Batch) -> Void)?
     package let symbolMeasure: ExactSymbolFn?
     package let prewarmIslands: ((UInt8) -> Void)?
     package init(decodeBatch: @escaping (UnsafeBufferPointer<UInt8>, AssetResolver?) -> Batch,
-                 prepareBatch: ((inout Batch) -> Void)? = nil, symbolMeasure: ExactSymbolFn? = nil,
+                 prepareBatch: ((Runtime, inout Batch) -> Void)? = nil, symbolMeasure: ExactSymbolFn? = nil,
                  prewarmIslands: ((UInt8) -> Void)? = nil) {
         self.decodeBatch = decodeBatch; self.prepareBatch = prepareBatch
         self.symbolMeasure = symbolMeasure; self.prewarmIslands = prewarmIslands
@@ -149,6 +185,12 @@ package final class Runtime {
     #endif
 
     private let hooks: RuntimeHooks
+    /// Numbers each batch as the owner makes it, and a batch the host makes
+    /// as it reaches `apply`: one order for everything (LLP 1072 T13).
+    package let sequence = BatchSequence()
+    /// On the owner, each native control's `type` and its state as the last
+    /// batch read gave it (`Batch.controlReads`): a batch carries what changed.
+    package var controlTypes: [UInt32: String] = [:], controlsRead: [UInt32: ControlRead] = [:]
     package init(hooks: RuntimeHooks = .headless) {
         self.hooks = hooks
         rt = Owner.shared.sync {
@@ -308,11 +350,12 @@ package final class Runtime {
         // strings into Swift values before returning; no batch borrows the buffer.
         let bytes = UnsafeBufferPointer(start: exact_out(rt), count: Int(len))
         var batch = hooks.decodeBatch(bytes, profileResolver)
+        batch.sequence = sequence.next()
         #if DEBUG
         // What was decoded, before `prepare` adds the owner's values.
         observeBatch?(Data(bytes), batch)
         #endif
-        hooks.prepareBatch?(&batch)
+        hooks.prepareBatch?(self, &batch)
         return batch
     }
     /// A payload into the runtime's input buffer; its length. An empty
@@ -324,21 +367,6 @@ package final class Runtime {
         return data.count
     }
     /// Boot the plan baked into the library under a viewport; the first batch.
-    /// The display's scale and memory for Canvas 2D (LLP 1056 D4).
-    package func canvasDisplay(scale: CGFloat, memory: UInt64) -> Batch { on(layout: true) { read(exact_canvas_display(rt, Double(scale), Double(memory))) } }
-    /// A Canvas 2D image handle decoded (its size in pixels) or not (LLP 1056 D9).
-    package func canvasImage(_ src: String, width: Int, height: Int, ok: Bool) -> Batch {
-        return on {
-            let n = write(src)
-            return read(exact_canvas_image(rt, n, UInt32(max(0, width)), UInt32(max(0, height)), ok ? 1 : 0))
-        }
-    }
-    /// The presenter let a decoded Canvas 2D image handle go (LLP 1056 D9).
-    package func canvasImageReleased(_ src: String) { on { exact_canvas_image_released(rt, write(src)) } }
-    /// A 2D canvas's replay is behind or caught up (LLP 1056 D5).
-    package func canvasHeld(_ view: UInt32, _ held: Bool) { on { exact_canvas_held(rt, view, held ? 1 : 0) } }
-    /// The Canvas 2D text measurer (LLP 1056 D8), with the measurer's context.
-    package func setCanvasText(_ measure: ExactCanvasTextFn?) { on { exact_set_canvas_text(rt, measure) } }
     package func boot(width: CGFloat, height: CGFloat) -> Batch { islands(on { replaced(read(exact_boot(rt, Float(width), Float(height)))) }) }
     /// Whether the data source's activation evaluates a TypeScript module on
     /// the owner, which the presenter then posts from the first draw's own
@@ -378,18 +406,19 @@ package final class Runtime {
         }
         return islands(batch)
     }
-    package func previewTimeline(at now: Double) -> Data {
+    package func previewTimeline(at now: Double, configuration: Data? = nil) -> Data {
         on(busy: Data()) {
-            let count = exact_refresh_entry(rt, now)
+            let count = exact_refresh_entry(rt, now, configuration.map { write($0) } ?? 0)
             return Data(bytes: exact_out(rt), count: Int(count))
         }
     }
-    package func entryTimeline(at now: Double, deadline: DispatchTime, receipt: Data = Data(), module: Data = Data()) -> Data {
+    package func entryTimeline(at now: Double, configuration: Data? = nil, deadline: DispatchTime, receipt: Data = Data(), module: Data = Data()) -> Data {
         on(busy: Data()) {
+            let chosen = configuration.map { write($0) } ?? 0
             let current = DispatchTime.now().uptimeNanoseconds
             let remaining = Double(deadline.uptimeNanoseconds > current ? deadline.uptimeNanoseconds - current : 0) / 1_000_000
             return receipt.withUnsafeBytes { receipt in module.withUnsafeBytes { module in
-                let count = exact_entry_timeline(rt, now, remaining, receipt.bindMemory(to: UInt8.self).baseAddress, receipt.count, module.bindMemory(to: UInt8.self).baseAddress, module.count)
+                let count = exact_entry_timeline(rt, now, remaining, chosen, receipt.bindMemory(to: UInt8.self).baseAddress, receipt.count, module.bindMemory(to: UInt8.self).baseAddress, module.count)
                 return Data(bytes: exact_out(rt), count: Int(count))
             } }
         }
@@ -443,14 +472,6 @@ package final class Runtime {
         }
     }
     package func requestActive(_ ticket: UInt64) -> Bool { on(busy: false) { exact_request_active(rt, ticket) != 0 } }
-    /// The replay queue waits here: copying and marking share the runtime owner's
-    /// turn, so unmount cannot retire the job between them. Encoding runs afterward.
-    package func snapshotCanvas(_ ticket: UInt64, copy: () -> Bool) -> Bool {
-        on(busy: false) {
-            guard exact_request_active(rt, ticket) != 0, copy() else { return false }
-            return exact_canvas_snapshotted(rt, ticket) != 0
-        }
-    }
     package func fulfillSurface(_ ticket: UInt64, kind: UInt32, body: Data = Data(), now: Double) -> Batch {
         return on {
             let n = write(body)
@@ -617,12 +638,6 @@ package final class Runtime {
     }
     /// Count each plan site's work for `perf` from now, if not yet (LLP 1079 D1).
     package func measureWork() { on { _ = exact_measure_work(rt) } }
-    /// Canvas draws in a turn of their own (LLP 1072 §8.5).
-    package func canvasDefer(_ deferred: Bool) { on { exact_canvas_defer(rt, deferred ? 1 : 0) } }
-    /// The owed canvas draws on the owner, not waited for (LLP 1072 §8.5).
-    package func canvasDrawAsync(done: @escaping (RuntimeCompletion) -> Void) {
-        post(done: done) { [self] _ in read(exact_canvas_draw(rt)) }
-    }
     /// `calls`, in order, on the owner and not waited for: each batch goes to
     /// `done` there (LLP 1027.007 P1).
     package func later(_ calls: [(Runtime) -> Batch], done: @escaping (RuntimeCompletion) -> Void) {
@@ -635,7 +650,7 @@ package final class Runtime {
         let queued = capture == 0 ? 0 : hostMediaTime()
         post(layout: presentOnly, done: done) { [self] _ in
             let began = capture == 0 ? 0 : hostMediaTime()
-            var batch = read(frame.map { exact_tick_at(rt, now, $0) } ?? exact_tick(rt, now))
+            var batch = read(frame.map { exact_tick_at(rt, now, $0) } ?? exact_tick(rt, now)).made(by: .tick)
             if measureFrame || capture != 0 { batch.frameWorkTiming = FrameWorkTiming(capture: capture, frame: frame,
                 queued: queued, began: began, finished: capture == 0 ? 0 : hostMediaTime()) }
             return batch
@@ -691,12 +706,6 @@ package final class Runtime {
             let n = write(name + (json.map { "\0" + $0 } ?? ""))
             return read(exact_surface_record(rt, n))
         }
-    }
-    package func canvasPerformanceRequested(_ name: String) -> Bool {
-        on(busy: false) { exact_canvas_performance_requested(rt, write(name)) != 0 }
-    }
-    package func canvasPerformanceRecord(_ name: String, _ json: String?) -> Batch {
-        on { read(exact_canvas_performance_record(rt, write(name + (json.map { "\0" + $0 } ?? "")))) }
     }
     package func message(_ view: UInt32, _ value: String, now: Double) -> Batch {
         return on {
@@ -846,9 +855,15 @@ package final class Runtime {
         on { read(exact_build_tabs(rt, write(panels.map(String.init).joined(separator: ",")), now)) }
     }
     /// A received share, `{"root", "target", "share", "inbox"?}` (LLP 1133.024 D2–D4).
-    package func share(_ json: String, now: Double) -> Batch { on { read(exact_share(rt, write(json), now)) } }
+    package func share(_ json: String, now: Double) -> Batch {
+        guard let share = CoreExports.share else { return Runtime.noShare }
+        return on { read(share(rt, write(json), now)) }
+    }
     /// The files of a share claimed before the boot, once storage is configured.
-    package func landShare() -> Batch { on { read(exact_share_land(rt)) } }
+    package func landShare() -> Batch {
+        guard let land = CoreExports.shareLand else { return Runtime.noShare }
+        return on { read(land(rt)) }
+    }
     /// A package's call of the app's handler (LLP 1133.016 D15 item 1),
     /// `{"extension", "handle", "handler", "args"}`: the runner's answer,
     /// JSON, goes to `reply(ctx, …)` once, now or when the handler's work lands.
@@ -872,28 +887,31 @@ package final class Runtime {
     package func fireNativeTimerAsync(_ timer: NativeTimerWake, now: Double, done: @escaping (RuntimeCompletion) -> Void) {
         post(done: done) { [self] _ in read(exact_fire_native_timer(rt, timer.index, timer.generation, now)) }
     }
-    package func advance(now: Double, untilRequest: Bool = false) -> Batch { on { read(exact_advance(rt, now, untilRequest ? 1 : 0)) } }
+    package func advance(now: Double, untilRequest: Bool = false) -> Batch { on { read(exact_advance(rt, now, untilRequest ? 1 : 0)).made(by: .advance) } }
     /// The `then`s an agent's input settled, the clock unmoved (LLP 1012 §2).
-    package func landThen() -> Batch { on { read(exact_advance(rt, 0, 2)) } }
+    package func landThen() -> Batch { on { read(exact_advance(rt, 0, 2)).made(by: .advance) } }
     /// Those `then`s only when one is the earliest work due (LLP 1072.000 §4 B).
-    package func landThenFirst() -> Batch { on { read(exact_advance(rt, 0, 3)) } }
+    package func landThenFirst() -> Batch { on { read(exact_advance(rt, 0, 3)).made(by: .advance) } }
     /// A timer advance on the owner, not waited for (LLP 1072.000): what is
     /// due by `now`, or with `frame` that display frame's (`frame(now:wall:)`).
     package func advanceAsync(now: Double, frame: Double? = nil, admitted: Bool = false, capture: UInt64 = 0, measureFrame: Bool = false, done: @escaping (RuntimeCompletion) -> Void) {
         let queued = capture == 0 ? 0 : hostMediaTime()
         post(done: done) { [self] _ in
             let began = capture == 0 ? 0 : hostMediaTime()
-            var batch = read(frame.map { admitted ? exact_admitted_frame(rt, $0, now) : exact_frame_at(rt, $0, now) } ?? exact_advance(rt, now, 0))
+            var batch = read(frame.map { admitted ? exact_admitted_frame(rt, $0, now) : exact_frame_at(rt, $0, now) } ?? exact_advance(rt, now, 0)).made(by: .advance)
             if measureFrame || capture != 0 { batch.frameWorkTiming = FrameWorkTiming(capture: capture, frame: frame,
                 queued: queued, began: began, finished: capture == 0 ? 0 : hostMediaTime()) }
             return batch
         }
     }
-    package func frame(now: Double, wall: Double? = nil, admitted: Bool = false) -> Batch { on { read(admitted ? exact_admitted_frame(rt, now, wall ?? now) : wall.map { exact_frame_at(rt, now, $0) } ?? exact_frame(rt, now)) } }
+    package func frame(now: Double, wall: Double? = nil, admitted: Bool = false) -> Batch { on { read(admitted ? exact_admitted_frame(rt, now, wall ?? now) : wall.map { exact_frame_at(rt, now, $0) } ?? exact_frame(rt, now)).made(by: .advance) } }
     /// Whether motion a commit begins waits for the first presented frame
     /// (LLP 1003.001 D7); off, what waits starts at `at`.
     package func startOnFrame(_ yes: Bool, at: Double) -> Batch { on { read(exact_start_on_frame(rt, yes ? 1 : 0, at)) } }
     package func presentFrames(_ yes: Bool) { on { () -> Void in _ = exact_present_frames(rt, yes ? 1 : 0) } }
+    /// The views prepared off screen and not yet revealed (LLP 1072 §3.5):
+    /// motion begun on them starts at the first frame after they show.
+    package func unshown(_ views: [UInt32]) { on { () -> Void in views.withUnsafeBufferPointer { exact_unshown(rt, $0.baseAddress, UInt32($0.count)) } } }
 
     package func resize(width: CGFloat, height: CGFloat) -> Batch { on(layout: true) { read(exact_resize(rt, Float(width), Float(height))) } }
     /// A placement root's resolved margins (left, top, right, bottom) and 1 for an authored width, then the resolved minimum width
@@ -935,14 +953,20 @@ package final class Runtime {
             return len == 0 ? nil : String(decoding: Data(bytes: exact_out(rt), count: Int(len)), as: UTF8.self)
         }
     }
-    package func linkActivities() { on { exact_link_activities(rt) } }
+    package func linkActivities() { guard let link = CoreExports.linkActivities else { return }; on { link(rt) } }
     /// Activity snapshots or a send completion from the demand-loaded arm.
-    package func activities(_ json: String) -> Batch { on { read(exact_activities(rt, write(json))) } }
+    package func activities(_ json: String) -> Batch {
+        guard let activities = CoreExports.activities else { return Runtime.noFeedback }
+        return on { read(activities(rt, write(json))) }
+    }
     /// A MIDI message (LLP 1125 D6–D8): the arm's ports or inputs, or the agent's `prefer midi` and `tap midi`.
     package func midi(_ json: String) -> Batch { on { read(exact_midi(rt, write(json))) } }
     package func preferExtension(_ json: String) -> Batch { on { read(exact_extension(rt, write(json))) } }
     /// A module event the platform reported (LLP 1133.004 D6), heard now.
-    package func moduleEvent(_ json: String) -> Batch { on { read(exact_module_event(rt, write(json))) } }
+    package func moduleEvent(_ json: String) -> Batch {
+        guard let event = CoreExports.moduleEvent else { return Runtime.noFeedback }
+        return on { read(event(rt, write(json))) }
+    }
     package func bindExtensions(_ names: [String]) { on { exact_bind_extensions(rt, write(names.joined(separator: "\n"))) } }
     /// A package picture's admission (LLP 1133.019 D11 item 1): nil for a
     /// source of no package's scheme.
@@ -1032,7 +1056,7 @@ package final class Runtime {
 
     /// `presentOnly`: the tick only hears the present of the page's first picture, and enters as the page's facts do
     package func tick(now: Double, frame: Double? = nil, presentOnly: Bool = false) -> Batch {
-        on(layout: presentOnly) { read(frame.map { exact_tick_at(rt, now, $0) } ?? exact_tick(rt, now)) }
+        on(layout: presentOnly) { read(frame.map { exact_tick_at(rt, now, $0) } ?? exact_tick(rt, now)).made(by: .tick) }
     }
     package func scheme(dark: Bool) -> Batch { on(layout: true) { read(exact_scheme(rt, dark ? 1 : 0)) } }
     package func viewScheme(_ view: UInt32, dark: Bool) -> Batch { on(layout: true) { read(exact_view_scheme(rt, view, dark ? 1 : 0)) } }
@@ -1058,13 +1082,6 @@ package final class Runtime {
     package func textReady(index: UInt32, generation: UInt32, revision: UInt64) -> Batch {
         return on(layout: true) {
             read(exact_text_ready(rt, index, generation, revision))
-        }
-    }
-    package func regionRequest(_ id: UInt64, knownSource: UInt64) -> [String: Any]? {
-        return on(busy: nil) {
-            let length = exact_region_request(rt, id, knownSource)
-            let data = Data(bytes: exact_out(rt), count: Int(length))
-            return try? JSONSerialization.jsonObject(with: data) as? [String: Any]
         }
     }
 
@@ -1160,6 +1177,42 @@ public struct OrientationRequest: Equatable {
     }
 }
 
+/// A navigation root's tabs as the kernel finds them (`Kernel::root_tabs`,
+/// LLP 1115.001 D11), the rule every host with a tab bar reads, over the
+/// kernel's tree in tree order, as a batch carries them with the ops it
+/// applies (host/apple/src/root_tabs.rs).
+public struct RootTabs: Equatable {
+    public let root: UInt32, tablist: UInt32
+    /// The tabs that name a panel, and those panels, in tab order.
+    public let tabs: [UInt32], panels: [UInt32]
+    /// Whether each panel's tab needs a navigation controller, read from the
+    /// plan, so known for a tab not built yet (`Runner::panels_need_navigation`,
+    /// LLP 1075.003 §3.7): its panel can hold more than one route, or its
+    /// route can show a header, which the platform shows as its navigation
+    /// bar. One fixed route with no header is a plain view controller.
+    public let navigation: [Bool]
+    /// The app left the bar's placement unsaid, by the web's rule for its
+    /// own sidebar (LLP 1116.004 D1.1; `host/web/navigation.js` `unsaidBar`):
+    /// read from the kernel's layout rows, which do not cross to the views.
+    public let unsaid: Bool
+    /// The tablist is covered whole as the batch ends, so the kernel lays it
+    /// out as `display: none`, as the boot covers one a tab bar replaces
+    /// (host/apple/src/closed.rs); the first install reads it (`adoptBootCover`).
+    public let covered: Bool
+
+    public init(root: UInt32, tablist: UInt32, tabs: [UInt32], panels: [UInt32], navigation: [Bool] = [], unsaid: Bool, covered: Bool = false) {
+        (self.root, self.tablist, self.tabs, self.panels, self.navigation, self.unsaid, self.covered) = (root, tablist, tabs, panels, navigation, unsaid, covered)
+    }
+
+    init?(_ o: [String: BatchValue]) {
+        guard let root = o["root"]?.number, let tablist = o["tablist"]?.number else { return nil }
+        let ids = { (key: String) in (o[key]?.array ?? []).compactMap { $0.number.map { UInt32($0) } } }
+        self.init(root: UInt32(root), tablist: UInt32(tablist), tabs: ids("tabs"), panels: ids("panels"),
+                  navigation: (o["navigation"]?.array ?? []).map { $0 == .bool(true) },
+                  unsaid: o["unsaid"] == .bool(true), covered: o["covered"] == .bool(true))
+    }
+}
+
 /// The pointer's three events and their ABI kinds (LLP 1005 §3).
 package enum PointerKind: UInt32 { case down = 29, up = 30, move = 31 }
 
@@ -1183,4 +1236,12 @@ package struct PointerSample {
         self.x = x; self.y = y; self.buttons = buttons; self.pressure = pressure; self.type = type; self.id = id
         self.clientX = clientX; self.clientY = clientY; self.held = held; self.button = button
     }
+}
+
+/// A batch's place in the order of production (`Batch.sequence`). The owner
+/// numbers what it makes; main numbers a batch the host made itself.
+package final class BatchSequence: @unchecked Sendable {
+    private let lock = NSLock()
+    private var last: UInt64 = 0
+    package func next() -> UInt64 { lock.withLock { last += 1; return last } }
 }

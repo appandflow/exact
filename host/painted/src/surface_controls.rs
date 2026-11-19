@@ -615,6 +615,13 @@ impl<D: DataSource> Presenter<D> {
         if !x.is_finite() || !y.is_finite() {
             return Some(json!({"error":"control needs finite points","malformed":true}));
         }
+        let mut wait_ms = None;
+        if phase == Some("hold") {
+            match crate::agent::contact::duration(q) {
+                Ok(ms) => wait_ms = self.live_time().map(|_| ms),
+                Err(error) => return Some(json!({"error":error,"malformed":true})),
+            }
+        }
         let phases = match phase {
             None => &["down", "up"][..],
             Some("hold") if x == sx && y == sy => &[],
@@ -641,7 +648,11 @@ impl<D: DataSource> Presenter<D> {
             Some("down" | "move" | "hold") => Some((id, x, y)),
             _ => None,
         };
-        Some(json!({"tapped":id,"phase":phase,"at":[x,y],"delivery":"recognized"}))
+        let mut reply = json!({"tapped":id,"phase":phase,"at":[x,y],"delivery":"recognized"});
+        if let Some(ms) = wait_ms {
+            reply["waitMs"] = ms.into();
+        }
+        Some(reply)
     }
 }
 

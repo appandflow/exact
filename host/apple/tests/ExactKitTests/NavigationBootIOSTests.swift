@@ -2,7 +2,10 @@
 import UIKit
 import XCTest
 import ObjectiveC
+import ExactCore
 @testable import ExactKit
+@testable import ExactDrag
+@testable import ExactNavigation
 
 final class NavigationBootIOSTests: XCTestCase {
     private var session: ExactSession?
@@ -95,8 +98,8 @@ final class NavigationBootIOSTests: XCTestCase {
             link.addAction(to: .beforeCATransactionCommit) { [unowned self] _, _ in
                 guard !committed, let session = self.session, session.booted else { return }
                 XCTAssertNil(session.firstDrawMs, "this must be the launch's first commit, not a later UI update")
-                XCTAssertNil(session.presenter.navigation.primaryOwner)
-                XCTAssertNotNil(session.presenter.navigation.bootOwner)
+                XCTAssertNil(session.presenter.navigationHost.primaryOwner)
+                XCTAssertNotNil(session.presenter.navigationHost.bootOwner)
                 before = self.geometry(session)
                 committed = true
                 transactionOpen = false
@@ -106,8 +109,8 @@ final class NavigationBootIOSTests: XCTestCase {
                 guard committed, !event, let session = self.session else { return }
                 XCTAssertNotNil(session.firstDrawMs, "the commit drew the content")
                 session.afterBootOwner {
-                    XCTAssertNotNil(session.presenter.navigation.primaryOwner)
-                    XCTAssertNil(session.presenter.navigation.bootOwner)
+                    XCTAssertNotNil(session.presenter.navigationHost.primaryOwner)
+                    XCTAssertNil(session.presenter.navigationHost.bootOwner)
                     XCTAssertEqual(before, self.geometry(session))
                     event = true
                 }
@@ -115,7 +118,7 @@ final class NavigationBootIOSTests: XCTestCase {
             link.requiresContinuousUpdates = true
             link.isEnabled = true
         })
-        XCTAssertNil(session.presenter.navigation.primaryOwner, "no navigation controller in the boot apply")
+        XCTAssertNil(session.presenter.navigationHost.primaryOwner, "no navigation controller in the boot apply")
         waitFor("the first commit and following event") { event }
     }
 
@@ -124,7 +127,7 @@ final class NavigationBootIOSTests: XCTestCase {
         CATransaction.begin()
         var open = true
         defer { if open { CATransaction.commit() } }
-        let session = try fixture("BARLESS_ROUTE"), nav = session.presenter.navigation
+        let session = try fixture("BARLESS_ROUTE"), nav = session.presenter.navigationHost
         var events: [String] = [], turn = 0, commitTurn = -1, handedOff = false
         let turns = CFRunLoopObserverCreateWithHandler(nil, CFRunLoopActivity.beforeTimers.rawValue, true, 0) { _, _ in turn += 1 }
         CFRunLoopAddObserver(CFRunLoopGetMain(), turns, .commonModes)
@@ -171,7 +174,7 @@ final class NavigationBootIOSTests: XCTestCase {
         CATransaction.begin()
         var open = true
         defer { if open { CATransaction.commit() } }
-        let session = try fixture("BARLESS_ROUTE"), p = session.presenter, nav = p.navigation
+        let session = try fixture("BARLESS_ROUTE"), p = session.presenter, nav = p.navigationHost
         let before = geometry(session), holder = try XCTUnwrap(nav.bootOwner)
         let launch = ExactLaunch()
         addTeardownBlock { launch.link?.invalidate() }
@@ -220,7 +223,7 @@ final class NavigationBootIOSTests: XCTestCase {
         CATransaction.begin()
         var open = true
         defer { if open { CATransaction.commit() } }
-        let session = try fixture("BARLESS_ROUTE"), p = session.presenter, nav = p.navigation
+        let session = try fixture("BARLESS_ROUTE"), p = session.presenter, nav = p.navigationHost
         let before = geometry(session), route = try XCTUnwrap(nav.activeRoute)
         let accessible = accessibilityOrder(try XCTUnwrap(session.view))
         XCTAssertFalse(accessible.isEmpty)
@@ -270,7 +273,7 @@ final class NavigationBootIOSTests: XCTestCase {
         CATransaction.begin()
         var open = true
         defer { if open { CATransaction.commit() } }
-        let session = try fixture("BARLESS_ROUTE"), p = session.presenter, nav = p.navigation
+        let session = try fixture("BARLESS_ROUTE"), p = session.presenter, nav = p.navigationHost
         let source = "data:image/png;base64," + UIGraphicsImageRenderer(size: CGSize(width: 2, height: 2)).image { context in
             UIColor.red.setFill(); context.fill(CGRect(x: 0, y: 0, width: 2, height: 2))
         }.pngData()!.base64EncodedString()
@@ -296,7 +299,7 @@ final class NavigationBootIOSTests: XCTestCase {
     func testRemovingEveryRouteOrFailingProjectionRetiresTheHolder() throws {
         guard hostedWindowScene() != nil else { throw missing("scene", "the boot owner needs a visible scene") }
         for remove in [true, false] {
-            let session = try fixture("BARLESS_ROUTE"), p = session.presenter, nav = p.navigation
+            let session = try fixture("BARLESS_ROUTE"), p = session.presenter, nav = p.navigationHost
             XCTAssertNotNil(nav.bootOwner)
             let root = try XCTUnwrap(nav.container), route = try XCTUnwrap(nav.bootOwner?.route)
             if remove { p.apply(wireBatch([["op": "children", "id": root.id, "ids": []]])) }
@@ -314,15 +317,18 @@ final class NavigationBootIOSTests: XCTestCase {
     /// Tabs whose Contract hides the bars before the first layout.
     private func deferredTabs() throws -> ExactSession {
         let session = try fixture("BOOT_TABS")
-        XCTAssertNotNil(session.presenter.navigation.bootOwner, "tabs: \(session.presenter.views.values.filter { $0.props["accessibilityRole"] == "tablist" }.map { "\($0.style)" }) routes: \(session.presenter.navigation.controllers.values.map { $0.node.props })")
+        XCTAssertNotNil(session.presenter.navigationHost.bootOwner, "tabs: \(session.presenter.views.values.filter { $0.props["accessibilityRole"] == "tablist" }.map { "\($0.style)" }) routes: \(session.presenter.navigationHost.controllers.values.map { $0.node.props })")
         return session
     }
 
     func testDroppingTabsBeforeCommitKeepsTheRealStackAndReshapeStable() throws {
         guard hostedWindowScene() != nil else { throw missing("scene", "the boot owner needs a visible scene") }
-        let session = try deferredTabs(), p = session.presenter, nav = p.navigation
+        let session = try deferredTabs(), p = session.presenter, nav = p.navigationHost
         let root = try XCTUnwrap(nav.container), route = try XCTUnwrap(nav.bootOwner?.route)
-        p.apply(wireBatch([["op": "children", "id": root.id, "ids": [route.node.id]]]))
+        // The root left with one route has no tabs, as the kernel says with the ops
+        var dropped = wireBatch([["op": "children", "id": root.id, "ids": [route.node.id]]])
+        dropped.rootTabs = []
+        p.apply(dropped)
         // A structural change must complete ownership synchronously.
         XCTAssertNil(nav.bootOwner)
         let owner = try XCTUnwrap(nav.primaryNavigation)
@@ -339,10 +345,15 @@ final class NavigationBootIOSTests: XCTestCase {
 
     func testChangingTabsBeforeCommitThenPopUsesTheNewStacks() throws {
         guard hostedWindowScene() != nil else { throw missing("scene", "the boot owner needs a visible scene") }
-        let session = try deferredTabs(), p = session.presenter, nav = p.navigation
+        let session = try deferredTabs(), p = session.presenter, nav = p.navigationHost
         let root = try XCTUnwrap(nav.container), tabs = try XCTUnwrap(NavigationTabs.of(root, p))
         let reversed = Array(tabs.tabs.reversed())
-        p.apply(wireBatch([["op": "children", "id": tabs.tablist.id, "ids": reversed.map(\.id)]]))
+        // The tabs in their new order, as the kernel says them with the ops
+        let said = try XCTUnwrap(p.rootTabs[root.id])
+        var reordered = wireBatch([["op": "children", "id": tabs.tablist.id, "ids": reversed.map(\.id)]])
+        reordered.rootTabs = [RootTabs(root: said.root, tablist: said.tablist, tabs: said.tabs.reversed(), panels: said.panels.reversed(),
+                                       navigation: said.navigation.reversed(), unsaid: said.unsaid, covered: said.covered)]
+        p.apply(reordered)
         XCTAssertNil(nav.bootOwner)
         XCTAssertEqual(nav.tabPanels, tabs.panels.reversed().map(\.id))
         let owner = try XCTUnwrap(nav.primaryOwner), stack = try XCTUnwrap(nav.primaryNavigation)
@@ -364,7 +375,7 @@ final class NavigationBootIOSTests: XCTestCase {
         CATransaction.begin()
         var transactionOpen = true
         defer { if transactionOpen { CATransaction.commit() } }
-        let session = try fixture("BARLESS_ROUTE"), nav = session.presenter.navigation
+        let session = try fixture("BARLESS_ROUTE"), nav = session.presenter.navigationHost
         XCTAssertNil(session.firstDrawMs)
         var checked = false, activationSawOwner = false
         // Force the first draw from within the observer pass, outside a UI
@@ -400,7 +411,7 @@ final class NavigationBootIOSTests: XCTestCase {
         CATransaction.begin()
         var open = true
         defer { if open { CATransaction.commit() } }
-        let session = try fixture("BARLESS_ROUTE"), nav = session.presenter.navigation
+        let session = try fixture("BARLESS_ROUTE"), nav = session.presenter.navigationHost
         session.runtime.evaluatesFromDraw = true
         XCTAssertNotNil(nav.bootOwner)
         session.firstDrawn(generation: session.generation, token: 0)
@@ -419,7 +430,7 @@ final class NavigationBootIOSTests: XCTestCase {
         guard hostedWindowScene() != nil else { throw missing("scene", "the boot owner needs a visible scene") }
         CATransaction.begin()
         defer { CATransaction.commit() }
-        let session = try fixture("BARLESS_ROUTE"), nav = session.presenter.navigation
+        let session = try fixture("BARLESS_ROUTE"), nav = session.presenter.navigationHost
         session.runtime.evaluatesFromDraw = true
         XCTAssertNotNil(nav.bootOwner)
         session.firstDrawn(generation: session.generation, token: 0)
@@ -436,7 +447,7 @@ final class NavigationBootIOSTests: XCTestCase {
         CATransaction.begin()
         var open = true
         defer { if open { CATransaction.commit() } }
-        let session = try fixture("BARLESS_ROUTE"), nav = session.presenter.navigation
+        let session = try fixture("BARLESS_ROUTE"), nav = session.presenter.navigationHost
         var checked = false
         let after = CFRunLoopObserverCreateWithHandler(nil, CFRunLoopActivity.beforeWaiting.rawValue, false, 2_000_002) { _, _ in
             XCTAssertNil(session.firstDrawMs)
@@ -459,7 +470,7 @@ final class NavigationBootIOSTests: XCTestCase {
         CATransaction.begin()
         var open = true
         defer { if open { CATransaction.commit() } }
-        let session = try fixture("BARLESS_ROUTE"), nav = session.presenter.navigation
+        let session = try fixture("BARLESS_ROUTE"), nav = session.presenter.navigationHost
         var queried = false
         DispatchQueue.main.async {
             XCTAssertNil(session.firstDrawMs)
@@ -487,7 +498,7 @@ final class NavigationBootIOSTests: XCTestCase {
         guard #available(iOS 18.0, *) else { return }
         for path in ["detach", "reset", "parked-reset", "off-window", "destroy"] {
             var ran = false, discharged = 0, activated = 0
-            let session = try fixture("BARLESS_ROUTE"), nav = session.presenter.navigation
+            let session = try fixture("BARLESS_ROUTE"), nav = session.presenter.navigationHost
             let holder = try XCTUnwrap(nav.bootOwner), mounted = try XCTUnwrap(session.view)
             let note = NotificationCenter.default.addObserver(forName: ExactSession.dataActivated, object: session, queue: .main) { _ in activated += 1 }
             let link = UIUpdateLink(view: mounted)
@@ -559,13 +570,13 @@ final class NavigationBootIOSTests: XCTestCase {
         defer { probe.restore() }
         let session = try fixture("BARLESS_ROUTE")
         XCTAssertTrue(finished)
-        XCTAssertNotNil(session.presenter.navigation.primaryOwner)
-        XCTAssertNotNil(session.presenter.navigation.activeRoute?.node.window, "the real owner holds the content in the window")
+        XCTAssertNotNil(session.presenter.navigationHost.primaryOwner)
+        XCTAssertNotNil(session.presenter.navigationHost.activeRoute?.node.window, "the real owner holds the content in the window")
         waitFor("activation after the reentrant initial handoff") { session.dataGeneration == session.generation }
         XCTAssertEqual(discharged, 1)
-        XCTAssertNil(session.presenter.navigation.transferringBootOwner)
-        XCTAssertNil(session.presenter.navigation.bootOwnerFallback)
-        XCTAssertTrue(session.presenter.navigation.bootOwnerNotifications.isEmpty)
+        XCTAssertNil(session.presenter.navigationHost.transferringBootOwner)
+        XCTAssertNil(session.presenter.navigationHost.bootOwnerFallback)
+        XCTAssertTrue(session.presenter.navigationHost.bootOwnerNotifications.isEmpty)
     }
 
     func testArrivingLargeTitleMatchesSynchronousInstallation() throws {
@@ -584,7 +595,7 @@ final class NavigationBootIOSTests: XCTestCase {
             }
             func dimensions(_ session: ExactSession) throws -> [CGFloat] {
                 session.view?.layoutIfNeeded()
-                let nav = session.presenter.navigation
+                let nav = session.presenter.navigationHost
                 let owner = try XCTUnwrap(nav.primaryNavigation), route = try XCTUnwrap(nav.activeRoute)
                 owner.view.layoutIfNeeded()
                 XCTAssertEqual(route.navigationItem.largeTitleDisplayMode, .always)
@@ -593,8 +604,8 @@ final class NavigationBootIOSTests: XCTestCase {
                         scroll.adjustedContentInset.top, scroll.adjustedContentInset.bottom, scroll.contentOffset.y]
             }
             let deferred = try fixture(tabs ? "BOOT_TABS" : "BARLESS_ROUTE")
-            XCTAssertNotNil(deferred.presenter.navigation.bootOwner)
-            let route = try XCTUnwrap(deferred.presenter.navigation.bootOwner?.route)
+            XCTAssertNotNil(deferred.presenter.navigationHost.bootOwner)
+            let route = try XCTUnwrap(deferred.presenter.navigationHost.bootOwner?.route)
             let field = focused ? UITextField(frame: CGRect(x: 20, y: 100, width: 180, height: 40)) : nil
             if let field { route.node.addSubview(field); XCTAssertTrue(field.becomeFirstResponder()) }
             let epoch = route.node.pressEpoch, originalWindow = route.node.window
@@ -602,10 +613,10 @@ final class NavigationBootIOSTests: XCTestCase {
             XCTAssertTrue(route.node.window === originalWindow)
             if let field { XCTAssertTrue(field.isFirstResponder) }
             XCTAssertEqual(route.node.pressEpoch, epoch)
-            XCTAssertNotNil(deferred.presenter.navigation.primaryOwner)
+            XCTAssertNotNil(deferred.presenter.navigationHost.primaryOwner)
             if focused { deferred.destroy(); continue }
             let arrived = try dimensions(deferred)
-            XCTAssertNil(deferred.presenter.navigation.bootOwner)
+            XCTAssertNil(deferred.presenter.navigationHost.bootOwner)
             deferred.destroy()
             let control = try fixture(tabs ? "BOOT_TABS" : "BARLESS_ROUTE", mounted: false)
             try addTitle(control)
@@ -620,8 +631,8 @@ final class NavigationBootIOSTests: XCTestCase {
     func testLaunchMediaTouchAndResizeUseSynchronousOwnership() throws {
         guard hostedWindowScene() != nil else { throw missing("scene", "the boot owner needs a visible scene") }
         let rotating = try fixture("BARLESS_ROUTE", rotatable: true)
-        XCTAssertNil(rotating.presenter.navigation.bootOwner, "rotation-capable launches are ineligible")
-        XCTAssertNotNil(rotating.presenter.navigation.primaryOwner)
+        XCTAssertNil(rotating.presenter.navigationHost.bootOwner, "rotation-capable launches are ineligible")
+        XCTAssertNotNil(rotating.presenter.navigationHost.primaryOwner)
         rotating.destroy()
         let offset = try fixture("BARLESS_ROUTE", batchEdit: { batch in
             let id = batch.ops.first { $0.props["testId"] == "route" }!.id
@@ -629,17 +640,17 @@ final class NavigationBootIOSTests: XCTestCase {
                 batch.ops[i].x = 20; batch.ops[i].w -= 20
             }
         })
-        XCTAssertNil(offset.presenter.navigation.bootOwner, "offset route planes install synchronously")
-        XCTAssertNotNil(offset.presenter.navigation.primaryOwner)
+        XCTAssertNil(offset.presenter.navigationHost.bootOwner, "offset route planes install synchronously")
+        XCTAssertNotNil(offset.presenter.navigationHost.primaryOwner)
         offset.destroy()
-        let touched = try fixture("BARLESS_ROUTE"), touchNav = touched.presenter.navigation
+        let touched = try fixture("BARLESS_ROUTE"), touchNav = touched.presenter.navigationHost
         let target = touched.view?.hitTest(CGPoint(x: 100, y: 100), with: BootTouchEvent())
         XCTAssertNotNil(target?.window)
         XCTAssertNotNil(touchNav.primaryOwner, "touch hit testing ends deferral before the gesture starts")
         XCTAssertNil(touchNav.bootOwner)
         XCTAssertNil(touchNav.transferringBootOwner)
         touched.destroy()
-        let session = try fixture("BARLESS_ROUTE"), nav = session.presenter.navigation
+        let session = try fixture("BARLESS_ROUTE"), nav = session.presenter.navigationHost
         let size = try XCTUnwrap(session.view).bounds.size
         session.view?.frame.size = CGSize(width: size.height, height: size.width)
         session.view?.layoutIfNeeded()
@@ -647,7 +658,7 @@ final class NavigationBootIOSTests: XCTestCase {
         XCTAssertNotNil(nav.primaryOwner)
         session.destroy()
         for (kind, props) in [("video", [:]), ("audio", [:]), ("image", ["imageSource": "photos:launch"])] {
-            let media = try fixture("BARLESS_ROUTE"), nav = media.presenter.navigation
+            let media = try fixture("BARLESS_ROUTE"), nav = media.presenter.navigationHost
             media.presenter.apply(wireBatch([["op": "create", "id": 90003, "kind": kind, "props": props]]))
             nav.sync(empty)
             XCTAssertNil(nav.bootOwner, "media and package pictures can load code before first pixel")
@@ -665,7 +676,7 @@ final class NavigationBootIOSTests: XCTestCase {
                 ["op": "create", "id": 90003, "kind": "iframe"],
                 ["op": "children", "id": route, "ids": children + [90003]]
             ]).ops
-        }), nav = session.presenter.navigation
+        }), nav = session.presenter.navigationHost
         XCTAssertNotNil(session.presenter.views[90003]?.window)
         XCTAssertNil(nav.bootOwner, "a guest can present a JavaScript dialog before an Exact event")
         XCTAssertNotNil(nav.primaryOwner)
@@ -674,7 +685,7 @@ final class NavigationBootIOSTests: XCTestCase {
     func testAnAnimatedScrollContinuesThroughTheHandoff() throws {
         guard hostedWindowScene() != nil else { throw missing("scene", "the boot owner needs a visible scene") }
         guard #available(iOS 18.0, *) else { return }
-        let session = try fixture("BARLESS_ROUTE"), nav = session.presenter.navigation
+        let session = try fixture("BARLESS_ROUTE"), nav = session.presenter.navigationHost
         let holder = try XCTUnwrap(nav.bootOwner)
         let route = try XCTUnwrap(holder.route)
         // Hold activation and both scheduled candidates so this test chooses
@@ -712,7 +723,7 @@ final class NavigationBootIOSTests: XCTestCase {
     func testBackgroundAndHiddenWindowFinishWithoutAnUpdate() throws {
         guard hostedWindowScene() != nil else { throw missing("scene", "the boot owner needs a visible scene") }
         for name in [UIScene.didEnterBackgroundNotification, UIWindow.didBecomeHiddenNotification] {
-            let session = try fixture("BARLESS_ROUTE"), nav = session.presenter.navigation
+            let session = try fixture("BARLESS_ROUTE"), nav = session.presenter.navigationHost
             XCTAssertNotNil(nav.bootOwner)
             if name == UIWindow.didBecomeHiddenNotification { window?.isHidden = true }
             else { NotificationCenter.default.post(name: name, object: window?.windowScene) }
@@ -727,7 +738,7 @@ final class NavigationBootIOSTests: XCTestCase {
         guard hostedWindowScene() != nil else { throw missing("scene", "the boot owner needs a visible scene") }
         let probe = BootAppearanceProbe()
         defer { probe.restore() }
-        let session = try fixture("BARLESS_ROUTE", beforeBoot: { $0.window?.tintColor = .systemGreen }), nav = session.presenter.navigation
+        let session = try fixture("BARLESS_ROUTE", beforeBoot: { $0.window?.tintColor = .systemGreen }), nav = session.presenter.navigationHost
         let route = try XCTUnwrap(nav.bootOwner?.route)
         XCTAssertNil(route.contentViewport, "this fixture exercises a bare node's parent move")
         XCTAssertEqual(nav.bootOwner?.view.tintColor, .systemGreen, "an unsaid tint inherits from the window")
@@ -768,7 +779,7 @@ final class NavigationBootIOSTests: XCTestCase {
         let control = try fixture("BARLESS_ROUTE", mounted: false)
         window?.rootViewController?.view.addSubview(try XCTUnwrap(control.view))
         control.view?.layoutIfNeeded()
-        let synchronous = try XCTUnwrap(control.presenter.navigation.activeRoute)
+        let synchronous = try XCTUnwrap(control.presenter.navigationHost.activeRoute)
         waitFor("the synchronous route's appearance ends") { (probe.events[synchronous] ?? []).contains("viewDidAppear:") }
         XCTAssertEqual(deferred, probe.events[synchronous] ?? [])
         XCTAssertEqual(deferred, ["viewWillAppear:", "viewIsAppearing:", "viewDidAppear:"])
@@ -780,7 +791,7 @@ final class NavigationBootIOSTests: XCTestCase {
             var snapshots: [([UInt32: [CGFloat]], Data, [String], [String])] = []
             for synchronous in [false, true] {
                 CATransaction.begin()
-                let session = try fixture(key, rotatable: synchronous), nav = session.presenter.navigation
+                let session = try fixture(key, rotatable: synchronous), nav = session.presenter.navigationHost
                 let holder = nav.bootOwner
                 XCTAssertEqual(holder != nil, !synchronous, key)
                 let route = try XCTUnwrap(nav.activeRoute), node = route.node
@@ -845,7 +856,7 @@ final class NavigationBootIOSTests: XCTestCase {
     func testDrawInANonCommonModeOnlySchedulesTheHandoff() throws {
         guard hostedWindowScene() != nil else { throw missing("scene", "the boot owner needs a visible scene") }
         CATransaction.begin()
-        let session = try fixture("BARLESS_ROUTE"), nav = session.presenter.navigation
+        let session = try fixture("BARLESS_ROUTE"), nav = session.presenter.navigationHost
         let holder = try XCTUnwrap(nav.bootOwner)
         let mode = RunLoop.Mode("ExactBootTestMode")
         var returned = false, checked = false
@@ -874,7 +885,7 @@ final class NavigationBootIOSTests: XCTestCase {
 
     func testAClosedFirstTreeAlertDefersAndOpeningItInstallsOwnership() throws {
         guard hostedWindowScene() != nil else { throw missing("scene", "boot comparisons need a visible scene") }
-        let session = try fixture("BOOT_DIALOG"), nav = session.presenter.navigation
+        let session = try fixture("BOOT_DIALOG"), nav = session.presenter.navigationHost
         XCTAssertNotNil(nav.bootOwner)
         session.presenter.dialogCommand("showModal", "launch-alert")
         XCTAssertNil(nav.bootOwner)
@@ -887,7 +898,7 @@ final class NavigationBootIOSTests: XCTestCase {
     func testPresentationFromTheWaitingContentInstallsItsRealPresenter() throws {
         guard hostedWindowScene() != nil else { throw missing("scene", "the boot owner needs a visible scene") }
         for source in ["node", "route-view", "menus"] {
-            let session = try fixture("BARLESS_ROUTE"), nav = session.presenter.navigation
+            let session = try fixture("BARLESS_ROUTE"), nav = session.presenter.navigationHost
             let holder = try XCTUnwrap(nav.bootOwner), node = try XCTUnwrap(holder.route?.node)
             let target = source == "route-view" ? try XCTUnwrap(holder.route?.view) : node
             let owner = try XCTUnwrap(source == "menus" ? session.presenter.menus.controller(for: target) : ViewPresentation.presenter(for: target))
@@ -908,7 +919,7 @@ final class NavigationBootIOSTests: XCTestCase {
         guard hostedWindowScene() != nil else { throw missing("scene", "input needs the mounted first frame") }
         for kind in ["accessibility", "native-button", "key", "keyup", "shortcut", "focus", "native-focus", "evaluated-input", "input", "change", "checked", "value"] {
             CATransaction.begin()
-            let session = try fixture("BOOT_CONTROL_TOP"), p = session.presenter, nav = p.navigation
+            let session = try fixture("BOOT_CONTROL_TOP"), p = session.presenter, nav = p.navigationHost
             let holder = try XCTUnwrap(nav.bootOwner)
             let node = try XCTUnwrap(p.views.values.first { $0.handlers.contains("press") })
             var called = false
@@ -954,7 +965,7 @@ final class NavigationBootIOSTests: XCTestCase {
         guard hostedWindowScene() != nil else { throw missing("scene", "boot comparisons need a visible scene") }
         for kind in ["copy", "cut", "paste", "selection", "scroll", "timer", "notification", "hold", "height-drag"] {
             CATransaction.begin()
-            let session = try fixture("BOOT_CLIPBOARD"), nav = session.presenter.navigation
+            let session = try fixture("BOOT_CLIPBOARD"), nav = session.presenter.navigationHost
             let holder = try XCTUnwrap(nav.bootOwner)
             CATransaction.commit()
             CATransaction.flush()
@@ -989,7 +1000,7 @@ final class NavigationBootIOSTests: XCTestCase {
     func testAFirstScreenCSSAnimationReceivesItsTick() throws {
         guard hostedWindowScene() != nil else { throw missing("scene", "boot comparisons need a visible scene") }
         CATransaction.begin()
-        let session = try fixture("BOOT_MOTION"), nav = session.presenter.navigation
+        let session = try fixture("BOOT_MOTION"), nav = session.presenter.navigationHost
         XCTAssertNotNil(nav.bootOwner)
         XCTAssertTrue(session.frames.motion)
         session.frames.run(true)
@@ -1015,7 +1026,7 @@ final class NavigationBootIOSTests: XCTestCase {
         CATransaction.begin()
         var open = true
         defer { if open { CATransaction.commit() } }
-        let session = try fixture("BARLESS_ROUTE"), nav = session.presenter.navigation
+        let session = try fixture("BARLESS_ROUTE"), nav = session.presenter.navigationHost
         let holder = try XCTUnwrap(nav.bootOwner)
         XCTAssertTrue(session.frames.motion && session.frames.presentOnly, "the link runs only for the present")
         session.frames.run(true)
@@ -1037,7 +1048,7 @@ final class NavigationBootIOSTests: XCTestCase {
 
     func testPlainListInstallsSynchronously() throws {
         guard hostedWindowScene() != nil else { throw missing("scene", "boot comparisons need a visible scene") }
-        let session = try fixture("BOOT_PLAIN"), nav = session.presenter.navigation
+        let session = try fixture("BOOT_PLAIN"), nav = session.presenter.navigationHost
         XCTAssertNil(nav.bootOwner, "native row controllers install synchronously")
         XCTAssertNotNil(nav.primaryOwner)
     }
@@ -1047,7 +1058,7 @@ final class NavigationBootIOSTests: XCTestCase {
         guard hostedWindowScene() != nil else { throw missing("scene", "the regression needs the mounted first tree") }
         CATransaction.begin()
         defer { CATransaction.commit() }
-        let session = try fixture("BOOT_TRANSFORM"), p = session.presenter, nav = p.navigation
+        let session = try fixture("BOOT_TRANSFORM"), p = session.presenter, nav = p.navigationHost
         XCTAssertNotNil(nav.bootOwner)
         XCTAssertFalse(p.transformBindings.isEmpty)
         let admit = session.runtime.beforeEvent
@@ -1070,7 +1081,7 @@ final class NavigationBootIOSTests: XCTestCase {
         var snapshots: [([UInt32: [CGFloat]], Data, [CGFloat]?)] = []
         for synchronous in [false, true] {
             CATransaction.begin()
-            let session = try fixture("BOOT_PADDED", rotatable: synchronous), nav = session.presenter.navigation
+            let session = try fixture("BOOT_PADDED", rotatable: synchronous), nav = session.presenter.navigationHost
             XCTAssertEqual(nav.bootOwner != nil, !synchronous)
             let route = try XCTUnwrap(nav.activeRoute), list = try XCTUnwrap(route.collapseScroll?.scrollView)
             XCTAssertGreaterThan(list.contentInset.top, 0, "authored padding adds clearance below the status bar")
@@ -1098,7 +1109,7 @@ final class NavigationBootIOSTests: XCTestCase {
         CATransaction.begin()
         defer { CATransaction.commit() }
         let recorded = TipsRecorded.install(in: self)
-        let session = try fixture("BOOT_TIP"), nav = session.presenter.navigation
+        let session = try fixture("BOOT_TIP"), nav = session.presenter.navigationHost
         XCTAssertNil(nav.bootOwner, "a first tree carrying a tip installs synchronously")
         XCTAssertNotNil(nav.primaryOwner)
         session.presenter.presentTips()
@@ -1125,7 +1136,7 @@ final class NavigationBootIOSTests: XCTestCase {
         var snapshots: [[UInt32: [CGFloat]]] = []
         for synchronous in [false, true] {
             CATransaction.begin()
-            let session = try fixture("BARLESS_ROUTE", rotatable: synchronous), p = session.presenter, nav = p.navigation
+            let session = try fixture("BARLESS_ROUTE", rotatable: synchronous), p = session.presenter, nav = p.navigationHost
             XCTAssertEqual(nav.bootOwner != nil, !synchronous)
             let route = try XCTUnwrap(nav.activeRoute), old = try XCTUnwrap(route.collapseScroll)
             let parent = try XCTUnwrap(old.superview as? NodeView), f = old.frame
@@ -1160,7 +1171,7 @@ final class NavigationBootIOSTests: XCTestCase {
             CATransaction.begin()
             let session = try fixture("BARLESS_ROUTE", rotatable: synchronous, batchEdit: { batch in
                 if let index = batch.ops.firstIndex(where: { $0.op == .create }) { batch.ops[index].handlers.insert("key") }
-            }, beforeBoot: { _ in _ = FirstResponder.current?.resignFirstResponder() }), nav = session.presenter.navigation
+            }, beforeBoot: { _ in _ = FirstResponder.current?.resignFirstResponder() }), nav = session.presenter.navigationHost
             waitForMainQueue("the first keyboard tree's queued mount")
             let view = try XCTUnwrap(session.view)
             XCTAssertTrue(view.canBecomeFirstResponder)
@@ -1184,14 +1195,14 @@ final class NavigationBootIOSTests: XCTestCase {
 
     func testFullWindowEmbeddedViewInstallsSynchronously() throws {
         guard hostedWindowScene() != nil else { throw missing("scene", "the boot owner needs a visible scene") }
-        let session = try fixture("BARLESS_ROUTE", ownsWindow: false), nav = session.presenter.navigation
+        let session = try fixture("BARLESS_ROUTE", ownsWindow: false), nav = session.presenter.navigationHost
         XCTAssertNotNil(nav.primaryOwner)
         XCTAssertNil(nav.bootOwner)
     }
 
     func testDevMenuResolvesItsStoredPresenterAfterOwnership() throws {
         guard hostedWindowScene() != nil else { throw missing("scene", "the boot owner needs a visible scene") }
-        let session = try fixture("BARLESS_ROUTE"), nav = session.presenter.navigation
+        let session = try fixture("BARLESS_ROUTE"), nav = session.presenter.navigationHost
         XCTAssertNotNil(nav.bootOwner)
         DevMenu.session = session
         DevMenu.controller = window?.rootViewController
@@ -1205,21 +1216,21 @@ final class NavigationBootIOSTests: XCTestCase {
     func testNativeBarsInstallInTheBootApply() throws {
         guard hostedWindowScene() != nil else { throw missing("scene", "the navigation owner is installed in a window scene") }
         let session = try fixture("BARLESS_TAB")
-        XCTAssertNotNil(session.presenter.navigation.primaryOwner)
-        XCTAssertNotNil(session.presenter.navigation.tabController)
-        XCTAssertNil(session.presenter.navigation.bootOwner)
+        XCTAssertNotNil(session.presenter.navigationHost.primaryOwner)
+        XCTAssertNotNil(session.presenter.navigationHost.tabController)
+        XCTAssertNil(session.presenter.navigationHost.bootOwner)
     }
 
     func testWindowlessBootInstallsOnMount() throws {
         guard hostedWindowScene() != nil else { throw missing("scene", "the navigation owner is installed in a window scene") }
         let session = try fixture("BARLESS_ROUTE", mounted: false)
-        XCTAssertNil(session.presenter.navigation.primaryOwner)
-        XCTAssertNil(session.presenter.navigation.bootOwner)
+        XCTAssertNil(session.presenter.navigationHost.primaryOwner)
+        XCTAssertNil(session.presenter.navigationHost.bootOwner)
         window?.rootViewController?.view.addSubview(try XCTUnwrap(session.view))
         session.view?.layoutIfNeeded()
-        waitFor("mount installs the windowless boot's owner") { session.presenter.navigation.primaryOwner != nil }
-        XCTAssertNotNil(session.presenter.navigation.primaryOwner)
-        XCTAssertNil(session.presenter.navigation.bootOwner)
+        waitFor("mount installs the windowless boot's owner") { session.presenter.navigationHost.primaryOwner != nil }
+        XCTAssertNotNil(session.presenter.navigationHost.primaryOwner)
+        XCTAssertNil(session.presenter.navigationHost.bootOwner)
     }
 }
 

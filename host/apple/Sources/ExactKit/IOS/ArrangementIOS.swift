@@ -5,11 +5,11 @@ final class ArrangementPaneController: UIViewController {
     let node: NodeView
     let room: () -> CGSize
     let changed: () -> Void
-    init(node: NodeView, room: @escaping () -> CGSize, changed: @escaping () -> Void) {
+    package init(node: NodeView, room: @escaping () -> CGSize, changed: @escaping () -> Void) {
         self.node = node; self.room = room; self.changed = changed
         super.init(nibName: nil, bundle: nil)
     }
-    required init?(coder: NSCoder) { nil }
+    package required init?(coder: NSCoder) { nil }
     override func loadView() {
         view = PaneView(node: node, room: room)
         view.clipsToBounds = true
@@ -40,11 +40,11 @@ final class ArrangementPaneController: UIViewController {
         private var fitting: Measurement?
         private var measuring = false
 
-        init(node: NodeView, room: @escaping () -> CGSize) {
+        package init(node: NodeView, room: @escaping () -> CGSize) {
             self.node = node; self.room = room
             super.init(frame: .zero)
         }
-        required init?(coder: NSCoder) { nil }
+        package required init?(coder: NSCoder) { nil }
 
         override var intrinsicContentSize: CGSize {
             // The enclosing element's room is independent of the pane's allocation.
@@ -131,13 +131,15 @@ struct BottomReach {
 
 /// UIKit containment for two retained authored panes
 @available(iOS 27.1, *)
-final class ArrangementHost {
+package final class ArrangementHost {
     private unowned let presenter: Presenter
     private var requests: [UInt32: UIArrangementViewController] = [:]
     private var insetScrollers: [UInt32: UIScrollView] = [:]
     private var pendingTops: [UInt32: CGFloat] = [:]
     private var syncingInsets = false
     private var layoutPending = false
+    /// The panes UIKit hides, as last reported covered whole.
+    private var toldHidden: Set<UInt32> = []
     private var reaches: [UInt32: BottomReach] = [:]
     private var children: [UInt32: [UInt32]] = [:]
     private(set) var entries: [UInt32: Entry] = [:]
@@ -147,7 +149,7 @@ final class ArrangementHost {
         let controller: UIArrangementViewController
         let panes: [NodeView]
         let holders: [ArrangementPaneController]
-        init(node: NodeView, controller: UIArrangementViewController, panes: [NodeView], changed: @escaping () -> Void) {
+        package init(node: NodeView, controller: UIArrangementViewController, panes: [NodeView], changed: @escaping () -> Void) {
             self.node = node; self.controller = controller; self.panes = panes
             holders = panes.map { ArrangementPaneController(node: $0, room: { [weak node] in node?.container.bounds.size ?? .zero }, changed: changed) }
             for holder in holders { holder.loadViewIfNeeded() }
@@ -166,10 +168,10 @@ final class ArrangementHost {
         }
     }
 
-    init(_ presenter: Presenter) { self.presenter = presenter }
+    package init(_ presenter: Presenter) { self.presenter = presenter }
 
     /// The policy last applied to this backend, until the next inset sync.
-    func insets(_ node: NodeView) -> Bool {
+    package func insets(_ node: NodeView) -> Bool {
         guard let scroll = node.scrollView else { return false }
         return insetScrollers[node.id] === scroll
     }
@@ -201,6 +203,8 @@ final class ArrangementHost {
         for (id, entry) in entries where requests[id] !== entry.controller || presenter.views[id] !== entry.node || entry.panes.contains(where: { presenter.views[$0.id] !== $0 }) || (children[id] != nil && children[id] != entry.panes.map(\.id)) {
             retire(entry); entries[id] = nil
             if presenter.views[id] === entry.node { presenter.placeChildren(entry.node, children[id] ?? entry.panes.map(\.id)) }
+            // Its panes are no longer hidden by UIKit: their covers go with the next layout pass.
+            layoutChanged()
         }
         for (id, controller) in requests where entries[id] == nil {
             guard let node = presenter.views[id], let owner = ViewPresentation.controllers(for: node, layout: true).first,
@@ -236,8 +240,8 @@ final class ArrangementHost {
         return ids.allSatisfy { presenter.views[$0] != nil } ? ids : nil
     }
 
-    private func route(of node: NodeView) -> RouteController? {
-        ViewPresentation.controllers(for: node, layout: true).compactMap { $0 as? RouteController }.first
+    package func route(of node: NodeView) -> (any RouteSurface)? {
+        ViewPresentation.controllers(for: node, layout: true).compactMap { $0 as? any RouteSurface }.first
     }
 
     private func retire(_ entry: Entry) {
@@ -269,16 +273,17 @@ final class ArrangementHost {
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             layoutPending = false
-            guard !entries.isEmpty || !insetScrollers.isEmpty else { return }
+            guard !entries.isEmpty || !insetScrollers.isEmpty else { return reportHiddenPanes() }
             syncInsets()
             refreshContentSizes()
             presenter.owners.publish()
+            reportHiddenPanes()
             presenter.navigation.coversChanged()
         }
     }
 
     /// Panes touching a route edge own its inset; interior panes must already clear that edge.
-    func scrollers(in route: NodeView, top: Bool) -> [NodeView] {
+    package func scrollers(in route: NodeView, top: Bool) -> [NodeView] {
         entries.values.flatMap { entry -> [NodeView] in
             let node = entry.node, room = node.contentBox()
             guard node.isDescendant(of: route), node.transform.isIdentity, node.clipPath == nil,
@@ -300,7 +305,7 @@ final class ArrangementHost {
                 // The top compares only the pane's origin, where it sits whatever block it was told.
                 let pane = holder.node, frame = pane.convert(pane.bounds, to: holder.view)
                 guard let told = presenter.owners.told[pane.id]?.block, case .size = told.height,
-                      pane.scrollView != nil, pane.scrollsVertically, pane.transform.isIdentity, pane.clipPath == nil, NavigationHost.inFlow(pane) else { return false }
+                      pane.scrollView != nil, pane.scrollsVertically, pane.transform.isIdentity, pane.clipPath == nil, RouteGeometry.inFlow(pane) else { return false }
                 if top { return abs(frame.minY) < 1 }
                 return BottomReach.reaches(pane, end: frame.maxY, told: told, slack: slack, held: &reaches[pane.id])
             }) else { return [] }
@@ -313,7 +318,7 @@ final class ArrangementHost {
     private func reachesEdge(_ node: NodeView, in route: NodeView, top: Bool) -> CGFloat? {
         var child = node, slack: CGFloat = 0
         while child !== route {
-            guard !child.isHidden, NavigationHost.inFlow(child) else { return nil }
+            guard !child.isHidden, RouteGeometry.inFlow(child) else { return nil }
             var up = child.superview
             while let view = up, !(view is NodeView) {
                 guard !(view is UIScrollView), view.transform.isIdentity, view.layer.mask == nil else { return nil }
@@ -346,7 +351,7 @@ final class ArrangementHost {
         adoptOwners()
         syncSafeAreas()
         var now: [UInt32: UIScrollView] = [:]
-        for route in presenter.navigation.controllers.values where !NavigationHost.insetsNoTop(route.node) {
+        for route in presenter.navigation.routeSurfaces.values where !RouteGeometry.insetsNoTop(route.node) {
             for node in scrollers(in: route.node, top: true) + scrollers(in: route.node, top: false) {
                 now[node.id] = node.scrollView
             }
@@ -360,7 +365,7 @@ final class ArrangementHost {
                 let top = node.pendingScrollTop.map { CGFloat($0) } ?? saved ?? (scroll.contentOffset.y + node.scrollTopInset(scroll))
                 node.hiddenScroll = CGPoint(x: scroll.contentOffset.x, y: top)
             }
-            if let node, presenter.navigation.controllers.values.contains(where: { $0.collapseScroll === node || $0.edgeScroll === node }) { continue }
+            if let node, presenter.navigation.routeSurfaces.values.contains(where: { $0.collapseScroll === node || $0.edgeScroll === node }) { continue }
             let top = scroll.contentOffset.y + (node?.scrollTopInset(scroll) ?? scroll.adjustedContentInset.top)
             scroll.contentInsetAdjustmentBehavior = .never
             node?.scrollOrigin = 0; node?.scrollCollapsed = 0
@@ -446,14 +451,27 @@ final class ArrangementHost {
 
     func cancelScrollHandoff(_ id: UInt32) { pendingTops[id] = nil }
 
+    /// A pane UIKit hides takes no room in the authored layout: it is covered
+    /// whole, told with what changed since the last report. A scroller's least
+    /// content height follows its cover (`scrollFloor`).
+    private func reportHiddenPanes() {
+        let now = Set(hiddenPanes)
+        guard now != toldHidden else { return }
+        let changes = now.subtracting(toldHidden).map { ($0, HostCover.whole as HostCover?) }
+            + toldHidden.subtracting(now).filter { presenter.views[$0] != nil }.map { ($0, nil as HostCover?) }
+        toldHidden = now
+        for (id, _) in changes { presenter.views[id]?.fitScroll() }
+        presenter.onCovers?(changes)
+    }
+
     /// Native-hidden panes take no room in the authored edge chain.
-    var hiddenPanes: [UInt32] {
+    package var hiddenPanes: [UInt32] {
         entries.values.flatMap { entry in
             entry.holders.filter { entry.isHidden($0) }.map { $0.node.id }
         }
     }
 
-    var blocks: [UInt32: (block: HostBlock, placement: BlockPlacement?)] {
+    package var blocks: [UInt32: (block: HostBlock, placement: BlockPlacement?)] {
         var out: [UInt32: (block: HostBlock, placement: BlockPlacement?)] = [:]
         for entry in entries.values {
             for holder in entry.holders {
@@ -476,7 +494,7 @@ final class ArrangementHost {
 
     func reset() {
         for entry in entries.values { retire(entry) }
-        entries = [:]; requests = [:]; children = [:]
+        entries = [:]; requests = [:]; children = [:]; toldHidden = []
         syncInsets()
     }
 }
@@ -484,44 +502,6 @@ final class ArrangementHost {
 
 #if os(iOS) || os(tvOS)
 import UIKit
-
-extension NavigationHost {
-    /// Follow neutral wrappers only while the named scroller remains the first content at their top
-    static func topScroller(_ start: NodeView, target: NodeView?) -> NodeView? {
-        guard let target else { return nil }
-        var node = start
-        while node !== target {
-            guard node.scrollView == nil, !node.bounds.isEmpty, node.transform.isIdentity,
-                  CATransform3DIsIdentity(node.layer.transform),
-                  !node.overflowClips, node.clipPath == nil,
-                  node.contentBox().minY <= 0.5 else { return nil }
-            let children = node.container.subviews.compactMap { $0 as? NodeView }.filter(flowingTopContent)
-            guard let first = children.first, abs(first.frame.minY - node.contentBox().minY) < 1,
-                  children.allSatisfy({ $0 === first || $0.frame.minY >= first.frame.maxY - 0.5 }) else { return nil }
-            node = first
-        }
-        return target.scrollView == nil ? nil : target
-    }
-
-    static func flowingTopContent(_ node: NodeView) -> Bool {
-        (!node.isHidden || node.presenter?.menus.isLaidOut(node) == true) && inFlow(node)
-    }
-
-    func arrangementScrollers(in route: RouteController, top: Bool) -> [NodeView] {
-        #if os(iOS)
-        if #available(iOS 27.1, *), !Self.insetsNoTop(route.node) { return presenter.arrangements.scrollers(in: route.node, top: top) }
-        #endif
-        return []
-    }
-
-    func arrangementInsets(_ scroll: UIScrollView, in route: RouteController) -> Bool {
-        arrangementPeers(in: route).contains { $0.scrollView === scroll }
-    }
-
-    func arrangementPeers(in route: RouteController) -> [NodeView] {
-        arrangementScrollers(in: route, top: true) + arrangementScrollers(in: route, top: false)
-    }
-}
 
 extension Presenter {
     func arrangementHides(_ id: UInt32) -> Bool {

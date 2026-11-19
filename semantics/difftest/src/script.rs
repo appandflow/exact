@@ -27,7 +27,8 @@ pub enum Event {
 /// What a corpus test expects of the runner after the steps before it.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Expect {
-    /// `expect state path == literal`: the resolved observation value's text.
+    /// Compare a resolved state value with literals using `==`, `!=`, `>=`, `<=` or `in`.
+    /// State-path operands stop delivery under this synchronous oracle.
     State(String, contract_syntax::StateComparison, Vec<String>),
     /// `expect text "id" == "value"`.
     Text(String, String),
@@ -310,6 +311,11 @@ fn deliver(step: &Step) -> Result<Option<Item>, String> {
             value,
             ..
         } => {
+            let contract_syntax::StateOperand::Literal(value) = value else {
+                return Err(
+                    "state path operands are not delivered by the synchronous oracle".into(),
+                );
+            };
             let values = if *comparison == contract_syntax::StateComparison::In {
                 let Expr::List(values, _) = value else {
                     return Err("state membership needs literals".into());
@@ -442,6 +448,7 @@ pub(crate) fn state_holds(
 ) -> bool {
     use contract_syntax::StateComparison as C;
     match comparison {
+        C::NotEqual => got.is_some_and(|got| values.first().is_some_and(|value| value != got)),
         C::Equal | C::In => got.is_some_and(|got| values.iter().any(|value| value == got)),
         C::AtLeast | C::AtMost => got
             .and_then(crate::property::number)

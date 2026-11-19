@@ -13,8 +13,8 @@ import QuartzCore
 /// steps from its start to its end, each opacity, translation x and y
 /// (points, y down), scale and rotation (degrees clockwise), about the box's
 /// centre. No pose is the author's cut (`animation="none"`).
-struct RoutePart {
-    let seconds: Double
+package struct RoutePart {
+    package let seconds: Double
     let poses: [[Double]]
 
     init?(json: Data) {
@@ -27,7 +27,7 @@ struct RoutePart {
 
     /// Whether it moves anything: a cut does not, nor does any part while
     /// the person asks for less motion (D6).
-    var plays: Bool { seconds > 0 && poses.count > 1 && !DisplayPreferences.reducedMotion }
+    package var plays: Bool { seconds > 0 && poses.count > 1 && !DisplayPreferences.reducedMotion }
 
     /// A pose as a layer's transform, turning and scaling about `centre`,
     /// the box's centre in the layer's own space: zero for a layer anchored
@@ -42,7 +42,7 @@ struct RoutePart {
 
     /// The part as one animation of a layer's opacity and transform, held at
     /// its end until removed.
-    func animation(about centre: CGPoint = .zero) -> CAAnimation {
+    package func animation(about centre: CGPoint = .zero) -> CAAnimation {
         let steps = poses.count - 1
         let times = (0...steps).map { NSNumber(value: Double($0) / Double(steps)) }
         let opacity = CAKeyframeAnimation(keyPath: "opacity")
@@ -66,7 +66,7 @@ extension Runtime {
     /// The entrance (`exit` false) or exit route `view` declares, posed for
     /// a box `size` large; nil where it declares none or may play none (a
     /// sheet, a zoom), and the platform's transition runs.
-    func routePart(_ view: UInt32, exit: Bool, size: CGSize) -> RoutePart? {
+    package func routePart(_ view: UInt32, exit: Bool, size: CGSize) -> RoutePart? {
         on(busy: nil) {
             let len = exact_route_part(rt, view, exit ? 1 : 0, Double(size.width), Double(size.height))
             return RoutePart(json: Data(bytes: exact_out(rt), count: Int(len)))

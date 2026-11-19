@@ -196,6 +196,11 @@ impl Core {
             // child's stream takes a stream's place (LLP 1133.007).
             let upload = r.request.upload_progress;
             let stream = r.request.stream && !upload;
+            let exchange = if r.request.is_process() {
+                !stream
+            } else {
+                stream && r.request.listen.is_none() && r.request.long_poll.is_none()
+            };
             state.streams += usize::from(stream);
             let abort = AbortController::new();
             state.running.push(Running {
@@ -206,8 +211,7 @@ impl Core {
                 charge: if waits || one_shot { 0 } else { charge },
                 limit,
                 abort: Some(abort.clone()),
-                // An app's abort ends a one-shot's child, as a forget does (LLP 1133.007 D3).
-                exchange: (r.request.is_process() && !r.request.stream).then(|| abort.clone()),
+                exchange: exchange.then(|| abort.clone()),
                 forgotten,
                 stream,
                 waiting: waits || one_shot,

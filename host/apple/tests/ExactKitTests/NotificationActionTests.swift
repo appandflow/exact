@@ -10,6 +10,7 @@ import UserNotifications
 import UIKit
 #endif
 @testable import ExactKit
+@testable import ExactNotifications
 
 #if os(iOS)
 private extension UIApplication {

@@ -13,6 +13,7 @@
 import AppKit
 import XCTest
 @testable import ExactKit
+@testable import ExactNavigation
 
 final class RouteSheetMacTests: XCTestCase {
     /// One stack: a home route, and modal routes the app mounts as it
@@ -558,7 +559,7 @@ final class RouteSheetMacTests: XCTestCase {
         XCTAssertTrue(route.window === f.window)
         XCTAssertFalse(route.standsOnSheetGround)
         XCTAssertGreaterThan(route.cgColor("background_color")?.alpha ?? 0, 0, "painted as before, on the ground the compiler gives a modal route (`ModalGroundMacTests`: one it gave none)")
-        XCTAssertTrue(p.navigation.keptSheets[route.id]?.contains("inside a pressable") == true)
+        XCTAssertTrue(p.navigationHost.keptSheets[route.id]?.contains("inside a pressable") == true)
         XCTAssertEqual(p.dialogs.routeObservation?["presentation"] as? String, "painted")
         let log = f.session.agent("{\"op\":\"logs\"}")
         XCTAssertTrue(log.contains("stays painted in the window: its heading is inside a pressable"), "the session's log says why")
@@ -618,7 +619,7 @@ final class RouteSheetMacTests: XCTestCase {
         XCTAssertFalse(clickBehind(f))
         XCTAssertNotNil(f.window.attachedSheet, "only its own buttons close it")
         XCTAssertTrue(f.status.contains("cancelled 3"), f.status)
-        XCTAssertEqual(p.navigation.agentBack()?.refused, "its closedby is \"none\"")
+        XCTAssertEqual(p.navigationHost.agentBack()?.refused, "its closedby is \"none\"")
         try sheet(f).chrome.cancel.performClick(nil)
         f.settle()
         XCTAssertNil(f.window.attachedSheet)

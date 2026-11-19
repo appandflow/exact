@@ -211,6 +211,9 @@ pub enum AnimationError {
     /// An `-exact-exit-animation` that never ends — an `infinite` count, or
     /// `paused` — would keep its leaving node forever (LLP 1063).
     Endless,
+    /// An animation reached an artifact that does not link CSS animations
+    /// ([`crate::link_animations`]); its plan is refused at boot (LLP 1047 D6).
+    Unlinked,
 }
 
 impl std::fmt::Display for AnimationError {
@@ -259,6 +262,9 @@ impl std::fmt::Display for AnimationError {
             AnimationError::Endless => f.write_str(
                 "an exit animation ends: it is not `infinite` and not `paused`",
             ),
+            AnimationError::Unlinked => {
+                f.write_str("CSS animations are not linked into this artifact (LLP 1047 D6)")
+            }
         }
     }
 }

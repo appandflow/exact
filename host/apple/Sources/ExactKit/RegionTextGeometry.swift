@@ -1,4 +1,5 @@
 // Queue-neutral owned result. No CTLine/CTRun/CTTypesetter or TextEngine alias.
+#if os(macOS)
 import Foundation
 import CoreText
 import CExact
@@ -8,21 +9,21 @@ import UIKit
 import AppKit
 #endif
 
-struct RegionCaret: Sendable {
-    let primary: CGFloat
-    let secondary: CGFloat
+package struct RegionCaret: Sendable {
+    package let primary: CGFloat
+    package let secondary: CGFloat
 }
 
-struct RegionLine: Sendable {
-    let range: NSRange
-    let carets: [RegionCaret]
+package struct RegionLine: Sendable {
+    package let range: NSRange
+    package let carets: [RegionCaret]
     private let selectionRuns: [TextSelectionRun]
-    let ink: CGRect
-    let ascent: CGFloat
-    let descent: CGFloat
-    let leading: CGFloat
-    let typographicWidth: CGFloat
-    let flushOffset: CGFloat
+    package let ink: CGRect
+    package let ascent: CGFloat
+    package let descent: CGFloat
+    package let leading: CGFloat
+    package let typographicWidth: CGFloat
+    package let flushOffset: CGFloat
     /// Point answers and open-interval answers are kept separately. The worker
     /// asks CoreText at caret boundaries; the UI never invokes CTLine APIs.
     private let hitEdges: [CGFloat]
@@ -30,7 +31,7 @@ struct RegionLine: Sendable {
     private let intervalIndices: [CFIndex]
 
     /// `whiteSpace` and `text` (the line's source) place the trailing spaces its width counts (`TextEngine.penOffset`).
-    init(_ line: CTLine, flush: CGFloat, width: CGFloat, rtl: Bool = false, whiteSpace: Int = 0, text: NSAttributedString? = nil,
+    package init(_ line: CTLine, flush: CGFloat, width: CGFloat, rtl: Bool = false, whiteSpace: Int = 0, text: NSAttributedString? = nil,
          inset: (left: CGFloat, width: CGFloat) = (0, 0), captureHits: Bool = true, conservativeInk: CGRect? = nil,
          origin: CGFloat? = nil, emptyIndex: Int? = nil) {
         let r = CTLineGetStringRange(line)
@@ -74,17 +75,17 @@ struct RegionLine: Sendable {
         intervalIndices = intervals
     }
 
-    func offsets(at index: Int) -> RegionCaret {
+    package func offsets(at index: Int) -> RegionCaret {
         let local = index - range.location
         guard carets.indices.contains(local) else { return RegionCaret(primary: 0, secondary: 0) }
         return carets[local]
     }
 
-    func selectionSpans(_ selection: NSRange) -> [ClosedRange<CGFloat>] {
+    package func selectionSpans(_ selection: NSRange) -> [ClosedRange<CGFloat>] {
         TextSelectionRun.spans(selection, runs: selectionRuns) { offsets(at: $0).primary }
     }
 
-    func index(at x: CGFloat) -> CFIndex {
+    package func index(at x: CGFloat) -> CFIndex {
         if range.length == 0 { return range.location }
         var low = 0, high = hitEdges.count
         while low < high {
@@ -95,7 +96,7 @@ struct RegionLine: Sendable {
         return intervalIndices[low]
     }
 
-    var arrayBytes: Int {
+    package var arrayBytes: Int {
         carets.count * MemoryLayout<RegionCaret>.stride
             + selectionRuns.count * MemoryLayout<TextSelectionRun>.stride
             + hitEdges.count * MemoryLayout<CGFloat>.stride
@@ -103,41 +104,41 @@ struct RegionLine: Sendable {
     }
 }
 
-final class RegionParagraph: Sendable {
-    let source: RegionTextSource
-    let sourceSHA256: String
-    let lines: [RegionLine]
-    let baselines: [CGFloat]
-    let lineBottoms: [CGFloat]
-    let width: CGFloat
-    let height: CGFloat
-    let offeredWidth: CGFloat
-    let exclusions: [TextFlowShape]
-    let fragments: [ExactFlowFragment]
-    let flowLineHeight: CGFloat
+package final class RegionParagraph: Sendable {
+    package let source: RegionTextSource
+    package let sourceSHA256: String
+    package let lines: [RegionLine]
+    package let baselines: [CGFloat]
+    package let lineBottoms: [CGFloat]
+    package let width: CGFloat
+    package let height: CGFloat
+    package let offeredWidth: CGFloat
+    package let exclusions: [TextFlowShape]
+    package let fragments: [ExactFlowFragment]
+    package let flowLineHeight: CGFloat
     /// Synthetic soft hyphens belong to layout, never copied text or event indices.
-    let inserted: [Int]
+    package let inserted: [Int]
     private var sourceMap: SourceMap { SourceMap(inserted: inserted) }
-    let shapedOnMainThread: Bool
+    package let shapedOnMainThread: Bool
     /// The C seam uses -1 when no line supplies a baseline.
-    var firstBaseline: CGFloat { baselines.first ?? -1 }
+    package var firstBaseline: CGFloat { baselines.first ?? -1 }
     /// Logical array payload only; font/platform internals and array slack are
     /// opaque, source storage is reported separately, not a peak RSS guarantee.
-    var arrayBytes: Int {
+    package var arrayBytes: Int {
         inserted.count * MemoryLayout<Int>.stride + fragments.count * MemoryLayout<ExactFlowFragment>.stride
             + exclusions.reduce(0) { $0 + MemoryLayout<TextFlowShape>.stride + $1.pairs.count * MemoryLayout<SIMD2<Float>>.stride }
             + lines.reduce(0) { $0 + $1.arrayBytes } + lines.count * MemoryLayout<RegionLine>.stride
             + (baselines.count + lineBottoms.count) * MemoryLayout<CGFloat>.stride
     }
 
-    convenience init(source: RegionTextSource, sourceSHA256: String, lines: [CTLine], baselines: [CGFloat], width: CGFloat,
+    package convenience init(source: RegionTextSource, sourceSHA256: String, lines: [CTLine], baselines: [CGFloat], width: CGFloat,
                      height: CGFloat, lineBottoms: [CGFloat], offeredWidth: CGFloat, retainHits: Bool = true, captureHits: Bool = true,
                      attributed: NSAttributedString? = nil, inserted: [Int] = []) {
         self.init(source: source, sourceSHA256: sourceSHA256, lines: lines, baselines: baselines, width: width,
                   height: height, lineBottoms: lineBottoms, offeredWidth: offeredWidth, retainHits: retainHits,
                   captureHits: captureHits, attributed: attributed, inserted: inserted, metadataCheckpoint: {})
     }
-    init(source: RegionTextSource, sourceSHA256: String, lines: [CTLine], baselines: [CGFloat], width: CGFloat,
+    package init(source: RegionTextSource, sourceSHA256: String, lines: [CTLine], baselines: [CGFloat], width: CGFloat,
          height: CGFloat, lineBottoms: [CGFloat], offeredWidth: CGFloat, retainHits: Bool = true, captureHits: Bool = true,
          attributed: NSAttributedString? = nil, inserted: [Int] = [], origins: [CGFloat] = [],
          exclusions: [TextFlowShape] = [], fragments: [ExactFlowFragment] = [], flowLineHeight: CGFloat = 0,
@@ -168,7 +169,7 @@ final class RegionParagraph: Sendable {
         self.lines = captured
     }
 
-    init(source: RegionTextSource, sourceSHA256: String, lines: [RegionLine], inserted: [Int] = [], baselines: [CGFloat],
+    package init(source: RegionTextSource, sourceSHA256: String, lines: [RegionLine], inserted: [Int] = [], baselines: [CGFloat],
          lineBottoms: [CGFloat], width: CGFloat, height: CGFloat, offeredWidth: CGFloat) {
         precondition(!Thread.isMainThread)
         self.source = source; self.sourceSHA256 = sourceSHA256; self.lines = lines
@@ -179,21 +180,21 @@ final class RegionParagraph: Sendable {
         shapedOnMainThread = false
     }
 
-    func sourceIndex(_ shaped: Int) -> Int {
+    package func sourceIndex(_ shaped: Int) -> Int {
         shaped == kCFNotFound ? source.utf16Count : min(max(0, sourceMap.source(shaped)), source.utf16Count)
     }
-    func shapedRange(_ range: NSRange) -> NSRange {
+    package func shapedRange(_ range: NSRange) -> NSRange {
         let start = sourceMap.collapsed(range.location)
         return NSRange(location: start, length: sourceMap.collapsed(NSMaxRange(range)) - start)
     }
 
-    func copy(_ range: NSRange) -> String {
+    package func copy(_ range: NSRange) -> String {
         guard range.location >= 0, range.length >= 0, range.location <= source.utf16Count,
               range.length <= source.utf16Count - range.location else { return "" }
         return (source.text as NSString).substring(with: range)
     }
 
-    func lineIndex(at y: CGFloat, lastInBand: Bool = false) -> Int? {
+    package func lineIndex(at y: CGFloat, lastInBand: Bool = false) -> Int? {
         guard !lines.isEmpty else { return nil }
         var lo = 0, hi = lineBottoms.count
         while lo < hi {
@@ -206,7 +207,7 @@ final class RegionParagraph: Sendable {
         }
         return index
     }
-    func lineIndex(at point: CGPoint) -> Int? {
+    package func lineIndex(at point: CGPoint) -> Int? {
         guard let first = lineIndex(at: point.y), !fragments.isEmpty else { return lineIndex(at: point.y) }
         let baseline = baselines[first]
         var start = first
@@ -223,7 +224,7 @@ final class RegionParagraph: Sendable {
     private func line(at point: CGPoint, in bounds: CGRect) -> RegionLine? {
         lineIndex(at: CGPoint(x: point.x - bounds.minX, y: point.y - bounds.minY)).map { lines[$0] }
     }
-    func cachedIndex(at point: CGPoint, in bounds: CGRect, artifact: UInt64, hits: RegionViewportHits) -> Int? {
+    package func cachedIndex(at point: CGPoint, in bounds: CGRect, artifact: UInt64, hits: RegionViewportHits) -> Int? {
         guard point.x.isFinite, point.y.isFinite else { return nil }
         if point.y < bounds.minY { return 0 }
         if point.y > bounds.maxY { return source.utf16Count }
@@ -232,14 +233,14 @@ final class RegionParagraph: Sendable {
         guard let index = hits.index(artifact: artifact,line: i,x: point.x - bounds.minX - lines[i].flushOffset) else { return nil }
         return sourceIndex(index)
     }
-    func link(at point: CGPoint, in bounds: CGRect, exactIndex: Int) -> String? {
+    package func link(at point: CGPoint, in bounds: CGRect, exactIndex: Int) -> String? {
         guard bounds.contains(point), let line = line(at: point,in: bounds) else { return nil }
         let x = bounds.minX + line.flushOffset
         guard point.x >= x, point.x <= x + line.typographicWidth else { return nil }
         return source.link(at: exactIndex)
     }
 
-    func index(at point: CGPoint, in bounds: CGRect) -> Int {
+    package func index(at point: CGPoint, in bounds: CGRect) -> Int {
         if point.y < bounds.minY { return 0 }
         if point.y > bounds.maxY { return source.utf16Count }
         guard let line = line(at: point, in: bounds) else { return 0 }
@@ -247,14 +248,14 @@ final class RegionParagraph: Sendable {
         return sourceIndex(index)
     }
 
-    func link(at point: CGPoint, in bounds: CGRect) -> String? {
+    package func link(at point: CGPoint, in bounds: CGRect) -> String? {
         guard bounds.contains(point), let line = line(at: point, in: bounds) else { return nil }
         let x = bounds.minX + line.flushOffset
         guard point.x >= x, point.x <= x + line.typographicWidth else { return nil }
         return source.link(at: index(at: point, in: bounds))
     }
 
-    func selectionRects(_ selection: NSRange, in bounds: CGRect, dirty: CGRect) -> [CGRect] {
+    package func selectionRects(_ selection: NSRange, in bounds: CGRect, dirty: CGRect) -> [CGRect] {
         guard selection.location >= 0, selection.length > 0,
               selection.location <= source.utf16Count,
               selection.length <= source.utf16Count - selection.location else { return [] }
@@ -275,3 +276,4 @@ final class RegionParagraph: Sendable {
     }
 
 }
+#endif

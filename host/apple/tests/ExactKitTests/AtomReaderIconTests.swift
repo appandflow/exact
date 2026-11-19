@@ -4,9 +4,13 @@ import ImageIO
 import IOSurface
 import CExact
 import ExactCore
+import ExactSnapshot
 @testable import ExactKit
 @testable import ExactImages
 @testable import ExactMarkdown
+#if os(iOS)
+@testable import ExactTextSelection
+#endif
 #if os(macOS)
 import AppKit
 #else
@@ -326,8 +330,11 @@ final class AtomReaderIconTests: XCTestCase {
         for color in ["#ff0000", "transparent"] {
             let node = try reader("symbol:sf/circle.fill", background: "transparent", color: color)
             let main = try XCTUnwrap(node.paragraphLayout()).lines[0]
-            let region = CTLineCreateWithAttributedString(RegionTextSource.capture(node.paragraphSpec(), engine: session.text).attributed())
-            for line in [main, region] {
+            var lines = [main]
+            #if os(macOS)
+            lines.append(CTLineCreateWithAttributedString(RegionTextSource.capture(node.paragraphSpec(), engine: session.text).attributed()))
+            #endif
+            for line in lines {
                 let own = try sample(picture(line), line, u: 0.5, v: 0.5)
                 let selected = try sample(picture(line, selected: true, keepsFixed: true), line, u: 0.5, v: 0.5)
                 XCTAssertEqual(selected, own, color)
@@ -381,8 +388,11 @@ final class AtomReaderIconTests: XCTestCase {
             let node = try reader(source, background: "transparent")
             _ = node.paragraphLayout()
             waitFor("asymmetric icon arrives") { node.cachedTextSpec == nil }
-            let spec = node.paragraphSpec()
-            for line in [try XCTUnwrap(node.paragraphLayout()).lines[0], CTLineCreateWithAttributedString(RegionTextSource.capture(spec, engine: session.text).attributed())] {
+            var lines = [try XCTUnwrap(node.paragraphLayout()).lines[0]]
+            #if os(macOS)
+            lines.append(CTLineCreateWithAttributedString(RegionTextSource.capture(node.paragraphSpec(), engine: session.text).attributed()))
+            #endif
+            for line in lines {
                 for pixels in [try picture(line), try picture(line, selected: true)] {
                     XCTAssertGreaterThan(try sample(pixels, line, u: 0.5, v: 0.2)[0], 200, "red top")
                     XCTAssertGreaterThan(try sample(pixels, line, u: 0.5, v: 0.8)[2], 200, "blue bottom")
@@ -391,6 +401,7 @@ final class AtomReaderIconTests: XCTestCase {
         }
     }
 
+    #if os(macOS)
     func testRegionReaderDoesNotDecorateTheIcon() throws {
         let node = try reader("symbol:sf/circle.fill", background: "transparent", decoration: "underline line-through")
         let spec = node.paragraphSpec()
@@ -401,7 +412,9 @@ final class AtomReaderIconTests: XCTestCase {
         let main = try XCTUnwrap(node.paragraphLayout()).lines[0]
         XCTAssertTrue(try picture(CTLineCreateWithAttributedString(captured)) == picture(main), "region decorations match the main painter")
     }
+    #endif
 
+    #if os(macOS)
     func testLongReaderRegionRasterKeepsIconOrientationAndDecorationGap() throws {
         let node = try reader(asymmetricSVG, background: "transparent", decoration: "underline line-through")
         _ = node.paragraphLayout()
@@ -445,6 +458,7 @@ final class AtomReaderIconTests: XCTestCase {
         }
         wait(for: [done], timeout: 10)
     }
+    #endif
 
     func testSymbolReservesItsSizeAndGapWithoutGrowingTheLineAndPaintsInItsInk() throws {
         let plain = try reader("")
@@ -557,18 +571,19 @@ final class AtomReaderIconTests: XCTestCase {
         session.presenter.selection.copy()
         XCTAssertEqual(NSPasteboard.general.string(forType: .string), expected)
         #else
-        session.presenter.textSelection.touched(node)
-        let selection = try XCTUnwrap(session.presenter.textSelection.text(for: node))
+        session.presenter.selectionHost.touched(node)
+        let selection = try XCTUnwrap(session.presenter.selectionHost.text(for: node))
         selection.selectedTextRange = SelectableRange(NSRange(location: 0, length: shown.utf16.count))
         let board = UIPasteboard.withUniqueName()
         defer { UIPasteboard.remove(withName: board.name) }
-        session.presenter.textSelection.pasteboard = board
+        session.presenter.selectionHost.pasteboard = board
         XCTAssertEqual(selection.selectedText, expected)
-        XCTAssertTrue(session.presenter.textSelection.copy(node))
+        XCTAssertTrue(session.presenter.selectionHost.copy(node))
         XCTAssertEqual(board.string, expected)
         #endif
     }
 
+    #if os(macOS)
     func testBackgroundReaderCapturePaintsTheSameImageAndAdvance() throws {
         let node = try reader(svg, background: "transparent")
         _ = node.paragraphLayout()
@@ -596,6 +611,7 @@ final class AtomReaderIconTests: XCTestCase {
         }
         wait(for: [done], timeout: 10)
     }
+    #endif
 
     private func png(_ space: CGColorSpace, deep: Bool = false, corners: Bool = false) throws -> String {
         let info = CGImageAlphaInfo.premultipliedLast.rawValue | (deep ? CGBitmapInfo.byteOrder16Little.rawValue : 0)

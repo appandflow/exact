@@ -9,6 +9,8 @@ import java.nio.IntBuffer
 import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.FutureTask
 import java.util.concurrent.atomic.AtomicBoolean
+import org.json.JSONException
+import org.json.JSONObject
 
 /**
  * exact2 on a thread of its own (LLP 1072, on Android). Every call into the Rust host runs on the `exact` thread, which
@@ -531,14 +533,14 @@ internal class Owner(private val hwbuf: Boolean, private val fast: Boolean, prio
     }
 
     /** exact2's next stream, if it has one: copied, queued, and the main thread told. */
-    private fun produce() {
+    private fun produce(vsync: Boolean = false) {
         // This frame does what a queued `again` was for.
         handler.removeCallbacks(again)
         if (!running) { schedule(); return }
         drainWindow()
         android.os.Trace.beginSection("exact native frame")
         val started = System.nanoTime()
-        val fresh = Native.frame()
+        val fresh = Native.frame(vsync)
         val picture = Native.presentToken()
         late = System.nanoTime() - started > frameNanos
         android.os.Trace.endSection()
@@ -589,7 +591,7 @@ internal class Owner(private val hwbuf: Boolean, private val fast: Boolean, prio
         // after: asked for after the frame, a Note 9 frame that ended 2.8 ms before the vsync lost it.
         if (running && Native.animating()) { turnPosted = true; choreographer?.let { turns.post(it) } }
         val before = timerReports.publication
-        Native.displayFrame(); produce()
+        Native.displayFrame(); produce(vsync = true)
         if (!timing) return
         val published = if (timerReports.publication != before) timerReports.publication else 0L
         try {
@@ -638,9 +640,10 @@ internal class Owner(private val hwbuf: Boolean, private val fast: Boolean, prio
             }
         }
         val animating = Native.animating()
-        if (animating && late) {
+        // Frame tasks need a display callback even if every paint overruns.
+        if (animating && late && !turnPosted && !Native.animating(vsyncOnly = true)) {
             late = false
-            if (!turnPosted) { handler.removeCallbacks(again); handler.post(again) }
+            handler.removeCallbacks(again); handler.post(again)
         } else if (animating && !turnPosted) { turnPosted = true; choreographer?.let { turns.post(it) } }
         else if (!animating && turnPosted) {
             choreographer?.let { turns.remove(it) }; turnPosted = false
@@ -724,10 +727,25 @@ internal object Exact {
     fun agent(line: String): String {
         val o = owner ?: return "{\"error\":\"the reader carries a driver only with exact2 on its own thread (owner=0 is set)\"}"
         val result = o.sync { o.drainWindow(); String(Native.agent(line.toByteArray(Charsets.UTF_8)), Charsets.UTF_8) }
-        val refresh = FutureTask { Extensions.clock() }
+        // The main thread takes the turn's sound requests before reporting their output.
+        val refresh = FutureTask {
+            Extensions.clock()
+            if (android.system.Os.getenv("EXACT_AGENT") == "live") withSoundState(line, result) else result
+        }
         Handler(Looper.getMainLooper()).post(refresh)
-        refresh.get()
-        return result
+        return refresh.get()
+    }
+
+    private fun withSoundState(line: String, result: String): String {
+        try {
+            if (JSONObject(line).optString("op") != "state") return result
+            val state = JSONObject(result)
+            val sounds = state.optJSONObject("sounds") ?: return result
+            sounds.put("output", reader?.get()?.soundState() ?: SoundOutput.closedState())
+            return state.toString()
+        } catch (_: JSONException) {
+            return result
+        }
     }
 
     /** The waiting agent's request/answer turn, called by JNI on the exact thread. */

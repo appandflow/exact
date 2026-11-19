@@ -1,34 +1,35 @@
 // Exact u64 identities are decimal strings; JSON owns every copied byte.
+#if os(macOS)
 import Foundation
 import CoreGraphics
 
-struct RegionFrame: Sendable {
-    let key: UInt64
-    let id: UInt32
-    let kind: String
-    let box: CGRect
-    let extent: CGSize
-    let artifact: UInt64
+package struct RegionFrame: Sendable {
+    package let key: UInt64
+    package let id: UInt32
+    package let kind: String
+    package let box: CGRect
+    package let extent: CGSize
+    package let artifact: UInt64
     // Ordinary TextSelection uses vertical distance first, then horizontal.
     // A giant paragraph contains its early lines even when its midpoint is far.
-    func hitDistance(_ point: CGPoint) -> CGFloat {
+    package func hitDistance(_ point: CGPoint) -> CGFloat {
         let dy = max(0, max(box.minY - point.y, point.y - box.maxY))
         let dx = max(0, max(box.minX - point.x, point.x - box.maxX))
         return dy * 10000 + dx
     }
 }
-struct RegionSnapshot {
-    let incarnation: UInt64
-    let owner: UInt32
-    let content: UInt32
-    let placeholder: UInt32
-    let request: UInt64
-    let source: UInt64
-    let publication: UInt64
-    let current: Bool
-    let frames: [RegionFrame]
-    static func uint(_ value: Any?) -> UInt64? { (value as? String).flatMap(UInt64.init) }
-    init?(_ op: [String: Any]) {
+package struct RegionSnapshot {
+    package let incarnation: UInt64
+    package let owner: UInt32
+    package let content: UInt32
+    package let placeholder: UInt32
+    package let request: UInt64
+    package let source: UInt64
+    package let publication: UInt64
+    package let current: Bool
+    package let frames: [RegionFrame]
+    package static func uint(_ value: Any?) -> UInt64? { (value as? String).flatMap(UInt64.init) }
+    package init?(_ op: [String: Any]) {
         guard op["op"] as? String == "region", let incarnation = Self.uint(op["incarnation"]),
               let owner = op["owner"] as? UInt32, let content = op["content"] as? UInt32,
               let pending = op["pending"] as? UInt32, let request = Self.uint(op["request"]),
@@ -50,18 +51,23 @@ struct RegionSnapshot {
         current = op["current"] as? Bool ?? false; self.frames = frames
     }
 }
-struct RegionShapeRequest: Sendable {
-    let id: UInt64
-    let sourceID: UInt64
-    let source: RegionTextSource
-    let width: CGFloat
-    let height: CGFloat
-    let generation: Int
-    var compact = false
-    var exclusions: [TextFlowShape] = []
+package struct RegionShapeRequest: Sendable {
+    package let id: UInt64
+    package let sourceID: UInt64
+    package let source: RegionTextSource
+    package let width: CGFloat
+    package let height: CGFloat
+    package let generation: Int
+    package var compact = false
+    package var exclusions: [TextFlowShape] = []
+    package init(id: UInt64, sourceID: UInt64, source: RegionTextSource, width: CGFloat, height: CGFloat,
+                 generation: Int, compact: Bool = false, exclusions: [TextFlowShape] = []) {
+        self.id = id; self.sourceID = sourceID; self.source = source; self.width = width; self.height = height
+        self.generation = generation; self.compact = compact; self.exclusions = exclusions
+    }
 }
 extension RegionTextSource {
-    static func capture(wire: [String: Any], engine: TextEngine, dark: Bool) -> RegionTextSource? {
+    package static func capture(wire: [String: Any], engine: TextEngine, dark: Bool) -> RegionTextSource? {
         guard let rows = wire["runs"] as? [[String: Any]], rows.count <= 4096,
               let strutRow = wire["strut"] as? [String: Any] else { return nil }
         func run(_ row: [String: Any]) -> Run? {
@@ -111,3 +117,4 @@ extension RegionTextSource {
         return capture(spec, engine: engine)
     }
 }
+#endif

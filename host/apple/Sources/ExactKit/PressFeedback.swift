@@ -234,7 +234,7 @@ extension NodeView {
     }
     /// No ease of the press on the render server: a view taken for another
     /// node, or one a flight carries, shows its own transform alone.
-    func stopPressEase() {
+    package func stopPressEase() {
         #if os(iOS)
         dimPress(false, instantly: true)
         #endif
@@ -342,7 +342,7 @@ extension NodeView {
     /// is told to the runner: before its own transform, which the runner
     /// applies, and after the host's placement, which the runner cannot know.
     /// UIKit transforms a view about its center.
-    func topLayerFrame(in viewport: UIScrollView, containingBlock: CGRect? = nil) -> CGRect {
+    package func topLayerFrame(in viewport: UIScrollView, containingBlock: CGRect? = nil) -> CGRect {
         guard let parent = superview else { return .zero }
         let box = (containingBlock ?? CGRect(origin: .zero, size: bounds.size))
             .offsetBy(dx: -bounds.width / 2, dy: -bounds.height / 2)
@@ -404,7 +404,7 @@ extension NodeView {
         // A lifted Arrange row moves by its frame: AppKit paints and culls a
         // view where its frame is, never where its layer was moved. So does
         // a sticky box by its scroll offset (LLP 1083).
-        let lift = presenter?.reorder?.lifts(id) == true ? translate : .zero
+        let lift = presenter?.reorders.lifts(id) == true ? translate : .zero
         let shift = CGPoint(x: lift.x + stickyOffset.x, y: lift.y + stickyOffset.y)
         if shift != arrangeShift {
             // Recorded first: moving the frame can lay the view out again,

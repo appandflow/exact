@@ -144,6 +144,11 @@ declares the same shape (`type-source-declared`).
 A font face's weight is a whole number in 1–1000. Keyframe percentages are in
 0–100; `from` and `to` are 0% and 100%. Lowering checks whether keyframe properties
 are animatable and constant-call values can be evaluated at compilation.
+Constant calls use the runtime's pure operations: list literals, `.at()`, option
+`match` expressions, templates and pure built-ins such as `toFixed` and
+`formatDecimal`. Only executed branches are evaluated. Reading
+state, resources, props, the clock, the locale or a host capability is refused
+by name; evaluation and expansion limits produce compile errors.
 Styles accept literal style attributes and explicitly styleable props (currently
 `backgroundMaterial`, `glassGroup` and `buttonStyle`), not arbitrary expressions
 or event props. In a conditional class, each prop must be set in both styles or
@@ -399,10 +404,12 @@ resource over a list, and a child that owns requests or tasks is used where its 
 are bounded: outside every region, under `if` and `match`, or in a row of
 `stack(nav)`, `t.stack` or `nav.tabs`, never under another `for` or in a
 virtualized list (`type-child-resource`). Its state initializers do not read its
-own resources (`type-state-reads-request`). The device's facts,
-`exactViewport()` and `exactPage()` with no arguments (`EmptyState` reads
-`accessibilityTextSize`), open no request: every instance reads the root's one
-answer. A task's body has exactly one schedule. Each child's task starts with
+own resources (`type-state-reads-request`). The device's facts are sources a
+component declares, the root or a child: `resource v = exactViewport() as shape
+V` (or `exactPage()`), with no arguments and no `else`, opens no request, and
+every instance reads the root's one answer (`EmptyState` reads
+`accessibilityTextSize`). A `derive` reads the resource's field (`v.width`), never
+`exactViewport().width`. A task's body has exactly one schedule. Each child's task starts with
 its instance, stops when the instance is destroyed and runs its action in that
 instance's frame. A hidden tab or covered screen can remain alive: gate its
 work on activity. Frame tasks are allowed, with one action per armed instance
@@ -836,6 +843,7 @@ step          = "tap" "midi" STRING ( HEX { HEX } | "clock" NUMBER NUMBER ) NL
               | "reload" NL
               | "fail" "fetch" STRING [ "times" NUMBER ] NL (* later fetches whose URL starts with it fail *)
               | "pass" "fetch" STRING NL             (* it stops failing *)
+              | "drop" "stream" STRING NL           (* ends open streams whose URL starts with it *)
               | "prefer" IDENT STRING NL             (* quoted media preference or root-font-size *)
               | "request" METHOD STRING [ json ] [ "as" ( IDENT | STRING ) ] [ "expect" NUMBER ] NL
                                                      (* the driver writes through the app's server *)
@@ -853,8 +861,10 @@ step          = "tap" "midi" STRING ( HEX { HEX } | "clock" NUMBER NUMBER ) NL
                                                      (* its laid-out size, in points *)
               | "expect" "refusal" STRING NL          (* one observed refusal of the named mutation slot *)
               | "expect" "text" STRING "==" STRING NL
-              | "expect" "state" IDENT { "." ( IDENT | NUMBER ) }
-                  ( "==" state-literal | ( ">=" | "<=" ) [ "-" ] NUMBER | "in" state-literal { state-literal } ) NL
+              | "expect" "state" state-path
+                  ( ( "==" | "!=" ) ( state-literal | "state" state-path )
+                  | ( ">=" | "<=" ) ( [ "-" ] NUMBER | "state" state-path )
+                  | "in" ( state-literal { state-literal } | "state" state-path ) ) NL
               | "expect" "sound" ( "has" | "missing" ) STRING
                   [ "at" NUMBER ] [ "gain" NUMBER ] [ "ends" NUMBER ]
                   [ "playbackRate" NUMBER ] [ "pan" [ "-" ] NUMBER ] [ "by" IDENT ] NL
@@ -865,6 +875,7 @@ step          = "tap" "midi" STRING ( HEX { HEX } | "clock" NUMBER NUMBER ) NL
 midi-fact     = "midi.state" ( "prompt" | "granted" | "denied" | "unavailable" )
               | ( "midi.inputs" | "midi.outputs" ) STRING ;  (* names, comma-separated *)
 HEX           = HEXDIGIT HEXDIGIT ;                  (* one byte, as in 90 3c 64 *)
+state-path    = IDENT { "." ( IDENT | NUMBER ) } ;   (* indexes are whole numbers from 0 *)
 state-literal = [ "-" ] NUMBER | STRING | "true" | "false" | "none"
               | "some" "(" state-literal ")"
               | "[" [ state-literal { "," state-literal } [ "," ] ] "]"
@@ -1045,7 +1056,16 @@ prefix itself. A counted fault that matched no fetch by the test's end (or
 before it is armed again) fails the test at the line that armed it, and
 `reload` relaunches with the table as it is then. Each HTTP attempt of a long
 poll (`exactStream` with `exactLongPoll`) takes a matching fault and retries as
-a network failure. Event streams, byte streams and WebSockets are not matched.
+a network failure. Event streams, byte streams and WebSockets use
+`drop stream "<prefix>"`. This step ends every open matching stream and
+releases its connection. The mapper receives a terminal `error` of kind
+`"Network"` (Rust receives `Failed { kind: Network }`). Frames waiting behind
+an unfinished mapper are discarded. If no open stream matches, the step
+fails at its line. Wait for a value that confirms the stream is open before
+dropping it. Long polls use `fail fetch` on their individual HTTP attempts
+because their transport repeats buffered requests. Upload progress streams
+and local listeners are outside this step's scope. The web's wasm host
+opens event streams and WebSockets. It reads byte streams as buffered replies.
 `answer fetch "<prefix>" with <status> [header "<name>" "<value>"]… [<body>]`
 supplies an immediate HTTP response, with no request to the service. It may lead
 a test or the file, like `fail fetch`, so the first resource load receives it.
@@ -1207,8 +1227,15 @@ naming the fields there. The expected value uses the expression grammar's litera
 numbers, including negatives (`== -3`), strings, bools, `none`, `some(literal)`,
 lists (`["a", "b"]`, `[[1, -2], []]`), and shapes with literal fields
 (`Point(x=1, y=-2)`). Lists and shapes may span lines and keep a trailing comma.
-Equality is structural, with no type coercion; a mismatch prints the actual and
-expected values. Computed expressions (`-1 + 2`, `[count]`) are refused.
+`==` and `!=` compare structurally, without type coercion. Numeric bounds use
+`>=` or `<=`; `in` checks membership in space-separated literal alternatives.
+Every operator also accepts `state <path>` on the right: `expect state pinned == state locked`,
+`expect state offset >= state minimum`, or `expect state mode in state allowedModes`.
+Bounds require two numbers; membership requires a list on the right whose element
+type matches the left. Incompatible path types fail compilation with both types
+named. Both paths read one state reply; a missing path fails even with `!=`, while
+a present `none` compares as a value. A mismatch prints both values and, for a state
+operand, its path. Computed expressions (`-1 + 2`, `[count]`) are refused.
 `expect wakelock held` and `expect wakelock released` compare `state.wakelock.held`.
 This is the runner's holder record: displayed elements requesting the lock, not
 whether the OS or browser granted it. A failure names the holding view ids and
@@ -1740,9 +1767,10 @@ makes no network requests.
 - `textarea id="editor" value=draft input=edit markup="markdown"` is the editor:
   on the web, Markdown shown as it reads, with the syntax hidden away from the
   caret; on macOS and iOS, the platform's text view with the syntax dimmed and
-  each link's `](destination)` hidden, as the web hides it. Linux
-  edits it as a plain textarea. Without `markup` the same source is a plain
-  textarea: the source mode.
+  each link's `](destination)` hidden, as the web hides it. Linux, Windows and
+  Android edit it as a plain textarea of the source, and `format` changes
+  nothing there. Without `markup` the same source is a plain textarea: the
+  source mode.
 - A thematic break (`---`) is drawn in the colour of the text around it,
   dimmed, so that it reads on a dark ground as on a light one: on the web a
   line across the field, as dim as the syntax shown at the caret; on macOS

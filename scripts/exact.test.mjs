@@ -1341,12 +1341,13 @@ test('exact add says how each grant line is written, from the device table', asy
   assert.equal(grantAdvice(['net.fetch']), '`net.fetch <its target>`, what it reaches');
 });
 
-test('add writes a relative package specifier within a shared tree, including through symlinks', async () => {
+test('add writes a relative package specifier within a shared repository, including through symlinks', async () => {
   const { packageSpecifier } = await import('./exact.mjs');
   inDir(dir => {
     const app = resolve(dir, 'nested/shop'), sdk = resolve(dir, 'sdk');
     mkdirSync(app, { recursive: true });
     mkdirSync(resolve(sdk, 'packages/in-app-browser'), { recursive: true });
+    assert.equal(spawnSync('git', ['init', '-q', dir]).status, 0);
     assert.equal(packageSpecifier(app, 'in-app-browser', sdk), 'file:../../sdk/packages/in-app-browser');
     symlinkSync(app, resolve(dir, 'linked-shop'), 'dir');
     symlinkSync(sdk, resolve(dir, 'linked-sdk'), 'dir');

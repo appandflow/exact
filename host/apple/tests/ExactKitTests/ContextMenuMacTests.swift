@@ -2,6 +2,7 @@
 import AppKit
 import XCTest
 @testable import ExactKit
+@testable import ExactControls
 
 /// LLP 1021 §5.1 on AppKit: a context menu is its popover's menu rows as an
 /// NSMenu (a Mac's has no preview, so the `contextPreview` row is no item),

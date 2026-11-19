@@ -65,7 +65,7 @@ enum FrameHealthCardFace {
     static let body = CTFontCreateUIFontForLanguage(.system, 12, nil)!
     static let digits = FrameHealthCardDrawing.tabular(body)
     static let strong = FrameHealthCardDrawing.tabular(FrameHealthCardDrawing.semibold(12))
-    static let title = FrameHealthCardDrawing.semibold(15)
+    package static let title = FrameHealthCardDrawing.semibold(15)
 
     /// Every region at a card width; sizes are points.
     struct Layout {

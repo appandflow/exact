@@ -6,8 +6,7 @@
 // presenter reaches segmented tablists the same way. Without the
 // family it holds `NoControlKinds`, which makes a bare control that shows and
 // reports nothing, so a plan of one text and one button links no date picker.
-// The slot's default is today's built-in kinds, so every app still links
-// them; the family's own target will install them instead.
+// `ExactControls.install()` sets the slots.
 #if os(macOS)
 import AppKit
 package typealias PlatformControl = NSControl
@@ -30,15 +29,19 @@ package protocol ControlKinding: AnyObject {
     /// A date picker's alignment in its box.
     func valueAlignment(_ owner: NodeView) -> UIControl.ContentHorizontalAlignment
     #endif
-    /// The agent's tap on the control: its own activation.
-    func activate(_ control: PlatformControl, _ node: NodeView) -> Bool
-    func observation(_ control: PlatformControl) -> [String: Any]
-    /// Each `progress`'s indicator, made and updated, and what one shows.
+    /// Each `progress`'s indicator, made and updated.
     func syncProgress()
-    func progressObservation(_ node: NodeView) -> [String: Any]?
     /// Whether a radio's control shows it checked, and showing it so.
     func radioOn(_ control: PlatformControl) -> Bool
     func showRadio(_ id: UInt32, _ on: Bool)
+    // The agent's alone, so a production build keeps none of them: a
+    // requirement keeps its implementation alive through the witness table.
+    #if EXACT_AGENT
+    /// The agent's tap on the control: its own activation.
+    func activate(_ control: PlatformControl, _ node: NodeView) -> Bool
+    func observation(_ control: PlatformControl) -> [String: Any]
+    /// What a `progress` shows.
+    func progressObservation(_ node: NodeView) -> [String: Any]?
     /// The agent's `type` into a value control, and the reason a control it
     /// cannot open refuses; nil where the node is no such control.
     func type(_ node: NodeView, _ value: String) -> [String: Any]?
@@ -49,9 +52,10 @@ package protocol ControlKinding: AnyObject {
     /// A key on a range (the agent's `key`).
     func rangeKey(_ node: NodeView, _ key: String, phase: String?, repeats: Bool) -> [String: Any]?
     #endif
+    #endif
 }
 
-#if os(iOS)
+#if os(iOS) && EXACT_AGENT
 extension ControlKinding {
     func rangeKey(_ node: NodeView, _ key: String, phase: String? = nil) -> [String: Any]? { rangeKey(node, key, phase: phase, repeats: false) }
 }
@@ -88,21 +92,27 @@ package final class NoControlKinds: ControlKinding {
 package protocol SegmentHosting: AnyObject {
     func sync()
     func reset()
+    #if EXACT_AGENT
     func observation(_ node: NodeView) -> [String: Any]?
     /// The inspection walk's accounting.
     func inspectionOwns(_ view: PlatformView) -> Bool
     func hides(_ node: NodeView) -> Bool
+    #endif
     #if os(macOS)
     func control(of id: UInt32) -> NSSegmentedControl?
+    #if EXACT_AGENT
     func activate(_ node: NodeView) -> Bool?
+    #endif
     /// Whether a segment shows `node`, when one is its own.
     func shown(_ node: NodeView) -> Bool?
     #else
     func control(of id: UInt32) -> UISegmentedControl?
-    func bar(of id: UInt32) -> UITabBar?
     /// Whether a native tablist shows `id`.
     func projects(_ id: UInt32) -> Bool
+    #if EXACT_AGENT
+    func bar(of id: UInt32) -> UITabBar?
     func barItem(of node: NodeView) -> (bar: UITabBar, item: UITabBarItem)?
+    #endif
     #if EXACT_INSPECT
     func activate(_ node: NodeView, before: (CGPoint?) -> Bool) -> Bool?
     func drawn(_ node: NodeView) -> (control: UIControl, segment: CGRect)?
@@ -115,7 +125,7 @@ package protocol SegmentHosting: AnyObject {
 
 #if EXACT_INSPECT && !os(macOS)
 extension SegmentHosting {
-    func activate(_ node: NodeView) -> Bool? { activate(node, before: { _ in true }) }
+    package func activate(_ node: NodeView) -> Bool? { activate(node, before: { _ in true }) }
 }
 #endif
 
@@ -149,10 +159,44 @@ package final class NoSegments: SegmentHosting {
 /// The slots are set before any session is made, and read on the main thread.
 package enum ControlLink {
     /// A presenter's segmented tablists and radio groups.
-    package static var makeSegments: ((Presenter) -> any SegmentHosting)? = { SegmentHost($0) }
+    package static var makeSegments: ((Presenter) -> any SegmentHosting)?
     /// A control host's optional kinds.
-    package static var make: ((ControlHost) -> any ControlKinding)? = { BuiltInControlKinds($0) }
+    package static var make: ((ControlHost) -> any ControlKinding)?
+    #if EXACT_AGENT
     /// The agent's reading of a drawn checkbox or radio: whether `object` is
     /// one, a radio, and on.
-    package static var drawnToggle: ((AnyObject) -> (radio: Bool, on: Bool)?)? = BuiltInControlKinds.drawnToggle
+    package static var drawnToggle: ((AnyObject) -> (radio: Bool, on: Bool)?)?
+    #endif
 }
+
+#if os(iOS) || os(tvOS)
+/// What the segment host and the value controls read of the presenter's
+/// navigation and flat leaves, without reaching those hosts' types.
+extension Presenter {
+    /// Whether a tab container's bar takes `tablist`'s place.
+    package func navigationAdopts(tablist: NodeView) -> Bool { navigation.adopts(tablist: tablist) }
+    /// Whether a search bar's scope shows `tablist`.
+    package func navigationScopes(tablist: NodeView) -> Bool { navigation.scopes(tablist: tablist) }
+    #if EXACT_INSPECT
+    /// The bar segment showing `tab`, when a route's bar shows it.
+    package func navigationBarSegment(_ tab: NodeView) -> (control: UIControl, segment: CGRect)? { navigation.barSegment(tab) }
+    #endif
+    /// `parent`'s children's frames as laid out, flat leaves' included, in
+    /// order, while its children are flat; nil otherwise. A child not shown
+    /// (`shown` false, or a leaf of no area) is nil.
+    package func laidOutChildren(of parent: UInt32, shown: (NodeView) -> Bool) -> [(id: UInt32, frame: CGRect?)]? {
+        guard let ids = flats.children(of: parent) else { return nil }
+        return ids.map { id in
+            if let leaf = flats.leaves[id] { return (id, leaf.layout.width > 0 && leaf.layout.height > 0 ? leaf.layout : nil) }
+            return (id, views[id].flatMap { shown($0) ? $0.frame : nil })
+        }
+    }
+}
+#endif
+
+#if os(macOS)
+extension Presenter {
+    /// Whether the sidebar or the window toolbar shows `tablist` in its place.
+    package func chromeAdopts(tablist: NodeView) -> Bool { sidebar.adopts(tablist) || toolbar.adopts(tablist) }
+}
+#endif

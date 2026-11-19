@@ -5,18 +5,18 @@ import UIKit
 #endif
 
 /// Authored active properties, independent of the native control's state.
-struct NativeButtonState: Equatable {
-    var style: NodeStyle = [:]
+package struct NativeButtonState: Equatable {
+    package var style: NodeStyle = [:]
 
-    init() {}
-    init(_ owner: NodeView) {
+    package init() {}
+    package init(_ owner: NodeView) {
         for key in ["press_background_color", "press_color", "press_opacity", "press_opacity_to", "press_scale", "press_translate", "press_translate_percent"] {
             style[key] = owner.style[key]
         }
     }
 
     /// Face rows retain the ownership of viewless text and symbols.
-    static func colorOwnership(_ base: ButtonFaceRows) -> (title: Bool, secondary: Bool, image: Bool) {
+    package static func colorOwnership(_ base: ButtonFaceRows) -> (title: Bool, secondary: Bool, image: Bool) {
         func ownsColor(_ rows: NodeStyle) -> Bool { rows["written"]?.array?.contains(.string("text_color")) == true }
         return (ownsColor(base.title), ownsColor(base.subtitle), ownsColor(base.symbol) || base.symbol["tint_color"] != nil)
     }

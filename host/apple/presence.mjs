@@ -14,6 +14,7 @@ import { installedProfiles, decodeProfile, profilesFor, byExpiry, signedEnvironm
 import { widgetSigningTeam, macWidgetProfiles, macWidgetSigning, platformWidgetEntries, macWidgetGroup, kindPhrase, identityVariable } from './widgets.mjs';
 import { shareId } from './extensions.mjs';
 import { appleLinkDomains, webAuthCallback } from '../../scripts/links.mjs';
+import { appClip } from '../../scripts/app.mjs';
 
 const POLICIES = ['user-presence', 'biometry-any', 'biometry-current-set', 'device-credential'];
 
@@ -305,6 +306,24 @@ export function signInEntitlement(auth, { simulator = false, team = null, allows
   return (auth?.signIn?.apple ?? []).length && signable ? { 'com.apple.developer.applesignin': ['Default'] } : {};
 }
 
+const CLIP_IDENTIFIERS = 'com.apple.developer.associated-appclip-app-identifiers';
+
+/** The App Clip's application identifier, when the app's signing profile `p` lets the app name its clip, as App Store
+ * Connect asks (ITMS-90876). Only a profile made after the clip's App ID was registered lists it. */
+export function namedClip(app, p) {
+  const clip = appClip(app), id = clip && p ? `${p.prefix}.${clip.id}` : null;
+  return id && allowsEntitlement(p, CLIP_IDENTIFIERS, { [CLIP_IDENTIFIERS]: [id] }) ? id : null;
+}
+
+/** The entitlements that pair an app with its App Clip. The clip (`clipParent`, its parent's id) names its parent
+ * under the App ID prefix `prefix` and signs on-demand install, which makes the bundle an App Clip: App Store Connect
+ * refuses a clip without it (ITMS-90824). The app names its clip where its signing profile allows (`namedClip`). */
+export function clipEntitlements(app, { prefix, profile = null } = {}) {
+  if (app.clipParent) return { 'com.apple.developer.parent-application-identifiers': [`${prefix}.${app.clipParent}`], 'com.apple.developer.on-demand-install-capable': true };
+  const id = !app.widgetTV && !app.widgetHost && !app.widgetAppId && namedClip(app, profile);
+  return id ? { [CLIP_IDENTIFIERS]: [id] } : {};
+}
+
 /** A grant's entitlement's value (`reach.entitlements`): `true`, the bundle's `identifier` (its
  * `application-identifier`) for the iCloud key-value store, or the string the build chooses (LLP 1133.028 D15
  * item 1). An environment follows the signing, not the compiler: `debuggable` is the signing profile's
@@ -324,16 +343,6 @@ export function entitlementValue(name, debuggable, identifier = null) {
  * The signature and the profile check both read this. */
 export function grantEntitlements(app, names = []) {
   return app.clipParent || app.widgetAppId ? names.filter((name) => name !== 'aps-environment' && name !== KEY_VALUE_STORE && !name.startsWith('com.apple.developer.icloud-')) : names;
-}
-
-const CLIP_IDENTIFIERS = 'com.apple.developer.associated-appclip-app-identifiers';
-/** The app's App Clip, as Xcode names it in the parent when it archives one (Apple,
- * com.apple.developer.associated-appclip-app-identifiers), where the app's profile (`allows`) grants it: a profile made
- * before the clip's App ID existed does not, and signing the entitlement then would refuse the build. */
-export function clipIdentifiers(app, { team = null, prefix = team, allows = [] } = {}) {
-  const clip = app.manifest.host?.ios?.appClip;
-  if (!clip || !team || app.clipParent || app.widgetAppId || app.widgetHost || app.widgetTV || !allows.includes(CLIP_IDENTIFIERS)) return {};
-  return { [CLIP_IDENTIFIERS]: [`${prefix}.${clip.id ?? `${app.id}.Clip`}`] };
 }
 
 /** @ref LLP 1133.034 D13 — the `payment.apple-pay` grants' merchant IDs, where they can be signed: on a simulator, or

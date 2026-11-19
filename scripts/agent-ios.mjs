@@ -63,7 +63,7 @@ export async function openIOS({
   return withSoftwareKeyboard(dev, () =>
     exclusiveIOS(dev.udid, id, () =>
       // An AX drive turns UIKit's accessibility runtime on for its launch (`withAccessibilityRuntime`).
-      withAccessibilityRuntime(dev.udid, ax && touch === 'agent', () =>
+      withAccessibilityRuntime(dev.udid, touch === 'agent' && ax, () => // `ax`, not a bool of it: verify's is 'try'
         openIOSOwned({ a, bundle, id, dev, plan, size, extra, session, hostFixture, touch, onProcess }),
       ),
     ),

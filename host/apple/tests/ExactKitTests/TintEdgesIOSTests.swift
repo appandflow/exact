@@ -2,6 +2,8 @@
 import UIKit
 import XCTest
 @testable import ExactKit
+@testable import ExactGradients
+@testable import ExactNavigation
 
 final class TintEdgesIOSTests: XCTestCase {
     private var window: UIWindow!
@@ -191,10 +193,10 @@ final class TintEdgesIOSTests: XCTestCase {
             ["op": "children", "id": 2, "ids": [3, 4]], ["op": "children", "id": 1, "ids": [2, 5]], ["op": "roots", "ids": [1]],
         ]))
         let route = RouteController(try XCTUnwrap(p.views[1]))
-        let nav = p.navigation.makeNavigation(first: nil)
+        let nav = p.navigationHost.makeNavigation(first: nil)
         nav.setViewControllers([route], animated: false)
-        let item = try XCTUnwrap(p.navigation.barItems([HeaderShape.Item(try XCTUnwrap(p.views[2]))], route).first)
-        let uncoloured = try XCTUnwrap(p.navigation.barItems([HeaderShape.Item(try XCTUnwrap(p.views[5]))], route).first)
+        let item = try XCTUnwrap(p.navigationHost.barItems([HeaderShape.Item(try XCTUnwrap(p.views[2]))], route).first)
+        let uncoloured = try XCTUnwrap(p.navigationHost.barItems([HeaderShape.Item(try XCTUnwrap(p.views[5]))], route).first)
         route.navigationItem.rightBarButtonItems = [item, uncoloured]
         window.rootViewController = nav
         controller = route
@@ -282,11 +284,11 @@ final class TintEdgesIOSTests: XCTestCase {
             ["op": "children", "id": 1, "ids": [2]], ["op": "roots", "ids": [1]],
         ]))
         let route = RouteController(try XCTUnwrap(p.views[1]))
-        let nav = p.navigation.makeNavigation(first: nil)
+        let nav = p.navigationHost.makeNavigation(first: nil)
         nav.setViewControllers([route], animated: false)
         let shape = HeaderShape.Item(try XCTUnwrap(p.views[2]))
         XCTAssertNotNil(shape.badge, "the box is the item's badge")
-        let item = try XCTUnwrap(p.navigation.barItems([shape], route).first)
+        let item = try XCTUnwrap(p.navigationHost.barItems([shape], route).first)
         route.navigationItem.rightBarButtonItems = [item]
         window.rootViewController = nav
         controller = route
@@ -303,7 +305,7 @@ final class TintEdgesIOSTests: XCTestCase {
             try check(item)
             // Made while the tint is dimmed: drawn dimmed from the first.
             route.barItemsMade[2] = nil
-            made = try XCTUnwrap(p.navigation.barItems([shape], route).first)
+            made = try XCTUnwrap(p.navigationHost.barItems([shape], route).first)
             XCTAssertFalse(made === item)
             route.navigationItem.rightBarButtonItems = [made]
             try check(made)

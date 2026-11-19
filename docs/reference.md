@@ -134,6 +134,25 @@ chat demo, with model conversations through a local OpenRouter service. It belon
 to the root workspace and does not use Snapback. Run `bun apps/messages/service.ts`
 and `bun host/web/dev.mjs --app messages --port 8767`.
 
+### Linux KMS rotation and VNC
+
+On Linux KMS, `EXACT_ROTATE=0|90|180|270` turns the completed image clockwise.
+Without it, the connector's `panel orientation` property chooses the angle; an
+absent property means 0. At 90 or 270 degrees layout uses the swapped mode size.
+The GPU rotates the image before display. Absolute evdev and VNC coordinates use
+the inverse transform; relative mouse movement and scrolling keep the user's axes.
+Agent screenshots show the rotated framebuffer, at the panel mode's size. Their
+replies give that image's point dimensions and clockwise `rotation` in degrees;
+comparison maps layout boxes onto those axes. Agent layout and target coordinates
+remain logical. In a headless Linux host, `EXACT_SIZE` supplies the unrotated panel
+size in points. Ink blits its retained target before readback; other painters
+upload their completed pixels for the GPU blit. KMS still reads back into dumb
+buffers.
+
+A Linux development build can serve its screen over VNC: set `EXACT_VNC=1` and
+`EXACT_VNC_PASSWORD` to 1–8 bytes. It listens on `127.0.0.1:5900`; `EXACT_VNC=host:port`
+selects another address. Production bakes ignore both variables.
+
 ## Runtime font families and `aria-disabled`
 
 `font-family` accepts a CSS family-list string from state or data on web,
@@ -761,7 +780,7 @@ On iOS and macOS, an optional `configuration` lets the person choose in Edit Wid
 entry becomes WidgetKit's
 [`AppIntentConfiguration`](https://developer.apple.com/documentation/widgetkit/appintentconfiguration),
 its [`WidgetConfigurationIntent`](https://developer.apple.com/documentation/appintents/widgetconfigurationintent)
-generated with one enum parameter per row, and the build extracts the extension's
+generated with one parameter per row, and the build extracts the extension's
 App Intents metadata, through which the sheet shows them:
 
 ```json
@@ -770,9 +789,11 @@ App Intents metadata, through which the sheet shows them:
     "values":[{"value":"automatic","title":"Automatic"},{"value":"one","title":"1"},{"value":"three","title":"3"}]}]}
 ```
 
-On Android the same parameters are the widget's settings, one list of choices
+On Android the same enum parameters are the widget's settings, one list of choices
 each: a placed widget starts with the defaults, and the launcher's long-press
-menu opens the settings.
+menu opens the settings. A choice there changes that widget's render alone:
+Android keeps one timeline for a kind, and its refresh receives each parameter's
+default (LLP 1126.003 D5).
 
 On watchOS, the complication picker offers
 [`recommendations`](https://developer.apple.com/documentation/widgetkit/appintentrecommendation)
@@ -783,6 +804,7 @@ each label also includes the choices' UTF-8 hex identifiers to distinguish them.
 with watch families may declare at most 64 combinations (the product of its
 parameter value counts); the bake refuses more and asks for fewer values or
 parameters. This Exact bound keeps the watch picker and generated bundle small.
+Entity parameters, below, take no part: only enum values combine and count.
 
 `title` and `description` (defaulting to the title) are the intent's; the sheet itself
 is headed by the widget's own `title` and `description`, as on iOS 27. Each
@@ -804,24 +826,69 @@ component NextTrains
 
 The shape has one field per parameter, typed `string` or an `enum` of exactly its
 values; every injecting component names one shape. A configuration that no component
-reads, or an inject without one, fails the bake with an edit. The refresh does not see
-the configuration: one timeline serves every configuration and family, and each render
-reads its own. The configuration, labels included, is generated Swift and so a binary
+reads, or an inject without one, fails the bake with an edit.
+
+A parameter of `type: "entity"` offers the app's own content in place of a fixed
+list (LLP 1126; LLP 1133.023 D2):
+
+```json
+"intents": {"entities": {"book": {"title": "Book"}}},
+"widgets": [{"kind": "library", "configuration": {"title": "Your Shelf",
+  "parameters": [{"name": "book", "type": "entity", "title": "Book", "entity": "book"}]}}]
+```
+
+`entity` names a key of `intents.entities`, whose `title` names the type in the
+sheet. The row takes no `values` and no `default`. Its choices are the entries of
+that kind that the app last published with `setContentIndex`
+(`@exact/search-index`): Edit Widget lists each entry's `title`, with its
+`description` beneath, in the app's order, and searches both. No app code runs
+when the sheet opens, so the list is as fresh as the app's last publication.
+Publish again when the content changes, and publish an empty list when the
+person signs out. The entries are in the system's search too, as every
+content-index entry is.
+
+In the shape the field is `option<string>`: `none` until the person chooses, then
+the entry's `id`. The refresh receives the same field (`string | null` in
+TypeScript) and decides what to show for `none` and for an id it does not know.
+Exact keeps a saved id when the published list no longer has it, so a list
+cleared at sign-out does not turn a chosen widget into an unchosen one.
+
+Edit Widget on iOS and macOS offers the entries. watchOS and Android offer none:
+the field is `none` there, and a widget whose parameters are all entities has no
+choices on those hosts.
+
+A configured widget's refresh receives the configuration too, as its second
+argument: a record with one field per parameter, in the order the injected shape
+declares them, each one of that parameter's values or, for an entity parameter,
+the chosen id or `none`. In TypeScript it is
+`nextTrains: ([date, { rows }]) => …`. On iOS, macOS and watchOS the refresh runs
+for each configuration a person has placed, with that placement's values, so it
+can fetch different data for each. The timeline it returns serves that
+configuration's placements in every family, and each render still reads its own
+values. On Android the argument is the defaults, as above, so a render there must
+not rely on the refresh having read its choice.
+
+The configuration, labels included, is generated Swift and so a binary
 compatibility input; Live Activities have none. Keep kind, parameter and value
 identifiers stable across updates; changing a title does not change a choice.
 A removed or renamed parameter is ignored, and a missing or removed value uses
 that parameter's current default. Other valid choices are retained. Reordering
-entries, parameters or values does not reassign a saved choice. Data-backed
-options and fetching different data for each placement are not supported.
+entries, parameters or values does not reassign a saved choice. The refresh
+receives a saved choice by the same rules. Not supported: choices computed when
+Edit Widget opens, entities that are not content-index entries, an image for an
+entry, and a parameter whose choices depend on another's.
 
 `component` and the `props` shape are declared or imported by `app.contract`;
 every component prop must match a field of that shape. `preview` supplies all
 fields, with their declared types. `refresh` names a data-source function taking
-an epoch-millisecond number and returning a timeline: records with `date` (epoch
-milliseconds) and `props` (the declared shape), in that field order. The plan's
+an epoch-millisecond number and, for a widget with a `configuration`, that
+configuration's record, and returning a timeline: records with `date` (epoch
+milliseconds) and `props` (the declared shape), in that field order. Widgets that
+name one `refresh` share its signature, so they declare the same `configuration`
+and props; the bake refuses a difference. The plan's
 `snapshot_refresh` header selects its typed source row; the render has no resource
 for it. A data bake checks an immediate refresh answer against that signature at epoch
-zero; pending answers are checked by the source declarations. TypeScript checks
+zero with the configuration's defaults; pending answers are checked by the source declarations. TypeScript checks
 the generated `Sources` type, including async refreshes. Compile entries once
 with `contract::snapshot::entries(app)`, then pass that map to `source_plan`,
 `check_refreshes` and receipt generation. `snapshot::bake_app` takes separate
@@ -840,10 +907,11 @@ Refresh has a 900 ms deadline starting when it begins, including boot. Each JS
 turn gets the time remaining to that deadline, rather than the app's 100 ms
 per-call budget. This leaves 100 ms below LLP 1126 D8's one-second
 line for completion and teardown. Failure or timeout uses the last good timeline
-cached in the App Group for this kind and generation, only while the app's store
+cached in the App Group for this kind, generation and configuration, only while the app's store
 has not changed since it was cached (a store write, such as an account switch,
 expires it), or else an “Open app” placeholder,
-and schedules a retry no sooner than 15 minutes later. Rendering and gallery
+and schedules a retry no sooner than 15 minutes later. A kind keeps the last good
+timelines of the eight configurations refreshed most recently. Rendering and gallery
 previews do not load Hermes or read the store.
 
 Live Activity entries are top-level `live_activities` rows, each with a `kind`
@@ -1192,6 +1260,8 @@ catalogs. Missing paths and paths that are not `.icon` directories fail by name.
 The project and its layers compile in the same `actool` pass as the app's
 catalogs; changing them requires a new native build. `icons` still supplies the
 web and the native raster fallback when the platform has no `icon` selection.
+A variant selects its own project with the same two keys under `variants.<name>`
+([variants](#install-a-development-build-beside-the-release-one-variants)).
 
 An app may ship icons the person chooses for the Home Screen instead
 (LLP 1163.000). `alternate_icons` in `app.json` lists them in the order a
@@ -1234,14 +1304,32 @@ refuses. Under the agent the roster is the word `app-icon.icons` (`prefer`),
 and each change holds an `app-icon` ticket standing for iOS's alert
 (`docs/recipes/alternate-app-icons.md`).
 
-What shows before the first frame is `app.json`'s Web App Manifest
-`background_color`, and in a dark scheme `color_scheme_dark.background_color`
-(`#RGB`, `#RRGGBB` or `#RRGGBBAA`); a fixed `userInterfaceStyle` takes its side
-alone. The web page has it until the first frame, the iOS launch screen centres
-`host.ios.launchImage` on it, and the Android launch window is it, with the bars'
-icons dark over a light colour. Unset, each is the platform's surface: iOS's
-`systemBackground` (its grouped background under a first route that scrolls a
-grouped list) and Android's `surface`.
+What shows before the first frame is the launch colour, which `app.json` names
+per colour scheme (LLP 1163 D2):
+
+| `app.json` | Light | Dark |
+|---|---|---|
+| `"background_color": "#f4efe6"` | `#f4efe6` | `#f4efe6` |
+| `"color_scheme_light": { "background_color": "#f4efe6" }` | `#f4efe6` | Exact's |
+| `"color_scheme_dark": { "background_color": "#14110d" }` | Exact's | `#14110d` |
+| `"background_color": "#f4efe6", "color_scheme_dark": { "background_color": "#14110d" }` | `#f4efe6` | `#14110d` |
+| none | Exact's | Exact's |
+
+A scheme's own member wins over the top-level one, which holds in every scheme.
+Name none unless the launch must differ from what Exact shows: on iOS the app's
+own background where the build can read it and every route it can open on
+agrees (each route's `background-color`, else its root's, written as a colour or
+a theme's colour), else `systemBackground` (its grouped background under a first
+route that scrolls a grouped list); on Android the theme's surface; on the web
+the page's own colour. A colour is `#RGB`, `#RRGGBB`, `#RRGGBBAA`, or Display P3 as
+`color(display-p3 r g b)` (`/ a` for alpha), which iOS and the web's first paint
+show in Display P3 and Android takes clipped to sRGB. A fixed
+`userInterfaceStyle` shows its side in both on iOS and the web; Android follows
+the device. The web page has the colour until the first frame, the iOS launch
+screen centres `host.ios.launchImage` on it, and the Android launch window is
+it, with the bars' icons dark over a light colour. `theme_color` takes the same
+three places for the browser's toolbar. The `manifest.json` a browser reads has
+only the W3C members, so a colour named for light alone is not in it.
 
 From Android 12 the launch window (the starting window) shows the launcher icon
 in its middle, as every app's does. `host.android.launchImage` replaces it:
@@ -1423,19 +1511,45 @@ The generated `--embed` composition lists the capabilities to link.
 
 | Product | Capability | Installation |
 | --- | --- | --- |
-| `ExactMarkdown` | Markdown text and editing | `ExactMarkdown.install()` |
-| `ExactCollections` | Windowed lists, swipe rows, reorder groups and iOS list row cells | `ExactCollections.install()` |
-| `ExactDrag` | Reorder, height and transform drags | `ExactDrag.install()` |
+| `ExactMarkdown` | Markdown text and editing, and its atoms' icons in text | `ExactMarkdown.install()` |
+| `ExactCollections` | Windowed lists, swipe rows, reordering rows (grips and groups) and iOS list row cells | `ExactCollections.install()` |
+| `ExactDrag` | Height and transform drags | `ExactDrag.install()` |
 | `ExactGroupedLists` | Native grouped lists | `ExactGroupedLists.install()` |
 | `ExactSurfaces` | GPU and Canvas surfaces | `ExactSurfaces.install()`; links `ExactImages`, which Canvas 2D images read through |
-| `ExactImages` | Image files, animated images and package pictures; icons in text | `ExactImages.install()` |
-| `ExactMediaPicker` | Native media picking | `ExactMediaPicker.install()` |
+| `ExactImages` | Image files, animated images and package pictures; the files icons in text read | `ExactImages.install()` |
+| `ExactPickers` | File inputs' picker, `saveFile` and the File System Access pickers | `ExactPickers.install()` |
+| `ExactMediaPicker` | Native media picking (the composition links `ExactPickers` with it) | `ExactMediaPicker.install()` |
 | `ExactAuthSession` | Authentication sessions | `ExactAuthSession.install()` |
 | `ExactNumerals` | Numeric content transitions | `ExactNumerals.install()` |
 | `ExactTips` | Platform tips | `ExactTips.install()` |
 | `ExactPresence` | Native presence checks | `ExactPresence.install()` |
 | `ExactEffects` | CSS `filter` on a box | `ExactEffects.install()` |
 | `ExactSvg` | SVG elements, SVG images and icons (links `ExactEffects` too) | `ExactSvg.install()` |
+| `ExactNativeViews` | The app's native module, native views and hatches; links `ExactFormaBinding`, the public `ExactForma` | `ExactNativeViews.install()`, which installs Forma too |
+| `ExactControls` | Switches, checkboxes, radios, ranges, selects, dates, progress and segmented tablists | `ExactControls.install()` |
+| `ExactFlights` | Shared-element flights (`sharedElement`) | `ExactFlights.install()` |
+| `ExactSticky` | `position: sticky` | `ExactSticky.install()` |
+| `ExactNotifications` | Notifications, their actions and push registration | `ExactNotifications.install()`; the app delegate calls `ExactApp.installNotificationClicks` before launch completes |
+| `ExactHostEventMailbox` | Host events a package takes (an accepted iCloud share) | `ExactHostEventMailbox.install()`; the app delegate calls `ExactApp.installHostEvents` before any scene connects |
+| `ExactActivities` | Live Activities (links `ExactWidgetPublication`, whose generation their sends name) | `ExactActivities.install()` |
+| `ExactActivities` | Live Activities | `ExactActivities.install()` |
+| `ExactToolDoor` | The tool door: the system's calls of the plan's tools | `ExactToolDoor.install()`; the app delegate calls `ExactApp.installToolDoor` before launch completes |
+| `ExactIndexMirror` | The content index `@exact/search-index` writes: its mirror, Spotlight, entity queries | `ExactIndexMirror.install()`; the app delegate calls `ExactApp.installContentIndex` before launch completes |
+| `ExactWakeCarriers` | Wakes, background transfers and monitored regions | `ExactWakeCarriers.install()`; the app delegate calls `ExactApp.installWakes` before launch completes, and `ExactApp.handleTransferEvents` |
+| `ExactGradients` | CSS gradients: `background-image` and `mask-image` | `ExactGradients.install()` |
+| `ExactTraces` | The traces an app records, and `ExactSession.startTrace()` and `stopTrace(maxBytes:)` | `ExactTraces.install()` |
+| `ExactWakeLock` | `wakelock="screen"` | `ExactWakeLock.install()` |
+| `ExactContentRegions` | Content regions an entry registers (the Mac's region controller) | `ExactContentRegions.install()` |
+| `ExactVideo` | `video` and `audio` elements' players; an image's picture in picture | `ExactVideo.install()` |
+| `ExactWebViews` | `iframe` web views | `ExactWebViews.install()` |
+| `ExactSound` | Declared sounds, sequences and the voice-table commands | `ExactSound.install()` |
+| `ExactMIDI` | MIDI ports and a sequence's MIDI output | `ExactMIDI.install()` |
+| `ExactAnimations` | What Core Animation plays for a box: its CSS animations (`animation`, `@keyframes`), transitions, drags and spring motion, so any of `animations`, `transitions`, `motion`, `drag` or `timelines` links it; SVG's element animations play through it too | `ExactAnimations.install()` |
+| `ExactNavigation` | Route stacks, tabs and their bars, route modals; on the Mac route sheets, the list beside its detail, Back and Forward, the root tabs as the sidebar | `ExactNavigation.install()` |
+| `ExactTextSelection` | iOS's selection of text a `user-select` of `text` or `all` makes selectable (the Mac's is in `ExactKit`, and every Mac composition names it) | `ExactTextSelection.install()` |
+| `ExactWidgetPublication` | Widgets and Live Activities: the app's publication of its entries to the App Group and its observation of the store they write | `ExactWidgetPublication.install()` |
+| `ExactDialogs` | iOS and tvOS: a `dialog` shown by `showModal()` as UIKit's sheet, or as the author's box when it paints its surface; any `dialog` in the plan links it. On the Mac the core presents a `dialog` | `ExactDialogs.install()` |
+| `ExactSharing` | `share(…)`'s sheet, a link's context-menu Share item, and a received share's claim | `ExactSharing.install()` |
 
 Development builds log a missing Markdown or drag installation once per session,
 with the product and installation call. Without it, Markdown remains literal
@@ -1989,6 +2103,7 @@ build instead of replacing it and its data (LLP 1030.008). Declare it in `app.js
     "idSuffix": ".dev",
     "name": "Shelf Dev",
     "icons": [{ "src": "assets/icon-dev.png", "sizes": "1024x1024", "type": "image/png", "purpose": "any" }],
+    "host": { "ios": { "icon": "art/ShelfDev.icon" } },
     "env": { "API_BASE_URL": "https://staging.example" }
   }
 }
@@ -2003,8 +2118,11 @@ and select it with `--variant dev` (or `EXACT_VARIANT=dev`; the flag wins): `bun
   and the compatibility id. An App Clip id under `app.id` moves with it.
 - `name` (required) is the launcher label, the home-screen and menu-bar name, and the executable's name. Two
   variants may not share a suffix, and no variant's name may install under the app's or a sibling's.
-- `icons` replace every icon source, `color_scheme_dark.icons` and Icon Composer's `host.ios.icon` and
-  `host.macos.icon` included. Without them the variant keeps the app's icons.
+- `icons` replace every icon source of the app, `color_scheme_dark.icons` and Icon Composer's `host.ios.icon`
+  and `host.macos.icon` included. Without them the variant keeps the app's icons.
+- `host.ios.icon` and `host.macos.icon` name the variant's own Icon Composer project. It replaces the app's on
+  that platform and wins there over `icons`, as the app's does. A platform the variant names no project for
+  keeps the app's, unless the variant has `icons`. A variant has no other member of `host`.
 - `env` gives values to settings the manifest's `env` declares. The order is the environment, the variant's
   `env`, `.env.local`, then `.env`.
 
@@ -2158,8 +2276,21 @@ replacement's clock in milliseconds, and `dropped`, the root slots that could no
 `"gesture"`, `"module"` or `"requests"`), or is null.
 Each entry has `what: "state"`, `name`, and `why`: `"no place"` when the slot is gone,
 or `"type changed"` when its value does not fit the new declaration. The replacement's
-first journal line gives the same report. Component state, view identity, scroll,
-selection, composition and Undo preservation are later pieces of that LLP.
+first journal line gives the same report. Component state, view identity, composition
+and Undo preservation are later pieces of that LLP.
+
+The JS development reload restores reading anchors and focus, including a field's
+selection range and direction when its text matches. A field may regain focus after
+its resource answers; reader focus cancels pending focus and selection. Scrolling
+caused by reader input cancels only the axes that move, including an
+ancestor when scrolling chains into it. Records match by tree path and type, so
+structural edits can prevent a match.
+Pending records cross another reload with their remaining time. Restoration ends
+when every record has applied or been cancelled, when the page leaves, or after
+ten seconds. Autofocus stays suppressed
+until then, and the browser's history scroll-restoration setting returns to its
+prior value.
+Browser Undo history is lost when the document reloads.
 
 Agent sessions use `exactTime()` launch facts `seed: 1` (LLP 1069.007), `locale: "en-US"`,
 `timeZone: "UTC"` and `epochAtZero` 2026-01-01T00:00:00Z (LLP 1027.000.000 D3, with the
@@ -2189,6 +2320,8 @@ panel it opens, sit one level below every other app's windows, so they never sho
 back when it exits, however it exits (LLP 1121 stage 9 F2).
 A data module's `crypto.getRandomValues()` and `crypto.randomUUID()` draw from the seed too, so every drive with the same seed
 repeats the same identifiers: against a live backend that deduplicates on one, give each drive a seed of its own.
+A Rust data crate asks whether its draws are seeded with `exact_data::crypto::seeded(&store)`; code that makes a key refuses while they are. The hosts keep a
+production bake out of agent mode; a development build, a release build under another trust, a terminal entry and an embedded session honour `EXACT_AGENT=1`.
 Seeds are whole numbers from 0 through 2^32 − 1, the range every host draws (LLP 1116.005 D5); an epoch is an ISO date, Unix milliseconds, or `now`: the machine's clock,
 read once by the driver at launch, for a drive against a live backend on real time (`snapback4 dev`). Native carriers pass
 `EXACT_AGENT_SEED`, `EXACT_AGENT_LOCALE`, `EXACT_AGENT_TIME_ZONE` and `EXACT_AGENT_EPOCH`
@@ -2249,7 +2382,7 @@ available. `--live` uses normal scheduling and the wall clock: `performanceNow()
 timers advance in real time between operations, and `perf frames` records real frames
 (with `--touch platform` on the simulator, a drag is a real touch and the `scroll`
 source observes it). The driver never holds the clock, so `clock` is refused; let time
-pass with `perf frames live <ms>`. A phone is not supported: its carrier is agent mode,
+pass with `perf frames live <ms>`. A physical iPhone uses agent mode,
 and a real drag there needs an XCTest runner on the device. `--storage` chooses its
 scratch store. Set
 `EXACT_STORE=real` in the launch environment to use the app's real secret and preference
@@ -2259,6 +2392,10 @@ app files. `state.observation` reports clock mode, scheduling and substitutions.
 `--timing platform` alone keeps agent execution substitutions. A substituted run does not establish production-equivalent performance,
 and callback timing does not prove compositor presentation. `layout` distinguishes target
 and presented geometry; an unavailable presentation remains explicit.
+
+On Android, `bun scripts/agent.mjs android --live` drives the reader APK on platform time
+with layer playback enabled. `clock` and `screenshot … over … every …` are refused. See
+[Driving the reader](../host/android/README.md#driving-the-reader-llp-1107-d1) for the recording command.
 
 ## Generate TypeScript data-source types
 
@@ -4079,12 +4216,14 @@ each voice ended is the same on every host and under the driver's clock
 | Android | AAudio with the shared C mixer in `libexact_sound.so`, loaded at the first play; scheduled by the stream's output timestamp, with gain, playback rate, pan, live changes and cancellation |
 | Linux, Windows | no Contract sound output: the runner keeps the voice record |
 
-Under the driver no scheduled sound plays on any host (`output: "agent"`). The
-runner initializes `state.sounds.output` to `"agent"`; Linux and Windows
-leave it there even outside the driver. Android's state reader is available
-only under the driver and retains `"agent"`; it does not expose AAudio's output
-state or latency. Outside the driver, macOS, iOS and tvOS
-replace it with an object whose `kind` is `"avaudioengine"` and whose `state` is `"closed"`,
+Seekable drives keep Contract sounds silent (`output: "agent"`). Android
+reader drives with `--live` play sounds through AAudio and read voice state
+on platform time.
+Their `state.sounds.output` reports `kind: "aaudio"`, the stream's state and,
+while running, its estimated output latency in seconds. The runner initializes
+the field to `"agent"`. Linux and Windows retain that value in ordinary
+launches. When macOS, iOS and tvOS enable audio output, they report
+an object whose `kind` is `"avaudioengine"` and whose `state` is `"closed"`,
 `"running"`, `"stopped"` or `"failed"`. Both web targets report an object with
 `kind: "web-audio"` and the audio context's `state` once the output loads; before
 that, the JS target reports `{kind: "web-audio", state: "loading"}` and the wasm
@@ -5414,18 +5553,74 @@ cargo run -q -p exact-js-bake -- path/to/app --out path/to/new-generation
 
 The app exports `grants` and an `Answer`-typed `answer`, and may export `appId`,
 which must then be `app.json`'s `app.id` (the build supplies that id when it does
-not); `appId` and `grants` are constants the build reads from the source without
-running it (a
-string, a template or `+` of constants, an array of them `.join('\n')`, or a
-top-level `const` holding one). Numbers keep their type: `1 + 2` is `3`, while
-`'a' + 1 + 2` is `'a12'`. Conditional expressions are refused.
+not); `appId` and `grants` are constants the build reads from syntax without
+running the module: a string, a template or `+` of constants, an array of them
+`.join('\n')`, or a top-level `const` holding one. Numbers keep their type:
+`1 + 2` is `3`, while `'a' + 1 + 2` is `'a12'`. Conditional expressions are refused.
+
+Plain `grants` may also use constants imported from app-local modules, including
+local re-exports, arrays and spreads of those arrays:
+
+```ts
+import { SECRET_GRANTS } from './src/session';
+export const grants = ['net.fetch https://api.example.com', ...SECRET_GRANTS].join('\n');
+```
+
+The imported bindings follow the same literal grammar. Calls other than the
+array's `.join`, computed arrays, package bindings (including re-exports
+from packages), and dependencies on launch-marked settings are refused with a
+source location. Imports resolve through Rolldown, to the file the bundle runs.
+Re-exports follow ECMAScript export resolution: a loop through star exports
+keeps searching, ambiguous bindings are refused, and a star never exports
+`default`. A cycle through constant initializers is refused. `app.ts` declares
+the grants explicitly; importing a module adds no grants. The captured export
+becomes the resolved string, so mutating an imported array at run time cannot
+change it. The rewrite preserves initialization of imported and re-exported
+modules. The bake receipt's `grants` is the
+complete resolved list; `grantSources` lists each nonempty line with its `grant`,
+`file`, `line` and `column`. Locations name the source expression that starts the
+line; generated `env.launch` lines name their setting in `app.json`.
+
+When no setting is launch-marked, `app.ts` may also re-export literal grants
+from an app-local module, by name or through `export *`. The captured export
+becomes the same fixed string. Launch-marked settings require a grants
+declaration in `app.ts`, where the bake adds their `env.launch` lines.
+
+A setting declared in app.json's `env` is read in a top-level const of `app.ts` or an
+app-local module it imports transitively:
+`const API = import.meta.env.API_BASE_URL ?? 'https://api.example'`.
+Each read of a name must use the same default, including no default. A declared name
+must be read in app.ts or its transitive app-local imports; other files do not count.
+The graph uses the bundle's browser resolution, including package main fields and
+conditions. Discovery and freshness read the bake's recorded module list; they do not resolve
+imports again. Type-only imports and re-exports read no settings. Every source file loaded
+by the TypeScript check remains a freshness input, including declarations, `import()` types
+and triple-slash references. Resolution inputs also count: manifests, configuration, and
+the names a resolution would have chosen in each place it searched (the specifier with each
+extension, as a directory, a package name in each `node_modules`), present with their bytes or
+absent, including inside packages. An unrelated file or directory, such as `out/`, is none.
+An implementation source omitted from declaration capture remains a file input if it exists.
+Web, Linux and Apple builds write the same discovery record beside
+the app. The checker types declared settings even in modules reached only through types;
+those modules supply no setting values or defaults. Grants may use a setting's const from
+`app.ts` or an imported module, as any literal constant, unless the setting is launch-marked.
+
+Server discovery gives a local setting read by `app.ts` priority. Otherwise it walks the
+recorded imports depth-first in source order, visiting each module before its imports,
+and takes the first local setting, then the first literal URL. Different local settings
+in the first setting-owning module are refused, naming the values; keep the server's
+setting in `app.ts` and other clients' settings in their modules.
 
 A backend override (`--backend`, `EXACT_BACKEND_ORIGIN` or `.exact/backend-origin`)
 needs one top-level `const origin`, set to a literal http(s) string or a setting
 such as `import.meta.env.API_BASE_URL ?? 'https://api.example'`, and used in
-`net.fetch ${origin}`. Settings are inlined before the override. An unannotated
-setting without an authored type assertion has type `string`, so comparisons
-such as `MODE === 'live'` type-check whatever value the build supplies. Binding
+`net.fetch ${origin}`. Settings are inlined before the override.
+Plain fetch and WebSocket grant lines at the original origin move with it,
+including imported constants; matching normalizes host case and default ports.
+Their receipt entries keep the authored source locations.
+
+An unannotated setting without an authored type assertion has type `string`, so
+comparisons such as `MODE === 'live'` type-check whatever value the build supplies. Binding
 annotations and surrounding assertions are preserved for inlined values. Native launch reads
 retain `as` and angle-bracket assertions, parenthesized around the whole read;
 `satisfies` and const assertions are removed because a launch can supply any
@@ -5443,8 +5638,11 @@ top-level literal `const origin`, after `EXACT_BACKEND_ORIGIN` or
 `.exact/backend-origin` overrides it, and refuses a missing entry, listing the
 origin and keys. Before type-checking, it replaces only the captured initializer
 with a string of the selected lines joined by `\n`, so web and native read the
-same grants. Authored source stays unchanged. Keyed grants move to another
-origin in a development build (`EXACT_UPDATE_TRUST` unset or `development`): an
+same grants. Aliased exports select the initializer exported as `grants`;
+private bindings of that name do not contribute grants or receipt locations.
+Receipt locations name each selected literal. Authored source
+stays unchanged. Keyed grants move to another origin in a development build
+(`EXACT_UPDATE_TRUST` unset or `development`): an
 unlisted loopback or private-network origin (RFC 1918 or link-local IPv4,
 `fc00::/7` or `fe80::/10` IPv6) takes a loopback entry (`127.0.0.1`, `localhost`
 or `[::1]`) of the same scheme. A matching port wins; otherwise exactly one
@@ -5462,8 +5660,8 @@ process belong to this app directory and origin. Choose a free port with `--back
 or `PORT` when another checkout holds it. Ordinary app servers keep their authored ports.
 
 **A setting a launch gives** (LLP 1153.002). Beside a name, app.json's `env` takes
-`{ "name": "API_BASE_URL", "launch": true }`, and app.ts reads it as any setting, in a
-top-level `const API = import.meta.env.API_BASE_URL ?? '…'`. Its build's value (the
+`{ "name": "API_BASE_URL", "launch": true }`. In `app.ts` or an app-local module it imports
+transitively, read it as `const API = import.meta.env.API_BASE_URL ?? '…'`. Its build's value (the
 environment, `.env.local`, `.env`, the default) is what the web and Android read (the web's
 bundles inline it), what a process that renders the web's pages reads, at build or while
 serving, and what the bake's own evaluation reads, so the first frame it compiles. On Apple
@@ -5614,7 +5812,7 @@ tested. The page cannot detect installation, and does not trigger signing/builds
 Linux native apps can run TypeScript through `exact-js` and Hermes;
 `apps/shelf/linux` is an entry using that executor.
 
-**Limits.** `app.ts` imports pure-JavaScript packages only (Node's modules, the DOM, a computed `import()` and native addons are refused; a use that a `typeof` test guards is not, nor a read through the global object, such as `globalThis.process?.env`, whose value is only tested, compared, spread into an object, returned, or held in a `const` whose uses are guarded in turn). Code from a string throws on every host through `Function` and `eval`, and through their own `constructor`: each throws `SyntaxError: Parsing source code unsupported`, as Hermes does. The build warns (`code-from-string`) at the uses of the global `Function` or `eval` it can see by name, a package's or `app.ts`'s: a direct call or `new`, a member of `globalThis`, destructuring a global object's property, a parameter initializer, or a JSX component name (`<Function />`). A use reached another way builds without a warning and throws the same error when it runs. Either way, code that uses them works only if it catches that error and takes another path, as zod does. What reaches `Function.prototype.constructor` or a function's own `constructor` (`(function () {}).constructor`) still runs code from a string on the web, and not on Hermes: the warning is a tripwire, not a sandbox, and refuses nothing. Under the render server's CSP and in the JS server render that throws too. A package may not read `import.meta.env`, which is app.ts's to read and pass in; a read the bundle drops, in a function nothing calls, is not one. That check keeps a module portable between Hermes and the page; it is no security boundary: on the web the module runs in the page's realm, and a package is code the author chose, trusted as their own. A package's `/// <reference lib>` to an ES library newer than the data module's (`esnext.disposable`) loads nothing, so what that library declares (`Symbol.dispose`, which Hermes lacks) stays undeclared for the app.
+**Limits.** `app.ts` imports pure-JavaScript packages only (Node's modules, the DOM, a computed `import()` and native addons are refused; a use that a `typeof` test guards is not, nor a read through the global object, such as `globalThis.process?.env`, whose value is only tested, compared, spread into an object, returned, or held in a `const` whose uses are guarded in turn). Code from a string throws on every host through `Function` and `eval`, and through their own `constructor`: each throws `SyntaxError: Parsing source code unsupported`, as Hermes does. The build warns (`code-from-string`) at the uses of the global `Function` or `eval` it can see by name, a package's or `app.ts`'s: a direct call or `new`, a member of `globalThis`, destructuring a global object's property, a parameter initializer, or a JSX component name (`<Function />`). A use reached another way builds without a warning and throws the same error when it runs. Either way, code that uses them works only if it catches that error and takes another path, as zod does. What reaches `Function.prototype.constructor` or a function's own `constructor` (`(function () {}).constructor`) still runs code from a string on the web, and not on Hermes: the warning is a tripwire, not a sandbox, and refuses nothing. Under the render server's CSP and in the JS server render that throws too. A package may not read `import.meta.env`: an app-local module reads the setting and passes it in; a read the bundle drops, in a function nothing calls, is not one. That check keeps a module portable between Hermes and the page; it is no security boundary: on the web the module runs in the page's realm, and a package is code the author chose, trusted as their own. A package's `/// <reference lib>` to an ES library newer than the data module's (`esnext.disposable`) loads nothing, so what that library declares (`Symbol.dispose`, which Hermes lacks) stays undeclared for the app.
 
 Signed delivery carries one module pair, and which pair depends on the host. The
 Apple loader accepts TypeScript or a Rust module enabled by the binary's Rust policy.
@@ -6529,12 +6727,15 @@ mode presentation are stand-ins; archive fidelity needs the real extension.
 | `bun scripts/agent.mjs macos widget next-trains tree state` | First declared family, full colour, light, large text |
 | `bun scripts/agent.mjs ios widget next-trains --epoch 2026-08-28T09:05:00Z "clock +600000" tree state` | Refresh and render at the app’s advanced clock |
 
-| `bun scripts/agent.mjs ios widget next-trains --configuration '{"rows":"one"}' "screenshot target/one.png" state` | A configured widget's render with that choice; `state` reports the `configuration` |
+| `bun scripts/agent.mjs ios widget next-trains --configuration '{"rows":"one"}' "screenshot target/one.png" state` | A configured widget's refresh and render with that choice; `state` reports the `configuration` and the props its refresh returned |
 
 A configured widget's cells render its defaults, then each other value of each
-parameter (the rest at their defaults) in full colour, light and dark;
+enum parameter (the rest at their defaults) in full colour, light and dark;
 `--configuration <json>` names parameters and values over the defaults, and a name or
-value the configuration does not declare is refused with the ones it does.
+value the configuration does not declare is refused with the ones it does. An
+entity parameter takes any entry's id, as `--configuration '{"book":"<id>"}'`:
+the gallery reads no published list. Each cell's refresh receives the values it
+renders.
 
 An immediate refresh answer supplies its first timeline entry. Pending, empty
 or unavailable data keeps the preview; `state` reports which. The gallery's

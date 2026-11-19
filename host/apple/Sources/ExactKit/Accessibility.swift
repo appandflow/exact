@@ -26,7 +26,7 @@ extension NodeView {
     private var onlySymbol: UIImageView? {
         var symbols: [UIImageView] = [], other = false
         func walk(_ node: NodeView) {
-            for child in node.container.subviews.compactMap({ $0 as? NodeView }) where !child.isHidden && child.props["accessibilityElementsHidden"] != "true" {
+            for child in node.childNodes where !child.isHidden && child.props["accessibilityElementsHidden"] != "true" {
                 if let leaf = child.symbolView, leaf.image != nil { symbols.append(leaf) } else if child.kind == "image" || child.props["text"]?.isEmpty == false { other = true }
                 walk(child)
             }
@@ -44,7 +44,7 @@ extension NodeView {
 extension NodeView {
     /// A button: a custom one (`kind == "button"`) or a native one, under any
     /// role (LLP 1069.011.000 D1).
-    var isButton: Bool { kind == "button" || isNativeButton }
+    package var isButton: Bool { kind == "button" || isNativeButton }
     /// Its face, as the kernel reads it (LLP 1069.011.000 D1); nil when the
     /// presenter cannot read one. UIKit's presenter keeps a native button's
     /// until a batch changes it (`ControlHost.face`); a custom button's face
@@ -79,7 +79,7 @@ extension NodeView {
         // nothing (habits F16: a tab's icon glyph). One the host hides still
         // names: a native control draws its words (a grouped list's sections,
         // a segmented control's tabs).
-        let children = container.subviews.compactMap { $0 as? NodeView }.filter { unshown || !$0.leftOut }
+        let children = childNodes.filter { unshown || !$0.leftOut }
         return children.map { naming ? $0.authoredLabel ?? $0.contentText(naming: true) : $0.contentText(naming: false, unshown: unshown) }.filter { !$0.isEmpty }.joined(separator: " ")
     }
     /// Not rendered (`display: none`) or left out of the accessibility tree (`aria-hidden`).
@@ -143,7 +143,7 @@ extension NodeView {
     /// box takes these roles as a box does.
     /// On the Mac a menu's row (`menuitem`, `menuitemcheckbox`,
     /// `menuitemradio`) is one too, as AppKit's menu item is.
-    var actsAsButton: Bool {
+    package var actsAsButton: Bool {
         #if os(macOS)
         let menuItem = isMenuItem
         #else
@@ -318,7 +318,7 @@ extension NodeView {
     /// keydown (LLP 1069.001, amended 2026-11-16). The agent's held key sends
     /// one half at a time: `phase` "down" is the keydown and its `step`, a
     /// repeated one where `repeats`, and "up" the keyup.
-    func adjustKeys(up: Bool, vertical: Bool = false, phase: String? = nil, repeats: Bool = false, step: () -> Void = {}) {
+    package func adjustKeys(up: Bool, vertical: Bool = false, phase: String? = nil, repeats: Bool = false, step: () -> Void = {}) {
         guard let presenter else { return }
         let key = if vertical {
             up ? "ArrowUp" : "ArrowDown"
@@ -359,10 +359,13 @@ extension NodeView {
         if target === self {
             // The host owns these values on the node; native controls still
             // read their cell's values below.
+            // Help is written at the first sync even when nil, or AppKit serves
+            // the tooltip as help. Required is AppKit's false on a new view and
+            // nothing else writes it, so it is written only once it differs.
             var last = lastAccessibilityWrite
             if !last.formInitialized || last.enabled != enabled { setAccessibilityEnabled(enabled); last.enabled = enabled }
             if !last.formInitialized || last.help != description { setAccessibilityHelp(description); last.help = description }
-            if !last.formInitialized || last.required != required { setAccessibilityRequired(required); last.required = required }
+            if last.required != required { setAccessibilityRequired(required); last.required = required }
             last.formInitialized = true
             lastAccessibilityWrite = last
         } else {
@@ -745,7 +748,7 @@ extension UIView {
 
 /// What an authored tab shows as one segment of the system's segmented
 /// control (LLP 1035.001 D10): its one image, or its words.
-enum SegmentFace: Equatable { case image(NodeView), symbol(String), title(String) }
+package enum SegmentFace: Equatable { case image(NodeView), symbol(String), title(String) }
 
 extension NodeView {
     /// How this tab shows as a segment, or nil when a segment cannot show
@@ -755,7 +758,7 @@ extension NodeView {
     /// (LLP 1116 D6). An icon beside a label, a badge, or any other node
     /// keeps the authored rendering — the web's, where a role never changes
     /// what is drawn.
-    var segmentFace: SegmentFace? {
+    package var segmentFace: SegmentFace? {
         // A native button's face, not views (LLP 1069.011.000 D4): a symbol
         // alone (named by its label), or a title.
         if isNativeButton {
@@ -764,7 +767,7 @@ extension NodeView {
             if let title = face.title, face.symbol == nil { return .title(title) }
             return nil
         }
-        let children = container.subviews.compactMap { $0 as? NodeView }
+        let children = childNodes
         // An `aria-hidden` child (an icon glyph) is drawn but not named: no
         // segment shows one thing and is named another (habits F16).
         if children.contains(where: { $0.props["accessibilityElementsHidden"] == "true" }) { return nil }
@@ -783,11 +786,23 @@ extension Presenter {
             ?? (view as? NodeView).flatMap { navigation.logicalParent(of: $0) } ?? view.superview
     }
     #endif
+    /// What `syncAccessibility` writes of a node a staged batch made, while
+    /// it is prepared (LLP 1072 T13): its form facts. False for what the
+    /// reveal's pass writes instead: a live region or an autofocus, which
+    /// speak or move the focus when the node is seen, and a button, whose
+    /// name is read from content.
+    func prepareAccessibility(_ node: NodeView) -> Bool {
+        guard node.livePoliteness == nil, node.props["autofocus"] != "true" else { return false }
+        guard !(node.actsAsButton || node.props["accessibilityRole"] == "button") || node.isNativeButton else { return false }
+        node.applyFormAccessibility()
+        return true
+    }
+
     /// Names, live regions and autofocus. `changed` limits the pass to the
     /// views a batch touched and their ancestors — a button's name reads its
     /// subtree — plus every live region and pending autofocus; nil reads
     /// every view.
-    func syncAccessibility(changed: Set<UInt32>? = nil, disabledRoots: Set<UInt32> = []) {
+    package func syncAccessibility(changed: Set<UInt32>? = nil, disabledRoots: Set<UInt32> = []) {
         guard Thread.isMainThread else {
             DispatchQueue.main.async { [weak self] in self?.syncAccessibility() }
             return
@@ -1090,7 +1105,7 @@ extension Presenter {
     /// siblings only the frontmost is modal, and one inside a branch another
     /// modal hides is not. VoiceOver moves into the innermost modal when that
     /// changes, or back to the screen, once no transition is running.
-    func syncModal() {
+    package func syncModal() {
         let candidates = chrome.ids("accessibilityModal").sorted().compactMap { views[$0] }
         func ancestors(_ view: UIView) -> [UIView] { sequence(first: view, next: \.superview).map { $0 } }
         func inFront(_ a: UIView, of b: UIView) -> Bool {
@@ -1194,7 +1209,7 @@ private struct FocusTree {
 extension Presenter {
     /// The node holding the focus: itself, its field (through its editor on
     /// AppKit) or its text area.
-    var focusedNode: NodeView? {
+    package var focusedNode: NodeView? {
         views.values.filter { node in
             #if os(macOS)
             guard let responder = node.window?.firstResponder else { return false }

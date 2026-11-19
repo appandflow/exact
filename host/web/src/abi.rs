@@ -130,6 +130,7 @@ impl<D: DataSource> Bridge<D> {
     pub fn set_preferences(&mut self, bits: u32) {
         self.preferences = exact_runner::Preferences {
             update: self.preferences.update,
+            screen_reader: self.preferences.screen_reader,
             ..exact_runner::Preferences::from_bits((bits & 0xff) | ((bits >> 26) << 8))
         };
         self.fold = fold_bits(bits);
@@ -140,6 +141,11 @@ impl<D: DataSource> Bridge<D> {
     /// the next boot or resize, which the page sends after this.
     pub fn set_update(&mut self, code: u32) {
         self.preferences.update = exact_runner::Preferences::from_bits((code & 3) << 15).update;
+    }
+
+    /// The agent's substitute; a browser's own reading is always unknown (LLP 1039 D10).
+    pub fn set_screen_reader(&mut self, code: u32) {
+        self.preferences.screen_reader = exact_runner::ScreenReader::from_bits(code);
     }
 
     /// UTF-8 launch location carried after optional plan bytes.
@@ -382,11 +388,13 @@ impl<D: DataSource> Bridge<D> {
     /// The locations `plan` renders at build (LLP 1048.000 D7), as a JSON
     /// array: the web build runs no render step when there are none.
     pub fn build_locations(&mut self, plan: &[u8]) -> u32 {
-        // The routes whose pages a source lists count too, by pattern.
+        // The routes whose pages a source lists count too, by pattern, and the not-found document where a
+        // pattern takes its location: the render entry refuses it beside the build's other refusals.
         let found = exact_plan::Plan::decode(plan)
             .map_err(|e| format!("{e:?}"))
             .and_then(|plan| {
-                let mut found = crate::document::build_locations(&plan)?;
+                let (mut found, refused) = crate::document::build_locations(&plan);
+                found.extend(refused.map(|(location, _)| (location, true)));
                 for row in plan.routes.iter().filter(|r| {
                     r.render == exact_plan::RenderPolicy::Build && !plan.str(r.pages).is_empty()
                 }) {
@@ -396,16 +404,11 @@ impl<D: DataSource> Bridge<D> {
             });
         let out = match found {
             Ok(found) => {
-                let mut json = String::from("[");
-                for (i, (location, _)) in found.iter().enumerate() {
-                    if i > 0 {
-                        json.push(',');
-                    }
-                    json.push('"');
-                    json.push_str(&escape(location));
-                    json.push('"');
-                }
-                json + "]"
+                let quoted: Vec<_> = found
+                    .iter()
+                    .map(|(l, _)| format!("\"{}\"", escape(l)))
+                    .collect();
+                format!("[{}]", quoted.join(","))
             }
             Err(error) => format!("{{\"error\":\"{}\"}}", escape(&error)),
         };
@@ -974,7 +977,11 @@ impl<D: DataSource> Bridge<D> {
         // `tap @t` / `type @t` answer a held device request (LLP 1069.007
         // D4) before any view is looked up.
         let out = match self.host.as_mut() {
-            Some(h) => h.answer_hold(&request).unwrap_or_else(|| h.agent(&request)),
+            Some(h) => match exact_runner::agent::drop_stream(h.runner_mut(), &request) {
+                Some(Ok(drop)) => h.advanced(drop),
+                Some(Err(e)) => exact_runner::json::error(&e),
+                None => h.answer_hold(&request).unwrap_or_else(|| h.agent(&request)),
+            },
             None => exact_runner::json::error("not booted"),
         };
         self.emit(out)
@@ -1260,6 +1267,13 @@ macro_rules! host {
         #[no_mangle]
         pub extern "C" fn exact_set_update(code: u32) {
             EXACT_BRIDGE.with(|b| b.borrow_mut().set_update(code))
+        }
+
+        /// The agent's substitute for the screen reader's state, which a
+        /// browser never reports (`Bridge::set_screen_reader`; LLP 1039 D10).
+        #[no_mangle]
+        pub extern "C" fn exact_set_screen_reader(code: u32) {
+            EXACT_BRIDGE.with(|b| b.borrow_mut().set_screen_reader(code));
         }
 
         /// The viewport or the page's facts (bit 0 reduced motion, bit 1

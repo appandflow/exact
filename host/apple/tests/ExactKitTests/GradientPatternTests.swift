@@ -2,6 +2,7 @@ import CoreGraphics
 import QuartzCore
 import XCTest
 @testable import ExactKit
+@testable import ExactGradients
 #if os(macOS)
 import AppKit
 #else

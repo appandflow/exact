@@ -23,7 +23,7 @@ import AppKit
 /// `targetTimestamp − timestamp`, as the canvases read it (`duration` is
 /// wrong under ProMotion), at the callback an interval starts from;
 /// `missed = round(interval / period) − 1`.
-final class FrameSampler: NSObject {
+package final class FrameSampler: NSObject {
     /// Keep automatic sampling off for production bakes and power profiling
     /// (`EXACT_SAMPLE_FRAMES=0`); explicit recordings still work. Settable, so
     /// a test runs as a bake.
@@ -48,19 +48,19 @@ final class FrameSampler: NSObject {
     /// A release build's frames before anything asked for them.
     static let unmeasured = "a release build measures frames from the first agent request or trace; this is the first"
 
-    struct Record {
-        let t: Double, interval: Double, missed: Int, seq: (UInt64, UInt64)?, batches: Int, apply: Double
-        var period = 0.0
+    package struct Record {
+        package let t: Double, interval: Double, missed: Int, seq: (UInt64, UInt64)?, batches: Int, apply: Double
+        package var period = 0.0
         /// How late the frame's commit was, milliseconds (0: on time): on iOS
         /// and tvOS 18 and later, past its UI update's completion deadline
         /// (`committed`); elsewhere, how long past the frame's target the
         /// main thread's turn ended.
-        var overrun = 0.0
+        package var overrun = 0.0
         /// How long Core Animation's commit of the UI update whose lateness
         /// `overrun` holds took, ms, the layout and drawing of the layers that
         /// needed it included: on iOS and tvOS 18 and later, from the update
         /// link's `beforeCATransactionCommit` to its `afterCATransactionCommit`.
-        var commit: Double?
+        package var commit: Double?
         /// A late frame's hatch calls (LLP 1075.003.000.001 §3.1): those that
         /// overlapped its interval, each charged its overlap, with `coverage`.
         var hatches: [String: Any]?
@@ -70,31 +70,31 @@ final class FrameSampler: NSObject {
         /// The tracked scroller's offset as the last turn committed it, and
         /// its phase: `t` dragged, `d` decelerating, `b` past its range,
         /// `-` at rest (LLP 1144 D1, `scrollSample`).
-        var scroll: (Double, String)?
+        package var scroll: (Double, String)?
         /// In a recording: how long the main thread's turns that ended in
         /// this frame's interval ran, milliseconds.
-        var main: Double?
+        package var main: Double?
         /// In a recording: which of its taken scrollers (`Recording.scrollers`)
         /// `scroll` was read from, as the turn committed it.
-        var taken: Int?
+        package var taken: Int?
         /// In a recording with a presentation probe: whether the probe
         /// reported this frame, how much later than UIKit expected it
         /// reached the screen when that was over half a period, ms, and
         /// whether it never did.
-        var probed = false, screenLate: Double?, unshown = false
+        package var probed = false, screenLate: Double?, unshown = false
         /// How late the commit of the UI update this frame was sampled in
         /// was, ms, which ran after it: a stall the next callback's gap may
         /// hold again. `overrun` also holds a commit from an update that
         /// sampled no frame.
-        var ownOverrun = 0.0
+        package var ownOverrun = 0.0
         /// A passive recording's UI update (`UpdateRecorder`), ms: from its
         /// `modelTime` to its event dispatch, its events, its display links'
         /// callbacks, its work from event dispatch to the end of its commit,
         /// and the recorder's own main-thread time in it.
-        var update: (start: Double, events: Double, links: Double, work: Double, own: Double)?
+        package var update: (start: Double, events: Double, links: Double, work: Double, own: Double)?
         /// A passive recording's idle gap before new work, which owed no frame.
-        var quiet = false
-        var json: [String: Any] {
+        package var quiet = false
+        package var json: [String: Any] {
             var o: [String: Any] = ["t": t, "target": t + period, "period": period, "interval": interval, "missed": missed, "batches": batches, "apply": apply, "overrun": overrun]
             o["seq"] = seq.map { [$0.0, $0.1] } ?? NSNull()
             if let commit { o["commit"] = commit }
@@ -149,18 +149,18 @@ final class FrameSampler: NSObject {
     /// A recording an app started (`startTrace_EXPERIMENTAL`): each callback until
     /// `stopTrace_EXPERIMENTAL`, and the scroller a person moved last, read where each
     /// turn ends, apart from what a held fling reads (`tracked`).
-    final class Recording {
-        var work: [String: Any] = [:]
-        var records: [Record] = []
-        var dropped = 0
+    package final class Recording {
+        package var work: [String: Any] = [:]
+        package var records: [Record] = []
+        package var dropped = 0
         /// The scrollers the recording followed, in the order it took them:
         /// each one's name, its own in the recording, and its offset then: as
         /// a person took it, before it moved; when it `moved` with no finger,
         /// already past where it began.
-        struct Taken { let name: String; var from: Double? = nil, moved = false }
-        var scrollers: [Taken] = []
+        package struct Taken { package let name: String; package var from: Double? = nil, moved = false }
+        package var scrollers: [Taken] = []
         #if canImport(UIKit)
-        weak var scroller: UIScrollView?
+        package weak var scroller: UIScrollView?
         /// Each scroller the recording named, held weakly: an identifier
         /// names the same scroller only while it lives, and a new one at a
         /// released one's address is another scroller. `given` is every
@@ -178,7 +178,7 @@ final class FrameSampler: NSObject {
         /// index, and when UIKit expected it on screen.
         var awaiting: [Int: (frame: Int, expected: CFTimeInterval)] = [:]
         /// The device's thermal state when the recording began
-        let thermal = ProcessInfo.processInfo.thermalState
+        package let thermal = ProcessInfo.processInfo.thermalState
         @discardableResult func keep(_ record: Record) -> Bool {
             guard records.count < FrameSampler.recordingKept else { dropped += 1; return false }
             records.append(record)
@@ -208,7 +208,7 @@ final class FrameSampler: NSObject {
     }
     /// Five minutes at 120 Hz.
     static let recordingKept = 36_000
-    private(set) var recording: Recording?
+    package private(set) var recording: Recording?
     private var busy = 0.0
 
     /// Main-thread wall time submitting and presenting each executor pump.
@@ -244,7 +244,7 @@ final class FrameSampler: NSObject {
     private var open: (record: Record, at: CFTimeInterval, scrolled: Scrolled?)?
     typealias Scrolled = (offset: Double, phase: String, taken: Int)
 
-    init(session: ExactSession) {
+    package init(session: ExactSession) {
         self.session = session
         super.init()
         HostPhases.shared.on = true
@@ -516,7 +516,7 @@ final class FrameSampler: NSObject {
     /// and later, with the session's view in a window scene, each UI update
     /// (`UpdateRecorder`); elsewhere each display-link callback, at rest too.
     /// False while one runs, or with nothing to observe.
-    func beginRecording() -> Bool {
+    package func beginRecording() -> Bool {
         guard recording == nil else { return false }
         #if (os(iOS) || os(tvOS)) && !targetEnvironment(macCatalyst)
         if #available(iOS 18.0, tvOS 18.0, *), let session {
@@ -539,7 +539,7 @@ final class FrameSampler: NSObject {
         return true
     }
 
-    func endRecording() -> Recording? {
+    package func endRecording() -> Recording? {
         guard let done = recording else { return nil }
         #if (os(iOS) || os(tvOS)) && !targetEnvironment(macCatalyst)
         if #available(iOS 18.0, tvOS 18.0, *), let passive = recorder as? UpdateRecorder {
@@ -562,7 +562,7 @@ final class FrameSampler: NSObject {
     /// recording follows it, unless a person is moving another. Every
     /// scroller's delegate tells it: an element's, a route's page and the
     /// document.
-    static func scrolled(_ scroll: UIScrollView, in session: ExactSession?, person: Bool) {
+    package static func scrolled(_ scroll: UIScrollView, in session: ExactSession?, person: Bool) {
         guard let sampler = session?.sampler, let recording = sampler.recording, recording.scroller !== scroll else { return }
         if !person, let current = recording.scroller, current.isTracking || current.isDecelerating { return }
         recording.scroller = scroll
@@ -627,6 +627,53 @@ final class FrameSampler: NSObject {
 }
 
 extension ExactSession {
+    /// Direct observations bypass the carrier's drain and guest scripting.
+    /// The saved frame ring ends before these reads, which never settle or seek.
+    func traceSnapshot() -> [String: Any] {
+        let read = { (export: (ExactRuntime, Int) -> UInt32) -> Any in
+            (try? JSONSerialization.jsonObject(with: Data(self.runtime.ask(export, "{}").utf8))) ?? ["error": "unreadable reply"]
+        }
+        let started = ExactEnv.wall()
+        let tree = read(exact_tree), state = read(exact_state), layout = AgentLink.layout(self)
+        return ["tree": tree, "state": state, "layout": layout,
+                "observation": executionObservation().merging([
+                                "wallFrom": started, "wallTo": ExactEnv.wall(), "timebase": "milliseconds since process main",
+                                "reads": ["tree": ["class": "passive", "scope": "runner; no guest DOM"],
+                                          "state": ["class": "passive", "scope": "runner; no host settling"],
+                                          "layout": ["class": "passive", "scope": "mounted host geometry"],
+                                          "journal": ["class": "passive"], "perf": ["class": "passive"]],
+                                "frameRingEndsBeforeReads": true, "settlingReads": [] as [String]] as [String: Any]) { _, read in read }]
+    }
+
+    func appFileStorage() -> [String: Any] {
+        let reply = try? JSONSerialization.jsonObject(with: Data(runtime.ask(exact_app_roots, "").utf8))
+        return (reply as? [String: Any])?["storage"] as? [String: Any] ?? ["available": false, "store": "none"]
+    }
+
+    func executionObservation() -> [String: Any] {
+        let frozen = clock != nil, files = appFileStorage()
+        let substitutedFiles = ExactEnv.environment["EXACT_AGENT"] != nil
+        let substitutedSecrets = substitutedFiles && ExactEnv.environment["EXACT_STORE"] != "real"
+        var substitutions = ExactEnv.agentMode
+            ? ["timers", "collection-fill-scheduling", "scroll-velocity", "wheel-routing", "device-facts", "capabilities"] : []
+        if substitutedFiles { substitutions.append("storage") }
+        if substitutedSecrets { substitutions.append("secret-presence") }
+        return ["clockMode": frozen ? "virtual" : "real", "clock": now(), "clockChanged": false,
+                "execution": ExactEnv.agentMode ? "agent" : "normal", "scheduling": ExactEnv.agentMode ? "agent" : "normal",
+                "substitutions": substitutions, "store": files["store"] as? String ?? "none",
+                "performanceClaim": !ExactEnv.agentMode && !substitutedFiles && !substitutedSecrets && !frozen]
+    }
+
+    /// Let a production bake's sampler go once no recording keeps it, or
+    /// its session is destroyed, and the host phases with the last sampler
+    /// any session keeps. A build that measures on its own keeps its sampler.
+    package func releaseSampler(measured: Bool = FrameSampler.measured) {
+        guard !measured, sampler?.recording == nil || state == .destroyed else { return }
+        sampler?.stop()
+        sampler = nil
+        if !app.sessions.contains(where: { $0.sampler != nil }) { HostPhases.shared.on = false }
+    }
+
     /// Save Trace (LLP 1079 D5): this session's journal, its presented frames,
     /// `perf` over every root and its hatches, with who made them and each timing's
     /// proxy, as `trace-<wallclock>.json` in the app's temporary directory;
@@ -859,6 +906,19 @@ extension Agent {
         }
         // A nested Foundation run loop does not dispatch AppKit's events.
         sampler.observationStopped = { observation.finish($0) }
+    }
+}
+#endif
+
+#if canImport(UIKit)
+extension FrameSampler {
+    /// The node a scroller belongs to, by its test id or id when it has one;
+    /// `page` for the document's, which no node holds.
+    static func scrollerName(_ scroll: UIScrollView) -> String {
+        var view: UIView? = scroll
+        while let v = view, !(v is NodeView) { view = v.superview }
+        guard let node = view as? NodeView else { return "page" }
+        return node.props["testId"] ?? node.props["id"].map { "#\($0)" } ?? "node \(node.id)"
     }
 }
 #endif

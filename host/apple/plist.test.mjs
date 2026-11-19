@@ -71,7 +71,7 @@ test('metadata refusals reserve specific advice for proven grants', () => {
     ['macos', 'entitlements', 'com.apple.developer.team-identifier'],
     ['ios', 'entitlements', 'keychain-access-groups'],
     ...['ios', 'macos'].map(p => [p, 'entitlements', 'com.apple.security.application-groups']),
-    ...['ExactAppGroup', 'ExactAppIdentifier', 'ExactWidgetKinds', 'ExactWidgetTypeScript', 'ExactWidgetGeneration', 'ExactKeychainAccessGroup'].map(k => ['ios', 'infoPlist', k]),
+    ...['ExactAppGroup', 'ExactAppIdentifier', 'ExactWidgetKinds', 'ExactWidgetEntities', 'ExactWidgetTypeScript', 'ExactWidgetGeneration', 'ExactKeychainAccessGroup'].map(k => ['ios', 'infoPlist', k]),
     ...['allow-jit', 'allow-unsigned-executable-memory', 'disable-library-validation'].map(k => ['macos', 'entitlements', `com.apple.security.cs.${k}`]),
     ['ios', 'infoPlist', 'ExactCapturesInBackground'],
     ['ios', 'infoPlist', 'UIBackgroundModes'],
@@ -225,8 +225,8 @@ test('a taken event writes its key and ExactHostEvents; a grant with no taker, o
   assert.match(appleMetadataProblem('host.ios.infoPlist.CKSharingSupported: not a known key'), /Exact writes this key itself/);
 }, 60_000);
 
-test("ExactKit's host events are the build's list (HostEvents.swift)", () => {
-  const swift = readFileSync(resolve(import.meta.dir, 'Sources/ExactKit/HostEvents.swift'), 'utf8');
+test("the host event mailbox's events are the build's list (HostEvents.swift)", () => {
+  const swift = readFileSync(resolve(import.meta.dir, 'Sources/ExactHostEventMailbox/HostEvents.swift'), 'utf8');
   assert.deepEqual([...swift.matchAll(/Event\(name: "([^"]+)"/g)].map((m) => m[1]).sort(), [...HOST_EVENTS.keys()].sort());
 });
 

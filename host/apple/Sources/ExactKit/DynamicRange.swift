@@ -36,7 +36,7 @@ package enum DisplayRange {
 /// `contentHeadroom` model it (LLP 1100 D2, D8). A colour in an extended or
 /// PQ/HLG space is tagged with its own peak, so an untagged PQ white doesn't
 /// draw at Core Graphics' implied 1000 nits.
-enum ColorRange {
+package enum ColorRange {
     /// A colour's peak over SDR white, at least 1; 0 for a standard space.
     static func headroom(_ color: CGColor?) -> Float {
         guard let color, let space = color.colorSpace,
@@ -58,7 +58,7 @@ enum ColorRange {
     static func isHDR(_ color: CGColor?) -> Bool { headroom(color) > 1 }
 
     /// The colour tagged with its headroom (`CGColor(headroom:)`), components unchanged.
-    static func tagged(_ color: CGColor) -> CGColor {
+    package static func tagged(_ color: CGColor) -> CGColor {
         guard #available(iOS 26, macOS 26, tvOS 26, *), let space = color.colorSpace, space.model == .rgb,
               let c = color.components, c.count == 4, case let h = headroom(color), h >= 1,
               let tagged = CGColor(headroom: h, colorSpace: space, red: c[0], green: c[1], blue: c[2], alpha: c[3]) else { return color }
@@ -246,7 +246,7 @@ extension NodeView {
         #endif
         var h: Float = 0
         if box {
-            for gradient in Gradient.layers(style["background_image"], tint: gradientTint) {
+            for gradient in GradientLink.layers(style["background_image"], tint: gradientTint) {
                 for c in gradient.stops(dark: drawsDark).1 { h = max(h, ColorRange.headroom(c)) }
             }
             for key in ["background_color", "border_color_top", "border_color_right", "border_color_bottom", "border_color_left"] {
@@ -264,7 +264,7 @@ extension NodeView {
         let box = boxNeedsDraw
         #endif
         guard box else { return false }
-        let stops = Gradient.layers(style["background_image"], tint: gradientTint).flatMap { $0.stops(dark: drawsDark).1 }
+        let stops = GradientLink.layers(style["background_image"], tint: gradientTint).flatMap { $0.stops(dark: drawsDark).1 }
         return stops.contains { ColorRange.needsExtendedComponents($0) }
             || ["background_color", "border_color_top", "border_color_right", "border_color_bottom", "border_color_left"].contains { ColorRange.needsExtendedComponents(cgColor($0)) }
     }

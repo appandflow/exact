@@ -9,11 +9,80 @@
 //! `faults` operation.
 
 use super::Runner;
-use crate::{DataSource, Dispatch, FailureKind, Outcome, RequestOut, Response, Work};
+use crate::{
+    Advanced, DataSource, Dispatch, FailureKind, Outcome, Request, RequestOut, Response, Timed,
+    Work,
+};
 use std::sync::{Arc, Mutex};
 
 /// A long poll's check before each HTTP attempt: a matching fault's network error.
 pub type FetchFault = Arc<dyn Fn(&str) -> Option<String> + Send + Sync>;
+
+pub(super) fn stream_url(request: &Request) -> Option<Box<str>> {
+    let network = request.url.split_once("://").is_some_and(|(scheme, _)| {
+        ["http", "https", "ws", "wss"]
+            .iter()
+            .any(|s| scheme.eq_ignore_ascii_case(s))
+    });
+    (request.stream
+        && network
+        && request.long_poll.is_none()
+        && !request.upload_progress
+        && request.listen.is_none())
+    .then(|| request.url.as_str().into())
+}
+
+impl<D: DataSource> Runner<D> {
+    pub(crate) fn drop_streams(&mut self, prefix: &str) -> Result<Advanced, String> {
+        let tickets: Vec<_> = self
+            .pending
+            .iter()
+            .filter(|p| {
+                p.completion.is_some()
+                    && p.refusal.is_none()
+                    && !p.refused
+                    && p.stream_url
+                        .as_deref()
+                        .is_some_and(|url| url.starts_with(prefix))
+            })
+            .map(|p| p.ticket)
+            .collect();
+        if tickets.is_empty() {
+            return Err(format!("drop stream {prefix:?} matched no open stream"));
+        }
+        let mut receipts = Vec::new();
+        let mut error = None;
+        for ticket in tickets {
+            let message = "stream dropped by test";
+            // The injected end overtakes any frames waiting on an unfinished mapper.
+            self.fail_mapper_turn(ticket, message);
+            self.explicit_aborts.push(ticket);
+            match self.fulfill(
+                ticket,
+                Outcome::Failed {
+                    kind: FailureKind::Network,
+                    message: message.into(),
+                },
+            ) {
+                Ok(Some(receipt)) => receipts.push(Timed {
+                    at_ms: self.now_ms,
+                    receipt,
+                }),
+                Ok(None) => {}
+                Err(e) => {
+                    error.get_or_insert(e);
+                }
+            }
+        }
+        Ok(Advanced {
+            receipts,
+            now_ms: self.now_ms,
+            error,
+            stopped_on_request: false,
+            needs_apply: false,
+        })
+    }
+}
 
 /// One armed prefix (D3): how many matching fetches it fails yet (`None`:
 /// every one until `pass`), whether it still matches, and how many it has
@@ -136,12 +205,12 @@ pub struct Faults {
 
 impl Faults {
     /// The table a launch names: `EXACT_AGENT_FAIL_FETCH`, in
-    /// [`Faults::parse`]'s lines, read only under the agent
-    /// (`EXACT_AGENT=1`), as its other launch facts are.
+    /// [`Faults::parse`]'s lines, read only in an agent launch.
     pub fn from_env() -> Result<Faults, String> {
-        let agent = std::env::var("EXACT_AGENT").is_ok_and(|v| v == "1");
-        let spec = std::env::var("EXACT_AGENT_FAIL_FETCH").ok();
-        match spec.filter(|_| agent) {
+        match std::env::var("EXACT_AGENT_FAIL_FETCH")
+            .ok()
+            .filter(|_| crate::agent::carried())
+        {
             Some(spec) => Faults::parse(&spec),
             None => Ok(Faults::default()),
         }
@@ -503,9 +572,10 @@ mod tests {
     }
 
     #[test]
-    fn unreadable_launch_fixture_refuses_boot() {
+    fn a_live_drive_loads_launch_faults_before_boot() {
         const CHILD: &str = "EXACT_FAULT_PARSE_CHILD";
-        if std::env::var_os(CHILD).is_some() {
+        const PREFIX: &str = "https://api.test/";
+        if let Ok(fixture) = std::env::var(CHILD) {
             let mut builder = exact_plan::builder::PlanBuilder::new(exact_kernel::SCHEMA_DIGEST, 1);
             builder.node(
                 exact_kernel::NodeType::View as u8,
@@ -523,25 +593,36 @@ mod tests {
                 Default::default(),
                 "/",
             );
-            assert!(result.is_err(), "invalid launch fixtures must refuse boot");
+            if fixture == "invalid" {
+                assert!(result.is_err(), "invalid launch fixtures must refuse boot");
+            } else {
+                assert!(result.unwrap().faults().take("https://api.test/first"));
+            }
             return;
         }
-        let output = std::process::Command::new(std::env::current_exe().unwrap())
-            .args([
-                "--exact",
-                "runner::faults::tests::unreadable_launch_fixture_refuses_boot",
-                "--nocapture",
-            ])
-            .env(CHILD, "1")
-            .env("EXACT_AGENT", "1")
-            .env("EXACT_AGENT_FAIL_FETCH", "https://api.test/\t-\t-\t0\t1\t{")
-            .output()
-            .unwrap();
-        assert!(
-            output.status.success(),
-            "{}",
-            String::from_utf8_lossy(&output.stdout)
-        );
+        for mode in ["1", "live"] {
+            for (fixture, spec) in [
+                ("valid", PREFIX),
+                ("invalid", "https://api.test/\t-\t-\t0\t1\t{"),
+            ] {
+                let output = std::process::Command::new(std::env::current_exe().unwrap())
+                    .args([
+                        "--exact",
+                        "runner::faults::tests::a_live_drive_loads_launch_faults_before_boot",
+                    ])
+                    .env(CHILD, fixture)
+                    .env("EXACT_AGENT", mode)
+                    .env("EXACT_AGENT_FAIL_FETCH", spec)
+                    .output()
+                    .unwrap();
+                assert!(
+                    output.status.success(),
+                    "{mode} {fixture}: {}{}",
+                    String::from_utf8_lossy(&output.stdout),
+                    String::from_utf8_lossy(&output.stderr)
+                );
+            }
+        }
     }
 
     #[test]

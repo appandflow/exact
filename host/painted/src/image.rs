@@ -416,6 +416,7 @@ impl Images {
             if self.views.get(id).is_some_and(|view| view.key != key) {
                 self.remove(*id);
             }
+            let fit = crate::paint::object_fit_of(&node);
             let view = self.views.entry(*id).or_insert_with(|| View {
                 key,
                 source: String::new(),
@@ -424,7 +425,7 @@ impl Images {
                 request: None,
                 accepted: None,
                 requested_for: (0., 0.),
-                requested_fit: node.style.object_fit,
+                requested_fit: fit,
                 requested_rendering: Default::default(),
                 requested_scale: scale,
                 lease: None,
@@ -434,7 +435,7 @@ impl Images {
                 refusal: None,
                 symbol_size: None,
                 fit: None,
-                object_fit: node.style.object_fit,
+                object_fit: fit,
                 rendering: Default::default(),
                 resized: false,
                 part: false,
@@ -456,8 +457,13 @@ impl Images {
                     view.desired = (size * scale, size * scale);
                 }
             }
-            view.fit = plain_box(node.style).then_some(node.style.object_fit);
-            view.object_fit = node.style.object_fit;
+            // A shared-element destination can borrow pixels outside the source's visible crop.
+            let shared = node
+                .props
+                .str(PropId::SharedElement)
+                .is_some_and(|name| !name.is_empty());
+            view.fit = (!shared && plain_box(node.style)).then_some(fit);
+            view.object_fit = fit;
             view.rendering =
                 node.computed_row(exact_kernel::StyleId::ImageRendering, |s| s.image_rendering);
             if let Some(side) = self.status_sizes.get(id) {
@@ -482,7 +488,10 @@ impl Images {
                 self.bitmaps.remove(id);
                 let size = crate::paint::look::symbol_size(&node);
                 if view.source != source || view.symbol_size != Some(size) {
-                    reports.push((*id, (size > 0.).then_some((size, size))));
+                    reports.push((
+                        *id,
+                        (size > 0.).then(|| crate::paint::look::symbol_natural(&node)),
+                    ));
                     view.source = source.to_owned();
                     view.symbol_size = Some(size);
                 }
@@ -1204,7 +1213,9 @@ fn drawn_size(
     crate::paint::object_fit(
         (natural.width, natural.height),
         fit,
+        &exact_kernel::object::Position::default(),
         (0., 0., desired.0 / scale, desired.1 / scale),
+        &exact_kernel::Env::default(),
     )
     .map_or(desired, |(_, _, w, h)| (w * scale, h * scale))
 }
@@ -1264,7 +1275,8 @@ static PARTS: std::sync::LazyLock<bool> =
 fn plain_box(style: &exact_kernel::StyleProps) -> bool {
     use exact_kernel::Dimension;
     let none = |d: &Dimension| matches!(d, Dimension::Points(p) if *p == 0.0);
-    style.border_widths() == [0.0; 4]
+    style.object_position == exact_kernel::object::Position::default()
+        && style.border_widths() == [0.0; 4]
         && none(&style.padding_top)
         && none(&style.padding_right)
         && none(&style.padding_bottom)

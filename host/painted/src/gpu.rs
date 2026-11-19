@@ -13,8 +13,8 @@
 #![allow(unsafe_code)]
 
 use crate::image::Bitmap;
-use crate::paint::border::{BorderFill, PathOp};
-use crate::paint::{Backend, Rect4, Shape, POINTER};
+use crate::paint::border::BorderFill;
+use crate::paint::{bezier_outline as shape, bezier_path as bez, Backend, Rect4, Shape, POINTER};
 use crate::text::{Paragraph, RunPaint, TextEngine};
 mod backdrop;
 mod images;
@@ -468,31 +468,6 @@ impl Gpu {
     }
 }
 
-/// A shape's path with its CSS-reduced radii. kurbo's `RoundedRect` would
-/// clamp each radius to half the shorter side, which CSS does not (a 40pt
-/// corner on a 70pt-high box whose neighbours fit keeps 40), so the path is
-/// the CPU painter's cubic arcs.
-fn shape(s: &Shape) -> BezPath {
-    let mut ops = Vec::new();
-    crate::paint::border::shape_path(&mut ops, s);
-    bez(&ops)
-}
-
-/// A border part's path for vello.
-fn bez(ops: &[PathOp]) -> BezPath {
-    let mut b = BezPath::new();
-    let p = |x: f32, y: f32| (x as f64, y as f64);
-    for op in ops {
-        match *op {
-            PathOp::Move(x, y) => b.move_to(p(x, y)),
-            PathOp::Line(x, y) => b.line_to(p(x, y)),
-            PathOp::Cubic(a, c, d, e, f, g) => b.curve_to(p(a, c), p(d, e), p(f, g)),
-            PathOp::Close => b.close_path(),
-        }
-    }
-    b
-}
-
 fn color(c: [u8; 4]) -> Color {
     Color::from_rgba8(c[0], c[1], c[2], c[3])
 }
@@ -535,19 +510,7 @@ impl Backend for Gpu {
 
     // @ref LLP 1055 D4 — an SVG shape: fill under stroke.
     fn svg_path(&mut self, s: &crate::paint::SvgPaint<'_>, ts: Transform) {
-        let mut p = BezPath::new();
-        for seg in &s.path.0 {
-            match *seg {
-                exact_kernel::svg::Seg::Move(x, y) => p.move_to((x as f64, y as f64)),
-                exact_kernel::svg::Seg::Line(x, y) => p.line_to((x as f64, y as f64)),
-                exact_kernel::svg::Seg::Cubic(a, b, c, d, x, y) => p.curve_to(
-                    (a as f64, b as f64),
-                    (c as f64, d as f64),
-                    (x as f64, y as f64),
-                ),
-                exact_kernel::svg::Seg::Close => p.close_path(),
-            }
-        }
+        let p = crate::paint::svg_bezier_path(s.path);
         let a = self.affine(ts);
         // @ref LLP 1055.000 D7 — a gradient is a peniko brush in the path's
         // space, interpolated unpremultiplied as Chrome's SVG gradients are.
@@ -1131,6 +1094,9 @@ impl Backend for Gpu {
     fn rows(&self) -> bool {
         true
     }
+    fn rows_through(&self) -> bool {
+        true
+    }
     fn row_reusable(&self, id: u32, _: (f32, f32)) -> bool {
         self.rows.kept.contains_key(&id)
     }
@@ -1142,6 +1108,9 @@ impl Backend for Gpu {
     }
     fn row_draw(&mut self, id: u32, origin: (f32, f32), _: Rect4) {
         self.draw_row(id, origin);
+    }
+    fn row_draw_through(&mut self, id: u32, ts: Transform, _: Rect4) {
+        self.draw_row_through(id, ts);
     }
     fn row_free(&mut self, id: u32) {
         self.rows.kept.remove(&id);

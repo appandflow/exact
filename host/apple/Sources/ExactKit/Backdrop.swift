@@ -33,7 +33,7 @@ import AppKit
 
 /// `backgroundMaterial`'s vocabulary (LLP 1053.000 D4): the schema's table,
 /// read through `exact_material_platform`, as this platform's own names.
-enum Materials {
+package enum Materials {
     #if os(iOS) || os(tvOS)
     static let platformCode: UInt8 = 0
     #else
@@ -41,7 +41,7 @@ enum Materials {
     #endif
 
     /// Whether `name` is a glass effect (`UIGlassEffect`, `NSGlassEffectView`).
-    static func glass(_ name: String?) -> Bool { name == "glass" || name == "glass-clear" }
+    package static func glass(_ name: String?) -> Bool { name == "glass" || name == "glass-clear" }
 
     /// The schema's name on this platform for `name`, and whether that is a
     /// stand-in for a material this platform lacks; nil for no such name.

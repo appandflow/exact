@@ -533,6 +533,7 @@ fn a_style_change_transitions_under_the_row_and_the_clock_seeks() {
 
 #[test]
 fn clearing_transition_keeps_coverage_but_none_or_another_property_cancels() {
+    exact_kernel::style::link_all();
     for curve in ["opacity 1s linear", "opacity -exact-spring()"] {
         for next in [None, Some("none"), Some("scale 1s"), Some("all 0s")] {
             let (mut kernel, mut engine, node) =
@@ -1346,6 +1347,7 @@ fn rotation_targets_keep_axes_until_the_transition_is_sampled() {
 
 #[test]
 fn parsed_keyframes_match_kernel_axis_precision_and_inherit_negative_z() {
+    exact_kernel::style::link_all();
     for (row, frame, half, distance) in [
         ("0.1 0.2 0.3 10deg", "0.1 0.2 0.3 370deg", 190., 360.),
         ("0 0 -1 0deg", "60deg", -30., 60.),

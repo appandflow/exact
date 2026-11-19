@@ -30,7 +30,12 @@ extension Runtime {
     convenience init() {
         self.init(hooks: RuntimeHooks(
             decodeBatch: { Batch.decode($0, resolver: $1) },
-            prepareBatch: { $0.prepare() }, symbolMeasure: SymbolMeasure.measure,
+            prepareBatch: { runtime, batch in
+                batch.prepare()
+                #if os(macOS)
+                batch.takeControls(runtime)
+                #endif
+            }, symbolMeasure: SymbolMeasure.measure,
             prewarmIslands: SvgLink.prewarm))
     }
 
@@ -49,6 +54,8 @@ extension Runtime {
             return (batch.ops.first { $0.op == .hold }.flatMap { NativeHold($0.payload) }, batch)
         }
     }
+    /// `change` at `view` with no field selection, for a family outside the core.
+    package func valueChange(_ view: UInt32, _ value: String, now: Double) -> Batch { change(view, value, now: now) }
     /// A `change`; a text field's carries its selection as the edit left
     /// it (kind 41, x2apps codeedit #2), else the value alone (kind 1).
     func change(_ view: UInt32, _ value: String, selection: FieldSelection? = nil, now: Double) -> Batch {
@@ -141,13 +148,6 @@ extension Runtime {
             return RoleKeys(json: Data(bytes: exact_out(rt), count: Int(len)))
         }
     }
-    /// A navigation root's tabs by the kernel's rule (LLP 1115.001 D11); nil for one stack.
-    func rootTabs(_ view: UInt32) -> RootTabs? {
-        return on(busy: nil) {
-            let len = exact_root_tabs(rt, view)
-            return RootTabs(json: Data(bytes: exact_out(rt), count: Int(len)))
-        }
-    }
     /// What native containers cover of boxes (LLP 1075.003 §3.5), under one
     /// layout: `edges` add to a box's padding; `whole` lays it out as
     /// `display: none`; nil clears.
@@ -226,3 +226,47 @@ extension Runtime {
         }
     }
 }
+
+#if os(macOS)
+extension Batch {
+    /// The ops after which a native control's state may differ.
+    static let dropsFace: Set<BatchOp.Kind> = [.create, .renew, .props, .style, .children, .paragraph, .flow, .frame, .fieldContent]
+    /// On the owner as the batch is read, with the runtime as it made it, the
+    /// state of the native controls it may change that differs from what the
+    /// last batch read carried: the face of each button and the options of
+    /// each select it makes or has such an op on (every one when a control's
+    /// viewless contents changed, `controls`), and every radio's group when it
+    /// changes the tree or a control.
+    mutating func takeControls(_ runtime: Runtime) {
+        var asked = Set<UInt32>(), regroup = controls
+        for op in ops {
+            if op.op == .create, op.kind == "control" {
+                runtime.controlTypes[op.id] = op.props["type"] ?? ""; runtime.controlsRead[op.id] = nil; asked.insert(op.id)
+            } else if op.op == .destroy {
+                runtime.controlTypes[op.id] = nil; runtime.controlsRead[op.id] = nil
+            } else if Self.dropsFace.contains(op.op), runtime.controlTypes[op.id] != nil {
+                if let type = op.props["type"] { runtime.controlTypes[op.id] = type } else if op.clear.contains("type") { runtime.controlTypes[op.id] = "" }
+                asked.insert(op.id)
+            }
+            if BatchFootprint.structuralOps.contains(op.op) { regroup = true }
+        }
+        if controls { asked.formUnion(runtime.controlTypes.keys) }
+        if regroup || !asked.isEmpty { asked.formUnion(runtime.controlTypes.filter { $0.value == "radio" }.keys) }
+        func json(_ length: UInt32) -> Data { Data(bytes: exact_out(runtime.rt), count: Int(length)) }
+        var reads: [UInt32: ControlRead] = [:]
+        for id in asked {
+            guard let type = runtime.controlTypes[id] else { continue }
+            let last = runtime.controlsRead[id] ?? ControlRead()
+            var now = ControlRead()
+            if type == "button" { now.face = json(exact_press_face(runtime.rt, id)) }
+            if type == "select" { now.select = json(exact_select_options(runtime.rt, id)) }
+            if type == "radio" { now.radio = json(exact_radio_group(runtime.rt, id)) }
+            runtime.controlsRead[id] = now
+            let changed = ControlRead(face: now.face == last.face ? nil : now.face, select: now.select == last.select ? nil : now.select,
+                                      radio: now.radio == last.radio ? nil : now.radio)
+            if changed != ControlRead() { reads[id] = changed }
+        }
+        controlReads = reads
+    }
+}
+#endif

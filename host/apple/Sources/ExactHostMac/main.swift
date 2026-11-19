@@ -203,7 +203,7 @@ if ExactEnv.environment["EXACT_HOST_CONTROL"] != nil {
 
 final class Delegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     func applicationWillFinishLaunching(_ notification: Notification) {
-        exact.installNotificationClicks(boot: nil, activate: { _ in
+        ExactComposition.installNotificationClicks(on: exact, boot: nil, activate: { _ in
             guard launched else { return } // finishLaunching presents a cold click.
             app.windows.first?.makeKeyAndOrderFront(nil)
             app.activate(ignoringOtherApps: true)
@@ -237,7 +237,7 @@ final class Delegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     func windowDidChangeOcclusionState(_ notification: Notification) { for (_, s) in sessions { s.occlusionChanged() } }
 }
 let appDelegate = Delegate()
-exact.installHostEvents(applicationDelegate: Delegate.self, sceneDelegate: nil)
+ExactComposition.installHostEvents(on: exact, applicationDelegate: Delegate.self, sceneDelegate: nil)
 app.delegate = appDelegate
 window.delegate = appDelegate
 

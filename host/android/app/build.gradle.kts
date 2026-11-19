@@ -72,7 +72,7 @@ android {
         // shows the shell's plain one (res/drawable/banner.xml).
         manifestPlaceholders["appIcon"] = providers.gradleProperty("appIcon").orNull ?: "@null"
         manifestPlaceholders["appBanner"] = providers.gradleProperty("appBanner").orNull ?: "@drawable/banner"
-        // The launch window in the manifest's `background_color` and with its `host.android.launchImage`
+        // The launch window in the manifest's launch colours and with its `host.android.launchImage`
         // (agent-android.mjs `androidLaunch`); without either the reader's, the platform's (LLP 1115.001 D3.6).
         manifestPlaceholders["appTheme"] = providers.gradleProperty("appTheme").orNull ?: "@style/ExactLaunch"
     }
@@ -132,8 +132,15 @@ android {
         val text = { v: String -> attr(v).replace("\\", "\\\\").replace("'", "\\'").replace(Regex("^([@?])"), "\\\\$1") }
         // Apple's families as cell spans (D4); `systemExtraLarge` is iPad's, a 4×4 here as `systemLarge`.
         val cells = mapOf("systemSmall" to (2 to 2), "systemMedium" to (4 to 2), "systemLarge" to (4 to 4), "systemExtraLarge" to (4 to 4))
+        // The settings screen offers fixed choices only (LLP 1126.003 D7). An entity parameter is left out, so its
+        // field stays none here, and a row with no parameter left has no settings.
         val rows = (manifest["widgets"] as List<*>?).orEmpty().map { it as Map<*, *> }
             .filter { row -> (row["families"] as List<*>?).orEmpty().any { (it as String).startsWith("system") } }
+            .map { row ->
+                val configuration = row["configuration"] as Map<*, *>? ?: return@map row
+                val fixed = (configuration["parameters"] as List<*>).filter { (it as Map<*, *>)["type"] == "enum" }
+                if (fixed.isEmpty()) row - "configuration" else row + ("configuration" to configuration + ("parameters" to fixed))
+            }
         val strings = StringBuilder()
         rows.forEachIndexed { i, row ->
             val kind = row["kind"] as String

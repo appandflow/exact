@@ -23,6 +23,7 @@ use crate::txn::{self, CommitReceipt, Target};
 use crate::wire::{self, Op};
 mod alert;
 pub(crate) mod area;
+pub(crate) mod bar;
 pub(crate) mod block;
 mod cover;
 mod document;
@@ -34,10 +35,12 @@ use history::RetainedReceipt;
 pub(crate) mod ignore;
 mod intrinsic;
 mod keyboard;
+pub(crate) mod margins;
 pub(crate) mod observe;
 pub(crate) mod owner;
 mod provenance;
 pub(crate) mod readers;
+mod segments;
 pub(crate) mod targets;
 pub(crate) use intrinsic::apply_projection;
 mod row_memo;
@@ -55,6 +58,7 @@ pub(crate) use cover::{
 };
 pub use cover::{credited_edges, HostCover};
 pub use keyboard::{Keyboard, KeyboardPolicy};
+pub use margins::OwnerMargins;
 pub use provenance::{Contribution, Operation};
 pub use sticky::StickyConstraint;
 pub use table::TablePlace;
@@ -360,6 +364,8 @@ pub struct Kernel {
     epoch: u64,
     incarnation: u64,
     provisional_layouts: u64,
+    /// The layouts made whose frames and observations stand.
+    layouts: u64,
     receipts: VecDeque<RetainedReceipt>,
     document_commit: Option<Box<txn::DocumentCommit>>,
     region: Option<crate::region::RegionState>,
@@ -414,15 +420,16 @@ impl Kernel {
         engine(&mut self.layout)
     }
 
-    /// A kernel with the given host text measurer. It links grid layout
-    /// ([`crate::layout::link_grid_layout`]).
+    /// A kernel with the given host text measurer. It links every grammar
+    /// and grid layout ([`crate::style::link_all`]).
     pub fn new(measurer: Box<dyn TextMeasurer>) -> Self {
-        crate::layout::link_grid_layout();
+        crate::style::link_all();
         Self::by_use(measurer)
     }
 
-    /// [`Kernel::new`] for a host that links grid layout by use (LLP
-    /// 1047.001 D10): a grid needs the host to have linked it.
+    /// [`Kernel::new`] for a host that links grid layout and the style
+    /// grammars by use (LLP 1047.001 D10): a grid, or a row whose grammar is
+    /// linked by use, needs the host to have linked it.
     pub fn by_use(measurer: Box<dyn TextMeasurer>) -> Self {
         let mut kernel = Self::on_demand(measurer);
         kernel.layout = Some(Box::new(LayoutTree::new()));
@@ -434,7 +441,8 @@ impl Kernel {
     /// for, when it builds one from the arena. For a host whose platform lays
     /// out (the browser): commits then create no engine nodes and derive no
     /// engine styles, and a kernel that never lays out links no engine code.
-    /// Layout, when asked for, is the same, a grid's once linked.
+    /// Layout, when asked for, is the same, a grid's once linked; it links
+    /// no grammar ([`Kernel::by_use`]).
     pub fn on_demand(measurer: Box<dyn TextMeasurer>) -> Self {
         Kernel {
             arena: NodeArena::new(),
@@ -444,6 +452,7 @@ impl Kernel {
             epoch: 0,
             incarnation: 1,
             provisional_layouts: 0,
+            layouts: 0,
             receipts: VecDeque::new(),
             document_commit: None,
             region: None,
@@ -591,6 +600,7 @@ impl Kernel {
         let withheld = self.withhold_observations();
         let mut result = self.region_pass(slot, offer, inputs)?;
         self.solve_region_observations(slot, offer, inputs, &withheld, &mut result)?;
+        self.layouts += 1;
         Ok(result)
     }
 
@@ -735,6 +745,7 @@ impl Kernel {
         };
         let relayout = &mut |k: &mut Kernel| Ok(k.lay_out_roots(slot, offer)?);
         self.solve_observations(slot, relayout, &[], &mut receipt)?;
+        self.layouts += 1;
         receipt.epoch = self.epoch;
         if engine(&mut self.layout).provisional_chrome() {
             self.provisional_layouts += 1;
@@ -1060,6 +1071,7 @@ impl Kernel {
             epoch: self.epoch,
             incarnation: self.incarnation,
             provisional_layouts: self.provisional_layouts,
+            layouts: self.layouts,
             receipts: VecDeque::new(),
             document_commit: None,
             region: None,

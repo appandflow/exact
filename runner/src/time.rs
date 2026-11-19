@@ -106,6 +106,8 @@ std::thread_local! {
 /// set them after.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Launch {
+    /// The host's viewport preferences, read before the first settlement (LLP 1039 D10).
+    pub preferences: Option<crate::Preferences>,
     /// The date (`set_time`'s fact).
     pub time: Option<WallTime>,
     /// Where the viewer is (`set_place`'s fact, its seed included).
@@ -143,6 +145,7 @@ pub struct Launch {
 impl Launch {
     /// Nothing known: the boot reads the defaults.
     pub const NONE: Launch = Launch {
+        preferences: None,
         time: None,
         place: None,
         clock: None,
@@ -183,6 +186,7 @@ pub fn launching_with<T>(launch: Launch, boot: impl FnOnce() -> T) -> T {
         }
     }
     let launch = Launch {
+        preferences: launch.preferences,
         time: launch.time.filter(|t| t.validate().is_ok()),
         place: launch.place.filter(|p| p.validate().is_ok()),
         clock: launch
@@ -221,6 +225,10 @@ pub(crate) fn launch_time() -> WallTime {
 /// [`launching_with`] was told, else zero.
 pub(crate) fn launch_clock() -> f64 {
     LAUNCH.with(|l| l.borrow().clock).unwrap_or(0.0)
+}
+
+pub(crate) fn launch_preferences() -> Option<crate::Preferences> {
+    LAUNCH.with(|l| l.borrow().preferences)
 }
 
 /// A cold share's tokens, when a boot under [`launching_with`] was told.

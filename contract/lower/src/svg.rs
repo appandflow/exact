@@ -356,6 +356,9 @@ impl Lowerer<'_> {
     /// the evaluator that will sample it.
     pub(crate) fn declare_keyframes(&mut self, file: &File) -> Vec<LowerError> {
         let mut errors = Vec::new();
+        let scope = self
+            .types
+            .component_scope(self.root, &self.types.components[0]);
         // A keyframe takes any colour a row does (`values.rs` links them for rows).
         exact_kernel::style::link_wide_colors();
         for decl in &file.keyframes {
@@ -414,19 +417,21 @@ impl Lowerer<'_> {
                         });
                         continue;
                     }
-                    // A literal, or a palette function of literal arguments
-                    // folded to one (LLP 1062 D9).
-                    let Some(value) = crate::keyframes::constant(&a.value, &file.fns) else {
-                        ok = false;
-                        errors.push(LowerError {
-                            id: "lower-keyframes",
-                            message: format!(
-                                "`{}` in `keyframes {}` is a number or a string known when the app compiles: written, or returned by a function of literal arguments",
+                    let value = match self.constants(&scope).constant(&a.value) {
+                        Ok(value) => value,
+                        Err(reason) => {
+                            ok = false;
+                            let message = format!(
+                                "`{}` in `keyframes {}` is a number or a string known when the app compiles: written, or returned by a function of literal arguments; {reason}",
                                 a.name, decl.name
-                            ),
-                            span: a.span,
-                        });
-                        continue;
+                            );
+                            errors.push(LowerError {
+                                id: "lower-keyframes",
+                                message,
+                                span: a.span,
+                            });
+                            continue;
+                        }
                     };
                     // @ref LLP 1121 D3 — a motion token the fold returned.
                     let value =
@@ -517,9 +522,10 @@ impl Lowerer<'_> {
         tag: &str,
         parent_tag: Option<&str>,
         attrs: &[Attr],
+        scope: &contract_types::Scope,
     ) -> Result<(), LowerError> {
         let in_svg = in_svg(self.svg_depth > 0, parent_tag);
-        check_svg_attrs_with(tag, in_svg, attrs, &|a| {
+        check_svg_attrs_with(tag, in_svg, attrs, &self.constants(scope), &|a| {
             if matches!(a.name.as_str(), "animation" | "-exact-exit-animation") {
                 self.check_animation_names(tag, in_svg, attrs, &a.value)?;
             }
@@ -798,10 +804,11 @@ pub(crate) fn check_svg_with(
     parent_tag: Option<&str>,
     attrs: &[Attr],
     span: Span,
+    constants: &crate::keyframes::Context<'_>,
     animation: &dyn Fn(&Attr) -> Result<(), LowerError>,
 ) -> Result<(), LowerError> {
     check_svg_content(tag, in_svg, parent_tag, span)?;
-    check_svg_attrs_with(tag, in_svg, attrs, animation)
+    check_svg_attrs_with(tag, in_svg, attrs, constants, animation)
 }
 
 /// Refuse an invalid SVG structure before checking its attributes.
@@ -863,6 +870,7 @@ fn check_svg_attrs_with(
     tag: &str,
     in_svg: bool,
     attrs: &[Attr],
+    constants: &crate::keyframes::Context<'_>,
     animation: &dyn Fn(&Attr) -> Result<(), LowerError>,
 ) -> Result<(), LowerError> {
     let element = is_element(tag) || (matches!(tag, "svg" | "text") && in_svg);
@@ -991,7 +999,7 @@ fn check_svg_attrs_with(
             _ => None,
         };
         if let Some(name) = length.filter(|_| element) {
-            check_length(name, &a.value)?;
+            check_length(name, &a.value, constants)?;
         }
         animation(a)?;
     }
@@ -1039,49 +1047,61 @@ fn each_literal(
     Ok(())
 }
 
+struct LengthCheck<'a, 'b> {
+    constants: &'a crate::keyframes::Context<'b>,
+    remaining: Cell<usize>,
+}
+
 // These props bypass CSS length resolution. NUL represents only unknown text;
 // literal neighbors, including empty strings and separators, stay intact.
-fn length_text(value: &Expr, bindings: &[(&str, &Expr)], budget: &Cell<usize>) -> String {
-    if budget.get() == 0 {
+fn length_text(value: &Expr, bindings: &[(&str, &Expr)], check: &LengthCheck<'_, '_>) -> String {
+    if check.remaining.get() == 0 {
         return "\0".into();
     }
-    budget.set(budget.get() - 1);
+    check.remaining.set(check.remaining.get() - 1);
     match value {
         Expr::Str(text, _) => text.clone(),
         Expr::Number(n, _) => exact_num::Shortest(*n).to_string(),
         Expr::Ident(name, _) => bindings
             .iter()
             .rposition(|(bound, _)| *bound == name)
-            .map(|i| length_text(bindings[i].1, &bindings[..i], budget))
+            .map(|i| length_text(bindings[i].1, &bindings[..i], check))
             .unwrap_or_else(|| "\0".into()),
         Expr::Template(parts, _) => parts
             .iter()
             .map(|part| match part {
                 TemplatePart::Text(text) => text.clone(),
-                TemplatePart::Expr(value) => length_text(value, bindings, budget),
+                TemplatePart::Expr(value) => length_text(value, bindings, check),
             })
             .collect(),
-        Expr::Binary(BinOp::Add, a, b, _) => {
-            crate::keyframes::constant(value, &[]).unwrap_or_else(|| {
-                length_text(a, bindings, budget) + &length_text(b, bindings, budget)
-            })
-        }
+        Expr::Binary(BinOp::Add, a, b, _) => check
+            .constants
+            .constant(value)
+            .unwrap_or_else(|_| length_text(a, bindings, check) + &length_text(b, bindings, check)),
         Expr::Let {
             name, value, body, ..
         } => {
             let mut bindings = bindings.to_vec();
             bindings.push((name, value));
-            length_text(body, &bindings, budget)
+            length_text(body, &bindings, check)
         }
-        Expr::Typed(body, ..) => length_text(body, bindings, budget),
+        Expr::Typed(body, ..) => length_text(body, bindings, check),
         _ => "\0".into(),
     }
 }
 
-fn check_length(name: &str, value: &Expr) -> Result<(), LowerError> {
+fn check_length(
+    name: &str,
+    value: &Expr,
+    constants: &crate::keyframes::Context<'_>,
+) -> Result<(), LowerError> {
     // Shared derives can expand exponentially. Stop static inspection after a
     // bounded number of visits; larger expressions stay unchecked like dynamic inputs.
-    check_length_fragment(name, value, "", "", &[], &Cell::new(4096))
+    let check = LengthCheck {
+        constants,
+        remaining: Cell::new(4096),
+    };
+    check_length_fragment(name, value, "", "", &[], &check)
 }
 
 fn check_length_fragment(
@@ -1090,11 +1110,11 @@ fn check_length_fragment(
     prefix: &str,
     suffix: &str,
     bindings: &[(&str, &Expr)],
-    budget: &Cell<usize>,
+    check: &LengthCheck<'_, '_>,
 ) -> Result<(), LowerError> {
-    check_length_choices(name, value, prefix, suffix, bindings, budget)?;
-    let text = format!("{prefix}{}{suffix}", length_text(value, bindings, budget));
-    if budget.get() == 0 {
+    check_length_choices(name, value, prefix, suffix, bindings, check)?;
+    let text = format!("{prefix}{}{suffix}", length_text(value, bindings, check));
+    if check.remaining.get() == 0 {
         return Ok(());
     }
     check_length_text(name, &text, value.span())
@@ -1108,12 +1128,12 @@ fn check_length_choices(
     prefix: &str,
     suffix: &str,
     bindings: &[(&str, &Expr)],
-    budget: &Cell<usize>,
+    check: &LengthCheck<'_, '_>,
 ) -> Result<(), LowerError> {
-    if budget.get() == 0 {
+    if check.remaining.get() == 0 {
         return Ok(());
     }
-    budget.set(budget.get() - 1);
+    check.remaining.set(check.remaining.get() - 1);
     match value {
         Expr::Ternary(_, yes, no, _)
         | Expr::Match {
@@ -1121,12 +1141,12 @@ fn check_length_choices(
             none: no,
             ..
         } => {
-            check_length_fragment(name, yes, prefix, suffix, bindings, budget)?;
-            check_length_fragment(name, no, prefix, suffix, bindings, budget)
+            check_length_fragment(name, yes, prefix, suffix, bindings, check)?;
+            check_length_fragment(name, no, prefix, suffix, bindings, check)
         }
         Expr::Ident(bound, _) => {
             if let Some(i) = bindings.iter().rposition(|(name, _)| *name == bound) {
-                check_length_choices(name, bindings[i].1, prefix, suffix, &bindings[..i], budget)?;
+                check_length_choices(name, bindings[i].1, prefix, suffix, &bindings[..i], check)?;
             }
             Ok(())
         }
@@ -1138,15 +1158,15 @@ fn check_length_choices(
         } => {
             let mut bindings = bindings.to_vec();
             bindings.push((bound, value));
-            check_length_choices(name, body, prefix, suffix, &bindings, budget)
+            check_length_choices(name, body, prefix, suffix, &bindings, check)
         }
-        Expr::Typed(body, ..) => check_length_choices(name, body, prefix, suffix, bindings, budget),
+        Expr::Typed(body, ..) => check_length_choices(name, body, prefix, suffix, bindings, check),
         Expr::Template(parts, _) => {
             let text: Vec<_> = parts
                 .iter()
                 .map(|part| match part {
                     TemplatePart::Text(text) => text.clone(),
-                    TemplatePart::Expr(value) => length_text(value, bindings, budget),
+                    TemplatePart::Expr(value) => length_text(value, bindings, check),
                 })
                 .collect();
             for (i, part) in parts.iter().enumerate() {
@@ -1157,7 +1177,7 @@ fn check_length_choices(
                         &format!("{prefix}{}", text[..i].concat()),
                         &format!("{}{suffix}", text[i + 1..].concat()),
                         bindings,
-                        budget,
+                        check,
                     )?;
                 }
             }
@@ -1168,17 +1188,17 @@ fn check_length_choices(
                 name,
                 a,
                 prefix,
-                &format!("{}{suffix}", length_text(b, bindings, budget)),
+                &format!("{}{suffix}", length_text(b, bindings, check)),
                 bindings,
-                budget,
+                check,
             )?;
             check_length_choices(
                 name,
                 b,
-                &format!("{prefix}{}", length_text(a, bindings, budget)),
+                &format!("{prefix}{}", length_text(a, bindings, check)),
                 suffix,
                 bindings,
-                budget,
+                check,
             )
         }
         _ => Ok(()),

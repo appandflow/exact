@@ -127,6 +127,9 @@ the assembled sources, rejects duplicate stems/symlinks and ships ordinary shade
 assets. Compose the corresponding reflected slices with `exact_gpu::shader_packs!`.
 No manual copy or private game dependency is needed in public engine code.
 
+A hook's optional `report()` supplies a JSON object at `state.world.renderHooks.game`,
+with refusals for invalid reports in `gameError`.
+
 Implement `frame_work()` to report cumulative `FrameWork` since the hook was
 made (LLP 1182.000 D1). Count draw calls the hook issues in opaque, background,
 surface and post. Count submitted triangles as index count divided by three
