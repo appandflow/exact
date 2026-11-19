@@ -935,6 +935,26 @@ final class NavigationCollapseIOSTests: XCTestCase {
         XCTAssertEqual(sv.contentOffset.y + sv.adjustedContentInset.top, 0, accuracy: 0.5)
     }
 
+    /// An inline bar can be taller than when its inset was first sampled (a
+    /// sheet's bar settles once the sheet reaches its detent), and UIKit
+    /// keeps the content at rest just below it. That rest is the title's
+    /// inset, not a pull past it, and the kernel's inset follows.
+    func testAnInlineBarThatGrewMovesTheTitlesInsetWithIt() throws {
+        let (session, _, _) = try pushed("bare")
+        let bare = try node(session, "bare-scroll")
+        let sv = try XCTUnwrap(bare.scroll)
+        let inset = sv.adjustedContentInset.top
+        XCTAssertGreaterThan(inset, 6)
+        XCTAssertEqual(sv.contentOffset.y, -inset, accuracy: 0.5, "at rest below the bar")
+        bare.scrollOrigin = inset - 6
+        bare.scrollCollapsed = inset - 6
+        let navigation = session.presenter.navigation
+        navigation.reportCovers()
+        XCTAssertEqual(bare.scrollOrigin, inset, accuracy: 0.5, "the title's inset is the bar's as it is")
+        guard case .inset(let top, _)? = navigation.covers[bare.id] else { return XCTFail("the scroller is inset: \(String(describing: navigation.covers[bare.id]))") }
+        XCTAssertEqual(top, inset, accuracy: 0.5, "the kernel lays it out under the whole bar")
+    }
+
     func testAnAuthoredScrollTopLandsAsTheBrowsersWhileTheTitleCollapses() throws {
         let (session, nav) = try second("collapse")
         let node = try self.node(session, "list-second")

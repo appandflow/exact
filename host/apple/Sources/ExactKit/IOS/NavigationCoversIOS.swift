@@ -159,7 +159,9 @@ extension NavigationHost {
                 #else
                 let inline = c.navigationItem.largeTitleDisplayMode != .always || barless
                 #endif
-                if Self.stretched(sv, origin: node.scrollOrigin) {
+                // An inline bar that grew (a sheet's, once at its detent) moves
+                // the content down with it: only past the bar is it pulled.
+                if Self.stretched(sv, origin: inline ? max(node.scrollOrigin, sv.safeAreaInsets.top) : node.scrollOrigin) {
                     // Pulled past its top, as to refresh: no title's inset.
                 } else if inline {
                     // An inline title does not collapse: its inset is the one it has.

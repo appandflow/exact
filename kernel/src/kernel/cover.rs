@@ -458,10 +458,12 @@ pub(crate) fn inset(arena: &NodeArena, slot: u32) -> bool {
     matches!(arena.cover(slot), Some(HostCover::Inset(_)))
 }
 
-/// `s` as authored, without the platform's inset (`apply`).
-pub(crate) fn without_inset(arena: &NodeArena, slot: u32, s: &mut taffy::style::Style) {
-    if inset(arena, slot) {
-        s.scrollbar_width = 0.0;
+/// `s` as a sheet's detent measures it: the platform's top inset, a bar
+/// over the scroller, kept in the gutter (`apply`), and its bottom one left
+/// out, since UIKit adds the bottom safe area below a detent itself.
+pub(crate) fn without_bottom_inset(arena: &NodeArena, slot: u32, s: &mut taffy::style::Style) {
+    if let Some(HostCover::Inset([top, _])) = arena.cover(slot) {
+        s.scrollbar_width = top;
     }
 }
 

@@ -877,6 +877,51 @@ fn a_fitted_sheet_whose_scroller_takes_the_bottom_cover_keeps_its_extent() {
     );
 }
 
+/// A fitted sheet whose header the navigation bar replaces and whose scroller
+/// starts under that bar, taking it as its top inset. UIKit sizes the sheet by
+/// the detent alone, so the bar's height is counted; the bottom inset over
+/// the home indicator is UIKit's to add below the detent and is not.
+#[test]
+fn a_fitted_sheet_counts_the_bar_over_its_scroller() {
+    let src = r##"component Menu
+  view
+    column position="relative" width="100%" height="100%"
+      column testId="sheet" navigationDetent="fit-content" position="absolute" top=0 right=0 bottom=0 left=0 display="flex" flex-direction="column"
+        header testId="header" height=44 flex-shrink=0
+          h1 "Title"
+        column testId="list" flex=1 min-height=0 overflow-y="auto"
+          row height=300 flex-shrink=0
+            text "Rows"
+"##;
+    let plan = contract::compile(src).unwrap();
+    let (mut host, first) = Host::boot(
+        &plan.encode(),
+        NoData,
+        Box::new(MonospaceMeasurer::default()),
+        390.0,
+        844.0,
+    )
+    .unwrap();
+    let (sheet, header, list) = (
+        view(&host, "sheet"),
+        view(&host, "header"),
+        view(&host, "list"),
+    );
+    assert_eq!(heights(&first, sheet), [44.0 + 300.0]);
+    let replaced = host.set_covers(&[(header, Some(HostCover::Whole))]);
+    assert_eq!(heights(&replaced, sheet), [300.0], "{replaced}");
+    let barred = host.set_covers(&[(list, Some(HostCover::Inset([70.0, 0.0])))]);
+    assert_eq!(heights(&barred, sheet), [70.0 + 300.0], "{barred}");
+    let indicator = host.set_covers(&[
+        (sheet, Some(HostCover::Edges([0.0, 0.0, 34.0, 0.0]))),
+        (header, Some(HostCover::Whole)),
+        (list, Some(HostCover::Inset([70.0, 34.0]))),
+    ]);
+    assert!(heights(&indicator, sheet).is_empty(), "{indicator}");
+    let barless = host.set_covers(&[(sheet, None), (list, None)]);
+    assert_eq!(heights(&barless, sheet), [300.0], "{barless}");
+}
+
 #[test]
 fn anonymous_grid_text_publishes_its_width_position_and_signed_offset() {
     let plan = contract::compile(r#"component App
