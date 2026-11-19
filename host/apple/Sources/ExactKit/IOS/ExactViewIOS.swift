@@ -67,7 +67,9 @@ public final class ExactView: UIView {
     /// What this view adds beside the viewport, for `layout agree` (LLP 1080.001 D3).
     var inspectionOwned: [UIView] { keyboardProbe.map { [$0] } ?? [] }
     private var editingObservers: [NSObjectProtocol] = []
-    private var sceneObserver: NSObjectProtocol?
+    private var sceneObservers: [NSObjectProtocol] = []
+    /// The appearance traits `reportScheme` last told the session.
+    private var reportedTraits: (UIUserInterfaceStyle, CGFloat, UIAccessibilityContrast)?
     /// The adapter's hook for the first root's `viewport-fit` and its
     /// canvas colour (the window's background under the safe areas is the
     /// window's business).
@@ -130,16 +132,19 @@ public final class ExactView: UIView {
         // container for the other display (the iPhone Duo's inner one while
         // its cover shows), and nothing lays it out again on return:
         // `fitOwner` puts it back. An activation alone already does
-        // (`PageFacts`).
-        sceneObserver = NotificationCenter.default.addObserver(forName: UIScene.willEnterForegroundNotification, object: nil, queue: .main) { [weak self] note in
-            MainActor.assumeIsolated {
-                guard let self, let scene = note.object as? UIScene, scene === self.window?.windowScene else { return }
-                self.session.presenter.navigation.fitOwner()
+        // (`PageFacts`). An appearance held in the background is told on return.
+        sceneObservers = [UIScene.willEnterForegroundNotification, UIScene.didActivateNotification].map { name in
+            NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] note in
+                MainActor.assumeIsolated {
+                    guard let self, let scene = note.object as? UIScene, scene === self.window?.windowScene else { return }
+                    if name == UIScene.willEnterForegroundNotification { self.session.presenter.navigation.fitOwner() }
+                    self.appearanceTraitsChanged()
+                }
             }
         }
         session.presenter.observeKeyboard()
         registerForTraitChanges([UITraitPreferredContentSizeCategory.self, UITraitLegibilityWeight.self, UITraitDisplayScale.self]) { (view: ExactView, _: UITraitCollection) in view.fitAheadOfLayout(); view.session.controlTextChanged() }
-        registerForTraitChanges([UITraitUserInterfaceStyle.self, UITraitDisplayScale.self, UITraitAccessibilityContrast.self]) { (view: ExactView, _: UITraitCollection) in view.reportScheme(); view.setNeedsLayout() }
+        registerForTraitChanges([UITraitUserInterfaceStyle.self, UITraitDisplayScale.self, UITraitAccessibilityContrast.self]) { (view: ExactView, _: UITraitCollection) in view.appearanceTraitsChanged() }
         // The tvOS SDK has no Swift UITraitDefinition for this trait. OS
         // suppression still applies to its layers without a re-decode (D9).
         #if os(iOS)
@@ -181,18 +186,30 @@ public final class ExactView: UIView {
     /// `prefers-color-scheme` is told again (LLP 1069.000 D1), and the bars'
     /// drawn items are drawn again in it.
     private func reportScheme() {
+        reportedTraits = (traitCollection.userInterfaceStyle, traitCollection.displayScale, traitCollection.accessibilityContrast)
         fitAheadOfLayout()
         session.scheme(dark: traitCollection.userInterfaceStyle == .dark)
         session.tellPreferences()
         session.natives.scopesChanged()
         session.presenter.navigation.appearanceChanged()
     }
+    /// UIKit snapshots a backgrounded scene for the app switcher in both
+    /// appearances, flipping `userInterfaceStyle` and back. Telling each flip
+    /// re-renders the app twice on main while the snapshot waits, and a quick
+    /// return finds the screen frozen until it ends: the background holds
+    /// the report, and the return tells what differs from the last one.
+    private func appearanceTraitsChanged() {
+        if window?.windowScene?.activationState == .background { return }
+        if let told = reportedTraits, told == (traitCollection.userInterfaceStyle, traitCollection.displayScale, traitCollection.accessibilityContrast) { return }
+        reportScheme()
+        setNeedsLayout()
+    }
     /// An app or window tint changed: `AccentColor` is reported again (LLP 1095 D9).
     public override func tintColorDidChange() { super.tintColorDidChange(); fitAheadOfLayout(); session.reportColors() }
 
     required init?(coder: NSCoder) { nil }
     deinit {
-        (editingObservers + [sceneObserver].compactMap { $0 }).forEach(NotificationCenter.default.removeObserver)
+        (editingObservers + sceneObservers).forEach(NotificationCenter.default.removeObserver)
     }
 
     /// A zero-size dependent makes UIKit lay this view out as its keyboard
