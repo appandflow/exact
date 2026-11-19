@@ -1508,6 +1508,7 @@ dependencies = [
  "exact-executor",
  "exact-kernel",
  "exact-logic",
+ "exact-logic-abi",
  "exact-markdown",
  "exact-markdown-editor",
  "exact-motion",

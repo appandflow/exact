@@ -217,3 +217,93 @@ fn native_library_uses_copied_buffers_and_keeps_existing_sessions_alive() {
         assert!(crate::tiered::load(&invalid).is_err());
     }
 }
+
+// The module is a Rust dylib with its own `std` and panic hook, as a
+// `rust.module` build is. It panics while its session is created; that aborts
+// the process, so the load runs in a child.
+#[test]
+fn a_module_panic_reports_its_message_location_and_host_thread() {
+    const TEST: &str = "native_tests::a_module_panic_reports_its_message_location_and_host_thread";
+    if let Some(record) = std::env::var_os("EXACT_MODULE_PANIC_CHILD") {
+        static RECORD: std::sync::OnceLock<std::path::PathBuf> = std::sync::OnceLock::new();
+        RECORD.set(record.into()).unwrap();
+        abi::panics::report_to(|message, file, line| {
+            let thread = std::thread::current();
+            let text = format!("{message}\n{file}:{line}\n{}", thread.name().unwrap_or(""));
+            fs::write(RECORD.get().unwrap(), text).unwrap();
+        });
+        let bytes = fs::read(std::env::var_os("EXACT_MODULE_PANIC_LIBRARY").unwrap()).unwrap();
+        std::thread::Builder::new()
+            .name("session".into())
+            .spawn(move || crate::native::load(&bytes).map(drop))
+            .unwrap()
+            .join()
+            .unwrap()
+            .unwrap();
+        return;
+    }
+    let dir = crate::TempDir(
+        std::env::temp_dir().join(format!("exact-module-panic-{}", std::process::id())),
+    );
+    let _ = fs::remove_dir_all(&dir);
+    fs::create_dir(&dir).unwrap();
+    let source = dir.join("module.rs");
+    let library = dir.join("module.dylib");
+    let panics = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("abi/src/panics.rs");
+    fs::write(
+        &source,
+        format!(
+            r#"#[path = {panics:?}]
+mod panics;
+#[no_mangle] pub extern "C" fn exact_logic_abi() -> u32 {{ {abi} }}
+#[no_mangle] pub extern "C" fn exact_logic_forward_panics(report: panics::Report) {{ panics::forward(report) }}
+#[no_mangle] pub extern "C" fn exact_logic_create() -> usize {{ panic!("session {{}} refused", 7) }}
+#[no_mangle] pub extern "C" fn exact_logic_destroy(_: usize) {{}}
+#[no_mangle] pub extern "C" fn exact_logic_alloc(_: u32) -> usize {{ 0 }}
+#[no_mangle] pub extern "C" fn exact_logic_dealloc(_: usize, _: u32) {{}}
+#[no_mangle] pub extern "C" fn exact_logic_call(_: usize, _: usize, _: u32) -> u32 {{ 1 }}
+#[no_mangle] pub extern "C" fn exact_logic_output(_: usize) -> usize {{ 0 }}
+#[no_mangle] pub extern "C" fn exact_logic_output_len(_: usize) -> u32 {{ 0 }}
+"#,
+            abi = abi::ABI
+        ),
+    )
+    .unwrap();
+    let built = Command::new("rustc")
+        .args([
+            "--edition",
+            "2021",
+            "--crate-type",
+            "cdylib",
+            "-C",
+            "panic=abort",
+            "-o",
+        ])
+        .arg(&library)
+        .arg(&source)
+        .output()
+        .unwrap();
+    assert!(
+        built.status.success(),
+        "{}",
+        String::from_utf8_lossy(&built.stderr)
+    );
+    let record = dir.join("record");
+    let out = Command::new(std::env::current_exe().unwrap())
+        .args(["--exact", TEST, "--nocapture"])
+        .env("EXACT_MODULE_PANIC_CHILD", &record)
+        .env("EXACT_MODULE_PANIC_LIBRARY", &library)
+        .output()
+        .unwrap();
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(!out.status.success(), "{stderr}");
+    assert!(stderr.contains("session 7 refused"), "{stderr}");
+    let text = fs::read_to_string(&record).unwrap();
+    let lines: Vec<&str> = text.lines().collect();
+    assert_eq!(lines[0], "session 7 refused");
+    assert!(
+        lines[1].starts_with(&format!("{}:", source.display())),
+        "{text}"
+    );
+    assert_eq!(lines[2], "session");
+}

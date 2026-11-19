@@ -551,8 +551,8 @@ test('web dispatch refuses a Rust prefetch on a send and sends a resource prefet
 // A Rust call that fails may have changed the module's own state before it failed: refused after its answer ran, or
 // trapped. The next call runs in a fresh instance, activated again, as natively (logic/src/lib.rs `run`). A trap,
 // and not a refusal, goes to Observe (marks.js `observeTrap`).
-test('a Rust call after a refused or trapped one runs in a fresh instance', async () => {
-  const dir = scratch('exact-rust-fresh-');
+function rustDataDir(prefix) {
+  const dir = scratch(prefix);
   for (const name of ['rust-data.js', 'admission.js', 'held.js']) {
     const source = readFileSync(resolve(ROOT, 'host/web-js', name), 'utf8').replace(/'\.\.\/web\/([a-z-]+\.js)'/g, "'./$1'");
     writeFileSync(resolve(dir, name), source);
@@ -560,6 +560,11 @@ test('a Rust call after a refused or trapped one runs in a fresh instance', asyn
   for (const name of ['http-body.js', 'grant-admission.js', 'faults.js', 'navigation.js', 'address-space.js']) writeFileSync(resolve(dir, name), hostFixtureFile(resolve(ROOT, 'host/web', name)));
   writeFileSync(resolve(dir, 'admission-data.js'), `import {createGrantSet} from './admission.js';export const rustGrantSet=createGrantSet(${JSON.stringify(normalized(''))}),tsGrantSet=createGrantSet(${JSON.stringify(normalized(''))});\n`);
   writeFileSync(resolve(dir, 'rt-link.js'), 'export const rt = {};\n');
+  return dir;
+}
+
+test('a Rust call after a refused or trapped one runs in a fresh instance', async () => {
+  const dir = rustDataDir('exact-rust-fresh-');
   // Each instance counts the calls named `bump` it ran; `count` answers that count.
   let instances = 0;
   const instance = () => {
@@ -609,5 +614,53 @@ test('a Rust call after a refused or trapped one runs in a fresh instance', asyn
   } finally {
     [WebAssembly.instantiate, WebAssembly.Instance, globalThis.exact] = [instantiate, Instance, exact];
     rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// A panic while the module creates its session traps too, at install or in the fresh instance after a trapped call,
+// and goes to Observe (marks.js `observeTrap`).
+test('a trap while the Rust module creates its session goes to Observe', async () => {
+  const dir = rustDataDir('exact-rust-create-');
+  // `creates` lists, per instance, whether its session's creation traps.
+  let creates = [];
+  const instance = () => {
+    const traps = creates.shift(), memory = new WebAssembly.Memory({ initial: 1 }), out = 32768;
+    let output = new Uint8Array();
+    const response = fill => {
+      const bytes = [], u8 = value => bytes.push(value), u32 = value => bytes.push(value & 255, value >>> 8 & 255, value >>> 16 & 255, value >>> 24 & 255);
+      const string = value => { const encoded = new TextEncoder().encode(value); u32(encoded.length); bytes.push(...encoded); };
+      u32(12); fill({ u8, u32, string }); output = Uint8Array.from(bytes); new Uint8Array(memory.buffer, out, output.length).set(output);
+    };
+    return { exports: {
+      memory, exact_logic_abi: () => 12, exact_logic_alloc: () => 0, exact_logic_dealloc() {},
+      exact_logic_create() { if (traps) throw new WebAssembly.RuntimeError('unreachable'); return 1; },
+      exact_logic_output: () => out, exact_logic_output_len: () => output.length,
+      exact_logic_call(_session, pointer) {
+        const code = new Uint8Array(memory.buffer)[pointer + 4];
+        if (code === 0) response(w => { w.u8(0); w.string('test.rust'); w.string(''); });
+        else if (code === 1 || code === 2) response(w => { w.u8(0); w.u8(0); w.u8(3); });
+        else throw new WebAssembly.RuntimeError('unreachable');
+        return 0;
+      },
+    } };
+  };
+  const [instantiate, Instance, exact] = [WebAssembly.instantiate, WebAssembly.Instance, globalThis.exact];
+  const traps = [];
+  globalThis.exact = { observeTrap: error => traps.push(error.message) };
+  WebAssembly.instantiate = async () => ({ instance: instance(), module: 'compiled' });
+  WebAssembly.Instance = function () { return instance(); };
+  try {
+    const module = await import(pathToFileURL(resolve(dir, 'rust-data.js')).href);
+    const store = { map: new Map(), set() {} };
+    creates = [true];
+    await expect(module.install({ q: [] }, { trapped: '' }, async () => new ArrayBuffer(0))).rejects.toThrow('unreachable');
+    expect(traps).toEqual(['unreachable']);
+    creates = [false, true];
+    const data = { q: [] };
+    await module.install(data, { trapped: '' }, async () => new ArrayBuffer(0));
+    expect(() => data.answer('trapped', [], store)).toThrow('activating the module again failed: unreachable');
+    expect(traps).toEqual(['unreachable', 'unreachable', 'unreachable']);
+  } finally {
+    [WebAssembly.instantiate, WebAssembly.Instance, globalThis.exact] = [instantiate, Instance, exact];
   }
 });

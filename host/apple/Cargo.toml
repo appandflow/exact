@@ -21,6 +21,8 @@ exact-data = { path = "../../data" }
 exact-textflow = { path = "../../textflow" }
 exact-color = { path = "../../color" }
 exact-kernel = { path = "../../kernel" }
+# Where a Rust module loaded as a dylib reports its panics (src/panic_record.rs).
+exact-logic-abi = { path = "../../logic/abi" }
 exact-markdown = { path = "../../markdown" }
 # Which link destinations the Markdown editor hides (LLP 1045 D5) and each
 # line's `auto` direction (D11): the web editor's rules, called only from

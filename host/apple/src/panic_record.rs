@@ -2,7 +2,9 @@
 //! process aborts. A release build aborts on panic (`panic = "abort"`), and
 //! the SIGABRT that follows carries none of them. The Observe module's launch
 //! part names the file (`ExactLaunchContext.recordPanics`) and reads it at the
-//! next launch beside its fatal-signal record.
+//! next launch beside its fatal-signal record. A Rust module loaded as a
+//! dylib has its own `std` and panic hook; its hook writes the same record
+//! through `exact_logic_abi::panics`.
 
 use std::path::PathBuf;
 use std::sync::OnceLock;
@@ -30,20 +32,27 @@ pub fn install(path: PathBuf) {
     if PATH.set(path).is_err() {
         return;
     }
+    exact_logic_abi::panics::report_to(|message, file, line| {
+        write(
+            message,
+            (!file.is_empty()).then(|| format!("{file}:{line}")),
+        )
+    });
     let previous = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
-        if let Some(path) = PATH.get() {
-            let location = info
-                .location()
-                .map(|l| format!("{}:{}", l.file(), l.line()));
-            let thread = std::thread::current();
-            let _ = std::fs::write(
-                path,
-                record(&message(info.payload()), location, thread.name()),
-            );
-        }
+        let location = info
+            .location()
+            .map(|l| format!("{}:{}", l.file(), l.line()));
+        write(&message(info.payload()), location);
         previous(info);
     }));
+}
+
+fn write(message: &str, location: Option<String>) {
+    if let Some(path) = PATH.get() {
+        let thread = std::thread::current();
+        let _ = std::fs::write(path, record(message, location, thread.name()));
+    }
 }
 
 /// The C export the launch part calls (`include/exact.h`).
@@ -110,6 +119,57 @@ mod tests {
                 .unwrap()
                 .starts_with(&format!("{}:", file!())),
             "{o}"
+        );
+    }
+
+    #[test]
+    #[allow(unsafe_code)]
+    fn a_loaded_modules_panic_writes_its_record() {
+        const TEST: &str = "panic_record::tests::a_loaded_modules_panic_writes_its_record";
+        if let Some(path) = std::env::var_os("EXACT_MODULE_PANIC_RECORD_CHILD") {
+            install(path.into());
+            std::thread::Builder::new()
+                .name("session".into())
+                .spawn(|| {
+                    let (message, file) = ("module refused", "logic/src/lib.rs");
+                    // SAFETY: both strings outlive the call.
+                    unsafe {
+                        exact_logic_abi::panics::report(
+                            message.as_ptr(),
+                            message.len(),
+                            file.as_ptr(),
+                            file.len(),
+                            12,
+                        )
+                    }
+                })
+                .unwrap()
+                .join()
+                .unwrap();
+            return;
+        }
+        let dir =
+            std::env::temp_dir().join(format!("exact-module-panic-record-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("panic.json");
+        let out = std::process::Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", TEST, "--nocapture"])
+            .env("EXACT_MODULE_PANIC_RECORD_CHILD", &path)
+            .output()
+            .unwrap();
+        assert!(
+            out.status.success(),
+            "{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        let o: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(
+            o,
+            serde_json::json!({
+                "message": "module refused", "location": "logic/src/lib.rs:12", "thread": "session",
+            })
         );
     }
 

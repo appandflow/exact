@@ -270,6 +270,11 @@ fn map_symbols(bytes: &[u8]) -> Result<Symbols, String> {
         if version() != ABI {
             return Err("Rust native export ABI differs".into());
         }
+        if let Ok(forward) = library.get::<unsafe extern "C" fn(exact_logic_abi::panics::Report)>(
+            b"exact_logic_forward_panics\0",
+        ) {
+            forward(exact_logic_abi::panics::report);
+        }
         Ok(Symbols {
             stateless: library
                 .get::<unsafe extern "C" fn() -> u32>(b"exact_logic_stateless\0")
