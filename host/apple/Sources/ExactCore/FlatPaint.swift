@@ -45,7 +45,7 @@ package struct FlatPaint: Equatable {
         "direction", "font_size", "font_weight", "font_style", "font_stretch", "font_variation_settings", "font_family", "line_height", "letter_spacing",
         "font_variant_numeric", "font_variant_ligatures", "font_feature_settings", "line_clamp", "white_space", "text_wrap_style", "font_smoothing", "field_sizing", "overflow_wrap",
         "border_style_top", "border_style_right", "border_style_bottom", "border_style_left", "text_transform",
-        "text_color", "text_shadow", "text_stroke_width", "text_stroke_color", "text_align", "text_overflow", "text_decoration_line", "interpolate_size", "touch_action",
+        "text_color", "text_shadow", "text_stroke_width", "text_stroke_color", "paint_order", "text_align", "text_overflow", "text_decoration_line", "interpolate_size", "touch_action",
         "border_radius_top_left", "border_radius_top_right", "border_radius_bottom_right", "border_radius_bottom_left",
         // A fixed fill paints alike in either scheme (LLP 1034 §8).
         "color_scheme",

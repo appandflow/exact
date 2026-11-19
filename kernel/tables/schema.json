@@ -4219,7 +4219,11 @@
       "field": "paint_order",
       "codec": "paint-order",
       "inherited": true,
-      "_comment": "SVG 2 paint-order: normal, or fill/stroke/markers in an order."
+      "_comment": "SVG 2 paint-order: normal, or fill/stroke/markers in an order. On text outside an svg it orders `-webkit-text-stroke` and the glyphs' fill, as CSS Fill and Stroke 3 applies it to text: `stroke` (or `stroke fill`) paints the stroke under the fill, so only its outer half shows.",
+      "appleRunPaint": "paintOrder",
+      "hosts": [
+        { "host": "macos", "on": "box", "fidelity": "best-effort", "why": "selected text, drawn in the selection's ink, shows no stroke that `paint-order` puts under its fill" }
+      ]
     },
     {
       "bit": 124,
@@ -4435,8 +4439,12 @@
       "capability": "shadows",
       "codec": "text-shadow",
       "inherited": true,
-      "_comment": "@ref LLP 1077 D3: CSS `text-shadow`, `none` or one shadow (no list, no spread), under the glyphs and decorations; a missing colour is currentcolor. Inherited, as in CSS.",
-      "appleRunPaint": "shadow"
+      "_comment": "@ref LLP 1077 D3: CSS `text-shadow`, `none` or a list (at most 8) of shadows (no spread), under the glyphs and decorations, the first on top; a missing colour is currentcolor. Inherited, as in CSS.",
+      "appleRunPaint": "shadow",
+      "hosts": [
+        { "host": "ios", "on": "box", "fidelity": "best-effort", "why": "with more than one shadow, an underline or line-through casts none; the glyphs and their stroke cast each" },
+        { "host": "macos", "on": "box", "fidelity": "best-effort", "why": "with more than one shadow, an underline or line-through casts none; the glyphs and their stroke cast each" }
+      ]
     },
     {
       "bit": 152,
@@ -4461,7 +4469,7 @@
       "codec": "f32",
       "default": 0,
       "inherited": true,
-      "_comment": "@ref LLP 1077 D7: the Compat Standard's `-webkit-text-stroke-width`, a width in px centred on the glyphs' outlines and painted over their fill; 0 is none. Inherited, as in Compat.",
+      "_comment": "@ref LLP 1077 D7: the Compat Standard's `-webkit-text-stroke-width`, a width in px centred on the glyphs' outlines and painted over their fill, or under it where `paint-order` paints the stroke first; 0 is none. Inherited, as in Compat.",
       "appleRunPaint": "strokeWidth"
     },
     {

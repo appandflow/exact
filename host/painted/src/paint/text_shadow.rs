@@ -22,12 +22,40 @@ use tiny_skia::Transform;
 
 pub(super) type Shadow = ((f32, f32), f32, [u8; 4]);
 
-/// One run's shadow (offset, blur, colour) and stroke (width, colour),
-/// `currentcolor` resolved to the run's presented colour.
+/// A box's `text-shadow` list (offset, blur, colour each), the first on top.
+#[derive(Clone, Copy, PartialEq)]
+pub(super) struct Shadows {
+    len: usize,
+    list: [Shadow; exact_kernel::style::MAX_SHADOWS],
+}
+
+impl Shadows {
+    /// `None` for an empty list (`none`).
+    pub(super) fn of(shadows: impl IntoIterator<Item = Shadow>) -> Option<Self> {
+        let mut out = Self {
+            len: 0,
+            list: [((0.0, 0.0), 0.0, [0; 4]); exact_kernel::style::MAX_SHADOWS],
+        };
+        for (slot, s) in out.list.iter_mut().zip(shadows) {
+            *slot = s;
+            out.len += 1;
+        }
+        (out.len > 0).then_some(out)
+    }
+
+    /// In paint order: the last listed first, under the rest.
+    pub(super) fn bottom_up(&self) -> impl Iterator<Item = Shadow> + '_ {
+        self.list[..self.len].iter().rev().copied()
+    }
+}
+
+/// One run's shadows and stroke (width, colour, and whether `paint-order`
+/// puts it under the fill), `currentcolor` resolved to the run's presented
+/// colour.
 #[derive(Clone, Copy, PartialEq, Default)]
 struct RunLook {
-    shadow: Option<Shadow>,
-    stroke: Option<(f32, [u8; 4])>,
+    shadow: Option<Shadows>,
+    stroke: Option<(f32, [u8; 4], bool)>,
 }
 
 pub(super) struct TextInk {
@@ -37,13 +65,20 @@ pub(super) struct TextInk {
 }
 
 impl Painter {
-    pub(super) fn text_shadow(&self, node: &NodeRef<'_>, color: [u8; 4]) -> Option<Shadow> {
+    pub(super) fn text_shadow(&self, node: &NodeRef<'_>, color: [u8; 4]) -> Option<Shadows> {
         let _accent = super::accent_scope(node);
-        node.computed_row(StyleId::TextShadow, |s| s.text_shadow.shadow().copied())
-            .map(|s| {
-                let color = s.color.map_or(color, |c| super::rgba(c.resolve(self.dark)));
-                ((s.offset.x, s.offset.y), s.blur, color)
-            })
+        node.computed_row(StyleId::TextShadow, |s| self.shadows(&s.text_shadow, color))
+    }
+
+    pub(super) fn shadows(
+        &self,
+        shadow: &exact_kernel::style::TextShadow,
+        color: [u8; 4],
+    ) -> Option<Shadows> {
+        Shadows::of(shadow.shadows().iter().map(|s| {
+            let color = s.color.map_or(color, |c| super::rgba(c.resolve(self.dark)));
+            ((s.offset.x, s.offset.y), s.blur, color)
+        }))
     }
 
     fn run_looks(
@@ -72,7 +107,9 @@ impl Painter {
                     let color = node
                         .computed_row(StyleId::TextStrokeColor, |s| s.text_stroke_color)
                         .map_or(run.color, |c| super::rgba(c.resolve(self.dark)));
-                    (width, color)
+                    let under = node
+                        .computed_row(StyleId::PaintOrder, |s| s.paint_order.stroke_under_fill());
+                    (width, color, under)
                 });
                 RunLook { shadow, stroke }
             })
@@ -170,16 +207,7 @@ impl Painter {
         let shadows: Vec<_> = shadows
             .iter()
             .zip(palette)
-            .map(|(shadow, ink)| {
-                shadow.shadow().map(|s| {
-                    (
-                        (s.offset.x, s.offset.y),
-                        s.blur,
-                        s.color
-                            .map_or(ink.color, |c| super::rgba(c.resolve(self.dark))),
-                    )
-                })
-            })
+            .map(|(shadow, ink)| self.shadows(shadow, ink.color))
             .collect();
         let decorations = self.text_decorations(
             kernel,
@@ -243,18 +271,25 @@ impl Painter {
                 let glyphs = shadowed
                     .as_deref()
                     .filter(|_| joins && index + 1 == masks.len());
-                self.shadow_pass(
-                    paragraph,
-                    glyphs,
-                    &s.mask,
-                    s.shadow,
-                    origin,
-                    ts,
-                    roll,
-                    shadow_clip,
-                );
+                for shadow in s.shadow.bottom_up() {
+                    self.shadow_pass(
+                        paragraph,
+                        glyphs,
+                        &s.mask,
+                        shadow,
+                        origin,
+                        ts,
+                        roll,
+                        shadow_clip,
+                    );
+                }
             }
-            if let Some(shadow) = look.shadow.filter(|_| !joins) {
+            for shadow in look
+                .shadow
+                .filter(|_| !joins)
+                .iter()
+                .flat_map(Shadows::bottom_up)
+            {
                 self.shadow_pass(
                     paragraph,
                     shadowed.as_deref(),
@@ -296,18 +331,29 @@ impl Painter {
                     .collect::<Vec<_>>();
                 &fill
             };
+            // `paint-order` (SVG 2 §13.8, which CSS applies to text): the
+            // stroke over the fill unless it names the stroke first.
+            let stroke = |p: &mut Self| {
+                if let Some((width, color, _)) = look.stroke {
+                    p.glyph_pass(
+                        paragraph,
+                        roll,
+                        &only(palette, |i| (start..end).contains(&i), color),
+                        origin,
+                        ts,
+                        |p, text, ink, at| p.stroke_pass(text, ink, width, at, ts),
+                    );
+                }
+            };
+            let under = look.stroke.is_some_and(|(_, _, under)| under);
+            if under {
+                stroke(self);
+            }
             self.glyph_pass(paragraph, roll, visible, origin, ts, |p, text, ink, at| {
                 p.fill_pass(text, ink, at, ts);
             });
-            if let Some((width, color)) = look.stroke {
-                self.glyph_pass(
-                    paragraph,
-                    roll,
-                    &only(palette, |i| (start..end).contains(&i), color),
-                    origin,
-                    ts,
-                    |p, text, ink, at| p.stroke_pass(text, ink, width, at, ts),
-                );
+            if !under {
+                stroke(self);
             }
             decorations.paint(
                 self.backend.as_mut(),

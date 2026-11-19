@@ -259,7 +259,7 @@ final class TextPlaceIOSTests: XCTestCase {
     /// text's box with it: one move carries both.
     func testAnHDRShadowsCastMovesWithItsInk() throws {
         let hdr: [String: Any] = ["cs": [["s": "srgb-linear", "v": [4.0, 4.0, 4.0, 1.0]]], "c": [255.0, 255.0, 255.0, 255.0]]
-        let (p, node) = try paragraph("text-box-cast", text: "HDR", style: ["text_shadow": ["o": [3.0, 3.0], "b": 0.0, "c": hdr]], box: [26, 0, 300, 40])
+        let (p, node) = try paragraph("text-box-cast", text: "HDR", style: ["text_shadow": [["o": [3.0, 3.0], "b": 0.0, "c": hdr]]], box: [26, 0, 300, 40])
         let ink = try XCTUnwrap(node.textRasterLayer), cast = try XCTUnwrap(ink.textCast)
         XCTAssertTrue(cast.superlayer === ink.superlayer, "beside the ink, in the text's box")
         let pixels = try XCTUnwrap(node.textRaster), before = node.layer.convert(cast.frame, from: cast.superlayer)
@@ -884,7 +884,7 @@ final class TextPlaceIOSTests: XCTestCase {
     /// fade is on, and arrives with it.
     func testAnHDRShadowsCastCrossFadesWithItsLines() throws {
         let hdr: [String: Any] = ["cs": [["s": "srgb-linear", "v": [4.0, 4.0, 4.0, 1.0]]], "c": [255.0, 255.0, 255.0, 255.0]]
-        let (p, node) = try paragraph("text-relaid-cast", text: Self.fuji, style: ["text_shadow": ["o": [3.0, 3.0], "b": 0.0, "c": hdr]],
+        let (p, node) = try paragraph("text-relaid-cast", text: Self.fuji, style: ["text_shadow": [["o": [3.0, 3.0], "b": 0.0, "c": hdr]]],
                                       width: 300, height: 200, box: [16, 0, 268, 200])
         UIView.animate(springDuration: 0.5, bounce: 0) {
             p.apply(wireBatch([["op": "frame", "id": 2, "x": 0.0, "y": 0.0, "w": 400.0, "h": 200.0],
@@ -935,7 +935,7 @@ final class TextPlaceIOSTests: XCTestCase {
         try XCTSkipIf(UIAccessibility.isReduceMotionEnabled, "Reduce Motion: nothing rolls")
         // An HDR shadow's cast rolls with the ink's pixels
         let hdr: [String: Any] = ["cs": [["s": "srgb-linear", "v": [4.0, 4.0, 4.0, 1.0]]], "c": [255.0, 255.0, 255.0, 255.0]]
-        let (p, node) = try paragraph("text-relaid-roll", text: "41 landmarks", style: ["content_transition": "numeric", "text_shadow": ["o": [3.0, 3.0], "b": 0.0, "c": hdr]],
+        let (p, node) = try paragraph("text-relaid-roll", text: "41 landmarks", style: ["content_transition": "numeric", "text_shadow": [["o": [3.0, 3.0], "b": 0.0, "c": hdr]]],
                                       height: 40, box: [16, 0, 368, 40])
         p.apply(wireBatch([["op": "props", "id": 2, "set": ["text": "42 landmarks"]]]))
         p.textRasters.settleVisible([node])

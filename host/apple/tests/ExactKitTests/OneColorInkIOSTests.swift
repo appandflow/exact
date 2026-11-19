@@ -230,7 +230,7 @@ final class OneColorInkIOSTests: XCTestCase {
         defer { window.isHidden = true }
         p.apply(wireBatch([
             ["op": "create", "id": 1, "kind": "text", "props": ["text": "Shadow"],
-             "style": ["font_size": 48.0, "text_color": [0.0, 0.0, 0.0, 255.0], "text_shadow": ["o": [6.0, 6.0], "b": 0.0, "c": [255.0, 0.0, 0.0, 255.0]]]],
+             "style": ["font_size": 48.0, "text_color": [0.0, 0.0, 0.0, 255.0], "text_shadow": [["o": [6.0, 6.0], "b": 0.0, "c": [255.0, 0.0, 0.0, 255.0]]]]],
             ["op": "roots", "ids": [1]],
             ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 400.0, "h": 100.0],
         ]))

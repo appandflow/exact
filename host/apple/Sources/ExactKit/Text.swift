@@ -63,11 +63,17 @@ final class PresentedText: TextPresentation {
         // A centred stroke over the fill: Core Text's negative width,
         // in percent of the run's size (LLP 1077 D7). Each run's own.
         // Its colour four channels, or nine in its own space (a wide colour).
-        if let st = r.stroke, st.count == 5 || st.count == 10, st[0] > 0, r.size > 0 {
-            a[.strokeWidth] = -st[0] / Double(r.size) * 100
-            a[.strokeColor] = TextEngine.color(Array(st[1...]))
+        // A negative width is one `paint-order` paints under the fill.
+        if let st = r.stroke, st.count == 5 || st.count == 10, st[0] != 0, r.size > 0 {
+            let color = TextEngine.color(Array(st[1...]))
+            a[.strokeWidth] = -abs(st[0]) / Double(r.size) * 100
+            a[.strokeColor] = color
+            if st[0] < 0 {
+                a[.strokeColor] = TextEngine.color([0, 0, 0, 0])
+                a[.exactStrokeUnder] = TextStrokeUnder(width: -st[0], color: color.cgColor)
+            }
         }
-        if let sh = r.shadow, TextEngine.isShadow(sh) { a[.exactShadow] = TextRunShadow(sh) }
+        if let sh = r.shadow, sh.contains(where: TextEngine.isShadow) { a[.exactShadow] = TextRunShadow(sh) }
         // A run's own line is in its own colour and shows over its boxes';
         // a box's alone is in that box's colour (`Run.propagate`).
         if r.atomIcon == nil, r.underlined || r.underlineColor != nil {
@@ -368,6 +374,8 @@ enum TextLinePaint {
         ctx.textMatrix = .identity
         ctx.textPosition = .zero
         if !drawShadowed(line, in: ctx, scale: scale, pass: pass) {
+            strokeUnder(CTLineGetGlyphRuns(line) as! [CTRun], in: ctx)
+            ctx.textPosition = .zero
             CTLineDraw(line, ctx)
             TextAtomIcons.draw(line, in: ctx)
         }

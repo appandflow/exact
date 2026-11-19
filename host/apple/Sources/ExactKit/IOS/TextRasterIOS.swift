@@ -316,7 +316,7 @@ final class TextRasterizer {
         return TextRasterJob(source: source.copy() as! NSAttributedString, ranges: lines.0, baselines: lines.1,
             flush: key.spec.align == 1 ? 0.5 : key.spec.align == 2 ? 1 : 0, whiteSpace: key.spec.whiteSpace, justifies: key.spec.align == 3, insets: paragraph?.insets ?? LineInsets(key.spec, source: source),
             box: key.box, size: key.size, scale: key.scale, clip: key.clip, room: key.room,
-            ellipsis: key.spec.ellipsis, crop: true, clamped: geometry.clamped, shadow: key.spec.hdrShadow.map(TextRunShadow.init),
+            ellipsis: key.spec.ellipsis, crop: true, clamped: geometry.clamped, shadow: key.spec.hdrShadow.map { TextRunShadow([$0]) },
             antialiased: key.spec.antialiased,
             measuredGlyphs: glyphs,
             measuredColor: TextEngine.color(key.spec.color).cgColor)

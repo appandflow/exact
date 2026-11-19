@@ -72,7 +72,7 @@ pub mod theme;
 mod variations;
 pub mod wide;
 pub use features::FontFeatures;
-pub use shadow::{BoxShadow, BoxShadows, GlyphShadow, TextShadow};
+pub use shadow::{BoxShadow, BoxShadows, GlyphShadow, TextShadow, MAX_SHADOWS};
 pub use variations::FontVariations;
 
 /// Largest explicit grid Taffy lays out on one axis.

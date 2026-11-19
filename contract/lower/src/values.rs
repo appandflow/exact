@@ -174,7 +174,7 @@ pub(crate) fn describe(e: &StyleValueError) -> String {
         StyleValueError::BadAspectRatio { .. } => "expected auto, a ratio (`16 / 9`, or a number), or both (`auto 4 / 3`); numbers are nonnegative".into(),
         StyleValueError::BadBackgroundImage { .. } => "expected none, or up to four of linear-gradient(…), radial-gradient(…) and conic-gradient(…)".into(),
         StyleValueError::BadMaskImage { .. } => "expected none, or one linear-gradient(…), radial-gradient(…) or conic-gradient(…)".into(),
-        StyleValueError::BadTextShadow { .. } => "expected none, or one shadow: <offset-x> <offset-y> [<blur>] and an optional colour".into(),
+        StyleValueError::BadTextShadow { .. } => "expected none, or up to eight shadows separated by commas, each <offset-x> <offset-y> [<blur>] and an optional colour".into(),
         StyleValueError::BadFontVariations { .. } => "expected normal, or up to eight axes as `\"wght\" 650, \"wdth\" 90`: a quoted four-character tag and a number".into(),
         StyleValueError::BadFontFeatures { .. } => "expected normal, or up to sixteen OpenType features as `\"cv05\", \"tnum\" 1, \"liga\" off`: a quoted four-character tag and an optional non-negative integer, `on` or `off` (CSS Fonts 4 §6.12)".into(),
         StyleValueError::BadCornerShape { .. } => "expected one to four of round, squircle, square, bevel, scoop, notch, superellipse(<number>) or -exact-continuous".into(),

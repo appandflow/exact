@@ -186,7 +186,7 @@ final class SystemColorIOSTests: XCTestCase {
         let accent: [String: Any] = ["sys": "@tint", "c": [[0, 122, 255, 255], [10, 132, 255, 255]]]
         p.apply(wireBatch([
             ["op": "create", "id": 1, "kind": "text", "props": ["text": "hello"], "style": [
-                "text_color": accent, "text_shadow": ["o": [1.0, 1.0], "b": 0.0, "c": accent],
+                "text_color": accent, "text_shadow": [["o": [1.0, 1.0], "b": 0.0, "c": accent]],
                 "box_shadow": [["o": [0.0, 2.0], "b": 4.0, "c": accent]],
                 "symbol_rendering": "palette", "symbol_palette": [accent]]],
             ["op": "roots", "ids": [1]],
@@ -197,7 +197,7 @@ final class SystemColorIOSTests: XCTestCase {
         let red = channels(.systemRed, node.traitCollection)
         let run = try XCTUnwrap(node.paragraphSpec().runs.first)
         XCTAssertEqual(run.color, red, "a plain text run")
-        XCTAssertEqual(Array((node.paragraphSpec().shadow ?? run.shadow ?? []).suffix(4)), red, "its text shadow")
+        XCTAssertEqual(Array((node.paragraphSpec().shadow ?? run.shadow?.first ?? []).suffix(4)), red, "its text shadow")
         let shade = try XCTUnwrap(node.boxShadows.first?.color.components).map { Double($0) * 255 }
         XCTAssertEqual(shade.count, 4)
         for (got, want) in zip(shade, red) { XCTAssertEqual(got, want, accuracy: 0.01, "a box shadow") }

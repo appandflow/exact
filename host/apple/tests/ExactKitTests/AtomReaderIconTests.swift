@@ -271,7 +271,7 @@ final class AtomReaderIconTests: XCTestCase {
         let node = try reader("symbol:sf/circle.fill", background: "transparent", color: "#00800080")
         let source = NSMutableAttributedString(attributedString: session.text.attributed(node.paragraphSpec()))
         let at = (source.string as NSString).range(of: "\u{FFFC}")
-        source.addAttribute(.exactShadow, value: TextRunShadow([0, 16, 0, 255, 0, 0, 255]), range: at)
+        source.addAttribute(.exactShadow, value: TextRunShadow([[0, 16, 0, 255, 0, 0, 255]]), range: at)
         let line = CTLineCreateWithAttributedString(source)
         let pixels = try picture(line)
         let (run, icon) = try iconRun(line)

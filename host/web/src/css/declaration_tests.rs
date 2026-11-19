@@ -337,6 +337,32 @@ fn text_stroke_is_the_compat_standards_two_properties() {
     assert!(text.contains("-webkit-text-stroke-color:"), "{text}");
 }
 
+/// LLP 1077 D3, D7: a `text-shadow` list and a stroke under the fill are
+/// the browser's to paint, as written.
+#[test]
+fn a_text_shadow_list_and_paint_order_pass_through() {
+    fn t(s: &str) -> StyleValue<'_> {
+        StyleValue::Text(s.into())
+    }
+    let text = css(
+        &[
+            (
+                StyleId::TextShadow,
+                t("-1px 0 #fff, 1px 0 #fff, 0 1px 2px #000"),
+            ),
+            (StyleId::PaintOrder, t("stroke")),
+        ],
+        &[],
+    );
+    assert!(
+        text.contains(
+            "text-shadow:-1px 0px 0px #ffffffff, 1px 0px 0px #ffffffff, 0px 1px 2px #000000ff;"
+        ),
+        "{text}"
+    );
+    assert!(text.contains("paint-order:stroke fill markers;"), "{text}");
+}
+
 #[test]
 fn apple_continuous_is_a_superellipse_over_a_scaled_radius() {
     fn t(s: &str) -> StyleValue<'_> {

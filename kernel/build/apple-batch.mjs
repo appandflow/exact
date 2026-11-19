@@ -152,7 +152,7 @@ function runPaintDispatch(rows) {
   const lines = ['extension RunPaintRows {', '    package init(_ style: NodeStyle) {', '        self.init()'];
   for (const row of paint) lines.push(`        if let value = style[${quoted(row.field)}] { set(${quoted(row.field)}, value) }`);
   lines.push('    }', '    @discardableResult', '    package mutating func set(_ key: String, _ value: BatchValue) -> Bool {', '        switch key {');
-  const expressions = { shadow: 'readShadow(value)', strokeWidth: 'strokeWidth = value.number ?? 0', strokeColor: 'strokeColor = value.string == nil ? value : nil' };
+  const expressions = { shadow: 'readShadow(value)', strokeWidth: 'strokeWidth = value.number ?? 0', strokeColor: 'strokeColor = value.string == nil ? value : nil', paintOrder: 'strokeUnder = value.string.map(RunPaintRows.strokesFirst) ?? false' };
   for (const row of paint) {
     if (!expressions[row.appleRunPaint]) throw new Error(`unknown run paint reader: ${row.appleRunPaint}`);
     lines.push(`        case ${quoted(row.field)}: ${expressions[row.appleRunPaint]}`);

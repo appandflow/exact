@@ -285,7 +285,7 @@ extension Spec {
     var headroom: Float {
         var colors: [[Double]?] = [color, shadow.map { Array($0[3...]) }]
         for r in runs {
-            colors += [r.color, r.background, r.shadow.map { Array($0[3...]) }, r.stroke.map { Array($0[1...]) }]
+            colors += [r.color, r.background, r.stroke.map { Array($0[1...]) }] + (r.shadow ?? []).map { Array($0[3...]) }
         }
         return colors.reduce(Float(0)) { h, c in
             guard let c, c.count == 9 else { return h }

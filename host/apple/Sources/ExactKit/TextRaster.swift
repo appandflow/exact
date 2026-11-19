@@ -271,12 +271,14 @@ struct TextRasterJob {
                         || (space != Self.p3 && space != Self.srgb && space != CGColorSpaceCreateDeviceRGB() && space.model != .monochrome)
                 }
             }
-            for key in [NSAttributedString.Key.foregroundColor, .strokeColor, .underlineColor, .strikethroughColor, .exactBackground, .exactShadow] {
-                let value = attributes[key]
-                let cg = Self.paintColor(value)
+            var colors: [(CGColor?, shadow: Bool)] = [NSAttributedString.Key.foregroundColor, .strokeColor, .underlineColor, .strikethroughColor, .exactBackground]
+                .map { (Self.paintColor(attributes[$0]), false) }
+            colors += ((attributes[NSAttributedString.Key.exactShadow] as? TextRunShadow)?.list ?? []).map { ($0.color, true) }
+            colors.append(((attributes[NSAttributedString.Key.exactStrokeUnder] as? TextStrokeUnder)?.color, false))
+            for (cg, shadow) in colors {
                 // Grouped HDR shadows composite with their glyphs here;
                 // only ungrouped shadows have a separate cast.
-                if value is TextRunShadow, attributes[NSAttributedString.Key.exactOpacity] == nil, ColorRange.isHDR(cg) { continue }
+                if shadow, attributes[NSAttributedString.Key.exactOpacity] == nil, ColorRange.isHDR(cg) { continue }
                 guard let cg, judged.insert(cg).inserted else { continue }
                 headroom = max(headroom, ColorRange.headroom(cg))
                 // An sRGB colour within [0, 1] lies inside sRGB and P3 both.
@@ -373,7 +375,7 @@ struct TextRasterJob {
                 painted = painted.union(glyphs.insetBy(dx: -1 / scale, dy: -1 / scale))
                 // Runs' own shadows are in these pixels (LLP 1077 D3).
                 var shadows = TextRunShadow.reach(line, ink: glyphs)
-                if let s = shadow {
+                for s in shadow?.list ?? [] {
                     let spread = s.blur * 1.5 + 1
                     shadows = shadows.union(glyphs.offsetBy(dx: s.offset.width, dy: s.offset.height).insetBy(dx: -spread, dy: -spread))
                 }
@@ -428,7 +430,7 @@ struct TextRasterJob {
         var casters: [TextRunShadow] = []
         for run in runs where (CTRunGetAttributes(run) as NSDictionary)[NSAttributedString.Key.exactHidden] as? Bool != true {
             if (CTRunGetAttributes(run) as NSDictionary)[NSAttributedString.Key.exactOpacity] != nil { continue }
-            if let s = TextRunShadow.of(run), ColorRange.isHDR(s.color), !casters.contains(s) { casters.append(s) }
+            if let s = TextRunShadow.of(run), s.isHDR, !casters.contains(s) { casters.append(s) }
         }
         guard let ink = bitmap(width: width, height: height, space: space, headroom: headroom, deep: deep, keepsImage: shadow != nil, paint: {
             paint(lines, positions, frame: frame, height: height, scale: scale, pass: .ink, into: $0)
@@ -440,13 +442,13 @@ struct TextRasterJob {
         out.ink = painted; out.shadows = shadowed
         // What casts each HDR shadow: the ink itself for the paragraph's,
         // the glyphs of its runs for a run's own.
-        var casts: [(CGImage, TextRunShadow)] = []
-        if let shadow, let image = ink.image { casts.append((image, shadow)) }
+        var casts: [(CGImage, TextRunShadow.One)] = []
+        if let shadow, let image = ink.image { casts += shadow.list.reversed().map { (image, $0) } }
         for s in casters {
             let glyphs = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0, space: Self.srgb,
                                    bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
             if let glyphs { paint(lines, positions, frame: frame, height: height, scale: scale, pass: .caster(s), into: glyphs) }
-            if let image = glyphs?.makeImage() { casts.append((image, s)) }
+            if let image = glyphs?.makeImage() { casts += s.list.reversed().map { (image, $0) } }
         }
         if !casts.isEmpty {
             let castHeadroom = casts.reduce(Float(1)) { max($0, ColorRange.headroom($1.1.color)) }
@@ -536,7 +538,7 @@ struct TextRasterJob {
     }
 
     private static func paintColor(_ value: Any?) -> CGColor? {
-        if let color = (value as? InlineBackground)?.color ?? (value as? TextRunShadow)?.color ?? (value as? PlatformColor)?.cgColor { return color }
+        if let color = (value as? InlineBackground)?.color ?? (value as? PlatformColor)?.cgColor { return color }
         guard let value else { return nil }
         let ref = value as CFTypeRef
         return CFGetTypeID(ref) == CGColor.typeID ? (ref as! CGColor) : nil

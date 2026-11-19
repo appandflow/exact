@@ -883,7 +883,7 @@ final class TextMetricsTests: XCTestCase {
         for clamp in [0, 2] { for shadow in [false, true] {
             batch([["op": "frame", "id": 2, "x": 0.0, "y": 0.0, "w": 400.0, "h": 80.0]])
             var style: [String: Any] = ["line_clamp": Double(clamp)]
-            if shadow { style["text_shadow"] = ["o": [2.0, 2.0], "b": 2.0, "c": [0.0, 0.0, 0.0, 255.0]] }
+            if shadow { style["text_shadow"] = [["o": [2.0, 2.0], "b": 2.0, "c": [0.0, 0.0, 0.0, 255.0]]] }
             batch([["op": "style", "id": 2, "style": style]])
             XCTAssertTrue(node.rastersText)
             let pixels = try XCTUnwrap(IOSurface(properties: [.width: Int(400 * scale), .height: Int(80 * scale), .bytesPerElement: 4]))

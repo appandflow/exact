@@ -277,7 +277,7 @@ impl Painter {
                 || s.rare.mask_image.gradient().is_some()
                 || !s.rare.corner_shape.is_round()
                 || s.background_clip == exact_kernel::BackgroundClip::Text
-                || node.computed_row(StyleId::TextShadow, |s| s.text_shadow.shadow().is_some())
+                || node.computed_row(StyleId::TextShadow, |s| !s.text_shadow.shadows().is_empty())
                 || node.computed_row(StyleId::TextStrokeWidth, |s| s.text_stroke_width) > 0.0
                 || s.content_transition != exact_kernel::ContentTransition::None
                 || self.placements.contains_key(&id)

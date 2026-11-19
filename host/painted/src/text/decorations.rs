@@ -100,7 +100,7 @@ impl FieldDecorations {
                     background = Some(style.background_color)
                 }
                 if has(StyleId::TextShadow) {
-                    shadow = style.text_shadow;
+                    shadow = style.text_shadow.clone();
                 }
                 if has(StyleId::TextDecorationLine) {
                     use exact_kernel::TextDecorationLine as Line;
@@ -252,9 +252,14 @@ mod tests {
         let shadow = TextShadow::parse("-4px 8px 6px").unwrap();
         assert_eq!(
             projected.shadows,
-            [shadow, shadow, TextShadow::default(), TextShadow::default()]
+            [
+                shadow.clone(),
+                shadow,
+                TextShadow::default(),
+                TextShadow::default()
+            ]
         );
-        assert!(projected.shadows[1].shadow().unwrap().color.is_none());
+        assert!(projected.shadows[1].shadows()[0].color.is_none());
         assert!(projected.inks[0].is_none());
         assert_eq!(projected.inks[1], projected.inks[2]);
         assert!(projected.inks[3].is_none());

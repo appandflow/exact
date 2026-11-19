@@ -308,10 +308,15 @@ pub(crate) fn style_json_rows(
             }
             RowValue::FontVariations(v) => axes::font_axes_json(&mut out, v),
             RowValue::FontFeatures(f) => axes::font_features_json(&mut out, f),
-            // @ref LLP 1077 D3 — `{"o":[x,y],"b":blur,"c":colour}`; no `c`
-            // is currentcolor, the text's own.
-            RowValue::TextShadow(t) => match t.shadow() {
-                Some(s) => {
+            // @ref LLP 1077 D3 — `[{"o":[x,y],"b":blur,"c":colour}, …]`, the
+            // first on top; no `c` is currentcolor, the text's own.
+            RowValue::TextShadow(t) if t.shadows().is_empty() => false,
+            RowValue::TextShadow(t) => {
+                out.push('[');
+                for (i, s) in t.shadows().iter().enumerate() {
+                    if i > 0 {
+                        out.push(',');
+                    }
                     out.push_str("{\"o\":[");
                     push_num(&mut out, s.offset.x);
                     out.push(',');
@@ -323,10 +328,10 @@ pub(crate) fn style_json_rows(
                         push_color_value(&mut out, c);
                     }
                     out.push('}');
-                    true
                 }
-                None => false,
-            },
+                out.push(']');
+                true
+            }
             // @ref LLP 1077 D10 — the palette's colours, each four channels
             // or a light/dark pair of them.
             RowValue::SymbolPalette(p) if p.0.is_empty() => false,
@@ -447,9 +452,16 @@ pub(crate) fn style_json_rows(
             RowValue::Paint(_)
             | RowValue::DashArray(_)
             | RowValue::Transform(_)
-            | RowValue::PaintOrder(_)
             | RowValue::Marker(_)
             | RowValue::Animations(_) => false,
+            // A text run reads it for `-webkit-text-stroke` (LLP 1077 D7),
+            // as CSS text; the `svg` scene carries its own.
+            RowValue::PaintOrder(p) => {
+                out.push('"');
+                out.push_str(&p.css());
+                out.push('"');
+                true
+            }
             // @ref LLP 1055.000 D14 — CSS `filter` on a box: its chain over a
             // box of no size (the region is how far past the box it reaches)
             // and how far it reads; the presenter adds the box's size.
