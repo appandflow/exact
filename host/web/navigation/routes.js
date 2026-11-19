@@ -194,33 +194,11 @@ function selectedDetent(route) {
   }
   return chosen;
 }
-// The scroller at a sheet's bottom edge takes the bottom safe area as its inset, as UIKit's does (LLP 1116 D2), so its
-// content scrolls under the home indicator and ends above it. It is the kernel's (cover.rs `scroller_insets_bottom`):
-// down the route's last child in flow, the first that scrolls up and down. neutral.css pads it by the inset and its
-// author's bottom padding, which the projection hands it as `--exact-sheet-scroller-pad`, since the stylesheet's sum
-// cannot read the author's value: a bound padding is inline, and a static one is the JS target's class rule, whose
-// expression is kept so a length relative to the window stays so; any other, the look's or the browser's, is read once
-// before the scroller is marked. A form control is no content scroller. A content-high sheet whose scroller takes the
-// inset adds no band below it.
-const bottomScrollers = new WeakMap(), staticPads = new WeakMap();
-function staticPad(el) {
-  const classes = new Set([...el.classList].map((c) => `.${CSS.escape(c)}`));
-  let pad = null;
-  for (const sheet of classes.size ? document.styleSheets : []) {
-    let rules = [];
-    try {
-      rules = sheet.cssRules;
-    } catch {
-      // A cross-origin sheet's rules are unreadable (CSSOM `cssRules` throws SecurityError); none is the app's.
-    }
-    for (const rule of rules) {
-      if (rule.style?.paddingBottom && classes.has(rule.selectorText)) {
-        pad = rule.style.paddingBottom;
-      }
-    }
-  }
-  return pad;
-}
+// The scroller at a sheet's bottom edge keeps its content above the bottom safe area, as UIKit's inset on it does
+// (LLP 1116 D2). It is the kernel's (cover.rs `scroller_insets_bottom`): down the route's last child in flow, the first
+// that scrolls up and down; a form control is no content scroller. neutral.css gives it the inset, and a content-high
+// sheet whose scroller takes it adds no band below it.
+const bottomScrollers = new WeakMap();
 function bottomScroller(route) {
   const flows = (el) => {
     const s = getComputedStyle(el);
@@ -240,24 +218,13 @@ function sheetScroller(route, inSheet) {
   const was = bottomScrollers.get(route), now = inSheet ? bottomScroller(route) : null;
   if (was && was !== now) {
     was.removeAttribute("data-exact-bottom-inset");
-    was.style.removeProperty("--exact-sheet-scroller-pad");
   }
   now ? bottomScrollers.set(route, now) : bottomScrollers.delete(route);
   if (route.hasAttribute("data-exact-bottom-scroller") !== !!now) {
     route.toggleAttribute("data-exact-bottom-scroller", !!now);
   }
-  if (!now) {
-    return;
-  }
-  if (!staticPads.has(now)) {
-    staticPads.set(now, staticPad(now) ?? (now.style.paddingBottom ? "0px" : getComputedStyle(now).paddingBottom));
-  }
-  if (!now.hasAttribute("data-exact-bottom-inset")) {
+  if (now && !now.hasAttribute("data-exact-bottom-inset")) {
     now.setAttribute("data-exact-bottom-inset", "");
-  }
-  const pad = now.style.paddingBottom || staticPads.get(now);
-  if (now.style.getPropertyValue("--exact-sheet-scroller-pad") !== pad) {
-    now.style.setProperty("--exact-sheet-scroller-pad", pad);
   }
 }
 /** The frame of `routes[index]`: its own detent, or its sheet's when it was pushed inside one; written only where it
