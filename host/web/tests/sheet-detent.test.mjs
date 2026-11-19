@@ -194,12 +194,12 @@ check('the bottom safe area is added below every detent, a content-high one incl
 }), 60000);
 
 // The sheet's content as an app writes a scrolled sheet: a header, then a scroller filling the rest whose column is at
-// least its height, `rows` px of rows in it and the scroller's own bottom padding `pad`. What the scroller shows at its
+// least its height, `rows` px of rows in it and the scroller's own bottom padding `pad` or class. What the scroller shows at its
 // end: the sheet's frame, the last row's distance from the window's foot, the scroller's bottom padding, and whether
 // it scrolls.
-const scrolled = (evaluate, rows, pad = '') => evaluate(`{
+const scrolled = (evaluate, rows, pad = '', className = '') => evaluate(`{
   const sheet = document.getElementById('sheet');
-  sheet.innerHTML = '<header><h2>Sheet</h2></header><div id="scroller" style="flex:1;min-height:0;overflow:auto;${pad && `padding-bottom:${pad}`}"><div style="min-height:100%;display:flex;flex-direction:column"><div style="height:${rows}px;flex-shrink:0"></div><div id="last" style="height:20px;flex-shrink:0"></div></div></div>';
+  sheet.innerHTML = '<header><h2>Sheet</h2></header><div id="scroller" class="${className}" style="flex:1;min-height:0;overflow:auto;${pad && `padding-bottom:${pad}`}"><div style="min-height:100%;display:flex;flex-direction:column"><div style="height:${rows}px;flex-shrink:0"></div><div id="last" style="height:20px;flex-shrink:0"></div></div></div>';
   select('1'); select('2');
   const scroller = document.getElementById('scroller'), frame = box('sheet');
   scroller.scrollTop = scroller.scrollHeight;
@@ -220,6 +220,9 @@ check("a narrow sheet's bottom-edge scroller takes the bottom safe area once, sh
   // An author's bottom padding adds to the inset.
   expect(await scrolled(evaluate, 200, '10px')).toEqual([[844 - header - 220 - 44, header + 220 + 44], 44, '44px', false]);
   expect(await scrolled(evaluate, 2000, '10px')).toEqual([[12, 832], 44, '44px', true]);
+  // So does one a class rule gives it, as the JS target writes a static style.
+  await evaluate(`document.head.insertAdjacentHTML('beforeend', '<style>.padded { padding-bottom: 10px }</style>')`);
+  expect(await scrolled(evaluate, 200, '', 'padded')).toEqual([[844 - header - 220 - 44, header + 220 + 44], 44, '44px', false]);
   // A detent and the tallest sheet keep their heights, their scroller ending above the inset.
   await evaluate(`detents('sheet', 'medium large')`);
   expect(await scrolled(evaluate, 2000)).toEqual([[411, 433], 34, '34px', true]);

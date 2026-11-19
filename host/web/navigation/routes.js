@@ -197,9 +197,10 @@ function selectedDetent(route) {
 // The scroller at a sheet's bottom edge takes the bottom safe area as its inset, as UIKit's does (LLP 1116 D2), so its
 // content scrolls under the home indicator and ends above it. It is the kernel's (cover.rs `scroller_insets_bottom`):
 // down the route's last child in flow, the first that scrolls up and down. neutral.css pads it by the inset and its
-// author's bottom padding, which the projection hands it as `--exact-sheet-scroller-pad` since a stylesheet cannot read
-// an inline value; a content-high sheet whose scroller takes the inset adds no band below it.
-const bottomScrollers = new WeakMap();
+// author's bottom padding, which the projection hands it as `--exact-sheet-scroller-pad`, since the stylesheet's sum
+// cannot read the author's value: a bound padding is inline, and a static one, in a class rule on the JS target, is read
+// once before the scroller is marked. A content-high sheet whose scroller takes the inset adds no band below it.
+const bottomScrollers = new WeakMap(), staticPads = new WeakMap();
 function bottomScroller(route) {
   const flows = (el) => {
     const s = getComputedStyle(el);
@@ -226,9 +227,12 @@ function sheetScroller(route, inSheet) {
     return;
   }
   if (!now.hasAttribute("data-exact-bottom-inset")) {
+    if (!staticPads.has(now)) {
+      staticPads.set(now, now.style.paddingBottom ? "0px" : getComputedStyle(now).paddingBottom);
+    }
     now.setAttribute("data-exact-bottom-inset", "");
   }
-  const pad = now.style.paddingBottom || "0px";
+  const pad = now.style.paddingBottom || staticPads.get(now);
   if (now.style.getPropertyValue("--exact-sheet-scroller-pad") !== pad) {
     now.style.setProperty("--exact-sheet-scroller-pad", pad);
   }
