@@ -194,6 +194,39 @@ function selectedDetent(route) {
   }
   return chosen;
 }
+// The scroller at a sheet's bottom edge keeps its content above the bottom safe area, as UIKit's inset on it does
+// (LLP 1116 D2). It is the kernel's (cover.rs `scroller_insets_bottom`): down the route's last child in flow, the first
+// that scrolls up and down; a form control is no content scroller. neutral.css gives it the inset, and a content-high
+// sheet whose scroller takes it adds no band below it.
+const bottomScrollers = new WeakMap();
+function bottomScroller(route) {
+  const flows = (el) => {
+    const s = getComputedStyle(el);
+    return s.display !== "none" && s.position !== "absolute" && s.position !== "fixed";
+  };
+  for (let el = [...route.children].findLast(flows); el; el = [...el.children].findLast(flows)) {
+    if (el.matches("textarea, select")) {
+      return null;
+    }
+    if (/^(auto|scroll)$/.test(getComputedStyle(el).overflowY)) {
+      return el;
+    }
+  }
+  return null;
+}
+function sheetScroller(route, inSheet) {
+  const was = bottomScrollers.get(route), now = inSheet ? bottomScroller(route) : null;
+  if (was && was !== now) {
+    was.removeAttribute("data-exact-bottom-inset");
+  }
+  now ? bottomScrollers.set(route, now) : bottomScrollers.delete(route);
+  if (route.hasAttribute("data-exact-bottom-scroller") !== !!now) {
+    route.toggleAttribute("data-exact-bottom-scroller", !!now);
+  }
+  if (now && !now.hasAttribute("data-exact-bottom-inset")) {
+    now.setAttribute("data-exact-bottom-inset", "");
+  }
+}
 /** The frame of `routes[index]`: its own detent, or its sheet's when it was pushed inside one; written only where it
  * changed. `shownIn` is the sheet each route shows in (`sheetAt`), `inUse` the sheets something shown is in,
  * `selected` the stack's shown route. The projection frames a stack's routes in order, and with the last one the
@@ -225,6 +258,7 @@ function sheetFrame(routes, index, shownIn, inUse, selected) {
   if (route.style.getPropertyValue("--exact-sheet-detent") !== (chosen?.css ?? "")) {
     route.style.setProperty("--exact-sheet-detent", chosen?.css ?? "");
   }
+  sheetScroller(route, inUse.has(at));
   if (index === routes.length - 1) {
     stackSheets(routes, shownIn, inUse, selected);
   }
