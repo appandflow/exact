@@ -447,3 +447,19 @@ check('only an ordinary outer press associates its row with navigation', () => {
     expect(await evaluate(`[document.getElementById('owner').hasAttribute('data-exact-split-row'), back('r3')]`)).toEqual([false, true]);
   });
 }, 60000);
+
+// LLP 1116.007 D3's spill under a tilted ancestor: a grid's cells and the grid are tilted together, so each cell's box lies
+// inside the grid's and none spills; an item wider than its tilted row still does, as on iOS (AgentCheckIOS `spill`).
+check('a grid in a tilted card spills nothing, and an item wider than its tilted row still spills', () => {
+  const cells = Array.from({ length: 25 }, (_, i) => `<div id="c${i}" style="border-left:2px solid;border-top:1px solid;background:#eee"></div>`).join('');
+  return inChrome(`<div id="exact-root"><div id="card" style="rotate:1.5deg;padding:8px;width:max-content">
+    <div id="grid" style="display:grid;grid-template-columns:repeat(5,22px);grid-template-rows:repeat(5,22px);border-right:2px solid;border-bottom:2px solid">${cells}</div></div>
+    <div id="row" style="display:flex;width:100px;margin:20px;rotate:1.5deg"><div id="wide" style="flex:none;width:130px;height:20px;background:#eee"></div></div></div>
+    <script type="module">
+      import { observe } from './check.js';
+      window.spills = () => observe(new Map([...document.querySelectorAll('#exact-root *')].map(e => [e.id, e]))).items.filter(i => i.spill).map(i => i.id);
+      window.ready = true;
+    </script>`, async (evaluate) => {
+    expect(await evaluate('spills()')).toEqual(['wide']);
+  }, 390);
+}, 60000);
