@@ -52,7 +52,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
     /// recognizers, and its registration with the window.
     var swipeOwner = false { didSet { if oldValue && !swipeOwner { syncScroll() } } }
     private(set) var scrollNeeded = false
-    var incarnation = NodePool.issue()
+    package var incarnation = NodePool.issue()
     /// Bumped where a touch's press contact here is cancelled for good
     /// (moved, out of the window, disabled, made inert): a captured agent
     /// press (`PressPath`) ends there too, even if the change is undone.
@@ -64,7 +64,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
     weak var paintParent: PaintView?
     let firstDraw: DrawReceipt?
     package let kind: String
-    var inlineText: [InlineText] = [] { didSet { hasInlineContextPopover = inlineText.contains { $0.props["contextPopover"]?.isEmpty == false }; hasInlineLink = inlineText.contains { $0.props["href"].map(NodeView.hasLinkMenu) == true } } }
+    package var inlineText: [InlineText] = [] { didSet { hasInlineContextPopover = inlineText.contains { $0.props["contextPopover"]?.isEmpty == false }; hasInlineLink = inlineText.contains { $0.props["href"].map(NodeView.hasLinkMenu) == true } } }
     /// A run names a context popover, or is a link with the host's own menu (`hasLinkMenu`): read for every paragraph each batch (`ContextMenuHost.sync`).
     private(set) var hasInlineContextPopover = false, hasInlineLink = false
     /// The rarely set fields (`NodeExtrasIOS.swift`); nil until one is set.
@@ -179,14 +179,8 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
             let direction = velocity == .zero ? pan.translation(in: self) : velocity
             return direction == .zero || !allowsTouchPan(direction)
         }
+        if let reorder = presenter?.reorders.shouldBegin(self, gesture) { return reorder }
         if let drag = DragLink.installed?.shouldBegin(self, gesture) { return drag }
-        if gesture === heightRecognizer, let pan = gesture as? UIPanGestureRecognizer {
-            let velocity = pan.velocity(in: window), translation = pan.translation(in: window)
-            return SwipeInput.allows(self) && HeightDragDirection.accepts(
-                velocityX: Double(velocity.x), velocityY: Double(velocity.y),
-                translationX: Double(translation.x), translationY: Double(translation.y))
-                && presenter?.heightBindings[id]?.target != nil
-        }
         if gesture === swipeRecognizer, let pan = gesture as? UIPanGestureRecognizer {
             let velocity = pan.velocity(in: window)
             // Where the finger landed: the translation leaves out the travel
@@ -239,7 +233,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         if hitsNativeEditor(touch.view) { return false }
         var hit = touch.view
         while let current = hit, current !== self {
-            if (gestureRecognizer === heightRecognizer || gestureRecognizer === transformRecognizer || gestureRecognizer === transformContact?.pinch), current is UIScrollView { return false }
+            if (gestureRecognizer === heightRecognizer || gestureRecognizer === transformRecognizer || gestureRecognizer === transformContact?.pinchRecognizer), current is UIScrollView { return false }
             hit = current.superview
         }
         return true
@@ -305,7 +299,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         placementHidden || props["inert"] == "true" || props["accessibilityElementsHidden"] == "true"
     }
     /// The assigned flag before placeholder suppression, for save and restore.
-    var storedAccessibilityElementsHidden: Bool { super.accessibilityElementsHidden }
+    package var storedAccessibilityElementsHidden: Bool { super.accessibilityElementsHidden }
     package override var accessibilityElementsHidden: Bool {
         get { super.accessibilityElementsHidden || isEmptyPanelPlaceholder }
         set { super.accessibilityElementsHidden = newValue }
@@ -391,7 +385,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         set { super.accessibilityContainerType = newValue }
     }
     /// It hears focus, blur, keys or clipboard events (`focusEvents`), names a tabindex, or is a canvas taking input
-    private var asksForFocus: Bool { reorderKeys || explicitTabIndex != nil || canvases?.wantsInput(id) == true || !handlers.isDisjoint(with: Self.focusEvents) }
+    private var asksForFocus: Bool { presenter?.reorders.takesKeys(self) == true || explicitTabIndex != nil || canvases?.wantsInput(id) == true || !handlers.isDisjoint(with: Self.focusEvents) }
     /// A tap focuses only a node that asked for focus: UIKit's buttons never become first responder from a
     /// touch, though Tab and `focus(id)` reach them
     var focusesOnPress: Bool { canBecomeFirstResponder && asksForFocus }
@@ -526,7 +520,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
     /// the app bundle, which carries the app's `assets/` — a phone reads no
     /// other machine's paths) and never outside it; anything else (`file:`,
     /// `..` escaping the root) does not load.
-    static func resolveSource(_ source: String, app: ExactApp?) -> URL? {
+    package static func resolveSource(_ source: String, app: ExactApp?) -> URL? {
         if let u = URL(string: source), let scheme = u.scheme {
             return scheme == "http" || scheme == "https" ? u : nil
         }
@@ -556,6 +550,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         self.setNeedsDisplay()
         if let c = canvasAbove { c.needsCapture = true; canvases?.scheduleCapture() }
         presenter.boxFilters?.changed(self)
+        if drawnByBar { presenter.navigation.barPictureArrived(self) }
         return lease.image.naturalSize
     }
 
@@ -579,10 +574,10 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
             // What the image says is its node's (`aria-label`), never the
             // name UIKit gives the symbol, which a cell gathering its
             // children's words would read ("checkmark.circle" is "selected").
-            SymbolEffectState.of(leaf).pathTemplate = nil
+            SymbolEffectState.of(leaf).clearPathTemplate()
             showSymbol(image, on: leaf); leaf.isAccessibilityElement = false; leaf.accessibilityElementsHidden = true; leaf.isUserInteractionEnabled = false
             // The symbol's size when the kernel's measurer could not say
-            presenter?.queueIntrinsicSize(self, generation: generation, props["symbolAsset"] != nil ? image?.size : SymbolMeasure.size(name, points: points, weight: weight))
+            presenter?.queueIntrinsicSize(self, generation: generation, (props["symbolAsset"] != nil || props["symbolPath"] != nil) ? image?.size : SymbolMeasure.size(name, points: points, weight: weight))
         }
         symbolView?.preferredSymbolConfiguration = symbolConfiguration(SymbolMeasure.configuration(points: points, weight: weight))
         if let leaf = symbolView { applySymbolEffect(leaf) }
@@ -645,7 +640,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         }
         if kind == "textarea" { makeTextArea() }
         if kind == "input" { if presenter.fieldsWaiting.contains(id) { fieldWaits = true } else { makeField() } }
-        if kind != "iframe" { presenter.leaves.embed(self) } // a video's player, a module's box (LLP 1068 §5.1); a web view waits for the props (`embedFrame`)
+        if kind == "video" || kind == "native" { presenter.leaves?.embed(self) } // a video's player, a module's box (LLP 1068 §5.1); a web view waits for the props (`embedFrame`)
     }
     required init?(coder: NSCoder) { nil }
 
@@ -913,7 +908,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
             if event?.type == .touches, isParagraph {
                 touchedText()
                 #if os(iOS)
-                if let surface = presenter?.textSelection.text(for: self)?.document?.surface { return surface }
+                if let surface = presenter?.textSelection.surface(for: self) { return surface }
                 #endif
             } // selectable text takes its interaction for this touch
             // Interactive glass (a pressable glass box) answers a finger
@@ -969,14 +964,14 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
     func textChannels(_ key: String, dark: Bool? = nil) -> [Double]? { style[key].flatMap { $0.textChannels(dark: dark ?? drawsDark, contrast: drawsHighContrast, elevated: drawsElevated, tint: ownTint(for: $0)) } }
     package func color(_ key: String, _ fallback: UIColor) -> UIColor { cgColor(key).map { UIColor(cgColor: $0) } ?? fallback }
     /// CSS `::placeholder { color }` (LLP 1104 D3); nil, the platform's.
-    var placeholderColor: UIColor? { uiColor("placeholder_color") }
+    package var placeholderColor: UIColor? { uiColor("placeholder_color") }
     package func cgColor(_ key: String, dark: Bool? = nil) -> CGColor? { style[key].flatMap { $0.cgColor(dark: dark ?? drawsDark, contrast: drawsHighContrast, elevated: drawsElevated, tint: ownTint(for: $0)) } }
     package func number(_ key: String, _ fallback: CGFloat = 0) -> CGFloat {
         if let n = style[key]?.number { return CGFloat(n) }
         return fallback
     }
 
-    func applyPlaceholder(_ f: UITextField) {
+    package func applyPlaceholder(_ f: UITextField) {
         let text = props["placeholder"] ?? ""
         let font = f.font ?? UIFont.systemFont(ofSize: 17)
         if text.isEmpty {
@@ -1090,7 +1085,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
     var kernelContentBox: CGRect?
     /// The padding layout resolved and sent with `kernelContentBox`: top,
     /// right, bottom, left (`nil` on a native button's unsaid side).
-    var kernelPadding: [CGFloat?]?
+    package var kernelPadding: [CGFloat?]?
     var pendingScrollLeft: Double? {
         get { extras?.pendingScrollLeft }
         set { if newValue != nil || extras != nil { more.pendingScrollLeft = newValue; more.pendingScrollTransfer = false }; presenter?.pendingScrolls.insert(id) }
@@ -1228,7 +1223,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
 
     /// A native container comes or goes under the same authored parent
     /// (`GlassGroups.moving`, boot navigation): no authored reparenting.
-    static var containerMoves = 0
+    package static var containerMoves = 0
     package override func didMoveToSuperview() {
         Self.scrollLayoutEpoch &+= 1
         if Self.containerMoves == 0 { pressEpoch &+= 1; cancelPressContact(reparenting: true); presenter?.unshown(self) } // a new parent: shown elsewhere
@@ -1276,8 +1271,8 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
     /// scroll container that scrolls that axis; `hidden` clips.
     /// Whether the style clips the children (`overflow: hidden` or `clip`); a waiting
     /// scroll clips as its scroll view would. Without a clip box, it is the
-    /// layer's `masksToBounds` (`syncScroll`; a landing flight, `FlightsIOS`).
-    var overflowClips: Bool {
+    /// layer's `masksToBounds`, except on a scroller drawn into a band (`clipsItself`).
+    package var overflowClips: Bool {
         let ox = style["overflow_x"]?.string ?? "visible", oy = style["overflow_y"]?.string ?? "visible"
         return ["hidden", "clip"].contains(ox) || ["hidden", "clip"].contains(oy) || scrollDormant
     }
@@ -1355,7 +1350,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
     /// The scroll container's content size: the kernel's extent on an axis
     /// that scrolls, the box on one that does not (so UIKit cannot pan it
     /// there), never less than the box (or the port UIKit's insets leave, `scrollFloor`).
-    func fitScroll() {
+    package func fitScroll() {
         guard let sv = scroll else { return }
         // Ending where its last edge is drawn, from this box's place on the
         // pixel grid, so the furthest offset is a whole pixel and reaches it (`PixelGridIOS.swift`).
@@ -1410,7 +1405,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
     package func cornerSizes(in rect: CGRect, inset: CGFloat = 0) -> [CGSize] {
         BorderPaint.reduced(BorderPaint.radii(style, in: rect, inset: inset), in: rect)
     }
-    func cornerRadii(in rect: CGRect, inset: CGFloat = 0) -> [CGFloat] {
+    package func cornerRadii(in rect: CGRect, inset: CGFloat = 0) -> [CGFloat] {
         cornerSizes(in: rect, inset: inset).map { $0.width }
     }
     func roundedPath(in rect: CGRect, inset: CGFloat = 0) -> UIBezierPath {
@@ -1453,8 +1448,8 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
             // natural size, `scale-down` the smaller of none and contain;
             // an unknown value is the initial `fill`.
             let fit = style["object_fit"]?.string ?? "fill"
-            let content = contentBox()
-            let rect = flightLook?.image ?? RasterGeometry.rect(natural: bitmap.naturalSize, content: content, fit: fit)
+            let content = flightLook?.contentClip ?? contentBox()
+            let rect = flightLook?.image ?? RasterGeometry.rect(natural: bitmap.naturalSize, content: content, fit: fit, position: style["object_position"]?.array)
             ctx.saveGState()
             path.addClip()
             clipToContentEdge(ctx, content)

@@ -61,7 +61,7 @@ extension ExactSession {
     /// for a `then`, a queue's `next` or an answer that is the earliest work
     /// due; what is due after it is posted.
     func advanceIfDue() {
-        guard !advancingDue, !applying, !landing, !holdingReports, state != .destroyed, clock == nil, !ExactEnv.agentFreezes,
+        guard !advancingDue, !applying, !landing, !waits(.advance), !holdingReports, state != .destroyed, clock == nil, !ExactEnv.agentFreezes,
               !frames.tasks, !ownerInFlight, let due = timerDue, due <= now() else { return }
         advancingDue = true
         defer { advancingDue = false }

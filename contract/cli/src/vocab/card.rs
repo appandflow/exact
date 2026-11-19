@@ -214,7 +214,7 @@ pub fn card() -> String {
     for (_, call) in part_calls() {
         out += &format!("  {call}\n");
     }
-    out += "\ntest steps (app.test.contract; every other form: docs/contract-grammar.md)\n";
+    out += "\ntest steps (app.test.contract, docs/contract-grammar.md)\n";
     for s in steps() {
         out += &format!("  {s}\n");
     }
@@ -330,6 +330,7 @@ mod tests {
             "back",
             "presence allow",
             "fail fetch",
+            "drop stream",
             "request",
         ] {
             assert!(

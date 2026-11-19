@@ -10,14 +10,19 @@ import CExact
 import ExactKit
 
 public enum ExactSurfaces {
-    public static func install() { SurfacesLink.installed = SurfacesHost() }
+    public static func install() {
+        SurfacesLink.installed = SurfacesHost()
+        // A canvas's audio claims the audio session.
+        #if os(iOS) || os(tvOS)
+        MediaLink.claimsAudioSession()
+        #endif
+    }
 }
 
 final class SurfacesHost: SurfacesCapability {
     func canvases() -> Canvases { CanvasesHost() }
     func canvas2D() -> Canvas2DCanvases { Canvas2DHost() }
     func makeMetalView() -> MetalView { MetalCanvasView(frame: .zero) }
-    var canvasTextMeasure: ExactCanvasTextFn { CanvasText.measureRun }
     var pointerLockPreferred: Bool {
         #if os(iOS) || os(tvOS)
         CanvasInputHost.lockOwner != nil

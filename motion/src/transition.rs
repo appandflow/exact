@@ -110,6 +110,9 @@ pub enum TransitionError {
     Easing(EasingError),
     /// The spring parameters were invalid.
     Spring(SpringError),
+    /// A declaration reached an artifact that does not link CSS transitions
+    /// ([`crate::link_transitions`]); its plan is refused at boot (LLP 1047 D6).
+    Unlinked,
 }
 
 impl std::fmt::Display for TransitionError {
@@ -126,6 +129,9 @@ impl std::fmt::Display for TransitionError {
             TransitionError::SpringNegativeDelay => f.write_str("a spring's delay is 0 or more"),
             TransitionError::Easing(e) => e.fmt(f),
             TransitionError::Spring(e) => e.fmt(f),
+            TransitionError::Unlinked => {
+                f.write_str("CSS transitions are not linked into this artifact (LLP 1047 D6)")
+            }
         }
     }
 }

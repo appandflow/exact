@@ -72,6 +72,22 @@ pub(crate) struct Presence {
 }
 
 impl<D: DataSource> Host<D> {
+    /// [`crate::link::TurnMotion`]'s presentation: the transitions handed
+    /// over to Core Animation present their targets before sampling.
+    pub(crate) fn hand_over_transitions(&mut self) {
+        let new = self.engine.starts_on_frame() && !self.native_mode();
+        let runs = &self.inline_runs;
+        for view in super::svg_lower::hand_over_transitions(
+            self.runner.kernel(),
+            &mut self.engine,
+            &|v| runs.contains_key(&v),
+            &|v| !self.runner.handlers_of(v).is_empty(),
+            new,
+        ) {
+            self.svg.played(view);
+        }
+    }
+
     /// A host-known look changes scale through the same motion engine as authored targets.
     pub fn look_motion(&mut self, view: ViewId, states: u8, now_ms: f64) -> String {
         self.now_ms = self.now_ms.max(now_ms);
@@ -88,7 +104,7 @@ impl<D: DataSource> Host<D> {
     /// A receipt's exits, before its destroys reach the batch: each leaving
     /// view and everything under it stay with the presenter. A view this
     /// batch created was never presented, so it simply goes.
-    pub(super) fn begin_exits(&mut self, receipt: &CommitReceipt, batch: &mut Batch) {
+    pub(crate) fn begin_exits(&mut self, receipt: &CommitReceipt, batch: &mut Batch) {
         for exit in &receipt.exits {
             let (Some(&view), Some(&parent)) =
                 (self.keys.get(&exit.key), self.keys.get(&exit.parent))
@@ -132,7 +148,7 @@ impl<D: DataSource> Host<D> {
     /// Whether a destroyed view's `destroy` waits for an exit. A destroyed
     /// view that a leaving view left from ends that exit now: nested exits
     /// play only on the outermost.
-    pub(super) fn exit_holds(&mut self, id: ViewId, batch: &mut Batch) -> bool {
+    pub(crate) fn exit_holds(&mut self, id: ViewId, batch: &mut Batch) -> bool {
         let (ended, kept): (Vec<_>, Vec<_>) = std::mem::take(&mut self.presence.leaving)
             .into_iter()
             .partition(|l| l.parent == id);
@@ -160,7 +176,7 @@ impl<D: DataSource> Host<D> {
     /// A leaving node's animations are the engine's to sample from here on:
     /// the presenter has no mirror for it, so no Core Animation spec (LLP
     /// 1055 D7) follows it, and the ones it had come off.
-    pub(super) fn play_exits(&mut self, batch: &mut Batch) {
+    pub(crate) fn play_exits(&mut self, batch: &mut Batch) {
         for leaving in &mut self.presence.leaving {
             if !leaving.played {
                 let node = motion_node(leaving.key);
@@ -181,6 +197,28 @@ impl<D: DataSource> Host<D> {
             let env = self.runner.kernel().env_of(view);
             let own = l.animations.properties().contains(&Property::Color);
             batch.style(view, &style::restyle_presented(&l.style, &env, &shown, own));
+        }
+    }
+
+    /// At a present: the exits whose animations the engine has passed.
+    pub(crate) fn end_exits(&mut self, batch: &mut Batch) {
+        let now = self.engine.sample_time();
+        for l in self
+            .presence
+            .leaving
+            .iter_mut()
+            .filter(|l| l.played && l.end.is_none())
+        {
+            l.end = self
+                .engine
+                .exit_end(motion_node(l.key), l.animations.0.len());
+        }
+        let (ended, kept): (Vec<_>, Vec<_>) = std::mem::take(&mut self.presence.leaving)
+            .into_iter()
+            .partition(|l| l.end.is_some_and(|end| end <= now));
+        self.presence.leaving = kept;
+        for leaving in ended {
+            self.end_exit(leaving, batch);
         }
     }
 
@@ -211,7 +249,9 @@ impl<D: DataSource> Host<D> {
             let step = layout_step(&self.runner, to);
             let a = self.runner.advance_until_request(step);
             self.now_ms = a.now_ms.max(self.now_ms);
-            self.runner.canvas_frame();
+            if let Some(canvas) = self.turn.canvas {
+                (canvas.frame)(self);
+            }
             // A commit that sent stops the jump: the next send would drop
             // its reply (LLP 1016 D5).
             let stopped = a.error.is_some() || a.stopped_on_request || a.needs_apply || step >= to;
@@ -231,7 +271,7 @@ impl<D: DataSource> Host<D> {
     /// Before a commit's layout: each node the commit gave the row starts
     /// from the box it had, which layout has not replaced yet. A node the
     /// commit created has none; its first layout is first seen.
-    pub(super) fn seed_layout(&mut self, receipt: &CommitReceipt, batch: &mut Batch) {
+    pub(crate) fn seed_layout(&mut self, receipt: &CommitReceipt, batch: &mut Batch) {
         let retired = self
             .presence
             .layout
@@ -243,7 +283,7 @@ impl<D: DataSource> Host<D> {
     /// were at the last layout and none of whose rows changed size. Their
     /// rows moved for their window, a measurement or a scroll, whichever
     /// commit carried it (a report, a scroll event, a fill, a timer).
-    pub(super) fn judge_list_moves(&mut self) {
+    pub(crate) fn judge_list_moves(&mut self) {
         self.presence.settled.clear();
         let now = self.runner.collection_data();
         if self.presence.layout.is_empty() {
@@ -318,7 +358,7 @@ impl<D: DataSource> Host<D> {
 
     /// Observe changed boxes after layout; shared policy also observes the
     /// row placed through a moving virtualized row wrapper.
-    pub(super) fn observe_layout(&mut self, key: NodeKey, batch: &mut Batch) {
+    pub(crate) fn observe_layout(&mut self, key: NodeKey, batch: &mut Batch) {
         let kernel = self.runner.kernel();
         // A settled list's row: its wrapper, or the row's box in it.
         let settled = |id: Option<ViewId>| id.is_some_and(|id| self.presence.settled.contains(&id));
@@ -346,7 +386,7 @@ impl<D: DataSource> Host<D> {
 
     /// A resize retires every move, even when its target box did not change.
     /// Send the resets in the resize's batch without waiting for a tick.
-    pub(super) fn snap_layout(&mut self, batch: &mut Batch) {
+    pub(crate) fn snap_layout(&mut self, batch: &mut Batch) {
         if std::mem::take(&mut self.presence.snap) {
             let retired =
                 self.presence
@@ -372,41 +412,16 @@ impl<D: DataSource> Host<D> {
     /// four identity ops each, about half of what a fill batch carried.
     pub(super) fn present(&mut self, batch: &mut Batch, boot: bool) {
         self.start_frame();
-        let now = self.engine.sample_time();
-        for l in self
-            .presence
-            .leaving
-            .iter_mut()
-            .filter(|l| l.played && l.end.is_none())
-        {
-            l.end = self
-                .engine
-                .exit_end(motion_node(l.key), l.animations.0.len());
-        }
-        let (ended, kept): (Vec<_>, Vec<_>) = std::mem::take(&mut self.presence.leaving)
-            .into_iter()
-            .partition(|l| l.end.is_some_and(|end| end <= now));
-        self.presence.leaving = kept;
-        for leaving in ended {
-            self.end_exit(leaving, batch);
+        if let Some(motion) = self.turn.motion {
+            (motion.end_exits)(self, batch);
         }
         self.holds.retain(|_, token| self.engine.has_hold(*token));
         let mut colored: Vec<(ViewId, bool)> = Vec::new();
         // Before sampling: a transition handed over presents its target.
         // Under the agent's clock (no first-frame rule) motion is sampled:
         // nothing new is handed over, and what was comes back.
-        if self.svg.play_transitions {
-            let new = self.engine.starts_on_frame() && !self.native_mode();
-            let runs = &self.inline_runs;
-            for view in super::svg_lower::hand_over_transitions(
-                self.runner.kernel(),
-                &mut self.engine,
-                &|v| runs.contains_key(&v),
-                &|v| !self.runner.handlers_of(v).is_empty(),
-                new,
-            ) {
-                self.svg.played(view);
-            }
+        if let Some(motion) = self.turn.motion.filter(|_| self.svg.play_transitions) {
+            (motion.present)(self);
         }
         let frame = self.engine.frame();
 

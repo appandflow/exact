@@ -321,7 +321,8 @@ test('JS Rust producers generate privately and read grants from their captured m
     const env = { resolve, mkdirSync, existsSync, dirname: path => resolve(path, '..'), cpSync, readFileSync, createHash,
       rustLinked: true, root: dir, sep: '/', moduleSourceDirs: () => [], devReload: true, devLogic: [], opt: () => null, out, gen, app: 'fixture', canvas2d: false, appDir: dir, ts: false,
       normalizeGrants: () => ({ entries: [] }),
-      buildModule(app, at) {
+      buildModule(app, at, draw, appDir, options) {
+        expect(options.dev).toBe(true);
         expect(at).toBe(resolve(gen, 'rust-module')); mkdirSync(at, { recursive: true });
         const path = resolve(at, 'app.module.wasm'); writeFileSync(path, 'captured'); return path;
       },
@@ -332,7 +333,7 @@ test('JS Rust producers generate privately and read grants from their captured m
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
-test('a Rust module holds its Cargo product claim through optimization and capture', async () => {
+test('a Rust module holds its Cargo product claim from writing inputs through capture', async () => {
   const { awaitBuildOutput } = await import('./app.mjs');
   const { lockHeld } = await import('../host/web/build-lock.mjs');
   const source = readFileSync(resolve(import.meta.dir, '../host/web-js/module.mjs'), 'utf8');
@@ -342,8 +343,8 @@ test('a Rust module holds its Cargo product claim through optimization and captu
   try {
     const env = { TARGET: dir, WEB: 'fixture', createHash, readFileSync, writeFileSync,
       WASM_OPT: () => 'fixture', OPT: [],
-      spawnSync: () => ({ status: 0, stdout: JSON.stringify({ packages: [] }) }), refreshCargoRustShapes() {},
-      resolve, dirname: path => resolve(path, '..'), mkdirSync, cpSync, existsSync, statSync, awaitBuildOutput, moduleDepInfo: new Map(),
+      moduleMetadata: () => ({ metadata: { packages: [] }, locked: false }), refreshCargoRustShapes() {},
+      resolve, dirname: path => resolve(path, '..'), realpathSync, mkdirSync, cpSync, existsSync, statSync, awaitBuildOutput, moduleDepInfo: new Map(),
       fresh: () => false, cargoWasm() {
         expect(lockHeld(lock)).toBe(true);
         const wasm = resolve(dir, 'wasm32-unknown-unknown/release/fixture.wasm');
@@ -353,7 +354,12 @@ test('a Rust module holds its Cargo product claim through optimization and captu
       replace: (path, write) => write(path), optimize(from, to) { expect(lockHeld(lock)).toBe(true); writeFileSync(to, 'captured module'); },
     };
     const build = new Function('env', `const {${Object.keys(env).join(',')}} = env; ${body}; return module;`)(env);
-    expect(readFileSync(build(resolve(dir, 'Cargo.toml'), 'fixture', out, 'fixture'), 'utf8')).toBe('captured module');
+    const manifest = resolve(dir, 'Cargo.toml');
+    const built = build(manifest, 'fixture', out, 'fixture', () => {
+      expect(lockHeld(lock)).toBe(true);
+      writeFileSync(manifest, 'wrapper manifest');
+    });
+    expect(readFileSync(built, 'utf8')).toBe('captured module');
     expect(lockHeld(lock)).toBe(false);
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
@@ -440,4 +446,36 @@ test('one-shot wasm packaging preserves the bake receipt Rust reloads consume', 
     for (const exit of exits) exit();
     expect(readBuilds(app, {}).map(build => build.compat.inputs.app)).toEqual([app.id]);
   } finally { for (const exit of exits) exit(); rmSync(dir, { recursive: true, force: true }); }
+});
+
+// LLP 1156.006.000 D13: two directories of one app name (two worktrees) have their own key in the module crate's name.
+test('a web module is keyed by its app directory', async () => {
+  const { dirKey } = await import('../host/web-js/module.mjs');
+  const dir = mkdtempSync(resolve(tmpdir(), 'exact-module-key-')), other = resolve(dir, 'worktree');
+  try {
+    mkdirSync(other);
+    expect(dirKey(dir)).toMatch(/^[0-9a-f]{12}$/);
+    expect(dirKey(other)).not.toBe(dirKey(dir));
+    symlinkSync(other, resolve(dir, 'link'));
+    expect(dirKey(resolve(dir, 'link'))).toBe(dirKey(other));
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+// LLP 1156.006.000 D16: a type-check error in a form no pattern knows is still said above its closing line, with what
+// an earlier diagnostic already took and Bun's trace left out.
+test('a failed type check keeps its error in a form no pattern knows', () => {
+  const unknown = 'Command failed: tsc --noEmit\napp.ts: the staged origin is not a string\n      at check (/x/typescript.mjs:1445:9)';
+  expect(webBuildFailure(`warning: one\n${unknown}\nerror: app: app.ts failed the type check every host's build runs\n`))
+    .toEqual(['warning: one', `Command failed: tsc --noEmit\napp.ts: the staged origin is not a string\nerror: app: app.ts failed the type check every host's build runs`]);
+});
+
+// LLP 1156.006.000 D4: a built app.js past 8 MiB is said, with the compiler's plan code by component when it gave it.
+test('a large built app.js warns with where its size came from', async () => {
+  const { APP_JS_WARN_BYTES, sizeWarning } = await import('../host/web-js/module.mjs');
+  expect(sizeWarning('app-x.js', APP_JS_WARN_BYTES)).toBe('');
+  expect(sizeWarning('app-x.js', 339_489, 'own plan code by component: App: 3895 B (1 instance)')).toBe('');
+  const said = sizeWarning('app-x.js', 29_045_555, 'own plan code by component (shared bodies counted per use): Pane: 81200 B (27 instances)');
+  expect(said).toStartWith("warning: app-x.js is 27.7 MiB: a component's body is compiled in at each place it is used");
+  expect(said).toEndWith('; own plan code by component (shared bodies counted per use): Pane: 81200 B (27 instances)');
+  expect(sizeWarning('app-x.js', APP_JS_WARN_BYTES + 1)).toEndWith('used hundreds of times');
 });

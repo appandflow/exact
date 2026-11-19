@@ -214,7 +214,7 @@ package struct TextPaint: Hashable {
         let shadow: [Double]?
         let stroke: [Double]?
         let atomIcon: AtomIconRun?
-        init(_ r: Run) {
+        package init(_ r: Run) {
             opacity = r.opacity; backgroundOpacity = r.backgroundOpacity
             hidden = r.hidden; fixedInk = r.fixedInk; color = r.color; decoration = r.decoration
             underlineColor = r.underlineColor; strikeColor = r.strikeColor; href = r.href
@@ -343,7 +343,7 @@ package final class TextShape {
 
 private final class WeakTextIdentity {
     weak var value: TextIdentity?
-    init(_ value: TextIdentity) { self.value = value }
+    package init(_ value: TextIdentity) { self.value = value }
 }
 
 private final class TextScalar {
@@ -355,7 +355,7 @@ private final class TextScalar {
     /// and their baselines. A worker rasters from these and paint lays its
     /// lines there, so the paragraph coming back is not typeset again.
     let lines: (ranges: [CFRange], baselines: [CGFloat])?
-    init(_ identity: TextIdentity, _ metrics: ExactMetrics, minimum: CGFloat? = nil,
+    package init(_ identity: TextIdentity, _ metrics: ExactMetrics, minimum: CGFloat? = nil,
          lines: (ranges: [CFRange], baselines: [CGFloat])? = nil) {
         self.identity = identity; self.metrics = metrics; self.minimum = minimum; self.lines = lines
     }
@@ -458,7 +458,7 @@ package struct TextResidency {
         /// The value while a view or checkpoint owns it (weak lookup metadata).
         weak var object: AnyObject?
         var cold: TextValue?
-        init(key: TextEntryKey, value: TextValue) {
+        package init(key: TextEntryKey, value: TextValue) {
             self.key = key; object = value.object; cold = value
         }
         var owned: TextValue? {

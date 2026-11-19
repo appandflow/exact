@@ -2,10 +2,10 @@
 // the dense sibling rank. Every layer standing for a node takes this value.
 #if os(macOS)
 import AppKit
-typealias PaintView = NSView
+package typealias PaintView = NSView
 #else
 import UIKit
-typealias PaintView = UIView
+package typealias PaintView = UIView
 #endif
 
 private var paintRanksKey: UInt8 = 0
@@ -27,7 +27,7 @@ private final class DensePaintRanks {
 
 /// All callers run on the UI thread. Nested presenter applies share the
 /// transaction; a standalone lift/ghost change is its own transaction.
-enum PaintOrder {
+package enum PaintOrder {
     private static var depth = 0
     private static var dirty: [ObjectIdentifier: PaintView] = [:]
 
@@ -44,7 +44,7 @@ enum PaintOrder {
         dirty = [:]
         for parent in parents { NodeView.rankChildren(of: parent) }
     }
-    static func changed(_ parent: PaintView) {
+    package static func changed(_ parent: PaintView) {
         if depth > 0 { dirty[ObjectIdentifier(parent)] = parent }
         else { NodeView.rankChildren(of: parent) }
     }
@@ -179,7 +179,7 @@ extension NodeView {
     /// parent (the Mac's table under a list's rows) is no sibling of theirs.
     static func keepingGhosts(_ children: [NodeView], in parent: PaintView) -> [NodeView] {
         var result = children
-        for (index, node) in parent.subviews.compactMap({ $0 as? NodeView }).enumerated() where node.paintGhost {
+        for (index, node) in NodeView.structural(parent.subviews).enumerated() where node.paintGhost {
             result.insert(node, at: min(index, result.count))
         }
         return result
@@ -231,7 +231,7 @@ extension PaintView {
     /// the root's children — so a later positioned sibling, a root sheet
     /// with no `z-index`, paints and takes touches over it, as on the web
     /// (chat2 diary; LLP 1083.000 D4, the kernel's `paint_order::rank`).
-    func setPaintForeground(_ on: Bool = true, aboveAuthored: Bool = true) {
+    package func setPaintForeground(_ on: Bool = true, aboveAuthored: Bool = true) {
         #if os(macOS)
         if on { wantsLayer = true }
         #endif

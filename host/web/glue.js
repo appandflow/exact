@@ -458,8 +458,14 @@ export const contextTransforms = new Set();
 export const contextAnchors = new Map();
 // preview view id -> mounted source and entry box
 // @ref LLP 1039 D2, LLP 1061 D4 — viewport facts and display preferences, on every change, without debounce.
+let toldScreenReader = "unknown";
 export const pageFacts = pageReporter(agentMode), pageChanged = () => {
   if (host.wasm?.exact_set_page && host.incarnation) {
+    const screenReader = pageFacts.read()["screen-reader"];
+    if (screenReader !== toldScreenReader) {
+      resizeRunner();
+      toldScreenReader = screenReader;
+    }
     applyBatch(JSON.parse(readOut(host.wasm.exact_set_page(pageFacts.bits()))));
     if (host.wasm.exact_set_root_font_size) {
       applyBatch(JSON.parse(readOut(host.wasm.exact_set_root_font_size(pageFacts.rootFontSize()))));
@@ -487,6 +493,7 @@ const resizeRunner = () => {
   if (host.wasm && host.incarnation && innerWidth > 0 && innerHeight > 0) {
     const told = host.wasm.exact_set_viewport_geometry && document.body ? writeIn(pageGeometry()) : 0;
     host.wasm.exact_set_update?.(updateCode());
+    host.wasm.exact_set_screen_reader(pageFacts.screenReaderCode());
     const batch = JSON.parse(readOut(host.wasm.exact_resize(innerWidth, innerHeight, now(), preferences() | foldBits(), told)));
     // Only a size the runner took is told: a refused one is asked again, never followed by geometry alone.
     if (!batch.error) {
@@ -512,7 +519,7 @@ onKeyboard(pageChanged); // LLP 1039 D9: the VirtualKeyboard API moves the keys 
 const symbolStyle = document.createElement("style");
 document.head.append(symbolStyle);
 // @ref LLP 1081 stage 2 — a symbol draws in its `color`: a zero-specificity default, so a native face's or a bar's own ink wins.
-symbolStyle.textContent = "@property --exact-tint{syntax:\"<color>\";inherits:false;initial-value:#000}:where(img[data-symbol-path]){--exact-tint:currentcolor}img[data-symbol-path]{background-color:var(--exact-tint)!important;mask-image:var(--exact-symbol-mask);mask-repeat:no-repeat;mask-position:center;mask-size:var(--exact-symbol-fit,contain);mask-origin:content-box;mask-clip:content-box}";
+symbolStyle.textContent = "@property --exact-tint{syntax:\"<color>\";inherits:false;initial-value:#000}:where(img[data-symbol-path]){--exact-tint:currentcolor}img[data-symbol-path]{background-color:var(--exact-tint)!important;mask-image:var(--exact-symbol-mask);mask-repeat:no-repeat;mask-position:var(--exact-symbol-position,center);mask-size:var(--exact-symbol-fit,contain);mask-origin:content-box;mask-clip:content-box}";
 // An image's `load` and `error` (LLP 1011 §2) as HTML `<img>` fires them, once per source, the error with its message (rt.js `imageEvent`); a symbol fires neither. A tinted raster paints
 // through its CSS mask (element.rs `host_css`), a CORS fetch: from an origin that sends no CORS headers it paints nothing, so a CORS probe of the source decides. An adopted page's image may have settled before this attached.
 export const IMAGE_ERROR = "the image did not load", CORS_ERROR = "a tinted image from another origin needs CORS (Access-Control-Allow-Origin)", imageProbes = new Map();

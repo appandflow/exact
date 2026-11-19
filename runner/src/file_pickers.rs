@@ -375,9 +375,108 @@ pub fn answer_paths(value: &str) -> Vec<&str> {
         .collect()
 }
 
+/// Whether an agent's path is absolute on the host that reads it.
+/// A browser receives paths from its driver, which may run on either OS family.
+pub(crate) fn is_absolute_path(path: &str) -> bool {
+    if cfg!(target_family = "wasm") {
+        path.starts_with('/') || windows_absolute_path(path)
+    } else {
+        std::path::Path::new(path).is_absolute()
+    }
+}
+
+fn windows_absolute_path(path: &str) -> bool {
+    if path.starts_with(r"\\?\") {
+        return true;
+    }
+    let separator = |b| matches!(b, b'/' | b'\\');
+    match path.as_bytes() {
+        [drive, b':', root, ..] if drive.is_ascii_alphabetic() && separator(*root) => true,
+        [a, b, b'.', root, ..] if separator(*a) && separator(*b) && separator(*root) => true,
+        [a, b, rest @ ..] if separator(*a) && separator(*b) => {
+            let mut parts = rest.split(|b| separator(*b));
+            parts.next().is_some_and(|p| !p.is_empty())
+                && parts.next().is_some_and(|p| !p.is_empty())
+        }
+        _ => false,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn windows_absolute_paths_need_a_drive_root_or_a_namespace() {
+        for (path, absolute) in [
+            (r"C:\x", true),
+            ("C:/x", true),
+            (r"\\server\share\x", true),
+            (r"\\?\C:\x", true),
+            (r"\\?\UNC\server\share\x", true),
+            (r"\\?\", true),
+            (r"\\.\", true),
+            (r"C:x", false),
+            (r"\x", false),
+            ("/x", false),
+            (r"1:\x", false),
+            (r"\\server", false),
+            ("", false),
+        ] {
+            assert_eq!(windows_absolute_path(path), absolute, "{path}");
+            #[cfg(windows)]
+            assert_eq!(is_absolute_path(path), absolute, "{path}");
+        }
+    }
+
+    #[test]
+    fn held_file_answers_use_native_absolute_paths() {
+        struct NoData;
+        impl DataSource for NoData {
+            fn query(&mut self, source: &str, _: &[Value]) -> Result<Value, crate::DataError> {
+                Err(crate::DataError::UnknownSource(source.into()))
+            }
+        }
+        let plan =
+            contract::compile(include_str!("../../contract/corpus/file-pickers.contract")).unwrap();
+        let mut runner = Runner::boot(
+            plan,
+            NoData,
+            exact_kernel::Kernel::with_monospace(),
+            Default::default(),
+            "/",
+        )
+        .unwrap();
+        let local = std::env::temp_dir().join("selected note.md");
+        let mut paths = vec![local.to_str().unwrap()];
+        if cfg!(windows) || cfg!(target_family = "wasm") {
+            paths.extend([r"C:\x", "C:/x", r"\\server\share\x", r"\\?\C:\x"]);
+        }
+        for capability in [
+            "export",
+            "open-file",
+            "open-directory",
+            "save-file",
+            "print",
+        ] {
+            for path in &paths {
+                let ticket = runner.hold(capability, None, "{}", &[], true);
+                for relative in [r"C:x", r"\x", r"1:\x", "relative", ""] {
+                    assert!(
+                        runner
+                            .answer_hold(ticket, &crate::HoldAnswer::Value(relative.into()))
+                            .is_err(),
+                        "{capability}: {relative}"
+                    );
+                    assert!(runner.device_holds().iter().any(|h| h.ticket == ticket));
+                }
+                runner
+                    .answer_hold(ticket, &crate::HoldAnswer::Value(format!("{path}\n")))
+                    .unwrap();
+                assert!(runner.device_holds().is_empty());
+            }
+        }
+    }
 
     #[test]
     fn a_permission_names_a_document_a_mode_and_an_element() {

@@ -8,6 +8,7 @@ import CoreGraphics
 import CoreText
 import Foundation
 import QuartzCore
+import ExactAnimations
 import ExactKit
 import ExactEffects
 
@@ -535,8 +536,8 @@ final class SvgScene {
 }
 
 /// A presenter's scenes, by view id: the `svg` ops, the agent clock's
-/// re-seek, and cleanup when a view goes. Box animations are the core's
-/// (`BoxAnimations`).
+/// re-seek, and cleanup when a view goes. Box animations are the
+/// animations family's (`BoxAnimations`).
 final class SvgHost: SvgScenes {
     private var scenes: [UInt32: SvgScene] = [:]
     /// Each view's last scene: a `light-dark()` paint is resolved when a

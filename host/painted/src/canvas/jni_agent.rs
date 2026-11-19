@@ -1,6 +1,5 @@
 //! The agent's wait services the reader without re-entering its borrowed host.
 #![allow(unsafe_code)]
-use super::jni_extensions;
 use crate::canvas::CanvasHost;
 use exact_runner::DataSource;
 use jni_sys::{jstring, jvalue, JNIEnv};
@@ -30,7 +29,7 @@ pub unsafe fn run<D: DataSource + Default>(
     let reply = host.agent_with_reader(
         line,
         Box::new(move |now, words| {
-            jni_extensions::stamp(now);
+            crate::canvas::clock::advance(now);
             let array = words.map_or(std::ptr::null_mut(), |words| {
                 let array = ((**env).NewIntArray.expect("jni"))(env, words.len() as i32);
                 if !array.is_null() {

@@ -36,10 +36,9 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-/// Why a bake failed, as its build script says it. Every app's build script
-/// ends in `.expect("bake …")`, which prints an error's `Debug`: a `String`'s
-/// quotes and escaped newlines put tsc's diagnostics on one line, so `Debug`
-/// is the text as written.
+/// Why a bake failed, as its build script says it. Every app's build script ends in `.expect("bake
+/// …")`, which prints an error's `Debug`: a `String`'s quotes and escaped newlines put tsc's
+/// diagnostics on one line, so `Debug` is the text as written.
 pub struct BakeError(pub String);
 
 impl std::fmt::Debug for BakeError {
@@ -56,20 +55,17 @@ impl std::fmt::Display for BakeError {
 
 impl std::error::Error for BakeError {}
 
-/// An app's Cargo build-script entrypoint. Write the paired artifacts and
-/// actual target/grants receipt to OUT_DIR. A mixed bake also writes its
-/// generated declarations beside app.ts, before checking it.
-/// This development slice requires an updater-free composition (store L=0).
+/// An app's Cargo build-script entrypoint. Write the paired artifacts and actual target/grants
+/// receipt to OUT_DIR. A mixed bake also writes its generated declarations beside app.ts, before
+/// checking it. This development slice requires an updater-free composition (store L=0).
 ///
-/// With `EXACT_BAKED` naming a directory `exact-js-bake --cargo` filled (an
-/// Apple build, `host/apple/build.mjs`), the bake has run outside Cargo: the
-/// script takes the files Rust compiles from it and watches only those, so
-/// an edit that changes the plan alone leaves the archive as it was, and the
-/// link carries the plan (`exact_apple::baked`).
+/// With `EXACT_BAKED` naming a directory `exact-js-bake --cargo` filled (an Apple build,
+/// `host/apple/build.mjs`), the bake has run outside Cargo: the script takes the files Rust
+/// compiles from it and watches only those, so an edit that changes the plan alone leaves the
+/// archive as it was, and the link carries the plan (`exact_apple::baked`).
 ///
-/// Either way it links the library a package the app depends on declares
-/// (`library`), which the native build fetched before Cargo ran, as the
-/// mixed entries below do.
+/// Either way it links the library a package the app depends on declares (`library`), which the
+/// native build fetched before Cargo ran, as the mixed entries below do.
 pub fn build(app: &Path, platform: &str) -> Result<(), BakeError> {
     println!("cargo:rerun-if-env-changed=EXACT_BAKED");
     println!("cargo:rerun-if-env-changed=EXACT_WEB_TYPES");
@@ -132,11 +128,10 @@ fn mixed_grants<'a>(
     .transpose()
 }
 
-/// compat.json with the module's identity beside its id (`"module"`: the
-/// app, its grants and its Canvas 2D roster), outside the inputs the id
-/// digests: what a linked archive reads where it reads the plan
-/// (`exact_apple::baked::identity`), so its Rust need not name them. The
-/// link carries compat.json in the signed executable, as it does the plan.
+/// compat.json with the module's identity beside its id (`"module"`: the app, its grants and its
+/// Canvas 2D roster), outside the inputs the id digests: what a linked archive reads where it reads
+/// the plan (`exact_apple::baked::identity`), so its Rust need not name them. The link carries
+/// compat.json in the signed executable, as it does the plan.
 fn with_module_identity(compat: &str, meta: &serde_json::Value) -> Result<String, String> {
     let surfaces: Vec<serde_json::Value> = meta["surfaces"]
         .as_object()
@@ -279,6 +274,7 @@ fn build_sources(
         ("app.hbc", &baked.bytecode[..]),
         (DECLARATIONS, baked.declarations.as_bytes()),
         ("app.module.json", baked.receipt.as_bytes()),
+        ("app.sources.json", &baked.source_inputs),
     ] {
         replace_changed(&out.join(name), bytes)?;
     }
@@ -586,6 +582,8 @@ pub struct Baked {
     pub declarations: String,
     /// App identity, grants, ABI and content hashes; not a signing receipt.
     pub receipt: String,
+    /// Files loaded by the bundler and type checker, for build freshness.
+    pub source_inputs: Vec<u8>,
     /// Development-only source locations, keyed by the final plan digest.
     /// Absent from standalone and Cargo bakes, receipts and module payloads.
     pub source_map: Option<String>,
@@ -678,7 +676,7 @@ fn mounts(root: &Path) -> Result<Vec<(String, PathBuf)>, String> {
         let dir = root
             .join(path)
             .canonicalize()
-            // Relative to the app's directory, where app.json is: say which (app farm wave 1, five builds).
+            // Name the base for a missing relative path.
             .map_err(|e| {
                 format!(
                     "typescript.sources.{name}: {path}, resolved from the app's directory {}: {e}",
@@ -1084,6 +1082,8 @@ fn bake_in(
         "__exact_binding.mjs",
         "__exact_env.mjs",
         "__exact_launch_setting.mjs",
+        "__exact_facts.mjs",
+        "__exact_grants.json",
         "__exact_portable.mjs",
         "__exact_env.json",
         "__exact_paths.json",
@@ -1138,9 +1138,7 @@ fn bake_in(
     })?;
     write_changed(
         &stage.join("__exact_backend_source.json"),
-        serde_json::to_string(&String::from_utf8_lossy(&captured[Path::new("app.ts")]))
-            .map_err(|e| e.to_string())?
-            .as_bytes(),
+        &resident::setting_sources(&captured)?,
     )?;
     let exported = contract::design_exports(&app.join("app.contract"));
     let entries = contract::snapshot::entries(&app)?;
@@ -1284,6 +1282,7 @@ fn bake_in(
     let mut receipt = serde_json::json!({
         "version": 1, "appId": app_id, "grants": grants, "abi": abi,
         "backendOrigin": backend["origin"],
+        "grantSources": launch::grant_sources(stage, &grants)?,
         // The prelude runtime it needs, which a push to an older binary checks (LLP 1016.000 D10).
         "typescriptRuntime": exact_bake::compat::typescript_runtime_of(&script, &grants),
         "typescriptHostWork": exact_bake::compat::typescript_host_work(&script),
@@ -1315,6 +1314,8 @@ fn bake_in(
         bytecode,
         declarations,
         receipt,
+        source_inputs: std::fs::read(stage.join("__exact_inputs.json"))
+            .map_err(|e| e.to_string())?,
         source_map,
         warnings,
         entries,
@@ -1400,8 +1401,9 @@ import { createRequire } from 'node:module';
 import { dirname, resolve } from 'node:path';
 const [tsc, root] = process.argv.slice(1);
 const {parseSync}=await import(createRequire(resolve(root, 'package.json')).resolve('rolldown/utils'));
+const {rolldown}=await import(createRequire(resolve(root, 'package.json')).resolve('rolldown'));
 const libraries = resolve(dirname(createRequire(resolve(root, 'package.json')).resolve(`@typescript/typescript-${process.platform}-${process.arch}/package.json`)), 'lib');
-try { configure(process.cwd(),false,parseSync); await prepareCanvas(process.cwd(), libraries); await check(process.cwd(), tsc, libraries); }
+try { await configure(process.cwd(),false,parseSync,false,rolldown); await prepareCanvas(process.cwd(), libraries); await check(process.cwd(), tsc, libraries); }
 catch (error) { process.stderr.write(String(error?.message ?? error)); process.exit(3); }
 "#;
 
@@ -1459,41 +1461,6 @@ export default {
         stage,
     )?;
     Ok(())
-}
-
-impl Baked {
-    /// Publish the complete result to a *new* directory. Existing output is
-    /// never replaced; a dev server selects an accepted generation separately.
-    pub fn write_new(&self, output: &Path) -> Result<(), String> {
-        let output = std::path::absolute(output).map_err(|e| e.to_string())?;
-        if output.exists() {
-            return Err(format!("output already exists: {}", output.display()));
-        }
-        // Reserve the destination before writing, so another producer cannot
-        // be overwritten by a later rename. The receipt is written last; this
-        // directory is not a candidate until that complete receipt exists.
-        std::fs::create_dir(&output).map_err(|e| e.to_string())?;
-        let result = (|| {
-            contract::snapshot::write_entries(&self.entries, &output)?;
-            if let Some(map) = &self.source_map {
-                std::fs::write(output.join("app.plan.map.json"), map).map_err(|e| e.to_string())?;
-            }
-            for (name, bytes) in [
-                ("app.plan", &self.plan[..]),
-                ("app.js", &self.script),
-                ("app.hbc", &self.bytecode),
-                ("app.contract.d.ts", self.declarations.as_bytes()),
-                ("app.module.json", self.receipt.as_bytes()),
-            ] {
-                std::fs::write(output.join(name), bytes).map_err(|e| e.to_string())?;
-            }
-            Ok(())
-        })();
-        if result.is_err() {
-            let _ = std::fs::remove_dir_all(&output);
-        }
-        result
-    }
 }
 
 #[cfg(test)]

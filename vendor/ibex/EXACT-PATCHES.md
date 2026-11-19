@@ -2,8 +2,8 @@
 
 ## Android 10 and Intl
 
-Android selects Intl from the validated bundle receipt. The pinned v6
-bundle enables it. A receipt enabling Hermes Intl must authenticate the
+Android selects Intl from the validated bundle receipt. The pinned v7
+bundles enable it. A receipt enabling Hermes Intl must authenticate the
 base, English and full ICU data tiers, as on Linux. `hermes-lean-sys` exports
 that availability to both the Ibex installer and Exact's Rust/C++ script lists.
 Only the selected data archive links; Exact selects English. The link directives
@@ -14,8 +14,7 @@ Stub builds emit empty Intl bytecode beside the other binding placeholders.
 The pinned Android bundle targets API 29. The resolver applies Android's ICU
 layout and receipt requirements to arm64 and x86_64. Local development bundles
 can be selected through `HERMES_LEAN_SYS_DIR_aarch64_linux_android` and
-`HERMES_LEAN_SYS_DIR_x86_64_linux_android`; the pinned v6 release supplies only
-Android arm64.
+`HERMES_LEAN_SYS_DIR_x86_64_linux_android`; the pinned v7 release supplies both.
 
 The installer’s `--check-dir <directory> <rust-triple>` validates a local cross
 bundle with the build resolver and cached host compiler, without installing or
@@ -96,7 +95,7 @@ with substituted Security calls; signed Keychain access still needs profiles.
 - Source trees: `crates/{ibex2,ibex2-sqlite,hermes-lean-sys,hermes-lean-sys-installer}`.
 - Data inputs: `scripts/icu74-filter-{root-en,en-intl}.json` and
   `third_party/wpt/urltestdata.json`.
-- Hermes bundle is `hermes-vanilla-d412d3bd8512-v6`, source
+- Hermes bundle is `hermes-vanilla-d412d3bd8512-v7`, source
   `d412d3bd…` / Hermes `260318099.0.4`. Repository engine-output directories
   remain absent; builds validate the paired compiler and VM in the bundle cache.
 - The two standalone `Cargo.lock` files under `ibex2` and
@@ -1068,7 +1067,7 @@ checkpoints and task delivery. These changes adopt the consumer contract from
 upstream `6ce0bf09495cee43fdc9fb2ee00ca5520796d2ef`: Hermes heap OOM requires
 immediate adapter and runtime destruction, without JavaScript, job draining or
 collection. Exact's shim recognizes that exception only when the bundle receipt
-enables exception-on-OOM and RTTI. The pinned v6 release enables both.
+enables exception-on-OOM and RTTI. The pinned v7 release enables both.
 Exact's heap tests exercise retirement and replacement with the published bundle,
 including timers, stream mappers, worker placement and in-flight storage.
 
@@ -1222,3 +1221,36 @@ idle agent of its own, each agent with its own pool. A lease now takes the
 newest idle agent whose last requests went to the request's origin (the
 eight it remembers), so a request finds a connection another left open to
 it. Replay on a refresh.
+
+## Local patch 50, a URL the web would encode
+
+`fetch("…&details->>status=eq.open")` reaches a browser's server with `>`
+percent-encoded: the URL Standard's parser encodes what a query, a path or a
+fragment may not hold as written. The portable transport parses a URI and
+refused the request, "invalid uri character", so one line of app code worked
+on the web and Apple and failed on Android, Linux and Windows. `prepare_body`,
+which both the blocking and the asynchronous fetch pass a request through,
+replaces a URL that holds a character RFC 3986 gives no URI with the `url`
+crate's serialization of it. A URL that is already a URI is sent as written,
+so no request that worked changes. Replay on a refresh
+(`stdlib/fetch.rs`, `a_url_the_web_would_encode_is_sent_encoded`).
+
+## Local patch 51, an execution says whether it changed the database
+
+exact2 tells an app's other windows of a SQLite write (exact2 LLP 1030.004
+D2) when the statement changed the database, a row or the schema, so a
+`DROP` or an `ALTER` counts and a `CREATE TABLE IF NOT EXISTS` that finds
+its table does not. `stdlib::sqlite::ExecuteResult` gains `changed`:
+`ibex2-sqlite`'s `execute` reads the connection's `total_changes` (which
+moves for a trigger's rows too) and `PRAGMA schema_version` before and
+after the statement, and `changed` is either moving. The authorizer admits
+`PRAGMA schema_version` only while the provider reads it, as it admits the
+provider's own `BEGIN` and `COMMIT`. `changes` is zero when the total did
+not move: `sqlite3_changes` keeps the last `INSERT`, `UPDATE` or `DELETE`'s
+count after any other statement (https://www.sqlite.org/c3ref/changes.html).
+`sqlite_abi` result field 9 carries `changed`, and the JS binding's
+execution has it beside `changes` and `lastInsertRowid`; exact2's prelude
+reads it and gives the app the other two, so `storage.d.ts` leaves it out.
+exact2's web worker answers alike. `src/tests.rs` covers each statement
+kind, and exact2's `exact-js` `topics` test what announces. Replay on a
+refresh.

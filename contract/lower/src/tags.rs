@@ -168,7 +168,7 @@ pub fn tag(name: &str) -> Option<Tag> {
         },
         "video" => Tag {
             node_type: NodeType::Video,
-            fixed_styles: &[(StyleId::ObjectFit, "contain")],
+            fixed_styles: &[],
             fixed_props: &[],
             positional: Some(PropId::Src),
         },

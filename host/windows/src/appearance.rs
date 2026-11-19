@@ -23,12 +23,24 @@ use windows_sys::Win32::{
         Shell::{DefSubclassProc, RemoveWindowSubclass, SetWindowSubclass},
         WindowsAndMessaging::{
             PostMessageW, SystemParametersInfoW, PBT_APMRESUMEAUTOMATIC, SPI_GETHIGHCONTRAST,
-            WM_NCDESTROY, WM_NULL, WM_POWERBROADCAST, WM_SETTINGCHANGE, WM_SYSCOLORCHANGE,
-            WM_THEMECHANGED, WM_TIMECHANGE,
+            SPI_GETSCREENREADER, WM_NCDESTROY, WM_NULL, WM_POWERBROADCAST, WM_SETTINGCHANGE,
+            WM_SYSCOLORCHANGE, WM_THEMECHANGED, WM_TIMECHANGE,
         },
     },
 };
 use winit::event_loop::EventLoopProxy;
+
+pub(super) fn screen_reader() -> exact_runner::ScreenReader {
+    let mut running = 0i32;
+    let read = unsafe {
+        SystemParametersInfoW(SPI_GETSCREENREADER, 0, (&mut running as *mut i32).cast(), 0)
+    };
+    match (read != 0, running != 0) {
+        (true, true) => exact_runner::ScreenReader::On,
+        (true, false) => exact_runner::ScreenReader::Off,
+        (false, _) => exact_runner::ScreenReader::Unknown,
+    }
+}
 
 pub(super) fn contrast() -> Option<ContrastPalette> {
     let mut settings = HIGHCONTRASTW {

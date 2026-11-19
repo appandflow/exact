@@ -870,6 +870,7 @@ mod tests {
         ] {
             OPENED.with(|n| n.set(0));
             let mut config = crate::app::Config {
+                preferences: None,
                 output_rotation: Default::default(),
                 #[cfg(target_os = "macos")]
                 painted_boot: None,

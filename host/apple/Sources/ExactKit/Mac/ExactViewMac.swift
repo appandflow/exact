@@ -119,12 +119,12 @@ public final class ExactView: NSView {
     /// 1115.002 D4): the window's owner composes the same controller for it,
     /// with or without a sidebar, and a view in someone else's window keeps
     /// a stack that pushes.
-    public var wantsWindowSplit: Bool { session.presenter.navigation.split.wanted }
+    public var wantsWindowSplit: Bool { session.presenter.navigation.stackSplit.wanted }
     /// The owner hears when `wantsWindowSidebar` or `wantsWindowSplit`
     /// changes, after the batch that changed it.
     public var onWindowSidebar: (() -> Void)? {
         get { session.presenter.sidebar.onWanted }
-        set { session.presenter.sidebar.onWanted = newValue; session.presenter.navigation.split.onWanted = newValue }
+        set { session.presenter.sidebar.onWanted = newValue; session.presenter.navigation.stackSplit.onWanted = newValue }
     }
     /// The window's owner put `window-controls-overlay`'s toolbar in the
     /// title bar (LLP 1039 D8): the title-bar area is beside the traffic
@@ -188,7 +188,7 @@ public final class ExactView: NSView {
         let editorOwner = (responder as? NSTextView)?.delegate as? NSView
         if responder?.isDescendant(of: self) == true || editorOwner?.isDescendant(of: self) == true { return true }
         // In the pane that holds this session's detail beside its list (LLP 1115.002 D4).
-        let split = self.session.presenter.navigation.split
+        let split = self.session.presenter.navigation.stackSplit
         if split.holdsFocus(responder) || split.holdsFocus(editorOwner) { return true }
         // This session's search field, which the window's toolbar hosts (LLP 1115.002 D2).
         if let node = self.session.presenter.keyTarget(first), node.pageField != nil { return true }
@@ -249,7 +249,7 @@ public final class ExactView: NSView {
     /// Boot at the first real size (an embedder's view), else resize; the
     /// insets follow. Owed while a restart holds the runtime, the last-told
     /// size untouched: ResetGate replays it after the batch.
-    private func fit() {
+    package func fit() {
         if session.runtime.holds("resize(width:height:)") { return }
         if Owner.shared.isServingMain {
             if !fitPending {
@@ -272,7 +272,7 @@ public final class ExactView: NSView {
         session.rasters?.fit(size: size, scale: scale)
         if scale != lastDisplayScale {
             lastDisplayScale = scale
-            session.apply(session.runtime.canvasDisplay(scale: scale, memory: ProcessInfo.processInfo.physicalMemory))
+            if let surfaces = SurfacesLink.installed { session.apply(surfaces.display(session.runtime, scale: scale)) }
             session.rasters?.displayChanged()
             session.controlTextChanged() // text line boxes round to the page's device pixels (LLP 1008 §3)
             session.tellDisplayScale() // a hairline is one device pixel of the page (LLP 1115.000 D10.3)
@@ -470,7 +470,7 @@ public final class ExactView: NSView {
         // `light-dark()` pair puts no op on the wire when the scheme turns.
         session.presenter.toolbar.sync()
         // The app's `setScheme` arrives here, as the system's does; iOS's, through `tellPreferences` (LLP 1122 D4).
-        session.app.scheduleStatus()
+        session.app.buildFactsMoved()
     }
 }
 

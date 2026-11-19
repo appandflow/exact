@@ -2,6 +2,7 @@
 import AppKit
 import XCTest
 @testable import ExactKit
+@testable import ExactFormaBinding
 
 /// LLP 1121 D12 (stage 5) on AppKit: `ExactForma` in the process resolves a
 /// token for a place (a view under a pin answers its own tuple), as a

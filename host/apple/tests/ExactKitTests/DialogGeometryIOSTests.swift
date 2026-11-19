@@ -2,6 +2,8 @@
 import UIKit
 import XCTest
 @testable import ExactKit
+@testable import ExactDialogs
+@testable import ExactNavigation
 
 final class DialogGeometryIOSTests: XCTestCase {
     private var session: ExactSession?
@@ -35,8 +37,8 @@ final class DialogGeometryIOSTests: XCTestCase {
         defer { host.dismiss(animated: false) }
         let opener = try XCTUnwrap(p.views.values.first { $0.props["testId"] == "open-sheet" })
         p.press(opener.id)
-        until("the sheet settles") { p.modals.owner?.view.window != nil && !agent.nativeInFlight() }
-        let owner = try XCTUnwrap(p.modals.owner)
+        until("the sheet settles") { p.modalHost.owner?.view.window != nil && !agent.nativeInFlight() }
+        let owner = try XCTUnwrap(p.modalHost.owner)
         let container = try XCTUnwrap(owner.presentationController?.containerView)
         let outside = CGPoint(x: container.bounds.midX, y: container.bounds.minY + 5)
         XCTAssertFalse(owner.view.convert(owner.view.bounds, to: container).contains(outside))
@@ -44,7 +46,7 @@ final class DialogGeometryIOSTests: XCTestCase {
         XCTAssertTrue(delivered === container || delivered.isDescendant(of: container))
         XCTAssertFalse(delivered === owner.view || delivered.isDescendant(of: owner.view))
         func read(_ point: CGPoint, expected: String, file: StaticString = #filePath, line: UInt = #line) throws {
-            let route = try XCTUnwrap(p.navigation.modalNavigation?.topViewController as? RouteController)
+            let route = try XCTUnwrap(p.navigationHost.modalNavigation?.topViewController as? RouteController)
             let at = p.viewportPoints(container.convert(CGRect(origin: point, size: .zero), to: p.viewport)).origin
             let sample = PointerSample(x: 0, y: 0, buttons: 0, pressure: 0, type: "mouse", id: 1, clientX: at.x, clientY: at.y)
             s.apply(s.runtime.pointer(route.node.id, .move, sample, now: s.now()))
@@ -53,7 +55,7 @@ final class DialogGeometryIOSTests: XCTestCase {
             XCTAssertEqual(state["hits"] as? String, expected == "none" ? "" : expected, file: file, line: line)
         }
         try read(outside, expected: "sheet")
-        let navigation = try XCTUnwrap(p.navigation.modalNavigation)
+        let navigation = try XCTUnwrap(p.navigationHost.modalNavigation)
         let bar = navigation.navigationBar
         let chrome = bar.convert(CGPoint(x: bar.bounds.midX, y: bar.bounds.midY), to: container)
         let chromeHit = try XCTUnwrap(w.hitTest(container.convert(chrome, to: w), with: nil))
@@ -79,7 +81,7 @@ final class DialogGeometryIOSTests: XCTestCase {
         let push = try XCTUnwrap(p.views.values.first { $0.props["testId"] == "open-detail" })
         p.press(push.id)
         try readDuringTransition(expected: "detail", bothLive: true)
-        until("the pushed route settles") { p.navigation.modalNavigation?.viewControllers.count == 2 && !agent.nativeInFlight() }
+        until("the pushed route settles") { p.navigationHost.modalNavigation?.viewControllers.count == 2 && !agent.nativeInFlight() }
         try read(outside, expected: "detail")
         XCTAssertNotNil(navigation.popViewController(animated: true))
         try readDuringTransition(expected: "sheet", bothLive: false)

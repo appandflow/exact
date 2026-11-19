@@ -144,6 +144,7 @@ impl Engine {
             unpresentable: Default::default(),
             carried: Default::default(),
             pending: Default::default(),
+            unshown: Default::default(),
             transitions: Default::default(),
             slots: Default::default(),
             running: Default::default(),

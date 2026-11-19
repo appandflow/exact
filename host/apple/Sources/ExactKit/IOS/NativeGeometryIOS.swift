@@ -2,7 +2,7 @@
 import UIKit
 
 /// Publishes native presentation movement independently of runner input.
-final class NativeGeometry {
+package final class NativeGeometry {
     private weak var presenter: Presenter?
     private var pending = false
     private var fresh = true
@@ -32,7 +32,7 @@ final class NativeGeometry {
     }
 
     /// A native clip changes size as well as position during UIKit animations.
-    static func bounds(of source: UIView, in destination: UIView) -> CGRect {
+    package static func bounds(of source: UIView, in destination: UIView) -> CGRect {
         guard animates(source.layer) || animates(destination.layer),
               let from = source.layer.presentation(), let to = destination.layer.presentation() else {
             return source.convert(source.bounds, to: destination)
@@ -42,7 +42,7 @@ final class NativeGeometry {
 
     /// A native modal surface accepts input only within its visible,
     /// enabled ancestors. Dialog CSS does not gate its sibling backdrop.
-    static func hitRegion(of source: UIView, in destination: UIView) -> CGRect? {
+    package static func hitRegion(of source: UIView, in destination: UIView) -> CGRect? {
         guard source.window != nil else { return nil }
         var rect = bounds(of: source, in: destination), at: UIView? = source
         while let view = at {
@@ -55,7 +55,7 @@ final class NativeGeometry {
 
     /// UIKit's backdrop gestures exclude the presented view's hit bounds,
     /// even when the content's animated clip is smaller than that view.
-    static func sheetBackdrop(of presentation: UIPresentationController, in destination: UIView) -> (bounds: CGRect, excluding: CGRect?)? {
+    package static func sheetBackdrop(of presentation: UIPresentationController, in destination: UIView) -> (bounds: CGRect, excluding: CGRect?)? {
         guard let container = presentation.containerView, let presented = presentation.presentedView,
               let bounds = hitRegion(of: container, in: destination) else { return nil }
         return (bounds, presented.convert(presented.bounds, to: destination))
@@ -72,7 +72,7 @@ final class NativeGeometry {
 
     private func followAnimations() {
         guard let presenter else { FrameClock.shared.drop(self); return }
-        let routes = presenter.navigation.controllers.values.compactMap(\.viewIfLoaded)
+        let routes = presenter.navigation.routeSurfaces.values.compactMap(\.viewIfLoaded)
         let surfaces = presenter.presentations(includingRetiring: true)
         let moving = (routes + surfaces).contains { $0.window != nil && Self.animates($0.layer) }
         guard moving else { FrameClock.shared.drop(self); return }
@@ -83,7 +83,7 @@ final class NativeGeometry {
         }
     }
 
-    func changed() {
+    package func changed() {
         guard !pending else { return }
         pending = true
         DispatchQueue.main.async { [weak self] in

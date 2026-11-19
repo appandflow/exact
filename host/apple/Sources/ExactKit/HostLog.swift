@@ -7,7 +7,7 @@
 import Foundation
 import os
 
-enum HostLog {
+package enum HostLog {
     private static let logger = Logger(subsystem: "dev.exact", category: "host")
 
     static func capabilities(_ session: ExactSession, _ batch: Batch) {
@@ -20,14 +20,16 @@ enum HostLog {
             if MarkdownLink.installed == nil, op.props["markup"] == "markdown" {
                 missing("ExactMarkdown")
             }
-            if DragLink.installed == nil,
-               op.op == .heightDrag || op.op == .transformDrag || !(op.props["reorderFor"] ?? "").isEmpty {
+            if DragLink.installed == nil, op.op == .heightDrag || op.op == .transformDrag {
                 missing("ExactDrag")
+            }
+            if ReorderLink.make == nil, !(op.props["reorderFor"] ?? "").isEmpty {
+                missing("ExactCollections")
             }
         }
     }
 
-    static func note(_ session: ExactSession?, _ line: @autoclosure () -> String) {
+    package static func note(_ session: ExactSession?, _ line: @autoclosure () -> String) {
         guard HatchDiagnosticsLink.available, let session else { return }
         let line = line()
         session.log("host: " + line)

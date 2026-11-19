@@ -26,6 +26,18 @@ extension ExactEnv {
 #endif
 
 package enum DisplayPreferences {
+    /// The agent starts without a detection, independent of the machine's setting.
+    nonisolated(unsafe) static var agentScreenReader: String? = ExactEnv.agentMode ? "unknown" : nil {
+        didSet { changed() }
+    }
+    static var screenReader: String {
+        if let agentScreenReader { return agentScreenReader }
+        #if os(macOS)
+        return NSWorkspace.shared.isVoiceOverEnabled ? "on" : "off"
+        #else
+        return UIAccessibility.isVoiceOverRunning ? "on" : "off"
+        #endif
+    }
     /// What an agent's `prefer` set, in place of the platform's settings.
     /// Under the agent it starts at `no-preference` for both, never the
     /// machine's (LLP 1069.007 D2: facts are fixed at launch).
@@ -74,7 +86,7 @@ package enum DisplayPreferences {
         return UIAccessibility.isReduceMotionEnabled
         #endif
     }
-    static var reducedTransparency: Bool {
+    static package var reducedTransparency: Bool {
         if let agent { return agent.reducedTransparency }
         #if os(macOS)
         return NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency
@@ -84,7 +96,7 @@ package enum DisplayPreferences {
     }
     /// `prefers-contrast`: Increase Contrast (macOS) or Increase Contrast /
     /// Darker System Colors (iOS) is `more`; neither platform has `less`.
-    static var contrast: String {
+    static package var contrast: String {
         if let agentContrast { return agentContrast }
         #if os(macOS)
         return NSWorkspace.shared.accessibilityDisplayShouldIncreaseContrast ? "more" : "no-preference"
@@ -147,7 +159,7 @@ package enum DisplayPreferences {
     /// An app whose manifest fixes `userInterfaceStyle` sees it as the
     /// system's, as UIKit's `UIUserInterfaceStyle` makes it on iOS.
     #if os(macOS)
-    static var systemDark: Bool {
+    static package var systemDark: Bool {
         if let fixed = ExactEnv.fixedAppearance { return fixed.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua }
         #if EXACT_AGENT
         if let agent = Agent.systemAppearance { return agent.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua }
@@ -171,7 +183,8 @@ package enum DisplayPreferences {
         let high = view.map { DisplayRange.headroom($0) > 1 } ?? highDynamicRange
         return Preferences(reducedMotion: reducedMotion, reducedTransparency: reducedTransparency,
             contrast: contrast, dark: systemDark, input: input, gamut: displayGamut, highDynamicRange: high,
-            displayMode: Preferences.DisplayMode(rawValue: displayMode(view)) ?? .standalone, boldText: boldText).rawValue
+            displayMode: Preferences.DisplayMode(rawValue: displayMode(view)) ?? .standalone, boldText: boldText,
+            screenReader: screenReader).rawValue
     }
 
     // Same order as runner/src/viewport.rs's DisplayMode (media bits 11–13).
@@ -189,16 +202,20 @@ package enum DisplayPreferences {
     /// caller holds the tokens and removes them.
     package static func observe(_ changed: @escaping () -> Void) -> [NSObjectProtocol] {
         #if os(macOS)
-        let names = [NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, agentChanged]
+        let names = [NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, NSWorkspace.didWakeNotification, agentChanged]
         var tokens: [NSObjectProtocol] = names.map { center.addObserver(forName: $0, object: nil, queue: .main) { _ in changed() } }
         // The system appearance, as the application's effective appearance
         // (`systemDark`), which AppKit changes on the main thread.
         if let app = NSApp { tokens.append(app.observe(\.effectiveAppearance) { _, _ in changed() }) }
+        tokens.append(NSWorkspace.shared.observe(\.isVoiceOverEnabled) { _, _ in
+            DispatchQueue.main.async { changed() }
+        })
+        tokens.append(NotificationCenter.default.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main) { _ in changed() })
         return tokens
         #else
         // A system appearance change reaches an app as a trait change (the
         // view reports it, ExactViewIOS) or, when made elsewhere, on return.
-        let names = [UIAccessibility.reduceMotionStatusDidChangeNotification, UIAccessibility.reduceTransparencyStatusDidChangeNotification,
+        let names = [UIAccessibility.voiceOverStatusDidChangeNotification, UIAccessibility.reduceMotionStatusDidChangeNotification, UIAccessibility.reduceTransparencyStatusDidChangeNotification,
                      UIAccessibility.darkerSystemColorsStatusDidChangeNotification, UIAccessibility.boldTextStatusDidChangeNotification,
                      UIApplication.didBecomeActiveNotification, agentChanged] + pointingDevices
         return names.map { center.addObserver(forName: $0, object: nil, queue: .main) { _ in changed() } }
@@ -235,7 +252,10 @@ package enum DisplayPreferences {
     package static func forget(_ tokens: [NSObjectProtocol]) {
         #if os(macOS)
         tokens.forEach { token in
-            if let observation = token as? NSKeyValueObservation { observation.invalidate() } else { center.removeObserver(token) }
+            if let observation = token as? NSKeyValueObservation { observation.invalidate() } else {
+                center.removeObserver(token)
+                NotificationCenter.default.removeObserver(token)
+            }
         }
         #else
         tokens.forEach(center.removeObserver)

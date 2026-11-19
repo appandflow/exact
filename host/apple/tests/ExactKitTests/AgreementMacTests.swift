@@ -2,6 +2,7 @@
 import AppKit
 import XCTest
 @testable import ExactKit
+@testable import ExactContentRegions
 
 /// `layout agree` on AppKit (LLP 1080.001 D3): a content region's surface,
 /// this session's by its controller, is accounted for and its interior is

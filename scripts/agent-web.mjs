@@ -255,7 +255,9 @@ async function openWebUnlocked({
     console.error(
       `${(openWeb.said = `web: ${selected.name} served at http://127.0.0.1:${port}${js ? buildBase(served) : "/"}`)}${fixed ? '' : ' (--port <n> or EXACT_PORT picks the port)'}`,
     );
-  const chrome = chromium({ needs: webNeeds(selected) }).executable,
+  const { executable: chrome, unavailable } = chromium({ needs: webNeeds(selected) }),
+    // What the pinned browser's absence says, the Chrome installed here included (LLP 1156.006.000 D9).
+    missing = (error) => `web carrier unavailable: ${error.code === 'ENOENT' && unavailable ? unavailable : `${chrome}: ${error.code}; install Playwright's Chromium, or set CHROME`} (docs/testing.md, Browsers)`,
     // LLP 1115.000 D10.3: EXACT_SCALE, the Linux host's variable, launches Chrome at that device scale factor too, its
     // own and not CDP's emulated one (which leaves a 0.5px border 1px): an override's 0 keeps it
     scale = Number(env?.EXACT_SCALE ?? process.env.EXACT_SCALE) || 0;
@@ -305,9 +307,7 @@ async function openWebUnlocked({
   } catch (error) {
     server.close();
     if (!kept) rmSync(profile, { recursive: true, force: true });
-    throw new Error(
-      `web carrier unavailable: ${chrome}: ${error.code}; install Playwright's Chromium (docs/testing.md, Browsers), or set CHROME`,
-    );
+    throw new Error(missing(error));
   }
   onProcess?.(child);
   const hostLines = pageURL ? [] : builtSettingLines(dist),
@@ -335,9 +335,7 @@ async function openWebUnlocked({
       r();
     });
     child.on('error', error => {
-      cdp.fail(
-        `web carrier unavailable: ${chrome}: ${error.code}; install Playwright's Chromium (docs/testing.md, Browsers), or set CHROME`,
-      );
+      cdp.fail(missing(error));
       r();
     });
   });
@@ -478,6 +476,15 @@ async function openWebUnlocked({
       faultScript = (await call('Page.addScriptToEvaluateOnNewDocument', { source })).identifier;
     };
     await installFaults(facts.failFetch);
+    // `prefer display-mode`'s substitute (LLP 1039 D7), set in each new document before the page's scripts run, as
+    // CDP's emulated media are in place at boot: a reload keeps it, and a new session starts without it.
+    let displayScript;
+    const carryDisplayMode = async value => {
+      if (displayScript) await call('Page.removeScriptToEvaluateOnNewDocument', { identifier: displayScript });
+      displayScript = value == null ? undefined : (await call('Page.addScriptToEvaluateOnNewDocument', {
+        source: `if (window === window.top && location.origin === ${JSON.stringify(page.origin)}) globalThis.__exactDisplayMode = ${JSON.stringify(value)};`,
+      })).identifier;
+    };
     // Display preferences are the agent's from launch, never the machine's (LLP 1069.007 D2); `prefer` changes them.
     const emulated = { ...LAUNCH_MEDIA };
     await call('Emulation.setEmulatedMedia', {
@@ -573,6 +580,7 @@ async function openWebUnlocked({
        * never the last session's `prefer` (LLP 1069.007 D2; agent-prefer.mjs). */
       async reset({ keep = false, failFetch, epoch, session = false } = {}) {
         if (session) {
+          await carryDisplayMode(null);
           for (const name of Object.keys(emulated)) delete emulated[name];
           Object.assign(emulated, LAUNCH_MEDIA);
           await call('Emulation.setEmulatedMedia', {
@@ -626,9 +634,11 @@ async function openWebUnlocked({
         if (r.scrolled) await frame();
         return r;
       },
-      prefer: (media, page, fold, mode) =>
-        // the browser's emulation through CDP, the glue's substitute where it offers none (agent-prefer.mjs)
-        preferWeb({ media, page, fold, mode, emulated, call, evaluate, frame, ask, scale }),
+      // the browser's emulation through CDP, the glue's substitute where it offers none (agent-prefer.mjs)
+      async prefer(media, page, fold, mode) {
+        if (media['display-mode'] != null) await carryDisplayMode(media['display-mode']);
+        return preferWeb({ media, page, fold, mode, emulated, call, evaluate, frame, ask, scale });
+      },
       // A click with modifiers named holds them as a keyboard does (`heldForClick`; Charlie, 2026-10-07).
       input(id, kind, opts) {
         return heldForClick(call, kind, opts, () => this.deliverInput(id, kind, opts));

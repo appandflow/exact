@@ -21,9 +21,15 @@ struct Scripted {
     failing_end: bool,
     /// … whose request is the same for every wave.
     same_request: bool,
+    dropped: usize,
+    discarded: Vec<u64>,
 }
 
 impl DataSource for Scripted {
+    fn discard(&mut self, token: u64) {
+        self.discarded.push(token);
+    }
+
     fn query(&mut self, _: &str, _: &[Value]) -> Result<Value, DataError> {
         unreachable!("the fixture implements answer")
     }
@@ -89,6 +95,13 @@ impl DataSource for Scripted {
             )),
             Outcome::Failed { .. } if self.failing_end => {
                 Err(DataError::Unavailable("the upload failed".into()))
+            }
+            Outcome::Failed {
+                kind: crate::FailureKind::Network,
+                message,
+            } if message == "stream dropped by test" => {
+                self.dropped += 1;
+                Ok(Answer::Now(Value::Number(-3.)))
             }
             // An upload's reply answers its status.
             Outcome::Response(r) if self.upload => Ok(Answer::Now(Value::Number(r.status.into()))),
@@ -242,6 +255,55 @@ fn three_messages_then_a_close_commit_four_times() {
 }
 
 #[test]
+fn drop_stream_ends_only_the_matching_tickets_and_discards_queued_frames() {
+    let mut b = PlanBuilder::new(exact_kernel::SCHEMA_DIGEST, 1);
+    let number = b.primitive(TypeKind::Number);
+    for wave in [11., 12., 21.] {
+        let arg = b.constant(&Value::Number(wave));
+        b.resource(&format!("photo{wave}"), "photo", &[arg], number, None);
+    }
+    b.node(NodeType::View as u8, None, None, 0, &[], &[], None);
+    let mut r = Runner::boot(
+        b.finish().unwrap(),
+        Scripted::default(),
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let requests = r.take_requests();
+    let (first, second, other) = (requests[0].ticket, requests[1].ticket, requests[2].ticket);
+    for ticket in [first, second, other] {
+        r.fulfill(ticket, message("10", 0)).unwrap();
+    }
+    r.mapper_turn(
+        first,
+        Request::continuation::<crate::host_work::StreamTurn>(42),
+    );
+    let turn = r.take_requests()[0].ticket;
+    assert!(r.fulfill(first, message("99", 0)).unwrap().is_none());
+    let op = r#"{"op":"prefer","faults":{"dropStream":"https://example.test/events?wave=1"}}"#;
+    let result = crate::agent::drop_stream(&mut r, op).unwrap().unwrap();
+    assert_eq!(result.receipts.len(), 2);
+    assert!(result.error.is_none());
+    assert_eq!(r.data.dropped, 2);
+    assert_eq!(r.data.discarded, [42]);
+    assert_eq!(value(&r, "photo11"), Value::Number(-3.));
+    assert!(!r.holds(first) && !r.holds(second) && !r.holds(turn));
+    assert!(r.take_explicit_aborts().contains(&first));
+    assert!(r.holds(other));
+    r.fulfill(other, message("11", 0)).unwrap();
+    assert_eq!(value(&r, "photo21"), Value::Number(11.));
+    assert!(r.fulfill(turn, message("98", 0)).unwrap().is_none());
+    assert!(r.fulfill(first, message("97", 0)).unwrap().is_none());
+    assert_eq!(value(&r, "photo11"), Value::Number(-3.));
+    assert!(crate::agent::drop_stream(&mut r, op)
+        .unwrap()
+        .unwrap_err()
+        .contains("matched no open stream"));
+}
+
+#[test]
 fn forgetting_mid_stream_lets_the_ticket_go_and_drops_late_messages() {
     let mut r = boot();
     let old = one_stream(&mut r);
@@ -367,6 +429,8 @@ fn a_long_poll_s_replies_hold_it_and_each_counts() {
     assert!(r.is_open_stream(ticket));
     assert_eq!(listed(&r), (vec![], vec!["progress".into()]));
     assert_eq!(r.held_replies(), [("progress".to_string(), 2)]);
+    assert!(r.drop_streams("https://example.test/changes").is_err());
+    assert!(r.holds(ticket));
     let state = crate::agent::state(&r);
     assert!(
         state.contains(&format!(

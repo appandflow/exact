@@ -891,10 +891,10 @@ class ExactView(context: Context, private val live: Boolean, private val onFirst
 
     private var pendingStream: IntBuffer? = null
     /** A new stream, if exact2 has one: made ready to replay. Whether there was one. */
-    private fun take(): Boolean {
+    private fun take(vsync: Boolean = false): Boolean {
         val stream = pendingStream ?: run {
             android.os.Trace.beginSection("exact native frame")
-            val fresh = Native.frame()
+            val fresh = Native.frame(vsync)
             presents.ingested(Native.presentToken())
             android.os.Trace.endSection()
             fresh?.order(ByteOrder.LITTLE_ENDIAN)?.asIntBuffer()?.let { b ->
@@ -1008,13 +1008,13 @@ class ExactView(context: Context, private val live: Boolean, private val onFirst
         android.os.Trace.endSection()
     }
     /** A wake (a reply, a picture, a timer): draw only when the stream changed. */
-    internal fun pump() {
+    internal fun pump(vsync: Boolean = false) {
         if (owner != null) return // the owner publishes what a key or a reply changed
         if (!running) { if (wakes != null) schedule(); return }
-        if (take()) { if (moved) ticker?.invalidate() else { taken = true; invalidate() } } else schedule()
+        if (take(vsync)) { if (moved) ticker?.invalidate() else { taken = true; invalidate() } } else schedule()
     }
     /** exact2 wants another turn: at the next vsync, ask it, and draw only if the stream changed. */
-    private val turn = android.view.Choreographer.FrameCallback { turnPosted = false; Native.displayFrame(); pump() }
+    private val turn = android.view.Choreographer.FrameCallback { turnPosted = false; Native.displayFrame(); pump(vsync = true) }
     private var turnPosted = false
     /** While a layer plays: each vsync, sample them and draw a frame (the ticker: nothing is recorded again). */
     private val sampler = android.view.Choreographer.FrameCallback { t ->

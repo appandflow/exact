@@ -401,6 +401,7 @@ impl<D: DataSource> Presenter<D> {
         )?;
         let (mut host, error) = exact_runner::time::launching_with(
             exact_runner::time::Launch {
+                preferences: Some(self.host.runner().viewport().preferences),
                 time: Some(self.host.runner().wall_time()),
                 place: Some(self.host.runner().place().clone()),
                 ..exact_runner::time::Launch::NONE

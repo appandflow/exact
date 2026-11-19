@@ -284,6 +284,9 @@ pub struct Engine {
     carried: f64,
     // Keys whose running curve may be pending, for the frame that starts them.
     pending: BTreeSet<(u64, Property)>,
+    // Nodes no presented frame shows yet though they are committed (a batch
+    // the host prepares off screen): what is pending on them waits on.
+    unshown: BTreeSet<u64>,
     // Missing means `all 0s`; an empty list is explicit `none`.
     transitions: BTreeMap<u64, Transitions>,
     slots: slots::Slots,

@@ -21,16 +21,25 @@ struct WidgetEntry {
     let assets: AssetResolver
     /// A configured widget's parameters (app.json `configuration`), in the Edit Widget sheet's order.
     var parameters: [WidgetParameter] = []
-    /// Each parameter at its default: what an unconfigured widget renders.
-    var defaults: [String: String] { Dictionary(uniqueKeysWithValues: parameters.map { ($0.name, $0.defaultValue) }) }
+    /// Each fixed parameter at its default, and no entity chosen: what an unconfigured widget renders.
+    var defaults: [String: String] {
+        parameters.reduce(into: [:]) { defaults, parameter in
+            if case .fixed(_, let defaultValue) = parameter.choices { defaults[parameter.name] = defaultValue }
+        }
+    }
     /// The defaults with `supplied` over them, refusing a name or value the configuration does not declare.
+    /// An entity parameter takes any entry's id: the gallery has no published list to check it against.
     func configuration(_ supplied: [String: String]) throws -> [String: String] {
         for (name, value) in supplied {
             guard let parameter = parameters.first(where: { $0.name == name }) else {
-                throw HeadlessSession.Failure(description: parameters.isEmpty ? "widget \(kind) has no configuration" : "widget --configuration: \(kind) has no parameter \(name); parameters: \(parameters.map(\.name).joined(separator: ", "))")
+                throw ExactFailure(description: parameters.isEmpty ? "widget \(kind) has no configuration" : "widget --configuration: \(kind) has no parameter \(name); parameters: \(parameters.map(\.name).joined(separator: ", "))")
             }
-            guard parameter.values.contains(value) else {
-                throw HeadlessSession.Failure(description: "widget --configuration: \(name) is one of \(parameter.values.joined(separator: ", "))")
+            switch parameter.choices {
+            case .fixed(let values, _) where !values.contains(value):
+                throw ExactFailure(description: "widget --configuration: \(name) is one of \(values.joined(separator: ", "))")
+            case .entity where value.isEmpty:
+                throw ExactFailure(description: "widget --configuration: \(name) is an entry's id, which is not empty")
+            default: break
             }
         }
         return defaults.merging(supplied) { $1 }
@@ -38,9 +47,13 @@ struct WidgetEntry {
 }
 
 struct WidgetParameter {
+    enum Choices {
+        case fixed(values: [String], defaultValue: String)
+        /// app.json `type: "entity"`: the id of a content-index entry.
+        case entity
+    }
     let name: String
-    let values: [String]
-    let defaultValue: String
+    let choices: Choices
 }
 
 struct WidgetVariant: Hashable, Identifiable {
@@ -77,7 +90,7 @@ final class WidgetPreview: ObservableObject {
     let session: HeadlessSession
     let environment: SnapshotEnvironment
     let props: [String: Any]
-    /// The configuration rendered: the variant's choices over the defaults.
+    /// The configuration refreshed and rendered: the variant's choices over the defaults.
     let configuration: [String: String]
     let refresh: String
     let refreshReason: String?
@@ -90,10 +103,10 @@ final class WidgetPreview: ObservableObject {
         generation = entry.assets.publicationID
         clock = appSession.now(); epochAtZero = appSession.dateNow().epoch
         guard let family = SnapshotEnvironment.Family(rawValue: variant.family) else {
-            throw HeadlessSession.Failure(description: "invalid widget family: \(variant.family)")
+            throw ExactFailure(description: "invalid widget family: \(variant.family)")
         }
         guard let plan = entry.assets.bytes("plans/\(entry.kind).plan") else {
-            throw HeadlessSession.Failure(description: "missing widget plan: \(entry.kind); rebuild the app")
+            throw ExactFailure(description: "missing widget plan: \(entry.kind); rebuild the app")
         }
         let place = appSession.launchPlace
         let date = Date(timeIntervalSince1970: (epochAtZero + clock) / 1000)
@@ -101,17 +114,19 @@ final class WidgetPreview: ObservableObject {
             rootFontSize: Double(SnapshotDriver.bodySize(for: variant.typeSize)),
             date: date, clock: clock,
             timeZone: TimeZone(identifier: place.timeZone) ?? TimeZone(secondsFromGMT: 0)!, locale: place.locale, formatLocale: place.formatLocale, seed: place.seed)
+        configuration = try entry.configuration(variant.configuration)
+        let chosen = entry.parameters.isEmpty ? nil : try JSONSerialization.data(withJSONObject: configuration, options: [.sortedKeys])
         var result: [String: Any] = [:]
         if suppliedProps == nil {
             let initial = try HeadlessSession(plan: plan, entry: entry.kind, size: variant.contentSize, facts: facts, assets: entry.assets)
             defer { initial.close() }
-            result = try initial.previewTimeline(at: date)
+            result = try initial.previewTimeline(at: date, configuration: chosen)
         }
         let first = (result["timeline"] as? [[String: Any]])?.first
         var given: [String: Any]?
         if let suppliedProps {
             guard let object = try JSONSerialization.jsonObject(with: Data(suppliedProps.utf8)) as? [String: Any] else {
-                throw HeadlessSession.Failure(description: "widget --props: expected a JSON object")
+                throw ExactFailure(description: "widget --props: expected a JSON object")
             }
             given = object
         }
@@ -119,8 +134,6 @@ final class WidgetPreview: ObservableObject {
         refresh = suppliedProps != nil ? "props" : first != nil ? "timeline" : result["entryRefresh"] as? String == "timeline" ? "empty" : result["entryRefresh"] as? String ?? "preview"
         refreshReason = result["reason"] as? String
         let bytes = try JSONSerialization.data(withJSONObject: props, options: [.sortedKeys])
-        configuration = try entry.configuration(variant.configuration)
-        let chosen = entry.parameters.isEmpty ? nil : try JSONSerialization.data(withJSONObject: configuration, options: [.sortedKeys])
         let rendered = try HeadlessSession(plan: plan, entry: entry.kind, props: bytes, configuration: chosen, size: variant.contentSize, facts: facts, assets: entry.assets)
         do { try rendered.advance(to: clock) } catch { rendered.close(); throw error }
         session = rendered
@@ -215,7 +228,7 @@ final class ActivityPreview {
         self.entry = entry; self.scheme = scheme
         clock = appSession.now(); epochAtZero = appSession.dateNow().epoch; suppliedState = supplied
         guard let plan = entry.assets.bytes("plans/\(entry.kind).plan") else {
-            throw HeadlessSession.Failure(description: "missing activity plan: \(entry.kind); rebuild the app")
+            throw ExactFailure(description: "missing activity plan: \(entry.kind); rebuild the app")
         }
         let place = appSession.launchPlace
         let date = Date(timeIntervalSince1970: (epochAtZero + clock) / 1000)
@@ -496,17 +509,19 @@ enum WidgetGallery {
                   let preview = value["preview"] as? [String: Any] else { return nil }
             let rows = (value["configuration"] as? [String: Any])?["parameters"] as? [[String: Any]] ?? []
             let parameters = rows.compactMap { row -> WidgetParameter? in
-                guard let name = row["name"] as? String, let values = row["values"] as? [[String: Any]],
-                      let defaultValue = row["default"] as? String else { return nil }
-                return WidgetParameter(name: name, values: values.compactMap { $0["value"] as? String }, defaultValue: defaultValue)
+                guard let name = row["name"] as? String else { return nil }
+                if row["type"] as? String == "entity" { return WidgetParameter(name: name, choices: .entity) }
+                guard let values = row["values"] as? [[String: Any]], let defaultValue = row["default"] as? String else { return nil }
+                return WidgetParameter(name: name, choices: .fixed(values: values.compactMap { $0["value"] as? String }, defaultValue: defaultValue))
             }
             return WidgetEntry(kind: kind, families: families, preview: preview, assets: assets, parameters: parameters)
         }
     }
-    /// One configuration per value a parameter takes other than its default, the others at theirs.
+    /// One configuration per value a fixed parameter takes other than its default, the others at theirs.
     static func choices(_ entry: WidgetEntry) -> [[String: String]] {
-        entry.parameters.flatMap { parameter in
-            parameter.values.filter { $0 != parameter.defaultValue }.map { [parameter.name: $0] }
+        entry.parameters.flatMap { parameter -> [[String: String]] in
+            guard case .fixed(let values, let defaultValue) = parameter.choices else { return [] }
+            return values.filter { $0 != defaultValue }.map { [parameter.name: $0] }
         }
     }
     static func activities(in assets: AssetResolver) -> [ActivityEntry] {
@@ -548,12 +563,12 @@ enum WidgetGallery {
                 let entries = entries(in: agent.session.app.resolver)
                 guard let address = request["widget"] as? [String: String], let kind = address["entry"],
                       let entry = entries.first(where: { $0.kind == kind }) else {
-                    throw HeadlessSession.Failure(description: "unknown widget; available: \(entries.map(\.kind).joined(separator: ", "))")
+                    throw ExactFailure(description: "unknown widget; available: \(entries.map(\.kind).joined(separator: ", "))")
                 }
                 var configuration: [String: String] = [:]
                 if let supplied = address["configuration"] {
                     guard let object = try JSONSerialization.jsonObject(with: Data(supplied.utf8)) as? [String: String] else {
-                        throw HeadlessSession.Failure(description: "widget --configuration: expected a JSON object of parameter names to values")
+                        throw ExactFailure(description: "widget --configuration: expected a JSON object of parameter names to values")
                     }
                     configuration = object
                 }
@@ -563,10 +578,10 @@ enum WidgetGallery {
                 guard entry.families.contains(variant.family), SnapshotEnvironment.Family(rawValue: variant.family) != nil,
                       ["fullColor", "accented", "vibrant"].contains(variant.mode), ["light", "dark"].contains(variant.scheme),
                       ["large", "xxxl"].contains(variant.size), [1, 2, 3].contains(variant.scale) else {
-                    throw HeadlessSession.Failure(description: "invalid widget variant; families: \(entry.families.joined(separator: ", ")); modes: fullColor, accented, vibrant; schemes: light, dark; sizes: large, xxxl; scales: 1, 2, 3")
+                    throw ExactFailure(description: "invalid widget variant; families: \(entry.families.joined(separator: ", ")); modes: fullColor, accented, vibrant; schemes: light, dark; sizes: large, xxxl; scales: 1, 2, 3")
                 }
                 guard ["tree", "screenshot", "state"].contains(op) else {
-                    throw HeadlessSession.Failure(description: "widget gallery supports tree, screenshot, state and app clock")
+                    throw ExactFailure(description: "widget gallery supports tree, screenshot, state and app clock")
                 }
                 if request["availability"] as? Bool == true { return ["available": true] }
                 let old = agent.widgetPreview
@@ -597,13 +612,13 @@ enum WidgetGallery {
                     result["slots"] = entry.parameters.isEmpty ? ["snapshot_props": preview.props] : ["snapshot_props": preview.props, "snapshot_configuration": preview.configuration]
                     result["refresh"] = preview.refresh; result["refreshReason"] = preview.refreshReason
                 case "screenshot":
-                    guard let path = request["path"] as? String else { throw HeadlessSession.Failure(description: "screenshot needs a path") }
+                    guard let path = request["path"] as? String else { throw ExactFailure(description: "screenshot needs a path") }
                     guard let image = GalleryCapture.image(WidgetPreviewView(preview: preview), width: variant.displaySize.width, height: variant.displaySize.height, scale: variant.scale),
                           let destination = CGImageDestinationCreateWithURL(URL(fileURLWithPath: path) as CFURL, UTType.png.identifier as CFString, 1, nil) else {
-                        throw HeadlessSession.Failure(description: "could not render widget screenshot")
+                        throw ExactFailure(description: "could not render widget screenshot")
                     }
                     CGImageDestinationAddImage(destination, image, nil)
-                    guard CGImageDestinationFinalize(destination) else { throw HeadlessSession.Failure(description: "could not write widget screenshot") }
+                    guard CGImageDestinationFinalize(destination) else { throw ExactFailure(description: "could not write widget screenshot") }
                     result["screenshot"] = path; result["w"] = variant.displaySize.width; result["h"] = variant.displaySize.height; result["scale"] = variant.scale
                     result["rendering"] = "in-process WidgetKit container stand-in"
                 default: break

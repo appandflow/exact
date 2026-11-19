@@ -61,7 +61,7 @@ final class ScrollZoomMac: NSObject {
 extension NodeView {
     /// The scroller's one element child, or nil.
     private func zoomChild(_ sv: ChainingScrollView) -> NodeView? {
-        let children = sv.documentView?.subviews.compactMap { $0 as? NodeView } ?? []
+        let children = NodeView.committed(sv.documentView?.subviews ?? [])
         return children.count == 1 ? children[0] : nil
     }
 

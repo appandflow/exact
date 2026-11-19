@@ -20,6 +20,7 @@ mod object_box;
 mod refs;
 
 fn style(id: u32, rows: &[(StyleId, &str)]) -> Op {
+    exact_kernel::style::link_all();
     let mut patch = StyleProps::default();
     for (row, value) in rows {
         let v = match (
@@ -435,6 +436,7 @@ fn a_view_box_is_the_natural_ratio() {
 /// shapes that inherit it, and an animated `color` reaches `currentcolor`.
 #[test]
 fn animated_inherited_values_flow_to_descendants() {
+    exact_kernel::style::link_all();
     use exact_motion::{Engine, Keyframes, Property};
     let mut d = Doc::new();
     let svg = d.node(

@@ -27,9 +27,9 @@ import UIKit
 /// its `deinit` does (give another delegate, show another container or
 /// toolbar) then meets the host's settled state, never a change the host has
 /// made halfway, and never runs inside the platform's write.
-class ForwardingDelegate: NSObject {
+open class ForwardingDelegate: NSObject {
     /// The app's delegate (each subclass reads it as its platform's type).
-    private(set) var appDelegate: AnyObject?
+    private(set) package var appDelegate: AnyObject?
     /// The object whose slot the proxy fills, from `fill` until `retire`:
     /// the only slot the proxy ever fills.
     private weak var owner: DelegateSlotOwner?
@@ -41,15 +41,15 @@ class ForwardingDelegate: NSObject {
 
     /// Whether the slot holds the proxy, rather than a delegate written
     /// outside Exact.
-    var fillsSlot: Bool { owner?.slotDelegate === self }
+    package var fillsSlot: Bool { owner?.slotDelegate === self }
     /// Whether the development check has named the slot as written outside
     /// Exact since it last held the proxy.
-    var slotNamed = false
+    package var slotNamed = false
 
     /// Put the proxy in `owner`'s slot; `journal` hears each delegate the slot
     /// installs. The app has given no delegate yet, so the platform reads only
     /// the proxy's own answers.
-    func fill(_ owner: DelegateSlotOwner, journal: @escaping (String) -> Void) {
+    package func fill(_ owner: DelegateSlotOwner, journal: @escaping (String) -> Void) {
         guard !filled else { return }
         filled = true
         self.owner = owner
@@ -61,7 +61,7 @@ class ForwardingDelegate: NSObject {
     /// the proxy again, so the platform reads its answers anew, and the old
     /// delegate goes. A slot that left Exact takes nothing, and one whose
     /// object went without a retire is retired.
-    func give(_ delegate: AnyObject?) {
+    package func give(_ delegate: AnyObject?) {
         guard filled, !retired else { return }
         if case let .some(replaced?) = pending { releaseLater(replaced) }
         pending = .some(delegate)
@@ -70,7 +70,7 @@ class ForwardingDelegate: NSObject {
 
     /// The slot leaves Exact: it is emptied if it holds the proxy, and the
     /// app's delegate goes. A delegate given later is dropped.
-    func retire() {
+    package func retire() {
         guard !retired else { return }
         retired = true
         settle()
@@ -114,38 +114,38 @@ class ForwardingDelegate: NSObject {
         DispatchQueue.main.async { withExtendedLifetime(delegate) {} }
     }
 
-    override func responds(to selector: Selector!) -> Bool {
+    open override func responds(to selector: Selector!) -> Bool {
         super.responds(to: selector) || (appDelegate?.responds(to: selector) ?? false)
     }
 
     // Send the app's delegate each call the proxy does not implement, whatever the delegate answers now: the platform
     // calls the methods the proxy answered when it was set
-    override func forwardingTarget(for selector: Selector!) -> Any? { appDelegate }
+    open override func forwardingTarget(for selector: Selector!) -> Any? { appDelegate }
 }
 
 /// A platform object whose `delegate` slot Exact keeps (`ForwardingDelegate`).
-protocol DelegateSlotOwner: NSObject {
+package protocol DelegateSlotOwner: NSObject {
     /// The object's own `delegate`.
     var slotDelegate: AnyObject? { get set }
 }
 
 #if os(macOS)
 extension NSToolbar: DelegateSlotOwner {
-    var slotDelegate: AnyObject? {
+    package var slotDelegate: AnyObject? {
         get { delegate }
         set { delegate = newValue as? NSToolbarDelegate }
     }
 }
 #else
 extension UINavigationController: DelegateSlotOwner {
-    var slotDelegate: AnyObject? {
+    package var slotDelegate: AnyObject? {
         get { delegate }
         set { delegate = newValue as? UINavigationControllerDelegate }
     }
 }
 
 extension UITabBarController: DelegateSlotOwner {
-    var slotDelegate: AnyObject? {
+    package var slotDelegate: AnyObject? {
         get { delegate }
         set { delegate = newValue as? UITabBarControllerDelegate }
     }

@@ -155,8 +155,14 @@ function reply(t, name, source, held, f, next, gone) {
   };
 }
 // runner lines.rs
-const revalidated = (name, same) =>
-  `${name} answered: ${same ? 'equal to its build-time answer' : 'replaces its build-time answer'}`;
+/** The journal's word when an answer lands on what stood in for it while the launch asked it again (LLP 1102 §3.17),
+ * in the runner's words (`revalidated`): a build-time answer either way, a page's answer only when the fresh one
+ * contradicts it, a placeholder never. The runner says so of a page's answer asked again at `data_ready`; the JS target
+ * of every one asked again. */
+function revalidated(name, same, stand) {
+  if (stand === 'build') say(`${name} answered: ${same ? 'equal to its build-time answer' : 'replaces its build-time answer'}`);
+  else if (!same) say(`${name} answered differently from the page's answer: the first frame showed the rendered page's value until its source answered`);
+}
 /** A resource: its value, the arguments it settled with, one ticket in flight. A bake's answer is a first frame:
  * `baked` asks at launch, as a native runner at `data_ready` (LLP 1048.003 D6; feed F24); a document's `kept` was asked
  * for its page, and is asked again when the page lists it as `open`, or when it read the store and the device's store
@@ -191,7 +197,12 @@ export function res(
     pending: pend,
     baked: kept
       ? READER.has(source) || checkpoint().revalidate || kept[2] || (kept[3] && Store.map.size > 0)
-      : !carried && initialArgs !== undefined,
+      : !carried && (initialArgs !== undefined || initial !== undefined),
+    // What it shows until it takes an answer: the page's (LLP 1048.000 D6), a build-time one whatever arguments the bake
+    // names (a store reader's names none), or neither (a placeholder, a carried value); `stale`: asked again at launch,
+    // or a build-time answer asked when its source is not ready, and not yet answered, as the runner's `stale`
+    stand: kept ? 'page' : !carried && initial !== undefined ? 'build' : null,
+    stale: false,
     ticket: null,
     forced: false,
     rev: false,
@@ -253,7 +264,7 @@ export function res(
       return r.value;
     };
   // `origin`: when it was asked (overlay.js)
-  const take = (v, a, origin, generation) => {
+  const take = (v, a, origin, generation, call) => {
     if (type && !conforms(v, type, [0], r.checked))
       throw new Failed(
         loneSurrogate(v)
@@ -268,6 +279,11 @@ export function res(
     r.placeholder = false;
     // a fresh answer: current again after idleness (LLP 1161.001)
     r.slept = false;
+    // In a render, keep the call that gave the answer taken: the checkpoint lists the answer in `open` when that call
+    // watched a document or was refused storage or visitor credentials (checkpoint.js `answers`)
+    if (globalThis.__exactRender) r.renderCall = call;
+    r.stand = null;
+    r.stale = false;
     Inspections.take(r, generation);
   };
   const land = t =>
@@ -309,9 +325,10 @@ export function res(
             return;
           }
           if (globalThis.__exactRender && !globalThis.__exactProduction) for (const url of t.call?.urls ?? []) (r.renderUrls ??= new Set()).add(url);
-          if (t.baked) say(revalidated(name, eq(p.v, r.value)));
-          t.baked = false;
-          take(p.v, t.args, t.origin, t.generation);
+          // what the first frame showed, said once the answer is taken
+          const stood = r.stale && r.stand && [eq(p.v, r.value), r.stand];
+          take(p.v, t.args, t.origin, t.generation, t.madeBy);
+          if (stood) revalidated(name, ...stood);
           r.failed = null;
           r.error = r.code = r.reason = undefined;
           if (!o.more) r.ticket = null;
@@ -378,8 +395,15 @@ export function res(
         }
         // an upload answers as it ended, or goes on
         if (mk) return data.uploads.answer(r, mk, a, { take, fails, release });
-        const baked = r.baked;
+        const baked = r.baked,
+          was = r.stale;
         r.baked = false;
+        if (baked) r.stale = true;
+        // the first frame's build-time answer, said once when it starts to stand in for an answer (the runner's
+        // `journal_build_time`)
+        const stands = () => {
+          if (!was && r.stale && r.stand === 'build') say(`${name} shows its build-time answer until its source answers`);
+        };
         if (!forced && !rev) {
           // Reuse follows the request in flight; the displayed value may answer older arguments (LLP 1016 D5).
           // `equal`: `-0` is `0`, NaN asks again; a bake is asked once anyway (LLP 1048.003 D6).
@@ -412,13 +436,15 @@ export function res(
         if (ans && ans.store) r.store = true;
         r.watches = ans?.watches;
         if (ans && 'v' in ans) {
-          if (baked) say(revalidated(name, eq(ans.v, r.value)));
+          stands();
+          const stood = r.stale && r.stand && [eq(ans.v, r.value), r.stand];
           try {
-            take(ans.v, a, Ov.tick());
+            take(ans.v, a, Ov.tick(), undefined, ans.madeBy);
           } catch (e) {
             if (!reconciling) throw e;
             return Invocation.run(invocation, () => fails(a, String(e?.message ?? e), 'shape'));
           }
+          if (stood) revalidated(name, ...stood);
           if (r.ticket) {
             Invocation.run(invocation, () => Invocation.letGo(r.ticket));
             say(`forget ticket ${r.ticket.id} (${name})`);
@@ -456,16 +482,16 @@ export function res(
             req: ans.req && { ...ans.req, forced: refresh, origin },
             promise: ans.promise,
             call: ans.call,
+            madeBy: ans.madeBy,
             stream: ans.stream,
             upload: ans.upload,
-            baked,
             r,
             origin: Ov.tick(),
             generation: r.inspection?.request,
           };
           if (t.call) t.call.ticket = t;
           r.askOrigin = origin;
-          if (baked) say(`${name} shows its build-time answer until its source answers`);
+          stands();
           if (r.ticket) {
             Invocation.run(invocation, () => Invocation.letGo(r.ticket));
             say(`forget ticket ${r.ticket.id} (${name})`);
@@ -484,6 +510,9 @@ export function res(
           hold();
           flag(pend, true);
         }
+        // a build-time answer stands in for any arguments until the source answers, as the runner's `stale`
+        if (r.stand === 'build') r.stale = true;
+        stands();
         if (!r.waiting) {
           r.waiting = true;
           data.ready(() => {
@@ -539,6 +568,9 @@ export function res(
       r.watches,
       r.launch,
       r.askOrigin,
+      r.renderCall,
+      r.stand,
+      r.stale,
     ],
     restore: x => {
       [r.value, r.settled, r.ticket] = x;
@@ -565,6 +597,9 @@ export function res(
       r.watches = x[22];
       r.launch = x[23];
       r.askOrigin = x[24];
+      r.renderCall = x[25];
+      r.stand = x[26];
+      r.stale = x[27];
       write(pend.n, x[19]);
       // and what it shows is read again, from what was put back
       write(ver.n, ver.n.v + 1);

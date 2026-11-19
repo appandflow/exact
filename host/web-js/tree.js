@@ -38,7 +38,7 @@ export function h(p, tag, cls, attrs, text, ns) {
       }
     if (tag === 'a') Links?.made(e, attrs);
     if ('data-scrolldocument' in attrs) Docs.add(e);
-    if (tag === 'img' && ('data-symbol-source' in attrs || 'data-app-src' in attrs)) Hooks.image?.(e);
+    if (tag === 'img') Hooks.image?.(e);
   }
   if (Paint) e.$paintFacts = bits;
   if (text !== 0) e.textContent = text;
@@ -108,7 +108,7 @@ function adopt(p, tag, cls, attrs) {
     }
     if (tag === 'a') Links?.made(e, attrs, rendered);
     if ('data-scrolldocument' in attrs) Docs.add(e);
-    if (tag === 'img' && ('data-symbol-source' in attrs || 'data-app-src' in attrs)) Hooks.image?.(e);
+    if (tag === 'img') Hooks.image?.(e);
   }
   Paint?.list(e);
   return e;
@@ -415,7 +415,7 @@ export function Sr(e, prop, unit, f) {
 export const backdropValue = (v, report = true) =>
   backdropCss(v, report ? why => say(`unset backdrop-filter: ${why}`) : undefined);
 /** Loaded pieces' hooks: `style(e, prop, value)` takes a dynamic row's write on a node the motion piece holds
- * (motion.js); `image(e)` an image built or adopted with a symbol or `app:/` source (symbols.js); `frame(e, v)` an
+ * (motion.js); `image(e)` an image built or adopted (symbols.js); `frame(e, v)` an
  * iframe's app file (iframes.js); `listItem(e, owner)` and `listRoles(e)` a List's row and its role (list-items.js). */
 export const Hooks = {};
 /** `S` on a node the motion engine follows (`mo`): while a hold owns it, a

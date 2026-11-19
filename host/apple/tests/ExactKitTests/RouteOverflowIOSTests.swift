@@ -2,6 +2,7 @@
 import UIKit
 import XCTest
 @testable import ExactKit
+@testable import ExactNavigation
 
 final class RouteOverflowIOSTests: XCTestCase {
     private var window: UIWindow?
@@ -58,7 +59,7 @@ final class RouteOverflowIOSTests: XCTestCase {
         settle(session)
         let detail = try named("route-detail")
         XCTAssertNotNil(p.owners.told[detail.id])
-        XCTAssertEqual(p.navigation.covers[try named("header-detail").id], .whole, "the navigation bar lifted the header")
+        XCTAssertEqual(p.navigationHost.covers[try named("header-detail").id], .whole, "the navigation bar lifted the header")
         XCTAssertEqual(warnings(session), 0, "a push must wait for its native geometry")
         p.press(try named("back-detail").id)
         settle(session)
@@ -90,9 +91,9 @@ final class RouteOverflowIOSTests: XCTestCase {
         settle(session)
 
         p.press(try named("open-home").id)
-        waitFor("the sheet is up") { p.modals.topNavigation?.view.window != nil }
+        waitFor("the sheet is up") { p.modalHost.topNavigation?.view.window != nil }
         settle(session)
-        let nav = try XCTUnwrap(p.modals.topNavigation)
+        let nav = try XCTUnwrap(p.modalHost.topNavigation)
         let sheet = try XCTUnwrap(nav.sheetPresentationController)
         let route = try named("route-sheet")
         waitFor("the small detent is laid out") { route.bounds.height < 400 && route.bounds.height > 0 }
@@ -110,7 +111,7 @@ final class RouteOverflowIOSTests: XCTestCase {
         settle(session)
         XCTAssertEqual(warnings(session), 1, "the covered home route must not journal")
         p.press(try named("back-sheet").id)
-        waitFor("the sheet is dismissed") { p.modals.topNavigation == nil }
+        waitFor("the sheet is dismissed") { p.modalHost.topNavigation == nil }
         settle(session)
         XCTAssertEqual(warnings(session), 2, "the window warning was not latched by a detent or keyboard")
     }

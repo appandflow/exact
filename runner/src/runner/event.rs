@@ -3,7 +3,6 @@
 use super::{DataSource, Runner, RunnerError};
 use exact_kernel::{CommitReceipt, NodeKey, ViewId};
 use exact_plan::{ActionsId, Code, EventKind, HandlersId, NodesId, Opcode, TypeKind, Value};
-use std::fmt::Write as _;
 use std::rc::Rc;
 
 mod focus;
@@ -1007,48 +1006,6 @@ impl<D: DataSource> Runner<D> {
         Err(Unsupported)
     }
 
-    /// Runner-only collection events use the same action transaction and journal
-    /// as host events. They have no payload; their bound arguments are evaluated
-    /// in the list's scope when the edge dispatches (LLP 1054.000.006).
-    pub(super) fn dispatch_edge(
-        &mut self,
-        view: ViewId,
-        kind: EventKind,
-    ) -> Result<(CommitReceipt, bool), RunnerError> {
-        let name = match kind {
-            EventKind::Reachstart => "reachstart",
-            EventKind::Reachend => "reachend",
-            _ => unreachable!("collection edge"),
-        };
-        let mut what = format!("{name} view {view}");
-        let was_poisoned = self.poisoned;
-        let mut changed = false;
-        let result = (|| {
-            let (node, frames) = self.find(view).ok_or(RunnerError::UnknownView(view))?;
-            let handler = self
-                .plan
-                .node(node)
-                .handlers
-                .iter()
-                .map(|h| self.plan.handler(h))
-                .find(|h| h.event == kind)
-                .cloned()
-                .ok_or(RunnerError::NoHandler { view, event: name })?;
-            let action = handler.action;
-            let _ = write!(what, " ({})", self.plan.str(self.plan.action(action).name));
-            let mut args = Vec::new();
-            for (k, a) in handler.args.iter().enumerate() {
-                let code = self.plan.arg(a).expr;
-                args.push(self.eval_argument(code, &frames, (view, node, name, k))?);
-            }
-            let before = super::collection::EdgeState::capture(self, &frames);
-            let receipt = self.run_action(action, args, &frames)?;
-            changed = before.changed(self);
-            Ok(receipt)
-        })();
-        self.log_outcome(&what, &result, was_poisoned);
-        result.map(|receipt| (receipt, changed))
-    }
     /// Deliver a host event to `view`: find its handler, evaluate the curried
     /// arguments in the instance's scope now, run the action, update.
     pub fn dispatch(&mut self, view: ViewId, event: Event) -> Result<CommitReceipt, RunnerError> {

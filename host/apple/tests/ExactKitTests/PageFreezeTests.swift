@@ -8,6 +8,7 @@ import UIKit
 import AppKit
 #endif
 @testable import ExactKit
+@testable import ExactSound
 @testable import ExactSurfaces
 import ExactPackage
 @testable import MediaCaptureImplementation

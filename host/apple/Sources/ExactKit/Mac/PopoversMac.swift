@@ -120,7 +120,7 @@ extension MenuHost {
     /// split collapsing takes the route back into the page).
     func layerHost(_ entry: Entry, in window: NSWindow?) -> NSView? {
         guard let presenter else { return nil }
-        if let pane = presenter.navigation.split.pane(holding: entry.source) { return pane }
+        if let pane = presenter.navigation.stackSplit.pane(holding: entry.source) { return pane }
         guard let window else { return nil }
         return window === presenter.viewport.window ? presenter.viewport : window.contentView ?? presenter.viewport
     }

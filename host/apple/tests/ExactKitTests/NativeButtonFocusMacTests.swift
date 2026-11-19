@@ -4,6 +4,7 @@ import AppKit
 import ObjectiveC
 import XCTest
 @testable import ExactKit
+@testable import ExactControls
 @testable import ExactCollections
 
 final class NativeButtonFocusMacTests: XCTestCase {

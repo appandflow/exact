@@ -74,7 +74,7 @@ extension Agent {
             }
             if hiddenBy == nil, s.isHidden || (s.alpha == 0 && (s as? NodeView)?.placement == nil) { hiddenBy = describe(s) }
             if inertBy == nil, !s.isUserInteractionEnabled { inertBy = describe(s) }
-            if let sv = s as? ScrollView, let route = sv.superview?.next as? RouteController, route.contentViewport === sv {
+            if let sv = s as? ScrollView, let route = sv.superview?.next as? any RouteSurface, route.contentViewport === sv {
                 let port = box(sv, region: sv.bounds.inset(by: sv.adjustedContentInset))
                 chain.append(["route": Int(route.node.id), "port": [port.minX, port.minY, port.width, port.height].map(Agent.r2)]
                     .merging(Agent.offset(of: sv)) { a, _ in a }.merging(Agent.range(of: sv)) { a, _ in a })
@@ -83,7 +83,7 @@ extension Agent {
             if let n = s as? NodeView {
                 if let sv = n.scrollView { chain.append(["id": Int(n.id), "port": port(of: n, sv)].merging(Agent.offset(of: sv, top: n.scrollTopInset(sv))) { a, _ in a }.merging(Agent.range(of: sv)) { a, _ in a }) } // CSS scrollTop, as `tree` reads it
                 else if n.scrollDormant { chain.append(["id": Int(n.id), "sx": 0.0, "sy": 0.0, "rx": 0.0, "ry": 0.0]) }
-                if n.clipsToBounds || n.clipBox != nil { clippers.append((n, n.id, "overflow")) }
+                if n.overflowClips || n.clipBox != nil { clippers.append((n, n.id, "overflow")) }
                 if n.clipPath != nil { clippers.append((n, n.id, "clip-path")) }
             }
             above = s.superview

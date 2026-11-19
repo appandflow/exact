@@ -105,11 +105,11 @@ extension NodeView {
     var tableParts: [(view: NodeView, place: TableGrid.Place)] {
         guard tableSize != nil, let grid = presenter?.tableGrid else { return [] }
         var parts: [(NodeView, TableGrid.Place)] = []
-        var stack = container.subviews.compactMap { $0 as? NodeView }
+        var stack = childNodes
         while let node = stack.popLast() {
             if node.semanticTag == "table" { continue }
             if let place = grid.places[node.id], place.table == id { parts.append((node, place)) }
-            stack += node.container.subviews.compactMap { $0 as? NodeView }
+            stack += node.childNodes
         }
         return parts.sorted { ($0.1.row, $0.1.column) < ($1.1.row, $1.1.column) }
     }
@@ -222,9 +222,16 @@ extension NodeView {
         .rows, .visibleRows, .columns, .visibleColumns, .rowCount, .columnCount, .header,
         .columnHeaderUIElements, .rowHeaderUIElements, .index, .rowIndexRange, .columnIndexRange,
     ]
+    private static let tableAttributeNames = Set(tableAttributes.map(\.rawValue))
     /// `names` with the table attributes this node has, and none it lacks.
+    /// AppKit asks for the names at every accessibility setter and getter
+    /// of a view that overrides them, so this filter runs thousands of
+    /// times when a batch makes thousands of views: one hash per name, not
+    /// a comparison with each table attribute.
     func withTableAttributes(_ names: [NSAccessibility.Attribute]) -> [NSAccessibility.Attribute] {
-        names.filter { !Self.tableAttributes.contains($0) } + Self.tableAttributes.filter { tableAttribute($0) != nil }
+        let kept = names.filter { !Self.tableAttributeNames.contains($0.rawValue) }
+        guard tableSize != nil || tablePlace != nil else { return kept }
+        return kept + Self.tableAttributes.filter { tableAttribute($0) != nil }
     }
     func tableAttribute(_ attribute: NSAccessibility.Attribute) -> Any? {
         if tableSize != nil {
@@ -342,7 +349,7 @@ extension NodeView {
     var isTableCellElement: Bool {
         guard isTableCell, tablePlace != nil else { return false }
         func words(_ node: NodeView) -> Bool {
-            node.container.subviews.compactMap { $0 as? NodeView }.allSatisfy { child in
+            node.childNodes.allSatisfy { child in
                 child.isParagraph ? (child.isAccessibilityElement || !child.accessibilityExposed) && child.headingLevel == nil
                     : child.kind == "view" && !child.actsAsButton && child.props["accessibilityRole"] == nil && words(child)
             }

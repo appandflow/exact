@@ -3,6 +3,7 @@ import AppKit
 import ImageIO
 import XCTest
 @testable import ExactKit
+@testable import ExactNavigation
 @testable import ExactImages
 
 /// LLP 1053.000.000 on AppKit: a `glassGroup` node's container view is its
@@ -170,7 +171,7 @@ final class GlassGroupMacTests: XCTestCase {
             ["op": "frame", "id": 1, "x": 0, "y": 0, "w": 240, "h": 160],
             ["op": "frame", "id": 2, "x": 0, "y": 0, "w": 240, "h": 160],
         ]))
-        let root = p.navigation.split.agentRoot
+        let root = p.navigationHost.split.agentRoot
         window.orderFrontRegardless()
         window.layoutIfNeeded()
         window.displayIfNeeded()
@@ -479,7 +480,7 @@ final class GlassGroupMacTests: XCTestCase {
         CATransaction.flush()
         let glass = try XCTUnwrap(f.presenter.views.values.first { $0.props["backgroundMaterial"] == "glass" })
         XCTAssertEqual(glass.appliedMaterial, "NSGlassEffectView(.regular)")
-        let root = f.presenter.navigation.split.agentRoot
+        let root = f.presenter.navigationHost.split.agentRoot
         let live = try waitForWindowPicture(of: root) {
             (try? self.color($0, NSPoint(x: 100, y: 50)).redComponent) ?? 0 > 0.8
         }

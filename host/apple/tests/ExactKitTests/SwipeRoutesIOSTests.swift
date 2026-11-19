@@ -2,6 +2,7 @@
 import UIKit
 import XCTest
 @testable import ExactKit
+@testable import ExactNavigation
 @testable import ExactCollections
 
 /// Hand-written swipe rows in a route's page (`host/apple/tests/fixtures/swipe-push.contract`),
@@ -97,7 +98,7 @@ final class SwipeRoutesIOSTests: XCTestCase {
         }
         let s = try screen(scene, "swipe-push")
         defer { close(s) }
-        let nav = try XCTUnwrap(s.p.navigation.primaryNavigation)
+        let nav = try XCTUnwrap(s.p.navigationHost.primaryNavigation)
         func settle(_ count: Int, _ what: String) {
             waitFor(what, cap: 10) { nav.viewControllers.count == count && nav.transitionCoordinator == nil }
             waitForMainQueue()

@@ -21,6 +21,9 @@ const HAPTICS: usize = 64;
 /// `,"transport":{…}`, for a plan that declares a sequence.
 /// Then `,"midi":{…}`, for a plan that uses MIDI.
 pub(super) fn state<D: DataSource>(runner: &Runner<D>, request: &str, s: &mut String) {
+    if !runner.plays_audio() {
+        return;
+    }
     transport(runner, s);
     midi::state(runner, request, s);
 }

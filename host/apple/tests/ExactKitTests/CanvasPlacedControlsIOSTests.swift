@@ -2,6 +2,7 @@
 import UIKit
 import XCTest
 @testable import ExactKit
+@testable import ExactControls
 @testable import ExactSurfaces
 
 /// Whether the fake surface places its first child, moved right by `controlsShift`.

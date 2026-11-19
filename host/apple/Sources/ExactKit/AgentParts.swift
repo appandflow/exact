@@ -49,7 +49,7 @@ extension Agent {
         var stack = [node]
         while let v = stack.popLast() {
             if v.responds(to: ask), let part = v.perform(ask, with: name)?.takeUnretainedValue() as? PlatformView { return part }
-            stack.append(contentsOf: v.subviews)
+            stack.append(contentsOf: v.committedSubviews)
         }
         return nil
     }
@@ -69,7 +69,7 @@ extension Agent {
                     return part
                 }
             }
-            stack.append(contentsOf: v.subviews)
+            stack.append(contentsOf: v.committedSubviews)
         }
         return []
     }

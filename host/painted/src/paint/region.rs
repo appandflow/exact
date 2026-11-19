@@ -102,6 +102,8 @@ enum Payload {
     Image(
         Arc<Bitmap>,
         ObjectFit,
+        exact_kernel::object::Position,
+        Box<exact_kernel::Env>,
         Option<[u8; 4]>,
         exact_kernel::ImageRendering,
     ),
@@ -351,6 +353,8 @@ impl Picture {
                         Payload::Image(
                             image.clone(),
                             node.style.object_fit,
+                            node.style.object_position.clone(),
+                            Box::new(scene.kernel.env_of(id)),
                             super::image_tint(&node, &(scene.presented)(id), painter.dark),
                             node.computed_row(StyleId::ImageRendering, |s| s.image_rendering),
                         )
@@ -392,9 +396,10 @@ impl Picture {
                         s.walk(&mut |_| n += 1);
                         n
                     }
-                    Payload::Image(image, fit, _, _) => {
-                        usize::from(object_fit(image.natural(), *fit, geometry.content).is_some())
-                    }
+                    Payload::Image(image, fit, position, env, _, _) => usize::from(
+                        object_fit(image.natural(), *fit, position, geometry.content, env)
+                            .is_some(),
+                    ),
                 };
                 cost += 2 * usize::from(opacity < 1.)
                     + 2 * usize::from(clips)
@@ -756,8 +761,9 @@ impl<'a> Replay<'a> {
                                 .into_iter()
                                 .all(|(x, y)| x.is_finite() && y.is_finite());
                     });
-                    if let Payload::Image(image, fit, _, _) = &n.payload {
-                        finite &= object_fit(image.natural(), *fit, c).is_none_or(finite_rect);
+                    if let Payload::Image(image, fit, position, env, _, _) = &n.payload {
+                        finite &= object_fit(image.natural(), *fit, position, c, env)
+                            .is_none_or(finite_rect);
                     }
                     if !finite {
                         return Err("nonfinite content paint geometry".into());
@@ -875,8 +881,10 @@ impl<'a> Replay<'a> {
                     }
                     match &n.payload {
                         Payload::Empty => {}
-                        Payload::Image(image, fit, tint, rendering) => {
-                            if let Some(dst) = object_fit(image.natural(), *fit, g.content) {
+                        Payload::Image(image, fit, position, env, tint, rendering) => {
+                            if let Some(dst) =
+                                object_fit(image.natural(), *fit, position, g.content, env)
+                            {
                                 let clips = [g.content_edge()];
                                 let placed = image.placed(dst);
                                 painter
@@ -973,6 +981,7 @@ mod hit_tests {
     use super::*;
     #[test]
     fn affine_hit_uses_the_transformed_rectangle() {
+        exact_kernel::style::link_all();
         for degrees in [0.0, 45.0] {
             let ts = Transform::from_rotate_at(degrees, 50.0, 50.0);
             let rect = (0.0, 0.0, 100.0, 100.0);

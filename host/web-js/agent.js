@@ -69,7 +69,19 @@ function streamTiming(start) {
 }
 import { observe } from './check.js';
 import { faultOp, faultsJson, setFaultLog } from '../web/faults.js';
-import { inertAncestor, displayMode, environment, navigation, routeFlags, foldEnv, preferFold, typedControl, settleValue, animationClock, pageReporter } from './navigation.js';
+import { Open } from './held.js';
+
+function dropStreams(prefix) {
+  if (typeof prefix !== 'string' || !prefix) return { error: 'drop stream needs a URL prefix' };
+  const matches = [...Open].filter(t => !t.ctl.signal.aborted && t.ctl.active() && t.ctl.streamUrl?.startsWith(prefix));
+  if (!matches.length) return { error: `drop stream ${JSON.stringify(prefix)} matched no open stream` };
+  for (const { ctl } of matches) {
+    ctl.dropped = true;
+    ctl.abort();
+  }
+  return { dropped: true };
+}
+import { inertAncestor, displayMode, environment, navigation, routeFlags, foldEnv, preferFold, preferDisplayMode, typedControl, settleValue, animationClock, pageReporter } from './navigation.js';
 import { backButton } from './input-glue.js';
 import { guestOutline, guestTap, guestType, viewBox, reveal, selectAll, scrollRange, typeControl, watchGlides, glidesSettled, scrollsSeen } from './agent-input.js';
 // A zoomable scroller's zoom and range (zoom.js, LLP 1057.001.000 §6).
@@ -320,6 +332,14 @@ export function install(exact) {
     images?.then(h => h.seek());
   };
   const seek = (sync = true) => { anim.register(exact.clock.now); anim.seek(exact.clock.now, sync); holdImages(); };
+  // Deliver world records before later timers (LLP 1012, LLP 1046.003).
+  const worldStep = to => {
+    const worlds = exact.gpu?.clock?.(false), now = exact.clock.now, next = worlds?.nextTickAt;
+    if (!worlds?.reply?.world?.length && !(next > now)) return to;
+    const due = [...(exact.clock.stopped ? [] : exact.clock.timers.map(t => t.due)),
+      ...(exact.mutations ?? []).flatMap(m => [m.due, m.next])].filter(t => t > now);
+    return Math.min(to, next > now ? next : to, ...due);
+  };
   // Whether this clock runs `a` (a refused tap's advice, scripts/agent-aim.mjs `pageOutside`): on the document's timeline,
   // and not held by its author, then or, not yet registered, at its registration.
   exact.clockRuns = anim.runs;
@@ -504,9 +524,9 @@ export function install(exact) {
             const at = exact.clock.now, epoch = exact.clock.epoch, to = Math.max(anim.settle(), world.settleAt ?? 0, ...exact.clock.timers.filter(t => t.data && t.live()).map(t => t.due));
             for (let stops = 0; ; stops++) {
               const before = exact.inflight.n, held = stops < 4096 && performance.now() < end;
-              const stopped = exact.advance(to, false, held ? () => exact.inflight.n > before : undefined);
+              const step = worldStep(to), stopped = exact.advance(step, false, held ? () => exact.inflight.n > before : undefined);
               if (typeof stopped === 'string') { seek(); return { error: `clock: ${stopped}`, clock: exact.clock.now }; }
-              if (!stopped) break;
+              if (!stopped && step >= to) break;
               while (exact.inflight.n > unwaited() && performance.now() < end) await new Promise(r => setTimeout(r, 1));
             }
             // Quiet, unless this round's work set a scroller moving: two frames tell (its first event comes at the
@@ -552,10 +572,10 @@ export function install(exact) {
         await exact.viewTransition?.();
         for (const end = performance.now() + 20000; ;) {
           while (due() && exact.inflight.n > unwaited() && performance.now() < end) await new Promise(r => setTimeout(r, 1));
-          const before = exact.inflight.n, stopped = exact.advance(req.to, false, () => exact.inflight.n > before);
+          const before = exact.inflight.n, step = worldStep(req.to), stopped = exact.advance(step, false, () => exact.inflight.n > before);
           // A refusal stops the jump at its time: the runner's error (a timer's, a `then`'s).
           if (typeof stopped === 'string') { seek(); return { error: `clock: ${stopped}`, clock: exact.clock.now }; }
-          if (!stopped) break;
+          if (!stopped && step >= req.to) break;
           // A reply is usually a task or two away: poll at the browser's
           // shortest timer, not a frame's worth (a 300 ms timer's minute
           // is 200 of these).
@@ -654,7 +674,7 @@ export function install(exact) {
         const mutationFailures = Object.fromEntries(exact.mutations.flatMap(m => { const failure = m.e(); return failure ? [[m.name, {code: failure[0], message: failure[1]}]] : []; }));
         // The writes shown over resources until they end or are answered (overlay.js), as the runner's `state.writes`.
         const writes = exact.writes?.() ?? [];
-        return masked(req, { replacement: replacementState(), delivery: deliveryFacts, slots, derives, resources, ...ownedState, ...(observed.length ? { planDigest: exact.plan ?? null, resourceStatus, resourcesMeasuredFrom: exact.resources.find(r => r.observation).resourcesMeasuredFrom, failures } : {}), ...(Object.keys(mutationFailures).length ? {mutationFailures} : {}), mutationRequests: exact.mutations.reduce((n,m)=>n+m.requests,exact.mutations.retired ?? 0), device: { frozen: (exact.page ?? ownPage()).read().frozen, displayMode: displayMode(), navigationType: ownPage().read()['navigation-type'], gpuTier: (exact.page ?? ownPage()).read()['gpu-tier'], presented: (exact.page ?? ownPage()).read().presented }, ...(writes.length ? { writes } : {}), ...(Object.keys(failed).length ? { failed } : {}), pending, ...(Object.keys(exact.heldReplies?.() ?? {}).length ? { heldReplies: exact.heldReplies() } : {}), streams, watches: exact.watchState?.() ?? [], ...(faults.length ? { faults } : {}), ...(background ? { background } : {}), tasks, taskTiming, queued, ...(exact.extensions?.declared?.() ?? {}), ...(exact.extensions?.wake?.() ? { wake: exact.extensions.wake() } : {}), ...(exact.sounds ? { sounds: exact.sounds.state(req.sounds === 'all') } : {}), ...(exact.transport?.declared() ? { transport: exact.transport.state() } : {}), ...(exact.midi ? { midi: exact.midi.state(req.midi === 'all') } : {}), ...(exact.extensions ? { extensions: exact.extensions.state() } : {}), ...(exact.calls ? { intents: exact.calls.state() } : {}), wakelock: exact.wakelock?.() ?? { held: false, by: [] }, orientationlock: exact.orientationlock?.() ?? { held: false, by: [], words: [], lock: null, conflict: null, applied: 'unavailable' }, head, focus, language, storage, keyboard, atoms, decorations, navigation: (pageHistory() ?? navigation).observation(document.getElementById('exact-root')), media, mediaSession: exact.mediaSession?.state(id) ?? { owner: null, claimants: [], actions: [], playbackState: 'none', published: 'none' }, window: { title: document.title }, ...(exact.canvas2dState ? { canvas: exact.canvas2dState() } : {}), ...(exact.surfaceRefusals ? { surfaceRefusals: exact.surfaceRefusals() } : {}), reorder: exact.reorderState?.() ?? null, ...(exact.lists ? { scrollIntoView: exact.lists.intoView() } : {}), ...(exact.presenceLive ? { presence: presence() } : {}), ...(exact.hatchState ? { hatches: exact.hatchState() } : {}), ...tags() });
+        return masked(req, { replacement: replacementState(), delivery: deliveryFacts, slots, derives, resources, ...ownedState, ...(observed.length ? { planDigest: exact.plan ?? null, resourceStatus, resourcesMeasuredFrom: exact.resources.find(r => r.observation).resourcesMeasuredFrom, failures } : {}), ...(Object.keys(mutationFailures).length ? {mutationFailures} : {}), mutationRequests: exact.mutations.reduce((n,m)=>n+m.requests,exact.mutations.retired ?? 0), device: { screenReader: (exact.page ?? ownPage()).read()["screen-reader"], frozen: (exact.page ?? ownPage()).read().frozen, displayMode: displayMode(), navigationType: ownPage().read()['navigation-type'], gpuTier: (exact.page ?? ownPage()).read()['gpu-tier'], presented: (exact.page ?? ownPage()).read().presented }, ...(writes.length ? { writes } : {}), ...(Object.keys(failed).length ? { failed } : {}), pending, ...(Object.keys(exact.heldReplies?.() ?? {}).length ? { heldReplies: exact.heldReplies() } : {}), streams, watches: exact.watchState?.() ?? [], ...(faults.length ? { faults } : {}), ...(background ? { background } : {}), tasks, taskTiming, queued, ...(exact.extensions?.declared?.() ?? {}), ...(exact.extensions?.wake?.() ? { wake: exact.extensions.wake() } : {}), ...(exact.sounds ? { sounds: exact.sounds.state(req.sounds === 'all') } : {}), ...(exact.transport?.declared() ? { transport: exact.transport.state() } : {}), ...(exact.midi ? { midi: exact.midi.state(req.midi === 'all') } : {}), ...(exact.extensions ? { extensions: exact.extensions.state() } : {}), ...(exact.calls ? { intents: exact.calls.state() } : {}), wakelock: exact.wakelock?.() ?? { held: false, by: [] }, orientationlock: exact.orientationlock?.() ?? { held: false, by: [], words: [], lock: null, conflict: null, applied: 'unavailable' }, head, focus, language, storage, keyboard, atoms, decorations, navigation: (pageHistory() ?? navigation).observation(document.getElementById('exact-root')), media, mediaSession: exact.mediaSession?.state(id) ?? { owner: null, claimants: [], actions: [], playbackState: 'none', published: 'none' }, window: { title: document.title }, ...(exact.canvas2dState ? { canvas: exact.canvas2dState() } : {}), ...(exact.surfaceRefusals ? { surfaceRefusals: exact.surfaceRefusals() } : {}), reorder: exact.reorderState?.() ?? null, ...(exact.lists ? { scrollIntoView: exact.lists.intoView() } : {}), ...(exact.presenceLive ? { presence: presence() } : {}), ...(exact.hatchState ? { hatches: exact.hatchState() } : {}), ...tags() });
       }
       // The page group (LLP 1069.000 D6), where the plan reads `exactPage` (facts.js); else the drive's facts
       // held here, so `root-font-size` still sets the root element's size `rem` follows (D3), as glue.js does.
@@ -669,7 +689,7 @@ export function install(exact) {
       case 'cancel': return exact.calls ? exact.calls.cancel(req.id) : { error: 'cancel: this app declares no tool' };
       case 'launchEntry': if (req.launch === 'call' && exact.calls) { const [, tool, args] = String(req.entry ?? '').trim().match(/^(\S+)\s*(.*)$/s) ?? []; return { ...exact.calls.call({ tool, args: args || '{}', door: req.door ?? 'agent', cold: true }), cold: true }; }
         return exact.extensions?.launch ? exact.extensions.launch(req) : { error: `--${req.launch}: this app reads no module` }; // LLP 1133.004 §7
-      case 'prefer': { if (req.faults) return faultOp(req.faults); if (req.extension || req.permission) return exact.extensions ? exact.extensions.prefer(req) : { error: 'prefer: this app reads no module' }; if (req.midi) return exact.midi ? exact.midi.prefer(req.midi) : { error: 'prefer midi: this plan keeps no MIDI queue' }; const pins = Object.entries(req.mode ?? {}), why = req.mode && (exact.modes ? exact.modes.check(pins) : pins.length > 0 && `${pins.map(([a, v]) => `\`${a}=${v}\``).join(" ")} names an axis or value the app's design lacks, or an axis twice`); if (why) return { error: `prefer mode: ${why}` }; try { const facts = (exact.page ?? ownPage()).prefer(req.page ?? {}); if (req.page?.['root-font-size'] !== undefined) dispatchEvent(new Event('resize')); if (req.page?.['visibility-state'] !== undefined) exact.foreground?.(facts['visibility-state'] !== 'hidden'); const fold = !req.fold ? foldEnv() : exact.fold ? exact.fold.prefer(req.fold) : preferFold(Object.keys(req.fold).length ? req.fold : null); if (req.mode) exact.modes?.set(pins); return { page: facts, fold, ...(req.mode ? { mode: exact.modes?.read() ?? {} } : {}) }; } catch (e) { return { error: e.message, ...(e.malformed === true ? { malformed: true } : {}) }; } } // @ref LLP 1121 D13 — the mode group: checked before any fact is set, set after the rest
+      case 'prefer': { if (req.faults) return 'dropStream' in req.faults ? dropStreams(req.faults.dropStream) : faultOp(req.faults); if (req.extension || req.permission) return exact.extensions ? exact.extensions.prefer(req) : { error: 'prefer: this app reads no module' }; if (req.midi) return exact.midi ? exact.midi.prefer(req.midi) : { error: 'prefer midi: this plan keeps no MIDI queue' }; const pins = Object.entries(req.mode ?? {}), why = req.mode && (exact.modes ? exact.modes.check(pins) : pins.length > 0 && `${pins.map(([a, v]) => `\`${a}=${v}\``).join(" ")} names an axis or value the app's design lacks, or an axis twice`); if (why) return { error: `prefer mode: ${why}` }; try { const facts = (exact.page ?? ownPage()).prefer(req.page ?? {}); if (req.page?.['root-font-size'] !== undefined) dispatchEvent(new Event('resize')); if (req.page?.['visibility-state'] !== undefined) exact.foreground?.(facts['visibility-state'] !== 'hidden'); const fold = !req.fold ? foldEnv() : exact.fold ? exact.fold.prefer(req.fold) : preferFold(Object.keys(req.fold).length ? req.fold : null); const display = req.media?.['display-mode']; if (display != null) (exact.displayMode?.prefer ?? preferDisplayMode)(display); if (req.mode) exact.modes?.set(pins); return { page: facts, fold, ...(req.mode ? { mode: exact.modes?.read() ?? {} } : {}) }; } catch (e) { return { error: e.message, ...(e.malformed === true ? { malformed: true } : {}) }; } } // @ref LLP 1121 D13 — the mode group: checked before any fact is set, set after the rest
       default: return { error: `${req.op} is not carried by the JS target` };
     }
   };

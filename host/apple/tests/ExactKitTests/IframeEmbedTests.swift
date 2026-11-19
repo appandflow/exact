@@ -1,6 +1,8 @@
 import WebKit
 import XCTest
 @testable import ExactKit
+@testable import ExactNativeViews
+@testable import ExactWebViews
 #if os(macOS)
 import AppKit
 #else
@@ -42,7 +44,7 @@ final class IframeEmbedTests: XCTestCase {
         }
         let session = ExactApp.shared.makeSession(label: label)
         sessions.append(session)
-        session.webviews.moduleLocation = { arm }
+        session.webHost.moduleLocation = { arm }
         XCTAssertNil(session.boot(size: CGSize(width: 400, height: 300)).error)
         #if os(macOS)
         _ = NSApplication.shared

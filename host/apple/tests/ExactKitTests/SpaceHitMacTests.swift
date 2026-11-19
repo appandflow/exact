@@ -226,5 +226,35 @@ final class SpaceHitMacTests: XCTestCase {
         XCTAssertNil(plain.plane, "an untransformed box keeps AppKit's own geometry")
         XCTAssertTrue(hit(flat, 55, 55) === plain)
     }
+
+    /// The document reaches each box where it is drawn: a plain box outside
+    /// the root's laid-out content, and a box under a translated one, moved
+    /// with it (`documentOverflow`).
+    func testTheDocumentReachesBoxesWhereTheyAreDrawn() {
+        _ = NSApplication.shared
+        let p = Presenter()
+        p.viewport.frame = NSRect(x: 0, y: 0, width: 400, height: 300)
+        let window = NSWindow(contentRect: p.viewport.frame, styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = p.viewport
+        self.window = window
+        p.apply(wireBatch((1...5).map { ["op": "create", "id": $0, "kind": "view", "style": [String: Any]()] } + [
+            ["op": "children", "id": 1, "ids": [2, 4]],
+            ["op": "children", "id": 2, "ids": [3]],
+            ["op": "children", "id": 4, "ids": [5]],
+            ["op": "roots", "ids": [1]],
+            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 400.0, "h": 300.0],
+            ["op": "content", "id": 1, "w": 400.0, "h": 300.0],
+            ["op": "frame", "id": 2, "x": 10.0, "y": 10.0, "w": 100.0, "h": 50.0],
+            ["op": "frame", "id": 3, "x": 590.0, "y": 20.0, "w": 10.0, "h": 10.0],
+            ["op": "frame", "id": 4, "x": 0.0, "y": 100.0, "w": 100.0, "h": 50.0],
+            ["op": "frame", "id": 5, "x": 0.0, "y": 0.0, "w": 40.0, "h": 400.0],
+            ["op": "present", "id": 4, "property": "translate", "x": 0.0, "y": 200.0, "w": 0.0, "h": 0.0],
+        ]))
+        p.viewport.layoutSubtreeIfNeeded()
+        p.fitDocument()
+        XCTAssertEqual(p.root.frame.width, 610, accuracy: 1e-6, "the plain box's right edge: 10 + 590 + 10")
+        XCTAssertEqual(p.root.frame.height, 700, accuracy: 1e-6, "the moved box's child: 100 + 200 + 400")
+    }
 }
 #endif

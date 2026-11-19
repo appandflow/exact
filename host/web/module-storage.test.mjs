@@ -23,7 +23,7 @@ test('the image waiter cannot expose a raw database behind the storage queue', a
     var executed = [], release, reached, probe;
     var held = new Promise(r => release = r), entered = new Promise(r => reached = r);
     __exact_storage = {
-      sqlite: { open: () => Promise.resolve({ execute: sql => { executed.push(sql); return Promise.resolve(); } }) },
+      sqlite: { open: () => Promise.resolve({ execute: sql => { executed.push(sql); return Promise.resolve({ changes: 0, lastInsertRowid: 0n, changed: false }); } }) },
       fs: { atomicWriteFile: () => { reached(); return held; } }
     };
     __exact_install_storage();

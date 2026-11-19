@@ -21,6 +21,12 @@ impl<D: DataSource> Host<D> {
         format!("{{\"ended\":{}}}", self.runner.take_ended_actions())
     }
 
+    pub(crate) fn drop_stream(&mut self, request: &str) -> Option<Result<String, String>> {
+        exact_runner::agent::drop_stream(&mut self.runner, request).map(|result| {
+            result.map(|drop| self.commit(&drop.receipts, drop.error.map(|e| format!("{e:?}"))))
+        })
+    }
+
     /// The agent API's read operations (LLP 1012): `tree`, `state`, and
     /// `logs` from the runner; `settle` — the clock at which the last
     /// transition in flight ends, milliseconds, `null` when quiescent — from

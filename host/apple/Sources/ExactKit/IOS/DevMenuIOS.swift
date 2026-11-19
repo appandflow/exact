@@ -119,7 +119,7 @@ public enum DevMenu {
     nonisolated(unsafe) static weak var session: ExactSession?
     nonisolated(unsafe) static weak var controller: UIViewController?
     nonisolated(unsafe) static weak var frameHealthContainer: UIView?
-    /// Where a reload without a connection restarts from (`EXACT_DEV_PLAN`, `EXACT_PLAN`), else the baked plan.
+    /// Where a development build's reload without a connection restarts from (`EXACT_DEV_PLAN`, `EXACT_PLAN`), else the baked plan.
     nonisolated(unsafe) static var planPath: String?
 
     /// The gestures, on the window: above every node, indifferent to what
@@ -303,8 +303,8 @@ public enum DevMenu {
     }
 
     /// Restart: a live connection re-fetches; else from the dev loop's plan
-    /// when one is named (the watcher's own path, state carried), else from
-    /// the baked plan, fresh.
+    /// when one is named in a development build (the watcher's own path,
+    /// state carried), else from the baked plan, fresh.
     public static func reload() {
         pending += 1
         sheet?.dismiss(animated: false)
@@ -312,10 +312,13 @@ public enum DevMenu {
         ExactApp.shared.endCompositions()
         if ExactApp.shared.connectionStatus != nil { ExactApp.shared.reloadConnection(); return }
         guard let session else { return }
+        // A production build takes no development plan, and reloads the baked one.
+        #if EXACT_INSPECT
         if let path = planPath {
             ExactDevelopmentPlan(path).apply(to: ExactApp.shared, now: true)
             return
         }
+        #endif
         let started = CACurrentMediaTime()
         let batch = session.boot(size: session.presenter.viewportSize)
         // stderr, as on macOS, where stdout is the agent's reply channel.
@@ -334,7 +337,7 @@ public enum DevMenu {
             lines.append("plan: baked")
         }
         lines.append("app dir: \(ExactApp.shared.assetRoot.path)")
-        if let failure = WidgetContainer.publicationFailure { lines.append("widget generation: \(failure)") }
+        if let failure = WidgetLink.publication?.publicationFailure { lines.append("widget generation: \(failure)") }
         if let s = ExactEnv.environment["EXACT_AGENT_SOCKET"] { lines.append("agent: \(s)") }
         if let session {
             let size = session.presenter.viewportSize

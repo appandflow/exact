@@ -851,18 +851,26 @@ impl<D: DataSource> Presenter<D> {
         }
     }
 
-    /// A secondary mouse click on a canvas, through the device input path.
-    /// Other native context menus remain unsupported, never a primary press:
-    /// one a node names with `contextPopover` (LLP 1021 §5.1, its submenus
-    /// §5.2) is refused as a popover, which Linux does not present.
+    /// The host's context-menu gesture: a recognized long press on Android,
+    /// a secondary mouse click on the desktop (LLP 1115.001 D10, LLP 1021 §5.1).
     pub(crate) fn contextmenu(
         &mut self,
         id: ViewId,
         at: Option<(f32, f32)>,
     ) -> Result<String, String> {
-        // The node names a menu, or is inside one that does (a card's title
-        // or grip): a finger held there opens that menu, as a secondary
-        // click on a child opens its parent's on the web and on Apple.
+        // Android's reader makes separate surface windows; desktop shells
+        // overlay the page. The gesture follows the shell, whether the node
+        // names a menu or only handles `contextmenu`.
+        if self.separate_surface_windows() {
+            let (x, y) = self.pointer_target(id, at)?;
+            let now = self.host.now();
+            return match self.long_press(x, y, now) {
+                true => Ok(format!("{{\"tapped\":{id},\"contextmenu\":true}}")),
+                false => Err(format!("view {id} opened no context menu")),
+            };
+        }
+        // A desktop shell without menu presentation keeps the popover
+        // refusal, including a click on a child of the invoker.
         let names_popover = {
             let kernel = self.host.kernel();
             let mut at = kernel.node(id);
@@ -873,18 +881,6 @@ impl<D: DataSource> Presenter<D> {
             }
             at.is_some()
         };
-        // Where the top layer is windows (LLP 1115.001 D10) the menu opens as
-        // a finger held on the node opens it: its `contextmenu` runs, then the
-        // menu shows at the point (the node's middle unsaid). The finger is
-        // held only where one can be: on a shown node that is not covered.
-        if names_popover && self.has_windows() {
-            let (x, y) = self.pointer_target(id, at)?;
-            let now = self.host.now();
-            return match self.long_press(x, y, now) {
-                true => Ok(format!("{{\"tapped\":{id},\"contextmenu\":true}}")),
-                false => Err(format!("view {id} opened no context menu")),
-            };
-        }
         self.mouse_click(id, at, true).map_err(|refusal| {
             if names_popover && refusal.contains("canvas") {
                 self.host.log(crate::navigation::POPOVER_UNSUPPORTED);
@@ -895,7 +891,7 @@ impl<D: DataSource> Presenter<D> {
         })
     }
 
-    /// An explicit primary mouse click; ordinary agent taps remain fingers.
+    /// An explicit mouse click; ordinary agent taps remain fingers.
     pub(crate) fn mouse_click(
         &mut self,
         id: ViewId,
@@ -908,7 +904,9 @@ impl<D: DataSource> Presenter<D> {
         }
         let (x, y) = self.pointer_target(id, at)?;
         let canvas = self.hover_canvas(x, y);
-        if canvas.is_none() || canvas != self.input_surface(id) {
+        if (canvas.is_none() || canvas != self.input_surface(id))
+            && !(secondary && self.desktop_overlays())
+        {
             return Err(format!("view {id} does not carry canvas {kind} input"));
         }
         let now = self.host.now();
@@ -917,6 +915,9 @@ impl<D: DataSource> Presenter<D> {
         if secondary {
             self.pointer_aux(2, true, x, y, now);
             self.pointer_aux(2, false, x, y, now);
+            if self.desktop_overlays() {
+                self.agent_contextmenu_at((x, y))?;
+            }
         } else {
             // The click lifts whatever its down did, so no press is left held.
             let down = self.pointer_down(x, y, now);

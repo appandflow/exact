@@ -146,7 +146,9 @@ impl<D: DataSource> Host<D> {
             if let Err(e) = self.layout(&mut batch) {
                 error.get_or_insert(e);
             }
-            self.canvas_turn(&mut batch);
+            if let Some(canvas) = self.turn.canvas {
+                (canvas.turn)(self, &mut batch);
+            }
         }
         self.finish(batch, error)
     }
@@ -169,13 +171,7 @@ impl<D: DataSource> Host<D> {
                 Err(e) => drop(error.get_or_insert(format!("block: {e:?}"))),
             }
             if captured != self.native_captured_id(view) {
-                self.content_region
-                    .as_mut()
-                    .unwrap()
-                    .native
-                    .as_mut()
-                    .unwrap()
-                    .dirty = true;
+                self.native_moved();
             }
         }
         self.runner.place_blocks(placements);

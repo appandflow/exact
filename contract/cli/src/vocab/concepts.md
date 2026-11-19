@@ -1653,13 +1653,30 @@ component App
 
 More: apps/svg-gallery/app.contract (each element and attribute, drawn alike on every host but `foreignObject`)
 
-## env: a setting app.ts reads, from the build or from a launch (import.meta.env)
+## env: a setting an app-local module reads, from the build or from a launch (import.meta.env)
 names: import.meta.env, process.env, .env, .env.local, dotenv, environment variable, launchEnvironment, SIMCTL_CHILD, API_BASE_URL
 
 `env()` in a length is CSS's: the concept `safe-area`. A setting is a name in app.json's `env`
-read in a top-level `const` of app.ts: `const API = import.meta.env.API_BASE_URL ??
-'http://127.0.0.1:8080'`. Its value is the build's, inlined into the module: the environment,
+read in a top-level `const` of `app.ts` or an app-local module it imports transitively
+(type-only imports and re-exports read no settings):
+`const API = import.meta.env.API_BASE_URL ?? 'http://127.0.0.1:8080'`.
+Its value is the build's, inlined into the module: the environment,
 then `.env.local`, then `.env` beside app.json, then the default. Every value is public.
+Every read of a name must use the same default, including no default. A declared name
+must be read in this import graph; other captured files do not count. Packages may not
+read app settings. Server discovery and setting digests use the bake's recorded modules.
+Freshness also includes every file the TypeScript check loaded, including `import()` types
+and triple-slash references, plus resolution inputs such as manifests, configuration and
+the names a resolution would have chosen, present or absent, including inside packages; an
+unrelated file or directory is none. A source excluded from
+declaration capture is still recorded as a file when present. Web, Linux and Apple builds
+write the same discovery record beside the app. Type-only modules can type-check declared
+settings without reading their values or supplying defaults. Without a build record, the app needs a build.
+
+Server discovery prefers a local setting read by app.ts, else the first local setting
+in its imports, walked depth-first in source order with each module before its imports,
+else the first literal URL. If the first setting-owning module has different local values,
+keep the server's setting in app.ts and other clients' settings in their modules.
 
 `{ "name": "API_BASE_URL", "launch": true }` in `env` lets a launch replace it (a test, a
 benchmark, a debugger): the same read takes a non-empty value from the launched process's

@@ -1,6 +1,7 @@
 import Foundation
 import XCTest
 @testable import ExactKit
+@testable import ExactHostEventMailbox
 
 /// The host events a package takes (LLP 1133.001.000 D2): a delegate method
 /// added only for a taken event, and a mailbox addressed to sessions.

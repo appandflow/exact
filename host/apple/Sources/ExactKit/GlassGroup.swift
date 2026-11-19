@@ -297,7 +297,7 @@ extension NodeView {
             made.owner = self
             moveOrPlace(new: true) { made.frame = base.bounds }
             made.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-            let children = base.subviews.filter { $0 is NodeView }
+            let children = NodeView.structural(base.subviews)
             GlassGroups.moving(in: self) {
                 base.insertSubview(made, at: 0)
                 for child in children { made.contentView.addSubview(child) }
@@ -322,7 +322,7 @@ extension NodeView {
     private func removeGlassGroup(_ group: GlassGroupView) {
         glassGroupView = nil
         let base = baseContainer
-        let children = group.contentView.subviews.filter { $0 is NodeView }
+        let children = NodeView.structural(group.contentView.subviews)
         GlassGroups.moving(in: self) {
             for (i, child) in children.enumerated() { base.insertSubview(child, at: i) }
             group.removeFromSuperview()
@@ -433,7 +433,7 @@ extension NodeView {
             content.autoresizingMask = [.width, .height]
             content.setAccessibilityElement(false)
             made.contentView = content
-            let children = base.subviews.filter { $0 is NodeView }
+            let children = NodeView.structural(base.subviews)
             GlassGroups.moving(in: self) {
                 base.addSubview(made, positioned: .below, relativeTo: base.subviews.first)
                 for child in children { content.addSubview(child) }
@@ -456,7 +456,7 @@ extension NodeView {
         glassGroupView = nil
         let base = baseContainer
         let content = group.subviews.first { $0 is GlassContent } ?? group
-        let children = content.subviews.filter { $0 is NodeView }
+        let children = NodeView.structural(content.subviews)
         GlassGroups.moving(in: self) {
             for child in children.reversed() { base.addSubview(child, positioned: .below, relativeTo: base.subviews.first) }
             group.removeFromSuperview()

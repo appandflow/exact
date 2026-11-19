@@ -1,3 +1,4 @@
+import { symbolBox, symbolSize, symbolPlaceholder, syncSymbolPlaceholder, symbolFit, tintFit } from "../symbol-geometry.js";
 import { picker, track, iframeLoading, localAssetURL, host, loadAfterPaint, moduleReady, views, writeIn, now, afterNativePaint, log, retiredViews, lists, root, encoder, readOut, imageProbes, inflight, IMAGE_ERROR, CORS_ERROR, heldValues, composing, loadDecorations, markupPending, scrollDocs, followScroll, pendingScrolls, DATA_LIMIT, authoredDisabled, holdWake, holdOrientation } from "../glue.js";
 import { pageGivenFiles, commitGuestOrigin, frameURL, refuseURL, valuedControl, renderMarkup, editMenu, inertAncestor, contextAt, liveById, navigates, navigableURL, dataURL, settleValue } from "../navigation.js";
 import { send } from "./commit.js";
@@ -140,19 +141,6 @@ export function forgetList(el) {
   host.listSelection?.forget(el);
   lists.delete(el);
 }
-// A tinted raster's `scale-down` (element.rs `host_css`, LLP 1011 §3): `contain` unless its natural size fits the content box, known once it loads.
-function tintFit(el) {
-  if (!el.style.getPropertyValue("mask-size").includes("--exact-tint-fit")) {
-    return;
-  }
-  if (!el.complete) {
-    el.addEventListener("load", () => tintFit(el), { once: true });
-    return;
-  }
-  const cs = getComputedStyle(el);
-  const fits = el.naturalWidth <= el.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight) && el.naturalHeight <= el.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom);
-  el.style.setProperty("--exact-tint-fit", fits ? "auto" : "contain");
-}
 export function imageEvents(el, fire) {
   const probe = (src) => {
     if (!imageProbes.has(src)) {
@@ -226,7 +214,7 @@ export function refreshSymbols() {
     };
   });
   for (const { el, point, weight } of configs) {
-    const path = el.getAttribute("data-symbol-path"), filled = el.hasAttribute("data-symbol-fill"), box = el.getAttribute("data-symbol-viewbox") || "0 0 24 24", key = `${path}:${filled}:${point}:${weight}:${box}:${el.hasAttribute("data-symbol-nonzero")}`;
+    const path = el.getAttribute("data-symbol-path"), filled = el.hasAttribute("data-symbol-fill"), box = el.getAttribute("data-symbol-viewbox") || "0 0 24 24", source = el.getAttribute("data-symbol-source"), key = `${path}:${filled}:${point}:${weight}:${box}:${el.hasAttribute("data-symbol-nonzero")}:${source}`;
     if (!path && !el.dataset.symbolSource?.startsWith("symbol:sf/") && el.dataset.symbolSource !== "symbol:" && el.symbolRefusal !== el.dataset.symbolSource) {
       log(`image ${el.dataset.symbolSource} refused: unknown symbol role`);
       el.symbolRefusal = el.dataset.symbolSource;
@@ -235,25 +223,19 @@ export function refreshSymbols() {
       el.symbolKey = key;
       const stroke = 1.1 + (Math.max(100, Math.min(900, weight)) - 100) / 400;
       const paint = filled ? `fill="black" fill-rule="${el.hasAttribute("data-symbol-nonzero") ? "nonzero" : "evenodd"}"` : `fill="none" stroke="black" stroke-width="${stroke}" stroke-linecap="round" stroke-linejoin="round"`;
-      const [, , w, h] = box.trim().split(/[\s,]+/).map(Number), aspect = w > 0 && h > 0 ? w / h : 1;
-      el.symbolSize = aspect > 1 ? [point, point / aspect] : [point * aspect, point];
-      el.symbolMask = `url("data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="${el.symbolSize[0]}" height="${el.symbolSize[1]}" viewBox="${box}">${path.split(";").map((d) => `<path d="${d}" ${paint}/>`).join("")}</svg>`)}")`;
-      el.symbolPlaceholder = `data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="${point}" height="${point}"/>`)}`;
+      const [width, height] = symbolSize(box, point, source);
+      el.symbolMask = `url("data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" ${width === height ? `width="${width}" height="${height}" ` : ""}viewBox="${symbolBox(box).join(" ")}">${path.split(";").map((d) => `<path d="${d}" ${paint}/>`).join("")}</svg>`)}")`;
+      el.symbolPlaceholder = symbolPlaceholder(width, height);
     }
-    if (el.getAttribute("src") !== el.symbolPlaceholder) {
-      el.src = el.symbolPlaceholder;
-    }
+    syncSymbolPlaceholder(el, refreshSymbols);
     el.style.setProperty("--exact-symbol-mask", el.symbolMask);
   }
   // Sources can set intrinsic size synchronously; percentage padding must resolve against the resulting layout.
-  const fits = configs.map(({ el, objectFit }) => {
-    const cs = objectFit === "scale-down" ? getComputedStyle(el) : null, [w, h] = el.symbolSize;
-    const fits = cs && w <= el.clientWidth - (parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight)) && h <= el.clientHeight - (parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom));
-    // `fill`, CSS's initial `object-fit`, keeps a symbol's aspect, as on the Apple hosts (LLP 1011 §4).
-    return [el, objectFit === "none" || objectFit === "scale-down" && fits ? `${w}px ${h}px` : objectFit === "scale-down" || objectFit === "fill" ? "contain" : objectFit];
-  });
-  for (const [el, fit] of fits) {
+  const fits = configs.map(({ el, point, objectFit }) => [el, ...symbolFit(el,
+    ...symbolSize(el.getAttribute("data-symbol-viewbox") || "0 0 24 24", point, el.getAttribute("data-symbol-source")), objectFit)]);
+  for (const [el, fit, position] of fits) {
     el.style.setProperty("--exact-symbol-fit", fit);
+    el.style.setProperty("--exact-symbol-position", position);
   }
   for (const el of rasters) {
     tintFit(el);

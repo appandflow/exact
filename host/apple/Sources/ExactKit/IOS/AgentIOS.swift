@@ -265,7 +265,7 @@ extension Agent {
         // The scene's title as UIKit holds it (LLP 1048.003 D1; the app sets it).
         let window: [String: Any] = ["title": presenter.session?.view?.window?.windowScene?.title ?? NSNull()]
         // The list pool and the leaves it holds mid-fling (LLP 1068 §6, §5.1).
-        var pool = presenter.pool.observation.merging(presenter.leaves.observation) { a, _ in a }.merging(presenter.flats.observation) { a, _ in a }
+        var pool = presenter.pool.observation.merging(presenter.leaves?.observation ?? [:]) { a, _ in a }.merging(presenter.flats.observation) { a, _ in a }
         pool["native"] = session.natives.observation
         let kernelState = (try? JSONSerialization.jsonObject(with: Data(session.agent("{\"op\":\"state\"}").utf8))) as? [String: Any]
         let kernelLayout = kernelState?["kernelLayout"] as? [String: Any] ?? [:]
@@ -416,13 +416,13 @@ extension Agent {
         if let t = host.textArea { native["editor"] = String(describing: Swift.type(of: t)); native["firstResponder"] = t.isFirstResponder }
         if let m = host.materialKind { native["effect"] = m; if m != "backdrop" { native["material"] = Materials.agentMaterial(m) } }
         host.glassAgentFields(&native)
-        if presenter.leaves.isPending(host) { native["pending"] = true }
+        if presenter.leaves?.isPending(host) == true { native["pending"] = true }
         // Read the owned bar's geometry independently of its accessibility representation
         let navigation = presenter.navigation
         let tabs = navigation.adopts(tablist: host) ? navigation.tabController : nil
         let projectedBar = presenter.segments.bar(of: host.id)
         if tabs != nil || projectedBar != nil {
-            let shown = tabs?.shownTabBar ?? NavigationHost.shownBar(projectedBar)
+            let shown = tabs?.shownTabBar ?? RouteGeometry.shownBar(projectedBar)
             var observation: [String: Any] = ["visible": shown != nil]
             if let shown { observation["frame"] = rect(box(shown)) }
             native["tabBar"] = observation
@@ -459,10 +459,10 @@ extension Agent {
     /// sheet's swipe down. The system's button is no node, so no tap reaches it.
     func back() -> [String: Any] {
         #if os(iOS)
-        if ShareSheet.agentBack(in: session) || session.picker.agentBackDocument() { return backReply(("sheet", "")) }
+        if session.shareHost.agentBack(session) || session.picker.agentBackDocument() { return backReply(("sheet", "")) }
         #endif
         if let cancelled = presenter.menus.agentCancel() { return backReply(("dialog", cancelled ? "" : "the alert is still moving: `clock settle` first")) }
-        if let refused = presenter.menus.sheets.agentCancel() { return backReply(("dialog", refused)) }
+        if let refused = presenter.dialogs.agentCancel() { return backReply(("dialog", refused)) }
         if let refused = presenter.navigation.agentBack() { return backReply(("route", refused)) }
         return backReply(presenter.modals.agentDismiss().map { ("sheet", $0) })
     }
@@ -616,33 +616,49 @@ extension Agent {
         }
         let flat = flatBoxForRequest(req)
         guard let v = view(req) ?? flat?.host, let win = v.window else { return miss(req) }
-        var b = flat.map { box($0.host.container, region: $0.rect) } ?? v.tapBox(box(v))
-        let flatBounds = flat == nil ? nil : b
-        // A run is touched on a fragment it paints (the web's driver taps
-        // the span's), not at its paragraph's middle.
-        if ["at", "x", "y"].allSatisfy({ req[$0] == nil }), (req["id"] as? Int).map({ presenter.inlineText(UInt32($0)) != nil }) == true,
-           let q = tapPoint(req, node: v) { b = CGRect(origin: q, size: .zero) }
         // A plain press: `at` is a point in the target, the press whatever a
         // finger there reaches; without one, the target's own press
         // (`AgentAddressedTap.swift`).
         let plain = ["wheel", "hover", "contextmenu", "dblclick", "pinch", "x", "y"].allSatisfy { req[$0] == nil } && v.kind != "iframe"
-        // A long press or a double tap at a point too: where its word is (LLP 1115.000 D11.6).
-        if req["x"] != nil || req["y"] != nil || req["at"] != nil && (plain || req["contextmenu"] as? Bool == true || req["dblclick"] as? Bool == true) {
-            if req["at"] != nil {
-                guard let at = req["at"] as? [Double], at.count == 2, at.allSatisfy(\.isFinite) else { return ["error": "tap at needs two finite numbers"] }
+        // The target's box as it is seen now, or the refusal.
+        func aimed() -> (box: CGRect, refusal: [String: Any]?) {
+            var b = flat.map { box($0.host.container, region: $0.rect) } ?? v.tapBox(box(v))
+            let flatBounds = flat == nil ? nil : b
+            // A run is touched on a fragment it paints (the web's driver taps
+            // the span's), not at its paragraph's middle.
+            if ["at", "x", "y"].allSatisfy({ req[$0] == nil }), (req["id"] as? Int).map({ presenter.inlineText(UInt32($0)) != nil }) == true,
+               let q = tapPoint(req, node: v) { b = CGRect(origin: q, size: .zero) }
+            // A long press or a double tap at a point too: where its word is (LLP 1115.000 D11.6).
+            if req["x"] != nil || req["y"] != nil || req["at"] != nil && (plain || req["contextmenu"] as? Bool == true || req["dblclick"] as? Bool == true) {
+                if req["at"] != nil {
+                    guard let at = req["at"] as? [Double], at.count == 2, at.allSatisfy(\.isFinite) else { return (b, ["error": "tap at needs two finite numbers"]) }
+                }
+                guard let point = tapPoint(req, node: v, drawn: flatBounds), point.x.isFinite, point.y.isFinite else { return (b, ["error": "tap needs finite coordinates"]) }
+                let whole = flatBounds ?? box(v)
+                guard whole.contains(point) else { return (b, ["error": "tap #\(v.id) at: (\(Agent.r2(point.x - whole.minX)), \(Agent.r2(point.y - whole.minY))) is outside its \(Agent.r2(whole.width))×\(Agent.r2(whole.height)) box"]) }
+                b = CGRect(x: point.x, y: point.y, width: 0, height: 0)
             }
-            guard let point = tapPoint(req, node: v, drawn: flatBounds), point.x.isFinite, point.y.isFinite else { return ["error": "tap needs finite coordinates"] }
-            let whole = flatBounds ?? box(v)
-            guard whole.contains(point) else { return ["error": "tap #\(v.id) at: (\(Agent.r2(point.x - whole.minX)), \(Agent.r2(point.y - whole.minY))) is outside its \(Agent.r2(whole.width))×\(Agent.r2(whole.height)) box"] }
-            b = CGRect(x: point.x, y: point.y, width: 0, height: 0)
+            return (b, nil)
         }
+        var aim = aimed()
+        if let refusal = aim.refusal { return refusal }
+        var b = aim.box
         // The middle of the box as seen — through a surface's placement when
         // there is one (LLP 1014 D5) — as a point in the window.
         let vp = presenter.viewport
         let window = { (q: CGPoint) in vp.convert(CGPoint(x: q.x + vp.pageOrigin.x, y: q.y + vp.pageOrigin.y), to: nil) }
         var p = window(CGPoint(x: b.midX, y: b.midY))
         var at = [Agent.r2(b.midX), Agent.r2(b.midY)]
-        if req["wheel"] == nil, req["hover"] == nil { awaitAppOverlay(at: p, in: win) }
+        // The wait runs the run loop, and what was pending there may move the
+        // target (a bar settling in a container the app took): it is aimed at
+        // again where it is after the wait, not where it was before it.
+        if req["wheel"] == nil, req["hover"] == nil, awaitAppOverlay(at: p, in: win) {
+            aim = aimed()
+            if let refusal = aim.refusal { return refusal }
+            b = aim.box
+            p = window(CGPoint(x: b.midX, y: b.midY))
+            at = [Agent.r2(b.midX), Agent.r2(b.midY)]
+        }
         let seen = win.hitTest(p, with: nil)
         // A finger lands only where the target is seen (LLP 1035.003: action
         // dispatch is never substituted for a contact), so a press, a menu or
@@ -695,7 +711,7 @@ extension Agent {
             if event == "dblclick", req["touch"] as? Bool == true, let zoomed = NodeView.zoomDoubleTap(hit, at: p) {
                 return ["tapped": Int(zoomed.id), "dblclick": "touch", "delivery": "recognized", "scrollZoom": Double(zoomed.scroll?.zoomScale ?? 1), "at": at]
             }
-            selection = presenter.agentSelect(hit, at: p, event: event)
+            selection = presenter.textSelection.agentSelect(hit, at: p, event: event)
             #endif
             // Delivered (a handler heard it, or it selected): a long press or a double tap lets a hold where it landed go (HeldState.swift).
             let landed = { MainActor.assumeIsolated { HeldState.input(at: hit) } }
@@ -725,12 +741,12 @@ extension Agent {
         if let scale = req["pinch"] as? Double {
             // UIKit synthesizes no pinch: the recognized scale (LLP 1057.001 §5).
             var next: UIView? = v
-            while let view = next, !((view as? NodeView).map { presenter.transformBindings[$0.id]?.target != nil || $0.extras?.zoom != nil } ?? false) { next = view.superview }
+            while let view = next, !((view as? NodeView).map { presenter.drags.transformClip($0.id) != nil || $0.extras?.zoom != nil } ?? false) { next = view.superview }
             if let port = next as? NodeView, port.extras?.zoom != nil {
                 let focal = (req["at"] as? [Double]).flatMap { $0.count == 2 ? v.convert(CGPoint(x: $0[0], y: $0[1]), to: nil) : nil } ?? p
                 return delivered(port.recognizedZoomPinch(scale, focal: focal).merging(["at": at]) { a, _ in a }, hit)
             }
-            guard let handle = next as? NodeView, let clipID = presenter.transformBindings[handle.id]?.clip, let clip = presenter.views[clipID] else {
+            guard let handle = next as? NodeView, let clipID = presenter.drags.transformClip(handle.id), let clip = presenter.views[clipID] else {
                 return ["error": "no photo binding (transformDragFor) at view \(v.id)"]
             }
             let offset = (req["at"] as? [Double]).map { CGPoint(x: $0[0], y: $0[1]) } ?? CGPoint(x: handle.bounds.midX, y: handle.bounds.midY)
@@ -760,7 +776,7 @@ extension Agent {
         if v.kind == "iframe" { return delivered(session.webviews.tap(v, request: req, at: at), hit) }
         #if os(iOS)
         // A finger on a number input's stepper steps it (LLP 1116.007 D4).
-        if plain, let text = hit as? NodeView, presenter.textSelection.text(for: text)?.selected.length ?? 0 > 0 {
+        if plain, let text = hit as? NodeView, presenter.textSelection.hasSelection(in: text) {
             presenter.textSelection.clear()
             return delivered(["tapped": Int(text.id), "at": at, "selection": "cleared"], hit)
         }
@@ -1157,11 +1173,9 @@ extension Agent {
                 } else if name == "Enter", let prompt = focus.headerField, let field = prompt.delegate as? PromptField {
                     // A prompt's field is UIKit's, standing in for this one: its Return.
                     _ = field.returnHeard(prompt)
-                } else if name == "Enter", let editor = focus.headerField, let search = editor.delegate as? HeaderSearch {
+                } else if name == "Enter", let editor = focus.headerField, presenter.navigation.submitSearch(editor) {
                     // The bar's search field: Return is the keyboard's Search key. Its text
                     // field's own Return goes to UIKit's private delegate, which does not submit.
-                    let bar = search.controller.searchBar
-                    bar.delegate?.searchBarSearchButtonClicked?(bar)
                 } else if let f = focus.selectionField {
                     (f as? TextField)?.heard = name
                     (f.delegate as? PromptField)?.heard = name

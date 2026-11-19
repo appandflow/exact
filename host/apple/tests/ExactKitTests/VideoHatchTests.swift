@@ -1,6 +1,7 @@
 import AVFoundation
 import XCTest
 @testable import ExactKit
+@testable import ExactNativeViews
 #if os(macOS)
 import AppKit
 #endif
@@ -55,7 +56,7 @@ final class VideoHatchTests: XCTestCase {
             ["op": "roots", "ids": [1]],
             ["op": "frame", "id": 1, "x": 0, "y": 0, "w": 200, "h": 100],
         ]))
-        p.leaves.settle()
+        p.leaves?.settle()
         XCTAssertEqual(sources.map(\.absoluteString), ["https://example.invalid/clip.m3u8"])
         let player = try XCTUnwrap(player, "the hatch receives the arm's player")
         waitFor("the supplied movie playing") { player.timeControlStatus == .playing }
@@ -97,7 +98,7 @@ final class VideoHatchTests: XCTestCase {
             ["op": "children", "id": 1, "ids": [2]],
             ["op": "roots", "ids": [1]],
         ]))
-        p.leaves.settle()
+        p.leaves?.settle()
         let node = try XCTUnwrap(p.views[2])
         let armPlayer = try XCTUnwrap(ElementHatches.platform(of: node, p) as? AVPlayer)
         XCTAssertNil(armPlayer.currentItem, "the item waits for the app's configuring hatch")

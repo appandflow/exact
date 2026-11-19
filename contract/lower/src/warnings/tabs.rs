@@ -5,6 +5,29 @@ use super::{computed, has, literal};
 use crate::LowerError;
 use contract_checking::Visit;
 
+/// `lower-tablist-conditional` (LLP 1156.006.000 D1): the root's tab bar is in
+/// a branch that can leave it out, as an app writes to hide the bar on one
+/// screen. A host finds the tab panels through the tablist (LLP 1075.003), so
+/// without it every panel shows; `display="none"` hides the bar and keeps it.
+pub(super) fn left_out(view: &[contract_syntax::Node], out: &mut Vec<LowerError>) {
+    let Some(contract_syntax::Node::Element {
+        attrs, children, ..
+    }) = view.first()
+    else {
+        return;
+    };
+    if !has(attrs, "navigationKey") {
+        return;
+    }
+    if let Some(span) = crate::routes::tablist_left_out(children) {
+        out.push(LowerError {
+            id: "lower-tablist-conditional",
+            message: "this tab bar is in a branch (`if`, `match` or `for`), and while the branch is not taken the root has no tabs: every tab's panel shows at once and no host finds the panels' routes. Keep the tablist in the tree and hide it with `display=\"none\"` (docs/contract-for-agents.md, \"Tabs and stacks\")".into(),
+            span,
+        });
+    }
+}
+
 /// `lower-single-tab`: a root tab bar (a `role="tablist"` whose tabs name
 /// their panels with `aria-controls`) with fewer than two tabs (LLP 1116
 /// D6): a bar of one tab under a single screen, which builders copied from

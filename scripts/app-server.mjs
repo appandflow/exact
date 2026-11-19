@@ -10,8 +10,7 @@ import { constants, networkInterfaces } from 'node:os';
 import { takePort } from './port-lock.mjs';
 import { alive, ancestors, closeJob, commandLine, endJob, endRecord, jobActive, jobHas, jobName, openJob, recordedEnd } from './processes.mjs';
 import { backendOriginSelection, privateNetwork } from '../js/bake/src/typescript.mjs';
-import { inlineSettings } from '../js/bake/src/__exact_env.mjs';
-import { importsOf, readsDB } from './app-imports.mjs';
+import { appModules, appSettings, appSourceInputs, readsDB } from './app-imports.mjs';
 
 // The app's own server (LLP 1116.006 D3). A local origin the data module calls, with any path under it.
 const LOCAL = /\bhttps?:\/\/(?:127\.0\.0\.1|localhost|\[::1\]):\d{2,5}(?:\/[\w\-./]*)?/, LOCAL_SOCKET = new RegExp(LOCAL.source.replace('https?', 'wss?'));
@@ -24,10 +23,31 @@ export function onThisMachine(origin) {
     || privateNetwork(origin) && Object.values(networkInterfaces()).flat().some(n => n?.address === new URL(origin).hostname.replace(/^\[|\]$/g, ''));
 }
 
-/** app.ts as the build has it (LLP 1153 D4), each setting read replaced by what `inlineSettings` gives under `env` (a
- * default included), and those values; as written, with none, where the bake refuses it. */
-function builtSettings(dir, env, code = readIn(dir, 'app.ts')) {
-  try { const { code: built, record } = inlineSettings(code, dir, createRequire(import.meta.url)('rolldown/utils').parseSync, env); return { code: built, values: Object.fromEntries(Object.entries(record).map(([name, s]) => [name, s.value])) }; } catch { return { code, values: {} }; }
+/** App.ts and its transitive app-local imports, with settings inlined (LLP 1153 D4); authored imports when the bake refuses. */
+function builtSettings(dir, env) {
+  const inputs = appSourceInputs(dir);
+  if (!inputs && readIn(dir, 'app.ts') !== null) throw new Error('build the app before discovering its server: no recorded module inputs');
+  const ordered = modules => {
+    const seen = new Set(), result = new Map(), imports = new Map();
+    for (const [file,,,next] of inputs?.edges ?? []) {
+      if (!imports.has(file)) imports.set(file, []);
+      imports.get(file).push(next);
+    }
+    const visit = file => {
+      if (seen.has(file)) return;
+      seen.add(file);
+      if (modules.has(file)) result.set(file, modules.get(file));
+      for (const next of imports.get(file) ?? []) visit(next);
+    };
+    visit('app.ts');
+    return result;
+  };
+  try {
+    const { modules, record, reads } = appSettings(dir, env, inputs);
+    return { modules:ordered(modules), reads, values: Object.fromEntries(Object.entries(record).map(([name, s]) => [name, s.value])) };
+  } catch {
+    return { modules: ordered(appModules(dir, inputs).modules), values: {}, reads:[] };
+  }
 }
 /** `text` with its comments blanked, so a URL a comment names is not taken for one the code calls; as written when
  * it does not parse. */
@@ -40,18 +60,23 @@ function uncommented(text, path) {
     return text;
   } catch { return text; }
 }
-/** The server URL the data module calls: a setting's value that is a local URL (`http://127.0.0.1:8787`, localhost), as the
- * build inlines it; else the first local one in app.ts's code (not its comments), else in a module of its own it imports
- * (`./api`'s `API`); with no http one, a socket's origin (`ws://…`) is its server's. Null with none. */
+/** The server URL: app.ts's local setting first, else the first in a depth-first, pre-order walk of its recorded imports
+ * in source order, else the first literal URL. With no HTTP literal, use a socket's origin. Null with none. */
 export function serverUrl(dir, env = process.env) { return serverChoice(dir, env).url; }
 
 /** `serverUrl`'s answer as `{ url, note }`: `note` says which origin it took and why when the code names more than one. */
 export function serverChoice(dir, env = process.env) {
-  const { code, values } = builtSettings(dir, env);
-  const texts = [['app.ts', uncommented(code, 'app.ts')], ...importsOf(dir, 'app.ts').map((p) => [p, uncommented(readIn(dir, p), p)])];
+  const { modules, values, reads } = builtSettings(dir, env);
+  const texts = [...modules].map(([path, code]) => [path, uncommented(code, path)]);
   const all = (re) => texts.flatMap(([path, t]) => [...(t ?? '').matchAll(new RegExp(re.source, 'g'))].map((m) => ({ path, url: m[0] })));
   const found = [...all(LOCAL), ...all(LOCAL_SOCKET)].map((f) => ({ ...f, url: f.url.replace(/\/$/, '').replace(/^ws/, 'http') }));
-  const setting = Object.entries(values).map(([name, value]) => ({ name, url: String(value).match(LOCAL)?.[0] ?? String(value).match(LOCAL_SOCKET)?.[0] })).find((s) => s.url);
+  let setting;
+  for (const [file] of texts) {
+    const settings = reads.filter(read => read.file === file).map(({name}) => ({name,url:String(values[name]).match(LOCAL)?.[0] ?? String(values[name]).match(LOCAL_SOCKET)?.[0]})).filter(s => s.url);
+    const distinct = [...new Set(settings.map(s => s.url.replace(/\/$/, '').replace(/^ws/, 'http')))];
+    if (distinct.length > 1) throw new Error(`server discovery: equally first local settings in ${file}: ${settings.map(s => `${s.name}=${s.url}`).join(', ')}; choose one server setting in app.json's "env" and read it in app.ts, keeping other clients' settings in their modules`);
+    if (settings.length) { setting = settings[0]; break; }
+  }
   const url = setting ? setting.url.replace(/\/$/, '').replace(/^ws/, 'http') : found[0]?.url ?? null;
   const origins = [...new Set([...(setting ? [url] : []), ...found.map((f) => f.url)].map((u) => new URL(u).origin))];
   const why = setting ? `the value of ${setting.name}` : `the first in ${found[0]?.path}'s code`;
@@ -94,7 +119,7 @@ export function appServer(dir, env = process.env) {
   return { entry, args: entry === named ? serverArgs : [], database, url, port, why, refusal, settings: builtSettings(dir, env).values, ...(chosen?.note ? { note: chosen.note } : {}), ...(fixture ? { fixture: true } : {}), ...(command ? { command } : {}) };
 }
 
-// app.ts's settings as `appServer` read them: a server importing it (site's) listens where it looked, as Bun's .env loading may not.
+// The app's settings as `appServer` read them: the server listens where the build calls it, as Bun's .env loading may not.
 function serverEnv(server, db) {
   const env = { ...process.env, ...server.settings, PORT: String(server.port) };
   if (server.database) env.DB = db; else delete env.DB;

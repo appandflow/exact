@@ -56,5 +56,5 @@ component App
 ```
 
 Tabs mount on selection and keep stacks, drafts and scroll. Reselecting pops.
-Hide a tab with `display="none"`, never `if`; while hidden, drop route padding and gate its
+Hide a tab or the tablist with `display="none"`, never `if`; while hidden, drop route padding and gate its
 resources ([how](../contract-for-agents.md#a-features-requests)).

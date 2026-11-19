@@ -117,6 +117,9 @@ const UNCLIPPED: u32 = 1 << 30;
 const ROW_END: u32 = 16;
 /// Draw a kept row: id, x, y (device pixels).
 const ROW_DRAW: u32 = 17;
+/// Draw a kept row through a matrix: id, then a b c d e f as `MATRIX`'s,
+/// mapping the row's node into the device. A kept drawing scaled or turned.
+const ROW_DRAW_THROUGH: u32 = 55;
 /// A kept row no longer drawn: freed once the next stream arrives.
 const ROW_FREE: u32 = 18;
 /// A filled ring: color, outer x y w h and radii, inner x y w h and radii.
@@ -165,6 +168,9 @@ pub mod agent;
 mod boot;
 #[path = "canvas/clip.rs"]
 mod clip;
+#[cfg(any(target_os = "android", test))]
+#[path = "canvas/clock.rs"]
+mod clock;
 #[cfg(target_os = "android")]
 #[path = "canvas/codec.rs"]
 mod codec;
@@ -261,6 +267,8 @@ mod forma;
 mod surface;
 #[path = "canvas/svg.rs"]
 mod svg;
+#[cfg(test)]
+pub(crate) use filter::filtered_row_draws;
 pub use picture::Picture;
 use picture::WeakPicture;
 #[cfg(target_os = "android")]
@@ -827,6 +835,9 @@ impl Backend for Recorder {
     fn rows(&self) -> bool {
         self.planes.is_empty()
     }
+    fn rows_through(&self) -> bool {
+        self.rows()
+    }
 
     fn row_begin(&mut self, id: u32, origin: (f32, f32), previous: Option<u32>) {
         self.shared_row_begin();
@@ -993,26 +1004,28 @@ impl Backend for Recorder {
     }
 
     fn row_draw(&mut self, id: u32, origin: (f32, f32), bounds: Rect4) {
-        // Just recorded and in view: the reader makes it before this frame.
-        if let Some((_, at)) = self.recorded.take().filter(|(r, _)| *r == id) {
-            if !self.culled(Some(bounds)) {
-                self.ops[at + 2] |= 1 << 31;
-            }
-        }
-        // Its pictures are drawn too: the reader keeps them.
-        if let Some((_, images)) = self.kept.get(&id) {
-            for key in images {
-                if let Some(image) = self.images.get_mut(key) {
-                    image.2 = self.frames;
-                }
-            }
-        }
-        self.need(Some(bounds));
-        self.layers.row_drawn(id);
+        self.row_shown(id, bounds);
         let s = self.scale;
         self.ops.extend([ROW_DRAW, id]);
         self.f((origin.0 - ROW_PAD) * s);
         self.f((origin.1 - ROW_PAD) * s);
+    }
+
+    fn row_draw_through(&mut self, id: u32, ts: Transform, bounds: Rect4) {
+        self.row_shown(id, crate::paint::bbox(ts, bounds));
+        // The reader's node is in device pixels, its origin `ROW_PAD` above
+        // and left of the row's.
+        let s = self.scale;
+        let pad = (
+            ts.sx * ROW_PAD + ts.kx * ROW_PAD,
+            ts.ky * ROW_PAD + ts.sy * ROW_PAD,
+        );
+        self.ops.extend([ROW_DRAW_THROUGH, id]);
+        for v in [ts.sx, ts.ky, ts.kx, ts.sy] {
+            self.f(v);
+        }
+        self.f((ts.tx - pad.0) * s);
+        self.f((ts.ty - pad.1) * s);
     }
 
     fn row_free(&mut self, id: u32) {
@@ -1134,14 +1147,9 @@ const MOVES_MOUNTED: u32 = 6;
 
 #[cfg(target_os = "android")]
 impl<D: DataSource + Default> CanvasHost<D> {
-    fn now(&self) -> f64 {
-        agent::clock(&self.p)
-            .unwrap_or_else(|| self.started.elapsed().as_secs_f64() * 1000.0 - agent::offset())
-    }
-
     /// One turn: the presenter's work, then a recording when anything
     /// changed. `Some` is the new op stream (valid until the next call).
-    pub fn frame(&mut self) -> Option<Vec<u32>> {
+    pub fn frame(&mut self, vsync: bool) -> Option<Vec<u32>> {
         self.p.timer_visibility(false);
         // After the first frame: the windows' lead, realized off the frame.
         if self.painted_once && !self.lead && !self.responding {
@@ -1153,7 +1161,7 @@ impl<D: DataSource + Default> CanvasHost<D> {
         let p = &mut self.p;
         let _frame = Section::begin(c"exact frame");
         p.hold_collections(self.scrolled);
-        let frame = self.frame_held(now);
+        let frame = self.frame_held(now, vsync);
         self.p.hold_collections(false);
         if std::mem::take(&mut self.responding) {
             self.p.slice_collections(None, 0.0);
@@ -1161,7 +1169,7 @@ impl<D: DataSource + Default> CanvasHost<D> {
         frame
     }
 
-    fn frame_held(&mut self, now: f64) -> Option<Vec<u32>> {
+    fn frame_held(&mut self, now: f64, vsync: bool) -> Option<Vec<u32>> {
         // A frame a scroll step asks for: replies and pictures arrive through
         // [`CanvasHost::poll`] when their fds wake, so this one skips them.
         let quick = self.scrolled;
@@ -1181,7 +1189,7 @@ impl<D: DataSource + Default> CanvasHost<D> {
         }
         // The presenter's clock: the runner's frame tasks and timers, and
         // the hatches' tickets and `after`s.
-        if let Some(e) = p.reader_clock(now, agent::clock(p).is_none()) {
+        if let Some(e) = p.reader_clock(now, agent::clock(p).is_none(), vsync) {
             eprintln!("exact: {e}");
         }
         if quick {
@@ -1343,11 +1351,13 @@ impl<D: DataSource + Default> CanvasHost<D> {
         if self.p.module_pending() {
             self.p.first_pixel();
         }
-        updated || self.animating()
+        updated || self.animating(false)
     }
-    /// Whether another display frame is wanted.
-    pub fn animating(&self) -> bool {
-        // A moved paint owes a paint: the frame after scrolling stops.
+    /// Whether more work is wanted, or only work that must wait for vsync.
+    pub fn animating(&self, vsync_only: bool) -> bool {
+        if vsync_only {
+            return agent::clock(&self.p).is_none() && self.p.wants_frames();
+        }
         self.p.dirty()
             || self.p.scroll_end_due().is_some_and(|due| due <= self.now())
             || self.p.needs_animation_frame()
@@ -1484,7 +1494,7 @@ pub fn pending_pictures() -> Vec<[u32; 3]> {
 }
 
 /// A picture announced by `IMAGE_DEF`, once (premultiplied RGBA rows).
-#[cfg(target_os = "android")]
-fn image(id: u32) -> Option<Picture> {
+#[cfg(any(target_os = "android", test))]
+pub(crate) fn image(id: u32) -> Option<Picture> {
     with_pending(|p| p.remove(&id))
 }

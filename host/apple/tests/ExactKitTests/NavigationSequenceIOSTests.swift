@@ -2,6 +2,7 @@
 import UIKit
 import XCTest
 @testable import ExactKit
+@testable import ExactNavigation
 
 /// UIKit's stacks are the state the router follows (LLP 1075.003 §3.7): a
 /// transition started by UIKit or the app, a second step made in the same
@@ -85,7 +86,7 @@ final class NavigationSequenceIOSTests: XCTestCase {
 
     private func held(_ step: Held) throws {
         let session = try fixture()
-        let p = session.presenter, navigation = p.navigation
+        let p = session.presenter, navigation = p.navigationHost
         let tabs = try XCTUnwrap(navigation.tabController)
         var more: UINavigationController { tabs.moreNavigationController }
         if step == .morePop {
@@ -114,7 +115,7 @@ final class NavigationSequenceIOSTests: XCTestCase {
             waitForAnimationsToStart(more)
         case .present:
             try tapNode(session, "open-sheet")
-            waitFor("the presentation starts") { p.modals.inTransition }
+            waitFor("the presentation starts") { p.modalHost.inTransition }
         case .cancelled:
             // The presented controller holds the sheet's navigation as its child
             let sheet = try XCTUnwrap(controller(navigation, "route-sheet").navigationController?.parent)
@@ -138,7 +139,7 @@ final class NavigationSequenceIOSTests: XCTestCase {
         if step == .cancelled { dismissal.interaction.cancel() }
         let syncs = navigation.syncCalls
         settle(navigation, more, step.rawValue)
-        waitFor("\(step.rawValue): the sheet's transition ends") { !p.modals.inTransition }
+        waitFor("\(step.rawValue): the sheet's transition ends") { !p.modalHost.inTransition }
         XCTAssertFalse(c.scrollEdgesOwed, "\(step.rawValue): they have run by its end")
         XCTAssertNil(c.collapseScroll, "\(step.rawValue): and moved the title off the list to the app's view")
         // No sync was asked for by the cancelled dismissal's end, where `runHeldSync` or the route's layout runs them (the
@@ -155,7 +156,7 @@ final class NavigationSequenceIOSTests: XCTestCase {
     func testAnotherStacksTransitionEndRunsOwedPassesWithNothingHeld() throws {
         guard hostedWindowScene() != nil else { throw missing("scene", "UIKit builds and lays out the tabs' stacks as in an app only in a scene's window") }
         let session = try fixture()
-        let navigation = session.presenter.navigation
+        let navigation = session.presenter.navigationHost
         let tabs = try XCTUnwrap(navigation.tabController)
         var more: UINavigationController { tabs.moreNavigationController }
         tapTab(tabs, 2)
@@ -198,7 +199,7 @@ final class NavigationSequenceIOSTests: XCTestCase {
 
     private func sequence(_ start: Start, _ first: First, _ second: Second, started: Bool, _ label: String) throws {
         let session = try fixture()
-        let navigation = session.presenter.navigation
+        let navigation = session.presenter.navigationHost
         let tabs = try XCTUnwrap(navigation.tabController)
         guard tabs.tabBar.items?.count == 5 else { throw XCTSkip("UIKit's bar shows every tab at this width: there is no More") }
         // UIKit makes a new More after a width change moves every tab to the bar and back
@@ -310,7 +311,7 @@ final class NavigationSequenceIOSTests: XCTestCase {
         view.layoutIfNeeded()
         UIView.setAnimationsEnabled(false)
         waitFor("the tab container and the selected stack are in the window") {
-            let navigation = session.presenter.navigation
+            let navigation = session.presenter.navigationHost
             return navigation.tabController?.selectedViewController?.viewIfLoaded?.window != nil && !Agent(session: session).nativeInFlight()
         }
         return session

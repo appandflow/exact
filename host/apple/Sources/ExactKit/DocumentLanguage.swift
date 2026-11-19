@@ -48,7 +48,7 @@ extension Presenter {
     /// take the document's direction once it is told one: the navigation
     /// owner and each presented sheet. The embedder's window and its other
     /// controllers, another session's among them, keep their own.
-    private func turnChrome() {
+    package func turnChrome() {
         let direction: UITraitEnvironmentLayoutDirection = documentDirection == "rtl" ? .rightToLeft : .leftToRight
         guard chromeDirection != direction else { return }
         chromeDirection = direction
@@ -57,7 +57,7 @@ extension Presenter {
 
     /// `controller` takes the document's direction, as it is installed or
     /// presented and when the direction changes.
-    func turnChrome(_ controller: UIViewController) {
+    package func turnChrome(_ controller: UIViewController) {
         guard let direction = chromeDirection,
               !controller.traitOverrides.contains(UITraitLayoutDirection.self) || controller.traitOverrides.layoutDirection != direction else { return }
         controller.traitOverrides.layoutDirection = direction

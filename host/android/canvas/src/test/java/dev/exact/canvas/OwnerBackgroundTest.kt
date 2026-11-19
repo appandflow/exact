@@ -27,6 +27,7 @@ class OwnerBackgroundTest {
             var due = 0L
             var ticks = 0
             var frames = 0
+            var frameDemand = false
             var pending = false
             var delivered = 0
             var applying = false
@@ -37,16 +38,41 @@ class OwnerBackgroundTest {
                 if (pending) { pending = false; delivered++ }
                 return (due - SystemClock.uptimeMillis()).toDouble()
             }
-            @JvmStatic @Implementation fun frame(): ByteBuffer? { frames++; return null }
+            @JvmStatic @Implementation fun frame(vsync: Boolean): ByteBuffer? { frames++; return null }
             @JvmStatic @Implementation fun requests(): IntArray? = null
             @JvmStatic @Implementation fun scrollers(): IntArray? = null
             @JvmStatic @Implementation fun fields(): IntArray? = null
             @JvmStatic @Implementation fun bars(): IntArray? = null
             @JvmStatic @Implementation fun chrome(): IntArray? = null
             @JvmStatic @Implementation fun timerHeld() = 0
-            @JvmStatic @Implementation fun animating() = false
+            @JvmStatic @Implementation fun animating(vsyncOnly: Boolean) = frameDemand
+            @JvmStatic @Implementation fun displayFrame() {}
             @JvmStatic @Implementation fun owed() = false
             @JvmStatic @Implementation fun nextDue() = (due - SystemClock.uptimeMillis()).toDouble()
+        }
+    }
+
+    @Test fun anOverrunningTurnStillRequestsVsyncForFrameTasks() {
+        val owner = Owner(false, false, 0) { "0" }
+        fun field(name: String) = Owner::class.java.getDeclaredField(name).apply { isAccessible = true }
+        val thread = field("thread").get(owner) as HandlerThread
+        val handler = field("handler").get(owner) as Handler
+        val schedule = Owner::class.java.getDeclaredMethod("schedule").apply { isAccessible = true }
+        try {
+            owner.ask {
+                Host.due = SystemClock.uptimeMillis() + 30000
+                Host.frameDemand = true
+                field("late").setBoolean(owner, true)
+                schedule.invoke(owner)
+                assertTrue("frame tasks need a display callback even after a late turn", field("turnPosted").getBoolean(owner))
+            }
+        } finally {
+            Host.frameDemand = false
+            owner.running(false)
+            owner.ask { }
+            handler.removeCallbacksAndMessages(null)
+            thread.quitSafely(); thread.join(5000)
+            assertFalse(thread.isAlive)
         }
     }
 

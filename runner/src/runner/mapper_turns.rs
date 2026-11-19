@@ -44,6 +44,7 @@ struct Behind {
     out: Option<(u64, bool)>,
     /// The mapper request's fetch, distinct from the stream's.
     fetch: Option<u64>,
+    continuation: Option<u64>,
     held: VecDeque<Outcome>,
     /// The messages held, a batch counting each of its own, and their bytes.
     messages: usize,
@@ -107,12 +108,7 @@ impl<D: DataSource> Runner<D> {
     pub(super) fn fail_mapper_turn(&mut self, stream: u64, message: &str) {
         if let Some(behind) = self.mapper_turns.by_stream.remove(&stream) {
             if let Some((ticket, _)) = behind.out {
-                if let Some(token) = self
-                    .requests
-                    .iter()
-                    .find(|r| r.ticket == ticket)
-                    .and_then(|r| r.request.continuation)
-                {
+                if let Some(token) = behind.continuation {
                     self.data.discard(token);
                 }
                 self.explicit_aborts.push(ticket);
@@ -173,6 +169,7 @@ impl<D: DataSource> Runner<D> {
         behind.target = Some(target);
         behind.completion = None;
         behind.fetch = request.fetch;
+        behind.continuation = if held { None } else { request.continuation };
         self.requests.push(RequestOut {
             completion: None,
             class: crate::RequestClass::Ordered,

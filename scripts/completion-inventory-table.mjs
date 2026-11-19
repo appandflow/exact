@@ -35,7 +35,7 @@ export const classifications = [
     ["painted:host/painted/src/canvas/timers.rs", "CanvasHost::background"],
   ]),
   group("UI facts", ["subscription"], "current session, viewport, page or rendered geometry", "UI-owned",
-    "runner/src/runner/viewport.rs and page.rs settle facts of the live session; these entries carry no app/account operation identity. painted presenter/zoom.rs sync_zoom retains zoom state only for matching live node keys; settle_zoom reconciles authored values with the current gesture.", [
+    "runner/src/runner/viewport.rs and page.rs settle facts of the live session, and geometry_facts.rs answers the geometry facts from its layout, counting their answers and a chain's commits; these entries carry no app/account operation identity. painted presenter/zoom.rs sync_zoom retains zoom state only for matching live node keys; settle_zoom reconciles authored values with the current gesture.", [
     ["apple:host/apple/src/abi/exports.rs",
       "exact_control_text_changed exact_insets exact_orientation_applied exact_resize exact_scrolled exact_segments exact_set_button_measure exact_set_console " +
       "exact_set_control_text exact_set_display_scale exact_set_fonts exact_set_inline_boxes exact_set_inline_geometry exact_set_lines exact_set_measure exact_set_mode " +
@@ -93,13 +93,15 @@ export const classifications = [
       "Runner::row_in Runner::row_token Runner::set_mode Runner::set_modes Runner::tuple_at Runner::view_sites_json"],
     ["runner:runner/src/runner/page.rs", "Runner::page Runner::reads_page_field Runner::set_page"],
     ["runner:runner/src/runner/resize.rs", "Runner::resize_delivered Runner::resize_due Runner::resize_settled"],
+    ["runner:runner/src/native_geometry.rs", "chain geometry is_geometry project query templates unsettled"],
+    ["runner:runner/src/runner/geometry_facts.rs", "Runner::deliver_geometry#chain:1 Runner::deliver_geometry#generation:1"],
     ["runner:runner/src/runner/root_font.rs", "Runner::display_scale Runner::host_root_font_size Runner::root_font_size Runner::set_bold_text Runner::set_display_scale Runner::set_root_font_size"],
     ["runner:runner/src/runner/shown.rs", "Runner::place_blocks Runner::top_layer Runner::top_layer_backdrop Runner::top_layer_frames"],
     ["runner:runner/src/runner/surface_record.rs", "Runner::set_surface_record Runner::surface_refusals"],
     ["runner:runner/src/runner/theme.rs", "Runner::set_token Runner::set_tokens"],
     ["runner:runner/src/runner/time.rs", "Runner::chosen_locale Runner::direction Runner::place Runner::resolved_locale Runner::set_place Runner::set_place_formatted Runner::set_time Runner::wall_time"],
-    ["runner:runner/src/runner/viewport.rs", "Runner::refresh_viewport_geometry Runner::set_fold Runner::set_keyboard_height Runner::set_preferences Runner::set_view Runner::set_viewport Runner::viewport"],
-    ["web:host/web/src/abi.rs", "exact_motion exact_report_colors exact_resize exact_set_display_scale exact_set_page exact_set_place exact_set_root_font_size exact_set_time exact_set_update exact_set_viewport_geometry"],
+    ["runner:runner/src/runner/viewport.rs", "Runner::refresh_geometry Runner::set_fold Runner::set_keyboard_height Runner::set_preferences Runner::set_view Runner::set_viewport Runner::viewport"],
+    ["web:host/web/src/abi.rs", "exact_motion exact_report_colors exact_resize exact_set_display_scale exact_set_page exact_set_place exact_set_root_font_size exact_set_screen_reader exact_set_time exact_set_update exact_set_viewport_geometry"],
     ["web:host/web/src/abi/mode.rs", "exact_set_mode"],
     ["web:host/web/src/canvas2d.rs", "exact_surface_record"],
     ["painted:host/painted/src/presenter/zoom.rs", "Presenter::set_shell_taps Presenter::settle_zoom Presenter::sync_zoom"],
@@ -137,7 +139,7 @@ export const classifications = [
     ["painted:host/painted/src/presenter/desktop_access.rs",
       "Presenter::access_focus Presenter::access_focus_node Presenter::access_origin Presenter::access_select Presenter::access_selection Presenter::access_text " +
       "Presenter::access_view"],
-    ["painted:host/painted/src/presenter/edit_menu.rs", "Presenter::edit_menu_action Presenter::edit_menu_at Presenter::edit_menu_key Presenter::edit_menu_valid Presenter::open_edit_menu"],
+    ["painted:host/painted/src/presenter/edit_menu.rs", "Presenter::edit_menu_action Presenter::edit_menu_at Presenter::edit_menu_key Presenter::edit_menu_valid Presenter::field_menu_default Presenter::open_edit_menu"],
     ["painted:host/painted/src/presenter/events.rs",
       "Presenter::clear_removed_focus Presenter::cursor_at Presenter::focus_place Presenter::follow_pointer Presenter::hold_modifier Presenter::hover " +
       "Presenter::hover_at Presenter::memory_warning Presenter::move_focus_serviced Presenter::restore_focus Presenter::set_window_active Presenter::submit_event"],
@@ -187,14 +189,15 @@ export const classifications = [
       "Presenter::zoomable_from Presenter::zoomable_under"],
   ]),
   group("background work", ["durable operation"], "app/module background round or widget refresh until completion, deadline or session shutdown; process-local today", "durable",
-    "runner/src/runner/background.rs:87-105 resumes a background round outside Contract slots and then arms its successor; no UI then/commit owns that round. painted snapshot.rs timeline and its JNI adapter run a widget refresh without a presenter, reading the store and pumping requests until completion or deadline; no crash recovery is provided.", [
+    "runner/src/runner/background.rs:87-105 resumes a background round outside Contract slots and then arms its successor; no UI then/commit owns that round. painted snapshot.rs timeline and its JNI adapter run a widget refresh without a presenter, reading the store and pumping requests until completion or deadline; no crash recovery is provided. runner/entry.rs refresh_args builds a refresh's arguments from its date and its placement's configuration, and starts nothing.", [
     ["runner:runner/src/runner/background.rs", "Runner::background_operations Runner::background_state Runner::send_background#next_ticket:1"],
+    ["runner:runner/src/entry.rs", "refresh_args"],
     ["painted:host/painted/src/snapshot.rs", "timeline"],
     ["painted:host/painted/src/snapshot/jni.rs", "Java_dev_exact_widgets_Native_timeline"],
   ]),
   group("canvas draws", ["subscription"], "canvas lifetime, generation and in-flight draw sequence", "UI-owned",
     "runner/src/runner/canvas2d.rs binds a subscription in the existing canvas record at its first draw in a backing-store generation. Async draw replies carry that authority through deliver; integer canvas_reply recovers the same binding. Generation changes reset it. Existing lifetime/generation/sequence and structural checks remain. Capture and presentation callbacks retain their existing paths.", [
-    ["apple:host/apple/src/abi/exports.rs", "exact_canvas_defer exact_canvas_display exact_canvas_draw exact_canvas_held exact_canvas_performance_record exact_canvas_performance_requested exact_canvas_snapshotted exact_set_canvas_text"],
+    ["apple:host/apple/src/canvas_exports.rs", "exact_canvas_defer exact_canvas_display exact_canvas_draw exact_canvas_held exact_canvas_performance_record exact_canvas_performance_requested exact_canvas_snapshotted exact_set_canvas_text"],
     ["painted:host/painted/src/canvas/jni.rs", "Java_dev_exact_canvas_Native_canvasBuffer Java_dev_exact_canvas_Native_canvasFrame"],
     ["painted:host/painted/src/host_canvas.rs", "Host::canvas_wants_frame"],
     ["painted:host/painted/src/scale.rs", "Host::canvas_performance_record"],
@@ -213,7 +216,7 @@ export const classifications = [
   ]),
   group("canvas images", ["one-shot"], "image source and the canvas lifetimes that requested it", "UI-owned",
     "runner/src/runner/canvas2d.rs:1360-1380 updates only canvases still held by this runner; image source strings themselves carry no session capability.", [
-    ["apple:host/apple/src/abi/exports.rs", "exact_canvas_image exact_canvas_image_released"],
+    ["apple:host/apple/src/canvas_exports.rs", "exact_canvas_image exact_canvas_image_released"],
     ["painted:host/painted/src/host_canvas.rs", "Host::canvas_picture_changed Host::sync_canvases"],
     ["runner:runner/src/runner/canvas2d.rs", "Runner::canvas_fonts_loaded Runner::canvas_image Runner::canvas_image_named Runner::canvas_image_released Runner::canvas_images_pending Runner::take_canvas_image_requests"],
     ["web:host/web/src/canvas2d.rs", "exact_canvas_image"],
@@ -249,7 +252,7 @@ export const classifications = [
     ["runner:runner/src/runner/module_work.rs", "Runner::module_work_landed#next_ticket:1 Runner::take_reports#next_ticket:1"],
   ]),
   group("fills", ["one-shot"], "collection/view generation, window and fill token", "UI-owned",
-    "runner/src/runner/collection.rs validates feedback/fill against the current collection; instance/collection/index.rs versions rows and into_view.rs versions reveal requests. Collection.swift fixedMeasurements reads exact_collection_fixed_size through Bridge.swift for the current fixed-region view/epoch measurements.", [
+    "runner/src/runner/list_seam.rs validates feedback/fill against the current collection; instance/collection/index.rs versions rows and into_view.rs versions reveal requests. Collection.swift fixedMeasurements reads exact_collection_fixed_size through Bridge.swift for the current fixed-region view/epoch measurements.", [
     ["apple:host/apple/src/abi/exports.rs", "exact_collection_feedback exact_collection_fixed_size exact_collection_snap exact_collection_snap_stop exact_into_view exact_list_index exact_list_text"],
     ["painted:host/painted/src/canvas/jni.rs", "Java_dev_exact_canvas_Native_ahead Java_dev_exact_canvas_Native_feed Java_dev_exact_canvas_Native_owed Java_dev_exact_canvas_Native_refine"],
     ["painted:host/painted/src/canvas/refine.rs", "CanvasHost::ahead CanvasHost::feed CanvasHost::owed CanvasHost::refine CanvasHost::refine_pending CanvasHost::refine_slice"],
@@ -264,14 +267,14 @@ export const classifications = [
     ["runner:runner/src/instance/collection/mod.rs", "Collection::feedback#scroll_sequence:1 Collection::update_data#data_generation:1 Collection::update_data#scroll_sequence:1"],
     ["runner:runner/src/instance/collection/traversal.rs", "Tree::collection_travel#scroll_sequence:1 Tree::update_collection#scroll_sequence:1"],
     ["runner:runner/src/instance/collection/nest.rs", "PinEpoch::bump#PIN_EPOCH.fetch_add:1"],
-    ["runner:runner/src/runner/collection.rs",
+    ["runner:runner/src/runner/list_seam.rs",
       "Runner::collection_travel Runner::collection Runner::collection_data Runner::collection_feedback Runner::collection_feedback_bytes Runner::collection_feedback_filled " +
       "Runner::collection_mounted Runner::collection_shown Runner::collections Runner::collections_bounded Runner::collections_json Runner::collections_shallow " +
       "Runner::kept_positions_json"],
     ["runner:runner/src/runner/gates.rs", "Runner::collection_reply_key"],
     ["runner:runner/src/runner/foresee.rs", "Runner::foresee"],
     ["runner:runner/src/runner/into_view.rs", "Runner::into_view_json Runner::reveal_collection_index Runner::scroll_into_view Runner::scroll_into_view_at Runner::set_list_covered"],
-    ["runner:runner/src/runner/lists.rs", "Runner::collection_snap Runner::collection_snap_areas Runner::collection_snap_stop Runner::list_index Runner::list_text"],
+    ["runner:runner/src/runner/list_seam.rs", "Runner::collection_snap Runner::collection_snap_areas Runner::collection_snap_stop Runner::list_index Runner::list_text"],
     ["web:host/web/src/abi.rs", "exact_collection_feedback exact_into_view exact_list_index exact_list_text"],
   ]),
   group("frame landings", ["one-shot"], "submitted frame/window generation until presentation or release", "UI-owned",
@@ -318,10 +321,10 @@ export const classifications = [
     ["painted:host/painted/src/transform_binding.rs", "Host::transform_drag_begin Host::transform_drag_binding Host::transform_drag_end Host::transform_drag_update Host::transform_hold_live"],
     ["runner:runner/src/runner/device.rs", "Runner::answer_hold Runner::device_holds Runner::hold Runner::hold_frame_request Runner::hold_request Runner::hold#next_ticket:1 Runner::retire_holds_on"],
     ["runner:runner/src/runner/held.rs", "Runner::asked Runner::hold_facts"],
-    ["runner:runner/src/runner/reorder.rs",
-      "Runner::begin_reorder Runner::begin_session#SERIAL.try_update:1 Runner::cancel_reorder Runner::drop_reorder Runner::finish_reorder Runner::has_reorder " +
-      "Runner::preview_reorder Runner::reorder_binding Runner::reorder_frame Runner::reorder_geometry"],
-    ["runner:runner/src/runner/reorder_group.rs", "Runner::begin_group_reorder Runner::preview_reorder_into Runner::reorder_json Runner::reorder_step"],
+    ["runner:runner/src/runner/list_seam.rs",
+      "Runner::begin_group_reorder Runner::begin_reorder Runner::cancel_reorder Runner::drop_reorder Runner::finish_reorder Runner::has_reorder " +
+      "Runner::preview_reorder Runner::preview_reorder_into Runner::reorder_binding Runner::reorder_frame Runner::reorder_geometry Runner::reorder_json Runner::reorder_step"],
+    ["runner:runner/src/runner/reorder.rs", "Runner::begin_session#SERIAL.try_update:1"],
     ["web-js:host/web-js/motion/src/abi.rs", "m_begin m_end m_height m_held m_lower m_measured m_observe m_pair_begin m_pair_update m_pan_release m_pan_sample m_remove m_settle m_track m_transitions m_unheight m_update"],
     ["web:host/web/src/abi.rs", "exact_auth"],
     ["web:host/web/src/abi/mode.rs", "exact_hold_facts"],
@@ -351,8 +354,9 @@ export const classifications = [
       "exact_host_covers exact_intrinsics exact_layout_stamp exact_link_activities exact_list_covered exact_log exact_measure_block exact_measure_work " +
       "exact_measure_work_later exact_placement_box exact_plan_covers_viewport exact_plan_digest exact_preloads_begin exact_preloads_count exact_preloads_launched " +
       "exact_preloads_mark exact_preloads_name exact_preloads_opened exact_press_face exact_protocol_location_of exact_radio_group exact_reads_on_line " +
-      "exact_refresh_entry exact_region_request exact_regions exact_role_keys exact_root_tabs exact_row_reuse exact_scheme exact_screen exact_select_options " +
+      "exact_refresh_entry exact_regions exact_role_keys exact_row_reuse exact_scheme exact_screen exact_select_options " +
       "exact_stack_split exact_svg_islands exact_forma exact_titlebar_area exact_trim exact_view exact_view_scheme"],
+    ["apple:host/apple/src/content_region/exports.rs", "exact_region_request"],
     ["apple:runner/src/frame_health.rs",
       "exact_frame_health_applied exact_frame_health_capture exact_frame_health_context exact_frame_health_create exact_frame_health_destroy " +
       "exact_frame_health_distribution exact_frame_health_history_status exact_frame_health_hitch exact_frame_health_record exact_frame_health_requested_period " +
@@ -458,7 +462,7 @@ export const classifications = [
     ["runner:runner/src/runner/query.rs", "Runner::bake_warnings"],
     ["runner:runner/src/runner/resource_inspection.rs", "Runner::inspection_digest"],
     ["runner:runner/src/runner/forma.rs", "Runner::forma"],
-    ["runner:runner/src/runner/text_axes.rs", "Runner::text_axes_settle_ms"],
+    ["runner:runner/src/runner/seams.rs", "Runner::text_axes_settle_ms"],
     ["runner:runner/src/runner/trace.rs", "Runner::trace_commits"],
     ["runner:runner/src/runner/writes.rs", "Runner::shown_resource Runner::writes"],
     ["web:host/web/src/abi.rs", "exact_agent exact_checkpoint exact_command exact_compat exact_fonts exact_log exact_logic exact_module_artifact exact_plan exact_plan_fonts"],
@@ -475,10 +479,11 @@ export const classifications = [
     ["painted:host/painted/src/presenter/media.rs", "Presenter::media_command Presenter::reader_media Presenter::sync_media"],
     ["painted:host/painted/src/presenter/preferences.rs", "Presenter::extension_agent Presenter::midi_agent"],
     ["runner:runner/src/midi.rs", "Midi::push#next:1 Midi::retract_seq#next:1 Midi::ticks#next:1"],
-    ["runner:runner/src/runner/midi.rs", "Runner::midi Runner::midi_agent Runner::midi_host Runner::midi_input Runner::midi_inputs Runner::set_midi Runner::take_midi"],
+    ["runner:runner/src/runner/audio_seam.rs", "Runner::end_sounds Runner::midi_agent Runner::midi_host Runner::plays_audio Runner::take_midi Runner::take_sounds Runner::transport_playing"],
+    ["runner:runner/src/runner/midi.rs", "Runner::midi Runner::midi_input Runner::midi_inputs Runner::set_midi"],
     ["runner:runner/src/runner/modules/samples.rs", "Runner::surface_sensor_events_linked#next:1"],
     ["runner:runner/src/runner/module_seam/forward.rs", "Runner::surface_sensor_events Runner::surface_sensor_inputs"],
-    ["runner:runner/src/runner/transport.rs", "Runner::end_sounds Runner::sounds Runner::take_sounds Runner::transport"],
+    ["runner:runner/src/runner/transport.rs", "Runner::sounds Runner::transport"],
     ["runner:runner/src/sound.rs", "Sounds::issue_haptic#next_haptic:1 Sounds::play#next:1 Sounds::play#next:2"],
     ["runner:runner/src/transport/clock.rs", "Follow::feed#next:1"],
     ["web:host/web/src/abi/clock.rs", "exact_sensor_events exact_sensor_inputs"],
@@ -610,8 +615,9 @@ export const classifications = [
       "exact_raster_status exact_raster_take_ready exact_raster_wake_sequence"],
   ]),
   group("region and text", ["one-shot"], "layout region or text revision in a live session", "UI-owned",
-    "host/apple/src/abi/exports.rs exact_region_complete names a region; exact_text_ready supplies index, generation and revision. Both target current presentation state.", [
-    ["apple:host/apple/src/abi/exports.rs", "exact_region_complete exact_text_ready"],
+    "host/apple/src/content_region/exports.rs exact_region_complete names a region; exact_text_ready supplies index, generation and revision. Both target current presentation state.", [
+    ["apple:host/apple/src/abi/exports.rs", "exact_text_ready"],
+    ["apple:host/apple/src/content_region/exports.rs", "exact_region_complete"],
     ["painted:host/painted/src/content_region/host.rs", "Host::content_region_painted Host::poll_content_region"],
   ]),
   group("replies", ["one-shot", "subscription", "durable operation"], "pending ticket and source turn; UI target by default", "UI-owned",
@@ -662,7 +668,7 @@ export const classifications = [
     "Runner boot constructs session state (runner/src/runner.rs); host ABI buffers and configuration belong to that runtime handle. painted snapshot.rs Session::boot constructs one entry session; runner/entry.rs slots validates the props and configuration carried into it.", [
     ["apple:host/apple/src/abi/exports.rs",
       "exact_boot exact_boot_entry exact_boot_plan exact_check_prepared exact_commit_plan exact_create exact_destroy exact_discard_plan exact_in " +
-      "exact_on_document_forgotten exact_out exact_prepare_plan"],
+      "exact_link_grammars exact_on_document_forgotten exact_out exact_prepare_plan"],
     ["painted:host/painted/src/activation.rs", "Host::data_pending"],
     ["painted:host/painted/src/canvas/boot.rs", "CanvasHost::boot"],
     ["painted:host/painted/src/canvas/jni.rs",
@@ -709,6 +715,7 @@ export const classifications = [
   ]),
   group("sockets and listens", ["subscription"], "source stream/watch and pending subscription in a session", "UI-owned",
     "runner/src/runner/sockets.rs and listen.rs associate reader facts with source requests; retirement of the source removes the UI observer.", [
+    ["runner:runner/src/agent.rs", "drop_stream"],
     ["runner:runner/src/runner/listen.rs", "Runner::listen_standing Runner::listen_view Runner::set_listen_reader"],
     ["runner:runner/src/runner/sockets.rs", "Runner::publish_sockets Runner::retrying Runner::set_retry_reader Runner::set_socket_reader Runner::socket_buffered Runner::socket_published Runner::take_socket_sends"],
   ]),
@@ -728,7 +735,7 @@ export const classifications = [
     "runner/src/runner/native_timers.rs binds one subscription in each live ordinary timer record at native_timers handoff. Repeats reuse it; owned_tasks.rs resets it on rearming. Typed and integer fires retain the original index/generation and clock checks. Frame tasks and other clock entries still use their existing paths. Advance/frame can also pump replies and deferred thens.", [
     ["apple:host/apple/src/abi/exports.rs",
       "exact_admitted_frame exact_advance exact_fire_native_timer exact_frame exact_frame_at exact_native_timers exact_present_frames exact_pump exact_set_live_clock " +
-      "exact_prefer_presented exact_start_on_frame exact_tick exact_tick_at exact_timer_waits"],
+      "exact_prefer_presented exact_start_on_frame exact_tick exact_tick_at exact_timer_waits exact_unshown"],
     ["painted:host/painted/src/agent.rs", "clock_within"],
     ["painted:host/painted/src/canvas.rs", "CanvasHost::frame CanvasHost::frame_held"],
     ["painted:host/painted/src/canvas/jni.rs", "Java_dev_exact_canvas_Native_frame Java_dev_exact_canvas_Native_picturePresented Java_dev_exact_canvas_Native_presentToken Java_dev_exact_canvas_Native_timerHeld Java_dev_exact_canvas_Native_timerObservation"],
@@ -777,8 +784,8 @@ export const classifications = [
       "Runner::take_ended_wakes Runner::wake_state"],
   ]),
   group("widget reloads", ["durable operation"], "app widget timeline invalidation; no runner continuation", "durable",
-    "host/apple/Sources/ExactCore/WidgetContainer.swift exact_widget_reload asks WidgetCenter to reload app timelines; no requesting view or visit owns the invalidation.", [
-    ["apple:host/apple/Sources/ExactCore/WidgetContainer.swift", "exact_widget_reload"],
+    "host/apple/Sources/ExactWidgetPublication/WidgetPublication.swift exact_widget_reload asks WidgetCenter to reload app timelines; no requesting view or visit owns the invalidation.", [
+    ["apple:host/apple/Sources/ExactWidgetPublication/WidgetPublication.swift", "exact_widget_reload"],
   ]),
   group("declared operations", ["durable operation"], "app reference reserved in app state; process-local today", "durable",
     "runner/src/runner/modules/declared/app_list.rs app_reference locks app_state under the app ID and advances its reference beyond the session counter; no view owns it.", [
@@ -1050,8 +1057,7 @@ export const classifications = [
       "Runner::update_into_views_inner#nodes_visited:1 Runner::update_into_views_inner#regions_skipped:1 Runner::update_into_views_inner#rows_keyed:1 " +
       "Runner::update_into_views_inner#rows_rebound:1 Runner::update_into_views_inner#rows_reused:1 Runner::update_into_views_inner#rows_scanned:1 " +
       "Runner::update_into_views_inner#store_bytes_copied:1"],
-    ["runner:runner/src/runner/kept.rs", "Runner::send_one#mutation_requests:1"],
-    ["runner:runner/src/runner/lists.rs", "Runner::update_ops#rows_scanned:1"],
+    ["runner:runner/src/runner/render.rs", "Runner::update_ops#rows_scanned:1"],
     ["runner:runner/src/runner/live_time.rs", "Runner::tick_live_times#batch:1"],
     ["runner:runner/src/runner/mapper_turns.rs", "Behind::hold#bytes:1 Behind::hold#messages:1 Behind::next#bytes:1 Behind::next#messages:1"],
     ["runner:runner/src/runner/modules/pictures.rs", "Runner::picture_admission#0:1 Runner::picture_admission#1:1"],
@@ -1068,8 +1074,8 @@ export const classifications = [
     ["runner:runner/src/runner/router.rs", "RouterContext::commit#activations:1"],
     ["runner:runner/src/runner/settlement.rs", "Runner::settle_pass#derives_evaluated:1"],
     ["runner:runner/src/runner/sockets.rs", "Runner::socket_published#sent:1"],
-    ["runner:runner/src/runner/text_axes.rs", "Runner::settle_text_axes#batch:1"],
-    ["runner:runner/src/runner/text_axes/present.rs", "Runner::tick_text_axes#batch:1"],
+    ["runner:runner/src/runner/text_axes.rs", "Runner::settle_text_axes_linked#batch:1"],
+    ["runner:runner/src/runner/text_axes/present.rs", "Runner::tick_text_axes_linked#batch:1"],
     ["runner:runner/src/runner/theme.rs", "Runner::set_tokens#design_moves:1"],
     ["runner:runner/src/sound.rs", "Sounds::trim#evicted:1"],
     ["runner:runner/src/store.rs", "Store::remember#copied:1"],
@@ -1212,7 +1218,7 @@ export const classifications = [
       "Presenter::split_placeholder Presenter::sync_split"],
     ["painted:host/painted/src/presenter/status_bar.rs", "Presenter::status_bar_in_page Presenter::status_bar_scheme Presenter::status_bar_shows"],
     ["painted:host/painted/src/presenter/timeline_scroll.rs", "Presenter::scroll_timelines"],
-    ["painted:host/painted/src/presenter/transform_geometry.rs", "Presenter::deliver_intersections Presenter::refresh_transform_geometry Presenter::transform_geometry"],
+    ["painted:host/painted/src/presenter/transform_geometry.rs", "Presenter::deliver_geometry Presenter::deliver_intersections Presenter::refresh_transform_geometry Presenter::transform_geometry"],
     ["painted:host/painted/src/presenter/window.rs", "Presenter::env_insets Presenter::fit_view"],
   ]),
   group("timer fires", ["subscription"], "session timer generation/deadline or one frame task", "UI-owned",
@@ -1221,7 +1227,7 @@ export const classifications = [
     ["painted:host/painted/src/presenter/scroll_end.rs", "Presenter::scroll_end_live Presenter::scroll_end_moved Presenter::timer_or_scroll_due_ms"],
   ]),
   group("fills", ["one-shot"], "collection/view generation, window and fill token", "UI-owned",
-    "The named painted adapter reads or updates the current Presenter through the runner or its Host forwarding API. runner/src/runner/collection.rs validates feedback/fill against the current collection; instance/collection/index.rs versions rows and into_view.rs versions reveal requests.", [
+    "The named painted adapter reads or updates the current Presenter through the runner or its Host forwarding API. runner/src/runner/list_seam.rs validates feedback/fill against the current collection; instance/collection/index.rs versions rows and into_view.rs versions reveal requests.", [
     ["painted:host/painted/src/presenter/collection.rs",
       "Presenter::collection_glided Presenter::collection_scroll_limits Presenter::collection_scroll_pending Presenter::pending_model_scroll " +
       "Presenter::refine_collections Presenter::refine_deferred Presenter::reorder_facts_current Presenter::schedule_collections Presenter::scroll_event " +
@@ -1276,12 +1282,13 @@ export const classifications = [
   group("session lifecycle", ["one-shot"], "session creation, boot, replacement or teardown; no independent completion", "UI-owned",
     "The named public runner-crate source is the session lifecycle API or its value/admission helper. Runner boot constructs session state (runner/src/runner.rs); host ABI buffers and configuration belong to that runtime handle.", [
     ["runner:runner/src/activation.rs", "offers_tools runtime_kept wake"],
+    ["runner:runner/src/agent.rs", "carried"],
     ["runner:runner/src/device.rs", "device_grants granted is_device_line keeps_no_answers permissions_policy"],
     ["runner:runner/src/runner/links.rs", "Runner::covers"],
     ["runner:runner/src/grants.rs", "admitting admitting_request declared Grants::lines Grants::presence Grants::secrets launch_names normalized_json parse parse_with redacted refusal session_admits validate with_declared"],
     ["runner:runner/src/hardened.rs", "is_runtime_line runtime_grants"],
     ["runner:runner/src/runner/persist.rs", "decode encode"],
-    ["runner:runner/src/uses/apple.rs", "apple_uses data_url image_sources ImageSource::bundled ImageSource::can_be_svg lays_out_grid"],
+    ["runner:runner/src/uses/apple.rs", "apple_grant_uses apple_uses data_url image_sources ImageSource::bundled ImageSource::can_be_svg lays_out_grid"],
     ["runner:runner/src/uses.rs",
       "Capability::from_name Capability::name chooses_locale keeps_midi runs_sounds svg_filters svg_islands uses uses_midi uses_picture_in_picture Uses::beyond " +
       "Uses::has Uses::is_empty Uses::iter Uses::with Uses::with_grants zoomable zooms"],
@@ -1295,7 +1302,7 @@ export const classifications = [
   ]),
   group("inspection", ["one-shot"], "synchronous session inspection or diagnostics; no delivered completion", "UI-owned",
     "The named public runner-crate source is the inspection API or its value/admission helper. The declaration reads or reports the current session. It does not establish a durable operation.", [
-    ["runner:runner/src/agent.rs", "base64 frames handle holds logs logs_request node node_request picker shown_value state state_with tags tree tree_request unbase64"],
+    ["runner:runner/src/agent.rs", "base64 frames handle holds logs logs_request node node_request picker shown_value state state_at state_with tags tree tree_request unbase64"],
     ["runner:runner/src/json.rs", "error field_bool field_num field_str num quote typed_json untyped_json"],
     ["runner:runner/src/agent/row.rs", "row_json"],
     ["runner:runner/src/agent/tree.rs", "tagged"],
@@ -1337,7 +1344,7 @@ export const classifications = [
     ["runner:runner/src/request_preload.rs", "Preload::fill#headers:1"],
     ["runner:runner/src/runner/faults.rs", "Faults::take_response#left:1"],
     ["runner:runner/src/runner/kept_wait.rs", "Runner::carry_waiting_in#waiting:1"],
-    ["runner:runner/src/runner/lists.rs", "Runner::update_ops#store_bytes_copied:1"],
+    ["runner:runner/src/runner/render.rs", "Runner::update_ops#store_bytes_copied:1"],
     ["runner:runner/src/runner/overrun.rs", "Runner::reask#reasks:1"],
     ["runner:runner/src/runner/text_axes.rs", "write#font_stretch:1 write#font_variation_settings:1 write#font_weight:1"],
     ["runner:runner/src/runner/text_axes/present.rs", "one_axis#values:1"],
@@ -1357,7 +1364,7 @@ export const classifications = [
     ["runner:runner/src/instance/index.rs", "SiteIndex::linked SiteIndex::new SiteIndex::row_dependencies"],
     ["runner:runner/src/instance/looks.rs", "Looks::resolve_in"],
     ["runner:runner/src/instance/tabs.rs", "panel_sites sites_need_navigation"],
-    ["runner:runner/src/instance/text.rs", "Tree::list_index Tree::list_text"],
+    ["runner:runner/src/instance/collection/text.rs", "Tree::list_index Tree::list_text"],
     ["runner:runner/src/instance/theme.rs", "ThemedRow::resolve_in ThemeIndex::faces ThemeIndex::is_empty ThemeIndex::len ThemeIndex::look ThemeIndex::looks ThemeIndex::row ThemeIndex::rows"],
   ]),
   group("canvas draws", ["one-shot"], "canvas lifetime, generation and in-flight draw sequence", "UI-owned",
@@ -1383,7 +1390,7 @@ export const classifications = [
     ["runner:runner/src/tools.rs", "check sends"],
   ], "durable for a retained effectful/background ticket; holds() also accepts those tickets (reply.rs:27-33)."),
   group("runner helpers", ["one-shot"], "synchronous invocation, evaluator state or caller-owned value; no independent completion", "UI-owned",
-    "The named runner source evaluates, encodes, compares or constructs caller-owned values. These public helpers have no independently delivered outcome or persisted operation identity. vm.rs eval_accounted returns its result and counters synchronously to semantics/difftest/src/accounting.rs and vm/unsettled_tests.rs.", [
+    "The named runner source evaluates, encodes, compares or constructs caller-owned values. These public helpers have no independently delivered outcome or persisted operation identity. vm.rs eval_accounted returns its result and counters synchronously to semantics/difftest/src/accounting.rs and vm/unsettled_tests.rs; vm/constant.rs eval_constant returns them synchronously to contract/lower/src/keyframes.rs.", [
     ["runner:runner/src/compare.rs", "changed_fields equal equivalent equivalent_all equivalent_opt same shared"],
     ["runner:runner/src/failure.rs", "Failure::error Failure::exposed_code Failure::of FailureCode::from_name FailureCode::name FailureCode::of_kind FailureCode::seam_error"],
     ["runner:runner/src/file_pickers.rs", "start_in_refusal"],
@@ -1400,6 +1407,7 @@ export const classifications = [
     ["runner:runner/src/tools.rs", "mcp_tools"],
     ["runner:runner/src/vm.rs", "decode eval eval_accounted Frame::row_of instructions intern is_literal Strings::get Strings::is_empty Strings::len Strings::new Strings::of transitive_instructions Trap::bound"],
     ["runner:runner/src/vm/column.rs", "Column::get Column::is_empty Column::iter Column::len Column::to_vec"],
+    ["runner:runner/src/vm/constant.rs", "eval_constant"],
   ]),
   ...helperClassifications(group),
 ];

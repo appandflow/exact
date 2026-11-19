@@ -235,7 +235,9 @@ test('the bake writes the render crate its assembled shader inventory, engine pr
     gameShells(dir, gameDefaults(dir).game, resolve(import.meta.dir, '..'));
     const frame = readFileSync(resolve(import.meta.dir, '../render/src/shaders/frame.wgsl'), 'utf8');
     expect(readFileSync(resolve(dir, '.shells/shaders/sky.wgsl'), 'utf8')).toBe(`${frame}\n// sky body\n`);
-    expect(readFileSync(resolve(dir, '.shells/.cargo/config.toml'), 'utf8')).toContain(`EXACT_GAME_SHADERS = ${JSON.stringify(resolve(realpathSync(dir), '.shells/shaders'))}`);
+    const config = readFileSync(resolve(dir, '.shells/.cargo/config.toml'), 'utf8');
+    expect(config).toContain(`EXACT_GAME_SHADERS = ${JSON.stringify(resolve(realpathSync(dir), '.shells/shaders'))}`);
+    expect(config).toContain(`build-dir = ${JSON.stringify(resolve(realpathSync(dir), 'target'))}`);
   } finally { rmSync(dir, {recursive:true, force:true}); }
 });
 

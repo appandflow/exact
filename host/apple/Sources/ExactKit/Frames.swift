@@ -29,7 +29,7 @@ package final class Frames: NSObject {
     /// A frame task (LLP 1073 D5): each tick is the runtime's frame at the tick's target time.
     var tasks = false
     /// A hatch's frame ticket is live (LLP 1075.003.000.001 §2.4): each tick calls it, after the frame's tasks.
-    var hatches = false
+    package var hatches = false
     /// Keep every existing app frame request when scheduling or resuming the session.
     var hasWork: Bool { motion || canvas2d || timerSoon || session?.canvases.wantsFrames == true }
     private var canvasRequested = false
@@ -71,12 +71,13 @@ package final class Frames: NSObject {
         defer { s.canvases.frameNow = previous }
         // Explicit frame work advances here; ordinary task timers have independent native callbacks
         // A slice building on the owner holds this frame's timers and tick:
-        // they run on the first frame after it lands (LLP 1072 §7.1).
+        // they run on the first frame after it lands (LLP 1072 §7.1). An
+        // advance whose batch waits (T13) holds the next one.
         // Frame health: a callback that starts no frame work is not a frame, and a frame that sends
         // owner work finishes when that work lands (LLP 1079.000 §4.6)
         var held = false, ran = false, sent: UInt8 = 0
         if !s.fillInFlight {
-            if timerSoon, !ExactEnv.agentFreezes, s.clock == nil {
+            if timerSoon, !ExactEnv.agentFreezes, s.clock == nil, !s.waits(.advance) {
                 let now = s.now()
                 s.followOffset()
                 // Frame work that changes nothing shown skips the presenter's pass.
@@ -94,7 +95,7 @@ package final class Frames: NSObject {
                 }
                 else if tasks { s.applyUnlessEmpty(s.runtime.frame(now: frameNow, wall: now, admitted: s.timerAdmissions.enabled)); ran = true }
                 else if due { s.applyUnlessEmpty(s.runtime.advance(now: now)) }
-            }
+            } else if timerSoon, tasks, s.waits(.advance) { held = true }
             // Motion samples at the frame's target, and starts there what
             // waits for it (LLP 1003.001 D5); the agent's clock has no frames.
             if motion || canvas2d {
@@ -188,7 +189,7 @@ package final class Frames: NSObject {
     /// Inside `tick`: work it applies can end motion, but the callback is recorded before the run ends.
     private var ticking = false
 
-    func run(_ wanted: Bool) {
+    package func run(_ wanted: Bool) {
         if wanted, session?.clock != nil { requestCanvas() }
         let on = (wanted || hatches) && session?.clock == nil
         if !on, !ticking { session?.frameHealth.stop() }

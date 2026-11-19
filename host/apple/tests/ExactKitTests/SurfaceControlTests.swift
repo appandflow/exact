@@ -7,6 +7,7 @@ import XCTest
 import CryptoKit
 import ImageIO
 @testable import ExactKit
+@testable import ExactPickers
 @testable import ExactSurfaces
 
 private let recoveryReply = UnsafeMutablePointer<UInt8>.allocate(capacity: 128)
@@ -48,7 +49,7 @@ final class SurfaceControlTests: XCTestCase {
             XCTAssertEqual(storagePaths.last, [session.appFileRoots["data"]!, session.appFileRoots["cache"]!, session.appFileRoots["tmp"]!])
             XCTAssertEqual(boundJSON.count, 1)
             XCTAssertEqual(storageAtBind, [storagePaths.count])
-            let file = try XCTUnwrap(session.picker.appFile("app:/cache/snapshot.png"))
+            let file = try XCTUnwrap(session.pickerHost.appFile("app:/cache/snapshot.png"))
             defer { try? file.close() }
             let bytes = try XCTUnwrap(file.readToEnd())
             XCTAssertEqual(bytes, storageSnapshot)

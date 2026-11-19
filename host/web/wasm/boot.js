@@ -300,6 +300,7 @@ async function bootNow(bytes, assets = host.devAssets, current = () => true, mod
     payload.set(bytes);
     payload.set(launch, bytes.length);
     host.wasm.exact_set_update?.(updateCode());
+    host.wasm.exact_set_screen_reader(pageFacts.screenReaderCode());
     len = host.wasm.exact_boot_plan(bytes.length, innerWidth, innerHeight, launch.length, preferences() | foldBits());
   } else {
     if (host.page?.checkpoint) {
@@ -312,6 +313,7 @@ async function bootNow(bytes, assets = host.devAssets, current = () => true, mod
     // a drive's clock starts at zero (page.rs)
     new Uint8Array(host.memory.buffer, ptr, launch.length).set(launch);
     host.wasm.exact_set_update?.(updateCode());
+    host.wasm.exact_set_screen_reader(pageFacts.screenReaderCode());
     len = host.wasm.exact_boot(innerWidth, innerHeight, launch.length, preferences() | foldBits());
   }
   const batch = JSON.parse(readOut(len));

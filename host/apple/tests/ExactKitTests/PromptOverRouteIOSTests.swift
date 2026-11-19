@@ -2,6 +2,7 @@
 import UIKit
 import XCTest
 @testable import ExactKit
+@testable import ExactNavigation
 
 /// A prompt opened in a page a full-screen route covers. The prompt is
 /// UIKit's alert with `PromptField` standing in for the authored input
@@ -20,8 +21,8 @@ final class PromptOverRouteIOSTests: XCTestCase {
         if let p = kept, window?.windowScene != nil {
             p.menus.reset()
             waitFor("the prompt's alert dismisses") { p.menus.nativeConfirmation == nil && !p.menus.inTransition }
-            p.modals.closeTop(animated: false)
-            waitFor("the route dismisses") { !p.modals.inTransition }
+            p.modalHost.closeTop(animated: false)
+            waitFor("the route dismisses") { !p.modalHost.inTransition }
         }
         session?.destroy()
         session = nil
@@ -77,8 +78,8 @@ final class PromptOverRouteIOSTests: XCTestCase {
         let route = try XCTUnwrap(p.views[30])
         let navigation = UIViewController()
         navigation.view.addSubview(route)
-        p.modals.present(route, navigation: navigation, from: controller, preceding: nil, owner: controller)
-        waitFor("the full-screen route settles") { !p.modals.inTransition }
+        p.modalHost.present(route, navigation: navigation, from: controller, preceding: nil, owner: controller)
+        waitFor("the full-screen route settles") { !p.modalHost.inTransition }
         return p
     }
 

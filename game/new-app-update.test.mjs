@@ -1,13 +1,12 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, isAbsolute, resolve } from 'node:path';
+import { dirname, resolve } from 'node:path';
 import { applyPattern, createApp } from './new.mjs';
 import { dependencyTables, editManifest, updateManifests, updateScaffold } from './update-manifests.mjs';
 import { ensureShells } from '../scripts/app-shells.mjs';
-import { pathWithin } from '../scripts/paths.mjs';
 import { pathFrom, resolveApp } from '../scripts/app.mjs';
 
 const root = resolve(import.meta.dir, '..');
@@ -270,7 +269,7 @@ test('update adds the SQLite provider only after checking the complete root mani
   } finally { rmSync(parent, { recursive: true, force: true }); }
 });
 
-test('update refreshes an older Android scaffold, absolute packages and the named checkout', () => {
+test('update refreshes an older Android scaffold, relative and absolute packages and the named checkout', () => {
   mkdirSync(resolve(root, 'target'), { recursive: true });
   const parent = mkdtempSync(resolve(root, 'target/update-scaffold-')), dir = resolve(parent, 'notes');
   try {
@@ -282,22 +281,22 @@ test('update refreshes an older Android scaffold, absolute packages and the name
     writeFileSync(manifest, readFileSync(manifest, 'utf8').replace('exact-painted =', 'exact-linux =').replace('/host/painted', '/host/linux'));
     writeFileSync(source, readFileSync(source, 'utf8').replace('exact_painted::canvas_jni!', 'exact_linux::canvas_jni!'));
     const pkg = resolve(dir, 'package.json');
-    const original = '{"name":"notes","large":9007199254740993,"dependencies":{"@exact/motion":"file:/old/sdk/packages/motion"},"devDependencies":{"@exact/device":"file:/old/sdk/packages/device"},"optionalDependencies":{"@exact/unknown":"file:/old/sdk/packages/unknown"},"overrides":{"@exact/motion":"file:/old/sdk/packages/motion"}}\n';
+    const original = '{"name":"notes","large":9007199254740993,"dependencies":{"@exact/motion":"file:../old-sdk/packages/motion"},"devDependencies":{"@exact/device":"file:/old/sdk/packages/device"},"optionalDependencies":{"@exact/unknown":"file:/old/sdk/packages/unknown"},"overrides":{"@exact/motion":"file:../old-sdk/packages/motion"},"resolutions":{"@exact/device":"file:/old/sdk/packages/device"}}\n';
     writeFileSync(pkg, original);
     const launcher = resolve(dir, 'exact.mjs');
-    writeFileSync(launcher, readFileSync(launcher, 'utf8').replace(/(const path = .*\?\? )"[^"]+";/, '$1"../old-sdk";'));
+    writeFileSync(launcher, 'const EXACT2 = process.env.EXACT2 ?? "../old-sdk";');
     const said = createApp(dir, { update: true });
     assert.match(readFileSync(source, 'utf8'), /exact_painted::canvas_jni!/);
     const deps = Object.values(Bun.TOML.parse(readFileSync(manifest, 'utf8')).target)[0].dependencies;
     assert.ok(deps['exact-linux'], 'generated includes may still use exact-linux');
-    assert.equal(resolve(dir, 'android', deps['exact-painted'].path), resolve(root, 'host/painted'));
-    assert.equal(readFileSync(pkg, 'utf8'), original.replace('"dependencies":{"@exact/motion":"file:/old/sdk/packages/motion"}', `"dependencies":{"@exact/motion":${JSON.stringify('file:' + pathFrom(dir, resolve(root, 'packages/motion')))}}`)
-      .replace('"devDependencies":{"@exact/device":"file:/old/sdk/packages/device"}', `"devDependencies":{"@exact/device":${JSON.stringify('file:' + pathFrom(dir, resolve(root, 'packages/device')))}}`));
+    assert.equal(realpathSync(resolve(dir, 'android', deps['exact-painted'].path)), resolve(root, 'host/painted'));
+    assert.equal(readFileSync(pkg, 'utf8'), original.replaceAll('"@exact/motion":"file:../old-sdk/packages/motion"', `"@exact/motion":${JSON.stringify('file:' + pathFrom(dir, resolve(root, 'packages/motion')))}`)
+      .replaceAll('"@exact/device":"file:/old/sdk/packages/device"', `"@exact/device":${JSON.stringify('file:' + pathFrom(dir, resolve(root, 'packages/device')))}`));
     assert.match(said, /exact_painted::canvas_jni!/);
     assert.match(said, /package.json.*bun install/);
-    assert.match(said, /exact.mjs now names.*it named.*old-sdk/);
+    assert.match(said, /exact.mjs now bootstraps .exact\/checkout/);
     const again = createApp(dir, { update: true });
-    assert.doesNotMatch(again, /canvas_jni|package.json.*bun install|exact.mjs now names/);
+    assert.doesNotMatch(again, /canvas_jni|package.json.*bun install|now bootstraps/);
   } finally { rmSync(parent, { recursive: true, force: true }); }
 }, 60_000);
 
@@ -370,15 +369,15 @@ test('Android canvas migration retains dependencies used outside src or by uncer
   } finally { rmSync(parent, { recursive: true, force: true }); }
 });
 
-test('update reports checkout changes for the historical EXACT2 launcher', () => {
+test('update migrates the historical EXACT2 launcher to local bootstrap', () => {
   const parent = mkdtempSync(resolve(tmpdir(), 'exact-old-launcher-')), dir = resolve(parent, 'notes');
   try {
     createApp(dir);
     write(resolve(dir, 'exact.mjs'), 'import { resolve } from "node:path";\nconst EXACT2 = resolve(import.meta.dir, process.env.EXACT2 ?? "../sdk");\n');
     const said = createApp(dir, { update: true });
-    const next = /const path = .*\?\? ("(?:\\.|[^"\\])*");/.exec(readFileSync(resolve(dir, 'exact.mjs'), 'utf8'))[1];
-    assert.ok(said.includes(`exact.mjs now names the Exact checkout ${JSON.parse(next)} (it named ../sdk;`), said);
-    assert.doesNotMatch(createApp(dir, { update: true }), /exact.mjs now names/);
+    assert.ok(readFileSync(resolve(dir, 'exact.mjs'), 'utf8').includes('const seed = '));
+    assert.match(said, /exact.mjs now bootstraps .exact\/checkout/);
+    assert.doesNotMatch(createApp(dir, { update: true }), /now bootstraps/);
   } finally { rmSync(parent, { recursive: true, force: true }); }
 });
 
@@ -399,70 +398,11 @@ test('package path updates accept JSONC and leave unparseable files while updati
       write(resolve(dir, 'android/src/lib.rs'), '');
       write(resolve(dir, 'package.json'), original);
       const said = createApp(dir, { update: true });
-      const expected = valid ? original.replace(`"@exact/motion":"${spec}"`, `"@exact/motion":${JSON.stringify('file:' + pathFrom(dir, resolve(root, 'packages/motion')))}`) : original;
+      const expected = valid ? original.replaceAll(`"@exact/motion":"${spec}"`, `"@exact/motion":${JSON.stringify('file:' + pathFrom(dir, resolve(root, 'packages/motion')))}`) : original;
       assert.equal(readFileSync(resolve(dir, 'package.json'), 'utf8'), expected, name);
       assert.match(said, valid ? /package.json.*bun install/ : /package.json.*left unchanged/);
       const deps = Bun.TOML.parse(readFileSync(resolve(dir, 'android/Cargo.toml'), 'utf8')).dependencies;
-      assert.equal(resolve(dir, 'android', deps['exact-painted'].path), resolve(root, 'host/painted'));
+      assert.equal(realpathSync(resolve(dir, 'android', deps['exact-painted'].path)), resolve(root, 'host/painted'));
     }
   } finally { rmSync(parent, { recursive: true, force: true }); }
 }, 60_000);
-
-test.each([['topic', true], ['nested/trees/topic', false]])('an app first created inside worktree %s keeps its checkout paths when merged', (location, sameDepth) => {
-  const parent = mkdtempSync(resolve(root, 'target/new-in-worktree-'));
-  const main = resolve(parent, 'main'), worktree = resolve(parent, location);
-  const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !['EXACT', 'EXACT2'].includes(key) && !key.startsWith('GIT_')));
-  const git = (cwd, ...args) => {
-    const result = spawnSync('git', ['-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.com', '-c', 'commit.gpgsign=false', ...args], { cwd, env, encoding: 'utf8' });
-    assert.equal(result.status, 0, result.stderr);
-    return result.stdout.trim();
-  };
-  try {
-    mkdirSync(main);
-    git(main, 'init', '-q');
-    git(main, 'commit', '--allow-empty', '-qm', 'Create the fixture\n\nCo-Authored-By: GPT-6 Astra <noreply@openai.com>\nCo-Authored-By: GPT-6.1 Sol <noreply@openai.com>');
-    git(main, 'worktree', 'add', '-qb', 'topic', worktree);
-    const app = resolve(worktree, 'packages/nested/notes');
-    createApp(app);
-    const before = readFileSync(resolve(app, 'exact.mjs'), 'utf8');
-    const schema = JSON.parse(readFileSync(resolve(app, 'app.json'), 'utf8')).$schema;
-    const mainApp = resolve(main, 'packages/nested/notes');
-    assert.equal(schema, pathWithin(mainApp, resolve(root, 'scripts/app.schema.json')));
-    assert.equal(existsSync(resolve(app, schema)), sameDepth);
-    const loadSchema = at => JSON.parse(readFileSync(resolve(at, schema), 'utf8'));
-    const expectedSchema = JSON.parse(readFileSync(resolve(root, 'scripts/app.schema.json'), 'utf8'));
-    if (sameDepth) assert.deepEqual(loadSchema(app), expectedSchema);
-    const guides = (at, readable) => {
-      const notes = readFileSync(resolve(at, 'AGENTS.md'), 'utf8');
-      const paths = [...notes.matchAll(/[^\s`]+\/docs\/start-here(?:-site)?\.md/g)].map(match => match[0]);
-      assert.equal(paths.length, 2);
-      for (const path of paths) {
-        assert.equal(isAbsolute(path), false);
-        assert.equal(path, pathWithin(mainApp, resolve(root, 'docs', path.split('/').at(-1))));
-        if (readable) assert.match(readFileSync(resolve(at, path), 'utf8'), /^# /);
-      }
-    };
-    guides(app, sameDepth);
-    const launcher = spawnSync(process.execPath, [resolve(app, 'exact.mjs'), '--help'], { env, encoding: 'utf8' });
-    assert.equal(launcher.status, 0, launcher.stderr);
-    git(worktree, 'add', '-A');
-    git(worktree, 'commit', '-qm', 'Create the app\n\nCo-Authored-By: GPT-6 Astra <noreply@openai.com>\nCo-Authored-By: GPT-6.1 Sol <noreply@openai.com>');
-    git(main, 'merge', '-q', '--ff-only', 'topic');
-    const merged = resolve(main, 'packages/nested/notes');
-    const launched = spawnSync(process.execPath, [resolve(merged, 'exact.mjs'), '--help'], { env, encoding: 'utf8' });
-    assert.equal(launched.status, 0, launched.stderr);
-    guides(merged, true);
-    assert.equal(JSON.parse(readFileSync(resolve(merged, 'app.json'), 'utf8')).$schema, schema);
-    assert.deepEqual(loadSchema(merged), expectedSchema);
-    createApp(app, { update: true });
-    assert.equal(readFileSync(resolve(app, 'exact.mjs'), 'utf8'), before);
-    assert.equal(JSON.parse(readFileSync(resolve(app, 'app.json'), 'utf8')).$schema, schema);
-    guides(app, sameDepth);
-    createApp(merged, { update: true });
-    assert.equal(git(worktree, 'status', '--porcelain'), '');
-    assert.equal(git(main, 'status', '--porcelain'), '');
-    for (const file of ['AGENTS.md', 'app.json', 'exact.mjs']) {
-      assert.equal(readFileSync(resolve(app, file), 'utf8'), readFileSync(resolve(merged, file), 'utf8'), file);
-    }
-  } finally { rmSync(parent, { recursive: true, force: true }); }
-});

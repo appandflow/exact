@@ -47,7 +47,7 @@ extension ExactSession {
     /// autofocus and kept documents, then the data source: posted to the
     /// owner to be evaluated or, when it has been, activated in this turn.
     private func afterFirstDraw(_ drawnGeneration: Int, token: UInt64) {
-        declareNotificationCategories { [weak self] in
+        notificationHost.declareCategories(self) { [weak self] in
             guard let self, state != .destroyed, generation == drawnGeneration else { return }
             dataPreparing = false
             defer { releaseCanvases() }
@@ -157,7 +157,7 @@ extension ExactSession {
         let applying = CACurrentMediaTime()
         apply(batch)
         ExactLaunch.shared.dataApplied(self, CACurrentMediaTime() - applying)
-        landColdShare() // a share claimed before the boot lands in the storage just configured
+        shareHost.land(self) // a share claimed before the boot lands in the storage just configured
         observeLeaving()
         dataGeneration = drawnGeneration
         ExactLaunch.shared.activated(self, ok: batch.error == nil)
@@ -168,7 +168,7 @@ extension ExactSession {
         }
         storeRefresh.record(batch)
         retryStoreActivation()
-        deliverNotificationResponses()
+        notificationHost.deliverResponses(self)
         deliverModuleEvents() // a launching activation, once the module and the data are up (LLP 1133.004 D6)
         NotificationCenter.default.post(name: Self.dataActivated, object: self)
         canvases.loadIfNeeded()
@@ -204,6 +204,15 @@ extension ExactSession {
     /// runner then holds each event to its own bound).
     static let heldModuleEventBound = 256
 
+    /// A background action's events still held for first pixel are dropped
+    /// when its time runs out (NotifyActions.swift).
+    package func dropHeldBackgroundAction(_ id: String) {
+        heldModuleEvents.removeAll { json in
+            let event = (try? JSONSerialization.jsonObject(with: Data(json.utf8))) as? [String: Any]
+            return event?["background"] as? String == id
+        }
+    }
+
     /// A module event the platform reported for this session (LLP 1133.004
     /// D6): held from launch until first pixel and the data's activation,
     /// then raised into the runner and heard in order, once. `activation` is
@@ -211,7 +220,7 @@ extension ExactSession {
     /// own UI. `background` makes it a notification's background action
     /// the person chose (LLP 1133.004 stage 2): the host's id for it, whether
     /// the session was booted for it, and whether no view is seen.
-    func raiseModuleEvent(extension name: String, event: String, args: String, activation: Bool,
+    package func raiseModuleEvent(extension name: String, event: String, args: String, activation: Bool,
                           background: (id: String, cold: Bool, hidden: Bool)? = nil) {
         guard state != .destroyed else { return }
         var body: [String: Any] = ["extension": name, "event": event, "args": (try? JSONSerialization.jsonObject(with: Data(args.utf8))) ?? [],
@@ -231,11 +240,14 @@ extension ExactSession {
     /// agent's tap of a listed entry too).
     func deliverModuleEvents() {
         guard state != .destroyed, booted, dataActivated, firstDrawMs != nil, !runtime.holds("deliverModuleEvents()") else { return } // (kept for after: ResetGate)
+        // Without the module seam's export nothing hears them; at the
+        // session's end they are journaled as unheard (`endModuleEvents`).
+        guard CoreExports.moduleEvent != nil else { return }
         let held = heldModuleEvents
         heldModuleEvents = []
         for json in held {
             let event = (try? JSONSerialization.jsonObject(with: Data(json.utf8))) as? [String: Any]
-            if let id = event?["background"] as? String, !beginBackgroundAction(id) { continue }
+            if let id = event?["background"] as? String, !notificationHost.beginBackgroundAction(self, id) { continue }
             apply(runtime.moduleEvent(json))
         }
         apply(runtime.moduleEvent("{}"))
@@ -248,7 +260,7 @@ extension ExactSession {
             log("\(v["extension"] as? String ?? "").\(v["event"] as? String ?? ""): unheard at the session's end")
         }
         heldModuleEvents = []
-        if booted { _ = runtime.moduleEvent("{\"unheard\":true}") }
-        endBackgroundActions()
+        if booted, CoreExports.moduleEvent != nil { _ = runtime.moduleEvent("{\"unheard\":true}") }
+        notificationHost.endBackgroundActions(self)
     }
 }

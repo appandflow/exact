@@ -2,11 +2,12 @@
   "$schema": "../../scripts/app.schema.json",
   "name": "UI Gallery",
   "short_name": "UI Gallery",
+  "version": "0.1.1",
+  "buildNumber": 20,
   "id": "com.exact.uigallery",
   "start_url": "/",
   "display": "standalone",
   "theme_color": "#ffffff",
-  "background_color": "#ffffff",
   "icons": [
     {
       "src": "assets/icon.png",

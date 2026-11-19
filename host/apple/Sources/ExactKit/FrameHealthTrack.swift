@@ -19,7 +19,7 @@ final class FrameHealthTrack {
     static let quiet = 0.5
     struct Row { var t: Double; var offset: Float; var phase: UInt8 }
 
-    let node: Int, began: Double, until: Double, period: Double
+    package let node: Int, began: Double, until: Double, period: Double
     private weak var scroller: AnyObject?
     private var rows: [Row]
     /// Rows written since the track began; row `n` is at `n % capacity` while retained.
@@ -152,7 +152,7 @@ extension FrameHealth {
 
     #if canImport(UIKit)
     /// The feed, from the host's existing `scrollViewDidScroll` calls: a nil check when no agent tracks.
-    func trackScrolled(_ scroll: UIScrollView) {
+    package func trackScrolled(_ scroll: UIScrollView) {
         guard let track, track.tracks(scroll), !track.frozen else { return }
         guard enabled else { self.track = nil; return }
         let now = CACurrentMediaTime()
@@ -164,7 +164,7 @@ extension FrameHealth {
     /// The feed, from the Mac clip's existing bounds-change handler (`NodeView.clipScrolled`). The offset is along the
     /// scrolling axis (x for a scroller that moves only sideways, as `scrollSample` on iOS); the phase is the one the
     /// scroller's own wheel handler took from the event that moved it (`ChainingScrollView.trackPhase`), used once.
-    func trackScrolled(_ scroll: ChainingScrollView) {
+    package func trackScrolled(_ scroll: ChainingScrollView) {
         guard let track, track.tracks(scroll), !track.frozen else { return }
         guard enabled else { self.track = nil; return }
         let now = CACurrentMediaTime()

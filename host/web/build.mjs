@@ -46,7 +46,7 @@ import { buildRust, rustFiles, rustCards, rustPackage } from '../../scripts/rust
 import { webAppManifest, webDist, copyShaders, bakeOutput, bakeWatchEnv, buildBake, contractLast, readBake, verifyBakeFiles, developmentBuildEnv, resolveApp, webToolchainEnv } from '../../scripts/app.mjs';
 import { buildEditor, buildFlow, compilerSet } from '../web-js/module.mjs';
 import { RustMissing, WEB_CRATES, rustMissing, setMetadata } from '../../scripts/tools.mjs';
-import { closeFilesystemReader } from '../../scripts/filesystem.mjs';
+import { closeFilesystemReader, offlineMiss } from '../../scripts/filesystem.mjs';
 import { guardFlags, reportBuilt } from '../../scripts/help.mjs';
 import { BINARYEN_DOWNLOAD, optimizeWasm, splitStages, unsplitReason } from './stages.mjs';
 import { interfaceStyle, launchBackground, schemeHead, withInterfaceStyle, withLook } from './look.mjs';
@@ -66,7 +66,9 @@ function webMetadata(workspace) {
   const result = spawnSync('cargo', ['metadata', '--locked', '--offline', '--format-version', '1'], {
     cwd: workspace, env: developmentBuildEnv(), encoding: 'utf8', maxBuffer: 128 << 20,
   });
-  if (result.error || result.status !== 0) throw new Error(`web build: cargo metadata in ${workspace}: ${result.stderr || result.error?.message}`);
+  // No cargo: the one line `contract` gives, not a stack trace (LLP 1156.006.000 D10).
+  if (result.error?.code === 'ENOENT') throw new RustMissing('exact-web-js');
+  if (result.error || result.status !== 0) throw new Error(`web build: cargo metadata in ${workspace}: ${result.stderr || result.error?.message}${offlineMiss(result.stderr)}`);
   const metadata = JSON.parse(result.stdout);
   const paths = ['Cargo.toml', 'Cargo.lock', '.cargo/config.toml', '.cargo/config'].map(file => resolve(workspace, file));
   paths.push(...metadata.packages.filter(pkg => !pkg.source).map(pkg => pkg.manifest_path));
@@ -205,11 +207,14 @@ function sourcesBuilt(app, dist, atStart) {
   return now === atStart ? now : null;
 }
 
-function completeWebInputs(app, js, render, inputRoots, inputs, inputsAt) {
+function completeWebInputs(app, js, render, inputRoots, inputs, inputsAt, settings) {
   const next = webSourceRoots(app, js, render);
   inputRoots.splice(0, inputRoots.length, ...next);
-  for (const [path, value] of Object.entries(webInputDigests(app, js, next))) {
-    if (Object.hasOwn(inputs, path)) continue;
+  const current = webInputDigests(app, js, next, settings.sourceInputs);
+  for (const path of Object.keys(inputs)) if (!Object.hasOwn(current,path)) delete inputs[path];
+  for (const [name,value] of Object.entries(settings.env ?? {})) current[`import.meta.env.${name}`] = JSON.stringify(value);
+  for (const [path, value] of Object.entries(current)) {
+    if (Object.hasOwn(inputs, path) && !path.startsWith('import.meta.env.')) continue;
     // An include first discovered by Cargo cannot certify bytes edited during compilation.
     const info = statSync(resolve(SDK_ROOT, path), { throwIfNoEntry: false });
     inputs[path] = info && info.ctimeMs >= inputsAt ? null : value;
@@ -309,7 +314,7 @@ if (target !== '--wasm' && !game && !bakeOnly) {
   // A site to host is a release, as delivery builds one (`--production`): agent mode refused, the app's storage its id
   // alone, its install pages a release's.
   const release = outDir ? { flags: ['--production'], env: { EXACT_UPDATE_TRUST: 'production' } } : { flags: [], env: {} };
-  const js = spawnSync(process.execPath, [fileURLToPath(new URL('../web-js/build.mjs', import.meta.url)), app.name, '--out', stage, ...render, ...release.flags], { stdio: ['ignore', 'pipe', 'pipe'], encoding: 'utf8', env: { ...process.env, EXACT_APP_DIR: app.dir, ...release.env } });
+  const js = spawnSync(process.execPath, [fileURLToPath(new URL('../web-js/build.mjs', import.meta.url)), app.name, '--out', stage, ...render, ...release.flags], { stdio: ['ignore', 'pipe', 'pipe'], encoding: 'utf8', env: { ...process.env, EXACT_APP_DIR: app.dir, EXACT_WEB_DIST:dist, ...release.env } });
   // What it says names the output, not the stage.
   const said = (text) => (text ?? '').replaceAll(stage, dist);
   js.stderr = said(js.stderr);
@@ -317,7 +322,7 @@ if (target !== '--wasm' && !game && !bakeOnly) {
   // The compiler's warnings, as `contract build` says them, its file from here: the count names them (LLP 1116.004 D7).
   const compiler = compilerWarnings(js.stderr);
   if (js.status === 0) {
-    if (inputs) completeWebInputs(app, true, render[1] ?? 'rust', inputRoots, inputs, inputsAt);
+    if (inputs) completeWebInputs(app, true, render[1] ?? 'rust', inputRoots, inputs, inputsAt, builtSettings(stage));
     // What the JS target warned of, in its own words: the count it prints names nothing (workout F3, kanban F30).
     // The bundler's notes on the generated glue are not the app's to act on. The types app.ts imports, when
     // the build rewrote them, are one line (LLP 1116.001 D4.5).
@@ -329,7 +334,7 @@ if (target !== '--wasm' && !game && !bakeOnly) {
     // its `links:` lines.
     // The receipt first, since what it records may come from the build's intermediates. `release`: a site to host
     // (`--out`), built again (to the same directory, as a release) when what it was built from changes.
-    // `env`: each setting app.ts read, as inlined, and its source (LLP 1153 D4), for the drive's logs and `changedSettings`.
+    // `env`: each setting the app-local modules read, as inlined, and its source (LLP 1153 D4), for the drive's logs and `changedSettings`.
     writeFileSync(resolve(stage, '.exact-build.json'), JSON.stringify({ exactBuild: 1, target: 'js', app: { id: app.id, name: app.displayName },
       manifestSha256: appManifestDigest(app), files: buildFileCards(stage), ...(inputs ? { inputs, inputsAt, inputRoots } : {}), sources: sourcesBuilt(app, dist, sources),
       ...(inputs ? { reads: { contract: contractReadReceipt(resolve(stage, '.gen')) } } : {}),
@@ -544,6 +549,7 @@ if (bakeOnly ? !!moduleInput : typeof exports.exact_module_artifact === 'functio
   copyHostFiles('module');
   // Remove the module-glue → storage → fs/sqlite request chain's middle step.
   await bundleModuleGlue(root, resolve(stage, 'module-glue.js'), { production });
+  writeFileSync(resolve(stage,'app.sources.json'),JSON.stringify(buildReceipt.typescriptSources));
 }
 const bakedReceipt = readBake(app, 'web', 'wasm32-unknown-unknown', buildEnv.EXACT_BAKE_OUTPUT);
 writeFileSync(resolve(stage, 'app.version.json'), versionFile(bakedReceipt.embedded));
@@ -751,7 +757,7 @@ if (app.modules.tags.length || app.modules.web) {
 // Written last inside the private stage. Dev startup trusts a dist only when
 // this marker and the public plan card agree, so a partial/corrupt directory
 // can never be mistaken for a completed build of the requested app.
-completeWebInputs(app, false, render[1] ?? 'rust', inputRoots, inputs, inputsAt);
+completeWebInputs(app, false, render[1] ?? 'rust', inputRoots, inputs, inputsAt, builtSettings(stage));
 writeFileSync(resolve(stage, '.exact-build.json'), JSON.stringify({
   exactBuild: 1, app: { id: app.id, name: app.displayName }, manifestSha256: appManifestDigest(app),
   files: await publicFileCards(stage).finally(closeFilesystemReader),

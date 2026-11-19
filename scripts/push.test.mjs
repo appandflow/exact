@@ -240,6 +240,33 @@ test('push builds a Rust module for each native target and checks every stream b
     await expect(pusher({_:[root],origin:root,keys:root})).rejects.toThrow('cannot take this as an update — rustTarget');
     expect(published).toEqual([]);
   } finally {fs.rmSync(root,{recursive:true,force:true})}
+  // LLP 1156.006.000 D19: two streams that cannot take it are both named in the one refusal, each with its build.
+  const both=harness(()=>({bundle:false,missing:['rustTarget']}),4,{targets:[[x86,'native'],[arm,'native']]});
+  try {
+    const said=await both.pusher({_:[both.root],origin:both.root,keys:both.root}).then(()=>'',e=>e.message);
+    expect(said).toMatch(/^2 streams on the channel \S+ cannot take this as an update, and nothing is published until each can:\n/);
+    expect(said.match(/cannot take this as an update — rustTarget\. It needs /g)).toHaveLength(2);
+    expect(both.published).toEqual([]);
+  } finally {fs.rmSync(both.root,{recursive:true,force:true})}
+  // LLP 1156.006.000 D25: a stream whose binary provably cannot run the update is left and the rest are published;
+  // with no stream left nothing is, and a miss that is no proof beside one that is still refuses the push.
+  const proof=['app.plan: appleUses.picker (not linked into the installed binary; that needs a new binary)'];
+  const unfitArm=(verdict)=>harness(build=>build.compat.target===arm?verdict:{bundle:true},4,{targets:[[x86,'native'],[arm,'native']]});
+  const left=unfitArm({bundle:false,missing:proof,needsBinary:proof});
+  try {
+    expect(await left.pusher({_:[left.root],origin:left.root,keys:left.root})).toBe(0);
+    expect(left.published.map(b=>b.compat.target)).toEqual([x86]);
+  } finally {fs.rmSync(left.root,{recursive:true,force:true})}
+  const unproven=unfitArm({bundle:false,missing:[...proof,'envelope: signing key test is not carried by this cohort'],needsBinary:proof});
+  try {
+    await expect(unproven.pusher({_:[unproven.root],origin:unproven.root,keys:unproven.root})).rejects.toThrow('is not carried by this cohort. It needs');
+    expect(unproven.published).toEqual([]);
+  } finally {fs.rmSync(unproven.root,{recursive:true,force:true})}
+  const none=harness(()=>({bundle:false,missing:proof,needsBinary:proof}),4,{targets:[[x86,'native'],[arm,'native']]});
+  try {
+    await expect(none.pusher({_:[none.root],origin:none.root,keys:none.root})).rejects.toThrow(/^2 streams on the channel \S+ cannot take this as an update/);
+    expect(none.published).toEqual([]);
+  } finally {fs.rmSync(none.root,{recursive:true,force:true})}
 });
 
 // An app with widgets or Live Activities: the binary's production bake listed their plans, schemas and, for a TypeScript

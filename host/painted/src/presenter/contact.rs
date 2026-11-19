@@ -297,11 +297,9 @@ impl<D: DataSource> Presenter<D> {
     }
     /// Where the held contact is, if one is held.
     pub fn contact_position(&self) -> Option<(f32, f32)> {
-        (self.contact.as_ref().map(|c| c.position))
-            .or_else(|| self.stage_contact().map(|(at, _)| at))
+        (self.contact.as_ref().map(|c| c.position)).or_else(|| self.stage_contact().map(|c| c.at))
     }
-    /// The agent's contact phase is done: its press lands at once (LLP
-    /// 1061 D2, D7), the clock unmoved.
+    /// Settle press feedback after a contact phase on a held clock (LLP 1061 D2, D7).
     pub(crate) fn land_presses(&mut self) {
         self.host.land_presses();
         self.brush.ripples.land(self.host.now());
@@ -309,9 +307,15 @@ impl<D: DataSource> Presenter<D> {
         self.land_surface_ripple();
         self.dirty = true;
     }
-    pub(crate) fn contact_event_ms(&self) -> Option<f64> {
-        (self.contact.as_ref().map(|c| c.event_ms))
-            .or_else(|| self.stage_contact().map(|(_, ms)| ms))
+    pub(crate) fn contact_event_ms(&self, platform_ms: Option<f64>) -> Option<f64> {
+        let (event_ms, delivered_ms) = self
+            .contact
+            .as_ref()
+            .map(|c| (c.event_ms, c.last_ms))
+            .or_else(|| self.stage_contact().map(|c| (c.event_ms, c.delivered_ms)))?;
+        // A synthesized move delivers its samples together. Idle time starts
+        // at delivery, even when the last sample is timestamped ahead of it.
+        Some(event_ms + platform_ms.map_or(0., |at| (at - delivered_ms).max(0.)))
     }
     pub(crate) fn delay_contact_event(&mut self, ms: f64) {
         if let Some(contact) = &mut self.contact {
@@ -805,8 +809,8 @@ impl<D: DataSource> Presenter<D> {
     pub fn pointer_move(&mut self, x: f32, y: f32, now_ms: f64) -> Result<bool, String> {
         self.pointer_move_at(x, y, now_ms, now_ms)
     }
-    // Agent events have timestamps for pan velocity while dispatch and held
-    // motion use the frozen runner clock, as on the page.
+    // The agent timestamps synthesized samples for pan velocity. Dispatch
+    // and held motion use the presenter's current time.
     pub(crate) fn pointer_move_at(
         &mut self,
         x: f32,
@@ -818,7 +822,7 @@ impl<D: DataSource> Presenter<D> {
             self.brush.pointer_modality = true;
         }
         // A sheet's scrim, or its drag once past the slop (`stage/touch.rs`).
-        if self.stage_move(x, y, event_ms) {
+        if self.stage_move(x, y, now_ms, event_ms) {
             return Ok(true);
         }
         if self.overlay_pointer(2, x, y, now_ms) || self.scrollbar_pointer(2, x, y) {

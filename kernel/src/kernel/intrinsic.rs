@@ -236,7 +236,8 @@ impl Kernel {
             || (self.arena.symbols_owed.iter()).any(|slot| !covered_whole(&self.arena, slot))
     }
 
-    /// Measure the symbols owed a measurement. A system symbol's natural size
+    /// Measure the symbols owed a measurement. A template uses its viewBox at
+    /// the computed font size. A system symbol's natural size
     /// depends only on its role, its font and the traits its host measures
     /// under, so the kernel asks the host's measurer for it before laying out
     /// rather than wait for a view to report it: the first layout has its box
@@ -267,13 +268,15 @@ impl Kernel {
                 continue;
             }
             self.arena.symbols_owed.remove(slot);
-            let measured = crate::replaced::symbol_role(&self.arena, slot)
-                .and_then(|role| {
-                    let font = self.arena.computed_style(slot, crate::StyleMask::TEXT);
-                    self.measurer.symbol_size(&crate::SymbolRequest {
-                        role,
-                        font_size: font.font_size,
-                        font_weight: font.font_weight,
+            let measured = crate::replaced::template_size(&self.arena, slot)
+                .or_else(|| {
+                    crate::replaced::symbol_role(&self.arena, slot).and_then(|role| {
+                        let font = self.arena.computed_style(slot, crate::StyleMask::TEXT);
+                        self.measurer.symbol_size(&crate::SymbolRequest {
+                            role,
+                            font_size: font.font_size,
+                            font_weight: font.font_weight,
+                        })
                     })
                 })
                 .filter(|(w, h)| w.is_finite() && h.is_finite() && *w >= 0.0 && *h >= 0.0);

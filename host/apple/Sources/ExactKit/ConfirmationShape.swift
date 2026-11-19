@@ -36,8 +36,8 @@ extension NodeView {
     /// that draws it can scroll its message. A box holding anything else
     /// stays a row of its own, which no confirmation's shape admits.
     var confirmationRows: [NodeView] {
-        container.subviews.compactMap { $0 as? NodeView }.flatMap { row -> [NodeView] in
-            let rows = row.container.subviews.compactMap { $0 as? NodeView }
+        childNodes.flatMap { row -> [NodeView] in
+            let rows = row.childNodes
             switch (row.kind, row.props["alertPart"]) {
             case ("view", "message") where rows.allSatisfy({ $0.kind == "text" }): return rows
             case ("view", "actions") where rows.allSatisfy(\.isButton): return rows
@@ -68,7 +68,7 @@ extension NodeView {
     }
 
     /// HTML queues `close` after restoring focus; app code may open it again.
-    func queueDialogClose() {
+    package func queueDialogClose() {
         guard props["semanticTag"] == "dialog", handlers.contains("close") else { return }
         DispatchQueue.main.async { [weak self, weak presenter] in
             guard let self, let presenter, presenter.views[self.id] === self, self.superview != nil else { return }

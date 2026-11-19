@@ -2,6 +2,7 @@
 import UIKit
 import XCTest
 @testable import ExactKit
+@testable import ExactNavigation
 
 /// LLP 1075.003 §3.7 (PlainTabIOS.swift): every tab's controller is made
 /// with the tab container and never replaced. A tab whose panel draws its
@@ -16,12 +17,12 @@ final class TabStacksIOSTests: XCTestCase {
 
     func testEmptyProjectedPanelsExposeNoContainer() throws {
         let session = try fixture("panel-accessibility"), p = session.presenter
-        let panels = p.navigation.tabPanels.compactMap { p.views[$0] }
+        let panels = p.navigationHost.tabPanels.compactMap { p.views[$0] }
         XCTAssertEqual(panels.count, 2)
         XCTAssertEqual(panels.filter { !$0.accessibilityElementsHidden }.count, 0)
-        let route = try XCTUnwrap(p.navigation.activeRoute?.node)
+        let route = try XCTUnwrap(p.navigationHost.activeRoute?.node)
         XCTAssertFalse(route.accessibilityElementsHidden)
-        XCTAssertTrue(route.isDescendant(of: try XCTUnwrap(p.navigation.primaryOwner?.view)))
+        XCTAssertTrue(route.isDescendant(of: try XCTUnwrap(p.navigationHost.primaryOwner?.view)))
         func spokenLabels() -> [String] {
             let elements = p.axElements(roots: [p.documentHost])["elements"] as? [[String: Any]] ?? []
             return elements.compactMap { $0["name"] as? String }.filter { !$0.isEmpty }
@@ -48,17 +49,17 @@ final class TabStacksIOSTests: XCTestCase {
         panel.accessibilityElements = []
         XCTAssertTrue(panel.accessibilityElementsHidden, "an explicitly empty list exposes no shell")
         panel.accessibilityElements = nil
-        let ids = p.navigation.tabPanels
-        defer { p.navigation.tabPanels = ids }
-        p.navigation.tabPanels = []
+        let ids = p.navigationHost.tabPanels
+        defer { p.navigationHost.tabPanels = ids }
+        p.navigationHost.tabPanels = []
         XCTAssertFalse(panel.accessibilityElementsHidden, "an ordinary tabpanel keeps its accessibility")
         XCTAssertEqual(spokenLabels(), spoken, "projecting away empty shells preserves spoken content and its order")
     }
 
     func testAHiddenNativeTabBarExposesNoElementsAndShowsAgain() throws {
         let session = try fixture("tab-bar-accessibility"), p = session.presenter
-        let list = try XCTUnwrap(p.navigation.adoptedTablist.flatMap { p.views[$0] })
-        let tabs = try XCTUnwrap(p.navigation.tabController)
+        let list = try XCTUnwrap(p.navigationHost.adoptedTablist.flatMap { p.views[$0] })
+        let tabs = try XCTUnwrap(p.navigationHost.tabController)
         XCTAssertFalse(tabs.tabBar.accessibilityElementsHidden)
         let style = list.style
         p.apply(wireBatch([["op": "style", "id": Int(list.id), "style": ["appearance": "none", "written": ["appearance"]]]]))
@@ -66,13 +67,13 @@ final class TabStacksIOSTests: XCTestCase {
         XCTAssertTrue(sequence(first: tabs.tabBar as UIView, next: \.superview)
             .dropFirst().prefix(while: { $0 !== tabs.view }).contains { $0.accessibilityElementsHidden })
         list.applyStyle(style)
-        p.navigation.sync(wireBatch([]))
+        p.navigationHost.sync(wireBatch([]))
         XCTAssertFalse(tabs.tabBar.accessibilityElementsHidden, "the native tabs are reachable when shown again")
     }
 
     func testTabBarSuppressionPreservesAppAccessibilitySettings() throws {
         let session = try fixture("tab-bar-app-accessibility"), p = session.presenter
-        let tabs = try XCTUnwrap(p.navigation.tabController as? TabController)
+        let tabs = try XCTUnwrap(p.navigationHost.tabController as? TabController)
         let bar = tabs.tabBar
         bar.accessibilityElementsHidden = true
         tabs.view.setNeedsLayout()
@@ -113,7 +114,7 @@ final class TabStacksIOSTests: XCTestCase {
     func testAClippedProjectedPanelKeepsContentBesideItsContainer() throws {
         guard Presenter.axRuntimeLoaded else { throw missing("accessibility", "UIKit derives a hatch label's name") }
         let session = try fixture("clipped-panel-accessibility"), p = session.presenter
-        let panel = try XCTUnwrap(p.navigation.tabPanels.compactMap { p.views[$0] }.first)
+        let panel = try XCTUnwrap(p.navigationHost.tabPanels.compactMap { p.views[$0] }.first)
         panel.applyStyle(["overflow_x": .string("clip")])
         XCTAssertFalse(panel.container === panel)
         XCTAssertTrue(panel.container.subviews.isEmpty)
@@ -134,14 +135,14 @@ final class TabStacksIOSTests: XCTestCase {
         for property in ["inert", "accessibilityElementsHidden"] {
             for gainsContent in [true, false] {
                 let p = Presenter(), panel = NodeView(id: 1, kind: "view", presenter: p)
-                p.navigation.tabPanels = [panel.id]
+                p.navigationHost.tabPanels = [panel.id]
                 panel.applyProps(set: ["accessibilityRole": "tabpanel"], clear: [])
                 XCTAssertTrue(panel.accessibilityElementsHidden)
                 panel.applyProps(set: [property: "true"], clear: [])
                 if gainsContent {
                     panel.addSubview(UILabel())
                 } else {
-                    p.navigation.tabPanels = []
+                    p.navigationHost.tabPanels = []
                 }
                 XCTAssertTrue(panel.accessibilityElementsHidden, "\(property) survives the end of placeholder suppression")
                 panel.applyProps(set: [:], clear: [property])
@@ -167,7 +168,7 @@ final class TabStacksIOSTests: XCTestCase {
 
     func testATabThatDrawsAStackIsANavigationControllerFromLaunchAndKeepsIt() throws {
         let session = try fixture("stacks")
-        let navigation = session.presenter.navigation
+        let navigation = session.presenter.navigationHost
         let (tabs, nav, root) = try barless(session)
         XCTAssertTrue(nav.isNavigationBarHidden, "Barless's root shows no bar")
         XCTAssertTrue(navigation.primaryNavigation === nav)
@@ -188,7 +189,7 @@ final class TabStacksIOSTests: XCTestCase {
 
     func testABarlessTabsFirstPushAnimatesInItsOwnController() throws {
         let session = try fixture("stacks-push")
-        let navigation = session.presenter.navigation
+        let navigation = session.presenter.navigationHost
         let (tabs, nav, root) = try barless(session)
         let frame = root.view.convert(root.view.bounds, to: nil)
         UIView.setAnimationsEnabled(true)
@@ -210,7 +211,7 @@ final class TabStacksIOSTests: XCTestCase {
     /// and pushes Detail onto it. Detail shows, over Barless's root.
     func testATabSelectedWithAPushOntoItShowsThePush() throws {
         let session = try fixture("stacks-select-push")
-        let navigation = session.presenter.navigation
+        let navigation = session.presenter.navigationHost
         let (tabs, nav, root) = try barless(session)
         try press(session, "tab-titled")
         waitFor("Titled is selected") { tabs.selectedIndex == 1 && !navigation.inTransition }
@@ -229,7 +230,7 @@ final class TabStacksIOSTests: XCTestCase {
     /// A bar the root comes to show shows in the tab's own controller.
     func testABarTheRootComesToShowShowsInItsOwnController() throws {
         let session = try fixture("stacks-title")
-        let navigation = session.presenter.navigation
+        let navigation = session.presenter.navigationHost
         let (tabs, nav, root) = try barless(session)
         try press(session, "title")
         waitFor("the bar shows") { !nav.isNavigationBarHidden }
@@ -243,7 +244,7 @@ final class TabStacksIOSTests: XCTestCase {
     /// the router ends on its top.
     func testTwoRoutesPushedAtOnceEndOnTheTop() throws {
         let session = try fixture("stacks-deep")
-        let navigation = session.presenter.navigation
+        let navigation = session.presenter.navigationHost
         let (_, nav, root) = try barless(session)
         try press(session, "open-two")
         waitFor("Barless holds the whole stack") { nav.viewControllers.count == 3 && nav.transitionCoordinator == nil && !navigation.inTransition }
@@ -256,7 +257,7 @@ final class TabStacksIOSTests: XCTestCase {
     /// place, and the panel's routes stay in the page, shown and pressed.
     func testAPanelInsideTheTablistStaysInThePage() throws {
         let session = try fixture("nested-panel", plan: "EXACT_NESTED_PANEL_TABS_PLAN")
-        let navigation = session.presenter.navigation
+        let navigation = session.presenter.navigationHost
         XCTAssertNotNil(navigation.tabController, "the tab bar shows")
         XCTAssertEqual(navigation.covers[try node(session, "tab-home").id], .whole, "the tab is the bar's")
         XCTAssertNil(navigation.covers[try node(session, "tabs").id], "the tablist keeps the panel's room")
@@ -295,7 +296,7 @@ final class TabStacksIOSTests: XCTestCase {
         XCTAssertNil(session.boot(plan: plan, size: frame.size).error)
         view.frame = host.view.bounds
         view.layoutIfNeeded()
-        waitFor("the tabs are installed") { session.presenter.navigation.tabOwner != nil }
+        waitFor("the tabs are installed") { session.presenter.navigationHost.tabOwner != nil }
         return session
     }
 
@@ -309,7 +310,7 @@ final class TabStacksIOSTests: XCTestCase {
 
     /// The Barless tab's navigation controller and its root, as installed.
     private func barless(_ session: ExactSession) throws -> (tabs: UITabBarController, nav: UINavigationController, root: RouteController) {
-        let tabs = try XCTUnwrap(session.presenter.navigation.tabController)
+        let tabs = try XCTUnwrap(session.presenter.navigationHost.tabController)
         let nav = try XCTUnwrap(tabs.tabControllers?.first as? UINavigationController, "Barless's panel draws its stack")
         let root = try XCTUnwrap(nav.viewControllers.first as? RouteController)
         return (tabs, nav, root)

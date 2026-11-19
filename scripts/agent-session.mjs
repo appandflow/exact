@@ -535,6 +535,10 @@ export async function open({
      * for 16 rounds. Timers fire on the way, each at its own time; motion is seeked, never played. The clock lands
      * where the runner says; a timer's refusal is the error. */
     async clock(spec = 'settle', round = 0, down = null) {
+      if (env.EXACT_AGENT === 'live') {
+        const error = '--live runs the app on the wall clock, which the driver does not hold. Let real time pass between operations (perf frames live <ms> waits and measures), or drive without --live to move the clock.';
+        throw Object.assign(new Error(error), { reply: { error, code: 'live-clock' } });
+      }
       // `held`, `until`: agent-held.mjs
       if (/^held(\s|$)/.test(String(spec))) return heldClock(s, String(spec).split(/\s+/).slice(1));
       if (/^until(\s|$)/.test(String(spec))) return untilClock(s, String(spec));
@@ -653,8 +657,13 @@ export async function open({
                   ? `clock settle stops at held device requests (${(r.tickets ?? []).map(t => '@' + t).join(' ')}); state shows them under pending; answer with tap @N <choice> or type @N <value>`
                   : r.reason === 'requests'
                     ? 'clock settle gave up on requests still in flight at its bound (20 s native); state shows them under pending, and logs a `request N` with no `fulfil N`'
-                    : `clock settle did not reach quiescence: ${JSON.stringify(r.world ?? r)}; state world:* busy shows moving values and busy reasons; state shows held input; logs shows reload/refusals`;
-      // an `after(1, …)` the settle's last commit armed
+                    : r.reason === 'busy'
+                      ? `clock settle is held by aria-busy elements (${r.busy.join(', ')}), named by test ID or view ID. ` +
+                        '`aria-busy` marks an element as still loading. An indeterminate `progress` (no `value`) implies `aria-busy`. ' +
+                        'A closed `dialog` keeps its content mounted, so busy elements inside it count. ' +
+                        'Use `layout <id>` to find the element and its source line in a development build.'
+                      : `clock settle did not reach quiescence: ${JSON.stringify(r.world ?? r)}; state world:* busy shows moving values and busy reasons; state shows held input; logs shows reload/refusals`;
+      // An `after(1, …)` the settle's last commit armed.
       const soon = req.settle && r.settled !== false ? await nextCommitTasks(s, r.clock) : [];
       if (soon.length && round < 16) {
         await this.clock(String(soon[soon.length - 1][1]));

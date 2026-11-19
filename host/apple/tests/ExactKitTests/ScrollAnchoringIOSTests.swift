@@ -2,6 +2,7 @@
 import UIKit
 import XCTest
 @testable import ExactKit
+@testable import ExactNavigation
 
 /// Plain UIKit scrollers keep the reader's content still when a box above
 /// the port changes size or is inserted, as CSS scroll anchoring does in
@@ -74,8 +75,8 @@ final class ScrollAnchoringIOSTests: XCTestCase {
             p.apply(wireBatch([["op": "props", "id": 1, "set": ["scrollFollowEnd": String(followEnd)]]]))
             sv.contentOffset.y = 200
             // The retired navigation had covered the header before this batch.
-            p.navigation.covers = [2: .whole]
-            p.navigation.delivered = p.navigation.covers
+            p.navigationHost.covers = [2: .whole]
+            p.navigationHost.delivered = p.navigationHost.covers
             var deliveries = 0
             p.onCovers = { changes in
                 deliveries += 1
@@ -87,7 +88,7 @@ final class ScrollAnchoringIOSTests: XCTestCase {
                 p.apply(wireBatch(self.rows(header: 0, inserted: 60)))
             }
             // Retirement runs while the batch still holds its scroll captures.
-            p.onViewportFit = { p.navigation.reset() }
+            p.onViewportFit = { p.navigationHost.reset() }
             defer { p.onViewportFit = nil; p.onCovers = nil; p.reset() }
             p.apply(wireBatch([["op": "props", "id": 1, "set": ["viewportFit": "cover"]]] + rows(header: 0)))
             XCTAssertEqual(deliveries, 1)
@@ -98,16 +99,16 @@ final class ScrollAnchoringIOSTests: XCTestCase {
     func testAReplacementCoverWinsOverTheRetiredNavigationsCover() {
         let (p, _) = fixture(top: 200)
         let replacement = HostCover.inset(top: 20, bottom: 0)
-        p.navigation.covers = [2: .whole]
-        p.navigation.delivered = p.navigation.covers
+        p.navigationHost.covers = [2: .whole]
+        p.navigationHost.delivered = p.navigationHost.covers
         var deliveries: [[(UInt32, HostCover?)]] = []
         p.onCovers = { changes in
             XCTAssertFalse(p.applying)
             deliveries.append(changes)
         }
         p.onViewportFit = {
-            p.navigation.reset()
-            p.navigation.covers = [2: replacement]
+            p.navigationHost.reset()
+            p.navigationHost.covers = [2: replacement]
         }
         defer { p.onViewportFit = nil; p.onCovers = nil; p.reset() }
         p.apply(wireBatch([["op": "props", "id": 1, "set": ["viewportFit": "cover"]]]))
@@ -115,7 +116,7 @@ final class ScrollAnchoringIOSTests: XCTestCase {
         XCTAssertEqual(deliveries.first?.count, 1)
         XCTAssertEqual(deliveries.first?.first?.0, 2)
         XCTAssertEqual(deliveries.first?.first?.1, replacement)
-        p.navigation.reset()
+        p.navigationHost.reset()
         XCTAssertEqual(deliveries.count, 2, "outside a batch, retirement delivers immediately")
         XCTAssertNil(deliveries.last?.first?.1)
     }

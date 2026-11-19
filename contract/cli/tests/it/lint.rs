@@ -1409,3 +1409,18 @@ fn an_unclosed_bracket_or_a_stray_line_does_not_hide_the_declarations_after_it()
         ]
     );
 }
+
+/// Lint links every grammar it checks with, however it is reached first: a
+/// fresh process's first style is a transition here (nextest runs each test
+/// in its own process; LLP 1047 D2).
+#[test]
+fn a_transition_lints_clean_in_a_fresh_process() {
+    let file =
+        contract_syntax::parse("component A\n  view\n    text \"a\" transition=\"opacity 1s\"\n")
+            .unwrap();
+    assert!(
+        contract_lower::lint(&file).is_empty(),
+        "{:?}",
+        contract_lower::lint(&file)
+    );
+}

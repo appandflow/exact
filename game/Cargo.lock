@@ -303,6 +303,7 @@ dependencies = [
  "exact-motion",
  "exact-num",
  "exact-plan",
+ "exact-runner",
  "exact-svg-file",
  "icu_locale",
  "serde_json",

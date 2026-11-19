@@ -64,7 +64,8 @@ export async function openStdio({ host, plan, world, size, app, env: extra = {},
   if (macPlan) plan = macPlan.plan; else if (macBuild) refuseBuild('macos', macBuild, a, { sample });
   const windowsRebuild = () => ownVerb(a, 'windows') ?? `bun host/windows/build.mjs ${a.crate('windows')}`;
   const rebuild = device ? 'bun host/apple/build.mjs --device' : windows ? windowsRebuild() : android ? androidRebuild(a, reader) : linux ? linuxRebuild(a) : null;
-  if (!existsSync(device ? deviceBundle : bin)) throw new Error(rebuild ? `run ${rebuild} first` : `EXACT_MAC_BIN names no file: ${bin}`);
+  // `missingBuild`: every test of a run would fail on it alike, so a test run stops at the first (LLP 1156.006.000 D8).
+  if (!existsSync(device ? deviceBundle : bin)) throw Object.assign(new Error(rebuild ? `run ${rebuild} first` : `EXACT_MAC_BIN names no file: ${bin}`), { missingBuild: !!rebuild });
   if (!macBuild) {
     const receipt = portable ? undefined : device ? resolve(deviceBundle, 'receipt.json')
       : /\.app\/Contents\/MacOS\/[^/]+$/.test(resolve(bin)) ? resolve(bin, '../../Resources/receipt.json') : resolve(dirname(bin), 'receipt.json');

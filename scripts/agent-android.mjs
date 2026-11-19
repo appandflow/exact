@@ -38,6 +38,8 @@ import { createConnection } from 'node:net';
 import { homedir, tmpdir, userInfo } from 'node:os';
 import { basename, dirname, resolve } from 'node:path';
 import { within } from './paths.mjs';
+import { parseColour, schemeColours } from './scheme-colours.mjs';
+import { missingDependencies } from './package-libraries.mjs';
 import { HOST_DEV, PINNED_RUST, androidPackageId, bakeWatchEnv, buildBake, claimLive, hermesBundle, cargoEnvironment, copyShaders, linuxBuild, mavenProblems, resolveApp } from './app.mjs';
 import { ANDROID_MIN_API } from './hermes-android.mjs';
 import { ANDROID_TARGET, ANDROID_ABIS, androidAbis, androidSdk, androidToolchainEnv, androidHermesDir } from './android-abi.mjs';
@@ -201,6 +203,7 @@ const quote = (s) => `'${String(s).replace(/'/g, "'\\''")}'`;
  * the app's server on this Mac are reached through `adb reverse` for the drive (`reversedPorts`). */
 export function androidDeploy(app, bin, env) {
   if (bin.endsWith('.apk')) return readerDeploy(app, bin, env);
+  if (env.EXACT_AGENT === 'live') throw new Error('android --live requires the reader APK. Set EXACT_ANDROID_BIN to an APK.');
   const serial = androidDevice(env), tool = adb(env);
   const base = `/data/local/tmp/exact/${app.id}`, home = `${base}/home`;
   const dir = `${base}/run-${process.pid}-${Date.now().toString(36)}`, exe = basename(bin);
@@ -636,6 +639,16 @@ async function prepareAndroidScreen(tool, serial) {
   }
 }
 
+export async function readerReply(request, ask, wait = Bun.sleep) {
+  const reply = await ask();
+  if (request?.op === 'tap' && request.phase === 'hold') {
+    // The host owns this decision, including while a capture borrows a seekable drive's clock.
+    const { waitMs } = JSON.parse(reply);
+    if (waitMs > 0) await wait(waitMs);
+  }
+  return reply;
+}
+
 /** The reader carrier's process: launch the app with a driver's socket (the shell's `agent=<name>` extra), have
  * adb forward it, and carry the protocol's lines between this process's stdio and the app. Every line is the app's
  * to answer but `screenshot`, whose picture is the device's (`screencap`), tagged as the app tags a reply. The
@@ -672,8 +685,8 @@ async function relay([serial, id, vars, encodedLease]) {
     } catch (error) { console.error(error.message); }
     sh('logcat', '-c');
     // Clear only the app's task; a permission dialog in another task survives and is reported above.
-    // `lower=0`: the engine samples every animation, so none plays on the reader's own clock.
-    const started = sh('shell', ['am', 'start', '-W', '--activity-clear-task', '-n', `${id}/dev.exact.app.MainActivity`, '--es', 'agent', name, '--es', 'lower', '0', ...extras, intent].join(' '));
+    const lower = launch.EXACT_AGENT === 'live' ? '1' : '0';
+    const started = sh('shell', ['am', 'start', '-W', '--activity-clear-task', '-n', `${id}/dev.exact.app.MainActivity`, '--es', 'agent', name, '--es', 'lower', lower, ...extras, intent].join(' '));
     if (started.status !== 0 || /Error/.test(started.stdout + started.stderr)) throw new Error(`am start ${id}: ${(started.stderr || started.stdout).trim()}`);
     port = Number(sh('forward', 'tcp:0', `localabstract:${name}`).stdout.trim());
     if (!port) throw new Error('adb forward gave no port');
@@ -703,11 +716,10 @@ async function relay([serial, id, vars, encodedLease]) {
       let req = null;
       try { req = JSON.parse(line); } catch {}
       if (req?.op === 'quit') return done(0);
-      if (req?.op !== 'screenshot') {
+      if (req?.op !== 'screenshot') return say(await readerReply(req, () => {
         socket.write(line + '\n');
-        const reply = await answer();
-        return say(reply);
-      }
+        return answer();
+      }));
       if (req.film) return say(JSON.stringify({ error: 'the reader carrier films nothing: its picture is a screencap of the device' }));
       await new Promise((r) => setTimeout(r, SHOT_SETTLE_MS));
       const shot = sh('shell', `screencap -p ${quote(req.path)}`);
@@ -881,8 +893,8 @@ const androidColour = (css) => {
 
 /** The launcher icon and TV banner from the manifest's `icons` (LLP 1163 D6), written as resources under `res`, and
  * the references to them: `icon` for `android:icon` and `android:roundIcon`, `banner` for `android:banner`, each null
- * when the manifest has none. A square `maskable` PNG of at least 432 px becomes an adaptive icon over
- * `background_color`, else over the image's top-left pixel, and a square `monochrome` one of that size, its alpha drawn
+ * when the manifest has none. A square `maskable` PNG of at least 432 px becomes an adaptive icon over the light
+ * launch colour (`schemeColours`: the icon has no scheme), clipped to sRGB, else over the image's top-left pixel, and a square `monochrome` one of that size, its alpha drawn
  * white, its themed layer. Without one, a square `any` PNG of at least 192 px is the legacy icon, which the launcher
  * encloses itself. A 16:9 `any` PNG of at least 640×360 px is the banner, the size Android TV asks for at xxxhdpi.
  * Every refusal is thrown at once, before anything is written. */
@@ -901,8 +913,9 @@ export function androidIcons(manifest, dir, res) {
   // `files`: each picked file and its digest, which the build record keeps for a drive's staleness check (`apkChanges`).
   const refs = { icon: adaptive || legacy ? '@mipmap/exact_icon' : null, banner: banner ? '@drawable/exact_banner' : null,
     files: picked.flatMap((file, i) => file ? [{ file: file.path, sha256: digests[i] }] : []) };
+  const backdrop = schemeColours(manifest, 'background_color', null).light;
   // Made again only when a picked file or the background colour changes: the key of what was made is kept beside `res`.
-  const key = createHash('sha256').update(JSON.stringify([ANDROID_ICONS, picked.map((file, i) => file && [file.src, digests[i]]), manifest.background_color ?? null])).digest('hex');
+  const key = createHash('sha256').update(JSON.stringify([ANDROID_ICONS, picked.map((file, i) => file && [file.src, digests[i]]), backdrop])).digest('hex');
   if (existsSync(res) && existsSync(`${res}.key`) && readFileSync(`${res}.key`, 'utf8') === key) return refs;
   rmSync(res, { recursive: true, force: true });
   const write = (path, bytes) => { mkdirSync(dirname(resolve(res, path)), { recursive: true }); writeFileSync(resolve(res, path), bytes); };
@@ -910,7 +923,7 @@ export function androidIcons(manifest, dir, res) {
   if (adaptive) {
     // The corner's colour without its alpha: the background layer is opaque.
     const image = readPng(adaptive.path), corner = `#${[...image.data.subarray(0, 3)].map((v) => v.toString(16).padStart(2, '0')).join('')}`;
-    write('values/exact_icon.xml', `<resources>\n    <color name="exact_icon_background">${androidColour(manifest.background_color ?? corner)}</color>\n</resources>\n`);
+    write('values/exact_icon.xml', `<resources>\n    <color name="exact_icon_background">${androidColour(backdrop ? parseColour(backdrop, 'the light launch colour').hex : corner)}</color>\n</resources>\n`);
     write('drawable-nodpi/exact_icon_foreground.png', encodePng(onLayer(image)));
     if (glyph) {
       const placed = onLayer(readPng(glyph.path)), white = new Uint8Array(LAYER * LAYER * 4).fill(255);
@@ -947,24 +960,25 @@ const lightColour = (css) => {
  * on an Android 16 emulator, an Android 14 phone (HyperOS, which does not cut it) and an Android 17 emulator. */
 const SPLASH_ICON_SCALE = 108 / 192;
 
-/** The launch window in the app's first-frame background (LLP 1115.001 D3.6): the manifest's `background_color`, and
- * `color_scheme_dark.background_color` in night mode, as the iOS launch screen and the web page's first paint take
- * them (a fixed `userInterfaceStyle` takes its side alone, as there). Written under `res` as `ExactAppLaunch`, the
- * reader's `ExactLaunch` with that colour behind the window and on Android 12's starting window, and the bars' icons
- * dark over a light colour and light over a dark one, until the host says the page's (`ExactActivity.chrome`).
- * Android 12's starting window shows the launcher icon unless `host.android.launchImage` says otherwise: a picture
- * (`{ src, width }`) is that icon, laid out at [SPLASH_ICON_SCALE] of its `width`, and before Android 12 it is
- * centred on the window's background, which has no icon; `false` shows no icon. `dir` is the app's, which the
- * picture's path is relative to. Returns the activity's theme, null where the manifest says neither, which leaves the
- * platform's own launch, and the picture's file and digest for the APK's record of its sources. */
+/** The launch window in the app's first-frame background (LLP 1115.001 D3.6): each scheme's launch colour the manifest
+ * names (`schemeColours`, LLP 1163 D2), as the iOS launch screen and the web page's first paint take them, clipped to
+ * sRGB, which a colour resource holds. Android follows the device's scheme whatever `userInterfaceStyle` says. Written
+ * under `res` as `ExactAppLaunch`, the reader's `ExactLaunch` with that colour behind the window and on Android 12's
+ * starting window, and the bars' icons dark over a light colour and light over a dark one, until the host says the
+ * page's (`ExactActivity.chrome`). A scheme the manifest names none for keeps the reader's: `ExactAppLaunch` is
+ * written for each scheme (`values`, `values-night`), with the colour only in the one that names it, since a colour
+ * resource cannot name the theme's surface. Android 12's starting window shows the launcher icon unless
+ * `host.android.launchImage` says otherwise: a picture (`{ src, width }`) is that icon, laid out at
+ * [SPLASH_ICON_SCALE] of its `width`, and before Android 12 it is centred on the window's background, which has no
+ * icon; `false` shows no icon. `dir` is the app's, which the picture's path is relative to. Returns the activity's
+ * theme, null where the manifest says neither, which leaves the platform's own launch, and the picture's file and
+ * digest for the APK's record of its sources. */
 export function androidLaunch(manifest, res, dir = '.') {
   rmSync(res, { recursive: true, force: true });
-  const style = manifest.userInterfaceStyle, named = manifest.color_scheme_dark?.background_color;
+  const named = schemeColours(manifest, 'background_color', null);
   const image = manifest.host?.android?.launchImage;
-  let light = manifest.background_color;
-  if (!light && image === undefined) return { theme: null, files: [] };
-  const dark = style === 'light' ? light : named ?? light;
-  if (style === 'dark') light = dark;
+  if (!named.light && !named.dark && image === undefined) return { theme: null, files: [] };
+  const colour = (scheme) => named[scheme] && parseColour(named[scheme], `the ${scheme} launch colour`).hex;
   const write = (path, body) => {
     mkdirSync(dirname(resolve(res, path)), { recursive: true });
     writeFileSync(resolve(res, path), typeof body === 'string' ? `<?xml version="1.0" encoding="utf-8"?>\n${body}` : body);
@@ -972,6 +986,7 @@ export function androidLaunch(manifest, res, dir = '.') {
   const values = (body) => `<resources>\n${body}</resources>\n`;
   const scheme = (css) => `    <color name="exact_launch">${androidColour(css)}</color>\n    <bool name="exact_launch_light">${lightColour(css)}</bool>\n`;
   const files = [], picture = image ? readPng(resolve(dir, image.src)) : null;
+  const qualifier = { light: '', dark: '-night' };
   if (picture) {
     const source = resolve(dir, image.src);
     files.push({ file: source, sha256: createHash('sha256').update(readFileSync(source)).digest('hex') });
@@ -981,19 +996,25 @@ export function androidLaunch(manifest, res, dir = '.') {
     const size = (scale) => `android:width="${+(image.width * scale).toFixed(2)}dp" android:height="${+(image.width * picture.height / picture.width * scale).toFixed(2)}dp"`;
     const layers = (items) => `<layer-list xmlns:android="http://schemas.android.com/apk/res/android">\n${items}</layer-list>\n`;
     write('drawable/exact_launch_icon.xml', layers(`    <item ${size(SPLASH_ICON_SCALE)} android:gravity="center" android:drawable="@drawable/exact_launch_picture" />\n`));
-    write('drawable/exact_launch_window.xml', layers(`    <item android:drawable="${light ? '@color/exact_launch' : '?android:attr/colorBackground'}" />\n` +
-      `    <item ${size(1)} android:gravity="center" android:drawable="@drawable/exact_launch_picture" />\n`));
+    for (const s of ['light', 'dark']) {
+      write(`drawable${qualifier[s]}/exact_launch_window.xml`, layers(`    <item android:drawable="${colour(s) ? '@color/exact_launch' : '?android:attr/colorBackground'}" />\n` +
+        `    <item ${size(1)} android:gravity="center" android:drawable="@drawable/exact_launch_picture" />\n`));
+    }
   }
   const item = (name, value) => `        <item name="android:${name}">${value}</item>`;
-  const theme = (splash) => ['    <style name="ExactAppLaunch" parent="ExactLaunch">',
-    ...(picture && !splash ? [item('windowBackground', '@drawable/exact_launch_window')] : light ? [item('windowBackground', '@color/exact_launch')] : []),
-    ...(splash && light ? [item('windowSplashScreenBackground', '@color/exact_launch')] : []),
+  const theme = (splash, coloured) => ['    <style name="ExactAppLaunch" parent="ExactLaunch">',
+    ...(picture && !splash ? [item('windowBackground', '@drawable/exact_launch_window')] : coloured ? [item('windowBackground', '@color/exact_launch')] : []),
+    ...(splash && coloured ? [item('windowSplashScreenBackground', '@color/exact_launch')] : []),
     ...(splash && image !== undefined ? [item('windowSplashScreenAnimatedIcon', picture ? '@drawable/exact_launch_icon' : '@android:color/transparent')] : []),
-    ...(light ? [item('windowLightStatusBar', '@bool/exact_launch_light'), item('windowLightNavigationBar', '@bool/exact_launch_light')] : []),
+    ...(coloured ? [item('windowLightStatusBar', '@bool/exact_launch_light'), item('windowLightNavigationBar', '@bool/exact_launch_light')] : []),
     '    </style>', ''].join('\n');
-  write('values/exact_launch.xml', values((light ? scheme(light) : '') + theme(false)));
-  if (light) write('values-night/exact_launch.xml', values(scheme(dark)));
-  write('values-v31/exact_launch.xml', values(theme(true)));
+  // `values` declares the colour whichever scheme names it, since a resource only `values-night` has fails release lint
+  // (MissingDefaultResource); the day style reads it only where the light scheme names one
+  for (const s of ['light', 'dark']) {
+    const declared = s === 'light' ? colour('light') ?? colour('dark') : colour('dark');
+    write(`values${qualifier[s]}/exact_launch.xml`, values((declared ? scheme(declared) : '') + theme(false, !!colour(s))));
+    write(`values${qualifier[s]}-v31/exact_launch.xml`, values(theme(true, !!colour(s))));
+  }
   return { theme: '@style/ExactAppLaunch', files };
 }
 
@@ -1436,12 +1457,17 @@ if (import.meta.main && process.argv[2] === 'reverse') {
   // With what the bake watches named (`bakeWatchEnv`), as every baking build.
   const env = { ...androidToolchainEnv(process.env, process.platform, linkApi, targets[0]), ...bakeWatchEnv(app), CARGO_TARGET_DIR: app.target };
   if (apkWanted) {
+    const trust = process.env.EXACT_UPDATE_TRUST ?? 'development', install = !bundle && !args.includes('--no-install') && (args.includes('--install') || args.includes('--run'));
+    // What needs no compile to know is refused before it (LLP 1156.006.000 D8): a dependency the bake would miss after
+    // Rust had built, and two ready devices with none chosen. No device at all still lets the build stand.
+    const absent = missingDependencies(app.dir);
+    if (absent.length) { console.error(`${app.name} depends on ${absent.join(', ')}, which ${absent.length > 1 ? 'are' : 'is'} not installed: run bun install`); process.exit(1); }
+    if (install) try { androidDevice(); } catch (error) { if (!/^no Android device/.test(error.message)) { console.error(error.message); process.exit(1); } }
     const started = Date.now();
     const apk = buildApk(app, env, bundle || args.includes('--release') ? 'release' : HOST_DEV, args.includes('--write-locks'), bundle, abis);
     if (!apk) process.exit(1);
     console.log(apk);
     // `--json`'s object once the install is done: `installed` names the device, or is null when none was ready.
-    const trust = process.env.EXACT_UPDATE_TRUST ?? 'development', install = !bundle && !args.includes('--no-install') && (args.includes('--install') || args.includes('--run'));
     let serial = null;
     const code = install ? installApk(app, apk, { run: args.includes('--run'), url, built: Date.now() - started, installed: (s) => { serial = s; } }) : 0;
     if (!code && args.includes('--json')) reportBuilt({ path: apk, target: 'android', trust, ...(install ? { installed: serial } : {}) });

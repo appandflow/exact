@@ -56,7 +56,7 @@ class HeadlessLaunchTest {
             @JvmStatic @Implementation fun launchShare(request: String) { told += "launchShare $request" }
             @JvmStatic @Implementation fun open(href: String) { told += "open $href" }
             @JvmStatic @Implementation fun share(request: String) { told += "share $request" }
-            @JvmStatic @Implementation fun frame(): ByteBuffer? { told += "frame"; return null }
+            @JvmStatic @Implementation fun frame(vsync: Boolean): ByteBuffer? { told += "frame"; return null }
             @JvmStatic @Implementation fun dataActive(unshown: Boolean): Int { turns += "dataActive $unshown"; return 1 }
             @JvmStatic @Implementation fun fds() = IntArray(0)
             @JvmStatic @Implementation fun background(applying: Boolean): Double { turns += "background"; return -1.0 }

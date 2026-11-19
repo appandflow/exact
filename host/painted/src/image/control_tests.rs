@@ -916,6 +916,38 @@ fn a_covering_box_holds_the_part_it_shows() {
     assert_eq!(stats.resident_bytes, (104 * 200 + 204 * 200) * 4);
 }
 
+#[test]
+fn a_shared_covering_image_keeps_pixels_outside_its_own_box() {
+    let mut k = kernel(2);
+    for id in [1, 2] {
+        boxed(&mut k, id, 100., 100., exact_kernel::ObjectFit::Cover);
+    }
+    let name = |k: &mut Kernel, id| {
+        k.apply(
+            0,
+            k.epoch() + 1,
+            &[Op::SetProp {
+                id,
+                prop: PropId::SharedElement,
+                value: "picture".into(),
+            }],
+        )
+        .unwrap();
+    };
+    name(&mut k, 1);
+    let mut images = Images::with_assets(photo_assets());
+    images.sync(&k, &k.roots());
+    images.wait(SETTLED);
+    let destination = (0., 0., 200., 100.);
+    assert_eq!(images.bitmaps[&1].placed(destination), destination);
+    assert!(!images.bitmaps[&2].crop().whole());
+
+    name(&mut k, 2);
+    images.sync(&k, &k.roots());
+    images.wait(SETTLED);
+    assert_eq!(images.bitmaps[&2].placed(destination), destination);
+}
+
 /// A picture that is contained is decoded whole, and a box that would clip
 /// it shares the whole one the session already holds: no second decode.
 #[test]

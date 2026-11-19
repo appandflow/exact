@@ -224,6 +224,7 @@ fn has_class_family(file: &File, attrs: &[Attr]) -> bool {
 /// under `parent` (as `nodes.rs` gives it: its class's rows, then its own,
 /// lengths coerced; `coerced`, its own so); an unknown class, or any
 /// animation, is no.
+#[expect(clippy::too_many_arguments)]
 fn prepared(
     file: &File,
     tag: &str,
@@ -232,6 +233,7 @@ fn prepared(
     attrs: &[Attr],
     coerced: &[Attr],
     span: Span,
+    constants: &crate::keyframes::Context<'_>,
 ) -> bool {
     let style = |name: &str| {
         file.styles
@@ -274,7 +276,7 @@ fn prepared(
         }),
         false => Ok(()),
     };
-    crate::svg::check_svg_with(tag, in_svg, parent, expanded, span, &refused).is_ok()
+    crate::svg::check_svg_with(tag, in_svg, parent, expanded, span, constants, &refused).is_ok()
 }
 
 impl Read {
@@ -290,6 +292,7 @@ impl Read {
         declared: &std::sync::Arc<super::rows::Declared>,
         typing: &super::rows::Typing,
     ) -> Read {
+        let constants = typing.constants(&file.fns);
         let mut literals: Vec<(String, Span, bool)> = Vec::new();
         let mut computed = false;
         let mut computed_measure = false;
@@ -427,7 +430,7 @@ impl Read {
                     let left = left
                         || boxed.is_err()
                         || audio.is_err()
-                        || !prepared(file, tag, in_svg, parent, a, own, *span);
+                        || !prepared(file, tag, in_svg, parent, a, own, *span, &constants);
                     // Its `font-family` and those around it: one lowering
                     // can't read (`fonts::font_use`) stops the element there,
                     // under the design a write leaves too (`rows::judge`).
@@ -750,7 +753,7 @@ impl Read {
         {
             leave(&mut uses_left, a);
             if colour_attr(&a.name) {
-                if let Some(text) = crate::keyframes::constant(&a.value, &file.fns) {
+                if let Ok(text) = constants.constant(&a.value) {
                     folded.extend(words(&text).map(str::to_string));
                     literals.push((text, a.span, true));
                 }

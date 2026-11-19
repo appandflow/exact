@@ -22,7 +22,7 @@ extension CALayer {
     var boxMask: CALayer? { (self as? NodeLayer).map(\.ownMask) ?? mask }
     /// Its opacity as it shows on screen: 0 for a placed canvas child, which
     /// its surface draws and UIKit does not, as alpha 0 once said.
-    var shownOpacity: Float { (self as? NodeLayer)?.drawnElsewhere == true ? 0 : opacity }
+    package var shownOpacity: Float { (self as? NodeLayer)?.drawnElsewhere == true ? 0 : opacity }
 }
 
 final class NodeLayer: CALayer {
@@ -106,8 +106,8 @@ final class NodeLayer: CALayer {
 /// paragraph's text): its place changes in the animation context of the view
 /// it is in, as a subview's frame would, by that view's own
 /// `action(for:forKey:)`; nothing else of it animates.
-class BoxPartLayer: CALayer {
-    override func action(forKey event: String) -> CAAction? {
+open class BoxPartLayer: CALayer {
+    override open func action(forKey event: String) -> CAAction? {
         guard ["bounds", "position"].contains(event) else { return NSNull() }
         var ancestor = superlayer
         while let layer = ancestor {
@@ -145,15 +145,16 @@ extension NodeView {
             imageLayer?.removeFromSuperlayer(); imageLayer = nil; return
         }
         if let look = flightLook {
-            // Flying (LLP 1013.000 D4): the whole image where the flight
-            // puts it; the view's own bounds and radius clip it.
+            guard let crop = RasterGeometry.crop(look.image, to: look.contentClip ?? bounds, flipped: true) else {
+                imageLayer?.removeFromSuperlayer(); imageLayer = nil; return
+            }
             CATransaction.begin(); CATransaction.setDisableActions(true)
             defer { CATransaction.commit() }
             let l = imageLayer ?? NodeImageLayer()
             if l.superlayer !== layer { imageLayer = l; insertBoxSublayer(l) }
             l.sublayers?.forEach { $0.removeFromSuperlayer() }
-            l.frame = look.image
-            l.contentsRect = CGRect(x: 0, y: 0, width: 1, height: 1)
+            l.frame = crop.shown
+            l.contentsRect = crop.unit
             l.contentsGravity = .resize
             let frame = ImageLink.animated?.frame(for: self) ?? bitmap.image
             if (l.contents as AnyObject?) !== frame { l.contents = frame }
@@ -165,7 +166,7 @@ extension NodeView {
         }
         let content = contentBox()
         let fit = style["object_fit"]?.string ?? "fill"
-        let rect = RasterGeometry.rect(natural: bitmap.naturalSize, content: content, fit: fit)
+        let rect = RasterGeometry.rect(natural: bitmap.naturalSize, content: content, fit: fit, position: style["object_position"]?.array)
         let pixels = ImageLink.animated?.frame(for: self) ?? bitmap.image
         let shown = rect.intersection(content)
         let radii = cornerRadii(in: bounds)
@@ -232,7 +233,7 @@ extension NodeView {
     func applyGradientLayer() {
         applyGradientPattern()
         let fixed = gradientLayered
-        guard !cssVisibilityHidden, !drawsPaint || fixed, surface == nil, let gradient = Gradient(style["background_image"], tint: gradientTint), !gradient.needsDrawing else {
+        guard !cssVisibilityHidden, !drawsPaint || fixed, surface == nil, let gradient = GradientLink.gradient(style["background_image"], tint: gradientTint), !gradient.needsDrawing else {
             boxGradient?.removeFromSuperlayer(); boxGradient = nil
             presenter?.noteFixedGradient(self, fixed: false)
             return
@@ -268,12 +269,12 @@ extension NodeView {
     /// clipped as it is. When `draw(_:)` paints the box, it paints them
     /// instead.
     func applyGradientPattern() {
-        let layers = Gradient.layers(style["background_image"], tint: gradientTint)
+        let layers = GradientLink.layers(style["background_image"], tint: gradientTint)
         guard !cssVisibilityHidden, !drawsPaint, surface == nil, gradientPatterned(layers) else {
             boxPattern?.removeFromSuperlayer(); boxPattern = nil
             return
         }
-        let p = boxPattern ?? GradientPatternLayer()
+        guard let p = boxPattern ?? GradientLink.makePattern?() else { return }
         let mounted = p.superlayer === layer
         CATransaction.begin()
         CATransaction.setDisableActions(!mounted || CATransaction.disableActions())
@@ -325,7 +326,7 @@ extension NodeView {
         let tint = source.namesTint ? gradientTint : nil
         let last = aimedGradient.flatMap { $0.layer === g && $0.source == source && $0.dark == dark && $0.tint == tint ? $0 : nil }
         if let last, last.bounds == bounds, last.box == box { return }
-        guard let gradient = last?.gradient ?? Gradient(source, tint: gradientTint) else { return }
+        guard let gradient = last?.gradient ?? GradientLink.gradient(source, tint: gradientTint) else { return }
         let stops = last?.stops ?? gradient.stops(dark: dark, dense: true)
         CATransaction.begin(); CATransaction.setDisableActions(true)
         gradient.apply(g, bounds: bounds, box: box, dark: dark, limit: style["dynamic_range_limit"]?.string, stops: stops)
@@ -344,7 +345,7 @@ extension NodeView {
     /// The web's box: background and border inside the border box, a
     /// uniform border following the curve, the radius clipping children only
     /// where the overflow clips.
-    func applyBoxLayer() {
+    package func applyBoxLayer() {
         defer { syncEllipticalClip(); applyColorRanges() }
         let authored = presenter?.segments.control(of: id) == nil && !groundIsSheets ? cgColor("background_color") : nil
         let ground = authored == nil ? fieldGround : nil

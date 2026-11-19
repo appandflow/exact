@@ -98,11 +98,11 @@ extension Presenter {
     package var gridScale: CGFloat { session?.devicePixelScale ?? root.pixelScale ?? 1 }
     /// The scale to place a box under `parent` at: the parent's own, so a
     /// subtree stays on one grid until the scale pass reaches it; else the page's.
-    func gridScale(under parent: GridOrigin) -> CGFloat { parent.scale > 0 ? parent.scale : gridScale }
+    package func gridScale(under parent: GridOrigin) -> CGFloat { parent.scale > 0 ? parent.scale : gridScale }
 
     /// The absolute origin `view` is placed from: that of the node whose
     /// children it is among, else a container on the grid.
-    func gridOrigin(above view: NSView) -> GridOrigin {
+    package func gridOrigin(above view: NSView) -> GridOrigin {
         guard let holder = view.superview else { return .zero }
         var ancestor: NSView? = holder
         while let a = ancestor, !(a is NodeView) { ancestor = a.superview }
@@ -155,7 +155,7 @@ extension Presenter {
     /// `parent`'s children drawn again from its origin: those whose drawn
     /// frame changes, and theirs in turn.
     func regridChildren(of parent: NodeView) {
-        for case let child as NodeView in parent.container.subviews {
+        for child in parent.structuralChildren {
             guard let old = child.grid, gridPlace(child, old.layout) != old else { continue }
             applyFrame(child, old.layout)
         }

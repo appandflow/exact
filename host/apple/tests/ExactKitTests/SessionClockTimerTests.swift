@@ -9,6 +9,7 @@ import UIKit
 import UIKit.UIGestureRecognizerSubclass
 #endif
 @testable import ExactKit
+@testable import ExactDrag
 import ExactCore
 
 // Exercise the production decoder even when a fixture is written as JSON values.
@@ -228,12 +229,14 @@ final class SessionClockTimerTests: XCTestCase {
     func testAgentPreferencesReachEveryLiveSession() throws {
         #if os(macOS)
         let before = DisplayPreferences.agent
-        defer { DisplayPreferences.agent = before }
+        let reader = DisplayPreferences.agentScreenReader
+        DisplayPreferences.agentScreenReader = "off"
+        defer { DisplayPreferences.agent = before; DisplayPreferences.agentScreenReader = reader }
         DisplayPreferences.agent = (false, false)
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: dir) }
-        let source = "shape Preferences\n  prefersReducedMotion: bool\n  prefersReducedTransparency: bool\ncomponent App\n  resource prefs = exactViewport() as shape Preferences\n  view\n    column\n      text (prefs.prefersReducedMotion ? \"reduce motion\" : \"allow motion\")\n      text (prefs.prefersReducedTransparency ? \"reduce transparency\" : \"allow transparency\")\n"
+        let source = "shape Preferences\n  screenReader: string\n  prefersReducedMotion: bool\n  prefersReducedTransparency: bool\ncomponent App\n  resource prefs = exactViewport() as shape Preferences\n  view\n    column\n      text prefs.screenReader\n      text (prefs.prefersReducedMotion ? \"reduce motion\" : \"allow motion\")\n      text (prefs.prefersReducedTransparency ? \"reduce transparency\" : \"allow transparency\")\n"
         try source.write(to: dir.appendingPathComponent("app.contract"), atomically: true, encoding: .utf8)
         let compiler = Process()
         compiler.executableURL = URL(fileURLWithPath: try XCTUnwrap(ProcessInfo.processInfo.environment["EXACT_CONTRACT"], "build.mjs --test builds the Contract compiler and names it"))
@@ -246,10 +249,12 @@ final class SessionClockTimerTests: XCTestCase {
         for session in [a, b] {
             XCTAssertNil(session.boot(plan: plan, size: CGSize(width: 390, height: 844)).error)
         }
-        let reply = a.agentInstance.prefer(["media": ["prefers-reduced-motion": "reduce", "prefers-reduced-transparency": "reduce"]])
+        XCTAssertTrue(a.presenter.views.values.contains { $0.props["text"] == "off" })
+        let reply = a.agentInstance.prefer(["media": ["prefers-reduced-motion": "reduce", "prefers-reduced-transparency": "reduce"], "page": ["screen-reader": "on"]])
         XCTAssertNil(reply["error"])
         for session in [a, b] {
             let words = session.presenter.views.values.compactMap { $0.props["text"] }
+            XCTAssertTrue(words.contains("on"), "\(session.label): \(words)")
             XCTAssertTrue(words.contains("reduce motion"), "\(session.label): \(words)")
             XCTAssertTrue(words.contains("reduce transparency"), "\(session.label): \(words)")
         }
@@ -257,6 +262,13 @@ final class SessionClockTimerTests: XCTestCase {
         defer { c.destroy() }
         XCTAssertNil(c.boot(plan: plan, size: CGSize(width: 390, height: 844)).error)
         XCTAssertTrue(c.presenter.views.values.contains { $0.props["text"] == "reduce motion" })
+        XCTAssertTrue(c.presenter.views.values.contains { $0.props["text"] == "on" })
+        for reading in ["off", "unknown", "on"] {
+            XCTAssertNil(a.agentInstance.prefer(["page": ["screen-reader": reading]])["error"])
+            for session in [a, b, c] {
+                XCTAssertTrue(session.presenter.views.values.contains { $0.props["text"] == reading })
+            }
+        }
         #endif
     }
 

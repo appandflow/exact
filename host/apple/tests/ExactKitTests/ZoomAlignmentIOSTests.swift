@@ -2,6 +2,7 @@
 import UIKit
 import XCTest
 @testable import ExactKit
+@testable import ExactNavigation
 @testable import ExactImages
 
 /// LLP 1035.001, the zoom's alignment: UIKit's zoom lands the source on the

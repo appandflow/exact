@@ -73,7 +73,7 @@ export const answer: Answer = (source, args, store, storage, native) => sources[
   keyed data. It appears after the last row, including when there are no rows.
   `hasNext` stops requests after the last page; the pending guard prevents
   duplicates. A failed mutation leaves the previous answer intact.
-- `reach-margin` is a nonnegative px or % of the list's port (default one port,
-  `"100%"`); increase it to prefetch earlier. A fling can extend the lead. A first
-  page shorter than two ports loads the next on first paint.
-- Toward the start too (a chat): `bun exact.mjs pattern chat`.
+- `reach-margin` is a nonnegative px or % of the port (default `"100%"`).
+  Increase it to prefetch earlier. Flings extend the lead. A first page
+  shorter than two ports loads the next on first paint.
+- Page up with `bun exact.mjs pattern chat`. For a [live SQLite window](large-live-list.md), keep both cursors.

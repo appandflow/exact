@@ -10,13 +10,14 @@ import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { accessSync, constants, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { homedir, hostname, tmpdir } from 'node:os';
-import { basename, delimiter, dirname, isAbsolute, relative, resolve } from 'node:path';
-import { slashRelative, within } from './paths.mjs';
+import { basename, delimiter, dirname, isAbsolute, relative, resolve, sep } from 'node:path';
+import { chromeHere, slashRelative, systemChrome, within } from './paths.mjs';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { types as utilTypes } from 'node:util';
 import { filesystemLock } from './filesystem.mjs';
-import { boundSettings, settingChanges, settingInputs, settingLines } from '../js/bake/src/__exact_env.mjs';
+import { boundSettings, isSettingInput, settingInputs, sourceInputChanges } from '../js/bake/src/__exact_env.mjs';
+export { bakedSettingChanges, builtSettingLines } from '../js/bake/src/__exact_env.mjs';
 import { backendOriginSelection, literalBackendOrigin, selectBackendOrigin } from '../js/bake/src/typescript.mjs';
 import { besidePattern } from '../host/web/beside.mjs';
 import { chooseSimulator, phone, simulatorLaunch } from '../host/apple/devices.mjs';
@@ -26,7 +27,8 @@ import { directoryInputSnapshot, outputRoots, packageTests, watchedTree, watchOu
 import { HOST_CRATES } from './cargo-check.mjs';
 import { webSourceRoots } from '../host/web/build.mjs';
 import { changedContractReads } from './web-build.mjs';
-import { CONFIG_JSON, DECLARATIONS, MODULE_FILE, moduleGraph } from './module-graph.mjs';
+import { CONFIG_JSON, DECLARATIONS, MODULE_FILE } from './module-graph.mjs';
+import { appModules, appSourceInputs } from './app-imports.mjs';
 const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
 /** Poll host I/O until ready; a bound only ends a hung load. Return its last observation for diagnostics. */
 export async function pollUntil(read, ready, { bound = 60_000, interval = 50, now = Date.now, pause = ms => new Promise(r => setTimeout(r, ms)) } = {}) {
@@ -443,9 +445,9 @@ const executableAt = (path) => { try { accessSync(path, constants.X_OK); return 
 export const webNeeds = app => app?.hasGpu || (app?.manifest && gpuModules(app.manifest, 'web').length) ? ['gpu'] : [];
 /** The Chromium a drive or test launches: CHROME when it is set (a bare name is resolved through PATH; one that names
  * no browser is `unavailable`), else the build Playwright pins (package.json): its headless shell, or its full build for a need in CHROMIUM_NEEDS. A browser
- * that is not there is no error: `unavailable` says why and how to install it, so a test can skip on it. `environment`,
- * `platform`, `arch` and `full` (the full build's path) are the machine's unless a test of this function names them. */
-export function chromium({ needs = [], environment = process.env, platform = process.platform, arch = process.arch, full } = {}) {
+ * that is not there is no error: `unavailable` says why, how to install it and the Chrome installed here (`system`), so a test can
+ * skip on it. `environment`, `platform`, `arch`, `full` (the full build's path) and `system` are the machine's unless a test names them. */
+export function chromium({ needs = [], environment = process.env, platform = process.platform, arch = process.arch, full, system = systemChrome } = {}) {
   const unknown = needs.filter((need) => !CHROMIUM_NEEDS.includes(need));
   if (unknown.length) throw new Error(`chromium: unknown need ${unknown.join(', ')} (${CHROMIUM_NEEDS.join(', ')})`);
   if (environment.CHROME) {
@@ -459,7 +461,7 @@ export function chromium({ needs = [], environment = process.env, platform = pro
   if (executable && executableAt(executable)) return { executable, unavailable: null };
   const [what, browser] = wantsFull ? ['Chromium', 'chromium'] : ['Chromium headless shell', 'chromium-headless-shell'];
   const where = executable ? `at ${executable}` : `for ${platform}-${arch}`;
-  return { executable: executable ?? builds.full, unavailable: `${what} is missing ${where}; install it with bunx playwright@${playwrightVersion()} install ${browser}, or set CHROME to a browser` };
+  return { executable: executable ?? builds.full, unavailable: `${what} is missing ${where}; install it with bunx playwright@${playwrightVersion()} install ${browser}, or set CHROME${chromeHere(system({ environment, platform }))}` };
 }
 
 const sharedBrowsers = new Map();
@@ -826,8 +828,8 @@ const DIRECTORY_WATCH = /\/[^./]+$/;
 /** Dep-info's inputs modified after `since`, or gone, generated outputs and absent optional directories aside. */
 export function depInfoNewer(since, bin, info, base, directories = [], products = new Map(), outputs = []) {
   const files = new Set(directories.flatMap(({path, entries}) => (entries ?? []).filter(e => !e.directory).map(e => resolve(path, e.name))));
-  const paths = depInfoInputs(bin, info, base).filter(p => !GENERATED.test(p)
-    && (existsSync(p) || !DIRECTORY_WATCH.test(p) || files.has(p) || directories.some(directory => directory.path === p)));
+  const paths = depInfoInputs(bin, info, base).filter(p => { const slashed = p.split(sep).join('/');
+    return !GENERATED.test(slashed) && (existsSync(p) || !DIRECTORY_WATCH.test(slashed) || files.has(p) || directories.some(directory => directory.path === p)); });
   return watchedNewer(since, paths, directories, products, outputs);
 }
 
@@ -841,7 +843,7 @@ export function watchedNewer(since, paths, directories = [], products = new Map(
     if (!existsSync(resolve(app, 'app.json'))) return () => false;
     if (!skips.has(app)) {
       const ignored = notBuildInput(app);
-      skips.set(app, (path, directory) => !INPUT_TREE.test(relative(app, path))
+      skips.set(app, (path, directory) => !INPUT_TREE.test(slashRelative(app, path))
         && (ignored(path) || (directory ? basename(path).startsWith('.') : NOT_INPUT.test(basename(path)))));
     }
     return skips.get(app);
@@ -891,20 +893,9 @@ export function depInfoChanges(bin, app = null) {
   const directories = [...(build?.watchedDirectories ?? []), ...(build?.linkedInputs?.watchedDirectories ?? [])];
   const products = new Map((build?.products ?? []).map(product => [resolve(product.path), product.sha256]));
   const outputs = build?.binary?.watchOutputs ?? (app ? [app.target, bakeOutput(app)] : []);
-  return depInfoNewer(statSync(bin).mtimeMs, bin, undefined, app?.workspace, directories, products, outputs);
-}
-
-/** The settings the native build `bin` of `app` inlined (LLP 1153 D4) whose sources give them otherwise now, as
- * `import.meta.env.NAME`: a change no file shows, which only a rebuild takes in. What it inlined is the record bound to
- * this executable (`boundSettings`); an app that declares settings and has none bound, an executable another build
- * made, has its record named as the change, so the drive says to build again. With `launch`, the environment a drive
- * starts a Linux executable with, a marked name it sets is the launch's value, not a change (LLP 1153.002 D2); an
- * Android build reads the build's value, so it counts there. */
-export function bakedSettingChanges(bin, app, { launch = null } = {}) {
-  if (!app.manifest?.env?.length) return [];
-  const record = boundSettings(bin);
-  if (!record) return [`${bin}.settings.json (none, or another build's)`];
-  return settingChanges(record.env, process.env, app.dir, { launch }).map(({ name }) => `import.meta.env.${name}`);
+  const sources = build?.typescriptSources ?? boundSettings(bin)?.typescriptSources;
+  return [...new Set([...depInfoNewer(statSync(bin).mtimeMs, bin, undefined, app?.workspace, directories, products, outputs),
+    ...sourceInputChanges(sources).map(shown)])];
 }
 
 /** A packaged Windows app keeps compiler provenance in the private bake cache.
@@ -1017,7 +1008,7 @@ export const INPUT_TREE = /^(assets|deck|gpu|art|modules|fonts|strings|logic|dat
 const AGENT_TREE = /^(shots|tools|repros)(\/|$)/;
 const TEST_FILE = /(^|\/)[^/]*\.test\.(?:m?js|ts|rs|contract)$/;
 // A shell or op-list helper outside the trees a build actually reads. A `.js`
-// or `.mjs` file is read through `moduleGraph` like a `.ts`: one app.ts
+// or `.mjs` file is read through the build record like a `.ts`: one app.ts
 // imports counts, one it never imports (an export script beside the app) is
 // no input; without a graph every one counts, since a stale build run as
 // fresh is worse than a rebuild.
@@ -1030,17 +1021,17 @@ const SCRIPT_TREE = /^(logic|data|gpu|render|art|assets|deck|modules)(\/|$)/;
  * app's Rust crates (which can `include_bytes!` any file beside them), and
  * what `app.json` names (an icon). Shots, tools, repros and test files never
  * count (LLP 1012: a drive refuses a stale build, not an agent's notes), nor
- * TypeScript or JSON app.ts never imports (`moduleGraph`), nor, given the
+ * TypeScript or JSON app.ts never imports (the build record), nor, given the
  * `.contract` files a build compiled (`contracts`, its receipt's), another
  * one: the compiler compiles what app.contract reaches. Of the rest, a
  * helper script outside a script tree, a gitignored file, or a picture, log,
  * note, export or saved world is not an input. */
-export function notBuildInput(dir, keep = [], contracts = null) {
+export function notBuildInput(dir, keep = [], contracts = null, imports) {
   const ignored = gitIgnored(dir, keep);
   const under = (path, roots) => roots.some(p => within(p, path));
   let manifest = ''; try { manifest = readFileSync(resolve(dir, 'app.json'), 'utf8'); } catch {}
-  let parsed = {}; try { parsed = JSON.parse(manifest); } catch {}
-  const graph = moduleGraph(dir, parsed);
+  const inputs = imports === undefined ? appSourceInputs(dir) : null;
+  const graph = imports === undefined ? inputs ? new Set([...inputs.modules,...inputs.types ?? []].map(([,path])=>path)) : null : imports;
   const inCrate = path => {
     for (let at = dirname(path); at !== dir && within(dir, at); at = dirname(at)) if (existsSync(resolve(at, 'Cargo.toml'))) return true;
     return false;
@@ -1121,6 +1112,7 @@ export function receiptChanges(receipt, app, { hashed = false, launch, retained 
   // The Apple crates are read by digest below; every other host's are no input.
   const hosts = otherHosts(app);
   const own = newerThan(since, [app.dir], path => hosts(path) || skip(path));
+  own.push(...sourceInputChanges(build?.typescriptSources).map(shown));
   // Platform-local modules live under the host crate directory skipped above,
   // but their separate dylib's sources are absent from the binary receipt.
   const platform = target.includes('-ios') ? 'ios' : 'macos';
@@ -1162,52 +1154,46 @@ export function receiptChanges(receipt, app, { hashed = false, launch, retained 
 
 /** What a web build of `app` reads, modified after `since` (every file by default):
  * the app's own files and the build's Cargo dependency roots, as shown paths. */
-export function webInputs(app, js, since = -Infinity, roots = webSourceRoots(app, js)) {
+export function webInputs(app, js, since = -Infinity, roots = webSourceRoots(app, js), sourceInputs) {
   // Each package is a root of its own; an enclosing package does not consume its other nested crates.
   const dependencies = () => newerThan(since, roots, path => existsSync(resolve(path, 'Cargo.toml')));
   if (app.manifest?.game) {
     const files = proofInputFiles(ROOT, app.dir).map(file => resolve(ROOT, file));
-    const admitted = since === -Infinity ? files : files.filter(file => statSync(file).mtimeMs > since);
+    const admitted = since === -Infinity ? files : files.filter(file => statSync(file, {throwIfNoEntry:false})?.mtimeMs > since);
     const extra = dependencies().map(file => resolve(ROOT, file));
     const all = [...new Set([...admitted, ...extra])];
     return {app:all.filter(file => within(app.dir, file)), shared:all.filter(file => !within(app.dir, file))};
   }
-  const ignored = notBuildInput(app.dir, shaderWatchRoots(app));
-  const notInput = path => Boolean(app.manifest?.game) && gameNonInput(relative(app.dir, path));
+  const modules = appModules(app.dir, sourceInputs), files = [...modules.files.values()];
+  const ignored = notBuildInput(app.dir, shaderWatchRoots(app), null, existsSync(resolve(app.dir,'app.ts')) ? new Set(files) : null);
   const backend = resolve(app.dir, '.exact/backend-origin');
   const hosts = otherHosts(app, ['web']);
-  const appFiles = newerThan(since, [app.dir], path => hosts(path) || ignored(path) || notInput(path));
+  const appFiles = newerThan(since, [app.dir], path => hosts(path) || ignored(path));
+  const loaded = files.filter(file => since === -Infinity || statSync(file, {throwIfNoEntry:false})?.mtimeMs > since);
+  appFiles.push(...loaded.filter(file => within(app.dir,file)).map(shown));
   const extra = dependencies();
   // A file the compiler or a build script recorded reading is an input whatever its name (`include_str!` of a `.txt`).
   const recorded = new Set(roots.filter(root => root.file).map(root => resolve(root.file)));
   appFiles.push(...extra.filter(path => within(app.dir, resolve(ROOT, path)) && (recorded.has(resolve(ROOT, path)) || !ignored(resolve(ROOT, path)))));
-  const shared = extra.filter(path => !within(app.dir, resolve(ROOT, path)));
+  const shared = [...loaded.filter(file => !within(app.dir,file)).map(shown),...extra.filter(path => !within(app.dir, resolve(ROOT, path)))];
   // Absence is an input too: removing a selection must invalidate its bake.
   if (since === -Infinity || statSync(backend, { throwIfNoEntry: false })?.mtimeMs > since) appFiles.push(backend);
   return { app: [...new Set(appFiles)], shared: [...new Set(shared)] };
 }
 const contentDigest = path => { try { return createHash('sha1').update(readFileSync(resolve(ROOT, path))).digest('hex'); } catch { return null; } };
-/** Content digests of every input of a web build, recorded in its marker, with each setting app.json declares
- * (`import.meta.env.NAME`: its value and source, LLP 1153 D4). */
-export function webInputDigests(app, js, roots) {
-  const { app: own, shared } = webInputs(app, js, -Infinity, roots);
-  return {...Object.fromEntries([...own, ...shared].map(path => [path, contentDigest(path)])), EXACT_BACKEND_ORIGIN: process.env.EXACT_BACKEND_ORIGIN ?? null, PORT: process.env.PORT ?? null, ...settingsOf(app)};
+/** Input digests, including each declared setting's value and source (LLP 1153 D4). */
+export function webInputDigests(app, js, roots, sourceInputs) {
+  const { app: own, shared } = webInputs(app, js, -Infinity, roots, sourceInputs);
+  return {...Object.fromEntries([...own, ...shared].map(path => [path, contentDigest(path)])), EXACT_BACKEND_ORIGIN: process.env.EXACT_BACKEND_ORIGIN ?? null, PORT: process.env.PORT ?? null, ...settingInputs(app, process.env, appModules(app.dir, sourceInputs))};
 }
-const setting = key => key.startsWith('import.meta.env.');
-// Each declared setting as the bake would inline it, app.ts's defaults read with Rolldown's parser (loaded only then).
-let parseSettings;
-const settingsOf = app => settingInputs(app, process.env, app.manifest?.env?.length ? parseSettings ??= createRequire(import.meta.url)('rolldown/utils').parseSync : null);
-/** What the web build in `dist` inlined of each setting (its marker's `env`): a drive's first lines of host output. */
-export const builtSettingLines = dist => { try { return settingLines(JSON.parse(readFileSync(resolve(dist, '.exact-build.json'), 'utf8')).env); } catch { return []; } };
-/** Inputs whose content changed since the build in `dist`. Modification times only
- * nominate candidates; a checkout that rewrote a file with its own bytes is not a
- * change. A marker without digests (the dev loop's) trusts the times, over the roots
- * the build would read now: recording them would cost each of its rebuilds a Cargo query. */
+
+/** Changed inputs of the build in `dist`; modification times nominate candidates, digests compare their bytes. */
 export function webChanges(dist, app) {
   const marker = resolve(dist, '.exact-build.json');
   if (!existsSync(marker)) return { app: [], shared: [], all: [] };
   const built = JSON.parse(readFileSync(marker, 'utf8'));
   if (built.inputs && !built.inputRoots) return { app: [], shared: [shown(marker)], all: [shown(marker)] };
+  if (existsSync(resolve(app.dir,'app.ts')) && !(built.sourceInputs ?? appSourceInputs(app.dir))) return {app:[shown(resolve(app.dir,'app.ts'))],shared:[],all:[shown(resolve(app.dir,'app.ts'))]};
   const contract = built.reads?.contract;
   // Candidates: what changed since the build read its inputs (`inputsAt`, as it started, less the file
   // system's clock grain), else since its marker.
@@ -1221,17 +1207,19 @@ export function webChanges(dist, app) {
     && (resolve(ROOT, path) === resolve(app.dir, 'app.contract') || unusedContract(resolve(ROOT, path)));
   const hashedRead = path => Object.hasOwn(contract ?? {}, resolve(ROOT, path)) || Object.hasOwn(built.reads?.cargo ?? {}, resolve(ROOT, path));
   const changed = path => !hashedRead(path) && !byContractReceipt(path) && (!built.inputs || built.inputs[path] !== contentDigest(path));
-  const { app: own, shared: roots } = webInputs(app, built.target === 'js', since, inputRoots);
+  const { app: own, shared: roots } = webInputs(app, built.target === 'js', since, inputRoots, built.sourceInputs);
   const appChanges = own.filter(changed), shared = roots.filter(changed);
+  if (built.inputs) for (const path of [...appModules(app.dir,built.sourceInputs).files.values()].map(shown)) if (changed(path) && !appChanges.includes(path)) (within(app.dir,resolve(ROOT,path)) ? appChanges : shared).push(path);
+  for (const path of sourceInputChanges(built.sourceInputs ?? appSourceInputs(app.dir))) (within(app.dir,path) ? appChanges : shared).push(shown(path));
   if (contract) for (const path of changedContractReads(contract)) (within(app.dir, path) ? appChanges : shared).push(shown(path));
   for (const path of changedContractReads(built.reads?.cargo ?? {})) (within(app.dir, path) ? appChanges : shared).push(shown(path));
   // A file the build read that is gone since (a source deleted) is a change too: absence is an input.
-  for (const path of Object.keys(built.inputs ?? {})) if (!byContractReceipt(path) && !['EXACT_BACKEND_ORIGIN', 'PORT'].includes(path) && !setting(path) && built.inputs[path] !== null && !appChanges.includes(path) && !existsSync(resolve(ROOT, path))) (within(app.dir, resolve(ROOT, path)) ? appChanges : shared).push(path);
+  for (const path of Object.keys(built.inputs ?? {})) if (!byContractReceipt(path) && !['EXACT_BACKEND_ORIGIN', 'PORT'].includes(path) && !isSettingInput(path) && built.inputs[path] !== null && !appChanges.includes(path) && !existsSync(resolve(ROOT, path))) (within(app.dir, resolve(ROOT, path)) ? appChanges : shared).push(path);
   if ((built.inputs?.EXACT_BACKEND_ORIGIN ?? null) !== (process.env.EXACT_BACKEND_ORIGIN ?? null)) appChanges.push('EXACT_BACKEND_ORIGIN');
   if ((built.inputs?.PORT ?? null) !== (process.env.PORT ?? null)) appChanges.push('PORT');
   // A setting whose value or source moved, one the build read and is no longer declared, or one declared since.
-  const settings = settingsOf(app);
-  for (const key of new Set([...Object.keys(settings), ...Object.keys(built.inputs ?? {}).filter(setting)])) if ((built.inputs?.[key] ?? null) !== (settings[key] ?? null)) appChanges.push(key);
+  const settings = settingInputs(app, process.env, appModules(app.dir, built.sourceInputs));
+  for (const key of new Set([...Object.keys(settings), ...Object.keys(built.inputs ?? {}).filter(isSettingInput)])) if ((built.inputs?.[key] ?? null) !== (settings[key] ?? null)) appChanges.push(key);
   return { app: appChanges, shared, all: [...new Set([...appChanges, ...shared])] };
 }
 

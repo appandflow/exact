@@ -160,6 +160,7 @@ const outsideChecks = new Map();
  * (`outsideWorkspaceProblems` holds the workspace's to them); and each path package's manifest `cargo metadata` listed,
  * with each `Cargo.toml` above it, where the workspace it inherits from is. */
 function cargoInputs(dir, manifests, workspace, packages) {
+  dir = realpathSync(dir);
   const above = [], configs = [];
   for (let at = dirname(dir); at !== dirname(at); at = dirname(at)) above.push(resolve(at, 'Cargo.toml'));
   for (let at = workspace; ; at = dirname(at)) { configs.push(resolve(at, '.cargo/config.toml'), resolve(at, '.cargo/config')); if (at === dirname(at)) break; }
@@ -210,11 +211,12 @@ export function rememberWorkspace(dir, outside, manifests, workspace, check) {
  * would each read the other's build as its own changed inputs, and each be refused as busy while the other builds. An
  * app whose directory is gone has given its names up. */
 export function claimTargetCrates(target, name, dir) {
+  dir = realpathSync(dir);
   const record = resolve(target, '.exact-crates', name);
   let holder = null;
   try { holder = readFileSync(record, 'utf8').trim(); } catch { /* unclaimed */ }
   if (holder === dir) return;
-  if (holder && existsSync(resolve(holder, 'app.contract'))) {
+  if (holder && existsSync(resolve(holder, 'app.contract')) && realpathSync(holder) !== dir) {
     throw new Error(`${target} (CARGO_TARGET_DIR) holds the crates ${name}-* of the app in ${holder}, and the app in ${dir} names its crates the same: each build would overwrite the other's. Give each app its own CARGO_TARGET_DIR, or unset it to build in each app's target/.`);
   }
   mkdirSync(dirname(record), { recursive: true });
@@ -259,7 +261,7 @@ export function declaredWorkspace(dir, memberDirs) {
     const owner = existsSync(path) ? Bun.TOML.parse(readFileSync(path, 'utf8')).package?.workspace : undefined;
     if (owner === undefined) return [];
     const at = resolve(member, owner);
-    return [generated.includes(at) ? at : realpathSync(at)];
+    return [generated.includes(at) ? at : realpathSync(resolve(realpathSync(member), owner))];
   }))];
   const authored = declared.filter(at => !generated.includes(at));
   if (authored.length > 1 || authored.length && authored.length < declared.length) throw new Error(`${dir}: app crates declare different Cargo workspaces: ${declared.join(', ')}${authored.length < declared.length ? `. An app's own crates join ${generated.map(at => relative(dir, at)).join(' or ')}, or all name the app's authored workspace` : ''}`);
@@ -309,6 +311,7 @@ function owns(root, workspace, path) {
  * (LLP 1153.003 D1.1): its workspace is generated (scripts/app-shells.mjs). An enclosing workspace that does not
  * list the app (another repository the app sits in) is not the app's. */
 export function authoredWorkspace(dir) {
+  dir = realpathSync(dir);
   const own = readToml(resolve(dir, 'Cargo.toml'));
   if (own?.workspace !== undefined) return dir;
   if (own?.package?.workspace) return resolve(dir, own.package.workspace);

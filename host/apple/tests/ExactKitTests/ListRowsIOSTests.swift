@@ -1,7 +1,10 @@
 #if os(iOS)
+import ExactCore
 import UIKit
 import XCTest
 @testable import ExactKit
+@testable import ExactNavigation
+@testable import ExactControls
 @testable import ExactCollections
 
 /// A batch that only builds, moves or drops a virtualized list's rows (a
@@ -81,6 +84,10 @@ final class ListRowsIOSTests: XCTestCase {
             XCTAssertFalse(p.onlyListRows(wireBatch(ops)), "\(ops)")
         }
         XCTAssertTrue(p.onlyListRows(wireBatch([])), "an empty batch changes no projection input")
+        // A batch that says the root tabs, with no op: a placement change the views do not carry
+        var said = wireBatch([])
+        said.rootTabs = [RootTabs(root: 30, tablist: 61, tabs: [11], panels: [40], unsaid: false)]
+        XCTAssertFalse(p.onlyListRows(said), "the projection reads the root tabs")
     }
 
     /// Whether a header button opens a popover is the header rule's to read
@@ -155,23 +162,23 @@ final class ListRowsIOSTests: XCTestCase {
     /// The gate itself: a rows batch asks no sync, anything else does.
     func testOnlyARowsBatchSkipsTheProjection() {
         let p = presenter()
-        let before = p.navigation.syncCalls
+        let before = p.navigationHost.syncCalls
         p.apply(wireBatch([["op": "style", "id": 11, "style": ["opacity": 0.5]]]))
-        XCTAssertEqual(p.navigation.syncCalls, before, "rows only")
+        XCTAssertEqual(p.navigationHost.syncCalls, before, "rows only")
         p.apply(wireBatch([["op": "style", "id": 30, "style": ["opacity": 0.5]]]))
-        XCTAssertEqual(p.navigation.syncCalls, before + 1, "outside the rows")
+        XCTAssertEqual(p.navigationHost.syncCalls, before + 1, "outside the rows")
     }
 
     func testFlatWrapperFillsSkipNavigationWhileABarChangeStillSyncs() throws {
         let p = presenter()
         defer { p.reset() }
         let scroll = try XCTUnwrap(p.views[1]?.scroll)
-        let before = p.navigation.syncCalls
+        let before = p.navigationHost.syncCalls
         var owed = 0
         var dependencies: ListRowDependencies?
         for row in 200..<220 {
             scroll.contentOffset.y = CGFloat((row - 200) * 40)
-            if p.navigation.syncOwed { owed += 1 }
+            if p.navigationHost.syncOwed { owed += 1 }
             p.apply(wireBatch([
                 ["op": "create", "id": row, "kind": "view"],
                 ["op": "children", "id": 1, "ids": [10, row]],
@@ -183,12 +190,12 @@ final class ListRowsIOSTests: XCTestCase {
             if let dependencies { XCTAssertTrue(p.listRowDependencies === dependencies) }
             else { dependencies = try XCTUnwrap(p.listRowDependencies) }
         }
-        let syncs = p.navigation.syncCalls - before
+        let syncs = p.navigationHost.syncCalls - before
         print("LANE L flat fills=20 navigation_syncs=\(syncs) sync_owed=\(owed)")
         XCTAssertEqual(owed, 0)
         XCTAssertEqual(syncs, 0)
         p.apply(wireBatch([["op": "props", "id": 50, "set": ["text": "Updated bar"]]]))
-        XCTAssertEqual(p.navigation.syncCalls, before + syncs + 1, "bar changes sync in their own batch")
+        XCTAssertEqual(p.navigationHost.syncCalls, before + syncs + 1, "bar changes sync in their own batch")
         XCTAssertNil(p.listRowDependencies, "a bar change invalidates the projection inputs")
     }
 
@@ -199,7 +206,7 @@ final class ListRowsIOSTests: XCTestCase {
             ["op": "props", "id": 30, "set": ["navigationKey": "collection", "navigationScroll": "content-3"]],
             ["op": "props", "id": 1, "set": ["id": "content-3", "testId": "product-grid"]],
         ]))
-        let syncs = p.navigation.syncCalls, builds = p.listRowDependencyBuilds
+        let syncs = p.navigationHost.syncCalls, builds = p.listRowDependencyBuilds
         // Supply the projection's resolved name without a UIKit scene.
         p.listRowDependencies = ListRowDependencies(p, scrolls: ["content-3"])
         var rows: [[String: Any]] = [["view": 10, "root": 10, "epoch": 1, "index": 0, "size": 40, "measured": true]]
@@ -270,8 +277,8 @@ final class ListRowsIOSTests: XCTestCase {
                                              snapshot(4, revision: 1), snapshot(5, revision: 1)]],
         ]
         p.apply(wireBatch(retire))
-        print("LANE L benchmark fills=20 navigation_syncs=\(p.navigation.syncCalls - syncs) dependency_builds=\(p.listRowDependencyBuilds - builds)")
-        XCTAssertEqual(p.navigation.syncCalls - syncs, 0)
+        print("LANE L benchmark fills=20 navigation_syncs=\(p.navigationHost.syncCalls - syncs) dependency_builds=\(p.listRowDependencyBuilds - builds)")
+        XCTAssertEqual(p.navigationHost.syncCalls - syncs, 0)
         XCTAssertEqual(p.listRowDependencyBuilds - builds, 1)
         XCTAssertEqual(p.listHost.entries[1]?.snapshot.rows.count, 20)
         for op: [String: Any] in [
@@ -289,7 +296,7 @@ final class ListRowsIOSTests: XCTestCase {
         XCTAssertTrue(p.onlyListRows(nested))
         XCTAssertFalse(p.onlyRowFill(nested), "a real nested scroller still needs the page passes")
         p.apply(wireBatch([["op": "props", "id": 50, "set": ["text": "Updated bar"]]]))
-        XCTAssertEqual(p.navigation.syncCalls - syncs, 1, "a bar change syncs in its own batch")
+        XCTAssertEqual(p.navigationHost.syncCalls - syncs, 1, "a bar change syncs in its own batch")
         XCTAssertNil(p.listRowDependencies)
     }
 
@@ -332,11 +339,11 @@ final class ListRowsIOSTests: XCTestCase {
         ])
         XCTAssertTrue(p.onlyListRows(fill))
         XCTAssertTrue(p.onlyRowFill(fill))
-        let before = p.navigation.syncCalls
+        let before = p.navigationHost.syncCalls
         p.apply(fill)
         XCTAssertEqual(scroll.contentOffset.y, 200, accuracy: 0.5)
         XCTAssertTrue(header.subviews.first === background, "material still goes behind its content")
-        XCTAssertEqual(p.navigation.syncCalls, before)
+        XCTAssertEqual(p.navigationHost.syncCalls, before)
     }
 
     func testARowFillStillFlushesAPendingAuthoredOffset() throws {
@@ -350,7 +357,7 @@ final class ListRowsIOSTests: XCTestCase {
         ]))
         let node = try XCTUnwrap(p.views[300]), scroll = try XCTUnwrap(node.scroll)
         node.pendingScrollTop = 80
-        let before = p.navigation.syncCalls
+        let before = p.navigationHost.syncCalls
         p.apply(wireBatch([
             ["op": "create", "id": 200, "kind": "view"],
             ["op": "children", "id": 1, "ids": [10, 200]],
@@ -359,7 +366,7 @@ final class ListRowsIOSTests: XCTestCase {
         XCTAssertEqual(scroll.contentOffset.y, 80, accuracy: 0.5)
         XCTAssertNil(node.pendingScrollTop)
         XCTAssertFalse(p.pendingScrolls.contains(300))
-        XCTAssertEqual(p.navigation.syncCalls, before)
+        XCTAssertEqual(p.navigationHost.syncCalls, before)
     }
 
     func testARowsBatchFollowsAReplacedPhysicalScrollBackend() throws {
@@ -369,7 +376,7 @@ final class ListRowsIOSTests: XCTestCase {
             p.viewport.frame = CGRect(x: 0, y: 0, width: 300, height: 300)
             p.apply(wireBatch([["op": "frame", "id": 30, "x": 0, "y": 0, "w": 300, "h": 300]]))
             let list = try XCTUnwrap(p.views[1]), original = try XCTUnwrap(list.scroll)
-            XCTAssertTrue(p.navigation.scrollsToTopSelection === original)
+            XCTAssertTrue(p.navigationHost.scrollsToTopSelection === original)
             let replacement = UIScrollView(frame: original.frame)
             replacement.contentSize = original.contentSize
             list.addSubview(replacement)
@@ -383,7 +390,7 @@ final class ListRowsIOSTests: XCTestCase {
                     ["op": "frame", "id": 200, "x": 0, "y": 40, "w": 300, "h": 40],
                 ]))
             }
-            XCTAssertTrue(p.navigation.scrollsToTopSelection === replacement)
+            XCTAssertTrue(p.navigationHost.scrollsToTopSelection === replacement)
             XCTAssertTrue(replacement.scrollsToTop)
             XCTAssertFalse(original.scrollsToTop)
         }
@@ -408,11 +415,11 @@ final class ListRowsIOSTests: XCTestCase {
         session.drainFill()
         let list = try XCTUnwrap(p.views.values.first { $0.props["testId"] == "list" })
         let scroll = try XCTUnwrap(list.scroll)
-        let before = p.navigation.syncCalls
+        let before = p.navigationHost.syncCalls
         var hits = 0, owed = 0
         session.onApplyForTests = { batch in
             hits += batch.ops.filter { $0.op == .layoutHits }.count
-            if p.navigation.syncOwed { owed += 1 }
+            if p.navigationHost.syncOwed { owed += 1 }
         }
         for y in [300, 600, 900, 1200, 900, 600, 300, 0] {
             scroll.contentOffset.y = CGFloat(y)
@@ -420,7 +427,7 @@ final class ListRowsIOSTests: XCTestCase {
             session.drainFill()
         }
         session.onApplyForTests = nil
-        let syncs = p.navigation.syncCalls - before
+        let syncs = p.navigationHost.syncCalls - before
         print("LANE L shop scroll layout_hits=\(hits) navigation_syncs=\(syncs) sync_owed=\(owed)")
         XCTAssertGreaterThan(hits, 0, "the scroll builds rows with omitted wrappers")
         XCTAssertEqual(owed, 0)

@@ -20,7 +20,9 @@
 // Native relaunch opens at the launch location (on iOS, the manifest's `start_url` by default), so verify
 // compares end-route reloads only on the web. A refusal the host journaled during the run
 // (`logs`: 'swipeContent … is refused: …') is shown first in the report (LLP 1116.010 D5). One capture of each screen is kept in
-// .exact/verify/ for milestones (four of the first screen: each width and scheme). It prints one short report
+// .exact/verify/ for milestones (four of the first screen: each width and scheme); where app.json names a launch colour
+// that is not the first screen's ground, read from those captures, the report says so in a note that counts for nothing
+// (LLP 1163 D2; verify-findings.mjs `launchNotes`). It prints one short report
 // ending "verify: clean" or "verify: N problems" (`--json`: one object). Exit 1 when the build, a test, a launch
 // or the relaunch fails; check's findings, the accessibility tree's, the relaunch's, those at the largest text size and the compiler's warnings
 // (`contract build`'s, whether or not this run built) are counted in the last line but fail it only under `--strict`, since check reads the screen
@@ -54,7 +56,7 @@ import { guardFlags } from './help.mjs';
 import { holderOf } from './port-lock.mjs';
 import { selectBackendOrigin } from '../js/bake/src/typescript.mjs';
 import { contractVerify, semanticsSummary } from './verify-semantics.mjs';
-import { axGroup, byRule, FIRST, groups, placesOf, RELAUNCH, ruleOf, largeRemedy, iosNavigationContent, iosTabBar } from './verify-findings.mjs';
+import { axGroup, byRule, FIRST, firstGrounds, groups, launchNotes, placesOf, RELAUNCH, ruleOf, largeRemedy, iosNavigationContent, iosTabBar } from './verify-findings.mjs';
 import { cargoDiagnosticFilter } from './cargo-check.mjs';
 export { byRule, groups, ruleOf, largeRemedy };
 
@@ -352,6 +354,10 @@ async function reloadEnd(s, t, persisted = []) {
 /** `check both` on the session at each of `sizes` (null: as it is; else resized to it first), a run per size and scheme
  * tagged with its `screen`; a resource that failed is a line of each. `shot(viewport, scheme)` names a capture to keep.
  * With `ax`, the screen's accessibility tree is read once first, as it stands, and kept as the runs' `ax` (LLP 1166.002 D1). */
+/** Whether a launch verify reads the accessibility tree of asks the host to load its accessibility runtime: UIKit's
+ * loads only for an assistive technology, and a simulator has none, so every screen's tree would come back unread
+ * (`open`'s `ax`, as a drive that asks `tree --ax` passes it; LLP 1156.006.000 D15). */
+const readsAx = (host) => host === 'ios' && 'try'; // if the simulator allows: `withAccessibilityRuntime`
 async function checkHere(s, { screen, sizes = [null], shot, state, ax = true }) {
   const [{ checkOp }, { axHere }] = await Promise.all([import('./agent-check.mjs'), import('./verify-ax.mjs')]);
   const failed = Object.entries(state?.failed ?? {}).map(([name, why]) => `  failed   resource ${name}: ${why}; the screen shows its placeholder or last value`);
@@ -542,7 +548,7 @@ async function tests(host, app, shots, running) {
   for (const [i, file] of files.entries()) {
     const first = out.results.length;
     try {
-      const r = await runTests({ host, file, app: app.selector, running, atEnd: (s, t) => atEnd(s, { ...t, index: first + t.index }), ...(i ? { storage: `test${i}` } : {}), ...hostOpen(host, app) });
+      const r = await runTests({ host, file, app: app.selector, running, ax: readsAx(host), atEnd: (s, t) => atEnd(s, { ...t, index: first + t.index }), ...(i ? { storage: `test${i}` } : {}), ...hostOpen(host, app) });
       out.passed += r.passed; out.failed += r.failed;
       // A failure the test did not arrange is a finding (LLP 1146 D4): `runTests` says it in a note.
       out.results.push(...r.results.map(({ name, index, failures, notes = [], end, store, shots }) => ({ name, index, file: basename(file), failures, unarranged: notes.filter((n) => n.startsWith('unarranged: ')).map((n) => n.slice(12)), ...(shots ? { shots } : {}), ...(end ? { end } : {}), ...(store ? { store } : {}) })));
@@ -597,7 +603,7 @@ export function tourNews(visited, toured) {
 async function checkAt(host, app, size, store, shots) {
   const [{ open }, { driveStore, removeBrowserProfile }] = await Promise.all([import('./agent.mjs'), import('./agent-launch.mjs')]);
   const fresh = { EXACT_AGENT_STORAGE_FRESH: '1' };
-  const s = await open({ host, app: app.selector, storage: store, env: fresh, ...(size ? { size } : hostOpen(host, app)) });
+  const s = await open({ host, app: app.selector, storage: store, env: fresh, ax: readsAx(host), ...(size ? { size } : hostOpen(host, app)) });
   try {
     await s.clock('data');
     await s.clock('settle');
@@ -762,7 +768,7 @@ export function pinnedLaunch(test, defaults) {
 /** What a fresh launch shows under `launch`'s facts on an empty scratch store, for `seen`'s comparison. */
 async function freshUnder(host, app, launch, store) {
   const [{ open }, { driveStore, removeBrowserProfile }] = await Promise.all([import('./agent.mjs'), import('./agent-launch.mjs')]);
-  const s = await open({ host, app: app.selector, storage: store, env: { EXACT_AGENT_STORAGE_FRESH: '1' }, ...launchOf(launch), ...(host === 'web' ? { size: WEB_SIZES[0] } : hostOpen(host, app)) });
+  const s = await open({ host, app: app.selector, storage: store, env: { EXACT_AGENT_STORAGE_FRESH: '1' }, ax: readsAx(host), ...launchOf(launch), ...(host === 'web' ? { size: WEB_SIZES[0] } : hostOpen(host, app)) });
   try {
     for (const [name, value] of Object.entries(preferencesOf(launch))) await s.prefer({ [name]: value });
     await s.clock('data');
@@ -780,7 +786,7 @@ async function freshUnder(host, app, launch, store) {
  * end; then `check both` (the web: at both widths, one capture kept). */
 async function relaunch(host, app, test, fresh, shots) {
   const [{ open }, { driveStore, removeBrowserProfile }] = await Promise.all([import('./agent.mjs'), import('./agent-launch.mjs')]);
-  const s = await open({ host, app: app.selector, storage: test.store, ...launchOf(relaunchFacts(test)), ...(host === 'web' ? { size: WEB_SIZES[0], ...(test.end.port ? { port: test.end.port } : {}) } : hostOpen(host, app)) });
+  const s = await open({ host, app: app.selector, storage: test.store, ax: readsAx(host), ...launchOf(relaunchFacts(test)), ...(host === 'web' ? { size: WEB_SIZES[0], ...(test.end.port ? { port: test.end.port } : {}) } : hostOpen(host, app)) });
   try {
     for (const [name, value] of Object.entries(preferencesOf(test.end?.launch))) await s.prefer({ [name]: value });
     const started = performance.now(), b = (st) => (st.background?.queued ?? 0) + (st.background?.inFlight ?? 0);
@@ -827,7 +833,7 @@ const KINDS_FROM = 10; // findings from which the closing line says their kinds
 
 /** The report's lines and its problem count, from what each stage gave; `full`, every finding of each group, one a line,
  *  which verify writes to `listed` (a path the report names when the groups leave any line out). */
-export function report({ host, built, compiler = [], server, tested, checks, ax = [], relaunched, refused = [], reloads = [], large = [], fixed = { lines: [], accepted: [] }, scrolled = null, desktop = null, shots, copied, own = [], accept = [], ms, cwd = process.cwd(), listed = null, strict = false }) {
+export function report({ host, built, compiler = [], server, tested, checks, ax = [], relaunched, refused = [], reloads = [], large = [], fixed = { lines: [], accepted: [] }, scrolled = null, desktop = null, launch = [], shots, copied, own = [], accept = [], ms, cwd = process.cwd(), listed = null, strict = false }) {
   const out = [], full = [];
   const all = listed ? `${listed} lists them all` : 'verify --json lists them all';
   let failedTests = 0, findings = 0, broken = 0;
@@ -987,6 +993,8 @@ export function report({ host, built, compiler = [], server, tested, checks, ax 
     out.push(`relaunch on ${quoted(relaunched.test)}'s store (${secs(relaunched.ms)} of real time): ${relaunched.problems.length ? plural(relaunched.problems.length, 'problem') : relaunched.said}`, ...relaunched.problems, ...(relaunched.notes ?? []));
     findings += relaunched.problems.length; counted('relaunch', relaunched.problems.length);
   }
+  // The launch colour's note (verify-findings.mjs `launchNotes`): said, never counted
+  out.push(...launch);
   if (shots.length) {
     const place = (p) => { const r = relative(cwd, p); return r.startsWith('..') ? p : r || '.'; }, name = (p) => relative(resolve(p, '..'), p);
     const first = shots.filter((p) => /^\w+-\d+x\d+-(light|dark)\.png$/.test(name(p))), ends = shots.filter((p) => /^\w+-t\d+[-.]/.test(name(p))), again = shots.filter((p) => /^\w+-relaunch\.png$/.test(name(p)));
@@ -1050,17 +1058,7 @@ async function deviceMain(argv, emitJSON, declined, ended) {
   const started = Date.now();
   ACCEPT = app.manifest.verify?.accept ?? [];
   const say = (lines) => console.log(lines.join('\n'));
-  // An app with a server of its own: verify runs it where the app calls it, on an empty database. One already
-  // answering there (the builder's dev server) is refused before the build: never stopped, never written to; so is
-  // an entry that does not read DB (LLP 1116.008 D1), which could only be run on its own database.
-  const server = appServer(app.dir), owned = server && !server.why;
   const refuse = (line) => { if (json) emitJSON({ host, server: { error: line }, problems: 1, exit: 1 }); else console.error(`verify: ${line}`); return declined(1); };
-  if (server?.refusal) return refuse(server.refusal);
-  // (A test run that holds the port's turn is waited for when the server starts.)
-  if (owned && await answering(server.url) && !(await holderOf(server.port))) return refuse(heldLine(server));
-
-  const last = lastRuns(app)[host];
-  console.error(`verify ${host}: about ${Math.round((last ?? ESTIMATE[host]) / 1000)} s${last ? ', as its last run took' : ''}; one report when it ends`);
   const built = host === 'web' ? await webBuild(app) : host === 'windows' ? await windowsBuild(app) : host === 'android' ? await (await import('./agent-android.mjs')).apkBuildFirst(app) : await iosBuild(app);
   // The build said the compiler's warnings when it ran; the report's own group says them whether it ran or not.
   if (built?.said) { const { compilerWarnings } = await import('./agent-launch.mjs'); built.said = built.said.filter((line) => !compilerWarnings(line).length && !/^compiler: \d+ (?:warnings?|notes?)\b/.test(line)); }
@@ -1071,6 +1069,14 @@ async function deviceMain(argv, emitJSON, declined, ended) {
     return built.code;
   }
 
+  // Discovery uses the completed build's module record. Database and ownership checks precede every launch.
+  const server = appServer(app.dir), owned = server && !server.why;
+  if (server?.refusal) return refuse(server.refusal);
+  // A test run that holds the port's turn is waited for when the server starts.
+  if (owned && await answering(server.url) && !(await holderOf(server.port))) return refuse(heldLine(server));
+
+  const last = lastRuns(app)[host];
+  console.error(`verify ${host}: about ${Math.round((last ?? ESTIMATE[host]) / 1000)} s${last ? ', as its last run took' : ''}; one report when it ends`);
   const shots = resolve(app.dir, '.exact', 'verify');
   mkdirSync(shots, { recursive: true }); largeShots = { dir: shots, host, n: 0 };
   for (const f of readdirSync(shots)) if (f.startsWith(`${host}-`) && f.endsWith('.png')) rmSync(resolve(shots, f), { force: true });
@@ -1194,14 +1200,16 @@ async function deviceMain(argv, emitJSON, declined, ended) {
   const large = [...visited, ...tourNews(visited, toured)];
   if (copyTo) for (const p of large.flatMap((l) => l.shots ?? [])) if (existsSync(p)) copyFileSync(p, resolve(copyTo, basename(p)));
   const fixed = await fixedType(app.dir, host);
+  // LLP 1163 D2: where the launch colour is not the first screen's, on the hosts that show one before the first frame
+  const launchNote = ['ios', 'android', 'web'].includes(host) ? launchNotes(app.manifest, firstGrounds(firsts.flat()), host) : [];
   const findingsFile = resolve(shots, `${host}-findings.txt`), listed = relative(process.cwd(), findingsFile);
-  const r = report({ host, built, compiler, server: serverSaid, tested, checks, ax: axReads, relaunched, refused: refusedList, reloads, large, fixed, scrolled, desktop, shots: kept, copied: copyTo && resolve(copyTo), own, accept: ACCEPT, ms: Date.now() - started, listed: listed.startsWith('..') ? findingsFile : listed, strict: args.includes('--strict') });
+  const r = report({ host, built, compiler, server: serverSaid, tested, checks, ax: axReads, relaunched, refused: refusedList, reloads, large, fixed, scrolled, desktop, launch: launchNote, shots: kept, copied: copyTo && resolve(copyTo), own, accept: ACCEPT, ms: Date.now() - started, listed: listed.startsWith('..') ? findingsFile : listed, strict: args.includes('--strict') });
   if (r.full.length) writeFileSync(findingsFile, r.full.join('\n') + '\n'); else rmSync(findingsFile, { force: true });
   writeFileSync(resolve(shots, 'last.json'), JSON.stringify({ ...lastRuns(app), [host]: Date.now() - started }) + '\n');
   if (json) {
     const testsOut = tested?.results ? { ...tested, results: results.map(({ name, file, failures, end }) => ({ name, file, failures, ...(end?.shot && existsSync(end.shot) ? { shot: end.shot } : {}), ...(end?.error ? { endError: end.error } : {}) })) } : tested;
     const relaunchOut = relaunched && (({ runs, large, ...rest }) => rest)(relaunched);
-    emitJSON({ host, built: built && { ms: built.ms, said: built.said ?? [], warnings: built.warnings }, compiler, ...(serverSaid ? { server: serverSaid } : {}), refused: refusedList, tests: testsOut, checks, ax: axReads, reloads, large, fixed, relaunch: relaunchOut, ...(scrolled ? { scrolling: scrollingOut(scrolled) } : {}), ...(desktop ? { window: desktop } : {}), screenshots: kept, problems: r.problems, axUnread: r.axUnread, exit: r.exit, ms: Date.now() - started });
+    emitJSON({ host, built: built && { ms: built.ms, said: built.said ?? [], warnings: built.warnings }, compiler, ...(serverSaid ? { server: serverSaid } : {}), refused: refusedList, tests: testsOut, checks, ax: axReads, reloads, large, fixed, launch: launchNote, relaunch: relaunchOut, ...(scrolled ? { scrolling: scrollingOut(scrolled) } : {}), ...(desktop ? { window: desktop } : {}), screenshots: kept, problems: r.problems, axUnread: r.axUnread, exit: r.exit, ms: Date.now() - started });
   } else { say(r.lines.slice(0, -1)); ended(r.lines.at(-1)); }
   // The run, against the build it used (LLP 1146 D2: `bun scripts/evidence.mjs`).
   (await import('./evidence.mjs')).recordRun(app.selector, { host, what: 'verify', result: `${r.problems ? `${r.problems} problem${r.problems === 1 ? '' : 's'}${tested?.failed ? `, ${tested.failed} failed test${tested.failed === 1 ? '' : 's'}` : ''}` : 'clean'}${r.axUnread ? `${r.problems ? ', and' : ', but'} the accessibility tree was not read whole` : ''}`, timing: 'agent', sim });

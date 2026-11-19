@@ -75,6 +75,11 @@ and its build and drive plumbing are deleted, and Android's knob does not grow
 per host. Still out: variants for games, on Windows, for `exact install` and
 its siblings, for `share`, and in the association files.
 
+**Expanded (Charlie, 2026-11-18, #872, “Approve icon overrides”; LLP 1030.008 D1):**
+A variant may name its own iOS or macOS Icon Composer project. The Expo
+Services preview build can select its layered icon without rewriting app.json.
+Charlie waived the scope trade for these two icon fields.
+
 **Expanded (Charlie, 2026-11-17, on #764: "write up an LLP … and then pursue
 the best path"; LLP 1163.000):** alternate app icons the person chooses, on iOS
 and iPadOS: app.json `alternate_icons`, built as the app's own icons are, and
@@ -549,7 +554,7 @@ origin `tool`. Consumer: Shelf's Add Book, Continue Reading, books in
 Spotlight and Log Pages. Unblocks reaching an app's screens and writes
 without opening it. Take: none named; the ruling is its own waiver. Still
 out, each until a consumer asks (LLP 1133.023 §13): further App Intents in
-widgets beyond the fixed enum configuration below; controls and Live Activities; interactive snippets and
+widgets beyond the configuration below; controls and Live Activities; interactive snippets and
 `requestConfirmation`'s snippet content; assistant schemas; `IndexedEntity`
 and Spotlight's semantic index; `NSUserActivity` and Handoff; long-running
 intents; an App Intents extension; a structured `returns` through a face;
@@ -564,8 +569,20 @@ complication recommendations. Each placement's choices reach only its snapshot
 render; refresh and its cache remain shared.
 The Categories consumer unblocks this first stage. Take: none named; Charlie's
 2026-11-12 decision to the maintainers' agent waives the trade for enum-only
-configuration on Apple. Data-backed options, entity queries and
-configuration-dependent refresh stay deferred.
+configuration on Apple.
+
+**Expanded (Charlie, 2026-11-18, #874, “Approve the waiver”; LLP 1126 D3):**
+An Apple widget’s refresh receives the placement’s configuration. Placements
+with the same choices share a timeline. The Expo Services Active Users widget
+can fetch the period the person chose. Android keeps one timeline per kind
+and passes the defaults to refresh (LLP 1126.003 D5).
+
+**Expanded (Charlie, 2026-11-18, #896, “Approve the waiver”; LLP 1126 D2):**
+An iOS or macOS widget can offer entries of a declared content-index kind.
+The Expo Services Active Users widget can list the person’s projects. Edit
+Widget reads the list the app published to the App Group. Its refresh and
+render receive the selected ID. Computing options in the extension, images,
+dependent parameters and entity choices on watchOS and Android stay deferred.
 
 **Admitted (Charlie, 2026-10-06: "this is pretty great. commit and push this
 and document that TUI is now an officially supported platform for Exact2";
@@ -685,6 +702,23 @@ about 100 lines of wgpu today. Take: none offered; waived by Charlie. Still
 out: textures, the canvas's children as a texture, several passes, compute, a
 translucent canvas, Display P3 and HDR, matrices and arrays as uniforms, a
 built-in pointer, and inline or downloaded source (LLP 1181 §8).
+
+**Expanded (Charlie, 2026-11-17, expo/exact#724; LLP 1133.039):**
+`@exact/model-viewer`, a GPU package showing a binary glTF from the app's
+assets or files, with meshopt and quantization, an orbit camera, pick,
+per-node styles, the faded-behind style, hotspot labels and a clipping plane,
+on the web, macOS, iOS, tvOS (view only), Android, Linux and Windows; and
+`exact-gpu`'s `placement_opacity`. Unblocks technical-model viewers without
+an app-owned renderer. Take: waived by Charlie, 2026-11-17. Still out
+(LLP 1133.039 §8): animation, skins and morph targets; PBR beyond the
+headlight; AR; direct URLs, multi-file glTF and download progress; USDZ and
+Draco; lines, points, sparse accessors and instancing; several clip planes
+and capped sections; picked points, normals and measurement; zoom by field
+of view; input handed back to a page; adjustable VoiceOver orbit, tvOS remote
+orbit, Mac trackpad scroll panning, Reduce Motion on `Frame` and Linux
+AT-SPI; interaction prompts, posters, lazy loading and auto-rotation; an
+orthographic camera and camera-orbit bounds. Picking and hotspot occlusion
+share a BVH, admitted when the measured ray costs met §8's trigger.
 
 ## Features carried over as "no"
 

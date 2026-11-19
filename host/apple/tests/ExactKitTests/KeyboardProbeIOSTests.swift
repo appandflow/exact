@@ -3,15 +3,17 @@ import ObjectiveC.runtime
 import UIKit
 import XCTest
 @testable import ExactKit
+@testable import ExactNavigation
 import ExactGroupedLists
 
 /// The keyboard guide's first constraint makes UIKit lay the window out at
 /// once, inside the fit that adds it, and that layout fits the view again.
-/// A re-entered fit queues one layout (34676bfa2): marking the view dirty in
-/// place kept UIKit in the same pass without end (3e8ed35b7), wherever the
-/// fit came from. Each way a fit adds the guide settles.
+/// A re-entered fit queues one layout: marking the view dirty in place would
+/// keep UIKit in the same pass without end, wherever the fit came from. Each
+/// way a fit adds the guide settles.
 final class KeyboardProbeIOSTests: XCTestCase {
     fileprivate static var passes = 0
+    fileprivate static weak var counted: ExactView?
 
     private func until(_ what: String, _ seconds: Double = 5, _ done: () -> Bool) {
         let deadline = Date().addingTimeInterval(seconds)
@@ -24,9 +26,9 @@ final class KeyboardProbeIOSTests: XCTestCase {
     /// Whether a quiet 0.3 s, with no layout of the view, comes within
     /// `seconds`. The keyboard's own work may lay it out for a while; a
     /// re-entered fit that queued a layout for every pass never stops.
-    private func settles(within seconds: Double = 5) throws -> Bool {
+    private func settles(_ view: ExactView, within seconds: Double = 5) throws -> Bool {
         let deadline = Date().addingTimeInterval(seconds)
-        repeat { if try passes({ spin(0.3) }) == 0 { return true } } while Date() < deadline
+        repeat { if try passes(of: view, { spin(0.3) }) == 0 { return true } } while Date() < deadline
         return false
     }
 
@@ -39,12 +41,15 @@ final class KeyboardProbeIOSTests: XCTestCase {
         view.layoutIfNeeded()
     }
 
-    /// How many times UIKit laid an ExactView out while `body` ran.
-    private func passes(_ body: () throws -> Void) throws -> Int {
+    /// How many times UIKit laid `view` out while `body` ran. Only `view`'s
+    /// passes count: an earlier test's views, in windows UIKit releases a
+    /// little after that test ends, are laid out as the keyboard moves too.
+    private func passes(of view: ExactView, _ body: () throws -> Void) throws -> Int {
         let original = try XCTUnwrap(class_getInstanceMethod(ExactView.self, #selector(UIView.layoutSubviews)))
         let counted = try XCTUnwrap(class_getInstanceMethod(ExactView.self, #selector(UIView.countedExactLayout)))
         method_exchangeImplementations(original, counted)
         defer { method_exchangeImplementations(original, counted) }
+        Self.counted = view
         Self.passes = 0
         try body()
         return Self.passes
@@ -82,12 +87,14 @@ final class KeyboardProbeIOSTests: XCTestCase {
         XCTAssertTrue(prompt.becomeFirstResponder())
         XCTAssertTrue(session.presenter.hasKeyboardEditor)
         XCTAssertFalse(view.hasKeyboardGuide, "nothing has added the guide before the fit")
-        let inFit = try passes { view.fit() }
+        XCTAssertFalse(view.fitPending, "nothing is queued before the fit")
+        let inFit = try passes(of: view) { view.fit() }
         XCTAssertTrue(view.hasKeyboardGuide)
-        XCTAssertLessThanOrEqual(inFit, 3, "the guide's layout inside the fit ends")
-        let next = try passes { turn(view) }
-        XCTAssertTrue((1...3).contains(next), "the re-entered fit queued one layout, which the next turn runs: \(next) passes")
-        XCTAssertTrue(try settles(), "the view settles")
+        XCTAssertTrue((1...3).contains(inFit), "UIKit lays the view out inside the fit that adds the guide, and that layout ends: \(inFit) passes")
+        XCTAssertTrue(view.fitPending, "the re-entered fit queued its layout")
+        turn(view)
+        XCTAssertFalse(view.fitPending, "the next turn ran it")
+        XCTAssertTrue(try settles(view), "the view settles")
     }
 
     /// The view moved into a window while its session's editor has the keys:
@@ -99,16 +106,17 @@ final class KeyboardProbeIOSTests: XCTestCase {
         XCTAssertTrue(prompt.becomeFirstResponder())
         XCTAssertTrue(session.presenter.hasKeyboardEditor)
         XCTAssertFalse(view.hasKeyboardGuide, "a view outside a window adds no guide")
-        let moved = try passes { host.view.addSubview(view) }
+        let moved = try passes(of: view) { host.view.addSubview(view) }
         XCTAssertTrue(view.hasKeyboardGuide)
         XCTAssertLessThanOrEqual(moved, 3, "the guide's layout inside the move ends")
-        XCTAssertTrue(try settles(), "the view settles")
+        XCTAssertTrue(try settles(view), "the view settles")
     }
 
     /// A push whose route's search takes the keys as it arrives settles.
     /// The transition's end fits the view (`NavigationHost.completeTransition`),
     /// and that fit can be the one that adds the guide, as when the keyboard's
-    /// notification comes after it: with 3e8ed35b7's guard this test hung.
+    /// notification comes after it: a re-entered fit that marked the view
+    /// dirty in place would hang here.
     func testAPushEndingOnAnEditingRouteSettles() throws {
         guard hostedWindowScene() != nil else { throw missing("scene", "native search editing needs the hosted app responder lifecycle") }
         let path = try XCTUnwrap(ProcessInfo.processInfo.environment["EXACT_PUSHED_TITLE_PLAN"], "build.mjs --test --ios compiles the pushed-title fixture")
@@ -127,8 +135,8 @@ final class KeyboardProbeIOSTests: XCTestCase {
         view.frame = host.view.bounds
         view.layoutIfNeeded()
         let p = session.presenter
-        let nav = try XCTUnwrap(p.navigation.tabController?.selectedViewController as? UINavigationController)
-        let rests = { nav.viewControllers.count == 2 && nav.transitionCoordinator == nil && !p.navigation.transitioning }
+        let nav = try XCTUnwrap(p.navigationHost.tabController?.selectedViewController as? UINavigationController)
+        let rests = { nav.viewControllers.count == 2 && nav.transitionCoordinator == nil && !p.navigationHost.transitioning }
         until("Home shown") { nav.topViewController?.viewIfLoaded?.window != nil }
         XCTAssertFalse(view.hasKeyboardGuide)
         let open = try XCTUnwrap(p.views.values.first { $0.props["testId"] == "home-open-seek" })
@@ -137,14 +145,14 @@ final class KeyboardProbeIOSTests: XCTestCase {
             rests() && nav.topViewController?.navigationItem.searchController?.searchBar.searchTextField.isFirstResponder == true
         }
         XCTAssertTrue(view.hasKeyboardGuide)
-        XCTAssertTrue(try settles(), "the view settles")
+        XCTAssertTrue(try settles(view), "the view settles")
     }
 }
 
 extension UIView {
     /// `KeyboardProbeIOSTests.passes`: exchanged with ExactView's `layoutSubviews`.
     @objc fileprivate func countedExactLayout() {
-        KeyboardProbeIOSTests.passes += 1
+        if self === KeyboardProbeIOSTests.counted { KeyboardProbeIOSTests.passes += 1 }
         countedExactLayout()
     }
 }

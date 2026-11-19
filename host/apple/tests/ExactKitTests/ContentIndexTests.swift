@@ -1,6 +1,9 @@
 #if !os(tvOS)
 import XCTest
+import ExactCore
 @testable import ExactKit
+@testable import ExactToolDoor
+@testable import ExactIndexMirror
 
 /// The content index's mirror and the door's answers with no session (LLP 1133.023 D4, D9, D7).
 final class ContentIndexTests: XCTestCase {
@@ -10,6 +13,7 @@ final class ContentIndexTests: XCTestCase {
         super.setUp()
         directory = FileManager.default.temporaryDirectory.appendingPathComponent("content-index-\(UUID().uuidString)")
         ExactContentIndex.file = directory.appendingPathComponent("exact-content-index.json")
+        ExactContentIndex.install()
         ExactTools.install()
     }
     override func tearDown() {
@@ -42,6 +46,40 @@ final class ContentIndexTests: XCTestCase {
         // A fresh read of the file, as the next launch makes, answers the same.
         ExactContentIndex.file = ExactContentIndex.file
         XCTAssertEqual(query("book", matching: "dune"), ["2"])
+    }
+
+    /// The list a widget extension reads (LLP 1126 D2) follows the mirror for the
+    /// kinds the widgets name, and answers a query as the mirror does.
+    func testTheWidgetsListFollowsTheMirrorAndAnswersAsItDoes() throws {
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        ExactContentIndex.widgetKinds = []
+        ExactContentIndex.widgetRoot = directory
+        defer { ExactContentIndex.widgetKinds = []; ExactContentIndex.widgetRoot = nil }
+        func published(_ kind: String, ids: [String]? = nil, matching: String? = nil) -> [String] {
+            ContentIndexEntries.published(kind: kind, ids: ids, matching: matching, root: directory).map(\.id)
+        }
+        XCTAssertEqual(published("book"), [], "nothing before the app publishes")
+        XCTAssertNil(ExactContentIndex.set(kind: "book", [book("1", "Piranesi", "Susanna Clarke"), book("2", "Dune", "Frank Herbert")]))
+        XCTAssertEqual(published("book"), [], "an app without widget entity parameters leaves its index private")
+        // An update adds the picker to an app that already indexed these books.
+        ExactContentIndex.widgetKinds = ["book"]
+        ExactContentIndex.file = ExactContentIndex.file
+        XCTAssertEqual(query("book"), ["1", "2"])
+        XCTAssertEqual(published("book"), ["1", "2"])
+        XCTAssertNil(ExactContentIndex.set(kind: "shelf", [book("s", "Reading", "")]))
+        for (ids, matching) in [(nil, nil), (["2", "9", "1"], nil), (nil, "HÉR"), (nil, "piran")] as [([String]?, String?)] {
+            XCTAssertEqual(published("book", ids: ids, matching: matching), query("book", ids: ids, matching: matching))
+        }
+        XCTAssertEqual(published("shelf"), [], "a kind no widget names stays in the app's container")
+        // A saved choice keeps its id when the list no longer has it.
+        XCTAssertEqual(ContentIndexEntries.chosen(kind: "book", ids: ["9", "2"], title: "Book", root: directory), [
+            ContentIndexEntries.Entry(id: "9", title: "Book", description: nil),
+            ContentIndexEntries.Entry(id: "2", title: "Dune", description: "Frank Herbert"),
+        ])
+        ExactContentIndex.delete(id: "1")
+        XCTAssertEqual(published("book"), ["2"])
+        XCTAssertNil(ExactContentIndex.set(kind: "book", []))
+        XCTAssertEqual(published("book"), [], "an index the app clears clears the list")
     }
 
     func testSetReplacesOneKindAndKeepsTheOthers() {

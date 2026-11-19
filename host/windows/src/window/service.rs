@@ -54,7 +54,7 @@ impl<D: DataSource + Default + 'static> App<D> {
         if self.appearance.take() {
             if let (Some(window), Some(p)) = (&self.window, &mut self.presenter) {
                 p.refresh_windows_place();
-                system_theme(p, window.theme().unwrap_or(Theme::Light));
+                system_theme(p, window.theme().unwrap_or(Theme::Light), self.config.agent);
                 if let Some(scale) = self.appearance.text_scale() {
                     if let Some(error) = p.set_text_scale(scale) {
                         eprintln!("exact-windows: text size: {error}");

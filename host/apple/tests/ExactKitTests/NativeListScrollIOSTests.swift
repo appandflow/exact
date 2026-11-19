@@ -2,6 +2,7 @@
 import UIKit
 import XCTest
 @testable import ExactKit
+@testable import ExactNavigation
 @testable import ExactGroupedLists
 
 final class NativeListScrollIOSTests: GroupedListFixture {
@@ -575,7 +576,7 @@ final class NativeListScrollIOSTests: GroupedListFixture {
         var delivered = 0
         p.onCovers = { _ in delivered += 1 }
         owner.retainScrollPosition(from: scroll)
-        p.navigation.reportCovers()
+        p.navigationHost.reportCovers()
         XCTAssertEqual(delivered, 0, "nothing changed, so nothing is delivered")
         XCTAssertNil(owner.pendingScrollTop, "and the carried position is written at once")
         XCTAssertEqual(scroll.contentOffset.y + owner.scrollTopInset(scroll), 140, accuracy: 0.5)
@@ -601,9 +602,9 @@ final class NativeListScrollIOSTests: GroupedListFixture {
         var chain: AnyObject?
         let observation = scroll.observe(\.contentOffset) { _, _ in chain = chain ?? session.coversCause }
         defer { observation.invalidate() }
-        p.navigation.covers = [1: .whole]
-        p.navigation.countReport()
-        p.navigation.deliverCovers()
+        p.navigationHost.covers = [1: .whole]
+        p.navigationHost.countReport()
+        p.navigationHost.deliverCovers()
         XCTAssertNil(owner.pendingScrollTop, "the pass's write takes the carried position")
         XCTAssertEqual(scroll.contentOffset.y + owner.scrollTopInset(scroll), 140, accuracy: 0.5)
         XCTAssertNotNil(chain as? CoversChain, "in the delivery's chain")
@@ -625,7 +626,7 @@ final class NativeListScrollIOSTests: GroupedListFixture {
         session.whenIdle {
             owner.retainScrollPosition(from: scroll)
             scroll.contentOffset.y = 0
-            p.navigation.reportCovers()
+            p.navigationHost.reportCovers()
         }
         session.whenIdle { scroll.contentOffset.y = 300 - owner.scrollTopInset(scroll) }
         session.publishFillForTests(1, wireBatch([]), lease: session.runtime.completionLease)
@@ -660,7 +661,7 @@ final class NativeListScrollIOSTests: GroupedListFixture {
                            ["op": "props", "id": 1, "set": ["scrollTop": "140"]]]))
         let scroll = try XCTUnwrap(owner.scrollView)
         owner.retainScrollPosition(from: scroll)
-        let navigation = p.navigation
+        let navigation = p.navigationHost
         navigation.coversReported += 2
         p.apply(wireBatch([]))
         XCTAssertNotNil(owner.pendingScrollTop, "a batch leaves the carried position")

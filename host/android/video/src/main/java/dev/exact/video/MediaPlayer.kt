@@ -7,6 +7,7 @@ import android.graphics.Matrix
 import android.os.Handler
 import android.os.Looper
 import android.view.ContextThemeWrapper
+import android.view.Gravity
 import android.view.LayoutInflater
 import android.view.TextureView
 import android.view.View
@@ -35,6 +36,7 @@ import dev.exact.canvas.MediaRecord
 import dev.exact.canvas.MediaSink
 import dev.exact.canvas.VideoPlayer
 import org.json.JSONObject
+import kotlin.math.roundToInt
 import kotlin.math.roundToLong
 
 /**
@@ -67,7 +69,8 @@ class MediaPlayer(private val context: Context) : VideoPlayer {
     private var src = ""
     private var prepared = false
     private var generation = 0
-    private var fit = "contain"
+    private var fit = ""
+    private var objectRect: FloatArray? = null
     private var boxW = 0
     private var boxH = 0
     private var videoW = 0
@@ -139,7 +142,10 @@ class MediaPlayer(private val context: Context) : VideoPlayer {
         // Full screen holds the player on the controller it was entered with.
         if (full.on && (controls != null) != props.optBoolean("controls")) full.leave()
         presenter(props.optBoolean("controls"), props.optBoolean("audio"))
-        fit = props.optString("fit", "contain")
+        fit = props.getString("fit")
+        objectRect = props.optJSONArray("objectRect")?.takeIf { it.length() == 4 }?.let { rect ->
+            FloatArray(4) { rect.optDouble(it).toFloat() }
+        }
         full.fit(fit)
         // The controller's full-screen button, unless `controlslist` says `nofullscreen` (D5, D9).
         val button = !audio && "nofullscreen" !in props.optString("controlslist").split(' ')
@@ -148,7 +154,7 @@ class MediaPlayer(private val context: Context) : VideoPlayer {
         unveil()
         val focused = props.optBoolean("focused")
         if (focused != held) { held = focused; if (focused) focus() }
-        if (width != boxW || height != boxH || before?.optString("fit") != fit) { boxW = width; boxH = height; layoutPicture() }
+        if (width != boxW || height != boxH || before?.optString("fit") != fit || before?.optJSONArray("objectRect")?.toString() != props.optJSONArray("objectRect")?.toString()) { boxW = width; boxH = height; layoutPicture() }
 
         muted = props.optBoolean("muted")
         volume = props.optDouble("volume", 1.0).toFloat().coerceIn(0f, 1f)
@@ -420,17 +426,17 @@ class MediaPlayer(private val context: Context) : VideoPlayer {
         controls?.videoSurfaceView?.alpha = if (hidden) 0f else 1f
     }
 
-    /** One rect, the picture `object-fit` makes (D5): the texture's transform, the captions' place, D6's cap. */
+    /** The shared picture rect places Media3's content and captions; its controller keeps the element's bounds. */
     private fun layoutPicture() {
-        val rect = Picture.rect(fit, boxW, boxH, videoW, videoH)
+        val rect = Picture.rect(objectRect, boxW, boxH)
         controls?.let { view ->
-            // `contain`, `cover` and `fill` are its resize modes; `none` and `scale-down` the texture's transform.
-            view.resizeMode = when (fit) {
-                "cover" -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM
-                "contain" -> AspectRatioFrameLayout.RESIZE_MODE_FIT
-                else -> AspectRatioFrameLayout.RESIZE_MODE_FILL
+            view.resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FILL
+            view.clipChildren = true
+            view.findViewById<View>(androidx.media3.ui.R.id.exo_content_frame)?.let { content ->
+                content.layoutParams = FrameLayout.LayoutParams(rect.width.roundToInt(), rect.height.roundToInt(), Gravity.TOP or Gravity.LEFT)
+                content.translationX = rect.left
+                content.translationY = rect.top
             }
-            (view.videoSurfaceView as? TextureView)?.setTransform(if (fit == "none" || fit == "scale-down") matrix(rect) else null)
         }
         if (controls == null) {
             texture.setTransform(matrix(rect))
@@ -625,9 +631,8 @@ class MediaPlayer(private val context: Context) : VideoPlayer {
             val rect = picture ?: return
             for (i in 0 until childCount) {
                 val child = getChildAt(i) as? SubtitleView ?: continue
-                val l = rect.left.coerceAtLeast(0f).toInt(); val t = rect.top.coerceAtLeast(0f).toInt()
-                val r = (rect.left + rect.width).coerceAtMost(width.toFloat()).toInt()
-                val b = (rect.top + rect.height).coerceAtMost(height.toFloat()).toInt()
+                val l = rect.left.roundToInt(); val t = rect.top.roundToInt()
+                val r = l + rect.width.roundToInt(); val b = t + rect.height.roundToInt()
                 child.measure(MeasureSpec.makeMeasureSpec(r - l, MeasureSpec.EXACTLY), MeasureSpec.makeMeasureSpec(b - t, MeasureSpec.EXACTLY))
                 child.layout(l, t, r, b)
             }

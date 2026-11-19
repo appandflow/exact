@@ -34,7 +34,7 @@ extension NodeView {
             let range = (low + shift)...(max(low, high) + shift)
             var areas: [ScrollSnap.Area] = []
             func visit(_ view: NSView) {
-                for case let node as NodeView in view.subviews where !node.isHidden {
+                for node in NodeView.committed(view.subviews) where !node.isHidden {
                     if let align = ScrollSnap.align(node.style["scroll_snap_align"]?.string, vertical: vertical) {
                         // The area is the border box grown by `scroll-margin` (§4.3).
                         let rect = IntoView.inset(node.convert(node.bounds, to: clip), style: node.style, family: "scroll_margin", outward: true)

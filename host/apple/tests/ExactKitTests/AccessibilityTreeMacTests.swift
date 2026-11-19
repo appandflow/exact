@@ -2,6 +2,7 @@
 import AppKit
 import XCTest
 @testable import ExactKit
+@testable import ExactControls
 
 /// `tree --ax` on AppKit (LLP 1080.002 §3 stage 3): the unignored tree in
 /// navigation order, AppKit's own roles and names, each element joined to

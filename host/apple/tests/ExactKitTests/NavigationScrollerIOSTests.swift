@@ -2,6 +2,7 @@
 import UIKit
 import XCTest
 @testable import ExactKit
+@testable import ExactNavigation
 
 final class NavigationScrollerIOSTests: XCTestCase {
     private var session: ExactSession?
@@ -36,12 +37,12 @@ final class NavigationScrollerIOSTests: XCTestCase {
 
     private func settle(_ session: ExactSession) {
         waitFor("navigation settles") {
-            session.presenter.navigation.activeRoute != nil && !Agent(session: session).nativeInFlight()
+            session.presenter.navigationHost.activeRoute != nil && !Agent(session: session).nativeInFlight()
         }
     }
 
     private func node(_ session: ExactSession, _ name: String) throws -> NodeView {
-        let route = try XCTUnwrap(session.presenter.navigation.activeRoute?.node)
+        let route = try XCTUnwrap(session.presenter.navigationHost.activeRoute?.node)
         return try XCTUnwrap(session.presenter.views.values.first {
             $0.props["testId"] == name && $0.isDescendant(of: route)
         }, name)
@@ -56,7 +57,7 @@ final class NavigationScrollerIOSTests: XCTestCase {
         guard let scene = hostedWindowScene() else { throw missing("scene", "native navigation completion needs a scene") }
         let session = try fixture(scene), p = session.presenter
         try press(session, "open-detail")
-        let navigation = p.navigation
+        let navigation = p.navigationHost
         let stack = try XCTUnwrap(navigation.navigation), top = try XCTUnwrap(stack.topViewController)
         let before = navigation.syncCalls
         navigation.navigationController(stack, didShow: top, animated: false)
@@ -76,19 +77,19 @@ final class NavigationScrollerIOSTests: XCTestCase {
     func testTheContainerKeepsItsAuthoredFrameAndScrollsWithItsOuterScroller() throws {
         guard let scene = hostedWindowScene() else { throw missing("scene", "authored navigation scrolling needs UIKit containment") }
         let session = try fixture(scene)
-        let p = session.presenter, owner = try XCTUnwrap(p.navigation.primaryOwner)
-        let root = try XCTUnwrap(p.navigation.container), outer = try XCTUnwrap(root.scroll)
+        let p = session.presenter, owner = try XCTUnwrap(p.navigationHost.primaryOwner)
+        let root = try XCTUnwrap(p.navigationHost.container), outer = try XCTUnwrap(root.scroll)
         XCTAssertTrue(owner.view.isDescendant(of: outer), "the authored scroller holds the native container")
         XCTAssertEqual(owner.view.bounds.size, root.bounds.size)
         XCTAssertEqual(owner.view.bounds.width, 320, accuracy: 0.5)
         XCTAssertEqual(owner.view.bounds.height, 620, accuracy: 0.5)
         let before = owner.view.convert(owner.view.bounds, to: window)
         outer.contentOffset.y = 120
-        p.navigation.fitOwner()
+        p.navigationHost.fitOwner()
         XCTAssertEqual(owner.view.convert(owner.view.bounds, to: window).minY, before.minY - 120, accuracy: 0.5)
         XCTAssertEqual(owner.view.frame.origin, .zero, "refitting must not pin the container over scrolling content")
         XCTAssertGreaterThan(outer.contentSize.height, outer.bounds.height)
-        let route = try XCTUnwrap(p.navigation.activeRoute)
+        let route = try XCTUnwrap(p.navigationHost.activeRoute)
         waitFor("the runner receives the scrolled route placement") {
             guard let placed = p.owners.told[route.node.id]?.placement?.rect else { return false }
             let actual = route.view.convert(route.view.bounds, to: root)
@@ -97,7 +98,7 @@ final class NavigationScrollerIOSTests: XCTestCase {
         outer.contentOffset = .zero
         try press(session, "contain")
         XCTAssertNil(root.scroll)
-        XCTAssertTrue(p.navigation.primaryOwner === owner)
+        XCTAssertTrue(p.navigationHost.primaryOwner === owner)
         XCTAssertTrue(owner.view.isDescendant(of: root))
         XCTAssertEqual(owner.view.convert(owner.view.bounds, to: p.viewport), p.viewport.pageBounds)
         try press(session, "contain")
@@ -109,27 +110,27 @@ final class NavigationScrollerIOSTests: XCTestCase {
     func testPushPopAndSheetsKeepTheAuthoredContainer() throws {
         guard let scene = hostedWindowScene() else { throw missing("scene", "authored navigation scrolling needs UIKit containment") }
         let session = try fixture(scene)
-        let p = session.presenter, nav = try XCTUnwrap(p.navigation.navigation)
-        let root = try XCTUnwrap(p.navigation.container), outer = try XCTUnwrap(root.scroll)
+        let p = session.presenter, nav = try XCTUnwrap(p.navigationHost.navigation)
+        let root = try XCTUnwrap(p.navigationHost.container), outer = try XCTUnwrap(root.scroll)
         XCTAssertTrue(nav.view.isDescendant(of: outer))
         let frame = nav.view.frame
         let home = try XCTUnwrap(nav.topViewController)
         try press(session, "open-detail")
         XCTAssertEqual(nav.viewControllers.count, 2)
-        XCTAssertEqual(p.navigation.activeRoute?.node.props["testId"], "route-detail")
+        XCTAssertEqual(p.navigationHost.activeRoute?.node.props["testId"], "route-detail")
         nav.popViewController(animated: false)
         settle(session)
         XCTAssertTrue(nav.topViewController === home)
-        XCTAssertEqual(p.navigation.activeRoute?.node.props["testId"], "route-home")
+        XCTAssertEqual(p.navigationHost.activeRoute?.node.props["testId"], "route-home")
         try press(session, "open-sheet")
-        let sheet = try XCTUnwrap(p.navigation.modalNavigation)
+        let sheet = try XCTUnwrap(p.navigationHost.modalNavigation)
         XCTAssertNotNil(sheet.view.window)
         XCTAssertFalse(sheet.view.isDescendant(of: outer), "a presentation escapes authored scrolling")
         XCTAssertEqual(nav.view.frame, frame)
         let close = try XCTUnwrap(session.presenter.views.values.first { $0.props["id"] == "back" })
         p.press(close.id)
         settle(session)
-        XCTAssertNil(p.navigation.modalNavigation)
+        XCTAssertNil(p.navigationHost.modalNavigation)
         XCTAssertTrue(nav.view.isDescendant(of: outer))
         XCTAssertEqual(nav.view.frame, frame)
     }
@@ -137,10 +138,10 @@ final class NavigationScrollerIOSTests: XCTestCase {
     func testASidebarPaintsAndTakesTouchesWhenTheRoutesMoveClearOfIt() throws {
         guard let scene = hostedWindowScene() else { throw missing("scene", "authored navigation scrolling needs UIKit containment") }
         let session = try fixture(scene)
-        let p = session.presenter, owner = try XCTUnwrap(p.navigation.primaryOwner)
-        let root = try XCTUnwrap(p.navigation.container), outer = try XCTUnwrap(root.scroll)
+        let p = session.presenter, owner = try XCTUnwrap(p.navigationHost.primaryOwner)
+        let root = try XCTUnwrap(p.navigationHost.container), outer = try XCTUnwrap(root.scroll)
         let sidebar = try XCTUnwrap(p.views.values.first { $0.props["testId"] == "sidebar" })
-        let route = try XCTUnwrap(p.navigation.activeRoute)
+        let route = try XCTUnwrap(p.navigationHost.activeRoute)
         XCTAssertTrue(sidebar.superview === outer && owner.view.superview === outer)
         XCTAssertEqual(sidebar.bounds.width, 80, accuracy: 0.5)
         XCTAssertEqual(route.node.convert(route.node.bounds, to: root).minX, 0, accuracy: 0.5)
@@ -169,8 +170,8 @@ final class NavigationScrollerIOSTests: XCTestCase {
         let session = try fixture(scene)
         let p = session.presenter
         try press(session, "open-find")
-        let route = try XCTUnwrap(p.navigation.activeRoute), nav = try XCTUnwrap(p.navigation.navigation)
-        let outer = try XCTUnwrap(p.navigation.container?.scroll)
+        let route = try XCTUnwrap(p.navigationHost.activeRoute), nav = try XCTUnwrap(p.navigationHost.navigation)
+        let outer = try XCTUnwrap(p.navigationHost.container?.scroll)
         XCTAssertTrue(nav.view.isDescendant(of: outer))
         XCTAssertFalse(nav.isNavigationBarHidden)
         let search = try XCTUnwrap(route.search?.controller)

@@ -30,7 +30,7 @@ public enum ExactEnv {
     }()
     /// Whether this binary was baked with `EXACT_UPDATE_TRUST=production`
     /// (`BakedCompatibility.production`).
-    static let productionBake = BakedCompatibility.production(BakedCompatibility.json)
+    static package let productionBake = BakedCompatibility.production(BakedCompatibility.json)
     public static let agentMode = environment["EXACT_AGENT"] == "1"
     /// `EXACT_AGENT=live` (the driver's `--live`): an ordinary launch on the
     /// wall clock that the driver can still reach, which sends input and
@@ -39,7 +39,7 @@ public enum ExactEnv {
     /// Whether the launch serves the driver: agent mode or `--live`.
     public static let agentCarried = agentMode || agentLive
     /// `EXACT_AGENT_BIND` (`--bind`, LLP 1133.001 D7): extensions answered by their implementations under the agent.
-    static let agentBind = Set((environment["EXACT_AGENT_BIND"] ?? "").split(separator: ",").map(String.init))
+    static package let agentBind = Set((environment["EXACT_AGENT_BIND"] ?? "").split(separator: ",").map(String.init))
     /// `EXACT_AGENT_TIMING=platform` (LLP 1035.003 D5, opt-in): under the
     /// agent carrier, UIKit's own transitions, presentations and keyboard
     /// animations keep their natural timing — the ordinary app with a
@@ -106,15 +106,16 @@ public final class ExactApp {
     }
     /// The complete generation last accepted by every live session. A new
     /// connection can recognize it without restarting carried app state.
-    private var devGeneration: String?
-    private var devProgram: String?
+    package var devGeneration: String?
+    /// The native program the dev connection's generations are for, once one is taken.
+    package var devProgram: String?
     /// The plan last applied across the app, also used by newly created sessions.
     private(set) var lastPlan: Data?
     private(set) var lastModule: ExactModule?
     private(set) package var resolver: AssetResolver!
     private(set) var transaction = false
     /// The candidate an interaction holds back (LLP 1029.000.002 D9).
-    lazy var replacements = ReplacementQueue(self)
+    package lazy var replacements = ReplacementQueue(self)
     private var notifications: [() -> Void] = []
     func deliver(_ body: @escaping () -> Void) {
         if transaction { notifications.append(body) } else { body() }
@@ -123,13 +124,13 @@ public final class ExactApp {
     public var lifecycle: ExactAppLifecycle?
     private(set) var selectedToken: UInt64 = 0
     private var sessionRefs: [WeakSession] = []
-    let notificationProcessID = UUID().uuidString
+    package let notificationProcessID = UUID().uuidString
     let sharedStore = SharedStoreRefresh()
     /// Every live session, in creation order.
     public var sessions: [ExactSession] { sessionRefs.compactMap(\.session) }
     /// The one dev connection (D11): the app URL `dev.mjs` prints, resolved
     /// and subscribed once; every `{seq}` applies to every session.
-    private(set) var connection: PlanURL?
+    package private(set) var connection: (any PlanConnection)?
     private init() {
         WidgetContainer.configure()
         #if canImport(UIKit)
@@ -140,7 +141,6 @@ public final class ExactApp {
         #endif
         assetRoot = URL(fileURLWithPath: ExactEnv.environment["EXACT_ASSETS"] ?? fallback, isDirectory: true)
         resolver = AssetResolver(root: assetRoot)
-        observeSharedStore()
     }
     /// The immutable Rust executor policy carried by this binary's bake.
     public var rustPolicy: (mode: String, target: String) {
@@ -168,7 +168,7 @@ public final class ExactApp {
     }
     func firstPixel(_ token: UInt64) {
         lifecycle?.firstPixel(self, token: token)
-        WidgetContainer.publishAfterFirstPixel(resolver)
+        WidgetLink.publication?.publishAfterFirstPixel(resolver)
     }
     /// Refresh generic delivery facts after a composition-owned event.
     public func refreshDelivery() {
@@ -185,7 +185,8 @@ public final class ExactApp {
         let live = Set(sessionRefs.compactMap { $0.session?.label })
         let named = label.isEmpty ? (1...).lazy.map { "session-\($0)" }.first { !live.contains($0) }! : label
         let s = ExactSession(app: self, label: named)
-        s.delegate = delegate; PushRegistration.listen(); HostEvents.listen() // before its packages can register or drain
+        s.delegate = delegate; ModuleSeamLink.listenPush?(); ModuleSeamLink.listenHostEvents?() // before its packages can register or drain
+        observeSharedStoreOnce()
         replacements.attach(s)
         sessionRefs.append(WeakSession(s))
         sessionRefs.removeAll { $0.session == nil }
@@ -194,7 +195,7 @@ public final class ExactApp {
     func forget(_ session: ExactSession) {
         replacements.destroyed(session)
         sessionRefs.removeAll { $0.session == nil || $0.session === session }
-        HostEvents.ended(session.label)
+        ModuleSeamLink.sessionEnded?(session.label)
     }
 
     /// Connect to the app URL (LLP 1023 D1–D3): the envelope resolved, the
@@ -203,18 +204,8 @@ public final class ExactApp {
     /// connection.
     public func connect(_ url: String) {
         disconnect()
-        connection = PlanURL.open(url, program: devProgram, acceptProgram: { [weak self] program in
-            guard let self else { return false }
-            if let old = self.devProgram { return old == program }
-            self.devProgram = program
-            return true
-        }, current: { [weak self] in self?.devGeneration }, plan: { [weak self] in self?.sessions.first { $0.booted && $0.state != .destroyed }?.runtime.planDigest() }, design: { [weak self] in self?.design($0) ?? "closed" }, channel: { [weak self] in self?.channel($0) }, apply: { [weak self] candidate, label, now, finished in
-            guard let self else { return .refused("app closed") }
-            let resolver = candidate.assets
-            // A closed connection applies nothing, so the one asking is the open one.
-            return self.applyTogether(candidate.plan, label: label, resolver: resolver, token: 0, identity: candidate.identity, module: candidate.module, development: true, now: now, producer: self.connection, commit: { true }, finished: finished)
-        })
-        connection?.onDevNotice = { [weak self] in self?.showDevStatus($0) } // the old one's went at its close
+        guard let open = PlanConnectionLink.open else { fputs("exact url: refused: this build links no plan connection: \(url)\n", stderr); return }
+        connection = open(self, url)
     }
 
     /// Close the connection, with the generation it brought that waits.
@@ -322,9 +313,9 @@ public final class ExactApp {
 
 }
 
-struct WeakSession {
-    weak var session: ExactSession?
-    init(_ s: ExactSession) { session = s }
+package struct WeakSession {
+    package weak var session: ExactSession?
+    package init(_ s: ExactSession) { session = s }
 }
 
 /// One runner, one plan, one clock (LLP 1031 D1).
@@ -339,7 +330,7 @@ public final class ExactSession {
     public let app: ExactApp
     /// A host-owned name the agent carrier routes by (D9) and logs carry.
     public let label: String
-    let notificationOwnerID: String
+    package let notificationOwnerID: String
     /// Under the agent the session's own pasteboard, which `copyText` and @exact/clipboard write, registered for
     /// removal when the session is made, so a process that exits removes it too (AgentPasteboard.swift).
     let agentPasteboard: String?
@@ -354,11 +345,11 @@ public final class ExactSession {
     var activatedGeneration: Int?
     /// The generation whose deferred data has activated (or failed to): the
     /// agent's `clock data` waits for it before a test's first step.
-    var dataGeneration: Int?
-    var dataActivated: Bool { dataGeneration == generation }
+    package var dataGeneration: Int?
+    package var dataActivated: Bool { dataGeneration == generation }
     var pendingActivation: (generation: Int, token: UInt64)? // retried on the session's wake
     /// The generation whose data source `prepareData` or `evaluateFromDraw` activated on the owner, and whether it still runs there.
-    var preparedGeneration: Int?, dataPreparing = false
+    package var preparedGeneration: Int?, dataPreparing = false
     var canvasesHeld = false // a canvas start held for what follows the draw's evaluation (`loadCanvases`)
     var nativesOpened: Int? // the generation whose native views may attach (LLP 1024 D3)
     private(set) var updateToken: UInt64 = 0; private var receipt: DrawReceipt?
@@ -366,11 +357,11 @@ public final class ExactSession {
     package var runtime: Runtime { core.runtime }
     /// This session's file roots, captured outside a native module callback.
     package var appFileRoots: [String: String] = [:]
-    let rasters = ImageLink.makeLoader?()
+    package let rasters = ImageLink.makeLoader?()
     #if os(macOS)
     lazy var regions: any ContentRegionHosting = ContentRegionLink.make?(self) ?? NoContentRegions()
     #endif
-    var text: TextEngine { get { core.text } set { core.text = newValue } }
+    package internal(set) var text: TextEngine { get { core.text } set { core.text = newValue } }
     let fieldChrome = FieldChromeCache()
     let buttonMeasurements = ButtonMeasureCache()
     package let presenter: Presenter
@@ -385,19 +376,20 @@ public final class ExactSession {
     var webMount: [String: String] = ExactEnv.appMetadata["ExactWebMount"] as? [String: String] ?? [:]
     var protocolHandlers: [[String: String]] = ExactEnv.appMetadata["ExactProtocolHandlers"] as? [[String: String]] ?? []
     private var textPressure: DispatchSourceMemoryPressure?
-    let canvases: Canvases
-    let webviews: WebViews
-    let natives: any NativeModuleHosting = NativeModuleLink.make?() ?? NoNativeModule()
-    /// The file picker (LLP 1069.002).
-    lazy var picker = Picker(session: self)
+    package let canvases: Canvases
+    let webviews: any WebHosting
+    package let natives: any NativeModuleHosting = NativeModuleLink.make?() ?? NoNativeModule()
+    /// The file and document pickers (LLP 1069.002, LLP 1069.010).
+    lazy var picker: any FilePicking = PickerLink.make?(self) ?? NoPicker(session: self)
+    var documentScopes: [URL] = [] // the documents this session minted, under their security scope until it ends (SessionDocuments.swift)
     /// The voice table's output (LLP 1096 D8); settable for tests.
-    lazy var sound = SoundOutput(self)
-    lazy var midi = MIDIOutput(self)
-    var activityOutput: ActivityOutput?
+    lazy var sound: any AudioOutputting = MediaLink.makeSound?(self) ?? NoAudioOutput()
+    lazy var midi: any AudioOutputting = MediaLink.makeMIDI?(self) ?? NoAudioOutput()
+    var activityOutput: (any ActivityOutputting)?
     package let frames: Frames
     /// A session's presented frames (LLP 1079 D3); a production bake has one only while an app records.
-    var sampler: FrameSampler?
-    let frameHealth = FrameHealth()
+    package var sampler: FrameSampler?
+    package let frameHealth = FrameHealth()
     var clockTimer: Timer?
     /// The runner deadline `clockTimer` fires for.
     var clockDue: Double?
@@ -453,7 +445,7 @@ public final class ExactSession {
     private(set) var applying = false { didSet { releaseWaitingFirings() } }
     /// The chain of covers corrections the work running belongs to (`CoversChain`): work asked in one
     /// runs in it, at once or queued; a batch the owner publishes lands in none
-    private(set) var coversCause: AnyObject?
+    private(set) package var coversCause: AnyObject?
     // @ref LLP 1072 §3 — a collection slice built on the owner thread. While
     // one is in flight, work that would wait behind it on the owner (a
     // frame's tick, a timer, a reply, an intrinsic size, a report) waits on
@@ -501,9 +493,15 @@ public final class ExactSession {
     var readsOnLineKnown: (generation: Int, value: Bool)?
     /// `prefer presented` under the agent, told again to each runner (LLP 1069.000 D6).
     var presentedHeld: Bool?
-    private(set) var canvasOwed = false
+    var canvasOwed = false
     private var canvasAsked = false
-    private(set) var landing = false
+    var landing = false // also the reveal's order barrier (`finishStage`)
+    /// A large batch being prepared (`StagedApply.swift`), and the batches
+    /// that wait their turn in the runtime's order (`order`).
+    var stage: StagePlan?, pending: [PendingBatch] = []
+    /// The newest batch applied, and the number of the newest with a commit, whose state a batch applied after it leaves
+    /// (`followRunner`); and whether a batch is applying its own ops, so one made meanwhile (a callback's) waits for them (`order`).
+    var newestApplied: Batch?, newestCommit: UInt64 = 0, insideApply = false
     /// Landing slices ahead of a batch already made: their appearance
     /// reports wait for it, so no batch made later applies before it.
     private(set) var holdingReports = false
@@ -524,7 +522,7 @@ public final class ExactSession {
     weak package var transformInputHold: DragInput?
     func trackInputHold(_ hold: SwipeHold) { inputHolds.add(hold) }
     func retireInputHold(_ hold: SwipeHold) { inputHolds.remove(hold) }
-    var pendingSurfaceRecords: [(String, String?, Bool)] = []
+    var pendingSurfaceRecords: [(Runtime) -> Batch] = []
     var pendingSurfaceWork: [([String: Any], Int)] = []
     /// Authentication sessions this session opened (`Auth.swift`, LLP 1069.006).
     let authSessions = AuthSessions()
@@ -532,7 +530,7 @@ public final class ExactSession {
     /// Live sessions by handle: what a wake looks up (a stranger's is dropped).
     nonisolated(unsafe) private static var live: [ExactRuntime: WeakSession] = [:]
     private var preferenceObservers: [NSObjectProtocol] = [], pageObservers: [NSObjectProtocol] = [], placeObservers: [(NotificationCenter, NSObjectProtocol)] = []
-    var leaveObserver: NSObjectProtocol?, shareInboxObserver: NSObjectProtocol?
+    var leaveObserver: NSObjectProtocol?; package var shareInboxObserver: NSObjectProtocol?
     #if os(macOS)
     private var colorObserver: NSObjectProtocol?
     #endif
@@ -546,14 +544,14 @@ public final class ExactSession {
         let runtime = Runtime()
         runtime.useNativeTimers(true)
         LocalNetworkFact.install() // before the first boot reads the fact (LLP 1133.036 D8)
-        if ActivityLibrary.packaged { runtime.linkActivities() }
+        if ModuleSeamLink.activitiesPackaged?() == true { runtime.linkActivities() }
         // Motion starts at the first frame that shows it, until an agent owns the clock (LLP 1003.001 D7).
         if !ExactEnv.agentFreezes { _ = runtime.startOnFrame(true, at: 0) }
         core = SessionCore(runtime: runtime, text: TextEngine.pair(resolve: { [weak app] source in app?.resolveAsset(source) }, read: { [weak app] source in app?.assetBytes(source) },
                                bundled: { [weak app] source in app?.bundledAsset(source) }))
         presenter = Presenter()
         canvases = SurfacesLink.installed?.canvases() ?? NoCanvases()
-        webviews = WebViews()
+        webviews = MediaLink.makeWeb?() ?? NoWebViews()
         frames = Frames()
         presenter.session = self; RowReuse.adopt(self)
         #if os(iOS)
@@ -567,38 +565,17 @@ public final class ExactSession {
         frameHealth.attach(self)
         core.measure(with: text)
         installControlText()
-        // LLP 1056 D8, D9: Canvas 2D measures with this engine and draws the
-        // handles this session decodes.
-        if let measure = SurfacesLink.installed?.canvasTextMeasure { runtime.setCanvasText(measure) }
+        // LLP 1056 D8, D9: Canvas 2D measures with this engine, draws the
+        // handles this session decodes and backs at the display's scale (D4).
         presenter.canvas2d.textEngine = { [weak self] in self?.text }
         presenter.canvas2d.assetBytes = { [weak app] in app?.assetBytes($0) }
-        presenter.canvas2d.onImage = { [weak self] src, image in
-            guard let self, self.state != .destroyed else { return }
-            self.apply(self.runtime.canvasImage(src, width: image?.width ?? 0, height: image?.height ?? 0, ok: image != nil))
-        }
-        presenter.canvas2d.onRelease = { [weak self] src in
-            guard let self, self.state != .destroyed else { return }
-            self.runtime.canvasImageReleased(src)
-        }
         presenter.canvas2d.onReplayEnded = { [weak self] in self?.workEnded() }
-        presenter.canvas2d.onHeld = { [weak self] view, held in
-            guard let self, self.state != .destroyed else { return }
-            self.runtime.canvasHeld(view, held)
-        }
-        // LLP 1056 D4: Canvas 2D backs its bitmaps at the display's scale.
         #if canImport(UIKit)
         let scale = presenter.viewport.traitCollection.displayScale
         #else
         let scale = devicePixelScale
         #endif
-        _ = runtime.canvasDisplay(scale: max(1, scale), memory: ProcessInfo.processInfo.physicalMemory)
-        // A window on another display corrects it; the canvases redraw (D4).
-        presenter.canvas2d.onScale = { [weak self] scale in
-            DispatchQueue.main.async {
-                guard let self, self.state != .destroyed else { return }
-                self.apply(self.runtime.canvasDisplay(scale: scale, memory: ProcessInfo.processInfo.physicalMemory))
-            }
-        }
+        SurfacesLink.installed?.wire(self, scale: max(1, scale))
         ExactSession.live[runtime.rt] = WeakSession(self)
         runtime.setWake(ExactSession.wake, ctx: UnsafeMutableRawPointer(bitPattern: UInt(runtime.rt)))
         natives.installAppModule()
@@ -631,7 +608,7 @@ public final class ExactSession {
     deinit { destroy() }
 
     /// The live session behind a runtime handle, or nil for a stranger's.
-    static func session(for rt: ExactRuntime) -> ExactSession? { live[rt]?.session }
+    static package func session(for rt: ExactRuntime) -> ExactSession? { live[rt]?.session }
 
     private static let wake: ExactWakeFn = { ctx in
         let rt = ExactRuntime(UInt(bitPattern: ctx))
@@ -657,23 +634,24 @@ public final class ExactSession {
     /// waited for (LLP 1072 §8.5): main is not awake for a draw. A tick in
     /// flight draws in its own turn, so none is asked for meanwhile; its
     /// batch says whether one is still owed.
-    private func askCanvasDraw() {
-        guard canvasOwed, !canvasAsked, !canvasInFlight else { return }
+    func askCanvasDraw() {
+        guard let surfaces = SurfacesLink.installed, canvasOwed, !canvasAsked, !canvasInFlight else { return }
         canvasAsked = true
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             canvasAsked = false
             guard state != .destroyed, canvasOwed, !canvasInFlight, !tickInFlight else { return }
             canvasInFlight = true
-            runtime.canvasDrawAsync { [weak self] completion in self?.publish(.canvas, completion) }
+            surfaces.draw(runtime) { [weak self] completion in self?.publish(.canvas, completion) }
         }
     }
 
-    /// Apply the slice the owner published, then what it owes and what
-    /// waited for it. Before any other batch applies, so batches apply in
-    /// the owner's order (T4).
-    func landFill() {
-        guard !landing else { return }
+    /// Apply what the owner published and what waited (`pending`), merged
+    /// in the order the runtime made them, per node (T4, T13: `nextLanding`),
+    /// up to `limit`; true when what is left waits for a staged batch, whose
+    /// reveal applies it. A batch made while it applies one waits its turn.
+    @discardableResult func landFill(before limit: UInt64 = .max) -> Bool {
+        guard !landing else { return false }
         landing = true
         // A slice, tick or reply the owner published is no part of the covers correction that lands it
         let cause = coversCause; coversCause = nil; defer { coversCause = cause }
@@ -682,45 +660,63 @@ public final class ExactSession {
         // Sizes measured as they applied are reported as it ends, whether its last batch applied or was skipped (`reportMeasured`).
         defer { landing = false; if !applying { reportMeasured() }; workEnded(); if !holdingReports { advanceIfDue() } }
         while true {
-            guard let next = published.next() else { return }
-            let completion = next.completion
-            let began = CACurrentMediaTime()
-            var submitted = 0.0
-            switch next.kind {
-            case .fill: fillInFlight = false; fillLanding = true
-            case .tick: tickInFlight = false
-            case .advance: advanceInFlight = false
-            case .canvas: canvasInFlight = false
-            case .notice: noticesInFlight -= 1
-            case .reply: submitted = retireReply()
-            }
-            guard runtime.accepts(completion.lease) else {
-                if case .reply = next.kind { retryActivation(generation: completion.lease.generation) }
-                if case .fill(let view) = next.kind { landedFill(view, stale: true) }
-                continue
-            }
-            if completion.batch.held { if case .fill(let view) = next.kind { landedFill(view, stale: true) }; continue } // (held over a reset: as stale, ResetGate replays its work)
-            frameHealth.expireCapture(at: began)
-            var batch = completion.batch
-            if batch.frameWorkTiming != nil { batch.frameWorkTiming?.landed = began }
-            if case .advance = next.kind { applyUnlessEmpty(batch) } else if !(changesNothing(batch) && clockUnchanged(batch)) {
-                apply(batch)
-            } else { logSkipped(batch) }
+            while let first = published.earliest, first < limit, let next = published.next() { takePublished(next) }
+            guard let index = nextLanding(before: limit) else { break }
+            land(pending.remove(at: index))
+        }
+        // What was made after the batch being applied lands after it, in a turn of its own.
+        if published.claimDrain() { DispatchQueue.main.async { [weak self] in self?.landPublished() } }
+        // A batch a landing slice made (an autofocus's) waits for the one being applied, made before it.
+        else if pending.contains(where: { $0.batch.sequence >= limit }) { DispatchQueue.main.async { [weak self] in self?.landFill() } }
+        return pending.contains { $0.batch.sequence < limit }
+    }
+
+    /// A publication joins the order (`pending`), or is skipped: stale, held
+    /// over a reset, or changing nothing.
+    private func takePublished(_ next: PublishedBatches.Item) {
+        let completion = next.completion
+        let began = CACurrentMediaTime()
+        var submitted = 0.0
+        switch next.kind {
+        case .fill: fillInFlight = false; fillLanding = true
+        case .tick: tickInFlight = false
+        case .advance: advanceInFlight = false
+        case .canvas: canvasInFlight = false
+        case .notice: noticesInFlight -= 1
+        case .reply: submitted = retireReply()
+        }
+        let stale = { [unowned self] in
+            if case .reply = next.kind { retryActivation(generation: completion.lease.generation) }
+            if case .fill(let view) = next.kind { landedFill(view, stale: true) }
+        }
+        guard runtime.accepts(completion.lease) else { return stale() }
+        if completion.batch.held { if case .fill(let view) = next.kind { landedFill(view, stale: true) }; return } // (held over a reset: as stale, ResetGate replays its work)
+        frameHealth.expireCapture(at: began)
+        var batch = completion.batch
+        if batch.frameWorkTiming != nil { batch.frameWorkTiming?.landed = began }
+        // A frame's owner work finishes when it lands, applied, skipped or dropped (LLP 1079.000 §4.6), and the card's charts show it
+        let finished = { [unowned self] in
+            if case .tick = next.kind { frameHealth.landed(FrameHealth.tick) } else if case .advance = next.kind { frameHealth.landed(FrameHealth.advance) }
+            frameHealth.chart?.present(); frameHealth.maintain()
+        }
+        // What follows its landing runs once it has applied: now, or after what it waits for (T13).
+        let landed = { [unowned self] in
             #if DEBUG
             onLandForTests?(next.kind, batch)
             #endif
-            // A frame's owner work finishes when it lands, applied or skipped (LLP 1079.000 §4.6), and the card's charts show it
-            if case .tick = next.kind { frameHealth.landed(FrameHealth.tick) } else if case .advance = next.kind { frameHealth.landed(FrameHealth.advance) }
-            frameHealth.chart?.present(); frameHealth.maintain()
+            finished()
             if case .reply = next.kind {
                 sampler?.replyPump(main: submitted + (CACurrentMediaTime() - began) * 1000)
                 retryActivation(generation: completion.lease.generation)
             }
             // A draw owed while this one ran, or one a tick left owed.
             if canvasOwed { askCanvasDraw() }
-            guard case .fill(let view) = next.kind else { continue }
-            landedFill(view)
+            if case .fill(let view) = next.kind { landedFill(view) }
         }
+        takeEventResults(&batch)
+        let advance: Bool = if case .advance = next.kind { true } else { false }
+        guard advance || !(changesNothing(batch) && clockUnchanged(batch)) else { logSkipped(batch); return landed() }
+        wait(PendingBatch(batch: batch, unlessEmpty: advance, landed: landed, dropped: { finished(); stale() }))
     }
 
     /// A stale slice can land inside a commit, before its replacement tree, so the work that waited runs after it.
@@ -737,20 +733,13 @@ public final class ExactSession {
     /// Work that every session counts ended: the last SVG picture in flight (`hostOutstanding`).
     package static func workEndedEverywhere() { for weak in live.values { weak.session?.workEnded() } }
 
-    /// Wait for the slice in flight and land it: what shows, the agent and
-    /// every read that must see it (T5, T7, T9).
-    public func drainFill() {
-        guard ownerInFlight || hasPublished() else { return }
-        Owner.shared.sync {}
-        landFill()
-    }
     private func wire() {
         runtime.topLayer = { [weak self] in self?.presenter.openTopLayer ?? ([], nil, nil) }
         runtime.setInlineGeometry({ [weak self] id in self?.presenter.inlineFrame(id) },
                                   range: { [weak self] id, start, end in self?.presenter.rangeFrame(id, start: start, end: end) })
         if ExactSession.asyncFills {
             // @ref LLP 1072 §8.5 — main does not wait for a canvas's draw.
-            runtime.canvasDefer(true)
+            SurfacesLink.installed?.deferDraws(runtime)
             presenter.collections.onFill = { [weak self] view, bytes in self?.sendFill(view, bytes) }
             presenter.collections.filling = { [weak self] in self?.fillInFlight ?? false }
             presenter.collections.drain = { [weak self] in self?.drainFill() }
@@ -764,37 +753,37 @@ public final class ExactSession {
             if changesNothing(batch) && clockUnchanged(batch) { logSkipped(batch); return workEnded() }
             apply(batch)
         }
-        presenter.onClose = { [unowned self] id in apply(runtime.dialogClose(id, now: now())) }
-        presenter.onCancel = { [unowned self] id in applyInput(runtime.pickerCancel(id, now: now())) }
-        presenter.onPress = { [unowned self] id in applyInput(runtime.press(id, held: presenter.pressHeld, at: presenter.pressPoint, now: now())) }
+        presenter.onClose = { [unowned self] id in admit(id) { apply(runtime.dialogClose(id, now: now())) } }
+        presenter.onCancel = { [unowned self] id in applyInput(runtime.pickerCancel(id, now: now()), at: id) }
+        presenter.onPress = { [unowned self] id in applyInput(runtime.press(id, held: presenter.pressHeld, at: presenter.pressPoint, now: now()), at: id) }
         // A text field's `input` and `change` carry the selection the edit
         // left, its `select` the one the person or a script made (x2apps
         // codeedit #2, `FieldSelections`).
-        presenter.onChange = { [unowned self] id, value in
+        presenter.onChange = { [unowned self] id, value in admit(id) {
             let value = documentValue(id, value)
             applyInput(runtime.change(id, value, selection: presenter.fieldSelections.reported(id, value), now: now()))
-        }
-        presenter.onInput = { [unowned self] id, value in
+        } }
+        presenter.onInput = { [unowned self] id, value in admit(id) {
             if let edit = presenter.fieldSelections.input(id), let selection = presenter.fieldSelections.reported(id, value) {
                 applyInput(runtime.fieldEvent(id, 54, edit.payload(value, selection), now: now()))
             } else { applyInput(runtime.input(id, value, selection: presenter.fieldSelections.reported(id, value), now: now())) }
-        }
-        presenter.fieldSelections.onReplacement = { [unowned self] id, value, selection in apply(runtime.fieldEvent(id, 54, (presenter.fieldSelections.input(id) ?? FieldInput(inputType: "insertReplacementText", cancelable: false)).payload(value, selection), now: now())) }
-        presenter.fieldSelections.onChange = { [unowned self] id, value, selection in apply(runtime.fieldEvent(id, 52, selection.payload(value), now: now())) }
-        presenter.fieldSelections.onBeforeInput = { [unowned self] id, value, selection, edit in applyInput(runtime.fieldEvent(id, 53, edit.payload(value, selection), now: now())) }
-        presenter.fieldSelections.onSelect = { [unowned self] id, value, selection in apply(runtime.fieldSelect(id, value, selection, now: now())) }
+        } }
+        presenter.fieldSelections.onReplacement = { [unowned self] id, value, selection in admit(id) { apply(runtime.fieldEvent(id, 54, (presenter.fieldSelections.input(id) ?? FieldInput(inputType: "insertReplacementText", cancelable: false)).payload(value, selection), now: now())) } }
+        presenter.fieldSelections.onChange = { [unowned self] id, value, selection in admit(id) { apply(runtime.fieldEvent(id, 52, selection.payload(value), now: now())) } }
+        presenter.fieldSelections.onBeforeInput = { [unowned self] id, value, selection, edit in applyInput(runtime.fieldEvent(id, 53, edit.payload(value, selection), now: now()), at: id) }
+        presenter.fieldSelections.onSelect = { [unowned self] id, value, selection in admit(id) { apply(runtime.fieldSelect(id, value, selection, now: now())) } }
         // @ref LLP 1069.001 D4 — a toggle is HTML's `input` then `change`,
         // each where the node hears it.
-        presenter.onChecked = { [unowned self] id, on in
+        presenter.onChecked = { [unowned self] id, on in admit(id) {
             let handlers = presenter.views[id]?.handlers ?? []
             if handlers.contains("input") { applyInput(runtime.checked(id, on, commit: false, now: now())) }
             if handlers.contains("change") { applyInput(runtime.checked(id, on, commit: true, now: now())) }
-        }
-        presenter.onControlValue = { [unowned self] id, value, input, change in
+        } }
+        presenter.onControlValue = { [unowned self] id, value, input, change in admit(id) {
             let handlers = presenter.views[id]?.handlers ?? []
             if input, handlers.contains("input") { applyInput(runtime.input(id, value, now: now())) }
             if change, handlers.contains("change") { applyInput(runtime.change(id, value, now: now())) }
-        }
+        } }
         presenter.selectOptions = { [unowned self] id in runtime.selectOptions(id) }
         presenter.controls.radioGroup = { [unowned self] id in runtime.radioGroup(id) }
         presenter.controls.roleKeys = { [unowned self] id, key, focused in runtime.roleKeys(id, key: key, focused: focused) }
@@ -804,7 +793,7 @@ public final class ExactSession {
         // size does, on AppKit too (LLP 1115.002 D8.1); the hatches replay once the module connects.
         presenter.onCovers = { [unowned self] covers in whenIdle(bound: true) { [unowned self] in applyUnlessEmpty(runtime.covers(covers)) } }
         presenter.onResizeBox = { [unowned self] id, width, height in
-            whenIdle(bound: true) { [unowned self] in applyUnlessEmpty(runtime.resizeBox(id, width: width, height: height)) }
+            whenIdle(bound: true) { [unowned self] in admit(id) { applyUnlessEmpty(runtime.resizeBox(id, width: width, height: height)) } }
         }
         #if os(iOS) || os(tvOS)
         natives.onHatchesConnected = { [weak self] in
@@ -816,49 +805,48 @@ public final class ExactSession {
             self?.presenter.elements.replay()
             self?.presenter.toolbar.hatchToolbar()
         }
-        presenter.rootTabs = { [unowned self] id in runtime.rootTabs(id) }
         #endif
-        presenter.onHover = { [unowned self] id, over in applyInput(runtime.hover(id, over: over, now: now())) }
-        presenter.onFocus = { [unowned self] id in apply(runtime.focus(id, now: now())) }
-        presenter.onBlur = { [unowned self] id in apply(runtime.blur(id, now: now())) }
-        presenter.onFocusEvent = { [unowned self] id, kind, target, related in
+        presenter.onHover = { [unowned self] id, over in applyInput(runtime.hover(id, over: over, now: now()), at: id) }
+        presenter.onFocus = { [unowned self] id in admit(id) { apply(runtime.focus(id, now: now())) } }
+        presenter.onBlur = { [unowned self] id in admit(id) { apply(runtime.blur(id, now: now())) } }
+        presenter.onFocusEvent = { [unowned self] id, kind, target, related in admit(id) {
             apply(runtime.focusEvent(id, entering: kind == "focusin", target: target, related: related, now: now()))
-        }
-        presenter.onKey = { [unowned self] id, press in applyInput(runtime.key(id, press.payload, up: press.up, capture: press.capture, now: now())) }
-        presenter.onContextmenu = { [unowned self] id in applyInput(runtime.contextmenu(id, now: now())) }
-        presenter.onSwiperight = { [unowned self] id in applyInput(runtime.swiperight(id, now: now())) }
-        presenter.onRefresh = { [unowned self] id in applyInput(runtime.refresh(id, now: now())) }
-        presenter.onPan = { [unowned self] id, dx, dy in applyInput(runtime.pan(id, dx: dx, dy: dy, now: now())) }
-        presenter.onPanRelease = { [unowned self] id, vx, vy in applyInput(runtime.panRelease(id, vx: vx, vy: vy, now: now())) }
+        } }
+        presenter.onKey = { [unowned self] id, press in applyInput(runtime.key(id, press.payload, up: press.up, capture: press.capture, now: now()), at: id) }
+        presenter.onContextmenu = { [unowned self] id in applyInput(runtime.contextmenu(id, now: now()), at: id) }
+        presenter.onSwiperight = { [unowned self] id in applyInput(runtime.swiperight(id, now: now()), at: id) }
+        presenter.onRefresh = { [unowned self] id in applyInput(runtime.refresh(id, now: now()), at: id) }
+        presenter.onPan = { [unowned self] id, dx, dy in applyInput(runtime.pan(id, dx: dx, dy: dy, now: now()), at: id) }
+        presenter.onPanRelease = { [unowned self] id, vx, vy in applyInput(runtime.panRelease(id, vx: vx, vy: vy, now: now()), at: id) }
         presenter.onPanSample = { [unowned self] first, x, y, t in runtime.panSample(first: first, x: x, y: y, t: t) }
         presenter.panVelocity = { [unowned self] t in runtime.panVelocity(at: t) }
-        presenter.onScroll = { [unowned self] id, metrics in applyUnlessEmpty(runtime.scroll(id, metrics: metrics, now: now()), scrolled: true) }
-        presenter.onScrollend = { [unowned self] id in applyUnlessEmpty(runtime.scrollend(id, now: now())) }
-        presenter.onScrollDrag = { [unowned self] id, end in applyUnlessEmpty(end.map { runtime.scrolldragend(id, velocity: $0.velocity, target: $0.target, now: now()) } ?? runtime.scrolldragstart(id, now: now())) }
-        presenter.onScrolled = { [unowned self] id, left, top in
+        presenter.onScroll = { [unowned self] id, metrics in admit(id) { applyUnlessEmpty(runtime.scroll(id, metrics: metrics, now: now()), scrolled: true) } }
+        presenter.onScrollend = { [unowned self] id in admit(id) { applyUnlessEmpty(runtime.scrollend(id, now: now())) } }
+        presenter.onScrollDrag = { [unowned self] id, end in admit(id) { applyUnlessEmpty(end.map { runtime.scrolldragend(id, velocity: $0.velocity, target: $0.target, now: now()) } ?? runtime.scrolldragstart(id, now: now())) } }
+        presenter.onScrolled = { [unowned self] id, left, top in admit(id) {
             #if os(iOS) || os(tvOS)
             runtime.scrolled(id, left: left, top: top, observing: presenter.intersectHandlerCount > 0)
             #else
             runtime.scrolled(id, left: left, top: top)
             #endif
             timelineScrolled(id, left: left, top: top)
-        }
+        } }
         #if canImport(AppKit)
         presenter.onListIndex = { [unowned self] id, key in runtime.listIndex(id, key: key) }
         presenter.onListText = { [unowned self] id, first, last in runtime.listText(id, first: first, last: last) }
         #endif
-        presenter.onDblclick = { [unowned self] id in applyInput(runtime.dblclick(id, now: now())) }
-        presenter.onPointer = { [unowned self] id, kind, sample in applyInput(runtime.pointer(id, kind, sample, now: now())) }
-        presenter.onSubmit = { [unowned self] id in applyInput(runtime.submit(id, now: now())) }
-        presenter.onLoad = { [unowned self] id in apply(runtime.load(id, now: now())) }
-        presenter.onMessage = { [unowned self] id, value in apply(runtime.message(id, value, now: now())) }
-        presenter.onClipboard = { [unowned self] id, kind, text in
+        presenter.onDblclick = { [unowned self] id in applyInput(runtime.dblclick(id, now: now()), at: id) }
+        presenter.onPointer = { [unowned self] id, kind, sample in applyInput(runtime.pointer(id, kind, sample, now: now()), at: id) }
+        presenter.onSubmit = { [unowned self] id in applyInput(runtime.submit(id, now: now()), at: id) }
+        presenter.onLoad = { [unowned self] id in admit(id) { apply(runtime.load(id, now: now())) } }
+        presenter.onMessage = { [unowned self] id, value in admit(id) { apply(runtime.message(id, value, now: now())) } }
+        presenter.onClipboard = { [unowned self] id, kind, text in admit(id) {
             if kind == 50 { apply(runtime.clipboard(id, kind, text, now: now())) }
             else { applyInput(runtime.clipboard(id, kind, text, now: now())) }
-        } // 50: a popover's `toggle`, which an app's command fires too
-        presenter.onSelectionChange = { [unowned self] id, text, start, end, rects in
+        } } // 50: a popover's `toggle`, which an app's command fires too
+        presenter.onSelectionChange = { [unowned self] id, text, start, end, rects in admit(id) {
             apply(runtime.selectionChange(id, text, start: start, end: end, rects: rects, now: now()))
-        }
+        } }
         // Commands are queued here and delivered once the batch is applied
         // (D2): a delegate then runs against a settled tree.
         presenter.onCommand = { [unowned self] name, args, source in pendingCommands.append((name, args, source)) }
@@ -876,7 +864,7 @@ public final class ExactSession {
         ApplyProfile.begin(); ExactLaunch.shared.bootEntered(self)
         openStartLocation()
         primePreferences()
-        primeTime(); claimColdShare()  // `prepare` primes again; the fallback boot reads this
+        primeTime(); shareHost.claimCold(self)  // `prepare` primes again; the fallback boot reads this
         if let bytes = app.lastPlan {
             // A selected launch can crash in runner/font/asset preparation.
             // Record the attempt first; an integrity refusal clears it below.
@@ -922,9 +910,9 @@ public final class ExactSession {
             sampler?.reset(); frameHealth.reset() // a new runner numbers its transactions afresh (LLP 1079 D3)
             // A fresh boot over a running app (the dev menu's reload from the baked plan) starts the views over; the library already replaced its host.
             routerOp = nil
-            replaceBackgroundActions()
+            notificationHost.replaceBackgroundActions(self)
             if booted { awaitingTree = true; resetHeld(); viewsEpoch += 1; forgetAppearances(); presenter.launchAutofocusReleased = false } // a fresh boot's autofocus waits again
-            booted = true; app.liveBooted(self)
+            booted = true; app.buildSessionBooted(self)
             text.commitFonts()
             appFileRoots = AppFiles.learn(runtime) // before the first frame's `app:/` images load (LLP 1069.002 D7)
         }
@@ -1023,7 +1011,7 @@ public final class ExactSession {
         text = candidate.text
         text.commitFonts()
         updateToken = candidate.token
-        replaceBackgroundActions()
+        notificationHost.replaceBackgroundActions(self)
         return batch
     }
 
@@ -1034,7 +1022,7 @@ public final class ExactSession {
         awaitingTree = true // the tint a reset gives back is reported with the new tree
         resetHeld(); viewsEpoch += 1 // the teardown reaches no runtime; what it set off waits for `treeIsIn` (ResetGate)
         forgetAppearances()
-        booted = true; app.liveBooted(self)
+        booted = true; app.buildSessionBooted(self)
         app.lifecycle?.generationStarted(app, token: updateToken)
         autofocusHeld = restart
         sampler?.reset(); frameHealth.reset() // a new runner numbers its transactions afresh (LLP 1079 D3)
@@ -1069,7 +1057,7 @@ public final class ExactSession {
     private(set) var routerOp: [String: Any]?
 
     /// Run `work` in the chain of covers corrections `cause` (`coversCause`)
-    func inCoversChain(_ cause: AnyObject?, _ work: () -> Void) { let outer = coversCause; coversCause = cause; defer { coversCause = outer }; work() }
+    package func inCoversChain(_ cause: AnyObject?, _ work: () -> Void) { let outer = coversCause; coversCause = cause; defer { coversCause = outer }; work() }
 
     /// A batch from a timer, a scroll event or a host's measurement: one that
     /// changes nothing skips the presentation pass. An app's timer that writes nothing
@@ -1081,21 +1069,19 @@ public final class ExactSession {
     /// before its handler ran is reconciled by the pass (a refused tab), and
     /// the agent's clock seeks native animations through it. Slices published
     /// before it land first (T4), and it is asked again (a fling's fills).
-    func applyUnlessEmpty(_ batch: Batch, scrolled: Bool = false, resized: Bool = false) {
+    func applyUnlessEmptyNow(_ batch: Batch, scrolled: Bool, resized: Bool, beside plan: StagePlan? = nil) {
         guard !batch.busy, !batch.held else { return }
-        guard !applying else { apply(batch); return }
+        guard !applying else { applyNow(batch, beside: plan); return }
         if !landing, ownerInFlight, hasPublished() {
             // What the slices leave owed is asked after this batch, as in `apply`.
-            holdingReports = true; landFill(); holdingReports = false
+            holdingReports = true; landFill(before: batch.sequence == 0 ? .max : batch.sequence); holdingReports = false
             guard state != .destroyed else { return }
+            guard stage === plan else { return applyUnlessEmpty(batch, scrolled: scrolled, resized: resized) } // a slice it landed staged
         }
-        guard !fillInFlight, !tickInFlight, !advanceInFlight, !canvasInFlight, noticesInFlight == 0, changesNothing(batch) else { apply(batch); return }
-        updateTimerState(batch)
+        guard !fillInFlight, !tickInFlight, !advanceInFlight, !canvasInFlight, noticesInFlight == 0, changesNothing(batch) else { applyNow(batch, beside: plan); return }
         // Its transactions are reported once (LLP 1079 D3): account for them, at no presentation cost.
         sampler?.batch(batch.seq, ms: 0); logSkipped(batch); relayStore(batch)
-        if let q = batch.seq { natives.hatchSeq(q.1) } // its commits are the hatches' latest
-        timerDue = batch.timerDueMs; timerLanding = batch.landing
-        scheduleClock(due: batch.timerDueMs)
+        followRunner(batch)
         // Fixed roots can emit no operations while their viewport changes.
         if resized {
             presenter.fitDocument()
@@ -1126,7 +1112,7 @@ public final class ExactSession {
             // Appearance already changed natively; retain its transaction accounting without rescheduling.
             if !ownerInFlight, changesNothing(batch), clockUnchanged(batch) {
                 sampler?.batch(batch.seq, ms: 0); logSkipped(batch)
-                if let q = batch.seq { natives.hatchSeq(q.1) }
+                followRunner(batch)
             } else { apply(batch) }
         }
     }
@@ -1140,7 +1126,7 @@ public final class ExactSession {
     var onSkippedLogForTests: (([String], [String]) -> Void)?
     var onApplyForTests: ((Batch) -> Void)?
     /// Tests: a tick's slice the owner published, not yet landed.
-    func publishTickForTests(_ batch: Batch) { tickInFlight = true; publish(.tick, RuntimeCompletion(lease: runtime.completionLease, batch: batch)) }
+    func publishTickForTests(_ batch: Batch) { var tick = batch; tick.clockWork = .tick; tickInFlight = true; publish(.tick, RuntimeCompletion(lease: runtime.completionLease, batch: tick)) }
     func holdFillForTests() { fillInFlight = true }
     func commitForTests() { runtime.completions.replace(); viewsEpoch += 1 }
     func publishFillForTests(_ view: UInt32, _ batch: Batch, lease: RuntimeLease) { fillInFlight = true; publish(.fill(view), RuntimeCompletion(lease: lease, batch: batch)) }
@@ -1151,19 +1137,36 @@ public final class ExactSession {
     private(set) var appliedBatches = 0
     var missingCapabilities: Set<String> = []
 
-    package func apply(_ batch: Batch) {
+    /// `apply`'s work; `plan` is the stage the batch passes, if one is open.
+    func applyNow(_ batch: Batch, beside plan: StagePlan? = nil) {
         guard state != .destroyed, !batch.busy, !batch.held else { return }
+        // What is made while it applies its own ops (a callback's batch, a report's) waits for them, then
+        // applies inside its transaction, before its tail: a row and the cell it goes in commit together.
+        let entering = !insideApply; insideApply = true
+        var drained = !entering, transaction = false
+        func drain() {
+            guard !drained else { return }
+            drained = true; insideApply = false
+            if !landing, !pending.isEmpty { landFill() }
+            if transaction { CATransaction.commit() }
+        }
+        defer { drain() }
         #if os(iOS) || os(tvOS)
-        AudioSession.beginPresentation()
-        defer { AudioSession.endPresentation() }
+        MediaLink.audioSession?.beginPresentation()
+        defer { MediaLink.audioSession?.endPresentation() }
         #endif
         defer { app.replacements.changed() }
         appliedBatches += 1
         // Land earlier owner slices first; ask what they leave owed after this batch (LLP 1034 T4).
-        if !applying, !landing, ownerInFlight, hasPublished() {
-            holdingReports = true; landFill(); holdingReports = false
+        // At a reveal they came after it.
+        if !applying, !landing, !presenter.revealsStage, ownerInFlight, hasPublished() {
+            holdingReports = true; landFill(before: batch.sequence == 0 ? .max : batch.sequence); holdingReports = false
             guard state != .destroyed else { return }
+            // A slice it landed staged: this batch, made after that slice, passes or waits (LLP 1072 T13).
+            guard stage === plan else { return apply(batch) }
         }
+        if entering { CATransaction.begin(); transaction = true }
+        if stages(batch) { return }
         #if DEBUG
         onApplyForTests?(batch)
         #endif
@@ -1173,13 +1176,10 @@ public final class ExactSession {
         applying = true
         // What applying it cost, with its transactions, for the next sampled frame (LLP 1079 D3), told to the sampler there was when it began while the session keeps it: a recording the batch starts makes a new one, and one it stops lets a production bake's go.
         let timed = sampler, began = CACurrentMediaTime()
-        defer { if let timed, timed === sampler { timed.batch(batch.seq, ms: outermost ? (CACurrentMediaTime() - began) * 1000 : 0) }; if let q = batch.seq { natives.hatchSeq(q.1) }; logAlerts(batch.alerts); logJournal(batch.journal); relayStore(batch) }
+        defer { if let timed, timed === sampler { timed.batch(batch.seq, ms: outermost ? (CACurrentMediaTime() - began) * 1000 : 0) }; logAlerts(batch.alerts); logJournal(batch.journal); relayStore(batch) }
         defer { if outermost { recordFrameHealthApply(batch, began: began) } }
-        if batch.facts { app.scheduleStatus() } // the app's own `setMode` or `setRootFontSize` (LLP 1122 D4)
+        if batch.facts { app.buildFactsMoved() } // the app's own `setMode` or `setRootFontSize` (LLP 1122 D4)
         if let must = batch.mustFinish { finishHold.moved(must) }
-        // Each batch says what its turn left owed; batches apply in the owner's order, so the last one applied is the runner's now.
-        canvasOwed = batch.canvasOwed
-        if canvasOwed { askCanvasDraw() }
         HostLog.capabilities(self, batch)
         let outputs = SessionBatchOps(batch.ops)
         for op in outputs.routers { routerOp = op.payload; presenter.armFragment(op.payload["activation"]); NavigationMarks.shared.routerChanged(self, payload: op.payload) } // a scroll to its fragment, which the runner's `scrollToFragment` makes (LLP 1153 D5)
@@ -1194,7 +1194,7 @@ public final class ExactSession {
         regions.prepare(batch)
         #endif
         for op in outputs.activities {
-            if activityOutput == nil { activityOutput = ActivityOutput(self) }
+            if activityOutput == nil { activityOutput = ModuleSeamLink.makeActivities?(self) }
             activityOutput?.enqueue(op.payload)
         }
         for op in outputs.surfaces { pendingSurfaceWork.append((op.payload, generation)) }
@@ -1207,19 +1207,13 @@ public final class ExactSession {
         // Each presenter takes its boot's table, a second one with the same too.
         ThemeRoles.apply(outputs.roles, root: presenter.root); if outputs.roles != nil { presenter.applyThemeTint() }
         let orientationChanged = presenter.orientationChangesScreen(batch)
-        ThemeRoles.within(presenter.root) { presenter.apply(batch) }; Formas.moved(self) // bindings' places (LLP 1121 D12)
+        ThemeRoles.within(presenter.root) { presenter.apply(batch) }; FormaLink.moved?(self) // bindings' places (LLP 1121 D12)
         drainCanvasCaptures(batch)
         if !batch.canvasImagesDropped.isEmpty { presenter.canvas2d.drop(batch.canvasImagesDropped) }
         if !batch.canvasImages.isEmpty { presenter.canvas2d.load(batch.canvasImages) }
         ImageLink.animated?.poke()
-        for op in outputs.reorders { presenter.reorder?.observe(ReorderState(op.payload)); presenter.reorderGroup?.observe(ReorderGroupState(op.payload)) }
-        presenter.reorder?.raiseLifted()
-        frames.motion = batch.motion
-        frames.spatial = batch.spatial
-        frames.presentOnly = batch.presentOnly
-        frames.canvas2d = batch.canvas
-        frames.tasks = batch.frames
-        updateTimerState(batch)
+        presenter.reorders.observe(outputs.reorders)
+        followRunner(batch)
         // The GPU module: after the first painted frame, only when a canvas exists.
         if firstDrawMs != nil {
             afterBootOwner { [weak self] in
@@ -1232,12 +1226,11 @@ public final class ExactSession {
                 loadCanvases(); drainSurfaceWork(); frames.run(frames.hasWork)
             } }
         }
-        timerDue = batch.timerDueMs; timerLanding = batch.landing
-        scheduleClock(due: batch.timerDueMs)
+        drain()
         if outermost {
             while !pendingSurfaceRecords.isEmpty {
-                let (name, json, performance) = pendingSurfaceRecords.removeFirst()
-                apply(performance ? runtime.canvasPerformanceRecord(name, json) : runtime.surfaceRecord(name, json))
+                let record = pendingSurfaceRecords.removeFirst()
+                apply(record(runtime))
             }
             drainReports()
             presenter.collections.flushIfNeeded()
@@ -1271,13 +1264,13 @@ public final class ExactSession {
                 if ["navigate", "traverseHistory", "reload", "stopLoading", "captureScreenshot", "openDevTools"].contains(name) { app.deliver { [weak self] in self?.webviews.command(name, args) }; continue } // an iframe's, by id (LLP 1020.002 D3, D7, D11)
                 if name == "relaunch" || name == "setPageZoom" { app.deliver { [weak self] in if name == "relaunch" { self?.relaunch() } else { self?.setPageZoom(args) } }; continue } // `setPageZoom`: LLP 1021 §5.3.1 (ZoomMac.swift)
                 if name.hasPrefix("observe") { ExactEvents.hostCommand(name, args); continue }
-                if name == "startTrace_EXPERIMENTAL" || name == "stopTrace_EXPERIMENTAL" { app.deliver { [weak self] in self?.traceCommand(name, args) }; continue }
+                if name == "startTrace_EXPERIMENTAL" || name == "stopTrace_EXPERIMENTAL" { app.deliver { [weak self] in self?.trace(name, args) }; continue }
                 if name == "haptic" {
                     // @ref LLP 1077 D14 — feedback from app logic.
                     app.deliver { Haptics.play(args.first as? String ?? "") }
                     continue
                 }
-                if name == "share" { app.deliver { [weak self] in self?.share(args, source: source) }; continue }
+                if name == "share" { app.deliver { [weak self] in if let self { shareHost.share(self, args, source: source) } }; continue }
                 if name == "postMessage" {
                     let text = args.first as? String ?? "", surface = args.count > 1 ? args[1] as? String ?? "" : "", iframe = args.count > 2 && args[2] as? String == "iframe"
                     app.deliver { [weak self] in self?.post(text, to: surface, iframe: iframe) }
@@ -1320,7 +1313,7 @@ public final class ExactSession {
                     continue
                 }
                 if ["showOpenFilePicker", "showDirectoryPicker", "showSaveFilePicker", "requestPermission"].contains(name) {
-                    app.deliver { [weak self] in if name == "requestPermission" { self?.picker.permission(args) } else { self?.picker.document(name, args) } }
+                    app.deliver { [weak self] in if name == "requestPermission" { self?.requestPermission(args) } else { self?.picker.document(name, args) } }
                     continue
                 }
                 if name == "format" {
@@ -1403,19 +1396,6 @@ public final class ExactSession {
         for v in presenter.views.values where v.style["color_scheme"] != nil { noteAppearance(v) }
         apply(runtime.scheme(dark: dark))
     }
-    /// @ref LLP 1095 D9 — the platform's resolution of every reference the kernel paints itself, with the app's tint
-    /// read here, on main: one for every session (`SystemColor.appTint`), since the table is the process's; a view's
-    /// own tint is the host's to paint (`ownTint`).
-    func reportColors() {
-        guard booted, state != .destroyed else { return }
-        #if os(iOS) || os(tvOS)
-        // No window, no report: attaching reports (`didMoveToWindow`), before its scheme, so nothing eases from a stand-in blue.
-        guard view?.window != nil else { return }
-        #endif
-        if applying || awaitingTree { colorsOwed = true; return } // a tint the batch being applied set, reported once the batch is in
-        // No app tint: `@tint` is left out, and the kernel keeps the last.
-        apply(runtime.reportColors(tint: SystemColor.appTint.flatMap { SystemColor.tintPair($0) }))
-    }
     /// The appearance last reported for the session, and each node view found painting motion in another (a sheet's override, say), by id.
     private(set) var schemeDark: Bool?
     var viewDark: [UInt32: Bool] = [:]
@@ -1485,7 +1465,7 @@ public final class ExactSession {
         colorObserver.map(NotificationCenter.default.removeObserver)
         #endif
         endModuleEvents()
-        runtime.held = true; presenter.reset(); runtime.held = false; _ = runtime.takeHeldCalls(); viewsEpoch += 1; presenter.showDevStatus(nil); app.refreshDevPills() // its pill to another session in its window; the dying runtime told nothing its teardown sets off (ResetGate, none replayed)
+        cancelStage(); runtime.held = true; presenter.reset(); runtime.held = false; _ = runtime.takeHeldCalls(); viewsEpoch += 1; presenter.showDevStatus(nil); app.refreshDevPills() // its pill to another session in its window; the dying runtime told nothing its teardown sets off (ResetGate, none replayed)
         ExactSession.live.removeValue(forKey: runtime.rt)
         forgetDocuments()
         rasters?.shutdown(); sound.shutdown(); midi.shutdown() // the sound arm stopped and let go, its session claim given back (LLP 1096 D8)

@@ -15,8 +15,8 @@ mod sensors;
 mod stdio;
 
 use crate::presenter::Presenter;
-use exact_runner::instance::collection::Align;
 use exact_runner::json::{error, field_bool, field_num, field_str, num};
+use exact_runner::Align;
 use exact_runner::DataSource;
 use std::io::Write;
 
@@ -125,7 +125,8 @@ fn tagged<D: DataSource>(p: &Presenter<D>, _line: &str, reply: String) -> String
 
 pub(crate) fn answer<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
     // An agent's taps and contacts reach a canvas as a finger, as on the web
-    // and iOS. Explicit mouse/contextmenu use device mouse buttons (LLP 1015.000).
+    // and iOS. Explicit mouse and desktop contextmenu use device mouse buttons
+    // (LLP 1015.000); Android contextmenu is a recognized long press.
     p.agent_finger(!field_bool(line, "contextmenu") && !field_bool(line, "mouse"));
     let reply = answer_line(p, line);
     p.agent_finger(false);
@@ -179,7 +180,9 @@ fn answer_line<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
             p.tell_replacement_pending();
             // Host-only sections report `unavailable` instead of disappearing
             // (LLP 1035.002 D2), distinguishing no keyboard from no report.
-            let mut s = p.host().agent(line);
+            let runner = p.host().runner();
+            let observed = p.live_time().unwrap_or_else(|| runner.now_ms());
+            let mut s = exact_runner::agent::state_at(runner, line, observed);
             if s.ends_with('}') && !s.starts_with("{\"error\"") {
                 s.pop();
                 s.push_str(&p.state_sections());
@@ -570,7 +573,21 @@ fn answer_line<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
         Some("clock") => clock(p, line),
         Some("share") => p.receive_share(&q).unwrap_or_else(|e| error(&e)),
         // A fetch fault (LLP 1103) is the runner's; the device facts are this presenter's.
-        Some("prefer") if top_level(line, "faults") => p.host().agent(line),
+        Some("prefer") if top_level(line, "faults") => {
+            match exact_runner::agent::drop_stream(p.host_mut().runner_mut(), line) {
+                Some(Ok(drop)) => {
+                    let host_error = p
+                        .host_mut()
+                        .commit(&drop.receipts, drop.error.map(|e| format!("{e:?}")));
+                    let present_error = p.after_commit();
+                    host_error
+                        .or(present_error)
+                        .map_or_else(|| r#"{"dropped":true}"#.into(), |e| error(&e))
+                }
+                Some(Err(e)) => error(&e),
+                None => p.host().agent(line),
+            }
+        }
         // @ref LLP 1125 §4 — MIDI ports the agent names, and a message from one.
         Some("prefer" | "midi") if top_level(line, "midi") || top_level(line, "input") => {
             match p.midi_agent(line) {
@@ -700,6 +717,13 @@ fn prefer<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
             .map(str::to_owned)
             .unwrap_or_else(|| value.to_string());
         match (name.as_str(), text.as_str()) {
+            ("screen-reader", v @ ("on" | "off" | "unknown")) => {
+                preferences.screen_reader = match v {
+                    "on" => exact_runner::ScreenReader::On,
+                    "off" => exact_runner::ScreenReader::Off,
+                    _ => exact_runner::ScreenReader::Unknown,
+                };
+            }
             ("visibility-state", v @ ("visible" | "hidden")) => page.hidden = v == "hidden",
             ("online", v @ ("true" | "false")) => page.on_line = v == "true",
             ("can-share", v @ ("true" | "false")) => page.can_share = v == "true",
@@ -798,6 +822,7 @@ fn prefer<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
         "frozen": page.frozen,
         "presented": p.host().runner().presented().value(),
         "root-font-size": p.host().runner().root_font_size(),
+        "screen-reader": preferences.screen_reader.keyword(),
         "display-scale": p.host().runner().display_scale(),
         "gpu-tier": page.gpu_tier(),
     }, "fold": {

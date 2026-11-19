@@ -136,7 +136,10 @@ function typescriptBundle(bundle, build, baked, cohort) {
   const inputs = cohort.compat.inputs;
   if (meta.appId !== inputs.app) refuse(`the module names app ${meta.appId}, not ${inputs.app}`);
   const grantKey = ['javascriptGrants', 'rustGrants', 'grantCeiling'].find(key => typeof inputs[key] === 'string');
-  if (!grantKey || (meta.grants ?? '').trim() !== inputs[grantKey].trim()) refuse('the TypeScript module declares different grants than the installed binary; that needs a new binary');
+  // Grants the cohort records and the module's differ: a proof that this binary cannot run it (`needsBinary`, LLP
+  // 1156.006.000 D25). A cohort that records none proves nothing.
+  const differs = !!grantKey && (meta.grants ?? '').trim() !== inputs[grantKey].trim();
+  if (!grantKey || differs) throw Object.assign(new Refusal('the TypeScript module declares different grants than the installed binary; that needs a new binary'), { needsBinary: differs });
   const assets = [
     { name: 'typescript/app.module.json', bytes: baked.receipt },
     { name: 'typescript/app.hbc', bytes: baked.bytecode },
@@ -364,7 +367,7 @@ export async function streamCandidates(app, origin, found, env, { baker = null, 
       updates.push({ row, bundle, compat: cohort.compat, build, superseded, nativeData, ...note });
     } catch (error) {
       if (!(error instanceof Refusal)) throw error;
-      updates.push({ row: { kind: 'stream', platform, ...stream }, reason: error.message, superseded, nativeData });
+      updates.push({ row: { kind: 'stream', platform, ...stream }, reason: error.message, needsBinary: error.needsBinary === true, superseded, nativeData });
     }
   }
   return updates;

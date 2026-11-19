@@ -65,7 +65,7 @@ extension Agent {
         Thread { serve(fd: 0) }.start()
     }
 
-    var presenter: Presenter { session.presenter }
+    package var presenter: Presenter { session.presenter }
 
     /// A modal route's sheet has arrived or left by the time the input
     /// that asked for it returns (AppKit's `beginSheet` and `endSheet` do
@@ -184,7 +184,7 @@ extension Agent {
         navigation["popover"] = presenter.menus.observation ?? NSNull()
         // The window's title as AppKit shows it (LLP 1048.003 D1).
         let window: [String: Any] = ["title": presenter.root.window?.title ?? NSNull(), "toolbar": presenter.toolbar.summary,
-                                     "sidebar": presenter.sidebar.summary, "split": presenter.navigation.split.summary]
+                                     "sidebar": presenter.sidebar.summary, "split": presenter.navigation.stackSplit.summary]
         let kernelState = (try? JSONSerialization.jsonObject(with: Data(session.agent("{\"op\":\"state\"}").utf8))) as? [String: Any]
         let kernelLayout = kernelState?["kernelLayout"] as? [String: Any] ?? [:]
         let layout = kernelLayout.merging(["provisional": session.fieldChrome.presentedProvisional]) { _, host in host }
@@ -429,7 +429,7 @@ extension Agent {
         return reply
     }
 
-    func view(_ req: [String: Any]) -> NodeView? {
+    package func view(_ req: [String: Any]) -> NodeView? {
         guard let id = req["id"] as? Int else { return nil }
         return presenter.textHost(UInt32(id))
     }
@@ -748,7 +748,7 @@ extension Agent {
         let page = clip.window, apart = page != nil && win !== page
         // A node in the detail's pane of a split (LLP 1115.002 D4) stands
         // beside the viewport, in its window: what shows of it is in its pane.
-        let port: NSView = presenter.navigation.split.pane(holding: v) ?? clip
+        let port: NSView = presenter.navigation.stackSplit.pane(holding: v) ?? clip
         if req["wheel"] == nil, !apart,
            !port.bounds.contains(port.convert(p, from: nil)) {
             return ["error": "tap #\(v.id): its middle is outside the \(port === clip ? "viewport" : "detail's pane"); scroll it into view first"]
@@ -1172,7 +1172,7 @@ extension Agent {
     /// EXACT_AGENT_ACTIVATE=1 (only scripts/measure-controls.mjs sets it): an
     /// activated run, whose pictures say whether they were (ExactMac main.swift).
     nonisolated static let activated = ExactEnv.agentMode && ExactEnv.environment["EXACT_AGENT_ACTIVATE"] == "1"
-    static func ownWindowImage(_ number: Int) -> CGImage? { WindowServerPicture.ownWindow(number) }
+    package static func ownWindowImage(_ number: Int) -> CGImage? { WindowServerPicture.ownWindow(number) }
 
     /// The window server's own composite of `window` and `attached`, all
     /// this process's, in `window`'s frame: one over another as a person
@@ -1230,8 +1230,8 @@ extension Agent {
         if let now = session.clock, session.canvases.waitUntilReady() { session.canvases.settle(now: now) }
         presenter.canvas2d.waitForReplays()
         guard let path = req["path"] as? String else { return ["malformed": true, "error": "screenshot needs a path"] }
-        if req["window"] as? String == "pictureinpicture" { return pictureInPictureShot(path, of: (req["id"] as? NSNumber)?.uint32Value) } // LLP 1042 §9.1
-        let v = presenter.navigation.split.agentRoot
+        if req["window"] as? String == "pictureinpicture" { return MediaLink.pictureShot?(self, path, (req["id"] as? NSNumber)?.uint32Value) ?? ["error": "picture in picture is not linked"] } // LLP 1042 §9.1
+        let v = presenter.navigation.stackSplit.agentRoot
         if req["window"] as? Bool == true {
             // The window server's picture of this window, with canvas pixels
             // supplied by their readbacks below. A process may read
@@ -1277,8 +1277,8 @@ extension Agent {
         } else {
             picture = Capture.withGuests(of: [session]) { Capture.picture(of: v) }
         }
-        let area = presenter.navigation.split.agentCaptureArea
-        if presenter.navigation.split.active, let full = picture, let image = full.cgImage {
+        let area = presenter.navigation.stackSplit.agentCaptureArea
+        if presenter.navigation.stackSplit.active, let full = picture, let image = full.cgImage {
             let scale = CGFloat(full.pixelsWide) / v.bounds.width
             picture = image.cropping(to: area.applying(CGAffineTransform(scaleX: scale, y: scale))).map(NSBitmapImageRep.init(cgImage:))
             picture?.size = area.size

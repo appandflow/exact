@@ -3,7 +3,7 @@
 import UIKit
 
 /// No defaults of ours: dictionary membership is the kernel's authored mask.
-enum ButtonConfigurationIOS {
+package enum ButtonConfigurationIOS {
     static func titleLayout(_ rows: NodeStyle, on button: UIButton) {
         let clamp = rows["line_clamp"]?.number.map(Int.init) ?? 0
         if clamp > 0 && rows["white_space"]?.string != "nowrap" {
@@ -87,7 +87,7 @@ enum ButtonConfigurationIOS {
     /// (`rem`, `em` under the platform's control font, a text style) the
     /// kernel has resolved against the reader's size already. Unsaid, the
     /// font is UIKit's, which UIKit scales.
-    static func font(_ incoming: UIFont, rows: NodeStyle) -> UIFont {
+    package static func font(_ incoming: UIFont, rows: NodeStyle) -> UIFont {
         let size = rows["font_size"]?.number.map { CGFloat($0) }
         let weight = rows["font_weight"]?.number.map(Int.init)
         guard size != nil || weight != nil else { return incoming }
@@ -100,7 +100,7 @@ enum ButtonConfigurationIOS {
     /// own; one derived from it (`Highlight`, `@tint/0.2`) keeps its alpha
     /// as a colour of its own.
     static func followsAccent(_ value: BatchValue?) -> Bool { value?.tintAlpha == 1 }
-    static func color(_ value: BatchValue?, traits: UITraitCollection, accent: UIColor?) -> UIColor? {
+    package static func color(_ value: BatchValue?, traits: UITraitCollection, accent: UIColor?) -> UIColor? {
         value?.cgColor(dark: traits.userInterfaceStyle == .dark,
             contrast: traits.accessibilityContrast == .high, tint: accent).map { UIColor(cgColor: $0) }
     }

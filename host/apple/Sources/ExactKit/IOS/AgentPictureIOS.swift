@@ -128,7 +128,7 @@ extension Agent {
         if loading > 0 { r["imagesPending"] = loading }
         if !unshown.isEmpty {
             r["unshown"] = unshown.map { n -> [String: Any] in ["id": Int(n.id), "testId": n.props["testId"] ?? NSNull()] }
-            r["unshownNote"] = "struck through in red: \(NavigationHost.unshownReason)"
+            r["unshownNote"] = "struck through in red: \(RouteGeometry.unshownReason)"
         }
         // What the picture shows in the page that the app presents as UIKit's
         // own, said where the image cannot (euxy port, FRICTION §2).

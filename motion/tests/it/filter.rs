@@ -46,6 +46,7 @@ use FilterKind::*;
 
 #[test]
 fn single_functions_move_and_clamp_as_chrome_does() {
+    exact_motion::link_transitions();
     type List = &'static [(FilterKind, f64)];
     let cases: [(List, List, f64, f64); 4] = [
         (&[(Blur, 12.0)], &[(Blur, 0.0)], 9.0, 14.1879),
@@ -64,6 +65,7 @@ fn single_functions_move_and_clamp_as_chrome_does() {
 
 #[test]
 fn none_and_a_shorter_list_are_padded_with_initial_values() {
+    exact_motion::link_transitions();
     let got = at(LINEAR, FilterValue::default(), f(&[(Blur, 10.0)]), 0.25).unwrap();
     close(&args(&got), &[(Blur, 2.5)]);
     let got = at(OVER, FilterValue::default(), f(&[(Blur, 10.0)]), 0.25).unwrap();
@@ -112,6 +114,7 @@ fn none_and_a_shorter_list_are_padded_with_initial_values() {
 
 #[test]
 fn a_drop_shadow_moves_as_a_shadow_from_transparent() {
+    exact_motion::link_transitions();
     let to = shadow(4.0, 6.0, 8.0, [255, 0, 0, 255]);
     let got = at(LINEAR, FilterValue::default(), to.clone(), 0.25).unwrap();
     let s = got.0[0];
@@ -144,6 +147,7 @@ fn a_drop_shadow_moves_as_a_shadow_from_transparent() {
 
 #[test]
 fn functions_in_another_order_change_at_once() {
+    exact_motion::link_transitions();
     let from = f(&[(Blur, 4.0), (Grayscale, 1.0)]);
     let to = f(&[(Grayscale, 0.0), (Blur, 8.0)]);
     assert_eq!(at(LINEAR, from, to, 0.25), None, "the row shows");
@@ -151,6 +155,7 @@ fn functions_in_another_order_change_at_once() {
 
 #[test]
 fn a_change_back_reverses_and_an_uncovered_row_stops_it() {
+    exact_motion::link_transitions();
     let mut e = Engine::new();
     e.set_transitions(NODE, Transitions::parse(LINEAR).unwrap())
         .unwrap();
@@ -169,6 +174,7 @@ fn a_change_back_reverses_and_an_uncovered_row_stops_it() {
 
 #[test]
 fn a_spring_plays_its_curve_from_rest() {
+    exact_motion::link_transitions();
     let p = at(
         "filter -exact-spring(1, 100, 10)",
         f(&[(Blur, 0.0)]),
@@ -181,6 +187,7 @@ fn a_spring_plays_its_curve_from_rest() {
 
 #[test]
 fn a_known_node_without_a_filter_moves_from_none_and_a_new_one_starts_nothing() {
+    exact_motion::link_transitions();
     let mut e = Engine::new();
     e.set_transitions(NODE, Transitions::parse(LINEAR).unwrap())
         .unwrap();
@@ -206,6 +213,7 @@ fn a_known_node_without_a_filter_moves_from_none_and_a_new_one_starts_nothing() 
 
 #[test]
 fn currentcolor_is_a_share_that_moves_against_another_colour() {
+    exact_motion::link_transitions();
     let red = shadow(0.0, 0.0, 0.0, [255, 0, 0, 255]);
     let current = FilterValue(vec![FilterStep::current_shadow(0.0, 0.0, 0.0)]);
     let half = at(LINEAR, red.clone(), current.clone(), 0.5).unwrap().0[0];

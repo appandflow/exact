@@ -73,10 +73,13 @@ impl SafeAreaProperties {
     /// the absolute units, `rem`, a percentage, a viewport unit, `env()`
     /// without a fallback, `var()`, or a math function of these; `None`
     /// otherwise. An `env()` with a fallback is held as text a row
-    /// substitutes, so a declaration refuses it.
+    /// substitutes, so a declaration refuses it, and a container unit, which
+    /// a value resolved where it is declared does not resolve yet (LLP 1123
+    /// D5, D16).
     pub fn value(text: &str) -> Option<Dimension> {
         match length(text)? {
             Dimension::Compare(c) if !c.is_tree() => None,
+            d if d.reads_container() => None,
             d => Some(d),
         }
     }
@@ -129,12 +132,21 @@ fn length(text: &str) -> Option<Dimension> {
 /// undeclared or invalid there is absent. A node reads few, so a list
 /// holds them, and one that reads none allocates nothing.
 #[derive(Debug, Clone, PartialEq, Default)]
-pub struct Resolved(pub(crate) Vec<(Arc<str>, Node)>);
+pub struct Resolved(pub(crate) Vec<(Arc<str>, Node, bool)>);
 
 impl Resolved {
     /// `name`'s value at the node; `None` where it is undeclared or invalid.
     pub fn get(&self, name: &str) -> Option<&Node> {
-        self.0.iter().find(|(n, _)| &**n == name).map(|(_, v)| v)
+        self.0
+            .iter()
+            .find(|(n, ..)| &**n == name)
+            .map(|(_, v, _)| v)
+    }
+
+    /// Whether `name`'s value read a raw observation where it was declared or in a declaration
+    /// it read (LLP 1123 D5, "Provenance"), which its substituted value no longer shows.
+    pub fn raw(&self, name: &str) -> bool {
+        self.0.iter().any(|(n, _, raw)| &**n == name && *raw)
     }
 }
 

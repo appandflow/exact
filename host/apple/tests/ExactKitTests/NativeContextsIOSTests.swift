@@ -2,6 +2,7 @@
 import UIKit
 import XCTest
 @testable import ExactKit
+@testable import ExactControls
 @testable import ExactCollections
 
 /// LLP 1069.011.000 on UIKit: a native button goes where a button goes, read

@@ -4,7 +4,7 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { createApp } from '../game/new.mjs';
@@ -29,7 +29,8 @@ test('each verb of a new app\'s exact.mjs, and no verb, answers help from exact2
     // A fake exact2 whose every script, run, leaves a mark: a help that built or served anything would.
     mkdirSync(resolve(sdk, 'scripts'), { recursive: true });
     mkdirSync(resolve(sdk, 'js/bake/src'), { recursive: true });
-    for (const file of ['scripts/help.mjs', 'scripts/app-cli.mjs', 'scripts/bun.mjs', 'js/bake/src/__exact_env.mjs']) copyFileSync(resolve(ROOT, file), resolve(sdk, file));
+    for (const file of ['scripts/help.mjs', 'scripts/app-cli.mjs', 'scripts/bun.mjs', 'scripts/paths.mjs', 'js/bake/src/__exact_env.mjs']) copyFileSync(resolve(ROOT, file), resolve(sdk, file));
+    symlinkSync(resolve(ROOT, 'scripts/file-dependencies.mjs'), resolve(sdk, 'scripts/file-dependencies.mjs'));
     for (const file of ['host/web/dev.mjs', 'host/web/build.mjs', 'host/web/serve.mjs', 'host/apple/build.mjs', 'scripts/agent.mjs', 'scripts/verify.mjs', 'scripts/build-linux.mjs', 'scripts/agent-android.mjs', 'scripts/exact.mjs', 'scripts/feedback.mjs', 'scripts/share.mjs', 'scripts/deploy.mjs', 'scripts/push.mjs']) {
       mkdirSync(resolve(sdk, file, '..'), { recursive: true });
       writeFileSync(resolve(sdk, file), `require('node:fs').appendFileSync(${JSON.stringify(started)}, ${JSON.stringify(file)} + '\\n');`);

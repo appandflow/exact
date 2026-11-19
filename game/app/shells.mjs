@@ -5,6 +5,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpath
 import { tmpdir } from 'node:os';
 import { basename, dirname, isAbsolute, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { pathWithin } from '../../scripts/paths.mjs';
 import { parseManifest, shaderFiles } from '../../scripts/app.mjs';
 import { lockBlocks, lockChanges, memberRefusal, outsideSdkLock, series, seriesId, staleLock } from '../../scripts/app-shells.mjs';
 
@@ -144,7 +145,6 @@ export function sharesAppleEntry(app, env = process.env) {
  * `updateLock`: the workspace is generated for a lock refresh (`prepareGame`), which takes the shared Apple host
  * whenever the game can have it. */
 export function gameShells(dir, game, workspace, {env = process.env, updateLock = false} = {}) {
-  // Relative paths are written from the real directory: /tmp is a symlink on macOS.
   dir = realpathSync(dir);
   // Only this app is materialized. Each bake owns a generated Cargo workspace.
   // Read before the defaults are, so a file edited meanwhile is recorded as the older.
@@ -186,7 +186,7 @@ export function gameShells(dir, game, workspace, {env = process.env, updateLock 
     }
   }
   for (const deps of [cargo.workspace.dependencies, ...Object.values(cargo.patch ?? {})]) {
-    for (const dep of Object.values(deps ?? {})) if (dep.path) dep.path = relative(root, resolve(source, dep.path));
+    for (const dep of Object.values(deps ?? {})) if (dep.path) dep.path = pathWithin(root, resolve(source, dep.path));
   }
   const toml = value => value && typeof value === 'object' && !Array.isArray(value)
     ? `{ ${Object.entries(value).map(([key,item])=>`${JSON.stringify(key)} = ${toml(item)}`).join(', ')} }`
@@ -322,7 +322,7 @@ fn main() {
       : `${kind === 'web' ? '' : 'ibex2-sqlite.workspace = true\nexact-logic.workspace = true\n'}exact-runner.workspace = true\nexact-${kind}.workspace = true\n${shared ? 'exact-game-apple.workspace = true\n' : ''}${kind === 'web' ? 'exact-web-capabilities.workspace = true\n' : ['linux', 'windows'].includes(kind) ? 'exact-painted.workspace = true\n' : ''}${dataDependency}\n[build-dependencies]\nexact-game-app.workspace = true\n${dataBuildDependency}`;
     const files = {
       ...(kind === 'web' && data ? { [`src/bin/${name}-dev.rs`]: `//! The resident dev driver for the game's web shell: \`${name}-dev <source> <out>\`, baking with its data.\n\nfn main() -> std::process::ExitCode {\n    exact_web::dev::main::<app_data::${data.type}>()\n}\n` } : {}),
-      'Cargo.toml': header + dependencies + (tests.length ? `\n[dev-dependencies]\nserde_json.workspace = true\nexact-update = { path = ${JSON.stringify(relative(shell, resolve(gameRoot, '../update')))} }\n` : ''),
+      'Cargo.toml': header + dependencies + (tests.length ? `\n[dev-dependencies]\nserde_json.workspace = true\nexact-update = { path = ${JSON.stringify(pathWithin(shell, resolve(gameRoot, '../update')))} }\n` : ''),
       ...Object.fromEntries(tests.map(file => [`tests/${file}`, readFileSync(resolve(appDir, 'linux/tests', file), 'utf8')])),
       [['linux', 'windows'].includes(kind) ? 'src/main.rs' : 'src/lib.rs']: kind === 'gpu' ? `exact_game_render::module!(game_logic::${type}${app.game.audio === true ? ", audio" : ""}${app.game.assets === true ? ", assets" : ""}${render ? `, hooks = game_render::${render.hooks}${render.shaders ? `, shaders = game_render::${render.shaders}` : ''}` : ''});\n` : (kind === 'windows' ? '#![cfg_attr(\n    all(target_os = "windows", not(debug_assertions)),\n    windows_subsystem = "windows"\n)]\n' : '') + 'include!(concat!(env!("OUT_DIR"), "/entry.rs"));\n',
       'build.rs': kind === 'gpu'

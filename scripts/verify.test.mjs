@@ -516,15 +516,14 @@ test.skipIf(!!chromium().unavailable)('verify on a server app: its own server on
     assert.doesNotMatch(clean.stdout, /^ +lost /m);
     assert.ok(readFileSync(resolve(dir, 'data.db')).equals(before), 'the builder\'s data.db is as it was');
     assert.deepEqual(['data.db-wal', '.exact/verify/db.sqlite'].filter((f) => existsSync(resolve(dir, f))), []);
-    // LLP 1116.007 D2: `test` runs the same server on the same terms (it was the builder's to start, and `api-test`'s to know),
-    // and an older app's api-test, whose test.mjs runs `test` under `withAppServer`, still passes on the one server it started.
+    // LLP 1116.007 D2: test and an app's API-test wrapper share the server the wrapper starts.
     const plain = (verb = 'test') => spawnSync(process.execPath, [resolve(dir, 'exact.mjs'), verb, 'web'], { cwd: dir, encoding: 'utf8', timeout: 240_000, env: { ...process.env, EXACT_FEEDBACK: '0' } });
     const tested = plain();
     assert.equal(tested.status, 0, tested.stdout + tested.stderr);
     assert.match(tested.stderr, new RegExp(`^test: bun server\\.ts at http://127\\.0\\.0\\.1:${port}, on an empty database for each test \\(\\.exact/test/db\\.sqlite, removed after\\)$`, 'm'));
     assert.match(tested.stdout, /^3 passed, 0 failed$/m);
     assert.ok(readFileSync(resolve(dir, 'data.db')).equals(before), 'test leaves the builder\'s data.db as it was');
-    writeFileSync(resolve(dir, 'test.mjs'), "const { withAppServer } = await import(`${process.env.EXACT}/scripts/verify.mjs`);\nprocess.exit(await withAppServer(import.meta.dir, () =>\n  Bun.spawn(['bun', 'exact.mjs', 'test', ...process.argv.slice(2)], { cwd: import.meta.dir, stdio: ['inherit', 'inherit', 'inherit'] }).exited));\n");
+    writeFileSync(resolve(dir, 'test.mjs'), "const { withAppServer } = await import(`${process.env.EXACT}/scripts/verify.mjs`);\nconst built = await Bun.spawn(['bun', 'exact.mjs', 'web-build'], { cwd: import.meta.dir, stdio: ['inherit', 'inherit', 'inherit'] }).exited;\nif (built) process.exit(built);\nprocess.exit(await withAppServer(import.meta.dir, () =>\n  Bun.spawn(['bun', 'exact.mjs', 'test', ...process.argv.slice(2)], { cwd: import.meta.dir, stdio: ['inherit', 'inherit', 'inherit'] }).exited));\n");
     writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ ...JSON.parse(readFileSync(resolve(dir, 'app.json'), 'utf8')), commands: { 'api-test': ['bun', 'test.mjs'] } }, null, 2));
     writeFileSync(resolve(dir, 'app.test.contract'), 'test "the wrapper’s server"\n  expect tree has "empty-add"\n');
     const old = plain('api-test');
@@ -545,11 +544,11 @@ test.skipIf(!!chromium().unavailable)('verify on a server app: its own server on
       assert.match(held.stderr, new RegExp(`^test: http://127\\.0\\.0\\.1:${port} already answers \\(pid ${dev.pid}: .*server\\.ts\\)`, 'm'));
       assert.equal(dev.exitCode, null, 'the dev server runs on');
     } finally { dev.kill(); await dev.exited; }
-    // LLP 1116.008 D1: a server.ts that hardcodes its database stops both before anything builds or runs: one line on
+    // LLP 1116.008 D1: a server.ts that hardcodes its database stops both before a server starts: one line on
     // stderr naming the entry and the fix, a non-zero exit, no output, and no server started.
     const server = readFileSync(resolve(dir, 'server.ts'), 'utf8');
     writeFileSync(resolve(dir, 'server.ts'), server.replace("process.env.DB ?? 'data.db'", "'data.db'"));
-    const line = /^(test|verify): server\.ts does not read its database's path from DB, so it cannot be run on an empty one: write new Database\(process\.env\.DB \?\? 'data\.db'\) in it .*app\.json: "commands": \{ "server": \["bun", "server\/index\.ts"\] \}\n$/;
+    const line = /^(test|verify): server\.ts does not read its database's path from DB, so it cannot be run on an empty one: write new Database\(process\.env\.DB \?\? 'data\.db'\) in it .*app\.json: "commands": \{ "server": \["bun", "server\/index\.ts"\] \}\n$/m;
     for (const r of [plain(), verify()]) {
       assert.equal(r.status, 1, r.stdout + r.stderr);
       assert.deepEqual([r.stdout, line.test(r.stderr)], ['', true], r.stdout + r.stderr);
@@ -583,6 +582,8 @@ test('agent\'s server: started on a database of its own, shared by overlapping d
   try {
     mkdirSync(dir, { recursive: true });
     writeFileSync(resolve(dir, 'app.ts'), `export const API = '${url}';\n`);
+    mkdirSync(resolve(dir, '.exact'), { recursive: true });
+    writeFileSync(resolve(dir, '.exact/typescript-inputs.json'), JSON.stringify({ modules: [['app.ts', resolve(dir, 'app.ts')]], types: [] }));
     // Without a server entry there is nothing to start; one that does not read DB is refused, as test refuses it.
     const { driveServer } = await import('./verify.mjs');
     assert.equal(await driveServer(dir, 's'), null);

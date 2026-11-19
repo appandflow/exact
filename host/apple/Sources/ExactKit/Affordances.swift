@@ -6,11 +6,11 @@
 import ObjectiveC
 #if os(iOS) || os(tvOS)
 import UIKit
-typealias SymbolImage = UIImage
+package typealias SymbolImage = UIImage
 typealias SymbolConfig = UIImage.SymbolConfiguration
 #else
 import AppKit
-typealias SymbolImage = NSImage
+package typealias SymbolImage = NSImage
 typealias SymbolConfig = NSImage.SymbolConfiguration
 #endif
 
@@ -140,7 +140,7 @@ extension NodeView {
     }
 
     /// A native control configures its own image in the control tint.
-    var faceImage: SymbolImage? {
+    package var faceImage: SymbolImage? {
         guard props["symbolPath"] == nil, let name = props["symbolName"], !name.isEmpty else { return image }
         let points = number("font_size", PageFacts.defaultRootFontSize), weight = number("font_weight", 400)
         return points > 0 ? symbolImage(name, symbolConfiguration(SymbolMeasure.configuration(points: points, weight: weight), face: true)) : nil
@@ -216,7 +216,12 @@ typealias SymbolLeaf = NSImageView
 final class SymbolEffectState {
     var effect = "none"
     var value: String?
-    var pathTemplate: SymbolImage?, pathTemplateSize: CGSize?
+    var pathTemplate: SymbolImage?
+    var pathTemplateGeometry: (size: CGSize, crop: CGRect)?
+    func clearPathTemplate() {
+        pathTemplate = nil
+        pathTemplateGeometry = nil
+    }
     var inkSource: SymbolImage?, inkImage: SymbolImage?
     var inkColor: PlatformColor?
     private static var key = 0
@@ -231,8 +236,8 @@ final class SymbolEffectState {
 /// The platform's haptics (LLP 1077 D14): `-exact-press-haptic`'s kinds and
 /// `haptic()`'s, which adds success, warning and error. macOS plays on a
 /// Force Touch trackpad.
-enum Haptics {
-    static func play(_ kind: String) {
+package enum Haptics {
+    package static func play(_ kind: String) {
         #if os(tvOS)
         // tvOS has no haptics.
         #elseif os(iOS)

@@ -56,6 +56,10 @@ export function withHostDeployment(env) {
 const root = fileURLToPath(new URL('../', import.meta.url));
 /** What an offline Cargo says when a source it needs is not in its cache. */
 export const OFFLINE_MISSING = /--offline was specified|attempting to make an HTTP request|in the offline mode|offline mode \(via `--offline`\)/;
+/** What to add to an offline Cargo failure that is not fetched and retried: this checkout's own setup, by path, since
+ * an app's launcher has no `setup` verb (LLP 1156.006.000 D11). Empty when Cargo's words are of another failure. */
+export const SETUP_FETCHES = `\`bun ${/^[\w./@:+-]+$/.test(resolve(root, 'scripts/exact.mjs')) ? resolve(root, 'scripts/exact.mjs') : `'${resolve(root, 'scripts/exact.mjs').replaceAll("'", "'\\''")}'`} setup\` fetches the crates this checkout locks`;
+export const offlineMiss = (stderr) => (OFFLINE_MISSING.test(stderr ?? '') ? `\n${SETUP_FETCHES}` : '');
 let binary;
 const HELPER = 'EXACT_FILESYSTEM_HELPER';
 /** The helper this process runs, checked current: the bake names it to the Bun processes it spawns. */

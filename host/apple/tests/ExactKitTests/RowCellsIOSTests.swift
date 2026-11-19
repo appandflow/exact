@@ -35,7 +35,7 @@ final class RowCellsIOSTests: XCTestCase {
             window.drawHierarchy(in: window.bounds, afterScreenUpdates: true)
         }
         let calls = ReorderGroupRecorder()
-        p.reorderGroupCalls = calls
+        p.reorderHost!.groupCalls = calls
         p.apply(wireBatch([["op": "collections", "items": [["view": 2, "revision": 1, "scrollSequence": 0,
             "count": 4, "totalExtent": 176, "rows": [["view": 10, "root": 20, "epoch": 1]], "correction": NSNull()]]]]))
         let grip = try XCTUnwrap(p.views[20]), row = try XCTUnwrap(p.views[10])
@@ -63,7 +63,7 @@ final class RowCellsIOSTests: XCTestCase {
                           ["op": "present", "id": 10, "property": "translate", "x": 0, "y": 0]]))
         hold.observe(ReorderGroupState(calls.state("settling", target: 2, row: 10, ending: "landed").ops[0].payload))
         hold.landNow()
-        XCTAssertNil(p.reorderGroup)
+        XCTAssertNil(p.reorderHost!.group)
         XCTAssertNil(ghost.view.superview)
         try assertLineAtRowBottom()
         XCTAssertTrue(calls.log.contains("drop"))

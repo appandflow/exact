@@ -4,7 +4,7 @@
 // carrier and installer stay loopback-only. Games serve HTTP during the first build.
 import { buildingServer } from '../../game/dev.mjs';
 import { acceptModuleReply, failedPhase, phased, phasedAsync } from './dev-phase.mjs';
-import { cacheBuildInputs, nativeWatchPaths, watchDirectoryInputs, watchModuleSources } from './dev-watch.mjs';
+import { cacheBuildInputs, readDevBuilds as readBuilds, nativeWatchPaths, watchDirectoryInputs, watchModuleSources } from './dev-watch.mjs';
 import { directoryInputNames } from '../../scripts/cargo-dep-info.mjs';
 import { spawn, spawnSync } from 'node:child_process';
 let tuning = null;
@@ -19,7 +19,7 @@ import { slashRelative, within } from '../../scripts/paths.mjs';
 import { rustPackage, rustOutput, rustInputs, rustCards } from '../../scripts/rust.mjs';
 import { currentGpuModules, gpuView } from '../../scripts/app-shells.mjs';
 import { injectedProfiles, gpuModules, shaderWatchRoots, rustPolicy, rebuildPolicy } from '../../scripts/app.mjs';
-import { HOST_DEV, webDist, cargoReproducibilityFlags, compilerPaths, developmentBuildEnv, developmentCandidate, devBinRun, pendingBuildInputs, readBuilds, resolveApp } from '../../scripts/app.mjs';
+import { HOST_DEV, webDist, cargoReproducibilityFlags, compilerPaths, developmentBuildEnv, developmentCandidate, devBinRun, pendingBuildInputs, resolveApp } from '../../scripts/app.mjs';
 import { developmentLinks } from '../apple/build.mjs';
 import { acceptsHTML, webRequestURL } from '../../scripts/origin.mjs';
 import { guardFlags } from '../../scripts/help.mjs';
@@ -1093,8 +1093,14 @@ function refreshNativePending() {
 }
 refreshNativePending();
 let previousWeb=cohortReceipt(JSON.parse(readFileSync(graphPath,'utf8')));
+// A native build whose inputs changed since it was built refuses every generation, Contract-only ones too, until it is
+// rebuilt (LLP 1023 D3). The device says so; here each generation's lines say it as well (LLP 1156.006.000 D21).
+const nativeRefusals = () => builtReceipts.filter(r => r.compat.inputs.platform !== 'web').flatMap(r => {
+  const changes = nativePending.get(r.compat.target + '/' + r.compat.inputs.platform) ?? [];
+  return changes.length ? [`${r.compat.inputs.platform} ${r.compat.target}: the installed build will not take this generation until it is rebuilt and relaunched (${changes.slice(0, 3).join(', ')} changed since it was built)`] : [];
+});
 function classifyGeneration(planBytes, assets) {
-  if (currentModule || currentRust) return ['plan/module/assets: development candidate; each client verifies its admitted module identity and grants (not signed deployment classification)'];
+  if (currentModule || currentRust) return ['plan/module/assets: development candidate; each client verifies its admitted module identity and grants (not signed deployment classification)', ...nativeRefusals()];
   const web=JSON.parse(readFileSync(graphPath,'utf8'));
   const candidate=developmentCandidate(web,{sha256:createHash('sha256').update(planBytes).digest('hex'),bytes:planBytes.length},assets,shaderDigests);
   const lines=[];

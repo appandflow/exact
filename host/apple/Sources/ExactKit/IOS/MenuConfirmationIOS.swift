@@ -14,7 +14,7 @@ extension MenuHost {
     /// sheet is presented over every presentation, so a presentation that
     /// covers the page the dialog is in leaves it reachable (HTML's topmost
     /// modal dialog).
-    func confirmationShows(_ view: UIView) -> Bool {
+    package func confirmationShows(_ view: UIView) -> Bool {
         guard let owner = confirmation, !owner.finishing, let pop = owner.popover else { return false }
         return view.isDescendant(of: pop)
     }

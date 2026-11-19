@@ -24,6 +24,7 @@ const COMPUTED: [&str; 5] = ["bogus", "260ms  ease", "d 1s,  200ms ease", "  ", 
 /// Whether the runner holds the row for `v`: not cleared before parsing
 /// (`bridge::unsets`), and parsed.
 fn runner_holds(v: &str) -> bool {
+    exact_kernel::style::link_all();
     let mut p = exact_kernel::StyleProps::default();
     !exact_runner::bridge::unsets(StyleId::LayoutTransition as u16, &exact_plan::Value::str(v))
         && p.set_dynamic(
@@ -97,6 +98,7 @@ fn a_bound_layout_transition_compiles_and_is_followed() {
 
 #[test]
 fn named_and_computed_layout_values_write_what_the_kernel_writes() {
+    exact_kernel::style::link_all();
     let mut expected = VALUES
         .map(|v| {
             serde_json::json!(runner_holds(v)
@@ -137,6 +139,7 @@ fn named_and_computed_layout_values_write_what_the_kernel_writes() {
 
 #[test]
 fn computed_layout_transitions_match_the_kernel_grammar_and_css() {
+    exact_kernel::style::link_all();
     let mut values = crate::paint_tests::transition_values();
     values.extend(
         [

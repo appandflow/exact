@@ -230,6 +230,10 @@ fn step_json(step: &Step, s: &mut String) {
             s.push_str("{\"op\":\"pass-fetch\",\"prefix\":");
             q(prefix, s);
         }
+        Step::DropStream { prefix, .. } => {
+            s.push_str("{\"op\":\"drop-stream\",\"prefix\":");
+            q(prefix, s);
+        }
         // @ref LLP 1116.006 D8 — the body as JSON text, the persona as `as`.
         Step::Request {
             method,
@@ -418,10 +422,19 @@ fn step_json(step: &Step, s: &mut String) {
             s.push_str("{\"op\":\"expect-state\",\"name\":");
             q(name, s);
             s.push_str(&format!(
-                ",\"comparison\":\"{}\",\"value\":",
+                ",\"comparison\":\"{}\"",
                 comparison_name(*comparison)
             ));
-            state_literal(value, s);
+            match value {
+                contract_syntax::StateOperand::Literal(value) => {
+                    s.push_str(",\"value\":");
+                    state_literal(value, s);
+                }
+                contract_syntax::StateOperand::State(path) => {
+                    s.push_str(",\"state\":");
+                    q(path, s);
+                }
+            }
         }
         Step::Perf { steps, .. } => {
             s.push_str("{\"op\":\"perf\",\"steps\":");
@@ -632,6 +645,7 @@ fn property_value(v: &contract_syntax::PropertyValue, s: &mut String) {
 fn comparison_name(comparison: contract_syntax::StateComparison) -> &'static str {
     match comparison {
         contract_syntax::StateComparison::Equal => "equal",
+        contract_syntax::StateComparison::NotEqual => "not-equal",
         contract_syntax::StateComparison::AtLeast => "at-least",
         contract_syntax::StateComparison::AtMost => "at-most",
         contract_syntax::StateComparison::In => "in",

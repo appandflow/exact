@@ -126,7 +126,7 @@ fn inner_lists<'a>(
         match child {
             Child::Node(node) => {
                 let here = format!("{site}{}", node.node.0);
-                match crate::instance::rare::list_mut(&mut node.rare) {
+                match super::state::list_mut(&mut node.rare) {
                     Some(c) => out.push((c, here, frames.to_vec())),
                     None => inner_lists(&mut node.children, frames, site, sites, out),
                 }

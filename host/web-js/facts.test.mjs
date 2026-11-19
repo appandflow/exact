@@ -22,9 +22,16 @@ test('a viewport-only plan reads the tier the agent prefers', async () => {
     copyFileSync(resolve(import.meta.dir, 'facts.js'), resolve(dir, 'facts.js'));
     writeFileSync(resolve(dir, 'navigation.js'), await bundleHostModule(resolve(import.meta.dir, '../..'), 'navigation.js'));
     writeFileSync(resolve(dir, 'rt.js'), `export const deferForReplacement = () => false; export const data = {}, Sounds = {}, Resources = [], commits = []; export const commit = (f, why) => { commits.push(why); f(); }; export function R() {} export const Refusal = Error; export const Kept = kind => 'exact.' + kind + '.'; export const say = () => {};`);
-    const { viewport } = await import(resolve(dir, 'facts.js'));
+    const { viewport, viewportFacts } = await import(resolve(dir, 'facts.js'));
     const { data, commits } = await import(resolve(dir, 'rt.js'));
     viewport({ v: [['gpuTier']], ratio: [['devicePixelRatio']], geometry: [['safeAreaTop', 'safeAreaBottom', 'segments'], { safeAreaTop: 'n', safeAreaBottom: 'n', segments: ['[]', { height: 'n', x: 'n', width: 'n', y: 'n' }] }] });
+    expect(viewportFacts().screenReader).toBe('unknown');
+    for (const value of ['on', 'off', 'unknown']) {
+      const before = commits.length;
+      globalThis.exact.page.prefer({ 'screen-reader': value });
+      expect(viewportFacts().screenReader).toBe(value);
+      expect(commits.length).toBeGreaterThan(before);
+    }
     const read = () => data.reserved.exactViewport(null, null, 'v')[0];
     expect(read()).toBe('high');
     const ratio = () => data.reserved.exactViewport(null, null, 'ratio')[0];
@@ -188,4 +195,23 @@ test('a render answers the bake default for frozen', async () => {
     page({page:[['frozen']]});
     expect(data.reserved.exactPage(null, null, 'page')).toEqual([false]);
   } finally { globalThis.document = document; rmSync(dir, {recursive:true, force:true}); }
+});
+
+test('the geometry facts are unavailable on the web, each quantity none', async () => {
+  // LLP 1123 D6: the web has no owner's geometry to report until D17, so a reader is answered,
+  // not failed, with what it declares
+  const dir = mkdtempSync(resolve(tmpdir(), 'exact-geometry-facts-'));
+  try {
+    writeFileSync(resolve(dir, 'facts.js'), await Bun.file(resolve(import.meta.dir, 'facts.js')).text());
+    writeFileSync(resolve(dir, 'navigation.js'), await bundleHostModule(resolve(import.meta.dir, '../..'), 'navigation.js'));
+    writeFileSync(resolve(dir, 'rt.js'), `export const deferForReplacement = () => false; export const data = {}, Sounds = {}, Resources = []; export function commit() {} export function R() {} export const Refusal = Error, Kept = () => '', say = () => {};`);
+    const { geometry, nativeChain, safeAreaUnsettled } = await import(resolve(dir, 'facts.js'));
+    const { data } = await import(resolve(dir, 'rt.js'));
+    geometry({ g: [['available', 'frame', 'observations']] });
+    nativeChain({ c: [['available']] });
+    safeAreaUnsettled({ u: [['available', 'count', 'ids']] });
+    expect(data.reserved.exactGeometry(null, ['hero'], 'g')).toEqual([false, null, null]);
+    expect(data.reserved.exactNativeChain(null, ['hero'], 'c')).toEqual([false]);
+    expect(data.reserved.exactSafeAreaUnsettled(null, [], 'u')).toEqual([false, 0, []]);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
 });

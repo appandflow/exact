@@ -390,6 +390,16 @@
   :root { --exact-safe-area-inset-top: env(safe-area-inset-top, 0px); --exact-safe-area-inset-right: env(safe-area-inset-right, 0px); --exact-safe-area-inset-bottom: env(safe-area-inset-bottom, 0px); --exact-safe-area-inset-left: env(safe-area-inset-left, 0px); }
   /* `-exact-glass-tint`: the glass's own, never a glass box's below it. */
   @property --exact-glass-tint { syntax: "*"; inherits: false; }
+  /* These mirror non-inherited replaced-element properties, including on bound-source images. */
+  @property --exact-object-position { syntax: "*"; inherits: false; initial-value: 50% 50%; }
+  @property --exact-tint-size { syntax: "*"; inherits: false; initial-value: 100% 100%; }
+  @property --exact-tint-fit { syntax: "*"; inherits: false; }
+  @property --exact-tint-offset { syntax: "*"; inherits: false; }
+  @property --exact-symbol-mask { syntax: "*"; inherits: false; }
+  @property --exact-symbol-fit { syntax: "*"; inherits: false; }
+  @property --exact-symbol-position { syntax: "*"; inherits: false; }
+  @property --exact-symbol-size-authored { syntax: "*"; inherits: false; }
+  @property --exact-symbol-weight-authored { syntax: "*"; inherits: false; }
   /* LLP 1061: a press multiplies the scale row's current number, including
      during a CSS transition. Keep it local to the node, as `scale` is. */
   @property --exact-press-factor { syntax: "<number>"; inherits: false; initial-value: 1; }

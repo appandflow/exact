@@ -39,7 +39,7 @@ extension NodeView {
 
     #if os(iOS) || os(tvOS)
     /// Something under a canvas repainted outside a batch (LLP 1014 D4 b, c).
-    func repaintThrough() {
+    package func repaintThrough() {
         guard !Capture.capturing, let canvas = canvasAbove, !canvas.paintedThisTurn else { return }
         canvas.needsCapture = true
         canvases?.scheduleCapture()

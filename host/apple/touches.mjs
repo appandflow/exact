@@ -157,6 +157,17 @@ const KEPT_IDLE = '10 minutes';
  * (null until its hello), token, log, and xcodebuild's PID, the one PID this
  * module may kill. */
 const keptPath = (udid) => resolve(tmpdir(), `exact-touches-${udid}.runner.json`);
+/** This checkout's derived data for the device's runners: xcodebuild's logs and result bundles, which nothing reads. */
+const derivedData = (udid) => resolve(ROOT, 'target/touch-runner/derived', udid);
+/** Forgets a runner whose xcodebuild has exited: its record, then this checkout's
+ * derived data for the device, which no runner uses now (a device has one at a
+ * time, under its lock). Left in place, the directory of a throwaway simulator
+ * would stay after the simulator. The directory's removal is best-effort, as
+ * nothing reads what xcodebuild writes there. */
+const forget = (udid) => {
+  rmSync(keptPath(udid), { force: true });
+  try { rmSync(derivedData(udid), { recursive: true, force: true }); } catch {}
+};
 const logTail = (log, n = 20) => { try { return readFileSync(log, 'utf8').trim().split('\n').slice(-n).join('\n'); } catch { return ''; } };
 /** Whether `pid` is still the xcodebuild a record names (a PID can be reused once it exits). */
 const isRunner = (pid, run) => alive(pid) && read('ps', ['-p', String(pid), '-o', 'command=']).stdout.includes(run);
@@ -193,7 +204,7 @@ async function retire(udid, kept) {
     for (const until = Date.now() + 3000; running() && Date.now() < until;) await new Promise((r) => setTimeout(r, 100));
   }
   if (running()) throw new Error(`the kept touch runner's xcodebuild (PID ${kept.pid}) did not exit after SIGKILL; its record ${keptPath(udid)} is kept`);
-  rmSync(keptPath(udid), { force: true });
+  forget(udid);
 }
 
 /** The device's kept runner, of runner `key`, connected and greeted for `appId`, or null. */
@@ -242,16 +253,25 @@ const simDefaults = (udid, args) => new Promise((done) => {
   p.on('close', (status, signal) => { clearTimeout(timer); done({ status: signal ? -1 : status, out, err: signal ? 'no answer in 10 s' : err }); });
 });
 /** Hold the simulator's shared launch lock through AX setup, launch and restoration.
- * The loaded runtime stays with the process. Ordinary drives perform no defaults reads or writes. */
+ * The loaded runtime stays with the process. Ordinary drives perform no defaults reads or writes.
+ * `enabled` is `'try'` for a launch that reads the tree if it can (verify, LLP 1156.006.000 D15): a simulator that
+ * will not say or take the setting is launched without the runtime, with a note, where `true` refuses. */
 export async function withAccessibilityRuntime(udid, enabled, launch, run = simDefaults) {
   return withAccessibilityLock(udid, async () => {
     if (!enabled) return launch();
     const key = 'ApplicationAccessibilityEnabled', args = [AX, key];
+    const refuse = (message) => {
+      if (enabled !== 'try') throw new Error(message);
+      console.error(`note: ${message}; launched without UIKit's accessibility runtime, so the accessibility tree is not read`);
+      return launch();
+    };
     const before = await run(udid, ['read', ...args]);
-    if (before.status !== 0 && !/does not exist|not found/.test(before.err)) throw new Error(`simulator accessibility: ${before.err}`);
+    // An unset key is no failure. `defaults` words it three ways: macOS's "does not exist", and iOS 27's "Domain … not
+    // found" and "Could not find key … in domain …", which a simulator no session has touched answers.
+    if (before.status !== 0 && !/does not exist|not found|Could not find key/.test(before.err)) return refuse(`simulator accessibility: ${before.err}`);
     if (before.status === 0 && before.out.trim() === '1') return launch();
     const set = await run(udid, ['write', ...args, '-bool', 'true']);
-    if (set.status !== 0) throw new Error(`simulator accessibility: ${set.err}`);
+    if (set.status !== 0) return refuse(`simulator accessibility: ${set.err}`);
     let carrier;
     try { carrier = await launch(); return carrier; }
     finally {
@@ -268,7 +288,7 @@ export async function withAccessibilityRuntime(udid, enabled, launch, run = simD
 /** The three keys as simulator `udid` has them (`'1'`, `'0'`, or undefined when unset), or null when it could not say. */
 async function accessibilityKeys(udid) {
   const r = await simDefaults(udid, ['read', AX]);
-  if (r.status !== 0 && !/does not exist/.test(r.err)) return null;
+  if (r.status !== 0 && !/does not exist|not found/.test(r.err)) return null;
   return Object.fromEntries(AX_KEYS.map((k) => [k, new RegExp(`^\\s*${k} = (\\d+);`, 'm').exec(r.out)?.[1]]));
 }
 /** The keys as a session finds them: the record a session killed before its end left of what it found, else read
@@ -339,7 +359,7 @@ export async function openTouches({ udid, appId, foldable }) {
           if ((gone = (await within(exited, 3000, () => 'timeout')) !== 'timeout')) break;
         }
         if (!gone) throw new Error(`the touch runner's xcodebuild (PID ${child.pid}) did not exit after SIGKILL; the device's touch lock and its record ${keptPath(udid)} are kept`);
-        rmSync(keptPath(udid), { force: true });
+        forget(udid);
       } else await retire(udid, kept);
     } catch (e) { await putBack(); throw e; } // the lock is kept while a runner may live; the keys go back regardless
     await release();
@@ -376,7 +396,7 @@ export async function openTouches({ udid, appId, foldable }) {
       }));
       // Its own session and its output in a file: it outlives this process.
       const out = openSync(log, 'w');
-      child = spawn('xcodebuild', ['test-without-building', '-xctestrun', run, '-derivedDataPath', resolve(ROOT, 'target/touch-runner/derived', udid), '-destination', `id=${udid}`, '-only-testing:ExactTouches/ExactTouches/testDrive'], { stdio: ['ignore', out, out], detached: true });
+      child = spawn('xcodebuild', ['test-without-building', '-xctestrun', run, '-derivedDataPath', derivedData(udid), '-destination', `id=${udid}`, '-collect-test-diagnostics', 'never', '-only-testing:ExactTouches/ExactTouches/testDrive'], { stdio: ['ignore', out, out], detached: true });
       closeSync(out);
       // Recorded before its hello: a driver killed while it waits leaves a runner the next one can retire.
       kept = { key: identity.key, port: null, token: bridge.env.EXACT_AGENT_TOKEN, pid: child.pid, run, log };

@@ -621,7 +621,7 @@ pub fn cold_share(seed: f64) -> Option<(String, exact_runner::time::Launch)> {
     use exact_runner::share_in::{Claims, Pending, ShareTarget};
     let (variable, value) = match std::env::var("EXACT_SHARE") {
         Ok(value) if cfg!(target_os = "android") => ("EXACT_SHARE", value),
-        _ if agent() => (
+        _ if exact_runner::agent::carried() => (
             "EXACT_AGENT_SHARE",
             std::env::var("EXACT_AGENT_SHARE").ok()?,
         ),

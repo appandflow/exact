@@ -39,7 +39,7 @@ component App
 const SOURCE: &str = r#"
 import type { Sources, Answer } from './app.contract.d.ts';
 import './spoof';
-const API = import.meta.env.LAUNCH_TEST_ORIGIN ?? 'http://built.test';
+import { API } from './src/api';
 export const appId = 'test.exact.logic';
 export const grants = 'net.fetch https://granted.test';
 const sources: Sources = {
@@ -104,6 +104,11 @@ fn a_setting_a_launch_gives_is_read_as_the_module_loads_else_the_builds() {
     let unmarked_out = f.0.join("unmarked");
     unmarked.write_new(&unmarked_out).unwrap();
     f.write("app.ts", SOURCE);
+    std::fs::create_dir(f.0.join("src")).unwrap();
+    f.write(
+        "src/api.ts",
+        "export const API = import.meta.env.LAUNCH_TEST_ORIGIN ?? 'http://built.test';\n",
+    );
     f.write("spoof.ts", SPOOF);
     f.write(
         "app.json",
@@ -136,6 +141,12 @@ fn a_setting_a_launch_gives_is_read_as_the_module_loads_else_the_builds() {
     );
     assert_eq!(receipt["grants"], GRANTS);
     assert_eq!(receipt["typescriptRuntime"], 14);
+    let inputs: Json = serde_json::from_slice(&baked.source_inputs).unwrap();
+    assert!(inputs["modules"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|file| file[0] == "src/api.ts"));
     let script = String::from_utf8_lossy(&baked.script);
     // The launch module's code (the only `Object.freeze(Object.create(null))`)
     // comes before the module app.ts imports first.
@@ -159,7 +170,6 @@ fn a_setting_a_launch_gives_is_read_as_the_module_loads_else_the_builds() {
         refused.contains("changes the client's admitted grants"),
         "{refused}"
     );
-    web_reads_the_builds(&f.0);
     let out = f.0.join("generation");
     baked.write_new(&out).unwrap();
     // The environment's value is the launch's however it came to be there:
@@ -195,6 +205,7 @@ fn a_setting_a_launch_gives_is_read_as_the_module_loads_else_the_builds() {
             String::from_utf8_lossy(&ran.stderr)
         );
     }
+    web_reads_the_builds(&f.0);
 }
 
 /// The web's bundles of the marked app in `app`, the page's and the render's:

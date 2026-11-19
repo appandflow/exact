@@ -13,7 +13,7 @@ struct MacBarFace {
         var parts: [(CGSize, CGFloat, (CGRect) -> Void)] = []
         var dotted = false, typed = false, valid = true, gap: CGFloat?
         func children(_ node: NodeView) -> [NodeView] {
-            node.container.subviews.compactMap { $0 as? NodeView }.filter { $0.style["display"]?.string != "none" }
+            node.childNodes.filter { $0.style["display"]?.string != "none" }
         }
         func ink(_ node: NodeView, _ key: String, authored: Bool) -> NSColor {
             guard authored, let light = node.channels(key, dark: false), let dark = node.channels(key, dark: true) else { return .labelColor }

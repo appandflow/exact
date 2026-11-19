@@ -220,6 +220,10 @@ pub fn natural(prefix: &[u8]) -> Option<Natural> {
 /// Parse a document into its ops. With no user languages supplied to this
 /// loader, elements supporting `systemLanguage` fail its condition when present.
 pub fn parse(text: &str) -> Result<Document, Error> {
+    // A file's `filter` and `clip-path` parse by the grammars an artifact
+    // otherwise links by use; an image draws them whatever its app uses.
+    exact_kernel::style::link_filter();
+    exact_kernel::style::link_clip_path();
     lower::lower(xml::tokenize(text)?.events)
 }
 

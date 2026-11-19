@@ -1602,10 +1602,12 @@ component Motion
       text "Working" animation="breathe 1.6s ease-in-out infinite"
 ```
 
-Keyframe values are literals or calls to the app's own `fn`s with constant
-arguments (standard functions are refused), and keyframes animate paint and
-transform properties, not layout ones such as `width`. Styles remain
-literal-only. CSS easing and the admitted `-exact-spring(…)` timing function, which
+Keyframe values are evaluated at compilation using the runtime's pure operations:
+list literals, `.at()`, option `match`, templates and pure built-ins, including
+`toFixed` and `formatDecimal`. Only executed branches are evaluated. Reading
+state, resources, props, the clock, the locale or a host capability is refused
+by name. Keyframes animate paint and transform properties, not layout ones
+such as `width`. Styles remain literal-only. CSS easing and the admitted `-exact-spring(…)` timing function, which
 belongs only inside `transition`, are not interchangeable guesses: copy the
 appropriate [motion fixture](../contract/corpus/spring.contract).
 In a `list virtualized=true` row, an animation waits until its row first
@@ -1664,9 +1666,11 @@ game loops belong in those modules. See [Canvas Gallery](../apps/canvas-gallery/
 Use `object-fit` for replaced media; distinguish text content from markup.
 [Video Player](../apps/video-player/app.contract) shows playback bindings and
 [Markdown Stress](../apps/markdown-stress/app.contract) selection and editing;
-[Markdown](../apps/markdown/app.contract) is a reader. Markdown rendering and
-editing run on the web and Apple hosts; Linux shows `markup="markdown"` text as
-raw source and has no `iframe` or `video`.
+[Markdown](../apps/markdown/app.contract) is a reader. A Markdown reader
+(`text markup="markdown"`) renders on every host. The Markdown editor and
+`format()` run on the web, macOS and iOS; on Linux, Windows and Android a
+`textarea markup="markdown"` is a plain textarea of the source. Linux has no
+`iframe` or `video`.
 
 A hyphenated tag can address the app's native module: the bake checks the tag
 against `app.json`'s `modules` list, and its unknown attributes pass to the
@@ -1727,9 +1731,10 @@ viewport metadata uses the root element's `viewport-fit` and `interactive-widget
 attributes. `exactViewport` also carries `prefersReducedMotion`,
 `prefersReducedTransparency`, `prefersContrast` and `prefersColorScheme`: facts
 for the app to honor, not automatic engine policy. `displayMode: string` reads
-CSS's current `display-mode`: the browser's media query on the web,
-`fullscreen` or `standalone` for the window on macOS, and `standalone` on
-other native hosts. `navigationType` is how the browser loaded the page
+CSS's current `display-mode`: the browser's media query on the web (in Chrome,
+an agent's `prefer display-mode` replaces the reading and leaves the query
+alone), `fullscreen` or `standalone` for the window on macOS, and `standalone`
+on other native hosts. `navigationType` is how the browser loaded the page
 (`navigate`, `reload` or `back_forward`), and empty in a native app. Available fields are documented beside their source validation (LLP 1039); start with [the viewport corpus](../contract/corpus/viewport.contract).
 
 Localized strings live in the app's `strings/<locale>.json` files. Author calls

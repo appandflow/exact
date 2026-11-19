@@ -8,6 +8,7 @@ import XCTest
 import ExactCore
 import CExact
 @testable import ExactKit
+@testable import ExactNavigation
 @testable import ExactImages
 
 /// Stage 9 A2 (LLP 1121 D10): a native control's face draws an svg-only
@@ -546,14 +547,14 @@ final class FaceSymbolTests: XCTestCase {
         w.contentViewController = split
         XCTAssertTrue(view.attachWindowToolbar(to: w))
         w.layoutIfNeeded()
-        XCTAssertTrue(session.presenter.sidebar.installed)
+        XCTAssertTrue(session.presenter.sidebarHost.installed)
         let today = try XCTUnwrap(split.table.view(atColumn: 0, row: 0, makeIfNecessary: true) as? SidebarCell)
         let image = try XCTUnwrap(today.imageView?.image, "the row shows the path")
         XCTAssertTrue(Self.isTemplate(image), "AppKit tints it as the row's symbol")
         XCTAssertEqual(try middle(image)[3], 1, accuracy: 0.01, "the path inked")
         let history = try XCTUnwrap(split.table.view(atColumn: 0, row: 1, makeIfNecessary: true) as? SidebarCell)
         XCTAssertNotNil(history.imageView?.image, "an SF Symbol as before")
-        let rows = try XCTUnwrap(session.presenter.sidebar.summary["rows"] as? [[String: Any]])
+        let rows = try XCTUnwrap(session.presenter.sidebarHost.summary["rows"] as? [[String: Any]])
         XCTAssertEqual(rows.first?["symbol"] as? String, "icon.reply", "the agent reads the icon's name, not the token")
         XCTAssertNotEqual(rows.last?["symbol"] as? String, "", "a role's SF Symbol name")
     }

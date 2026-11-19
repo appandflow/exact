@@ -210,7 +210,7 @@ export function open({ input, init, redirect, protocols, origin }, conv, grantSe
     answering.call = null;
     // Settled once it has answered or its stream was let go: entropy is then refused (ts-fetch.js `answerOnly`).
     let ended = false;
-    const call = answering.mapperCall = { get settled() { return ended || controller.active?.() === false; } };
+    const call = answering.mapperCall = { get settled() { return ended || frame && controller.dropped || controller.active?.() === false; } };
     try {
       const v = map(event, socket);
       if (turn?.overload) throw turn.overload;
@@ -241,8 +241,12 @@ export function open({ input, init, redirect, protocols, origin }, conv, grantSe
   let batch = [];
   const each = (ms, i = 0) => {
     for (;; i++) {
+      if (controller.dropped) return;
       const r = value(event(ms[i]), true), at = i, last = r => r.error !== undefined || at === ms.length - 1;
-      const done = r => last(r) ? deliver({ ...r, coalesced: ms[at].coalesced, messages: at + 1 }) : each(ms, at + 1);
+      const done = r => {
+        if (controller.dropped) return;
+        return last(r) ? deliver({ ...r, coalesced: ms[at].coalesced, messages: at + 1 }) : each(ms, at + 1);
+      };
       if (r && typeof r.then === 'function') return r.then(done);
       if (last(r)) return done(r);
     }
@@ -253,7 +257,7 @@ export function open({ input, init, redirect, protocols, origin }, conv, grantSe
   const bytesOf = m => typeof m.data === 'string' ? utf8.encode(m.data).length : m.data.byteLength;
   const message = m => {
     controller.sent ||= !!req.upload;
-    if (fellBehind || req.longPoll && m.event === 'exact:reply' || req.upload && m.event === 'exact:sending') return;
+    if (controller.dropped || fellBehind || req.longPoll && m.event === 'exact:reply' || req.upload && m.event === 'exact:sending') return;
     batch.push(m);
     if (m.more) return;
     const ms = batch; batch = [];
@@ -278,10 +282,12 @@ export function open({ input, init, redirect, protocols, origin }, conv, grantSe
       gate()?.ended(controller.streamName);
       if (o.refused) return o;
       if (o.close) journal.push(`t=${clock.now} socket close: ${o.close.code} ${o.close.reason} (${controller.streamName})`);
-      return inOrder(() => value(o.close ? { type: 'close', data: '', lastEventId: '', coalesced: 0, ...o.close } : o.kind
+      const end = () => value(o.close ? { type: 'close', data: '', lastEventId: '', coalesced: 0, ...o.close } : o.kind
       ? { type: 'error', data: '', lastEventId: '', coalesced: 0, kind: KINDS[o.kind], message: said.decode(o.body), status: 0 }
       : req.upload ? { type: 'load', status: o.status, data: said.decode(o.body), lastEventId: '', coalesced: 0 }
-      : { type: 'error', data: said.decode(o.body), lastEventId: '', coalesced: 0, kind: 'Response', message: `HTTP ${o.status}`, status: o.status }));
+      : { type: 'error', data: said.decode(o.body), lastEventId: '', coalesced: 0, kind: 'Response', message: `HTTP ${o.status}`, status: o.status });
+      // An injected end overtakes frames waiting on an unfinished mapper.
+      return controller.dropped ? end() : inOrder(end);
     })
     .finally(() => heard?.removeEventListener('abort', abort));
 }

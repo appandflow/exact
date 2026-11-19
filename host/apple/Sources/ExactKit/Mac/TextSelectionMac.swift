@@ -113,7 +113,7 @@ package final class TextSelection {
     /// `fill`, `ink` and `keepsFixedInk` as a raster request carries them
     /// (`RegionRasterRequest.selectionColor`): the three as `appearance` has
     /// them, the colours in `space`.
-    static func rasterColors(focused: Bool, in appearance: NSAppearance, space: NSColorSpace) -> [CGFloat]? {
+    package static func rasterColors(focused: Bool, in appearance: NSAppearance, space: NSColorSpace) -> [CGFloat]? {
         var colors: [NSColor] = []
         appearance.performAsCurrentDrawingAppearance {
             colors = [fill(focused: focused), ink(focused: focused)].compactMap { $0.usingColorSpace(space) }
@@ -174,6 +174,7 @@ package final class TextSelection {
     private func texts(in view: NSView, withinList: Bool = false, _ found: (NodeView) -> Void) {
         if view.isHidden { return }
         if let node = view as? NodeView {
+            if node.held { return }
             if withinList && presenter?.collections.owns(node.id) == true { return }
             if presenter?.session?.regions.owns(node) == true { return }
             if node.isParagraph { found(node); return }

@@ -54,6 +54,7 @@ async function devLoop(dir, env = {}) {
   return { base: `http://127.0.0.1:${port}`, stop, said: () => out, dist };
 }
 
+
 test('the JS loop carries a checkpoint literally across document probes and retries', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'exact-checkpoint-dollars-'));
   writeFileSync(join(dir, 'app.json'), JSON.stringify({ name: 'Checkpoint', app: { id: 'test.checkpoint', name: 'Checkpoint' } }));
@@ -520,7 +521,7 @@ test('a held reload abandoned at pagehide runs when the page is shown again', as
   }
 }, 180000);
 
-test.each([false, true])('a blurred autofocus field stays blurred after a carried reload (bound: %s)', async bound => {
+test.each([['literal', false], ['bound', true]])('a blurred autofocus field stays blurred after a carried reload (%s)', async (_mode, bound) => {
   const dir = mkdtempSync(join(tmpdir(), 'exact-blurred-carry-'));
   writeFileSync(join(dir, 'app.json'), JSON.stringify({ name: 'Blurred carry', app: { id: 'test.blurred.carry', name: 'Blurred carry' } }));
   const contract = label => `component App
@@ -536,13 +537,17 @@ test.each([false, true])('a blurred autofocus field stays blurred after a carrie
     loop = await devLoop(dir);
     expect(loop.said()).not.toContain('does not build');
     browser = await suiteBrowser();
-    const page = await browser.newPage();
+    const page = await browser.newPage(), messages = [];
+    page.on('console', m => messages.push(`${m.type()}: ${m.text()}`));
+    page.on('pageerror', e => messages.push(`pageerror: ${e.message}`));
     await page.goto(loop.base);
     await page.waitForFunction(() => document.activeElement === document.querySelector('[data-testid="draft"]'));
     await page.getByTestId('draft').blur();
     expect(await page.evaluate(() => document.activeElement === document.body)).toBe(true);
     writeFileSync(join(dir, 'app.contract'), contract('after'));
-    await page.waitForFunction(() => document.querySelector('[data-testid="label"]')?.textContent === 'after');
+    await page.waitForFunction(() => document.querySelector('[data-testid="label"]')?.textContent === 'after').catch(e => {
+      throw new Error(`${e.message}\n${messages.join('\n')}\n${loop.said()}`);
+    });
     // Let the browser flush its own autofocus candidates as well as the runtime's mount work.
     await page.evaluate(() => new Promise(ok => requestAnimationFrame(() => requestAnimationFrame(ok))));
     expect(await page.evaluate(() => document.activeElement === document.body)).toBe(true);
@@ -552,6 +557,7 @@ test.each([false, true])('a blurred autofocus field stays blurred after a carrie
     rmSync(dir, { recursive: true, force: true });
   }
 }, 180000);
+
 
 test('the JS loop drops settled answers when a page module or its imported helper changes', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'exact-native-carry-'));

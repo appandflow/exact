@@ -11,28 +11,32 @@
 #if os(iOS) || os(tvOS)
 import UIKit
 
-/// The catalogue's sRGB components, emitted by host/apple/assets.mjs so the
-/// host need not load Assets.car before UIApplicationMain.
+/// The catalogue's components, emitted by host/apple/assets.mjs so the host
+/// need not load Assets.car before UIApplicationMain.
 public let launchScreenColor = LaunchScreenColor.make(Bundle.main.object(forInfoDictionaryKey: "ExactLaunchColor"))
 
 enum LaunchScreenColor {
+    /// `light` and, where it differs, `dark`: each sRGB components, or Display
+    /// P3 ones under `display-p3`.
     static func make(_ value: Any?) -> UIColor? {
-        let components = value as? [String: [NSNumber]]
-        func color(_ rgba: [NSNumber]?) -> UIColor? {
-            guard let rgba, rgba.count == 4,
-                  let space = CGColorSpace(name: CGColorSpace.sRGB),
+        let halves = value as? [String: Any]
+        func color(_ half: Any?) -> UIColor? {
+            let p3 = (half as? [String: [NSNumber]])?["display-p3"]
+            guard let rgba = p3 ?? half as? [NSNumber], rgba.count == 4,
+                  let space = CGColorSpace(name: p3 == nil ? CGColorSpace.sRGB : CGColorSpace.displayP3),
                   let color = CGColor(colorSpace: space, components: rgba.map { CGFloat($0.doubleValue) }) else { return nil }
             return UIColor(cgColor: color)
         }
-        guard let light = color(components?["light"]) else { return nil }
-        guard let dark = color(components?["dark"]) else { return light }
+        guard let light = color(halves?["light"]) else { return nil }
+        guard let dark = color(halves?["dark"]) else { return light }
         return UIColor { $0.userInterfaceStyle == .dark ? dark : light }
     }
 }
 
 public final class ExactView: UIView {
     public let session: ExactSession
-    private var fitPending = false
+    /// A fit or a layout this view has queued, for the main queue or for the end of the batch being applied
+    private(set) var fitPending = false
     private var fitting = false
     /// The canvas's colour, which this view shows wherever the viewport does
     /// not reach (`paintUnderKeys`).
@@ -174,7 +178,7 @@ public final class ExactView: UIView {
 
     private func fitAheadOfLayout() {
         guard !fitting, session.booted, window != nil,
-              (session.presenter.navigation.primaryOwner ?? session.presenter.navigation.bootOwner) != nil, bounds.size != fittedSize else { return }
+              (session.presenter.navigation.primaryOwner ?? session.presenter.navigation.bootHolder) != nil, bounds.size != fittedSize else { return }
         fit()
         // Autoresizing may precede UIKit's safe-area update. The normal
         // layout still rereads insets and regions after its parent settles.
@@ -241,7 +245,7 @@ public final class ExactView: UIView {
     public override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
         #if os(iOS)
         // A touch starts under the real owner, so its scroll cannot span the boot transfer.
-        if session.presenter.navigation.bootOwner != nil, event?.type == .touches { session.presenter.navigation.finishBootOwner() }
+        if session.presenter.navigation.bootHolder != nil, event?.type == .touches { session.presenter.navigation.finishBootOwner() }
         #endif
         return super.hitTest(point, with: event)
     }
@@ -383,7 +387,7 @@ public final class ExactView: UIView {
         // the page alone while a dialog sheet, which ends at the keys itself, is up.
         let covered = top.map { min(max(0, frame.maxY - max($0, frame.minY)), frame.height) } ?? 0
         keyboardCovers = covered
-        let overlap = presenter.menus.sheets.top == nil ? covered : 0
+        let overlap = presenter.dialogs.top == nil ? covered : 0
         presenter.setKeyboardInset(overlap)
         presenter.keyboardToolbars.ride(overlap: overlap)
         if top == nil { presenter.pinnedRoom.release() }
@@ -393,7 +397,7 @@ public final class ExactView: UIView {
     /// Fit the session to its safe area and derive keyboard avoidance from its guide.
     /// Native containers stay full size; their editing route owns avoidance.
     /// An ordinary page resizes its viewport or insets its content.
-    func fit(boot: Bool = true) {
+    package func fit(boot: Bool = true) {
         guard !fitting else {
             // A keyboard-guide change can lay this view out synchronously.
             // Marking it dirty in that layout would keep UIKit in the same pass.
@@ -450,7 +454,7 @@ public final class ExactView: UIView {
         guard bounds.width > 0, bounds.height > 0 else { return }
         #if os(iOS)
         // A launch resize (including rotation) uses the native owner for the new geometry.
-        if fittedSize != .zero, bounds.size != fittedSize, presenter.navigation.bootOwner != nil { presenter.navigation.finishBootOwner() }
+        if fittedSize != .zero, bounds.size != fittedSize, presenter.navigation.bootHolder != nil { presenter.navigation.finishBootOwner() }
         #endif
         fittedSize = bounds.size
         // @ref LLP 1123 D1 — the document is the session view's; a
@@ -466,7 +470,7 @@ public final class ExactView: UIView {
         var insets = cover ? safe : .zero
         let keyboard = fitKeyboard(in: frame)
         if presenter.keyboardPolicy == "resizes-content", !presenter.navigation.wantsWholeView,
-           let top = keyboard.top, top < frame.maxY, presenter.menus.sheets.top == nil {
+           let top = keyboard.top, top < frame.maxY, presenter.dialogs.top == nil {
             frame.size.height = max(0, top - frame.minY)
             insets.bottom = 0
         }
@@ -525,7 +529,7 @@ public final class ExactView: UIView {
         }
         presenter.placeDocumentMount()
         // Establish UIKit's containing bounds before sampling route blocks.
-        if let owner = presenter.navigation.primaryOwner ?? presenter.navigation.bootOwner {
+        if let owner = presenter.navigation.primaryOwner ?? presenter.navigation.bootHolder {
             presenter.navigation.fitOwner()
             owner.view.layoutIfNeeded()
         }
@@ -636,7 +640,7 @@ public final class ExactView: UIView {
         session.rasters?.fit(size: bounds.size, scale: scale)
         if scale != lastDisplayScale {
             lastDisplayScale = scale
-            session.apply(session.runtime.canvasDisplay(scale: scale, memory: ProcessInfo.processInfo.physicalMemory))
+            if let surfaces = SurfacesLink.installed { session.apply(surfaces.display(session.runtime, scale: scale)) }
             session.rasters?.displayChanged()
             session.tellDisplayScale() // a hairline is one device pixel of this display (LLP 1115.000 D10.3)
             session.presenter.regridAll()

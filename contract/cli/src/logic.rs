@@ -630,7 +630,23 @@ pub fn web_linked(plan: &exact_plan::Plan, inputs: &serde_json::Value) -> String
             | Capability::NativeViews
             | Capability::ContentRegions
             | Capability::Traces
-            | Capability::Controls => {}
+            | Capability::Controls
+            | Capability::Flights
+            | Capability::Sticky
+            | Capability::Notifications
+            | Capability::HostEvents
+            | Capability::Activities
+            | Capability::Wakes
+            | Capability::WakeLock
+            | Capability::Video
+            | Capability::WebViews
+            | Capability::Sound
+            | Capability::Midi
+            | Capability::Navigation
+            | Capability::TextSelection
+            | Capability::Widgets
+            | Capability::ContentIndex
+            | Capability::Dialogs => {}
         }
     }
     entry
@@ -660,6 +676,8 @@ pub fn apple_linked(uses: exact_runner::Uses, host: &str) -> String {
         (Capability::Markdown, "markup_exports"),
         (Capability::Presence, "presence_exports"),
         (Capability::Svg, "svg_exports"),
+        (Capability::ContentRegions, "content_region_exports"),
+        (Capability::Surfaces, "canvas_exports"),
     ] {
         if uses.has(capability) {
             entry.push_str(&format!("{apple}::{group}!();\n"));
@@ -877,6 +895,17 @@ mod tests {
         assert!(!super::apple_linked(Uses::NONE, "exact_apple").contains("exports!"));
         let svg = super::apple_linked(Uses::NONE.with(Capability::Svg), "exact_apple");
         assert!(svg.contains("::exact_apple::svg_exports!();"), "{svg}");
+        let regions =
+            super::apple_linked(Uses::NONE.with(Capability::ContentRegions), "exact_apple");
+        assert!(
+            regions.contains("::exact_apple::content_region_exports!();"),
+            "{regions}"
+        );
+        let canvas = super::apple_linked(Uses::NONE.with(Capability::Surfaces), "exact_apple");
+        assert!(
+            canvas.contains("::exact_apple::canvas_exports!();"),
+            "{canvas}"
+        );
         let markdown = super::apple_linked(Uses::NONE.with(Capability::Markdown), "exact_apple");
         assert!(
             markdown.contains("::exact_apple::markup_exports!();"),

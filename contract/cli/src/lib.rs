@@ -15,6 +15,7 @@ pub use build_advice::{compile_path_advised, resource_clock_warnings, surface_fi
 
 mod activities;
 mod excerpt;
+mod fence;
 pub use excerpt::excerpt;
 
 /// Whether an attribute writes paint rows alone (LLP 1122 D14): `set-row`
@@ -60,6 +61,7 @@ mod surface;
 use surface::fact_shape;
 mod symbols;
 pub use contract_analyze::SuggestionCheck;
+pub use properties::check_test_states_path;
 pub use properties::{check_properties_path, check_suggestions_path, properties, tests};
 mod tests_json;
 pub use tests_json::{authored_json, tests_json};
@@ -82,7 +84,7 @@ pub use logic::{
     apple_linked, linux_entry, native_storage_constructor, rust_entry, rust_entry_composed,
     rust_entry_naming, web_linked, web_rust_mode,
 };
-pub use manifest::{Activity, Configuration, Manifest, Parameter, RustData, Widget};
+pub use manifest::{Activity, Choices, Configuration, Manifest, Parameter, RustData, Widget};
 pub use map::{plan_digest, SourceMap};
 pub use module_rust::module_rust;
 pub use preload::preload_expression;
@@ -1128,6 +1130,11 @@ fn compile_file_warned(
             if !unused.is_empty() {
                 return Err(each(unused, |e| e));
             }
+            // @ref LLP 1123 D6 — no path from a geometry fact to what moves it
+            let refused = fence::check(&checked);
+            if !refused.is_empty() {
+                return Err(each(refused, |e| e));
+            }
             if let Some(app) = asset_root {
                 package_gpu::check(app, &checked.expanded.root.view)?;
             }
@@ -1298,25 +1305,16 @@ fn first_frame<D: DataSource>(
         "bake-activities-field",
     )?;
     activities::shape(plan)?;
-    fact_shape(
-        plan,
-        delivery::SOURCE,
-        &delivery::FIELDS,
-        "bake-delivery-field",
-    )?;
-    fact_shape(
-        plan,
-        viewport::SOURCE,
-        viewport::FIELDS,
-        "bake-viewport-field",
-    )?;
-    fact_shape(plan, page::SOURCE, page::FIELDS, "bake-page-field")?;
-    fact_shape(
-        plan,
-        transport::SOURCE,
-        transport::FIELDS,
-        "bake-transport-field",
-    )?;
+    let facts: [(&str, &[&str], &str); 4] = [
+        (delivery::SOURCE, &delivery::FIELDS, "bake-delivery-field"),
+        (viewport::SOURCE, viewport::FIELDS, "bake-viewport-field"),
+        (page::SOURCE, page::FIELDS, "bake-page-field"),
+        (transport::SOURCE, transport::FIELDS, "bake-transport-field"),
+    ];
+    for (source, fields, id) in facts {
+        fact_shape(plan, source, fields, id)?;
+    }
+    surface::geometry_shapes(plan)?; // @ref LLP 1123 D6 — the geometry facts
     surface::shape(plan)?;
     // The bake answers `presented` false: no picture of it was presented.
     let was = exact_runner::page::set_awaits_present(true);

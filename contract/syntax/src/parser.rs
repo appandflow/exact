@@ -31,6 +31,7 @@ mod routes;
 mod sequence;
 mod sounds;
 mod source_decl;
+mod state_step;
 mod states;
 mod steps;
 mod theme;

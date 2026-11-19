@@ -491,26 +491,36 @@ fn tests(args: &[String]) -> ExitCode {
     };
     match contract::tests(&src).and_then(|t| contract::properties(&src).map(|p| (t, p))) {
         Ok((t, p)) => {
-            if !p.is_empty() {
-                let test = std::path::Path::new(input);
-                let paired = test.with_file_name(
-                    test.file_name()
-                        .unwrap()
-                        .to_string_lossy()
-                        .replace(".test.contract", ".contract"),
-                );
-                let app = test.with_file_name("app.contract");
-                let app = if app.is_file() { app } else { paired };
-                if let Err(errors) = contract::check_properties_path(&app, &p) {
-                    for e in errors {
-                        if e.file.is_some() {
-                            eprintln!("{e}");
-                        } else {
-                            eprintln!("{input}:{e}");
-                        }
+            let test = std::path::Path::new(input);
+            let paired = test.with_file_name(
+                test.file_name()
+                    .unwrap()
+                    .to_string_lossy()
+                    .replace(".test.contract", ".contract"),
+            );
+            let app = test.with_file_name("app.contract");
+            let app = if app.is_file() { app } else { paired };
+            let properties = if p.is_empty() {
+                Ok(())
+            } else {
+                contract::check_properties_path(&app, &p)
+            };
+            let states = contract::check_test_states_path(&app, &t);
+            let errors: Vec<_> = properties
+                .err()
+                .into_iter()
+                .flatten()
+                .chain(states.err().into_iter().flatten())
+                .collect();
+            if !errors.is_empty() {
+                for e in errors {
+                    if e.file.is_some() {
+                        eprintln!("{e}");
+                    } else {
+                        eprintln!("{input}:{e}");
                     }
-                    return ExitCode::from(1);
                 }
+                return ExitCode::from(1);
             }
             println!("{}", contract::authored_json(&t, &p));
             ExitCode::SUCCESS
@@ -536,7 +546,7 @@ fn fmt(args: &[String]) -> ExitCode {
     }
     match args {
         [flag, input] | [input, flag] if flag == "--uses" && !input.starts_with('-') => {
-            return fix_uses(input)
+            return fix_uses(input);
         }
         _ => {}
     }
@@ -609,7 +619,10 @@ fn fix_uses(input: &str) -> ExitCode {
                 println!("{input}: every file names what it uses");
             } else if refused.is_empty() && !names.is_empty() {
                 let are = if names.len() == 1 { "is" } else { "are" };
-                println!("{input}: every file it reaches names what it uses; {} beside it {are} not reached from it (another entry, or a file it uses nothing from)", names.join(", "));
+                println!(
+                    "{input}: every file it reaches names what it uses; {} beside it {are} not reached from it (another entry, or a file it uses nothing from)",
+                    names.join(", ")
+                );
             }
             for e in &refused {
                 eprintln!("{e}");

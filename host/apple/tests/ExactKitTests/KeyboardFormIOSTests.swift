@@ -2,6 +2,7 @@
 import UIKit
 import XCTest
 @testable import ExactKit
+@testable import ExactNavigation
 @testable import ExactCollections
 @testable import ExactGroupedLists
 
@@ -42,13 +43,13 @@ final class KeyboardFormIOSTests: XCTestCase {
     }
 
     private func safeAreaBottom(_ p: Presenter) -> CGFloat? {
-        guard let view = p.navigation.activeRoute?.view else { return nil }
+        guard let view = p.navigationHost.activeRoute?.view else { return nil }
         return view.convert(view.safeAreaLayoutGuide.layoutFrame, to: nil).maxY
     }
 
     private func pinnedLayoutReady(_ p: Presenter) -> Bool {
         guard let bar = named("pinned-bar"), let memo = named("pinned-memo"), let node = named("pinned-scroll"),
-              let scroll = p.navigation.shownScroll(node), let bottom = safeAreaBottom(p), let window else { return false }
+              let scroll = p.navigationHost.shownScroll(node), let bottom = safeAreaBottom(p), let window else { return false }
         return bar.window != nil && memo.window != nil && abs(box(bar).maxY - bottom) < 0.5
             && abs(box(scroll).maxY - window.bounds.maxY) < 0.5
             && abs(scroll.adjustedContentInset.bottom - window.bounds.maxY + bottom) < 0.5
@@ -123,7 +124,7 @@ final class KeyboardFormIOSTests: XCTestCase {
         }
         let session = try fixture()
         let p = session.presenter
-        let tabs = try XCTUnwrap(p.navigation.tabController, "the tabs are a UITabBarController")
+        let tabs = try XCTUnwrap(p.navigationHost.tabController, "the tabs are a UITabBarController")
         let nav = try XCTUnwrap(tabs.selectedViewController as? UINavigationController)
         let reps = try node("reps"), add = try node("add-set")
         XCTAssertFalse(p.views.values.contains { $0.field?.isFirstResponder == true }, "mounting the workout form does not summon a keyboard")
@@ -194,9 +195,9 @@ final class KeyboardFormIOSTests: XCTestCase {
         let p = session.presenter
         let reps = try node("reps"), add = try node("add-set")
         let bench = try node("bench-reps"), benchAdd = try node("bench-add")
-        let route = try XCTUnwrap(p.navigation.activeRoute)
+        let route = try XCTUnwrap(p.navigationHost.activeRoute)
         let nav = try XCTUnwrap(route.navigationController)
-        let list = try XCTUnwrap(p.navigation.shownScroll(try node("form-list")))
+        let list = try XCTUnwrap(p.navigationHost.shownScroll(try node("form-list")))
         try focus(reps, in: p)
         setKeyboard(p, top: keys)
         waitFor("the initial field and its action clear the keyboard") {
@@ -245,7 +246,7 @@ final class KeyboardFormIOSTests: XCTestCase {
 
     func testTheBarFollowsAGroupedListThatReplacesTheRoutesScrollInPlace() throws {
         let session = try fixture()
-        let tabs = try XCTUnwrap(session.presenter.navigation.tabController)
+        let tabs = try XCTUnwrap(session.presenter.navigationHost.tabController)
         _ = Agent(session: session).tap(["id": Int(try node("tab-other").id)])
         waitFor("the Other tab mounts its route") {
             (tabs.selectedViewController as? UINavigationController)?.topViewController?.navigationItem.title == "Other"
@@ -259,7 +260,7 @@ final class KeyboardFormIOSTests: XCTestCase {
         _ = Agent(session: session).tap(["id": Int(try node("fill").id)])
         waitFor("the grouped list replaces the empty scroll") {
             guard let list = self.named("other-list"), list.window != nil else { return false }
-            return session.presenter.navigation.shownScroll(list) is GroupedScroller
+            return session.presenter.navigationHost.shownScroll(list) is GroupedScroller
         }
         XCTAssertNotNil(try? node("other-list"), "the list took the scroll's place")
         for edge: NSDirectionalRectEdge in [.top, .bottom] {
@@ -276,10 +277,10 @@ final class KeyboardFormIOSTests: XCTestCase {
         let p = session.presenter
         _ = Agent(session: session).tap(["id": Int(try node("tab-pinned").id)])
         waitFor("the pinned tab reaches its safe area") { self.pinnedLayoutReady(p) }
-        let tabs = try XCTUnwrap(p.navigation.tabController)
+        let tabs = try XCTUnwrap(p.navigationHost.tabController)
         let nav = try XCTUnwrap(tabs.selectedViewController as? UINavigationController)
         let author = try node("pinned-author"), memo = try node("pinned-memo"), bar = try node("pinned-bar")
-        let scroll = try XCTUnwrap(p.navigation.shownScroll(try node("pinned-scroll")))
+        let scroll = try XCTUnwrap(p.navigationHost.shownScroll(try node("pinned-scroll")))
         let base = scroll.contentInset.bottom
         XCTAssertGreaterThan(box(memo).minY, keys, "the fixture's last field starts where the keys will be")
         let top = box(nav.navigationBar).maxY
@@ -337,7 +338,7 @@ final class KeyboardFormIOSTests: XCTestCase {
         waitFor("the pinned tab reaches its safe area") { self.pinnedLayoutReady(p) }
         let bottom = try XCTUnwrap(safeAreaBottom(p))
         let bar = try node("pinned-bar"), memo = try node("pinned-memo")
-        let scroll = try XCTUnwrap(p.navigation.shownScroll(try node("pinned-scroll")))
+        let scroll = try XCTUnwrap(p.navigationHost.shownScroll(try node("pinned-scroll")))
         let window = try XCTUnwrap(self.window)
         let base = scroll.contentInset.bottom
         func atRest(_ when: String, file: StaticString = #filePath, line: UInt = #line) {
@@ -399,7 +400,7 @@ final class KeyboardFormIOSTests: XCTestCase {
         }
         let session = try fixture("EXACT_CARET_REVEAL_PLAN")
         let p = session.presenter
-        let list = try XCTUnwrap(p.navigation.shownScroll(try node("list")))
+        let list = try XCTUnwrap(p.navigationHost.shownScroll(try node("list")))
         let jumper = try node("jumper"), far = try node("far"), jumping = try XCTUnwrap(jumper.textArea)
         jumper.textViewDidBeginEditing(jumping)
         setKeyboard(p, top: keys)
@@ -429,7 +430,7 @@ final class KeyboardFormIOSTests: XCTestCase {
         }
         let session = try fixture(), p = session.presenter
         let route = try node("route-log"), field = try node("bench-reps")
-        let scroll = try XCTUnwrap(p.navigation.shownScroll(try node("form-list")))
+        let scroll = try XCTUnwrap(p.navigationHost.shownScroll(try node("form-list")))
         try focus(field, in: p)
         p.listHost.onFill?(route.id, Data())
         XCTAssertTrue(session.fillInFlight)
@@ -490,7 +491,7 @@ final class KeyboardFormIOSTests: XCTestCase {
             XCTAssertEqual(p.insets, safe, "the owning route's keyboard preserves the other routes' safe area")
             XCTAssertEqual(p.viewportSize, window, "\(policy): the native application root keeps its size")
             XCTAssertEqual(p.fold, fold, "\(policy): keyboard avoidance does not change the window's division regions")
-            let route = try XCTUnwrap(p.navigation.activeRoute)
+            let route = try XCTUnwrap(p.navigationHost.activeRoute)
             XCTAssertEqual(route.node.bounds.height, policy == "resizes-content" ? keys : window.height, accuracy: 0.5)
 
             XCTAssertNil(agent.prefer(["fold": ["posture": "continuous"]])["error"])

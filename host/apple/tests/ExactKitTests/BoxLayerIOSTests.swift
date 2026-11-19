@@ -4,6 +4,7 @@ import ImageIO
 import CExact
 import XCTest
 @testable import ExactKit
+@testable import ExactVideo
 @testable import ExactEffects
 @testable import ExactSvg
 @testable import ExactImages

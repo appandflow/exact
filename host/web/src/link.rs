@@ -295,6 +295,10 @@ thread_local! {
 
 /// Register what this artifact links: its entry does before every boot.
 pub fn link(linked: Linked) {
+    // The browser plays transitions, so `Transitions` is always linked here
+    // ([`Linked::uses`]); the plan's `transition` rows still parse by the
+    // grammar.
+    exact_motion::link_transitions();
     if let Some(link) = linked.wide_colors {
         link();
     }

@@ -1,9 +1,9 @@
 // @ref LLP 1047.001 D10 — content regions (long documents a worker lays out
-// and rasters, cut list C13) are a family the composition selects by a
-// plan's region use. On macOS the session reaches its region controller
-// through what this file declares; without the family it holds
-// `NoContentRegions`, and no region is prepared. iOS has no region
-// controller yet. The slot's default is today's controller.
+// and rasters, cut list C13) are a family the composition selects by the
+// entry's region registration. On macOS the session reaches its region
+// controller through what this file declares, which `ExactContentRegions`
+// installs; without the family it holds `NoContentRegions`, and no region is
+// prepared. iOS has no region controller.
 #if os(macOS)
 import AppKit
 
@@ -40,9 +40,9 @@ package final class NoContentRegions: ContentRegionHosting {
 /// The slots are set before any session is made, and read on the main thread.
 package enum ContentRegionLink {
     /// A session's content regions.
-    package static var make: ((ExactSession) -> any ContentRegionHosting)? = { RegionController($0) }
+    package static var make: ((ExactSession) -> any ContentRegionHosting)?
     /// Whether `view` is any session's region surface: the mouse shows an
     /// I-beam over one.
-    package static var isSurface: ((NSView) -> Bool)? = { $0 is RegionSurfaceMac }
+    package static var isSurface: ((NSView) -> Bool)?
 }
 #endif

@@ -112,18 +112,27 @@ impl<D: DataSource> Drop for App<D> {
     }
 }
 
-fn system_theme<D: DataSource>(p: &mut Presenter<D>, theme: Theme) {
+fn system_theme<D: DataSource>(p: &mut Presenter<D>, theme: Theme, agent: bool) {
     let dark = theme == Theme::Dark;
     p.set_system_scheme(dark);
     let contrast = crate::appearance::contrast();
     p.set_contrast_palette(contrast);
     let mut preferences = p.host().runner().viewport().preferences;
+    let screen_reader = if agent {
+        preferences.screen_reader
+    } else {
+        crate::appearance::screen_reader()
+    };
     let custom = if contrast.is_some() {
         exact_runner::Contrast::Custom
     } else {
         exact_runner::Contrast::NoPreference
     };
-    if preferences.dark != dark || preferences.contrast != custom {
+    if preferences.dark != dark
+        || preferences.contrast != custom
+        || preferences.screen_reader != screen_reader
+    {
+        preferences.screen_reader = screen_reader;
         preferences.contrast = custom;
         preferences.dark = dark;
         if let Some(error) = p.set_preferences(preferences) {
@@ -209,6 +218,14 @@ pub(super) fn run<D: DataSource + Default + 'static>(
         std::thread::sleep(Duration::from_millis(200));
     }
     let mut config = Config::from_env(plan, compat);
+    config.preferences = Some(exact_runner::Preferences {
+        screen_reader: if config.agent {
+            exact_runner::ScreenReader::Unknown
+        } else {
+            crate::appearance::screen_reader()
+        },
+        ..Default::default()
+    });
     // The presenter makes the hatches' value after its first frame is shown.
     config.hatches = composed.hatches;
     config.packages = composed.packages;
@@ -955,7 +972,7 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<crate::accessibility:
                     }
                 }
                 if let Some(theme) = window.theme() {
-                    system_theme(&mut p, theme);
+                    system_theme(&mut p, theme, self.config.agent);
                 }
                 if let Ok(handle) = window.window_handle() {
                     if let RawWindowHandle::Win32(handle) = handle.as_raw() {
@@ -1170,7 +1187,7 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<crate::accessibility:
             self.unheard = self.buttons != 0 || self.touches.any_down();
         }
         match event {
-            WindowEvent::ThemeChanged(theme) => system_theme(p, theme),
+            WindowEvent::ThemeChanged(theme) => system_theme(p, theme, self.config.agent),
             WindowEvent::Moved(_) => self.ime.reposition(),
             WindowEvent::ModifiersChanged(modifiers) => {
                 crate::keyboard::sync(p, Some(modifiers.state()))

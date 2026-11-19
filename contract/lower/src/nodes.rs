@@ -175,7 +175,7 @@ impl Lowerer<'_> {
         let expanded = timed.as_deref().unwrap_or(expanded);
         let composed = self.compose_animation(expanded)?;
         if shadow_part == Some(false) {
-            grouped::shadow::check_animations(expanded, &self.keyframes)?;
+            grouped::shadow::check_animations(expanded, &self.keyframes, &self.constants(scope))?;
         }
         let expanded = composed.as_deref().unwrap_or(expanded);
         let in_svg = svg::in_svg(self.svg_depth > 0, parent_tag);
@@ -199,7 +199,7 @@ impl Lowerer<'_> {
             }
         };
         let expanded = boxed.as_deref().unwrap_or(expanded);
-        self.check_svg(tag, parent_tag, expanded)?;
+        self.check_svg(tag, parent_tag, expanded, scope)?;
         shorthands::check_text_box(tag, parent_tag, expanded)?;
         // @ref LLP 1011.002 D3 — the one box `vertical-align` moves.
         let inline_image = tag == "image" && matches!(parent_tag, Some("text"));

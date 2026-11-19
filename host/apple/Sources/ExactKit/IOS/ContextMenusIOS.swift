@@ -576,11 +576,13 @@ final class ContextMenuHost: NSObject, UIContextMenuInteractionDelegate, UIEditM
                 guard let session = self?.presenter?.session else { return }
                 AgentPasteboard.copy(url.absoluteString, to: session.agentPasteboard, log: session.log)
             })
-            items.append(UIAction(title: "Share…", image: UIImage(systemName: "square.and.arrow.up")) { [weak self, owner] _ in
-                guard let self, let source = owner.source, self.live(source), let session = self.presenter?.session else { return }
-                let rect = owner.inlineID.flatMap { self.presenter?.inlineText($0) }.flatMap { source.inlineRects($0).first } ?? source.bounds
-                ShareSheet.present([url], title: nil, from: source, at: rect) { session.log($0) }
-            })
+            if let share = ShareLink.installed {
+                items.append(UIAction(title: "Share…", image: UIImage(systemName: "square.and.arrow.up")) { [weak self, owner] _ in
+                    guard let self, let source = owner.source, self.live(source), let session = self.presenter?.session else { return }
+                    let rect = owner.inlineID.flatMap { self.presenter?.inlineText($0) }.flatMap { source.inlineRects($0).first } ?? source.bounds
+                    share.shareLink(url, from: source, at: rect) { session.log($0) }
+                })
+            }
         }
         return UIMenu(title: url?.absoluteString ?? href, children: items)
     }

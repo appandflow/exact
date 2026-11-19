@@ -563,7 +563,10 @@ export async function request(op, { grantSet, loadPageNative, moduleLoader, loca
   // A socket is a stream whose URL is `ws:` or `wss:` (its grant was
   // `net.websocket`, above); its method, headers and body are not sent.
   if (socket && op.bodyFrom != null) return failed(2, 'exactBodyFrom: a WebSocket sends no body');
-  if (socket) return readSocket(url, op.maxResponseBytes ?? 1024 * 1024, message, controller, protocol && { ...protocol, admit: () => active() && admitsNetwork(scopedGrantSet(grantSet, op.scope), url, 'websocket') }, op.idleTimeoutMs, op.protocols);
+  if (socket) {
+    controller.streamUrl = url;
+    return readSocket(url, op.maxResponseBytes ?? 1024 * 1024, message, controller, protocol && { ...protocol, admit: () => active() && admitsNetwork(scopedGrantSet(grantSet, op.scope), url, 'websocket') }, op.idleTimeoutMs, op.protocols);
+  }
   let decodedBody = bytes ?? undefined;
   try { if (body && !bytes) decodedBody = Uint8Array.from(atob(body), c => c.charCodeAt(0)); }
   catch (error) { return failed(4, `invalid request body: ${error}`); }
@@ -652,6 +655,7 @@ export async function request(op, { grantSet, loadPageNative, moduleLoader, loca
   if (decodedBody) init.body = decodedBody;
   else if (fileBody) init.body = fileBody;
   if (op.stream && !headers.some(([k]) => k.toLowerCase() === 'accept')) init.headers = [...headers, ['accept', 'text/event-stream']];
+  if (op.stream && !asset && /^https?:/i.test(url)) controller.streamUrl = url;
   try {
     const early = !asset && moduleLoader?.claim?.(url, init);
     // @ref LLP 1103 D1, D2 — a driver fault is a refused connection, never sent; a GET
@@ -713,7 +717,9 @@ export async function request(op, { grantSet, loadPageNative, moduleLoader, loca
 export function streamed(req, grantSet, message, controller, bodyFile, protocol) {
   return request({ method: req.method ?? 'GET', url: req.url, headers: req.headers ?? [], credentials: req.credentials, body: '', bodyBytes: req.raw?.length ? Uint8Array.from(req.raw) : undefined, bodyFrom: req.bodyFrom, cache: req.forced && req.cache !== 'no-store' ? 'reload' : req.cache, mode: req.mode, redirect: req.redirect, longPoll: req.longPoll, upload: req.upload, timeoutMs: req.timeoutMs, idleTimeoutMs: req.idleTimeoutMs, protocols: req.protocols, stream: true, maxResponseBytes: req.maxResponseBytes, scope: req.scope, origin: req.origin ?? UNATTRIBUTED },
     { grantSet, controllers: new Set(), controller, message, bodyFile, protocol, localAssetURL: url => new URL(url, location.href).href,
-      loadPageNative: () => Promise.reject(new Error('a stream is not a page-module request')) });
+      loadPageNative: () => Promise.reject(new Error('a stream is not a page-module request')) })
+    .then(outcome => controller.dropped ? { kind: 1, status: 0, headers: '', body: new TextEncoder().encode('stream dropped by test') } : outcome)
+    .finally(() => { delete controller.streamUrl; });
 }
 
 if (globalThis.exact) globalThis.exact.httpHelpers = { boundedHttpBody, waitForInflight, request };

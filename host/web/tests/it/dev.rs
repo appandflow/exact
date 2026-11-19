@@ -537,29 +537,37 @@ fn display_mode_bits_preserve_fold_and_preferences_at_boot_and_without_a_resize(
 /// which have no room for it, and holds across a boot and a resize.
 #[test]
 fn update_holds_across_boot_and_resize() {
-    let source = "shape Viewport\n  update: string\ncomponent App\n  resource viewport = exactViewport() as shape Viewport\n  view\n    text viewport.update\n";
+    let source = "shape Viewport\n  update: string\n  screenReader: string\ncomponent App\n  resource viewport = exactViewport() as shape Viewport\n  view\n    text viewport.update\n";
     let plan = contract::bake(contract::compile(source).unwrap(), NoData)
         .unwrap()
         .encode();
     let mut bridge = exact_web::abi::Bridge::new();
     bridge.set_links(exact_web::HostLinks::ALL);
-    let update = |bridge: &mut exact_web::abi::Bridge<NoData>| {
+    let facts = |bridge: &mut exact_web::abi::Bridge<NoData>| {
         let n = bridge.input_write(br#"{"op":"state"}"#);
         let len = bridge.agent(n);
         let state: serde_json::Value =
             serde_json::from_slice(bridge.output_bytes(len as usize)).unwrap();
-        state["resources"]["viewport"]["update"].clone()
+        state["resources"]["viewport"].clone()
     };
     bridge.set_update(2);
+    bridge.set_screen_reader(2);
     bridge.set_preferences(0xff);
     bridge.boot(&plan, NoData, 600.0, 400.0, "/");
-    assert_eq!(update(&mut bridge), "none");
+    assert_eq!(facts(&mut bridge)["update"], "none");
+    assert_eq!(facts(&mut bridge)["screenReader"], "on");
     bridge.set_update(1);
     bridge.resize(600.0, 400.0, 0, 0.0);
-    assert_eq!(update(&mut bridge), "slow");
+    assert_eq!(facts(&mut bridge)["update"], "slow");
+    assert_eq!(facts(&mut bridge)["screenReader"], "on");
     bridge.set_update(0);
     bridge.resize(600.0, 400.0, 0xff, 0.0);
-    assert_eq!(update(&mut bridge), "fast");
+    assert_eq!(facts(&mut bridge)["update"], "fast");
+    for (code, expected) in [(1, "off"), (0, "unknown"), (2, "on"), (3, "unknown")] {
+        bridge.set_screen_reader(code);
+        bridge.resize(600.0, 400.0, 0, 0.0);
+        assert_eq!(facts(&mut bridge)["screenReader"], expected);
+    }
 }
 
 /// LLP 1039 D9: a rotation's size and the page's geometry reach the runner

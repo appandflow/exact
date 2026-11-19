@@ -33,6 +33,7 @@ fn motion_words() -> String {
 /// The transition grammar, its paint policy and the last curve covering layout.
 #[allow(clippy::field_reassign_with_default)]
 pub fn transitions() -> String {
+    exact_motion::link_transitions();
     let properties: std::collections::BTreeMap<_, _> = exact_motion::Property::ALL
         .iter()
         .flat_map(|p| [p.name(), p.css_name()])

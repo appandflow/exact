@@ -774,6 +774,7 @@ pub(super) fn transition_values() -> Vec<String> {
 
 #[test]
 fn bound_transition_stacking_matches_kernel() {
+    exact_kernel::style::link_all();
     let values = transition_values();
     let plan = fixture_plan("", "2>1>");
     let (_, expression) = crate::paint::binding(

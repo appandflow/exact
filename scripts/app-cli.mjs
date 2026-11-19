@@ -70,6 +70,12 @@ export function compilerWarnings(text, cwd = process.cwd()) {
  * surface that shows part of a failed build's output starts at the first, the cause the later ones may follow from. */
 export const compilerError = (line) => /^.+:\d+:\d+ \[[\w-]+\] /.test(line);
 
+/** Which Exact checkout an app's command runs, and its commit: the launcher's own answer (`help`, each build). */
+export const checkoutLine = (exact2) => {
+  const commit = spawnSync('git', ['-C', exact2, 'rev-parse', '--short=9', 'HEAD'], { encoding: 'utf8' }).stdout?.trim();
+  return `Exact checkout: ${exact2}${commit ? ` at ${commit}` : ''}`;
+};
+
 /** What a failed JS-target web build (`host/web-js/build.mjs`) said that is the app's to act on, from its stderr: the
  * types app.ts imports when rewritten, warnings, the diagnostics, then the compiler's warnings. Every compiler error is
  * kept with its quoted line and caret, as `contract build` prints them. Cargo's progress, a rustc warning's excerpt and
@@ -85,12 +91,18 @@ export function webBuildFailure(stderr) {
   const marker = /^(error|[A-Z]\w*Error|E[A-Z]+)\b:?/;
   const kept = (l) => marker.test(l.trim()) || /\): error TS\d+:|^(?:Error: )?(?:tsconfig: |module outside captured app: |source links are not captured: )|^note: /.test(l) || ambientDiagnostic(l) || compilerError(l) || packageRefusal(l) || /\bunoptimized$|\bnot on PATH\b|import\.meta\.env/.test(l);
   const message = [];
+  let last = -1; // the last line taken
   for (let i = 0; i < lines.length; i++) {
     if (!kept(lines[i])) continue;
+    // The type check says its error above its closing line (host/web-js/build.mjs), in whatever form the checker or
+    // its launch failed in: the lines since the last one taken are that error, so a form no pattern here knows is
+    // still said (LLP 1156.006.000 D16). Bun's trace stays out.
+    if (/^error: .*failed the type check\b/.test(lines[i])) message.push(...lines.slice(last + 1, i).filter((l) => l.trim() && !/^\s+at |^Bun v\d/.test(l)).slice(-40));
     message.push(lines[i]);
+    last = i;
     // Its excerpt (contract/cli/src/excerpt.rs): the source line, then the caret under it.
     if (compilerError(lines[i])) {
-      if (/^ \d+ \| /.test(lines[i + 1] ?? '')) message.push(...lines.slice(i + 1, i + 3)), i += 2;
+      if (/^ \d+ \| /.test(lines[i + 1] ?? '')) message.push(...lines.slice(i + 1, i + 3)), i += 2, last = i;
       continue;
     }
     // A marker with nothing after it says its message below, to the next diagnostic or Bun's trace: wasm-bindgen's
@@ -100,7 +112,7 @@ export function webBuildFailure(stderr) {
     while (end < lines.length && !kept(lines[end]) && !/^\s+at |^Bun v\d/.test(lines[end])) end++;
     while (end > i + 1 && !lines[end - 1].trim()) end--;
     message.push(...lines.slice(i + 1, end));
-    i = end - 1;
+    i = last = end - 1;
   }
   // The bundler's refusal, in the words the type check uses (`Error: ` is its wrapper).
   const reason = (message.length ? message : lines.slice(-3)).map((l) => l.replace(/^Error: (?=module outside captured app: )/, '')).join('\n');
@@ -306,7 +318,9 @@ async function verbRun({ dir, name, game = false, exact2, args }, reply) {
   if (asked !== null) {
     const help = await import(resolve(exact2, 'scripts/help.mjs')).catch(() => null);
     if (!help) { console.error(`no Exact checkout at ${exact2}: EXACT names the checkout`); return 1; }
-    return help.printHelp(asked, { verbs: Object.keys(verbs), own, all: rest.includes('all') });
+    const code = help.printHelp(asked, { verbs: Object.keys(verbs), own, all: rest.includes('all') });
+    if (asked === '' && code === 0) console.log(`\n${checkoutLine(exact2)}`);
+    return code;
   }
   if (verb === 'web' && rest.includes('--ready') && !game) {
     console.error('web --ready waits for a game\'s dev loop, which serves while it builds; an app\'s web prints its URL once it serves');
@@ -391,6 +405,9 @@ async function verbRun({ dir, name, game = false, exact2, args }, reply) {
     const error = (await import(resolve(exact2, 'scripts/help.mjs'))).appleBuildRefusal(rest);
     if (error) { console.error(error); reply?.({ code: 'build_failed', error }); return log(2); }
   }
+  // A long build says which Exact it builds with: a worktree's launcher can resolve the main tree's checkout, and a
+  // fix tested against another one is not in the build (LLP 1156.006.000 D12).
+  if (['ios', 'mac', 'linux', 'windows', 'android', 'share', 'web-build'].includes(verb)) console.error(`exact: ${checkoutLine(exact2)}`);
   // A native verb names its platform in app.json the first time, after that platform's setup rows, and keeps the
   // generated workspace current unless the app authored one (LLP 1153 D1.2; scripts/app-shells.mjs). A drive's
   // host counts (`test ios`). Absent from a checkout that lacks the module (the scaffold's test SDK), it is skipped.
@@ -546,9 +563,6 @@ if (verb === 'contract') {
     // Its refusal ends here, so the command is logged like any other.
     const refused = await refusedFlag();
     if (refused != null) return log(refused);
-    // A server entry that does not read DB is refused before the build too, not after it (verify.mjs `withAppServer`, LLP 1116.008 D1).
-    const refusal = verb === 'test' ? (await import(resolve(exact2, 'scripts/verify.mjs'))).appServer(dir)?.refusal : null;
-    if (refusal) { console.error(`test: ${refusal}`); return log(1); }
     const prepared = await prepare();
     if (prepared) return log(prepared);
     // An `agent` drive's check hashes the build's inputs, and the driver need not again (LLP 1012.001.000 D1: once a drive).
@@ -559,6 +573,8 @@ if (verb === 'contract') {
       : await script(['scripts/agent-build.mjs', host, '--app', name], [], [0, 2, 2]);
     if (checked) { delete process.env.EXACT_BUILD_CHECK_OUT; try { process.env.EXACT_BUILD_CHECKED = readFileSync(checked, 'utf8'); rmSync(checked); } catch {} }
     if (built) return log(await withCargoFault(built));
+    const refusal = verb === 'test' ? (await import(resolve(exact2, 'scripts/verify.mjs'))).appServer(dir)?.refusal : null;
+    if (refusal) { console.error(`test: ${refusal}`); return log(1); }
   }
   // A verb that builds, runs, compiles or checks the app prepares first (`beforeBuild`); a drive prepared above. An
   // app's own command keeps its name (a game's verify, an app's check) and prepares nothing.

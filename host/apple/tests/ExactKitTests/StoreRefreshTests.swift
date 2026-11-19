@@ -1,5 +1,7 @@
 import XCTest
 import ExactCore
+import ExactSnapshot
+import ExactWidgetPublication
 @testable import ExactKit
 @testable import ExactCollections
 #if canImport(UIKit)

@@ -52,6 +52,9 @@ impl Motion {
     /// Empty, at clock zero; the browser runs CSS transitions and
     /// animations itself (LLP 1055 D7), so the engine lowers only springs.
     pub fn new() -> Motion {
+        // This module reads the springs a `transition` row names; it is its
+        // own wasm, so it links the grammar itself (LLP 1047 D2).
+        exact_motion::link_transitions();
         let mut engine = Engine::new();
         engine.set_lowered(true);
         Motion {

@@ -231,9 +231,9 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
         }
         a = exact.makeSession(delegate: delegate, label: "a")
         b = exact.makeSession(delegate: delegate, label: "b")
-        exact.installHostEvents(applicationDelegate: nil, sceneDelegate: SceneDelegate.self)
+        ExactComposition.installHostEvents(on: exact, applicationDelegate: nil, sceneDelegate: SceneDelegate.self)
         #if !os(tvOS)
-        exact.installNotificationClicks(boot: { $0.bootForWake() }, activate: nil)
+        ExactComposition.installNotificationClicks(on: exact, boot: { $0.bootForWake() }, activate: nil)
         #endif
         if ExactEnv.agentFreezes { a.clock = 0; b.clock = 0 }
         sessions = [("a", a), ("b", b)]
@@ -241,10 +241,10 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
     }
     #if !os(tvOS)
     func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
-        exact.registeredForRemoteNotifications(deviceToken: deviceToken)
+        ExactComposition.registeredForRemoteNotifications(on: exact, deviceToken: deviceToken)
     }
     func application(_ application: UIApplication, didFailToRegisterForRemoteNotificationsWithError error: Error) {
-        exact.failedToRegisterForRemoteNotifications(error: error)
+        ExactComposition.failedToRegisterForRemoteNotifications(on: exact, error: error)
     }
     #endif
     // A scene, not an app-wide window: an app that adopts no scene
@@ -261,8 +261,8 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
     func scene(_ scene: UIScene, willConnectTo session: UISceneSession, options connectionOptions: UIScene.ConnectionOptions) {
         guard let ws = scene as? UIWindowScene else { return }
         #if !os(tvOS)
-        if let response = connectionOptions.notificationResponse { exact.openNotification(response) }
-        exact.hostEvents(connectionOptions: connectionOptions)
+        if let response = connectionOptions.notificationResponse { ExactComposition.openNotification(on: exact, response) }
+        ExactComposition.hostEvents(on: exact, connectionOptions: connectionOptions)
         #endif
         let w = ExactWindow(windowScene: ws)
         let rootController = RootController()

@@ -124,7 +124,7 @@ final class NoLists: ListHosting {
     var fillLatency: [UInt32: Double] { [:] }
     func fillSlice(_ view: UInt32, limit: UInt32, glimpse: Bool) -> Int { 0 }
     func fixedSpans(_ id: UInt32) -> [(first: Bool, last: Bool, start: Double, end: Double)] { [] }
-    func covers(_ id: UInt32) -> Bool { false }
+    package func covers(_ id: UInt32) -> Bool { false }
     func rowsToCover(_ id: UInt32, ahead: CGFloat) -> UInt32 { 0 }
     var animating: Set<UInt32> { [] }
     var correcting: Bool { false }

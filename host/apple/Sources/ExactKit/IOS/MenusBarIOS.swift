@@ -7,7 +7,7 @@ import UIKit
 extension MenuHost {
     /// Whether a bar item opening `target` is its pull-down (LLP 1021 D3):
     /// a menu-shaped popover, or a confirmation (which its rows present).
-    func pullsDown(_ target: NodeView) -> Bool { target.menuShaped || isConfirmation(target) }
+    package func pullsDown(_ target: NodeView) -> Bool { target.menuShaped || isConfirmation(target) }
     #if os(iOS)
     /// Whether `source` opens `pop` as UIKit's menu when the agent does not
     /// paint it (`sync`): a native button in the page its `role="menu"`
@@ -24,7 +24,7 @@ extension MenuHost {
     /// tap) from the item as a native button in the page opens one: lifted,
     /// anchored on the item (`lift`). False when the item is ineligible or
     /// names nothing it opens now.
-    func openFromBar(_ node: NodeView) -> Bool {
+    package func openFromBar(_ node: NodeView) -> Bool {
         guard let presenter, eligible(node, inBar: true), let invocation = presenter.invocation(of: node), invocation.opens,
               !isConfirmation(invocation.target), let name = invocation.target.props["id"] else { return false }
         // Open before the tap's light dismiss, which would close it first.
@@ -43,7 +43,7 @@ extension MenuHost {
     /// provider presents it. Nil when the agent shows UIKit's menus instead
     /// (`--touch platform`: a real touch opens them); false when it opens
     /// nothing now.
-    func agentOpen(barItem node: NodeView) -> Bool? {
+    package func agentOpen(barItem node: NodeView) -> Bool? {
         guard ExactEnv.agentPaints, let presenter else { return nil }
         guard eligible(node, inBar: true), let invocation = presenter.invocation(of: node), invocation.opens else { return false }
         let target = invocation.target

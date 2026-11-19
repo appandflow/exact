@@ -191,7 +191,7 @@ extension NodeView {
     /// The section owns hover and focus; its card owns their shadow paint.
     var groupedShadowCard: NodeView? {
         guard props["semanticTag"] == "section", nodeSuperview?.props["listStyle"] != nil else { return nil }
-        return container.subviews.compactMap { $0 as? NodeView }.first {
+        return childNodes.first {
             !["header", "footer"].contains($0.props["semanticTag"] ?? "")
         }
     }
@@ -232,7 +232,7 @@ extension NodeView {
 
     /// The casters onto the layer: the outer ones at its bottom, cast from
     /// the border box; the inset ones over the box's paint; or gone.
-    func applyShadow(outline: CGPath) {
+    func applyShadow(outline makeOutline: @autoclosure () -> CGPath) {
         defer { overflowClipGeometryChanged() }
         if let card = groupedShadowCard {
             card.syncShadowClip()
@@ -257,9 +257,18 @@ extension NodeView {
         let host = layer
         #endif
         let all = surface == nil && bounds.width > 0 && bounds.height > 0 ? boxShadows : []
+        // No shadow, the usual case, needs no outline: a batch that frames thousands of boxes builds none.
+        guard !all.isEmpty else {
+            shadowCaster?.removeFromSuperlayer(); shadowCaster = nil
+            #if os(macOS)
+            removeShadowStand()
+            #endif
+            insetCaster?.removeFromSuperlayer(); insetCaster = nil
+            return
+        }
         var sizes = BorderPaint.reduced(BorderPaint.radii(style, in: bounds), in: bounds)
         // A default surface's corner where its author wrote none, its shadow cast from it.
-        var outline = outline
+        var outline = makeOutline()
         if let r = defaultSurfaceRadius, !writesCorner {
             sizes = BorderPaint.reduced(Array(repeating: CGSize(width: r, height: r), count: 4), in: bounds)
             outline = BorderPaint.roundedRect(bounds, sizes, shape: CornerShape(nil))
@@ -434,9 +443,25 @@ extension NodeView {
         #endif
         syncClipBox(overflowClips && kind != "text" && scroll == nil
                     && (clipsOneAxis || shadowColor != nil && overlay == nil && canHoldChildren))
-        let clipped = overflowClips && clipBox == nil
-        if clipsToBounds != clipped { clipsToBounds = clipped }
+        if clipsToBounds != clipsItself { clipsToBounds = clipsItself }
     }
+
+    /// Whether the node's own bounds clip its children: its overflow clips and
+    /// no clip box holds them. A scroller drawn past its box into a band
+    /// (`setPageBand`) leaves the clip to its scroll view where that holds all
+    /// it draws (`scrollHoldsContent`); the node's own clip would cut the band off.
+    package var clipsItself: Bool {
+        #if os(iOS) || os(tvOS)
+        if pageBand != .zero, scrollHoldsContent { return false }
+        #endif
+        return overflowClips && clipBox == nil
+    }
+
+    /// Whether all that the node's overflow clip holds is in its scroll view: a
+    /// container's children, which `syncScroll` moves there, but not a text's
+    /// lines or an image's pixels, which the node draws itself. A button is left
+    /// out, since a native face draws its title in the node.
+    var scrollHoldsContent: Bool { ["view", "scroll", "list"].contains(kind) }
 
     /// The children into a clipping box of their own, or back out of it, as
     /// a scroll view takes them.

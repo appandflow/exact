@@ -183,23 +183,10 @@ extension Agent {
         if presenter.menus.ownsConfirmationNode(v) { return "is a confirmation's action (UIKit's alert)" }
         if presenter.swipeActions.ownsAction(v.id) { return "is a native swipe action" }
         if presenter.menus.agentPainted(v) { return "goes through the agent's painted popovers" }
-        let nav = presenter.navigation
         // Under `--chrome platform` UIKit's bars draw these: a finger aims
         // at a node, and the node is not where the bar item is.
         let shown = ExactEnv.authoredChrome ? "the agent shows in place of" : "drawn by (--chrome platform; tap it without --touch platform)"
-        if nav.tabController != nil, !nav.tablistAppearanceNone, let list = nav.adoptedTablist.flatMap({ presenter.views[$0] }), v === list || v.isDescendant(of: list) {
-            return "is in the authored tablist \(shown) UIKit's tab bar"
-        }
-        for routes in nav.barStackRoutes {
-            for case let route as RouteController in routes {
-                guard let shape = HeaderShape.bar(of: route.node) else { continue }
-                let replaced = shape.authored.isEmpty ? [shape.header] : shape.placed
-                if replaced.contains(where: { v === $0 || v.isDescendant(of: $0) }) {
-                    return "is in the authored header \(shown) UIKit's navigation bar"
-                }
-            }
-        }
-        return nil
+        return presenter.navigation.drawnByBar(v, shown: shown)
     }
 
     /// `view` and the Exact nodes enclosing it, innermost first.

@@ -1,8 +1,9 @@
 // The lists capability (LLP 1047.001 D10; the roster's `Collections`): a
-// windowed list, a row's swipe actions and a list's native row cells. An
-// app's composition links this module only when its plan has one of them
-// (a windowed list, a swipe row, a reorder group or grip, a list whose rows
-// are cells), and installs it before any session is made.
+// windowed list, a row's swipe actions, a list's native row cells and
+// reordering a list's rows. An app's composition links this module only
+// when its plan has one of them (a windowed list, a swipe row, a reorder
+// group or grip, a list whose rows are cells), and installs it before any
+// session is made.
 import ExactKit
 import ExactCore
 import CExact
@@ -10,6 +11,7 @@ import CExact
 public enum ExactCollections {
     public static func install() {
         ListLink.make = { CollectionHost($0) }
+        ReorderLink.make = { ReorderHost($0) }
         #if os(iOS) || os(tvOS)
         SwipeActionsLink.make = { SwipeActionsHost($0) }
         SwipeActionsLink.makeRowCells = { RowCells($0) }
@@ -21,5 +23,6 @@ public enum ExactCollections {
         CoreExports.collectionFixedSize = exact_collection_fixed_size
         CoreExports.collectionSnap = exact_collection_snap
         CoreExports.collectionSnapStop = exact_collection_snap_stop
+        CoreExports.collectionSnapshots = { try $0.collectionSnapshots() }
     }
 }

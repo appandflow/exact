@@ -3,6 +3,7 @@ import ExactCore
 import UserNotifications
 import XCTest
 @testable import ExactKit
+@testable import ExactNotifications
 
 /// LLP 1027.008 Part 1: an owner-placed TypeScript module's evaluation is
 /// posted to the owner from the first draw's own callback, and the rest of

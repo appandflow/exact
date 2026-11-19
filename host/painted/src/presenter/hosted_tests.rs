@@ -302,6 +302,7 @@ fn a_hosted_field_is_measured_by_the_shell_during_layout() {
     let device = Device {
         night: false,
         font_scale: 1.5,
+        screen_reader: exact_runner::ScreenReader::Unknown,
         locale: "en-US".into(),
         rtl: false,
         hour24: false,

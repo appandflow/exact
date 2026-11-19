@@ -1,5 +1,5 @@
 import { beneathApp } from "./type.js";
-import { agentParameters } from "./routes.js";
+import { agentParameters } from "./agent-parameters.js";
 const AGENT_ADMITTED = true; // false in a release, as the release gate writes it (agent-gate.mjs, LLP 1069.007 D2)
 // Read safe-area insets from probe padding and keyboard height from the visual viewport
 let probe;
@@ -239,8 +239,19 @@ const queries = () => preferenceQueries ??= [
 ].map(([q, bits]) => [matchMedia(q), bits]);
 export const preferences = () => {
   const bits = queries().reduce((bits, [q, bit]) => bits | (q.matches ? bit : 0), 0), meta = globalThis.document?.querySelector?.("meta[name=\"color-scheme\"]")?.content, pinned = globalThis.exact?.systemScheme ?? (meta === "light" || meta === "dark" ? meta : null);
-  return pinned ? bits & ~16 | (pinned === "dark" ? 16 : 0) : bits;
+  const schemed = pinned ? bits & ~16 | (pinned === "dark" ? 16 : 0) : bits, mode = DISPLAY_MODES.indexOf(globalThis.__exactDisplayMode);
+  return mode < 0 ? schemed : schemed & ~(7 << 29) | mode << 29;
 };
+// @ref LLP 1039 D7 — the agent's `prefer display-mode`, which Chrome's emulation cannot set: the facts read `value`
+// until the next one, and the page's own `display-mode` query does not change. It is a global of its own, which the
+// carrier also sets in each new document before the page's scripts run: the web-js agent reads its own copy of this
+// module, and the wasm glue replaces `globalThis.exact` at boot. The caller re-answers the runner.
+export function preferDisplayMode(value) {
+  if (!DISPLAY_MODES.includes(value)) {
+    throw Object.assign(new Error(`prefer: display-mode: ${value} is not a display mode`), { malformed: true });
+  }
+  globalThis.__exactDisplayMode = value;
+}
 // a dev pin's scheme is the system's (LLP 1122 D4; dev.js), else the manifest's fixed `userInterfaceStyle` (the shell's `<meta name="color-scheme">`, look.mjs), as `UIUserInterfaceStyle` is an iOS app's
 export const displayMode = () => DISPLAY_MODES[preferences() >>> 29 & 7];
 // @ref LLP 1101.003 D6 — Media Queries 4's `update`: 0 `fast` (a screen, and a page that cannot ask), 1 `slow`, 2 `none` (print). The preference bits have no room for it; the wasm host takes it through `exact_set_update`.
@@ -275,6 +286,7 @@ export function pageReporter(agent, platform = globalThis) {
     "can-open-files": true,
     "has-focus": true,
     "root-font-size": 16,
+    "screen-reader": "unknown",
     "gpu-tier": "high",
     "iframe-partition": false,
     presented: true
@@ -309,6 +321,7 @@ export function pageReporter(agent, platform = globalThis) {
     ...cache
   } : {
     ...cache,
+    "screen-reader": "unknown",
     frozen,
     "visibility-state": platform.document.visibilityState === "hidden" ? "hidden" : "visible",
     online: platform.navigator.onLine !== false,
@@ -339,7 +352,7 @@ export function pageReporter(agent, platform = globalThis) {
     const next = { ...facts };
     for (const [name, raw] of Object.entries(page ?? {})) {
       const value = String(raw);
-      if (name === "visibility-state" && (value === "visible" || value === "hidden") || name === "gpu-tier" && [
+      if (name === "screen-reader" && ["on", "off", "unknown"].includes(value) || name === "visibility-state" && (value === "visible" || value === "hidden") || name === "gpu-tier" && [
         "low",
         "mid",
         "high"
@@ -399,6 +412,7 @@ export function pageReporter(agent, platform = globalThis) {
   };
   return {
     bits,
+    screenReaderCode: () => ["unknown", "off", "on"].indexOf(read()["screen-reader"]),
     read: () => ({
       ...read(),
       "root-font-size": rootFontSize(),

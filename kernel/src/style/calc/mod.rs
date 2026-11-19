@@ -11,18 +11,47 @@
 mod parse;
 pub(crate) mod simplify;
 mod substitute;
+pub(crate) use substitute::position_tokens;
 mod text;
 pub(crate) use text::ident;
 mod wire;
 
 pub use parse::nonnegative_row;
-pub(crate) use parse::{grid, is_env, names_math, parse, refusal, signed, substitutes, Refused};
+pub(crate) use parse::{
+    grid, is_env, length_percentage, names_math, parse, refusal, signed, substitutes, Refused,
+};
 
 use super::env::{self, Edge, Env, Region, SegmentVar, TitleBarVar};
 use super::intern::{Table, Value};
+use super::targets::Target;
 use super::{Dimension, StyleId, ViewportUnit};
 use std::sync::Arc;
 use std::sync::{LazyLock, Mutex};
+
+/// The calculations in a length row or either coordinate of a position row.
+pub(crate) fn in_row(row: super::RowValue<'_>) -> impl Iterator<Item = Comparison> {
+    let calculation = |d: &Dimension| match d {
+        Dimension::Compare(c) => Some(c.clone()),
+        _ => None,
+    };
+    match row {
+        super::RowValue::Dimension(d) => [calculation(&d), None],
+        super::RowValue::ObjectPosition(p) => p.calculations(),
+        _ => [None, None],
+    }
+    .into_iter()
+    .flatten()
+}
+
+/// Whether a row directly holds a container length.
+pub(crate) fn reads_plain_container(row: &super::RowValue<'_>) -> bool {
+    let reads = |d: &Dimension| matches!(d, Dimension::Viewport(..)) && d.reads_container();
+    match row {
+        super::RowValue::Dimension(d) => reads(d),
+        super::RowValue::ObjectPosition(p) => reads(&p.x) || reads(&p.y),
+        _ => false,
+    }
+}
 
 /// The values CSS Values 4 §10.8 has a UA support in one calculation, as
 /// written, and the levels of parentheses and functions: the kernel's
@@ -108,30 +137,219 @@ pub struct Var {
     pub fallback: Option<Box<Node>>,
 }
 
-/// An observation of the safe area (LLP 1123 D9, D10's leaf) on `edge`:
-/// the reading box's own, as the solve gives it, or a native target's raw
-/// insets ([`Env::observation`]); else `fallback`, guaranteed-invalid
-/// without one. Its family is the safe area. Only the kernel builds one
-/// until D10's lowering reads `var(--exact-safe-area-inset-*)` and the
-/// target names as it, which the wire's round trip through the text
-/// refuses until then.
+/// What an observation reads (LLP 1123 D10's families): the safe area; the
+/// keyboard's guide, docked only or following an undocked keyboard too (D7);
+/// the layout regions UIKit's `UIView.LayoutRegion` gives a view, with their
+/// corner variants, and the older readable guide (D8, D10); and the owner
+/// controller's system minimum, a raw observation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[repr(u8)]
+pub enum Family {
+    /// `--exact-safe-area-inset-*`.
+    SafeArea = 0,
+    /// `--exact-keyboard-inset-*`: UIKit's guide with `usesBottomSafeArea`
+    /// and `followsUndockedKeyboard` off.
+    Keyboard = 1,
+    /// `--exact-keyboard-undocked-inset-*`: the guide that also follows an
+    /// undocked keyboard.
+    KeyboardUndocked = 2,
+    /// `--exact-safe-area-corners-inset-*`: `.safeArea(cornerAdaptation:)`.
+    SafeAreaCorners = 3,
+    /// `--exact-layout-margins-inset-*`: `.margins()`, the margins rectangle.
+    LayoutMargins = 4,
+    /// `--exact-layout-margins-corners-inset-*`: `.margins(cornerAdaptation:)`.
+    LayoutMarginsCorners = 5,
+    /// `--exact-readable-content-inset-*`: `.readableContent()`.
+    ReadableContent = 6,
+    /// `--exact-readable-content-corners-inset-*`:
+    /// `.readableContent(cornerAdaptation:)`.
+    ReadableContentCorners = 7,
+    /// `--exact-readable-content-guide-inset-*`: `readableContentGuide`.
+    ReadableContentGuide = 8,
+    /// `--exact-system-minimum-layout-margins-inset-*`: the owner controller's
+    /// `systemMinimumLayoutMargins`.
+    SystemMinimum = 9,
+}
+
+/// A reader's components, a bit each ([`Observe::component`]).
+pub(crate) type Components = u64;
+
+impl Family {
+    /// Every family, in wire order.
+    pub const ALL: [Family; 10] = [
+        Family::SafeArea,
+        Family::Keyboard,
+        Family::KeyboardUndocked,
+        Family::SafeAreaCorners,
+        Family::LayoutMargins,
+        Family::LayoutMarginsCorners,
+        Family::ReadableContent,
+        Family::ReadableContentCorners,
+        Family::ReadableContentGuide,
+        Family::SystemMinimum,
+    ];
+
+    /// The families D8's margins rule gives a box, which a host that reports
+    /// no margins resolves to the box's safe area (D10, "Other hosts").
+    pub const MARGINS: [Family; 6] = [
+        Family::SafeAreaCorners,
+        Family::LayoutMargins,
+        Family::LayoutMarginsCorners,
+        Family::ReadableContent,
+        Family::ReadableContentCorners,
+        Family::ReadableContentGuide,
+    ];
+
+    /// The name's part before the edge: `safe-area-inset-` and the like.
+    pub fn infix(self) -> &'static str {
+        match self {
+            Family::SafeArea => "safe-area-inset-",
+            Family::Keyboard => "keyboard-inset-",
+            Family::KeyboardUndocked => "keyboard-undocked-inset-",
+            Family::SafeAreaCorners => "safe-area-corners-inset-",
+            Family::LayoutMargins => "layout-margins-inset-",
+            Family::LayoutMarginsCorners => "layout-margins-corners-inset-",
+            Family::ReadableContent => "readable-content-inset-",
+            Family::ReadableContentCorners => "readable-content-corners-inset-",
+            Family::ReadableContentGuide => "readable-content-guide-inset-",
+            Family::SystemMinimum => "system-minimum-layout-margins-inset-",
+        }
+    }
+
+    /// The family by wire index.
+    pub fn from_index(i: u8) -> Option<Family> {
+        Family::ALL.get(i as usize).copied()
+    }
+
+    /// The family and edge a host's observation name reads
+    /// (`--exact-safe-area-inset-top`, `--exact-keyboard-inset-bottom`); `None`
+    /// for any other name.
+    pub fn named(name: &str) -> Option<(Family, Edge)> {
+        let observed = name.strip_prefix("--exact-")?;
+        Family::ALL.into_iter().find_map(|family| {
+            let edge = observed.strip_prefix(family.infix())?;
+            Some((family, Edge::from_name(edge)?))
+        })
+    }
+
+    /// The target, family and edge an observation's name reads (LLP 1123 D9):
+    /// the box's own family (`--exact-keyboard-inset-bottom`), or a native
+    /// target's raw safe area (`--exact-native-2-safe-area-inset-top`,
+    /// `--exact-navigation-safe-area-inset-top`,
+    /// `--exact-window-safe-area-inset-left`,
+    /// `--exact-target-map-safe-area-inset-top`); `None` for any other name.
+    pub fn observed(name: &str) -> Option<(Target, Family, Edge)> {
+        if let Some((family, edge)) = Family::named(name) {
+            return Some((Target::Box, family, edge));
+        }
+        let (target, edge) = name
+            .strip_prefix("--exact-")?
+            .rsplit_once("-safe-area-inset-")?;
+        Some((
+            Target::named(target)?,
+            Family::SafeArea,
+            Edge::from_name(edge)?,
+        ))
+    }
+
+    /// Whether an observation of `self` on `target` is raw, which a reservation
+    /// may not read (LLP 1123 D5, "Provenance"): every native target's, and the
+    /// owner controller's system minimum.
+    pub fn raw(self, target: &Target) -> bool {
+        *target != Target::Box || self == Family::SystemMinimum
+    }
+
+    /// Its components' bits among a reader's inputs ([`Observe::component`]).
+    pub(crate) const fn bits(self) -> Components {
+        0b1111 << (self as Components * 4)
+    }
+}
+
+/// How many values a reader's input holds: four edges a family, each at
+/// [`Observe::component`].
+pub const COMPONENTS: usize = Family::ALL.len() * 4;
+
+/// An observation (LLP 1123 D9, D10's leaf) of a family on `edge`: the
+/// reading box's own, as the solve gives it, or a native target's raw
+/// safe-area insets ([`Env::observation`]); else `fallback`,
+/// guaranteed-invalid without one. Each is lowered from its name
+/// (`var(--exact-keyboard-inset-*)`, `var(--exact-native-2-safe-area-inset-*)`)
+/// but the box's own safe area's, which the kernel builds until activation
+/// reads `var(--exact-safe-area-inset-*)` as an observation.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Observe {
-    /// Whose safe area: the box's own, or a native target's.
+    /// Whose: the box's own, or a native target's.
     pub target: super::targets::Target,
+    /// What it reads.
+    pub family: Family,
     /// The edge observed.
     pub edge: Edge,
     /// What stands in where the observation is unavailable.
     pub fallback: Option<Box<Node>>,
 }
 
-/// `node` with every local inset (`EnvTerm::Local`) replaced by its points
-/// under `env`, and every custom property by its value there (LLP 1123 D5);
-/// `None` where a property has neither a value nor a fallback.
+/// A field of the segment at column `x`, row `y` of the reading box's owner,
+/// in the owner's coordinates, or of the document's outside every owner (LLP
+/// 1123 D16, D10's leaf); else `fallback`, guaranteed-invalid without one.
+/// The owner's segments are its host's split of its own active division
+/// regions, commonly the document's projected into it, and none where it
+/// lies on one segment, so a segment it does not have is unavailable.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SegmentRead {
+    /// The field read.
+    pub var: SegmentVar,
+    /// The segment's column, from 0 to [`SegmentVar::MAX_INDEX`].
+    pub x: u8,
+    /// Its row, from 0 to [`SegmentVar::MAX_INDEX`].
+    pub y: u8,
+    /// What stands in where the segment is unavailable.
+    pub fallback: Option<Box<Node>>,
+}
+
+impl SegmentRead {
+    /// The name's part before the field.
+    pub const PREFIX: &str = "--exact-viewport-segment-";
+
+    /// The field and indices `--exact-viewport-segment-<field>-<x>-<y>`
+    /// reads, each index from 0 to 15 as written; `None` for any other name.
+    pub fn named(name: &str) -> Option<(SegmentVar, u8, u8)> {
+        let mut parts = name.strip_prefix(Self::PREFIX)?.split('-');
+        let var = SegmentVar::from_name(parts.next()?)?;
+        let index = |part: Option<&str>| {
+            let part = part?;
+            let i: u8 = part.parse().ok()?;
+            (i <= SegmentVar::MAX_INDEX && i.to_string() == part).then_some(i)
+        };
+        let (x, y) = (index(parts.next())?, index(parts.next())?);
+        parts.next().is_none().then_some((var, x, y))
+    }
+}
+
+/// Whether `name` is a host's name a length reads: an observation's (LLP
+/// 1123 D9) or an owner segment's (D16).
+pub fn host_name(name: &str) -> bool {
+    Family::observed(name).is_some() || SegmentRead::named(name).is_some()
+}
+
+impl Observe {
+    /// Its index among a reader's inputs: four edges a family.
+    pub(crate) fn component(&self) -> usize {
+        self.family as usize * 4 + self.edge as usize
+    }
+}
+
+/// `node` with every local inset (`EnvTerm::Local`), container unit and
+/// owner segment (LLP 1123 D16) replaced by its points under `env`, and
+/// every custom property by its value there (D5); `None` where a property
+/// or a segment has neither a value nor a fallback.
 fn localize(node: &Node, env: &Env) -> Option<Node> {
     let leaves = Leaves {
         local: &|edge| env.local_inset(edge),
         observed: &|leaf| env.observation(leaf),
+        // Replace every container leaf, so `localized` leaves none it fires on: the basis
+        // is the small viewport's where `env` has no container
+        container: &|unit| Some(unit.basis(env)),
+        segment: &|leaf| env.owner_segment(leaf),
     };
     substitute(node, &leaves, &mut |name| env.property(name).cloned())
 }
@@ -151,6 +369,8 @@ pub enum Node {
     Var(Var),
     /// An observation of the box that reads it (LLP 1123 D9, D10's leaf).
     Observe(Observe),
+    /// A field of a segment of the box's owner (LLP 1123 D16, D10's leaf).
+    Segment(SegmentRead),
     /// Its children added.
     Sum(Vec<Node>),
     /// Its children multiplied.
@@ -176,6 +396,7 @@ impl PartialEq for Node {
             (Env(a), Env(b)) => a == b,
             (Var(a), Var(b)) => a == b,
             (Observe(a), Observe(b)) => a == b,
+            (Segment(a), Segment(b)) => a == b,
             (Sum(a), Sum(b)) | (Product(a), Product(b)) | (Min(a), Min(b)) | (Max(a), Max(b)) => {
                 a == b
             }
@@ -197,6 +418,10 @@ impl Node {
             ),
             Node::Observe(o) => (
                 o.fallback.as_deref().map_or(&[][..], std::slice::from_ref),
+                &[],
+            ),
+            Node::Segment(s) => (
+                s.fallback.as_deref().map_or(&[][..], std::slice::from_ref),
                 &[],
             ),
             Node::Sum(c) | Node::Product(c) | Node::Min(c) | Node::Max(c) => (c, &[]),
@@ -240,6 +465,10 @@ impl Node {
             Node::Observe(o) => match env.observation(o) {
                 Some(points) => f64::from(points),
                 None => o.fallback.as_ref()?.value(env, basis)?,
+            },
+            Node::Segment(s) => match env.owner_segment(s) {
+                Some(points) => points,
+                None => s.fallback.as_ref()?.value(env, basis)?,
             },
             Node::Sum(c) => {
                 let mut total = 0.0;
@@ -408,8 +637,69 @@ pub(crate) fn undefined_in(node: &Node, env: &Env) -> bool {
             (None, Some(fallback)) => undefined_in(fallback, env),
             (None, None) => true,
         },
+        Node::Segment(s) => match (env.owner_segment(s), &s.fallback) {
+            (Some(_), _) => false,
+            (None, Some(fallback)) => undefined_in(fallback, env),
+            (None, None) => true,
+        },
         n => n.children().any(|c| undefined_in(c, env)),
     }
+}
+
+/// Whether `node` reads a raw observation, directly, in a fallback or through a
+/// custom property `env` says holds one, which a reservation may not (LLP 1123
+/// D5, "Provenance").
+pub(crate) fn reads_raw(node: &Node, env: &Env) -> bool {
+    node.any(&|n| match n {
+        Node::Observe(o) => o.family.raw(&o.target),
+        Node::Var(v) => (env.properties.as_ref()).is_some_and(|p| p.raw(&v.name)),
+        _ => false,
+    })
+}
+
+/// The first name a length text's `var()`s read, fallbacks included, that is a
+/// raw observation or a custom property `raw` says holds one (LLP 1123 D5,
+/// "Provenance"); `None` where it reads neither.
+pub fn raw_read(text: &str, raw: &dyn Fn(&str) -> bool) -> Option<String> {
+    let mut found = None;
+    text_vars(text, &mut |name| {
+        let observed =
+            Family::observed(name).is_some_and(|(target, family, _)| family.raw(&target));
+        if found.is_none() && (observed || raw(name)) {
+            found = Some(name.to_string());
+        }
+    });
+    found
+}
+
+/// The native targets a text's `var()`s read, as [`targets_of`] gives a tree's.
+fn text_targets(text: &str) -> Vec<(Target, u8)> {
+    let mut targets = Vec::new();
+    text_vars(text, &mut |name| {
+        if let Some((target, _, edge)) = Family::observed(name).filter(|(t, ..)| *t != Target::Box)
+        {
+            targets.push((target, 1 << edge as u8));
+        }
+    });
+    targets
+}
+
+/// The native targets `node` reads raw insets from, fallbacks included, each
+/// with the edge it reads as a bit, as [`Edge`] numbers them, once per leaf
+/// (LLP 1123 D9, "The native chain").
+pub(crate) fn targets_of(node: &Node) -> Vec<(Target, u8)> {
+    let targets = std::cell::RefCell::new(Vec::new());
+    node.any(&|n| {
+        if let Node::Observe(o) = n {
+            if o.target != Target::Box {
+                targets
+                    .borrow_mut()
+                    .push((o.target.clone(), 1 << o.edge as u8));
+            }
+        }
+        false
+    });
+    targets.into_inner()
 }
 
 /// Whether `node` is small enough to hold once its custom properties are
@@ -442,6 +732,11 @@ pub(crate) fn length_css(d: &Dimension, out: &mut String) {
 pub(crate) struct Leaves<'a> {
     pub(crate) local: &'a dyn Fn(Edge) -> f32,
     pub(crate) observed: &'a dyn Fn(&Observe) -> Option<f32>,
+    /// A container unit's basis in points (LLP 1123 D16); `None` keeps the
+    /// leaf, where no node's containers are known.
+    pub(crate) container: &'a dyn Fn(ViewportUnit) -> Option<f32>,
+    /// An owner segment's field (D16); `None` where the segment is unavailable.
+    pub(crate) segment: &'a dyn Fn(&SegmentRead) -> Option<f64>,
 }
 
 /// `node` with each local inset and observation as `leaves` gives it and
@@ -467,6 +762,16 @@ pub(crate) fn substitute(
             Some(points) => Node::Value(f64::from(points), Unit::Px),
             None => substitute(o.fallback.as_ref()?, leaves, property)?,
         },
+        Node::Segment(s) => match (leaves.segment)(s) {
+            Some(points) => Node::Value(points, Unit::Px),
+            None => substitute(s.fallback.as_ref()?, leaves, property)?,
+        },
+        Node::Value(v, Unit::Viewport(unit)) if unit.is_container() => {
+            match (leaves.container)(*unit) {
+                Some(basis) => Node::Value(v * f64::from(basis) / 100.0, Unit::Px),
+                None => node.clone(),
+            }
+        }
         Node::Value(..) | Node::Env(..) => node.clone(),
         Node::Sum(c) => Node::Sum(all(c, property)?),
         Node::Product(c) => Node::Product(all(c, property)?),
@@ -490,8 +795,34 @@ pub(crate) fn substitute(
 /// included, by CSS's tokens: a function's name in any case, a property's
 /// as written.
 fn text_properties(text: &str, out: &mut Vec<Arc<str>>) {
+    text_vars(text, &mut |name| {
+        if crate::style::safe_area_properties::is_author_name(name)
+            && !out.iter().any(|n| &**n == name)
+        {
+            out.push(name.into());
+        }
+    });
+}
+
+/// The components of its box's own observations a text's `var()`s read, as
+/// [`Comparison::observed_components`] gives a tree's. The safe area's name
+/// is the local inset until activation (`parse.rs`), so only the other
+/// families' readings count.
+fn text_observations(text: &str) -> Components {
+    let mut components = 0;
+    text_vars(text, &mut |name| {
+        if let Some((family, edge)) = Family::named(name).filter(|(f, _)| *f != Family::SafeArea) {
+            components |= 1 << (family as usize * 4 + edge as usize);
+        }
+    });
+    components
+}
+
+/// Each name a text's `var()`s read, fallbacks included, by CSS's tokens: a
+/// function's name in any case, a property's as written.
+fn text_vars(text: &str, each: &mut dyn FnMut(&str)) {
     use cssparser::{Parser, ParserInput, Token};
-    fn walk(p: &mut Parser<'_, '_>, out: &mut Vec<Arc<str>>) {
+    fn walk(p: &mut Parser<'_, '_>, each: &mut dyn FnMut(&str)) {
         while let Ok(token) = p.next() {
             let var = matches!(token, Token::Function(name) if name.eq_ignore_ascii_case("var"));
             if !matches!(token, Token::Function(_) | Token::ParenthesisBlock) {
@@ -500,21 +831,16 @@ fn text_properties(text: &str, out: &mut Vec<Arc<str>>) {
             let _ = p.parse_nested_block(|p| {
                 if var {
                     if let Ok(Token::Ident(name)) = p.next() {
-                        let name: &str = name;
-                        if crate::style::safe_area_properties::is_author_name(name)
-                            && !out.iter().any(|n| &**n == name)
-                        {
-                            out.push(name.into());
-                        }
+                        each(name);
                     }
                 }
-                walk(p, out);
+                walk(p, each);
                 Ok::<_, cssparser::ParseError<'_, ()>>(())
             });
         }
     }
     let mut input = ParserInput::new(text);
-    walk(&mut Parser::new(&mut input), out);
+    walk(&mut Parser::new(&mut input), each);
 }
 
 /// A calculation a row holds: a handle to its interned entry.
@@ -653,6 +979,21 @@ impl Comparison {
         }
     }
 
+    /// Whether it reads a raw observation under `env` ([`reads_raw`]): a tree's
+    /// leaf, or a text's `var()` of one or of a property that holds one.
+    pub(crate) fn reads_raw(&self, env: &Env) -> bool {
+        self.with(|e| match e {
+            Entry::Tree(t) => reads_raw(t, env),
+            Entry::Text { text, .. } => {
+                let property = |name: &str| (env.properties.as_ref()).is_some_and(|p| p.raw(name));
+                // What the row reads once substituted too: an `env()`'s
+                // fallback can supply a `var()`'s name
+                raw_read(text, &property).is_some()
+                    || matches!(self.substituted(env), Some(Dimension::Compare(c)) if c.is_tree() && c.reads_raw(env))
+            }
+        })
+    }
+
     /// Whether it is invalid at computed-value time under `env`, the row
     /// taking its initial value: a segment a tree reads is undefined,
     /// whichever argument it is in, or a text substituted is no value of its
@@ -717,47 +1058,79 @@ impl Comparison {
         })
     }
 
-    /// Whether it reads an observation of the safe area, its box's own or a
-    /// native target's (LLP 1123 D9).
+    /// Whether it reads an observation, its box's own or a native target's
+    /// (LLP 1123 D7, D9), a text's as it will be parsed included.
     pub(crate) fn reads_observed(&self) -> bool {
-        self.tree(|t| t.any(&|n| matches!(n, Node::Observe(_))))
-            .unwrap_or(false)
+        self.with(|e| match e {
+            Entry::Tree(t) => t.any(&|n| matches!(n, Node::Observe(_))),
+            Entry::Text { text, .. } => {
+                text_observations(text) != 0 || !text_targets(text).is_empty()
+            }
+        })
     }
 
-    /// The edges of its box's own safe area it reads, fallbacks included: a
-    /// bit per edge, as [`Edge`] numbers them.
-    pub(crate) fn observed_edges(&self) -> u8 {
-        let edges = std::cell::Cell::new(0u8);
+    /// Whether it reads an owner segment (LLP 1123 D16), a text's as it will be
+    /// parsed included.
+    pub(crate) fn reads_segment(&self) -> bool {
+        self.with(|e| match e {
+            Entry::Tree(t) => t.any(&|n| matches!(n, Node::Segment(_))),
+            Entry::Text { text, .. } => {
+                let mut reads = false;
+                text_vars(text, &mut |name| {
+                    reads |= SegmentRead::named(name).is_some()
+                });
+                reads
+            }
+        })
+    }
+
+    /// The components of its box's own observations it reads, fallbacks
+    /// included: a bit per [`Observe::component`].
+    pub(crate) fn observed_components(&self) -> Components {
+        if let Some(components) = self.with(|e| match e {
+            Entry::Text { text, .. } => Some(text_observations(text)),
+            Entry::Tree(_) => None,
+        }) {
+            return components;
+        }
+        let components = std::cell::Cell::new(0 as Components);
         self.tree(|t| {
             t.any(&|n| {
                 if let Node::Observe(o) = n {
                     if o.target == super::targets::Target::Box {
-                        edges.set(edges.get() | 1 << o.edge as u8);
+                        components.set(components.get() | 1 << o.component());
                     }
                 }
                 false
             })
         });
-        edges.get()
+        components.get()
     }
 
     /// The native targets it reads raw insets from, fallbacks included, each
     /// with the edge it reads as a bit, as [`Edge`] numbers them, once per
     /// leaf (LLP 1123 D9, "The native chain").
     pub(crate) fn targets_read(&self) -> Vec<(super::targets::Target, u8)> {
-        let targets = std::cell::RefCell::new(Vec::new());
-        self.tree(|t| {
-            t.any(&|n| {
-                if let Node::Observe(o) = n {
-                    if o.target != super::targets::Target::Box {
-                        let edge = 1 << o.edge as u8;
-                        targets.borrow_mut().push((o.target.clone(), edge));
-                    }
-                }
-                false
-            })
-        });
-        targets.into_inner()
+        self.with(|e| match e {
+            Entry::Tree(t) => targets_of(t),
+            Entry::Text { text, .. } => text_targets(text),
+        })
+    }
+
+    /// Whether it reads a container unit (LLP 1123 D16), which resolves per
+    /// node: in a tree, at a leaf; a text whose `env()` has a fallback,
+    /// wherever it may name one.
+    pub(crate) fn reads_container(&self) -> bool {
+        match &self.0.value {
+            Entry::Tree(t) => {
+                t.any(&|n| matches!(n, Node::Value(_, Unit::Viewport(u)) if u.is_container()))
+            }
+            // An escape may spell the unit (`c\71 w`), so a text with one may read it
+            Entry::Text { text, .. } => {
+                let text = text.to_ascii_lowercase();
+                text.contains("cq") || text.contains('\\')
+            }
+        }
     }
 
     /// Whether it reads an author's custom property (LLP 1123 D5), which
@@ -794,18 +1167,22 @@ impl Comparison {
         })
     }
 
-    /// The tree with its local insets and custom properties as `env` has
-    /// them, as the dimension that holds it, `Auto` (the row's initial
-    /// value) where a property is invalid; `None` when it reads neither. A
-    /// tree handed to layout, where only the window's environment is known,
-    /// is localized first (LLP 1123 D5).
+    /// The tree with its local insets, custom properties, observations,
+    /// container units and owner segments as `env` has them, as the
+    /// dimension that holds it, `Auto` (the row's initial value) where a
+    /// property is invalid; `None` when it reads none of them. A tree handed
+    /// to layout, where only the window's environment is known, is localized
+    /// first (LLP 1123 D5, D16).
     pub(crate) fn localized(&self, env: &Env) -> Option<Dimension> {
         self.tree(|t| {
             t.any(&|n| {
                 matches!(
                     n,
-                    Node::Env(EnvTerm::Local(_)) | Node::Var(_) | Node::Observe(_)
-                )
+                    Node::Env(EnvTerm::Local(_))
+                        | Node::Var(_)
+                        | Node::Observe(_)
+                        | Node::Segment(_)
+                ) || matches!(n, Node::Value(_, Unit::Viewport(u)) if u.is_container())
             })
             .then(|| {
                 let t = localize(t, env).map(simplify::simplify);

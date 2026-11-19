@@ -25,7 +25,7 @@ import { fileURLToPath } from 'node:url';
 import { compilerPaths, cargoInputPaths, crateDir, depInfoOf, freshCompiler } from './cargo-dep-info.mjs';
 export { freshCompiler } from './cargo-dep-info.mjs';
 import { cargoEnvironment, cargoOnPath } from './cargo-check.mjs';
-import { builtFilesystemHelper } from './filesystem.mjs';
+import { builtFilesystemHelper, offlineMiss } from './filesystem.mjs';
 import { digest, lockClosure, seen, workspaceManifest } from './kept.mjs';
 import { EXE, within } from './paths.mjs';
 
@@ -156,6 +156,8 @@ export async function contractTool(cargo, { env = process.env, json = false, fil
   if (built) return launch(built, [], undefined, env);
   if (rustMissing(env)) { new RustMissing('contract', env).say(json, file); return null; }
   if (!existsSync(CONTRACT)) console.error('exact contract: building the Contract compiler once (about a minute on a cold checkout; `exact new` starts it in the background)…');
+  // Built before and stale, as after a pull: Cargo runs quietly, so say why the wait (LLP 1156.006.000 D11).
+  else console.error('exact contract: rebuilding the Contract compiler, since its sources changed (about a minute)…');
   return cargo;
 }
 
@@ -164,7 +166,7 @@ export async function contractTool(cargo, { env = process.env, json = false, fil
  * own (`setMetadata`). */
 function recordMetadata() {
   const result = spawnSync('cargo', ['metadata', '--locked', '--offline', '--format-version', '1'], { cwd: ROOT, env: cargoEnvironment(), encoding: 'utf8', maxBuffer: 128 << 20 });
-  if (result.status !== 0) throw new Error(`cargo metadata: ${result.stderr}`);
+  if (result.status !== 0) throw new Error(`cargo metadata: ${result.stderr}${offlineMiss(result.stderr)}`);
   const metadata = JSON.parse(result.stdout), packages = new Map(metadata.packages.map(pkg => [pkg.id, pkg]));
   const nodes = new Map(metadata.resolve.nodes.map(node => [node.id, node])), seenIds = new Set();
   const pending = WEB_CRATES.map(name => metadata.packages.find(pkg => pkg.name === name).id);

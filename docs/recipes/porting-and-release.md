@@ -9,8 +9,8 @@ blank until `update --without linux`; one that ran `mac` hears `forma-unreachabl
 control that ignores the design (NSSlider's accent) until `update --without macos`. The SF
 Symbols the web draws blank are one warning line.
 
-**Comparing a port with the original.** `agent ios --touch platform` makes each tap a real touch,
-opening UIKit menus and native module controls to compare screens with the original ([driving iOS](ios-driving.md)). Porting a React Native app,
+**Comparing with the original.** `agent ios --touch platform` makes each tap a real touch,
+opening UIKit menus and native module controls to compare screens with the original ([driving iOS](ios-driving.md)). A React Native or Tailwind port:
 read [its pitfalls](../agent-pitfalls.md#porting-a-react-native-app) first.
 
 **What ships.** `ios --release` builds what ships; it ignores `EXACT_AGENT`, so drive the

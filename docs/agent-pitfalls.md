@@ -479,11 +479,15 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
   record the simulator (`xcrun simctl io booted recordVideo`) and read its frames.
 
 - **A cold launch flashes the wrong colour, and no screenshot shows it.** The launch
-  screen is `host.ios.launchImage` centred on `background_color` (`color_scheme_dark`'s
-  `background_color` in dark mode); unset, the platform's background (the grouped grey
-  under a first route that scrolls a grouped list). Android's launch window takes the same
-  two colours, with the launcher icon on them from Android 12 unless
-  `host.android.launchImage` names a picture or `false`. It is gone before a screenshot
+  screen is `host.ios.launchImage` centred on the launch colour, which a top-level
+  `background_color` names in every scheme, so a lone `"#ffffff"` launches white in dark
+  mode too; `color_scheme_light` or `color_scheme_dark` names one scheme's alone. Unnamed,
+  it is the app's own background where the build can read it and every route agrees (a
+  colour or a theme's colour on each route, else the root), else the platform's (the
+  grouped grey under a first route that scrolls a grouped list): name none unless the
+  launch must differ.
+  Android's launch window takes the same colours, with the launcher icon on them from
+  Android 12 unless `host.android.launchImage` names a picture or `false`. It is gone before a screenshot
   can be taken: record one (`xcrun simctl io <udid> recordVideo launch.mp4`, then `simctl
   launch`; `adb shell screenrecord` on Android) and read its frames (the euxy port's white
   launch, 2026-10-21).
@@ -833,7 +837,10 @@ screen, 2026-10-16.)
   Native's boxes are all `border-box`, so its `minHeight: 24` counted
   the padding and did nothing; a Contract box is `content-box`, as CSS's is. Fix: drop a
   `minHeight` or `height` that the padding already passes, or write
-  `box-sizing="border-box"` on that box.
+  `box-sizing="border-box"` on that box. A web app under Tailwind ports the same way:
+  its preflight sets `box-sizing: border-box` on every element, so a `width`,
+  `max-width` or `min-height` written beside padding or a border was a border-box size
+  there (a 388 px box with 34 px of padding and border is 422 px wide here).
 - **Rows with text in them drift up the list.** Each Patterns row (a 16/20 name over a
   13/16 subtitle) was 67 points where the original's was 67⅔, so the eighth row ended 5⅓
   points high. Cause: on iOS, React Native (0.88's `TextMeasurementRounding.h`,
@@ -1206,6 +1213,21 @@ price: answers arrive `Later`, outside the action's transaction (LLP 1027.002 D1
   and `"audio"` in `host.ios.backgroundModes`: the lock screen shows only a
   non-mixable playback session's media, and audio stops at the lock without the
   mode. `"playback-mix"` does not qualify. (LLP 1098 D8.)
+
+## GPU surfaces
+
+- **A record's named fields reach the wrong surface arguments.** Records cross
+  into a GPU surface by position, not by field name. Import the package's
+  shapes (`ModelNode` and `ModelHotspot` for `@exact/model-viewer`); if you
+  declare a shorter shape, keep its fields in the package's declaration order.
+  (Model viewer's record parsing tests, LLP 1133.039 D1.)
+- **A model viewer stops a page scrolling over it.** A canvas that takes input
+  owns every touch and wheel in its box. `cameraControls=true` reserves that
+  input at mount; `disableZoom=true` does not return the wheel to the page.
+  Leave controls unsaid for a passive model, or room beside an interactive
+  one for scrolling. Changing mode needs another canvas mount, as in the
+  [scrolling fixture](../packages/model-viewer/test/fixture/scrolling.contract).
+  (Model viewer scrolling drives, LLP 1133.039 D9.)
 
 ## Input
 
@@ -2040,7 +2062,9 @@ price: answers arrive `Later`, outside the action's transaction (LLP 1027.002 D1
   render environment and render each returned value, encoding it as a path segment. An
   app `exact new` made needs no Rust render entry. A source that fails or misses its
   deadline fails the build; an empty list renders no pages. A static build contains only
-  the returned values.
+  the returned values. A listed value whose location a route declared earlier also matches
+  fails the build, naming both routes: with `special "/product/special"` before `product
+  "/product/:id"`, the page at a listed `special` is `special`'s.
 
 - **A link to the same route with a new query pushes a second entry.** A filter written as
   `link href=(path("shop") + "?cat=" + c)` on the shop page reached `follow`, whose

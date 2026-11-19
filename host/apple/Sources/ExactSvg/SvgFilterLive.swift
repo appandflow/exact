@@ -16,6 +16,7 @@ import CoreImage
 import IOSurface
 import Metal
 import QuartzCore
+import ExactAnimations
 import ExactKit
 import ExactEffects
 

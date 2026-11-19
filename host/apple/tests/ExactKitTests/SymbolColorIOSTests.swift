@@ -3,6 +3,7 @@
 import UIKit
 import XCTest
 @testable import ExactKit
+@testable import ExactControls
 
 final class SymbolColorIOSTests: XCTestCase {
     private var window: UIWindow!

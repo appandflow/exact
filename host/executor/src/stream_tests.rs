@@ -588,6 +588,20 @@ fn forgetting_a_stream_aborts_its_read_and_releases_it() {
 }
 
 #[test]
+fn cancelling_a_stream_aborts_its_read_and_drops_queued_events() {
+    let (core, script, woke) = setup();
+    core.run_owned(stream(1, "/events", 4096), None).unwrap();
+    let feed = feed(&script, 0);
+    feed.send(b"data: a\n\n".to_vec()).unwrap();
+    assert_eq!(data(&next(&core, &woke).1), ("a", 0));
+    feed.send(b"data: b\n\n".to_vec()).unwrap();
+    until_waiting(&core, 1, 1);
+    core.cancel(&[1]);
+    assert_eq!(*script.aborted.lock().unwrap(), 1);
+    assert!(core.drain().is_empty());
+}
+
+#[test]
 fn a_response_that_is_not_an_event_stream_is_the_one_answer() {
     let (core, _, woke) = setup();
     core.run_owned(stream(1, "/plain", 4096), None).unwrap();

@@ -9,6 +9,7 @@ import IOSurface
 import AppKit
 #endif
 @testable import ExactKit
+@testable import ExactGradients
 @testable import ExactEffects
 @testable import ExactSvg
 @testable import ExactImages

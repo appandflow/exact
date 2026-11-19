@@ -12,6 +12,10 @@ use exact_kernel::style::sides as box_sides;
 use exact_kernel::{PropId, StyleId, StyleProps, StyleValue, StyleValueError};
 pub(crate) use length_tokens::{call_tokens, fallback_tokens, grid_tokens};
 use std::{cell::Cell, rc::Rc};
+
+/// The host's names a value reads (LLP 1123 D9, D16), as a refusal lists them.
+pub(crate) const HOST_NAMES: &str = "the observations `var(--exact-<family>-inset-<edge>)`, the family `safe-area`, `keyboard`, `keyboard-undocked`, `safe-area-corners`, `layout-margins`, `layout-margins-corners`, `readable-content`, `readable-content-corners`, `readable-content-guide` or `system-minimum-layout-margins`, and a native target's raw safe area `var(--exact-<target>-safe-area-inset-<edge>)`, the target `native-<n>` for the nth chain entry, from 1 to 255, `owner`, `parent`, `navigation`, `tab`, `split`, `column`, `presenter`, `session`, `root`, `window`, `tab-content`, `window-content`, `screen` or `target-<name>` for one native code registered, a name of lowercase letters, digits and inner hyphens, and a field of the owner's segment `var(--exact-viewport-segment-<field>-<x>-<y>)`, the field `width`, `height`, `top`, `left`, `bottom` or `right`, each index 0 to 15";
+
 /// A literal, as an author wrote it, for a message.
 fn literal_text(e: &Expr) -> String {
     match e {
@@ -179,7 +183,7 @@ pub(crate) fn describe(e: &StyleValueError) -> String {
         StyleValueError::BadAnimationRange { .. } => "expected normal, or one or two distinct ends, each normal, a length or percentage, or a range name (cover, contain, entry, exit, entry-crossing, exit-crossing) with an optional length or percentage (`0px 300px`, `entry 20% cover 50%`)".into(),
         StyleValueError::BadPositionTryFallbacks { .. } => "expected none, or comma-separated attempts, each one to three of flip-block, flip-inline and flip-start, applied in order; flip-x, flip-y and named rules are not implemented".into(),
         StyleValueError::BadTimelineScope { .. } => "expected none, all, or `--name`s separated by commas".into(),
-        StyleValueError::BadSafeAreaProperties { .. } => "expected `--name: <length>` declarations: a length in px, rem, a percentage, a viewport unit, env(), var(), or calc(), min(), max() or clamp() of these; a name is `--` and an identifier that does not start `--exact-`".into(),
+        StyleValueError::BadSafeAreaProperties { .. } => "expected `--name: <length>` declarations: a length in px, rem, a percentage, a viewport unit, env(), var(), or calc(), min(), max() or clamp() of these, a container unit (cqw, cqh, cqi, cqb, cqmin, cqmax) not yet; a name is `--` and an identifier that does not start `--exact-`".into(),
         StyleValueError::BadTimelineName { .. } => "expected none or one `--name`".into(),
         StyleValueError::BadViewTimelineInset { .. } => "expected one or two of auto and a length or percentage, the start then the end".into(),
         StyleValueError::BadTransition { .. } => "unsupported transition property or invalid timing components; exact2 supports transform components, opacity, paint and SVG properties, and admitted numeric height transitions; general layout interpolation is not implemented".into(),
@@ -189,6 +193,7 @@ pub(crate) fn describe(e: &StyleValueError) -> String {
         StyleValueError::BadMarker { .. } => "a marker or a mask is `none` or `url(#id)`, naming a `marker` or a `mask`".into(),
         StyleValueError::BadFilter { .. } => "`filter` is `none`, or `url(#id)` naming a `filter` and the filter functions (blur, brightness, contrast, drop-shadow, grayscale, hue-rotate, invert, opacity, saturate, sepia), in order".into(),
         StyleValueError::BadPaintOrder { .. } => "`paint-order` is `normal`, or `fill`, `stroke` and `markers` in the order they paint".into(),
+        StyleValueError::BadObjectPosition { .. } => "`object-position` is a CSS position: coordinates or edge offsets".into(),
         StyleValueError::BadTransformOrigin { .. } => "`transform-origin` is one or two of left, center, right, top, bottom, a length or a percentage".into(),
         StyleValueError::BadAnimation { .. } => "not a CSS `animation` shorthand: `<name> <duration> [<easing>] [<delay>] [<count>|infinite] [<direction>] [<fill-mode>] [<play-state>]`".into(),
         StyleValueError::Unsupported { .. } => "this row has no dynamic form".into(),
@@ -355,6 +360,8 @@ pub(crate) fn check_style_value(
     scope: &Scope,
     shapes: &Shapes,
 ) -> Result<(), LowerError> {
+    // The compiler checks every row's grammar (LLP 1053.000 §2).
+    exact_kernel::style::link_all();
     if rows.contains(&StyleId::PressTranslate) {
         let leaves = contract_checking::value_leaves(&a.value);
         for leaf in leaves.filter(|v| matches!(v, Expr::Str(..))) {
@@ -481,14 +488,20 @@ fn style_value(
                 );
             }
             // @ref LLP 1081 D5 — `--exact-*` names are the web host's own,
-            // but for the safe area an author reads (LLP 1123 D9).
-            let read = ["top", "right", "bottom", "left"]
-                .map(|edge| format!("{}{edge}", exact_kernel::style::env::LOCAL_PREFIX));
-            let others = read.iter().fold(v.clone(), |v, name| v.replace(name, ""));
-            if others.to_ascii_lowercase().contains("--exact-") {
+            // but for the observations an author reads (LLP 1123 D7, D9),
+            // and the owner's segments (D16), which `calc::host_name` matches as written
+            let lower = v.to_ascii_lowercase();
+            let host = lower.match_indices("--exact-").any(|(at, _)| {
+                let name = &v[at..];
+                let end = (name
+                    .find(|c: char| !(c.is_ascii_alphanumeric() || c == '-' || c == '_')))
+                .unwrap_or(name.len());
+                !exact_kernel::style::calc::host_name(&name[..end])
+            });
+            if host {
                 return err(
                     "lower-attr-value",
-                    format!("`--exact-*` names are the host's own; write the author's `-exact-` name: `{}=\"{v}\"`", a.name),
+                    format!("`--exact-*` names are the host's own: a value reads only {}; a style is the author's `-exact-` name: `{}=\"{v}\"`", HOST_NAMES, a.name),
                     span,
                 );
             }
@@ -634,11 +647,6 @@ fn style_value(
                 span,
             );
         }
-        // The compiler checks every row's grammar (LLP 1053.000 §2).
-        exact_kernel::style::link_backdrop_filter();
-        exact_kernel::style::link_segments();
-        exact_kernel::style::link_wide_colors();
-        exact_kernel::timeline::link();
         let literal = match value {
             expr if numeric_literal(expr).is_some() => {
                 Some(StyleValue::Number(numeric_literal(expr).unwrap()))

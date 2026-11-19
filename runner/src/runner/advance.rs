@@ -364,11 +364,12 @@ impl<D: DataSource> Runner<D> {
     /// an answer and what its `then` does show in one frame (LLP 1016.001
     /// D3, LLP 1072.000 §4 B).
     pub fn land_then_first(&mut self) -> Advanced {
+        let answer_due = self.audio_due()[2];
         let then = self
             .then_due
             .iter()
             .chain(&self.queues.next_due)
-            .chain([&self.transport.answer_due, &self.midi.answer_due])
+            .chain([&answer_due])
             .chain(
                 self.timers
                     .iter()
@@ -558,8 +559,8 @@ impl<D: DataSource> Runner<D> {
             // A sequence's end is a timer after every task (LLP 1125 D2): its
             // index is the last; its own wake (a fill, the count-in's end)
             // comes after everything due at the same time (D3).
-            let wake = Some(self.seek_cutoff(self.transport.wake_due()))
-                .filter(|at| timers && *at <= now_ms);
+            let wake =
+                Some(self.seek_cutoff(self.audio_due()[0])).filter(|at| timers && *at <= now_ms);
             let before_wake = |at: f64| wake.is_none_or(|w| at <= w);
             // An answer's own timer (`data_timers.rs`): what is due before it
             // goes first, and so does what is due with it; nothing later does,
@@ -569,7 +570,7 @@ impl<D: DataSource> Runner<D> {
                 .map(|at| self.seek_cutoff(at))
                 .filter(|at| timers && *at <= now_ms);
             let before_data = |at: f64| data_at.is_none_or(|data| at <= data);
-            let ended = Some(self.seek_cutoff(self.transport.ended_due()))
+            let ended = Some(self.seek_cutoff(self.audio_due()[1]))
                 .filter(|at| timers && *at <= now_ms && before_wake(*at) && before_data(*at))
                 .filter(|at| due.is_none_or(|(_, timer)| *at < timer));
             let due = due.filter(|(_, at)| ended.is_none() && before_wake(*at));
@@ -611,7 +612,7 @@ impl<D: DataSource> Runner<D> {
                     a.partial_cmp(b).unwrap().then(site(ia).cmp(&site(ib)))
                 })
                 .map(|(m, at)| (m, *at));
-            let answer = Some(self.transport.answer_due.min(self.midi.answer_due))
+            let answer = Some(self.audio_due()[2])
                 .filter(|at| *at <= now_ms && then.is_none_or(|(_, then)| *at < then));
             let then_at = answer.or(then.map(|(_, at)| at));
             let next = self
@@ -658,13 +659,8 @@ impl<D: DataSource> Runner<D> {
                 self.now_ms = self.now_ms.max(at);
                 let ticket = self.next_ticket;
                 // The transport's first at one time, then `exactMIDI`'s (LLP 1125 D6).
-                let answered = if self.transport.answer_due <= at {
-                    self.transport.answer_due = f64::INFINITY;
-                    let readers = self.transport.readers.clone();
-                    self.scheduled(at, |r| r.commit_again(readers, "transport"))
-                } else {
-                    self.scheduled(at, |r| r.midi_answered())
-                };
+                let audio = self.seams.audio;
+                let answered = audio.answer(self, at);
                 match answered {
                     Ok(receipt) => receipts.push(Timed {
                         at_ms: self.now_ms,
@@ -862,9 +858,7 @@ impl<D: DataSource> Runner<D> {
             if let Some(at) = ended {
                 // An end that runs `ended=` is a timer's commit: past the limit it
                 // stays due, as a task's timer does.
-                if self.transport.ended_action(&self.plan).is_some()
-                    && receipts.len() == TIMER_FIRE_LIMIT
-                {
+                if self.seams.audio.ends_with_action(self) && receipts.len() == TIMER_FIRE_LIMIT {
                     return Advanced {
                         receipts,
                         now_ms: self.now_ms,
@@ -880,7 +874,8 @@ impl<D: DataSource> Runner<D> {
                 } else {
                     self.seek_cutoff(at)
                 };
-                let Some(action) = self.transport_end() else {
+                let audio = self.seams.audio;
+                let Some(action) = audio.transport_end(self) else {
                     continue;
                 };
                 let was_poisoned = self.poisoned;
@@ -933,7 +928,8 @@ impl<D: DataSource> Runner<D> {
                         self.seek_cutoff(at)
                     };
                     self.sample();
-                    self.transport_wake(self.now_ms);
+                    let (audio, now) = (self.seams.audio, self.now_ms);
+                    audio.transport_wake(self, now);
                     continue;
                 }
                 break;

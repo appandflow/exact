@@ -90,7 +90,7 @@ extension ExactSession {
 
     /// A notification's location and a host URL share the cold and warm
     /// incoming-route path, without requiring a URL scheme.
-    @discardableResult func openLocation(_ incoming: String) -> Bool {
+    @discardableResult package func openLocation(_ incoming: String) -> Bool {
         guard state != .destroyed else { return false }
         return openIncoming(runtime.location(of: incoming))
     }
@@ -178,33 +178,33 @@ extension ExactSession {
     }
 
     /// The view that hears `navigate`: the navigation root (LLP 1038 D8).
-    var navigationRoot: NodeView? {
+    package var navigationRoot: NodeView? {
         presenter.views.values.first { $0.props["navigationBack"] != nil && $0.handlers.contains("navigate") }
     }
 
     /// The platform's Back from a route with no authored Back control: the
     /// location beneath, to the root it came from (LLP 1115 D5), as a
     /// popstate is to the web's.
-    func navigate(_ location: String, at root: NodeView) {
+    package func navigate(_ location: String, at root: NodeView) {
         guard state != .destroyed, booted, presenter.views[root.id] === root, root.handlers.contains("navigate") else { return }
         apply(runtime.navigate(root.id, location, now: now()))
     }
 
     /// The platform's Back from a route with no authored Back control under
     /// a root with no `navigate` handler: the runner's own `back` (LLP 1115 D5).
-    func hostBack(_ key: String) {
+    package func hostBack(_ key: String) {
         guard state != .destroyed, booted, let batch = runtime.hostBack(key, now: now()) else { return }
         apply(batch)
     }
 
     /// The platform's Forward, keeping its direction through the commit.
-    func hostForward(at root: NodeView) {
+    package func hostForward(at root: NodeView) {
         guard state != .destroyed, booted, presenter.views[root.id] === root else { return }
         apply(runtime.hostForward(root.id, now: now()))
     }
 
     /// Complete a native history jump without intermediate route commits.
-    func hostBack(from source: String, to destination: String) {
+    package func hostBack(from source: String, to destination: String) {
         guard state != .destroyed, booted, let batch = runtime.hostBack(from: source, to: destination, now: now()) else { return }
         apply(batch)
     }

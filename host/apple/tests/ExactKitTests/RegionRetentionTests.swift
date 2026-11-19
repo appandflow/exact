@@ -1,10 +1,11 @@
+// The region text service is the Mac's (RegionService.swift).
+#if os(macOS)
 import Foundation
 import CoreGraphics
-#if os(macOS)
 import IOSurface
-#endif
 import XCTest
 @testable import ExactKit
+@testable import ExactContentRegions
 
 @MainActor final class RegionRetentionTests: XCTestCase {
     private func request(size: CGSize = CGSize(width: 160,height: 120), scroll: CGFloat = 80.375,
@@ -109,7 +110,6 @@ import XCTest
         XCTAssertTrue(fresh.matches(publication: b.publication,size: b.size,scroll: b.scroll,
             profile: b.profile.bytes,scale: b.scale))
     }
-    #if os(macOS)
     func testFlowFallbackReleasesNativeParagraphsAndAllowsLaterGeometry() throws {
         let session = ExactApp.shared.makeSession(label: "region-flow-fallback")
         defer { session.destroy() }
@@ -224,7 +224,6 @@ import XCTest
         state.acceptedPixels()
         XCTAssertTrue(state.valid)
     }
-    #endif
     func testTranslatedImageCropBytesAndUncoveredBackgroundAreExact() throws {
         for scale in [1,2] {
             let a = request(size: CGSize(width: 8,height: 8),scroll: 40.375,scale: scale)
@@ -265,7 +264,6 @@ import XCTest
             }
         }
     }
-    #if os(macOS)
     func testCompositedSurfaceKeepsItsChargeAfterTheReceiptAndProviderDie() throws {
         let a = request(size: CGSize(width: 397, height: 83), format: RegionRasterRequest.compositedFormat)
         let account = RegionPixelAccount(), box = RetainedPixelsBox(), done = DispatchSemaphore(value: 0)
@@ -300,7 +298,6 @@ import XCTest
         XCTAssertEqual(account.stats.bytes, 0)
         withExtendedLifetime(surface) {}
     }
-    #endif
     func testProviderAliasesKeepAChargeWhileTranslationsAllocateNoNewPixels() throws {
         let a = request(size: CGSize(width: 8,height: 8),scroll: 40.375)
         let account = RegionPixelAccount(), box = RetainedPixelsBox(), done = DispatchSemaphore(value: 0)
@@ -357,3 +354,4 @@ private final class RetainedPixelsWeak {
     weak var value: RegionPixels?
     init(_ value: RegionPixels?) { self.value = value }
 }
+#endif

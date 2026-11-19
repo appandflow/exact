@@ -53,7 +53,7 @@ extension Presenter {
     /// while its window is one a scene shows, the only windows on screen.
     /// A view `shown(_:)` found shown earlier in the turn stays shown,
     /// though an animation may since have moved its copy.
-    private func committed() {
+    package func committed() {
         let waiting = awaitingFrame
         awaitingFrame = []
         for entry in waiting {

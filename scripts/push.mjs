@@ -104,17 +104,29 @@ export async function pusher(opts) {
     if (!current.length) refuse(`no stream on the channel ${channel} can take this as an update: ${frozen.map((update) => `${name(update.row)}: ${why(update)}`).join('; ')}`);
     for (const update of frozen) console.log(`  ${name(update.row)} — frozen: ${why(update)}`);
     // Every current stream is checked before any is published.
-    for (const update of current) {
+    // One whose binary provably cannot run the update is left as a superseded stream is (LLP 1156.006.000 D25,
+    // amending LLP 1030.007 D3): the proof is a `requires` miss against the cohort's own receipt, or module grants
+    // that differ from it. Any other failure (evidence missing, unauthenticated or mismatched) refuses the push,
+    // naming every such stream (D19), and so does a push that no stream can take.
+    const judged = current.map((update) => {
       const checked = classifyArtifacts(update.build, update.row.receipt, signingKey);
-      if (update.reason || !checked.bundle) refuse(`${name(update.row)} cannot take this as an update — ${update.reason ?? checked.missing.join('; ')}. It needs ${binaryCommand(app, update.row.platform)}`);
+      const problems = update.reason ? [update.reason] : checked.bundle ? [] : checked.missing;
+      const proven = update.reason ? update.needsBinary === true : problems.every((problem) => (checked.needsBinary ?? []).includes(problem));
+      return { update, problems, proven };
+    });
+    const unfit = judged.filter((j) => j.problems.length), fit = judged.filter((j) => !j.problems.length).map((j) => j.update);
+    if (unfit.some((j) => !j.proven) || unfit.length && !fit.length) {
+      const said = unfit.map((j) => `${name(j.update.row)} cannot take this as an update — ${j.problems.join('; ')}. It needs ${binaryCommand(app, j.update.row.platform)}`);
+      refuse(said.length === 1 ? said[0] : `${said.length} streams on the channel ${channel} cannot take this as an update, and nothing is published until each can:\n  ${said.join('\n  ')}`);
     }
-    for (const update of current) {
+    for (const { update, problems } of unfit) console.log(`  ${name(update.row)} — left as it is: its binary cannot run this update (${listed(problems)}); ${binaryCommand(app, update.row.platform)} starts a new stream`);
+    for (const update of fit) {
       const native = update.build.pendingInputs ?? [];
       if (native.length) console.log(`  ${name(update.row)} — note: native sources differ from its binary's, and only a new binary carries them: ${listed(native)}`);
       if (update.note) console.log(`  note: ${update.note}`);
     }
     const results = [];
-    for (const update of current) results.push(await publishStream({ origin, ...update, app, signer, release, snapshot, opts: { seqAbove: opts.seqAbove }, log: () => {} }));
+    for (const update of fit) results.push(await publishStream({ origin, ...update, app, signer, release, snapshot, opts: { seqAbove: opts.seqAbove }, log: () => {} }));
     for (const r of results) {
       const what = r.action === 'current' ? 'already current' : `seq ${r.seq}: ${r.changes.map((c) => c.name).join(', ')}`;
       console.log(`  ${r.platform} ${r.compatibilityId.slice(0, 8)} — ${what}`);

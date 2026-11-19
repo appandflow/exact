@@ -1,6 +1,7 @@
 import QuartzCore
 import XCTest
 @testable import ExactKit
+@testable import ExactNavigation
 #if os(iOS)
 import UIKit
 #endif

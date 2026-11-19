@@ -6,6 +6,17 @@
 //! clips and stacks as the box does. Other backends draw nothing for them.
 use super::*;
 
+pub(crate) fn object_fit_of(node: &NodeRef<'_>) -> ObjectFit {
+    if node.node_type == NodeType::Video {
+        exact_kernel::object::video_fit(
+            node.style.object_fit,
+            node.style.written.has(StyleId::ObjectFit),
+        )
+    } else {
+        node.style.object_fit
+    }
+}
+
 pub(super) fn new_session() -> u64 {
     use std::sync::atomic::{AtomicU64, Ordering};
     static NEXT: AtomicU64 = AtomicU64::new(1);
@@ -115,7 +126,13 @@ impl Painter {
 
     /// Name `node`'s platform element to the backend, shown in `edge`: its
     /// content box on the content edge's curve.
-    pub(super) fn native(&mut self, node: &NodeRef<'_>, edge: &Shape, ts: Transform) {
+    pub(super) fn native(
+        &mut self,
+        walk: &Walk<'_, '_>,
+        node: &NodeRef<'_>,
+        edge: &Shape,
+        ts: Transform,
+    ) {
         let p = node.props;
         let flag = |id| p.bool(id) == Some(true);
         let (kind, props) = match node.node_type {
@@ -148,7 +165,7 @@ impl Painter {
                         "label": p.str(PropId::AccessibilityLabel),
                         "timeupdate": self.media.timed.contains(&node.key),
                         "focused": self.media.focused == Some(node.key),
-                        "fit": match node.style.object_fit {
+                        "fit": match object_fit_of(node) {
                             ObjectFit::Contain => "contain",
                             ObjectFit::Cover => "cover",
                             ObjectFit::None => "none",
@@ -159,6 +176,22 @@ impl Painter {
                         "slot": node.key.index,
                         "session": self.native_session,
                 });
+                if let Some(natural) = walk.scene.kernel.arena().intrinsic(node.key.index) {
+                    if let Some(rect) = exact_kernel::object::placed(
+                        natural,
+                        object_fit_of(node),
+                        &node.style.object_position,
+                        (0., 0., edge.rect.2, edge.rect.3),
+                        &walk.scene.kernel.env_of(node.id),
+                    ) {
+                        props["objectRect"] = serde_json::json!([
+                            rect.0 / edge.rect.2,
+                            rect.1 / edge.rect.3,
+                            rect.2 / edge.rect.2,
+                            rect.3 / edge.rect.3
+                        ]);
+                    }
+                }
                 if let Some(c) = self.media.commands.get(&node.key) {
                     if c.seeks > 0 {
                         props["seek"] = format!("{} {}", c.seeks, c.seconds).into();

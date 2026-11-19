@@ -40,6 +40,10 @@ final class PublishedBatches {
         }
     }
 
+    func peek() -> Item? { lock.withLock { count > 0 ? items[cursor] : nil } }
+    /// The first publication's place in the runtime's order (`Batch.sequence`).
+    var earliest: UInt64? { peek()?.completion.batch.sequence }
+
     func next() -> Item? {
         lock.withLock {
             guard count > 0 else { return nil }
@@ -54,6 +58,19 @@ final class PublishedBatches {
     /// A queued callback ran inside a synchronous landing's run-loop service.
     /// That landing will consume the work; no queued callback remains.
     func yieldDrain() { lock.withLock { scheduled = false } }
+
+    /// A landing left publications made after its batch: true when no turn
+    /// is scheduled to land them, and the caller schedules one.
+    func claimDrain() -> Bool {
+        lock.withLock {
+            guard count > 0, !scheduled else { return false }
+            scheduled = true
+            #if DEBUG
+            drains += 1
+            #endif
+            return true
+        }
+    }
 
     /// A publication can arrive after the drain found the queue empty.
     /// Keep its scheduled turn until that publication has landed too.
@@ -74,12 +91,31 @@ final class PublishedBatches {
 extension ExactSession {
     /// On the owner: queue a batch for main, in the owner's order.
     func publish(_ kind: Published, _ completion: RuntimeCompletion) {
+        var completion = completion
+        if completion.batch.sequence == 0 { // a batch the host made, numbered as it is published
+            var batch = completion.batch
+            batch.sequence = runtime.sequence.next()
+            completion = RuntimeCompletion(lease: completion.lease, batch: batch)
+        }
         guard published.append((kind, completion)) else { return }
         DispatchQueue.main.async { [weak self] in self?.landPublished() }
     }
+    /// Wait for the slice in flight and land it: what shows, the agent and
+    /// every read that must see it (T5, T7, T9).
+    /// It returns at a fixed point: no stage open, nothing published or queued (T13).
+    public func drainFill() {
+        while true {
+            while stage != nil { finishStage() }
+            guard ownerInFlight || hasPublished() || !pending.isEmpty else { return }
+            Owner.shared.sync {}
+            landFill()
+            if stage == nil, !hasPublished(), pending.isEmpty { return }
+        }
+    }
+
     func landPublished() {
-        if landing { published.yieldDrain(); return }
-        landFill()
+        // Stopped at a staged batch: its reveal lands the rest (`finishStage`).
+        if landing || landFill() { published.yieldDrain(); return }
         if published.finishDrain() { DispatchQueue.main.async { [weak self] in self?.landPublished() } }
     }
 

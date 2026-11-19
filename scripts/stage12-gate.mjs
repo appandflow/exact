@@ -32,6 +32,7 @@ import { islandAllow } from './stage12-island.mjs';
 export { KEYBOARD_UP, keyboardInset, keyboardRedrive } from './stage12-keyboard.mjs';
 import { caseOps, caseReads, cases as exactCases, inspectDrive, locate, matches, apart as standsApart, same, COMPONENTS, EMPTY, readsOf } from './s13c-restyle.mjs';
 import { fileURLToPath } from 'node:url';
+import { checkoutOf } from './paths.mjs';
 
 const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
 /** The consumer's own targets among the required hosts (LLP 1139 §5): the
@@ -242,8 +243,6 @@ function provenance(copy) {
   try {
     for (const [runtime, list] of Object.entries(JSON.parse(sim).devices)) for (const d of list) if (d.udid === process.env.EXACT_SIM) device = { name: d.name, runtime };
   } catch { /* no simulator named */ }
-  // The SDK the copy builds with: its exact.mjs's EXACT (the environment's,
-  // else its default), not this script's checkout.
   const sdk = sdkOf(copy);
   return {
     gate: git(ROOT, 'rev-parse', 'HEAD'), sdk, exact2: sdk ? git(sdk, 'rev-parse', 'HEAD') : null, sdkDirty: sdk ? git(sdk, 'status', '--porcelain', '--untracked-files=no') !== '' : null,
@@ -407,13 +406,7 @@ const conformEvidence = c => {
     ...(c.failing ?? []).map(f => `  NEW ${f}`), ...c.before.failures.map(f => `  baseline: ${f}`), ...c.after.failures.map(f => `  after: ${f}`)];
 };
 
-/** The SDK a copy builds with: its launcher's environment names and default, resolved against the copy. */
-export function sdkOf(copy, env = process.env) {
-  const launcher = readFileSync(join(copy, 'exact.mjs'), 'utf8');
-  const override = /process\.env\.EXACT\s*\?\?/.test(launcher) ? env.EXACT ?? env.EXACT2 : env.EXACT2;
-  const named = /process\.env\.EXACT2? \?\? (?:process\.env\.EXACT2 \?\? )?"([^"]+)"/.exec(launcher)?.[1];
-  return override != null ? resolve(copy, override) : named ? resolve(copy, named) : null;
-}
+export const sdkOf = checkoutOf;
 
 /** host/web-js/conform.mjs on a copy, run from the SDK it builds with (its
  * patches name that checkout's crates), by its app's name: its failures,

@@ -2492,6 +2492,45 @@
       ],
       "default": "none"
     },
+    "SafeAreaBar": {
+      "_comment": "@ref LLP 1123 D12: `-exact-safe-area-bar`, the keywords of the safe_area_bar row, not a wire enum. none is 0; each other value is one bit in this order (top bit 0, region bit 7). A bar names one edge, then optionally `edge-effect` and `region`; a value naming no edge or more than one makes no bar.",
+      "values": [
+        "none",
+        "top",
+        "right",
+        "bottom",
+        "left",
+        "start",
+        "end",
+        "edge-effect",
+        "region"
+      ],
+      "default": "none"
+    },
+    "LayoutMarginsPreserved": {
+      "_comment": "@ref LLP 1123 D8: `-exact-preserves-superview-layout-margins`, the keywords of the layout_margins_preserved row, not a wire enum: false is 0, true 1.",
+      "values": [
+        "false",
+        "true"
+      ],
+      "default": "false"
+    },
+    "LayoutMarginsFromSafeArea": {
+      "_comment": "@ref LLP 1123 D8: `-exact-insets-layout-margins-from-safe-area`, the keywords of the layout_margins_from_safe_area row, not a wire enum: true, UIKit's default, is 0 and false 1.",
+      "values": [
+        "true",
+        "false"
+      ],
+      "default": "true"
+    },
+    "LayoutMarginsMinimum": {
+      "_comment": "@ref LLP 1123 D8: `-exact-respects-system-minimum-layout-margins`, the keywords of the layout_margins_minimum row, not a wire enum: true, UIKit's default, is 0 and false 1.",
+      "values": [
+        "true",
+        "false"
+      ],
+      "default": "true"
+    },
     "SafeAreaIgnoreAlign": {
       "_comment": "@ref LLP 1123 D4: the alignments of `-exact-safe-area-ignore`'s `align`, SwiftUI's `Alignment` values, with `leading` and `trailing` resolved against the box's `direction`. none is 0, no `align`.",
       "values": [
@@ -2962,7 +3001,7 @@
       "default": "none"
     }
   },
-  "_styles": "Each row is one mask bit. codec: dimension (u8 kind + f32; kind 0 auto, 1 points, 2 percent as authored 0-100 points, 3-6 an env(safe-area-inset-top/right/bottom/left) length with the f32 the points added, 7 calc(<percent> ± <px>) with a second f32 the points, 8-13 an env(viewport-segment-width/height/top/left/bottom/right x y) length with the f32 the points added and then two u8 indices x then y — LLP 1078 D3; 14-23 viewport vw/vh/vmin/vmax/svw/svh/lvw/lvh/dvw/dvh with f32 the percentage; 24 a calculation after a zero f32 (style/calc/wire.rs, LLP 1116 D5): a tree node by node, each a u8 tag (0 a value, 1 env(), 2 a sum, 3 a product, 4 a negation, 5 an inversion, 6 min, 7 max, 8 clamp), then a value’s f64 and u8 unit (0 a number, 1 a percentage, 2 px, 3-12 a viewport unit, 128 rem); an env()’s u8 (0-3 a safe-area-inset edge, 4-7 a var(--exact-safe-area-inset-top/right/bottom/left), its content owner's local inset, which only a tree holds — LLP 1123 D5, D9; 8-13 a viewport-segment variable followed by its two u8 indices, 16-35 a layout region's inset, 16 + region × 4 + edge, 36-39 an env(titlebar-area-x/y/width/height), which only a tree holds); a list’s u8 count and its children; clamp’s three presence bytes, each before its argument; or, for a value whose env() has a fallback, tag 9 and the text as written as a string (u32 length, UTF-8), which the row reads once substituted (CSS Environment Variables 1 §3). A tree is admitted only when it is within CSS Values 4 §10.8’s limits, its own §10.13 text parses back to it and no other kind holds it; a text only when the row reads it as one. Kind 25 is an env(-exact-<region>-inset-<edge>) layout region's inset, the f32 the points added, then a u8 region (0 safe-area-corners, 1 layout-margins, 2 layout-margins-corners, 3 readable-content, 4 readable-content-corners) and a u8 edge (0 top, 1 right, 2 bottom, 3 left), LLP 1123 D10) | line-height (u8: 0 normal, 1 number followed by f32, 2 length followed by f32) | f32 | u8 (keyword bits; keywords names the enum) | u16 | u32 | i32 | auto-i32 (u8: 0 auto, 1 followed by i32) | color (tagged ColorValue, src/wire/codec.rs) | vec2 (f32 f32) | auto-color (u8: 0 auto, 1 followed by color) | current-color (u8: 0 currentcolor, 1 followed by color) | tracks (CSS grid-template grammar Taffy can lay out: none, named lines, px, %, fr, auto, min/max-content, calc()/min()/max()/clamp() over px and %, fit-content(px or %), minmax(), and fixed/auto-fill/auto-fit repeat(); canonical CSS text on the wire) | placement (CSS grid placement: auto, nonzero numeric or named lines and positive numeric or named spans; canonical CSS text on the wire) | aspect-ratio (CSS text: auto, a ratio, or both) | background-image (CSS text: none or gradient layers, LLP 1066) | paint (CSS text: none, currentcolor, or a colour) | dasharray (CSS text: none or a list of numbers) | transform (CSS text: a transform list) | paint-order (CSS text: normal, or fill/stroke/markers) | marker (CSS text: none or url(#id)) | transform-origin (CSS text: one to three lengths, percentages or keywords) | transitions (`_transitions`) | animations (`_animations`) | drag-timeline, animation-timeline, animation-range, timeline-scope, timeline-name, view-timeline-inset (CSS text: the timeline rows, LLP 1057.003) | box-shadow, text-shadow, filter, backdrop-filter, clip-path, shape-outside, corner-shape, mask-image, rotate-axis, symbol-palette, font-variations, font-features, position-try-fallbacks (CSS text, parsed by the types named in build/codec.rs) | enum:<Name> (u8). admitsAuto applies to dimension rows only; Auto on a non-admitting row is a typed decode rejection. refusesPercent marks a dimension row CSS gives no percentage (column-width): a percentage there, alone or inside a calculation, is refused when set and a typed decode rejection. Every length row (each dimension, line-height, font-size, letter-spacing, the gaps, border widths and radii, shape-margin, border-spacing) also takes CSS `rem` and `em` through `set_dynamic`; the row holds the pixels the kernel resolves at the end of each commit against the host's root font size (LLP 1069.000 D3), so every reader and the wire see pixels. Every length row also takes CSS `ch` and `lh` at a fixed 8×16 px cell (LLP 1101 D3). terminal: how a terminal entry admits the row (LLP 1101 §4) — cell (lengths only in `ch`/`lh`, a percentage, `auto` or 0), admit, or quantize (the host approximates it); a row without one is refused in a terminal entry. layout: a change re-runs layout. text: a change invalidates text measurement. inherited: the row follows CSS inheritance — a node without its own row takes the nearest logical ancestor's computed value, else the initial value (LLP 1035.000 D1); the kernel marks the descendants an inherited change reaches. Defaults are the storage defaults AND the semantic defaults — this table is the one default authority, and the defaults are CSS's: a bare node is a block, content-box, flex-direction row, flex-shrink 1 (rules/RULES.md: the web is the standard). A colour row's default may name a role from `colors` (`\"CanvasText\"`), as CSS's initial `color` is a system colour; a host with the platform's colour shows that, never a snapshot (LLP 1095 stage 2). hosts (LLP 1159.000 D2): what a native host does with the row other than draw it as written, a list of { host: ios | macos | linux | windows | android, or painted for every host that draws with exact-painted's paint walk (linux, windows, android); on: box (an element outside an svg) or svg (one inside), where the entry is limited to one; fidelity: none (the node draws as if the row were unset) or best-effort (it differs as why says); why }. A host with no entry has no known gap, which is not a measurement. The compiler's style-undrawn lint, `contract vocab` and scripts/svgparity.mjs read it; no wire does, so it is outside the digest.",
+  "_styles": "Each row is one mask bit. codec: dimension (u8 kind + f32; kind 0 auto, 1 points, 2 percent as authored 0-100 points, 3-6 an env(safe-area-inset-top/right/bottom/left) length with the f32 the points added, 7 calc(<percent> ± <px>) with a second f32 the points, 8-13 an env(viewport-segment-width/height/top/left/bottom/right x y) length with the f32 the points added and then two u8 indices x then y — LLP 1078 D3; 14-23 viewport vw/vh/vmin/vmax/svw/svh/lvw/lvh/dvw/dvh and 30-35 container cqw/cqh/cqi/cqb/cqmin/cqmax (LLP 1123 D16), each with f32 the percentage; 24 a calculation after a zero f32 (style/calc/wire.rs, LLP 1116 D5): a tree node by node, each a u8 tag (0 a value, 1 env(), 2 a sum, 3 a product, 4 a negation, 5 an inversion, 6 min, 7 max, 8 clamp, 10 a var(--name) of an author's custom property, its name as a string, then its fallback's presence byte and the fallback — LLP 1123 D5; 11 an observation, its target as a u8 (0 the box; 1 a chain entry, then its u8 number from 1; 2 a kind, then its u8 index, 0 owner, 1 parent, 2 navigation, 3 tab, 4 split, 5 column; 3 a relation, then its u8 index, 0 presenter, 1 session, 2 root, 3 window, 4 tab-content, 5 window-content, 6 screen; 4 a registered target, then its name as a string), its u8 family (0 safe-area, 1 keyboard, 2 keyboard-undocked, 3 safe-area-corners, 4 layout-margins, 5 layout-margins-corners, 6 readable-content, 7 readable-content-corners, 8 readable-content-guide, 9 system-minimum-layout-margins), its u8 edge, then its fallback's presence byte and the fallback; or family 10, an owner segment, with the box as its target, then its u8 field (0 width, 1 height, 2 top, 3 left, 4 bottom, 5 right) and its u8 column and row, each 0 to 15, then its fallback's presence byte and the fallback — LLP 1123 D16; a target's family is the safe area, and the box's own safe area is not admitted, its name being the local inset until activation — LLP 1123 D9, D10), then a value’s f64 and u8 unit (0 a number, 1 a percentage, 2 px, 3-12 a viewport unit, 13-18 a container unit, 128 rem); an env()’s u8 (0-3 a safe-area-inset edge, 4-7 a var(--exact-safe-area-inset-top/right/bottom/left), its content owner's local inset, which only a tree holds — LLP 1123 D5, D9; 8-13 a viewport-segment variable followed by its two u8 indices, 16-35 a layout region's inset, 16 + region × 4 + edge, 36-39 an env(titlebar-area-x/y/width/height), which only a tree holds); a list’s u8 count and its children; clamp’s three presence bytes, each before its argument; or, for a value whose env() has a fallback, tag 9 and the text as written as a string (u32 length, UTF-8), which the row reads once substituted (CSS Environment Variables 1 §3). A tree is admitted only when it is within CSS Values 4 §10.8’s limits, its own §10.13 text parses back to it and no other kind holds it; a text only when the row reads it as one. Kind 25 is an env(-exact-<region>-inset-<edge>) layout region's inset, the f32 the points added, then a u8 region (0 safe-area-corners, 1 layout-margins, 2 layout-margins-corners, 3 readable-content, 4 readable-content-corners) and a u8 edge (0 top, 1 right, 2 bottom, 3 left), LLP 1123 D10) | line-height (u8: 0 normal, 1 number followed by f32, 2 length followed by f32) | f32 | u8 (keyword bits; keywords names the enum) | u16 | u32 | i32 | auto-i32 (u8: 0 auto, 1 followed by i32) | color (tagged ColorValue, src/wire/codec.rs) | vec2 (f32 f32) | auto-color (u8: 0 auto, 1 followed by color) | current-color (u8: 0 currentcolor, 1 followed by color) | tracks (CSS grid-template grammar Taffy can lay out: none, named lines, px, %, fr, auto, min/max-content, calc()/min()/max()/clamp() over px and %, fit-content(px or %), minmax(), and fixed/auto-fill/auto-fit repeat(); canonical CSS text on the wire) | placement (CSS grid placement: auto, nonzero numeric or named lines and positive numeric or named spans; canonical CSS text on the wire) | aspect-ratio (CSS text: auto, a ratio, or both) | background-image (CSS text: none or gradient layers, LLP 1066) | paint (CSS text: none, currentcolor, or a colour) | dasharray (CSS text: none or a list of numbers) | transform (CSS text: a transform list) | paint-order (CSS text: normal, or fill/stroke/markers) | marker (CSS text: none or url(#id)) | transform-origin (CSS text: one to three lengths, percentages or keywords) | transitions (`_transitions`) | animations (`_animations`) | drag-timeline, animation-timeline, animation-range, timeline-scope, timeline-name, view-timeline-inset (CSS text: the timeline rows, LLP 1057.003) | box-shadow, text-shadow, filter, backdrop-filter, clip-path, shape-outside, corner-shape, mask-image, rotate-axis, symbol-palette, font-variations, font-features, position-try-fallbacks (CSS text, parsed by the types named in build/codec.rs) | enum:<Name> (u8). admitsAuto applies to dimension rows only; Auto on a non-admitting row is a typed decode rejection. refusesPercent marks a dimension row CSS gives no percentage (column-width): a percentage there, alone or inside a calculation, is refused when set and a typed decode rejection. Every length row (each dimension, line-height, font-size, letter-spacing, the gaps, border widths and radii, shape-margin, border-spacing) also takes CSS `rem` and `em` through `set_dynamic`; the row holds the pixels the kernel resolves at the end of each commit against the host's root font size (LLP 1069.000 D3), so every reader and the wire see pixels. Every length row also takes CSS `ch` and `lh` at a fixed 8×16 px cell (LLP 1101 D3). terminal: how a terminal entry admits the row (LLP 1101 §4) — cell (lengths only in `ch`/`lh`, a percentage, `auto` or 0), admit, or quantize (the host approximates it); a row without one is refused in a terminal entry. layout: a change re-runs layout. text: a change invalidates text measurement. inherited: the row follows CSS inheritance — a node without its own row takes the nearest logical ancestor's computed value, else the initial value (LLP 1035.000 D1); the kernel marks the descendants an inherited change reaches. Defaults are the storage defaults AND the semantic defaults — this table is the one default authority, and the defaults are CSS's: a bare node is a block, content-box, flex-direction row, flex-shrink 1 (rules/RULES.md: the web is the standard). A colour row's default may name a role from `colors` (`\"CanvasText\"`), as CSS's initial `color` is a system colour; a host with the platform's colour shows that, never a snapshot (LLP 1095 stage 2). hosts (LLP 1159.000 D2): what a native host does with the row other than draw it as written, a list of { host: ios | macos | linux | windows | android, or painted for every host that draws with exact-painted's paint walk (linux, windows, android); on: box (an element outside an svg) or svg (one inside), where the entry is limited to one; fidelity: none (the node draws as if the row were unset) or best-effort (it differs as why says); why }. A host with no entry has no known gap, which is not a measurement. The compiler's style-undrawn lint, `contract vocab` and scripts/svgparity.mjs read it; no wire does, so it is outside the digest.",
   "styles": [
     {
       "bit": 0,
@@ -3341,6 +3380,7 @@
     {
       "bit": 36,
       "field": "grid_auto_flow",
+      "capability": "grid",
       "snapshot": "admit",
       "watch": "admit",
       "terminal": "admit",
@@ -3350,6 +3390,7 @@
     {
       "bit": 37,
       "field": "grid_template_columns",
+      "capability": "grid",
       "snapshot": "admit",
       "watch": "admit",
       "rare": true,
@@ -3360,6 +3401,7 @@
     {
       "bit": 38,
       "field": "grid_template_rows",
+      "capability": "grid",
       "snapshot": "admit",
       "watch": "admit",
       "rare": true,
@@ -3370,6 +3412,7 @@
     {
       "bit": 39,
       "field": "grid_column",
+      "capability": "grid",
       "snapshot": "admit",
       "watch": "admit",
       "rare": true,
@@ -3380,6 +3423,7 @@
     {
       "bit": 40,
       "field": "grid_row",
+      "capability": "grid",
       "snapshot": "admit",
       "watch": "admit",
       "rare": true,
@@ -3390,6 +3434,7 @@
     {
       "bit": 41,
       "field": "justify_items",
+      "capability": "grid",
       "snapshot": "admit",
       "watch": "admit",
       "terminal": "admit",
@@ -3802,6 +3847,7 @@
     {
       "bit": 76,
       "field": "transition",
+      "capability": "transitions",
       "codec": "transitions",
       "cold": true
     },
@@ -3857,6 +3903,7 @@
     {
       "bit": 84,
       "field": "clip_path",
+      "capability": "effects",
       "snapshot": "admit",
       "watch": "admit",
       "rare": true,
@@ -4075,6 +4122,7 @@
     {
       "bit": 111,
       "field": "animation",
+      "capability": "animations",
       "codec": "animations",
       "_comment": "@ref LLP 1055 D5: CSS `animation`, each entry with its resolved @keyframes (grammar: `_animations`).",
       "separate": true
@@ -4237,6 +4285,7 @@
     {
       "bit": 133,
       "field": "filter",
+      "capability": "effects",
       "codec": "filter",
       "_comment": "@ref LLP 1055.000 D14: CSS `filter` on SVG elements: none, url(#id) and the filter functions, in order.",
       "hosts": [
@@ -4313,6 +4362,7 @@
     {
       "bit": 142,
       "field": "exit_animation",
+      "capability": "animations",
       "rare": true,
       "codec": "animations",
       "ends": true,
@@ -4321,6 +4371,7 @@
     {
       "bit": 143,
       "field": "layout_transition",
+      "capability": "transitions",
       "rare": true,
       "codec": "transitions",
       "_comment": "@ref LLP 1063: how the node's laid-out origin in its parent moves when layout moves it; the last declaration naming no property governs. Grammar: `_transitions`."
@@ -5225,6 +5276,7 @@
     {
       "bit": 249,
       "field": "view_transition_new",
+      "capability": "animations",
       "rare": true,
       "codec": "animations",
       "ends": true,
@@ -5233,6 +5285,7 @@
     {
       "bit": 250,
       "field": "view_transition_old",
+      "capability": "animations",
       "rare": true,
       "codec": "animations",
       "ends": true,
@@ -5387,6 +5440,120 @@
       "codec": "enum:SafeAreaIgnoreAlign",
       "layout": true,
       "_comment": "@ref LLP 1123 D4: `-exact-safe-area-ignore`'s `align <alignment>`, SwiftUI's `ignoresSafeArea(_:edges:alignment:)`: a box that touches the area it ignores keeps the size it is laid out at and is placed by the alignment within what its margin box reaches. `none`, the initial value, extends the box instead. Not inherited."
+    },
+    {
+      "bit": 266,
+      "field": "safe_area_bar",
+      "codec": "u8",
+      "keywords": "SafeAreaBar",
+      "rare": true,
+      "layout": true,
+      "default": 0,
+      "_comment": "@ref LLP 1123 D12: `-exact-safe-area-bar: none | <edge> [edge-effect] [region]`, SwiftUI's `safeAreaInset(edge:)` and `safeAreaBar(edge:)`: an in-flow child that names an edge is a bar of its parent, out of its flow and laid out in a slot on that edge past the parent's unsafe area and the earlier bars, as the slot's only flex item, placed along the edge by `align-self`. The parent lays its in-flow children out clear of it as with that much more padding, counts it toward its intrinsic size along the edge, and its descendants observe it (D9). `start` and `end` resolve against the parent's `direction`. `edge-effect` registers the bar with the scrollers beneath it and `region` places an owner's root's bar on UIKit's bar layout region, both the host's. An owner's authored root, an absolutely positioned or fixed box, and a box with `display: none` or `contents` are no bars. Not inherited."
+    },
+    {
+      "bit": 267,
+      "field": "layout_margin_top",
+      "rare": true,
+      "codec": "dimension",
+      "refusesPercent": true,
+      "admitsAuto": true,
+      "layout": true,
+      "default": "auto",
+      "_comment": "@ref LLP 1123 D8: `-exact-layout-margins` and `-exact-directional-layout-margins`, their first value, UIKit's `layoutMargins`: the box's own margin on its top edge, before its safe area adds to it. `auto` is a plain view's default margin, which the host reports from UIKit (the kernel holds no margin value of its own). A length with no percentage; a negative one counts as 0. Not inherited."
+    },
+    {
+      "bit": 268,
+      "field": "layout_margin_right",
+      "rare": true,
+      "codec": "dimension",
+      "refusesPercent": true,
+      "admitsAuto": true,
+      "layout": true,
+      "default": "auto",
+      "_comment": "@ref LLP 1123 D8: `-exact-layout-margins`, its second value, UIKit's `layoutMargins`: the box's own margin on its right edge, before its safe area adds to it. `auto` is a plain view's default margin, which the host reports from UIKit (the kernel holds no margin value of its own). A length with no percentage; a negative one counts as 0. Not inherited."
+    },
+    {
+      "bit": 269,
+      "field": "layout_margin_bottom",
+      "rare": true,
+      "codec": "dimension",
+      "refusesPercent": true,
+      "admitsAuto": true,
+      "layout": true,
+      "default": "auto",
+      "_comment": "@ref LLP 1123 D8: `-exact-layout-margins` and `-exact-directional-layout-margins`, their third value, UIKit's `layoutMargins`: the box's own margin on its bottom edge, before its safe area adds to it. `auto` is a plain view's default margin, which the host reports from UIKit (the kernel holds no margin value of its own). A length with no percentage; a negative one counts as 0. Not inherited."
+    },
+    {
+      "bit": 270,
+      "field": "layout_margin_left",
+      "rare": true,
+      "codec": "dimension",
+      "refusesPercent": true,
+      "admitsAuto": true,
+      "layout": true,
+      "default": "auto",
+      "_comment": "@ref LLP 1123 D8: `-exact-layout-margins`, its fourth value, UIKit's `layoutMargins`: the box's own margin on its left edge, before its safe area adds to it. `auto` is a plain view's default margin, which the host reports from UIKit (the kernel holds no margin value of its own). A length with no percentage; a negative one counts as 0. Not inherited."
+    },
+    {
+      "bit": 271,
+      "field": "layout_margin_leading",
+      "rare": true,
+      "codec": "dimension",
+      "refusesPercent": true,
+      "admitsAuto": true,
+      "layout": true,
+      "default": "auto",
+      "_comment": "@ref LLP 1123 D8: `-exact-directional-layout-margins`, its second value, UIKit's `directionalLayoutMargins`: the box's own margin on its leading edge, before its safe area adds to it. `auto` is a plain view's default margin, which the host reports from UIKit (the kernel holds no margin value of its own). A length with no percentage; a negative one counts as 0. Not inherited. A set leading or trailing margin takes the side it maps to by the box's `direction`, over the physical one."
+    },
+    {
+      "bit": 272,
+      "field": "layout_margin_trailing",
+      "rare": true,
+      "codec": "dimension",
+      "refusesPercent": true,
+      "admitsAuto": true,
+      "layout": true,
+      "default": "auto",
+      "_comment": "@ref LLP 1123 D8: `-exact-directional-layout-margins`, its fourth value, UIKit's `directionalLayoutMargins`: the box's own margin on its trailing edge, before its safe area adds to it. `auto` is a plain view's default margin, which the host reports from UIKit (the kernel holds no margin value of its own). A length with no percentage; a negative one counts as 0. Not inherited. A set leading or trailing margin takes the side it maps to by the box's `direction`, over the physical one."
+    },
+    {
+      "bit": 273,
+      "field": "layout_margins_preserved",
+      "codec": "u8",
+      "keywords": "LayoutMarginsPreserved",
+      "rare": true,
+      "layout": true,
+      "default": 0,
+      "_comment": "@ref LLP 1123 D8: `-exact-preserves-superview-layout-margins: false | true`, UIKit's `preservesSuperviewLayoutMargins`: each edge of the box's margins rises to its superview's margin boundary projected into the box, which constrains and is never added. Not inherited."
+    },
+    {
+      "bit": 274,
+      "field": "layout_margins_from_safe_area",
+      "codec": "u8",
+      "keywords": "LayoutMarginsFromSafeArea",
+      "rare": true,
+      "layout": true,
+      "default": 0,
+      "_comment": "@ref LLP 1123 D8: `-exact-insets-layout-margins-from-safe-area: true | false`, UIKit's `insetsLayoutMarginsFromSafeArea`: whether each edge's safe area adds to the box's own margin there. Not inherited."
+    },
+    {
+      "bit": 275,
+      "field": "layout_margins_minimum",
+      "codec": "u8",
+      "keywords": "LayoutMarginsMinimum",
+      "rare": true,
+      "layout": true,
+      "default": 0,
+      "_comment": "@ref LLP 1123 D8: `-exact-respects-system-minimum-layout-margins: true | false` on an owner's root, UIKit's `viewRespectsSystemMinimumLayoutMargins`, which the host sets on the owner's controller; the root view's margins the host reports follow it. Not inherited."
+    },
+    {
+      "bit": 276,
+      "field": "object_position",
+      "codec": "object-position",
+      "snapshot": "admit",
+      "watch": "admit",
+      "cold": true
     }
   ],
   "_transitions": "The `transition` row is CSS `transition` (LLP 1002): count u8 (≤8), then per declaration property u8 (0 all, then 1 + `Property`: 1 translate, 2 scale, 3 rotate, 4 opacity, 5 height, 6 stroke-dashoffset, 7 r, 8 color, 9 background-color, 10 fill, 11 stroke, 12 cx, 13 cy, 14 x, 15 y, 16 rx, 17 ry, 18 border-top-color, 19 border-right-color, 20 border-bottom-color, 21 border-left-color, 22 -exact-tint-color, 23 box-shadow — LLP 1062; 24, box-shadow's colour alone, is refused; 25 font-weight, 26 font-stretch, 27 font-variation-settings — LLP 1019 §13 D10; 28 is CSS's `border-color` shorthand; 29 is a path's `d`, LLP 1055.000 D15; 30 is `filter`, LLP 1003.002), duration f32 s, delay f32 s, easing u8 (0 linear, 1 ease, 2 ease-in, 3 ease-out, 4 ease-in-out, 5 cubic-bezier + 4×f32, 6 steps + u16 count + u8 position, 7 spring + f32 stiffness/damping/mass, 8 linear() + u8 count + count×(f32 input, f32 output)). Its Rust type lives in exact-motion; the kernel owns the bytes.",
@@ -5912,6 +6079,10 @@
         "orientationlock": {
           "member": "orientation",
           "codec": "orientation"
+        },
+        "rootTabs": {
+          "member": "rootTabs",
+          "codec": "rootTabs"
         },
         "alerts": {
           "member": "alerts",
