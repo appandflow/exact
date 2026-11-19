@@ -232,7 +232,9 @@ export function observe(views, inactive = () => false) {
     // it lies beyond, nor transformed or placed out of flow. Past the viewport it is the finding above.
     const parent = el.parentElement, ps = parent && parent.id !== 'exact-root' ? getComputedStyle(parent) : null;
     if (!item.outX && ps && /^(inline-)?(flex|grid)$/.test(ps.display) && !holdsX(parent, ps) && !/^(absolute|fixed)$/.test(cs.position) && cs.transform === 'none') {
-      const pb = parent.getBoundingClientRect(), left = pb.left + parent.clientLeft, spill = Math.max(b.right - (left + parent.clientWidth), left - b.left);
+      // The parent's box as drawn, less its borders: under a tilted ancestor both boxes are the tilted ones' bounds, as on iOS.
+      const pb = parent.getBoundingClientRect(), left = pb.left + parent.clientLeft, right = pb.right - (parent.offsetWidth - parent.clientLeft - parent.clientWidth);
+      const spill = Math.max(b.right - right, left - b.left);
       let beyond = false;
       for (let e = parent.parentElement; e && e.id !== 'exact-root' && !beyond; e = e.parentElement) {
         if (out.has(e)) beyond = true;
