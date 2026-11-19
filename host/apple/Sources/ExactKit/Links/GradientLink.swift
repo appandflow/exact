@@ -108,24 +108,53 @@ extension NodeView {
         if gradientLayered && boxGradient != nil { return }
         #endif
         // The last layer first, so the first is on top (LLP 1077 D5).
+        let blend = backgroundBlend
         for g in GradientLink.layers(style["background_image"], tint: gradientTint).reversed() {
+            guard let blend else { g.paint(ctx, clip: clip, box: gradientBox, dark: drawsDark); continue }
+            // A layer may lay a pixel twice (hard stops, tiles): blend it once, whole.
+            ctx.saveGState()
+            ctx.setBlendMode(blend)
+            ctx.beginTransparencyLayer(auxiliaryInfo: nil)
             g.paint(ctx, clip: clip, box: gradientBox, dark: drawsDark)
+            ctx.endTransparencyLayer()
+            ctx.restoreGState()
         }
     }
 
+    /// CSS `background-blend-mode` (CSS Compositing 1 §4), one mode for every
+    /// layer; nil for `normal`. Core Graphics names the same sixteen modes.
+    var backgroundBlend: CGBlendMode? {
+        let modes: [String: CGBlendMode] = [
+            "multiply": .multiply, "screen": .screen, "overlay": .overlay, "darken": .darken, "lighten": .lighten,
+            "color-dodge": .colorDodge, "color-burn": .colorBurn, "hard-light": .hardLight, "soft-light": .softLight,
+            "difference": .difference, "exclusion": .exclusion, "hue": .hue, "saturation": .saturation,
+            "color": .color, "luminosity": .luminosity,
+        ]
+        return style["background_blend_mode"]?.string.flatMap { modes[$0] }
+    }
+
+    /// The background colour and layers as one group when they blend, so a
+    /// layer blends with the colour beneath it and never with what is under the box.
+    func isolatingBackground(_ ctx: CGContext, _ paint: () -> Void) {
+        guard backgroundBlend != nil, style["background_image"] != nil else { return paint() }
+        ctx.beginTransparencyLayer(auxiliaryInfo: nil)
+        paint()
+        ctx.endTransparencyLayer()
+    }
+
     /// Whether the background's gradients need `draw(_:)`: several layers,
-    /// or a conic or repeating one (LLP 1077 D5, LLP 1066). Repeating linear
+    /// a conic or repeating one (LLP 1077 D5, LLP 1066), or a blend. Repeating linear
     /// gradients alone are patterns instead (`gradientPatterned`).
     var gradientDraws: Bool {
         let layers = GradientLink.layers(style["background_image"], tint: gradientTint)
         if gradientPatterned(layers) { return false }
-        return layers.count > 1 || layers.contains { $0.needsDrawing }
+        return layers.count > 1 || layers.contains { $0.needsDrawing } || (!layers.isEmpty && backgroundBlend != nil)
     }
 
     /// A background of repeating linear gradients only, not `fixed`: Core
     /// Animation tiles each one's period (`GradientPatternLayer`, #661)
-    /// wherever nothing else makes the box draw.
+    /// wherever nothing else makes the box draw. A blend draws.
     func gradientPatterned(_ layers: [any BoxGradient]) -> Bool {
-        !gradientFixed && !layers.isEmpty && layers.allSatisfy { $0.isRepeatingLinear }
+        !gradientFixed && backgroundBlend == nil && !layers.isEmpty && layers.allSatisfy { $0.isRepeatingLinear }
     }
 }

@@ -51,15 +51,17 @@ extension NodeView {
     func paintBackground(_ ctx: CGContext, border: CGPath, color: Bool) {
         guard let clip = backgroundOutline(border) else { return }
         let authored = cgColor("background_color")
-        if color, let c = authored ?? fieldGround, c.alpha > 0 {
-            ctx.saveGState()
-            if authored == nil, let bezel = fieldOutline() { ctx.addPath(bezel); ctx.clip() }
-            ctx.addPath(clip)
-            ctx.setFillColor(c)
-            ctx.fillPath()
-            ctx.restoreGState()
+        isolatingBackground(ctx) {
+            if color, let c = authored ?? fieldGround, c.alpha > 0 {
+                ctx.saveGState()
+                if authored == nil, let bezel = fieldOutline() { ctx.addPath(bezel); ctx.clip() }
+                ctx.addPath(clip)
+                ctx.setFillColor(c)
+                ctx.fillPath()
+                ctx.restoreGState()
+            }
+            paintGradient(ctx, clip: clip)
         }
-        paintGradient(ctx, clip: clip)
     }
 
     #if os(macOS)
@@ -71,11 +73,13 @@ extension NodeView {
             return
         }
         let bg = color("background_color", .clear)
-        if bg.alphaComponent > 0, surface == nil {
-            bg.setFill()
-            if rounded { path.fill() } else { ctx.fill(bounds) }
+        isolatingBackground(ctx) {
+            if bg.alphaComponent > 0, surface == nil {
+                bg.setFill()
+                if rounded { path.fill() } else { ctx.fill(bounds) }
+            }
+            if style["background_image"] != nil { paintGradient(ctx, clip: path.cgPath) }
         }
-        if style["background_image"] != nil { paintGradient(ctx, clip: path.cgPath) }
     }
     #endif
 
@@ -99,11 +103,13 @@ extension NodeView {
         ctx.saveGState()
         ctx.addPath(glyphs)
         ctx.clip()
-        if let c = channels("background_color"), c[3] > 0 {
-            ctx.setFillColor(TextEngine.color(c).cgColor)
-            ctx.fill(bounds)
+        isolatingBackground(ctx) {
+            if let c = channels("background_color"), c[3] > 0 {
+                ctx.setFillColor(TextEngine.color(c).cgColor)
+                ctx.fill(bounds)
+            }
+            paintGradient(ctx, clip: CGPath(rect: bounds, transform: nil))
         }
-        paintGradient(ctx, clip: CGPath(rect: bounds, transform: nil))
         ctx.restoreGState()
     }
 }

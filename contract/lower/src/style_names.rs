@@ -132,6 +132,7 @@ pub const STYLE_NAMES: &[(&str, &str, AttrTarget)] = &[
     ("text-shadow", "css CSS Text Decoration 3", AttrTarget::Styles(&[StyleId::TextShadow])),
     ("corner-shape", "css CSS Borders 4", AttrTarget::Styles(&[StyleId::CornerShape])),
     ("background-clip", "css CSS Backgrounds 3", AttrTarget::Styles(&[StyleId::BackgroundClip])),
+    ("background-blend-mode", "css CSS Compositing 1", AttrTarget::Styles(&[StyleId::BackgroundBlendMode])),
     // @ref LLP 1077 D7 — the Compat Standard's names; the shorthand
     // binds both rows, each taking its part.
     ("-webkit-text-stroke", "browser webkit bb06bdc9", AttrTarget::Styles(&[StyleId::TextStrokeWidth, StyleId::TextStrokeColor])),

@@ -256,3 +256,23 @@ fn a_rolling_number_uses_the_numerals_capability() {
     let still = contract::compile("component A\n  view\n    text \"1,234\"\n").unwrap();
     assert!(!exact_runner::uses(&still).has(Capability::Numerals));
 }
+
+/// CSS `background-blend-mode`: one `<blend-mode>` for every layer, in a
+/// literal, a `style` and a conditional; a per-layer list is refused.
+#[test]
+fn background_blend_mode_takes_one_mode() {
+    use exact_kernel::MixBlendMode;
+    let r = boot(
+        "style Hatch\n  background-blend-mode=\"multiply\"\n\ncomponent App\n  state on = true\n  view\n    column\n      view class=Hatch testId=\"a\"\n      view background-blend-mode=(on ? \"screen\" : \"normal\") testId=\"b\"\n",
+    );
+    assert_eq!(
+        style_of(&r, "a").background_blend_mode,
+        MixBlendMode::Multiply
+    );
+    assert_eq!(
+        style_of(&r, "b").background_blend_mode,
+        MixBlendMode::Screen
+    );
+    let e = refused("background-blend-mode=\"multiply, normal\"");
+    assert_eq!(e.id, "lower-attr-value", "{e}");
+}
