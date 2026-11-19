@@ -199,12 +199,13 @@ function selectedDetent(route) {
 // down the route's last child in flow, the first that scrolls up and down. neutral.css pads it by the inset and its
 // author's bottom padding, which the projection hands it as `--exact-sheet-scroller-pad`, since the stylesheet's sum
 // cannot read the author's value: a bound padding is inline, and a static one is the JS target's class rule, whose
-// expression is kept so a length relative to the window stays so. A content-high sheet whose scroller takes the inset
-// adds no band below it.
+// expression is kept so a length relative to the window stays so; any other, the look's or the browser's, is read once
+// before the scroller is marked. A form control is no content scroller. A content-high sheet whose scroller takes the
+// inset adds no band below it.
 const bottomScrollers = new WeakMap(), staticPads = new WeakMap();
 function staticPad(el) {
   const classes = new Set([...el.classList].map((c) => `.${CSS.escape(c)}`));
-  let pad = "0px";
+  let pad = null;
   for (const sheet of classes.size ? document.styleSheets : []) {
     let rules = [];
     try {
@@ -226,6 +227,9 @@ function bottomScroller(route) {
     return s.display !== "none" && s.position !== "absolute" && s.position !== "fixed";
   };
   for (let el = [...route.children].findLast(flows); el; el = [...el.children].findLast(flows)) {
+    if (el.matches("textarea, select")) {
+      return null;
+    }
     if (/^(auto|scroll)$/.test(getComputedStyle(el).overflowY)) {
       return el;
     }
@@ -245,11 +249,11 @@ function sheetScroller(route, inSheet) {
   if (!now) {
     return;
   }
+  if (!staticPads.has(now)) {
+    staticPads.set(now, staticPad(now) ?? (now.style.paddingBottom ? "0px" : getComputedStyle(now).paddingBottom));
+  }
   if (!now.hasAttribute("data-exact-bottom-inset")) {
     now.setAttribute("data-exact-bottom-inset", "");
-  }
-  if (!staticPads.has(now)) {
-    staticPads.set(now, staticPad(now));
   }
   const pad = now.style.paddingBottom || staticPads.get(now);
   if (now.style.getPropertyValue("--exact-sheet-scroller-pad") !== pad) {

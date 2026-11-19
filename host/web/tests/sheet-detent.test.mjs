@@ -273,6 +273,22 @@ check('a sheet whose last child in flow is not a scroller keeps the band below i
   }`);
   expect(await open(evaluate, 'fit-content')).toEqual([844 - banded - 40, banded + 40]);
   expect(await evaluate(`[getComputedStyle(document.getElementById('scroller')).paddingBottom, document.getElementById('sheet').hasAttribute('data-exact-bottom-scroller')]`)).toEqual(['0px', false]);
+  // A text area last is a field, not the sheet's content scroller.
+  await evaluate(`document.getElementById('sheet').append(Object.assign(document.createElement('textarea'), { id: 'notes' }))`);
+  await open(evaluate, 'fit-content');
+  expect(await evaluate(`[document.getElementById('notes').hasAttribute('data-exact-bottom-inset'), document.getElementById('sheet').hasAttribute('data-exact-bottom-scroller')]`)).toEqual([false, false]);
+}), 60000);
+
+check("a scroller's padding from a rule other than its class's still adds to the inset", () => inChrome(async (evaluate, size, call) => {
+  await call('Emulation.setSafeAreaInsetsOverride', { insets: { bottom: 34 } });
+  await size(390, 844);
+  expect(await evaluate(`{
+    document.head.insertAdjacentHTML('beforeend', '<style>[data-look] { padding-bottom: 6px }</style>');
+    detents('sheet', 'fit-content');
+    document.getElementById('sheet').innerHTML = '<header><h2>Sheet</h2></header><div id="scroller" data-look style="flex:1;min-height:0;overflow:auto"><div style="height:200px"></div></div>';
+    select('1'); select('2');
+    getComputedStyle(document.getElementById('scroller')).paddingBottom;
+  }`)).toBe('40px');
 }), 60000);
 
 check('each presented route is drawn above every route beneath it, sheet or full screen', () => inChrome(async (evaluate, size) => {
