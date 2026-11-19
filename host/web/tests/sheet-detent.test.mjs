@@ -220,9 +220,14 @@ check("a narrow sheet's bottom-edge scroller takes the bottom safe area once, sh
   // An author's bottom padding adds to the inset.
   expect(await scrolled(evaluate, 200, '10px')).toEqual([[844 - header - 220 - 44, header + 220 + 44], 44, '44px', false]);
   expect(await scrolled(evaluate, 2000, '10px')).toEqual([[12, 832], 44, '44px', true]);
-  // So does one a class rule gives it, as the JS target writes a static style.
-  await evaluate(`document.head.insertAdjacentHTML('beforeend', '<style>.padded { padding-bottom: 10px }</style>')`);
+  // So does one a class rule gives it, as the JS target writes a static style, and a length relative to the window
+  // follows the window.
+  await evaluate(`document.head.insertAdjacentHTML('beforeend', '<style>.padded { padding-bottom: 10px } .tall { padding-bottom: 2vh }</style>')`);
   expect(await scrolled(evaluate, 200, '', 'padded')).toEqual([[844 - header - 220 - 44, header + 220 + 44], 44, '44px', false]);
+  expect((await scrolled(evaluate, 2000, '', 'tall')).slice(1, 3)).toEqual([51, '50.88px']);
+  await size(390, 744);
+  expect(await evaluate(`getComputedStyle(document.getElementById('scroller')).paddingBottom`)).toBe('48.88px');
+  await size(390, 844);
   // A detent and the tallest sheet keep their heights, their scroller ending above the inset.
   await evaluate(`detents('sheet', 'medium large')`);
   expect(await scrolled(evaluate, 2000)).toEqual([[411, 433], 34, '34px', true]);
