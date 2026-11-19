@@ -596,7 +596,6 @@ fn an_exported_module_forwards_its_panics_to_the_host() {
         .unwrap();
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(out.status.success(), "{stderr}");
-    // The hook it replaced still reported the panic.
     assert!(stderr.contains("module 3 failed"), "{stderr}");
     let text = std::fs::read_to_string(&record).unwrap();
     let _ = std::fs::remove_dir_all(&dir);

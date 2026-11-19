@@ -122,8 +122,6 @@ mod tests {
         );
     }
 
-    // A Rust module loaded as a dylib reports its panic through
-    // `exact_logic_abi::panics::report`, on the thread that panicked.
     #[test]
     #[allow(unsafe_code)]
     fn a_loaded_modules_panic_writes_its_record() {

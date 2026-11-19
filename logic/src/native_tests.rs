@@ -297,7 +297,6 @@ mod panics;
         .unwrap();
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(!out.status.success(), "{stderr}");
-    // The module's own default hook still reported the panic.
     assert!(stderr.contains("session 7 refused"), "{stderr}");
     let text = fs::read_to_string(&record).unwrap();
     let lines: Vec<&str> = text.lines().collect();

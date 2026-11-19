@@ -551,7 +551,6 @@ test('web dispatch refuses a Rust prefetch on a send and sends a resource prefet
 // A Rust call that fails may have changed the module's own state before it failed: refused after its answer ran, or
 // trapped. The next call runs in a fresh instance, activated again, as natively (logic/src/lib.rs `run`). A trap,
 // and not a refusal, goes to Observe (marks.js `observeTrap`).
-// rust-data.js and what it imports, in a scratch directory, for a stand-in module.
 function rustDataDir(prefix) {
   const dir = scratch(prefix);
   for (const name of ['rust-data.js', 'admission.js', 'held.js']) {
