@@ -611,17 +611,24 @@
      push in UIKit's presented sheet does. A narrow sheet opens at its detent (navigation.js `selectedDetent`), its
      foot on the window's: the detent's height above the bottom safe area, which it adds below as UIKit does, up to
      the tallest sheet; a browser without `calc-size()` adds that band to a content-high sheet as a clear bottom
-     border, which an author's border replaces. A window under 480 px tall is UIKit's compact height, where a sheet
+     border, which an author's border replaces. A sheet whose bottom-edge scroller takes the inset (below) adds no
+     band: the scroller's padding is that band, and a sheet as tall as its content is that scroller's content and
+     the inset once. A window under 480 px tall is UIKit's compact height, where a sheet
      is always the tallest; and on a touch screen a field with the focus raises it to the tallest, as UIKit does for
      the keyboard, which would cover a shorter one. */
   @media (width < 900px) { @media (min-height: 480px) {
     #exact-root :is([navigationPresentation="modal"], [data-exact-in-sheet])[data-exact-detent] { inset: auto 0 0 !important; height: calc(var(--exact-sheet-detent) + env(safe-area-inset-bottom, 0px)) !important; max-height: calc(100% - env(safe-area-inset-top, 0px) - 12px) !important; }
     #exact-root :is([navigationPresentation="modal"], [data-exact-in-sheet])[data-exact-detent="fit-content"] { height: calc-size(fit-content, size + env(safe-area-inset-bottom, 0px)) !important; }
-    @supports not (height: calc-size(fit-content, size)) { #exact-root :is([navigationPresentation="modal"], [data-exact-in-sheet])[data-exact-detent="fit-content"] { height: fit-content !important; border-bottom: env(safe-area-inset-bottom, 0px) solid transparent; } }
+    @supports not (height: calc-size(fit-content, size)) { #exact-root :is([navigationPresentation="modal"], [data-exact-in-sheet])[data-exact-detent="fit-content"]:not([data-exact-bottom-scroller]) { height: fit-content !important; border-bottom: env(safe-area-inset-bottom, 0px) solid transparent; } }
+    #exact-root :is([navigationPresentation="modal"], [data-exact-in-sheet])[data-exact-detent="fit-content"][data-exact-bottom-scroller] { height: fit-content !important; }
     @media (any-pointer: coarse) {
       #exact-root :is([navigationPresentation="modal"], [data-exact-in-sheet])[data-exact-detent]:has(:is(textarea, input:not([type="checkbox"], [type="radio"], [type="range"], [type="button"], [type="submit"], [type="reset"], [type="color"], [type="file"], [type="image"]), [contenteditable]:not([contenteditable="false"])):focus) { inset: calc(env(safe-area-inset-top, 0px) + 12px) 0 0 !important; height: auto !important; }
     }
   } }
+  /* A narrow sheet's foot is the window's, so the scroller at its bottom edge (navigation.js `bottomScroller`) takes
+     the bottom safe area as UIKit's inset on it, added to its author's padding: its content scrolls under the home
+     indicator and ends above it, short or tall, at any detent. A wide window's card is clear of the edge. */
+  @media (width < 900px) { #exact-root :is([navigationPresentation="modal"], [data-exact-in-sheet]) [data-exact-bottom-inset] { padding-bottom: calc(var(--exact-sheet-scroller-pad, 0px) + env(safe-area-inset-bottom, 0px)) !important; } }
   /* A full-screen route's ground where its author wrote none: clear, in a colour no author writes, which
      navigation.js `overPage` reads to tell that route from one whose author wrote a background. It stands on the
      sheets' level, so the stack's order, which is the routes' order in the document, decides which presented route is

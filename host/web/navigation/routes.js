@@ -194,6 +194,45 @@ function selectedDetent(route) {
   }
   return chosen;
 }
+// The scroller at a sheet's bottom edge takes the bottom safe area as its inset, as UIKit's does (LLP 1116 D2), so its
+// content scrolls under the home indicator and ends above it. It is the kernel's (cover.rs `scroller_insets_bottom`):
+// down the route's last child in flow, the first that scrolls up and down. neutral.css pads it by the inset and its
+// author's bottom padding, which the projection hands it as `--exact-sheet-scroller-pad` since a stylesheet cannot read
+// an inline value; a content-high sheet whose scroller takes the inset adds no band below it.
+const bottomScrollers = new WeakMap();
+function bottomScroller(route) {
+  const flows = (el) => {
+    const s = getComputedStyle(el);
+    return s.display !== "none" && s.position !== "absolute" && s.position !== "fixed";
+  };
+  for (let el = [...route.children].findLast(flows); el; el = [...el.children].findLast(flows)) {
+    if (/^(auto|scroll)$/.test(getComputedStyle(el).overflowY)) {
+      return el;
+    }
+  }
+  return null;
+}
+function sheetScroller(route, inSheet) {
+  const was = bottomScrollers.get(route), now = inSheet ? bottomScroller(route) : null;
+  if (was && was !== now) {
+    was.removeAttribute("data-exact-bottom-inset");
+    was.style.removeProperty("--exact-sheet-scroller-pad");
+  }
+  now ? bottomScrollers.set(route, now) : bottomScrollers.delete(route);
+  if (route.hasAttribute("data-exact-bottom-scroller") !== !!now) {
+    route.toggleAttribute("data-exact-bottom-scroller", !!now);
+  }
+  if (!now) {
+    return;
+  }
+  if (!now.hasAttribute("data-exact-bottom-inset")) {
+    now.setAttribute("data-exact-bottom-inset", "");
+  }
+  const pad = now.style.paddingBottom || "0px";
+  if (now.style.getPropertyValue("--exact-sheet-scroller-pad") !== pad) {
+    now.style.setProperty("--exact-sheet-scroller-pad", pad);
+  }
+}
 /** The frame of `routes[index]`: its own detent, or its sheet's when it was pushed inside one; written only where it
  * changed. `shownIn` is the sheet each route shows in (`sheetAt`), `inUse` the sheets something shown is in,
  * `selected` the stack's shown route. The projection frames a stack's routes in order, and with the last one the
@@ -225,6 +264,7 @@ function sheetFrame(routes, index, shownIn, inUse, selected) {
   if (route.style.getPropertyValue("--exact-sheet-detent") !== (chosen?.css ?? "")) {
     route.style.setProperty("--exact-sheet-detent", chosen?.css ?? "");
   }
+  sheetScroller(route, inUse.has(at));
   if (index === routes.length - 1) {
     stackSheets(routes, shownIn, inUse, selected);
   }
