@@ -12,6 +12,7 @@ use exact_runner::{
 };
 
 pub mod draw;
+pub mod panics;
 
 /// Seam version, independent of the plan format version.
 pub const ABI: u32 = 12;
@@ -1181,6 +1182,11 @@ macro_rules! export {
         #[no_mangle]
         pub extern "C" fn exact_logic_abi() -> u32 {
             $crate::ABI
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        #[no_mangle]
+        pub extern "C" fn exact_logic_forward_panics(report: $crate::panics::Report) {
+            $crate::panics::forward(report)
         }
         #[no_mangle]
         pub extern "C" fn exact_logic_create() -> usize {

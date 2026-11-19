@@ -79,10 +79,12 @@ export async function install(data, sources, load = p => fetchHostAsset(p).then(
   const made = await WebAssembly.instantiate(wasm, {}), compiled = made.module ?? wasm;
   // The instance and its session, which a failed call replaces (`call`); `unavailable` once that failed too.
   let e, session, active = false, unavailable = null;
+  // A Rust panic: release builds abort, which traps. Observe reports it when the app launches it (marks.js).
+  const reported = trap => { if (trap instanceof WebAssembly.RuntimeError) globalThis.exact?.observeTrap?.(trap); return trap; };
   const start = instance => {
     e = instance.exports;
     if (e.exact_logic_abi() !== ABI) throw new Error(`Rust module ABI ${e.exact_logic_abi()} is not ${ABI}`);
-    session = e.exact_logic_create();
+    try { session = e.exact_logic_create(); } catch (trap) { throw reported(trap); }
   };
   start(made.instance ?? made);
   const call = bytes => {
@@ -93,11 +95,7 @@ export async function install(data, sources, load = p => fetchHostAsset(p).then(
       new Uint8Array(e.memory.buffer, p, bytes.length).set(bytes);
       rc = e.exact_logic_call(session, p, bytes.length);
       e.exact_logic_dealloc(p, bytes.length);
-    } catch (trap) {
-      rc = trap;
-      // A Rust panic: release builds abort, which traps. Observe reports it when the app launches it (marks.js).
-      if (trap instanceof WebAssembly.RuntimeError) globalThis.exact?.observeTrap?.(trap);
-    }
+    } catch (trap) { rc = reported(trap); }
     if (rc !== 0) {
       const error = rc instanceof Error ? rc : new Error('Rust module rejected the call');
       // A failed call may have run, and changed the module's own state, before it failed: a trap leaves its memory

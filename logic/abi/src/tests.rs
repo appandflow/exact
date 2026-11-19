@@ -568,6 +568,42 @@ fn malformed_reply_cannot_partially_write_the_host_store() {
 mod exports {
     crate::export!(super::Fixture, super::Fixture(0));
 }
+
+// The hook is installed only in a child process, so it is never swapped under
+// concurrently running tests.
+#[test]
+fn an_exported_module_forwards_its_panics_to_the_host() {
+    const TEST: &str = "tests::an_exported_module_forwards_its_panics_to_the_host";
+    if let Some(record) = std::env::var_os("EXACT_FORWARD_PANICS_CHILD") {
+        static RECORD: std::sync::OnceLock<std::path::PathBuf> = std::sync::OnceLock::new();
+        RECORD.set(record.into()).unwrap();
+        crate::panics::report_to(|message, file, line| {
+            std::fs::write(RECORD.get().unwrap(), format!("{message}\n{file}:{line}")).unwrap();
+        });
+        exports::exact_logic_forward_panics(crate::panics::report);
+        std::thread::spawn(|| panic!("module {} failed", 3))
+            .join()
+            .unwrap_err();
+        return;
+    }
+    let dir = std::env::temp_dir().join(format!("exact-forward-panics-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let record = dir.join("record");
+    let out = std::process::Command::new(std::env::current_exe().unwrap())
+        .args(["--exact", TEST, "--nocapture"])
+        .env("EXACT_FORWARD_PANICS_CHILD", &record)
+        .output()
+        .unwrap();
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(out.status.success(), "{stderr}");
+    // The hook it replaced still reported the panic.
+    assert!(stderr.contains("module 3 failed"), "{stderr}");
+    let text = std::fs::read_to_string(&record).unwrap();
+    let _ = std::fs::remove_dir_all(&dir);
+    let (message, location) = text.split_once('\n').unwrap();
+    assert_eq!(message, "module 3 failed");
+    assert!(location.starts_with(&format!("{}:", file!())), "{text}");
+}
 #[test]
 fn exported_buffers_belong_to_module_and_sessions_are_distinct() {
     assert_eq!(exports::exact_logic_abi(), ABI);
