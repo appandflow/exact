@@ -63,9 +63,8 @@ jobs:
         run: bun scripts/gate.mjs
 
   macos:
-    # A Blacksmith runner, as in expo/expo: GitHub's hosted macOS runners are
-    # shared by every repository in the org.
-    runs-on: blacksmith-6vcpu-macos-26
+    # GitHub's hosted runner: upstream's Blacksmith label has no runner for this org.
+    runs-on: macos-26
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
