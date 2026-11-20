@@ -682,7 +682,7 @@ extension NavigationHost {
             #else
             let fonts: NavigationTitleInk.Fonts? = nil // tvOS's bar title font is not measured: its own stays.
             #endif
-            c.titleInk.update(shows ? shape?.heading?.ownUIColor("text_color") : nil, fonts: fonts, item: c.navigationItem, bar: nav?.navigationBar, transparent: transparent)
+            c.titleInk.update(shows ? c.titleInk.color(of: shape?.heading) : nil, fonts: fonts, item: c.navigationItem, bar: nav?.navigationBar, transparent: transparent)
             guard c.projected != signature || !c.hatched else { continue }
             c.projected = signature
             guard presenter.session?.natives.hatchesConnected == true else { continue }
