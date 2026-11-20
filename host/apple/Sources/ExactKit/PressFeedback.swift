@@ -1,6 +1,7 @@
 // Press feedback (LLP 1061 D2): while a finger (a mouse button on macOS)
 // holds a pressable node down inside its box, the node shows its
-// `-exact-press-scale`, eased in over 120 ms and eased back on release or cancel.
+// `-exact-press-scale`, eased in over 120 ms and sprung back past rest over
+// 220 ms on release or cancel.
 // The host owns it end to end — touch-down to the first scaled frame never
 // waits for the runner — and it composes with the motion engine by folding
 // into the one transform every writer goes through (`applyTransform`): an
@@ -29,10 +30,19 @@ package struct PressFeedback {
     /// none is held.
     var dimmedAt: CFTimeInterval?
     #endif
-    /// In and back alike: a fast settle that reads as a physical give.
+    /// Whether this leg is the scale's release, which springs back past
+    /// rest on `releaseTiming` (the paint's legs never do).
+    var springs = false
+    /// The way in: a fast settle that reads as a physical give.
     package static let duration: CFTimeInterval = 0.12
     /// `ease` as Core Animation's curve, for the render server's ease.
     package static let timing = CAMediaTimingFunction(controlPoints: 0.16, 1, 0.3, 1)
+    /// The scale's way back: past rest by a quarter of the travel, then home.
+    package static let releaseDuration: CFTimeInterval = 0.22
+    static let releaseCurve = (0.2, 2.0, 0.4, 1.0)
+    package static let releaseTiming = CAMediaTimingFunction(controlPoints: 0.2, 2, 0.4, 1)
+    /// How long this leg runs.
+    var span: CFTimeInterval { springs ? Self.releaseDuration : Self.duration }
     /// Shorter than one 60 Hz frame: a press this young was never presented.
     static let unseen: CFTimeInterval = 1.0 / 60
 
@@ -47,21 +57,23 @@ package struct PressFeedback {
         return from == value && to == value && start == 0 && !releaseHeld
     }
     func factor(at t: CFTimeInterval) -> CGFloat {
-        let p = min(1, max(0, (t - start) / Self.duration))
-        return from + (to - from) * CGFloat(Self.ease(p))
+        let p = min(1, max(0, (t - start) / span))
+        return from + (to - from) * CGFloat(springs ? Self.bezier(p, Self.releaseCurve) : Self.ease(p))
     }
-    func settled(at t: CFTimeInterval) -> Bool { t - start >= Self.duration }
+    func settled(at t: CFTimeInterval) -> Bool { t - start >= span }
     /// Re-aim from wherever the factor is now: a release mid-ease never jumps.
-    mutating func aim(_ target: CGFloat, at t: CFTimeInterval) {
+    mutating func aim(_ target: CGFloat, at t: CFTimeInterval, springs: Bool = false) {
         guard target != to else { return }
-        from = factor(at: t); to = target; start = t
+        from = factor(at: t); to = target; start = t; self.springs = springs
     }
-    /// CSS `cubic-bezier(.16, 1, .3, 1)` at `x`: Newton's method on the
+    /// CSS `cubic-bezier(.16, 1, .3, 1)` at `x`.
+    static func ease(_ x: Double) -> Double { bezier(x, (0.16, 1.0, 0.3, 1.0)) }
+    /// CSS `cubic-bezier(x1, y1, x2, y2)` at `x`: Newton's method on the
     /// curve's x, bisection when the slope is too flat to trust.
-    static func ease(_ x: Double) -> Double {
+    static func bezier(_ x: Double, _ points: (Double, Double, Double, Double)) -> Double {
         if x <= 0 { return 0 }
         if x >= 1 { return 1 }
-        let (x1, y1, x2, y2) = (0.16, 1.0, 0.3, 1.0)
+        let (x1, y1, x2, y2) = points
         let cx = 3 * x1, bx = 3 * (x2 - x1) - cx, ax = 1 - cx - bx
         let cy = 3 * y1, by = 3 * (y2 - y1) - cy, ay = 1 - cy - by
         func curveX(_ t: Double) -> Double { ((ax * t + bx) * t + cx) * t }
@@ -179,16 +191,21 @@ extension NodeView {
             return
         }
         guard target != press.to else { return }
+        let springs = target == 1 && !pressTranslates
         #if os(iOS) || os(tvOS)
         let shown = pressFactor
-        press.aim(target, at: now)
+        press.aim(target, at: now, springs: springs)
         easePress(from: shown)
         #else
-        press.aim(target, at: now)
+        press.aim(target, at: now, springs: springs)
         applyTransform()
         PressClock.shared.run(self)
         #endif
     }
+
+    /// A pressed `translate` moves the face onto a plate, which a spring
+    /// would overshoot, so its scale eases back as it does.
+    var pressTranslates: Bool { PressTranslation.offset(style, bounds: bounds) != [0, 0] }
 
     /// The used `translate`: its lengths, and its percentages of the border
     /// box resolved against the box as it stands now, as CSS resolves them,
@@ -225,8 +242,8 @@ extension NodeView {
         ease.fromValue = CATransform3DMakeAffineTransform(pressScale(press.from / press.to))
         ease.toValue = CATransform3DIdentity
         ease.beginTime = layer.convertTime(press.start, from: nil)
-        ease.duration = PressFeedback.duration
-        ease.timingFunction = PressFeedback.timing
+        ease.duration = press.span
+        ease.timingFunction = press.springs ? PressFeedback.releaseTiming : PressFeedback.timing
         layer.add(ease, forKey: "press")
         press.easedAbout = CGPoint(x: o.x - bounds.midX, y: o.y - bounds.midY)
         // A one-axis clip above fits the ease's extent, not the model's.
@@ -257,20 +274,20 @@ extension NodeView {
     }
     /// A held release goes once the press has eased all the way in.
     private func releaseWhenSeen() {
-        let wait = max(0, press.start + PressFeedback.duration - CACurrentMediaTime())
+        let wait = max(0, press.start + press.span - CACurrentMediaTime())
         let start = press.start
         DispatchQueue.main.asyncAfter(deadline: .now() + wait) { [weak self] in
             guard let self, press.releaseHeld, press.start == start else { return }
             press.releaseHeld = false
             let shown = pressFactor
-            press.aim(1, at: CACurrentMediaTime())
+            press.aim(1, at: CACurrentMediaTime(), springs: !pressTranslates)
             easePress(from: shown)
         }
     }
     /// A settled release is idle again, its transform exactly the engine's.
     private func idleWhenSettled() {
         let start = press.start
-        DispatchQueue.main.asyncAfter(deadline: .now() + PressFeedback.duration) { [weak self] in
+        DispatchQueue.main.asyncAfter(deadline: .now() + press.span) { [weak self] in
             guard let self, press.start == start, press.to == 1, !press.releaseHeld else { return }
             press = PressFeedback()
         }
@@ -594,7 +611,7 @@ private final class WindowPressClock: NSObject {
             if view.window !== window { views.remove(view); view.press = PressFeedback(); view.applyTransform(); continue }
             if view.press.releaseHeld, view.press.settled(at: now) {
                 view.press.releaseHeld = false
-                view.press.aim(1, at: now)
+                view.press.aim(1, at: now, springs: !view.pressTranslates)
             }
             if view.press.settled(at: now), !view.press.releaseHeld {
                 views.remove(view)
