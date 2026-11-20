@@ -496,6 +496,30 @@ final class TextPaintTests: XCTestCase {
         XCTAssertTrue(pixels(glyphs).contains { $0.a == 255 && $0.r < 40 && $0.b < 40 && $0.g < 40 }, "the glyphs keep their ink")
     }
 
+    /// A list the whole paragraph shares is cast under every line before
+    /// any line's glyphs: the second line's shadow, cast up onto the first,
+    /// stays under the first line's text.
+    func testASharedShadowListStaysUnderEveryLinesText() throws {
+        var spec = Spec(runs: [run("HHHH HHHH", weight: 800)], align: 0, lineClamp: 0, color: [0, 0, 0, 255])
+        spec.runs[0].size = 32
+        let probe = engine.paragraph(spec, width: 110)
+        XCTAssertEqual(probe.lines.count, 2)
+        let up = Double(probe.baselines[1] - probe.baselines[0])
+        spec.runs[0].shadow = [[0, -up, 0, 255, 0, 0, 255], [300, 0, 0, 0, 0, 255, 255]]
+        spec.gatherShadows()
+        let p = engine.paragraph(spec, width: 110)
+        let shot = paint(p, spec, size: CGSize(width: 160, height: 140))
+        let rows = Int(20 + p.baselines[0]) - 18..<Int(20 + p.baselines[0]) - 6
+        func count(_ rows: Range<Int>, _ test: (UInt8, UInt8, UInt8) -> Bool) -> Int {
+            rows.reduce(0) { n, y in n + (0..<shot.width).filter { x in
+                let i = (y * shot.width + x) * 4
+                return shot.bytes[i + 3] == 255 && test(shot.bytes[i], shot.bytes[i + 1], shot.bytes[i + 2])
+            }.count }
+        }
+        XCTAssertGreaterThan(count(0..<shot.height) { r, g, _ in r > 200 && g < 40 }, 50, "the shadow is cast")
+        XCTAssertGreaterThan(count(rows) { r, g, b in r < 40 && g < 40 && b < 40 }, 100, "the second line's shadow stays under the first line's glyphs")
+    }
+
     /// `paint-order: stroke` paints `-webkit-text-stroke` under the fill:
     /// the glyphs' middle keeps the fill, and the stroke shows only
     /// outside them (LLP 1077 D7).

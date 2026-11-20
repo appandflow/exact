@@ -281,10 +281,14 @@ extension TextLinePaint {
     /// drawn in a transparency layer that casts it, under those glyphs, as
     /// Chrome paints each inline box's shadow with its text. With `selected`
     /// (an opacity group's runs, by index), only those runs, and none of
-    /// their neighbours' ink.
-    static func drawShadowed(_ line: CTLine, in ctx: CGContext, scale: CGFloat, pass: Pass = .all, selected: Set<Int>? = nil) -> Bool {
+    /// their neighbours' ink. Without `castsLists`, a shadow list is not
+    /// cast: `castShared` cast it under the whole paragraph. A stroke under
+    /// the fill is drawn with its own stretch, so it covers earlier boxes'
+    /// glyphs as their stroke and fill would.
+    static func drawShadowed(_ line: CTLine, in ctx: CGContext, scale: CGFloat, pass: Pass = .all, selected: Set<Int>? = nil, castsLists: Bool = true) -> Bool {
         let runs = CTLineGetGlyphRuns(line) as! [CTRun]
         var shadows = runs.map(TextRunShadow.of)
+        let under = runs.map { (CTRunGetAttributes($0) as NSDictionary)[NSAttributedString.Key.exactStrokeUnder] as? TextStrokeUnder }
         let advances = runs.map(extent).reduce(CGRect.null) { $0.union($1) }
         func hidden(_ index: Int) -> Bool {
             selected?.contains(index) == false
@@ -316,9 +320,9 @@ extension TextLinePaint {
                     clips.append(CGRect(x: ink.minX, y: max(ink.minY, advances.maxY), width: ink.width, height: ink.maxY - max(ink.minY, advances.maxY)))
                 }
             }
+            strokeUnder(shown, in: ctx)
             ctx.saveGState()
             ctx.clip(to: clips)
-            strokeUnder(shown, in: ctx)
             ctx.textPosition = .zero
             CTLineDraw(line, ctx)
             ctx.restoreGState()
@@ -334,11 +338,12 @@ extension TextLinePaint {
             return true
         case .backgrounds: return true
         }
-        guard selected != nil || shadows.contains(where: { $0 != nil }) || runs.indices.contains(where: hidden) else { return false }
+        guard selected != nil || shadows.contains(where: { $0 != nil }) || under.contains(where: { $0 != nil })
+                || runs.indices.contains(where: hidden) else { return false }
         var i = 0
         while i < runs.count {
             var j = i + 1
-            while j < runs.count, shadows[j] == shadows[i] { j += 1 }
+            while j < runs.count, shadows[j] == shadows[i], under[j] == under[i] { j += 1 }
             let stretch = (i..<j).filter { !hidden($0) }.map { runs[$0] }
             // One shadow casts from a transparency layer around the glyphs,
             // decorations included. Each of a list is cast alone, last first,
@@ -348,7 +353,7 @@ extension TextLinePaint {
                 ctx.saveGState()
                 s.set(on: ctx, scale: scale)
                 ctx.beginTransparencyLayer(auxiliaryInfo: nil)
-            } else if let s = shadows[i] {
+            } else if let s = shadows[i], castsLists {
                 for one in s.list.reversed() { cast(one, from: stretch, in: ctx, scale: scale) }
             }
             // Decorations belong to CTLineDraw; clip inside the transparency
@@ -367,7 +372,12 @@ extension TextLinePaint {
         let extent = runs.map(extent).reduce(CGRect.null) { $0.union($1) }
         guard !extent.isNull else { return }
         let reach = shadow.blur * 1.5 + 1
-        let far = max(0, extent.maxX - ctx.boundingBoxOfClipPath.minX) + extent.width + abs(shadow.offset.width) + 2 * reach
+        let stroke = runs.map { run in
+            let attributes = CTRunGetAttributes(run) as NSDictionary
+            guard let font = attributes[kCTFontAttributeName] else { return 0 }
+            return abs((attributes[NSAttributedString.Key.strokeWidth] as? NSNumber)?.doubleValue ?? 0) * CTFontGetSize(font as! CTFont) / 100
+        }.max() ?? 0
+        let far = max(0, extent.maxX - ctx.boundingBoxOfClipPath.minX) + extent.width + abs(shadow.offset.width) + 2 * (reach + stroke)
         ctx.saveGState()
         defer { ctx.restoreGState() }
         shadow.set(on: ctx, scale: scale, shift: far)
@@ -387,6 +397,43 @@ extension TextLinePaint {
             ctx.textMatrix = CTRunGetTextMatrix(run)
             CTFontDrawGlyphs(font as! CTFont, glyphs, positions, count, ctx)
         }
+    }
+
+    /// One shadow list every painted glyph run of the paragraph shares, cast
+    /// under all of its lines before any line's glyphs, as one paragraph
+    /// shadow is, so one line's shadow never covers another's text. Whether
+    /// it cast; the lines are then drawn with `castsLists: false`. A raster's
+    /// ink leaves an HDR list to its cast layer.
+    static func castShared(_ lines: [(CTLine, CGPoint)], in ctx: CGContext, scale: CGFloat, pass: Pass) -> Bool {
+        switch pass { case .all, .ink: break; default: return false }
+        var shared: TextRunShadow?
+        var casters: [[CTRun]] = []
+        for (line, _) in lines {
+            var shown: [CTRun] = []
+            for run in CTLineGetGlyphRuns(line) as! [CTRun] where CTRunGetGlyphCount(run) > 0 {
+                let attributes = CTRunGetAttributes(run) as NSDictionary
+                if attributes[NSAttributedString.Key.exactHidden] as? Bool == true { continue }
+                guard attributes[NSAttributedString.Key.exactOpacity] == nil, let s = TextRunShadow.of(run), s.list.count > 1,
+                      shared == nil || shared == s else { return false }
+                shared = s
+                shown.append(run)
+            }
+            casters.append(shown)
+        }
+        guard let shared else { return false }
+        if case .ink = pass, shared.isHDR { return false }
+        for one in shared.list.reversed() {
+            for ((_, origin), runs) in zip(lines, casters) where !runs.isEmpty {
+                ctx.saveGState()
+                let matrix = ctx.textMatrix
+                ctx.translateBy(x: origin.x, y: origin.y)
+                ctx.scaleBy(x: 1, y: -1)
+                cast(one, from: runs, in: ctx, scale: scale)
+                ctx.textMatrix = matrix
+                ctx.restoreGState()
+            }
+        }
+        return true
     }
 
     /// The strokes `paint-order` paints under `runs`' fill

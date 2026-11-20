@@ -615,7 +615,8 @@ struct TextRasterJob {
         ctx.translateBy(x: -frame.minX, y: -frame.minY)
         ctx.setShouldSmoothFonts(!antialiased)
         if !TextLinePaint.drawOpacity(lines, at: positions, in: ctx, scale: scale, pass: pass) {
-            for (line, position) in zip(lines, positions) { TextLinePaint.draw(line, at: position, in: ctx, scale: scale, pass: pass) }
+            let cast = TextLinePaint.castShared(Array(zip(lines, positions)), in: ctx, scale: scale, pass: pass)
+            for (line, position) in zip(lines, positions) { TextLinePaint.draw(line, at: position, in: ctx, scale: scale, pass: pass, castsLists: !cast) }
         }
         ctx.flush()
     }
