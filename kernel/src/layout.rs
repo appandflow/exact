@@ -1300,6 +1300,8 @@ impl LayoutTree {
             let offset = placement.map(|item| item.y).unwrap_or_else(|| {
                 text_item::baseline_offset(arena, slot, inset, line_height, &output)
             });
+            // Layout containment gives the box no baseline (CSS Containment 2 §3.2).
+            let first_baseline = first_baseline.filter(|_| !style.contain.suppresses_baseline());
             output.baselines =
                 Baselines::from_first(first_baseline.map(|b| b + inset.top + offset));
             output

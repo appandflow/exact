@@ -2914,6 +2914,13 @@
       ],
       "default": "auto"
     },
+    "Contain": {
+      "values": [
+        "none",
+        "layout"
+      ],
+      "default": "none"
+    },
     "TextTransform": {
       "_comment": "@ref LLP 1064 D5: applied once, where the kernel produces a paragraph's runs; editable text is never transformed.",
       "values": [
@@ -5569,6 +5576,14 @@
       "field": "background_blend_mode",
       "codec": "enum:MixBlendMode",
       "_comment": "CSS `background-blend-mode` (CSS Compositing 1 §4): one `<blend-mode>` for every `background-image` layer, as CSS repeats a one-value list. Each layer blends with the layers and the background colour beneath it, as one isolated group, never with what is behind the box. A comma list is refused. Not inherited.",
+      "cold": true
+    },
+    {
+      "bit": 278,
+      "field": "contain",
+      "codec": "enum:Contain",
+      "layout": true,
+      "_comment": "CSS `contain` (CSS Containment 2 §3), `none` or `layout`: layout containment makes the box an independent formatting context, the containing block of its absolutely positioned descendants and a stacking context, and its contents' overflow ink overflow, so it adds nothing to a scroll container's scrollable overflow past the box. The other containment types are refused. Not inherited.",
       "cold": true
     }
   ],

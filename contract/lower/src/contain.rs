@@ -18,7 +18,7 @@ use exact_kernel::{NodeType, PositionType, StyleId, StyleValue};
 /// - Motion (an animation, a transition, a press transform, a timeline): the
 ///   browser makes the box a containing block while a transform runs, so it
 ///   is one at rest too.
-pub const CONTAINS_ABSOLUTE: [StyleId; 17] = [
+pub const CONTAINS_ABSOLUTE: [StyleId; 18] = [
     StyleId::OverflowX,
     StyleId::OverflowY,
     StyleId::Translate,
@@ -37,6 +37,8 @@ pub const CONTAINS_ABSOLUTE: [StyleId; 17] = [
     StyleId::AnimationTimeline,
     // CSS: `perspective` makes a containing block too (LLP 1077 D8).
     StyleId::Perspective,
+    // CSS Containment 2 §3.2: layout containment makes one.
+    StyleId::Contain,
 ];
 /// Whether an attribute makes its box a containing block (see
 /// [`CONTAINS_ABSOLUTE`]): one of those rows, a material (a backdrop filter),

@@ -110,6 +110,7 @@ pub(crate) fn css_rows(css: &str) -> Rows {
             "translate" | "scale" | "rotate" | "transform" | "filter" | "backdrop-filter"
             | "isolation" => &[],
             "position" => &[PositionType],
+            "contain" => &[Contain],
             // LLP 1093: multi-column layout and the text its cases flow.
             "column-count" => &[ColumnCount],
             "column-width" => &[ColumnWidth],

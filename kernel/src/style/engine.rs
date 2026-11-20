@@ -1,6 +1,6 @@
 //! Values lowered into the layout engine.
 use super::StyleProps;
-use crate::generated::{GridAutoFlow, Overflow};
+use crate::generated::{Contain, GridAutoFlow, Overflow};
 
 pub(super) fn rare(style: &StyleProps, env: &crate::Env) -> taffy::style::Rare {
     taffy::style::RareStyle {
@@ -21,6 +21,13 @@ pub(super) fn overflow(v: Overflow) -> taffy::style::Overflow {
         Overflow::Hidden => taffy::style::Overflow::Hidden,
         Overflow::Clip => taffy::style::Overflow::Clip,
         Overflow::Scroll | Overflow::Auto => taffy::style::Overflow::Scroll,
+    }
+}
+
+pub(super) fn contain(v: Contain) -> taffy::style::Contain {
+    match v {
+        Contain::None => taffy::style::Contain::NONE,
+        Contain::Layout => taffy::style::Contain::LAYOUT,
     }
 }
 

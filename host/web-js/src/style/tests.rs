@@ -794,6 +794,24 @@ fn svg_children_emit_basic_clip_css_on_both_web_targets() {
     }
 }
 
+/// The JS target writes `contain` as written, static or bound.
+#[test]
+fn contain_is_the_browsers() {
+    let plan = contract::compile(
+        r##"component App
+  state on = false
+  view
+    column
+      box testId="still" position="relative" contain="layout"
+      box testId="bound" position="relative" contain=(on ? "layout" : "none")
+"##,
+    )
+    .unwrap();
+    let out = crate::emit::emit(&plan, false, false).unwrap();
+    assert!(out.css.contains("contain:layout"), "{}", out.css);
+    assert!(out.js.contains(r#"S(e2,"contain","#), "{}", out.js);
+}
+
 /// The JS target writes `background-blend-mode` as written, static or bound.
 #[test]
 fn background_blend_mode_is_the_browsers() {

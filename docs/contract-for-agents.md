@@ -2305,7 +2305,13 @@ A repeating gradient’s px period stays fixed as a box resizes; mixed px/%
 and omitted stops use CSS fix-up after layout. A zero period paints its last
 stop, as Chrome does. `background-attachment="local"` is still
 refused: separate row backgrounds restart at each row, and repetition alone
-does not make a virtualized list’s background follow its content.
+does not make a virtualized list’s background follow its content. To carry a
+scroller's page into its bounce, paint the page on an absolutely positioned
+layer reaching past the content (`top=-1000 bottom=-1000`,
+`pointer-events="none"`) inside a column with `contain="layout"`: layout
+containment makes the layer's overflow ink overflow, so the scroll range is
+the content's (CSS Containment 2 §3.2; `none` and `layout` are the values
+taken).
 `contract vocab background-image` gives the grammar and limits. AppKit’s, UIKit’s,
 Linux’s and the web’s hatches match Chrome
 ([closed issue](../issues/closed/20261011-repeating-hatch-across-list-rows.md)). On UIKit
