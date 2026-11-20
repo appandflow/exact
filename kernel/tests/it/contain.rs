@@ -98,3 +98,74 @@ fn layout_containment_keeps_overflow_out_of_the_scrollers_extent() {
         "Chrome's scrollHeight with `contain: layout`"
     );
 }
+
+/// Chrome 157.0.8103.79, 16px/18px monospace. A static box with layout
+/// containment, which the compiler lowers `position: relative`, contains its
+/// absolutely positioned child; without containment the child is placed
+/// against the root.
+#[test]
+fn a_contained_box_contains_its_absolute_child() {
+    use crate::browser_cases::{css_rows, lay_out_with, mismatches, props};
+    let mut wrong = Vec::new();
+    for (css, expected) in [
+        ("", [20.0, 10.0, 30.0, 40.0]),
+        ("contain:layout;position:relative", [20.0, 40.0, 30.0, 40.0]),
+    ] {
+        let k = lay_out_with(
+            props(&css_rows("width:800px")),
+            vec![
+                (
+                    2,
+                    1,
+                    css_rows(&format!("margin-top:30px;width:100px;height:100px;{css}")),
+                ),
+                (
+                    3,
+                    2,
+                    css_rows("position:absolute;top:10px;left:20px;width:30px;height:40px"),
+                ),
+            ],
+            &[],
+            &[],
+        );
+        wrong.extend(mismatches(css, &k, &[(3, expected)]));
+    }
+    assert!(wrong.is_empty(), "{}", wrong.join("\n"));
+}
+
+/// Chrome 157.0.8103.79, 18px line boxes in a baseline-aligned row: a text
+/// with layout containment has no baseline, so the row aligns its border
+/// box's bottom edge with its sibling's baseline (Chrome: the sibling at 34).
+#[test]
+fn a_contained_text_has_no_baseline() {
+    use crate::browser_cases::{css_rows, lay_out_with, mismatches, props};
+    let mut wrong = Vec::new();
+    // The test measurer's monospace ascent is 14.4 points where Chrome's
+    // is 14: the contained text sits 0.4 higher here.
+    for (css, first) in [("", 30.0), ("contain:layout", 33.6)] {
+        let k = lay_out_with(
+            props(&css_rows(
+                "display:flex;align-items:baseline;width:400px;line-height:18px",
+            )),
+            vec![
+                (2, 1, css_rows("width:100px")),
+                (
+                    3,
+                    1,
+                    css_rows(&format!("width:100px;padding-top:30px;{css}")),
+                ),
+            ],
+            &[(2, "X"), (3, "X")],
+            &[],
+        );
+        wrong.extend(mismatches(
+            css,
+            &k,
+            &[
+                (2, [0.0, first, 100.0, 18.0]),
+                (3, [100.0, 0.0, 100.0, 48.0]),
+            ],
+        ));
+    }
+    assert!(wrong.is_empty(), "{}", wrong.join("\n"));
+}

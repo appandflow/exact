@@ -801,6 +801,10 @@ fn a_box_that_clips_transforms_or_animates_is_lowered_relative() {
         box position="absolute"
       box testId="clips-a-component" overflow="hidden"
         Pin()
+      box testId="contains" contain="layout"
+        box position="absolute"
+      box testId="contains-none" contain="none"
+        box position="absolute"
 component Pin
   view
     box position="absolute"
@@ -834,6 +838,8 @@ component Pin
         ("pinned", Absolute),
         ("named", Relative),
         ("open", Static),
+        ("contains", Relative),
+        ("contains-none", Static),
     ] {
         let key = k.find_by_test_id(id)[0];
         assert_eq!(

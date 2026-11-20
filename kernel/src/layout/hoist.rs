@@ -6,8 +6,7 @@ use taffy::{NodeId, TaffyTree};
 
 impl LayoutTree {
     // @ref LLP 1074 T1 — an absolutely positioned box's containing block is its
-    // nearest ancestor that is not `static` or has layout containment (CSS
-    // Containment 2 §3.2), or the top of its tree. The engine
+    // nearest ancestor that is not `static`, or the top of its tree. The engine
     // lays each box out from that ancestor (vendored Taffy, EXACT PATCH 20) and
     // is told here which ones are not the box's own parent. Every change that
     // can move a box between containing blocks marks the old and the new one
@@ -17,10 +16,9 @@ impl LayoutTree {
             return;
         }
         let is_static = |taffy: &TaffyTree<MeasureContext>, node| {
-            taffy.style(node).is_ok_and(|s| {
-                s.position == taffy::Position::Static
-                    && !s.contain.contains(taffy::style::Contain::LAYOUT)
-            })
+            taffy
+                .style(node)
+                .is_ok_and(|s| s.position == taffy::Position::Static)
         };
         let mut owners: IdMap<NodeId, Vec<NodeId>> = IdMap::default();
         let mut absolutes: Vec<NodeId> = self.absolutes.iter().copied().collect();

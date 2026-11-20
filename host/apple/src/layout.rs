@@ -860,6 +860,9 @@ pub(super) fn content_size(node: &NodeRef<'_>, kernel: &Kernel) -> (f32, f32) {
 pub(super) fn document_extent(root: &NodeRef<'_>, kernel: &Kernel) -> (f32, f32) {
     let (x0, y0) = (root.frame.x, root.frame.y);
     let (mut w, mut h) = (root.frame.width, root.frame.height);
+    if root.style.contain != exact_kernel::Contain::None {
+        return (w, h);
+    }
     let mut below = root.children();
     while let Some(id) = below.pop() {
         let Some(c) = kernel.node(id) else { continue };
@@ -949,6 +952,35 @@ mod tests {
         h.runner.measure(false, false);
         h.layout(&mut Batch::new()).unwrap();
         assert!(exact_runner::perf::reply(&h.runner, "{}").contains("measures no work"));
+    }
+
+    /// CSS Containment 2 §3.2: what overflows a box with layout containment
+    /// is ink overflow, at the document's root and below it.
+    #[test]
+    fn layout_containment_keeps_overflow_out_of_the_document_extent() {
+        for (root, column, height) in [
+            ("", "", 1100.0),
+            ("", " contain=\"layout\"", 100.0),
+            (" contain=\"layout\"", "", 100.0),
+        ] {
+            let source = format!(
+                "component App\n  view\n    box testId=\"root\" height=100{root}\n      box testId=\"column\" height=100{column}\n        box position=\"absolute\" top=0 bottom=-1000 width=10\n"
+            );
+            let plan = contract::compile(&source).unwrap().encode();
+            let mut h = Host::boot(
+                &plan,
+                NoData,
+                Box::new(exact_kernel::MonospaceMeasurer::default()),
+                900.,
+                700.,
+            )
+            .unwrap()
+            .0;
+            h.layout(&mut Batch::new()).unwrap();
+            let k = h.runner.kernel();
+            let r = k.node(id(&h, "root")).unwrap();
+            assert_eq!(document_extent(&r, k).1, height, "{source}");
+        }
     }
 
     fn id(host: &Host<NoData>, name: &str) -> ViewId {
