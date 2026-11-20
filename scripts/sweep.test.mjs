@@ -1,11 +1,12 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { resolve } from 'node:path';
+import { relative, resolve } from 'node:path';
 import process from 'node:process';
-import { startSweep, sweep } from './sweep.mjs';
+import { clean, startSweep, sweep } from './sweep.mjs';
+import { leaseGeneration } from '../host/web/generations.mjs';
 
 const DAY = 86_400_000;
 const A = '0123456789abcdef', B = 'fedcba9876543210';
@@ -95,4 +96,85 @@ test.skipIf(process.platform !== 'win32')('Windows keeps Cargo units instead of 
     assert.ok(!existsSync(resolve(t, '.exact-sweep.json')));
     assert.ok(!existsSync(resolve(t, '.exact-swept')));
   } finally { rmSync(t, { recursive: true, force: true }); }
+});
+
+// An app's target/ as its builds leave it: Cargo output, Exact's remade outputs, its records, and an author's file.
+function appTarget() {
+  const t = mkdtempSync(resolve(tmpdir(), 'exact-clean-'));
+  const files = {
+    'debug/.fingerprint/a-0123456789abcdef/lib-a': '', 'debug/.cargo-lock': '', 'aarch64-apple-ios/debug/.fingerprint/x': '',
+    'apple-swift/ios-simulator-17.0/.lock': '', 'apple-swift/ios-simulator-17.0.lock.flock': '', 'web-dist/index.html': '', 'web-dist.lock': '',
+    'web-js-dev-compiler-app/x': '', 'kept-crates-host-dev.json': '{}', 'CACHEDIR.TAG': '',
+    'bake/k/app.id/development/ios-x.build.json': '{}', 'bake/k/app.id/production/ios-x.build.json': '{}',
+    'clients/k/app.id/.apple-build.lock.flock': '', 'clients/k/app.id/ios-simulator/t/embedded/development/standalone/App': '',
+    'clients/k/app.id/ios/t/embedded/production/standalone/App.dSYM/x': '', 'clients/k/app.id/macos/App.app/Contents/Info.plist': '',
+    'bake-compiled/0123/lib.rs': '', '.apple-cargo-locks/t/liba.lock': '', 'bake/k/com.acme.app/development/ios-x.build.json': '{}',
+    'clients/k/release.id/.apple-build.lock.flock': '', 'clients/k/release.id/ios/t/embedded/production/standalone/App': '',
+    'web-loops/0123/web/index.html': '',
+    'traces/trace-1.json': '{}', 'web-receipts/0123/.exact-build.json': '{}', 'native-receipts/0123/receipt.json': '{}',
+    'dist/App.app/x': '', 'screenshot.png': '',
+  };
+  for (const [path, text] of Object.entries(files)) { mkdirSync(resolve(t, path, '..'), { recursive: true }); writeFileSync(resolve(t, path), text); }
+  return t;
+}
+const REMOVED = ['.apple-cargo-locks', 'CACHEDIR.TAG', 'aarch64-apple-ios', 'apple-swift', 'bake-compiled', 'bake/k/app.id/development',
+  'bake/k/com.acme.app/development', 'clients/k/app.id/ios-simulator/t/embedded/development', 'debug', 'kept-crates-host-dev.json',
+  'web-dist', 'web-dist.lock', 'web-js-dev-compiler-app', 'web-loops'];
+const KEPT = [['bake/k/app.id/production', 'record'], ['clients/k/app.id/ios/t/embedded/production', 'record'],
+  ['clients/k/app.id/macos/App.app', 'unlisted'], ['clients/k/release.id/ios/t/embedded/production', 'record'], ['dist', 'unlisted'],
+  ['native-receipts', 'record'], ['screenshot.png', 'unlisted'], ['traces', 'record'], ['web-receipts', 'record']];
+/** Another process holding `path` the way Cargo does (flock), for `seconds`, once it holds it. */
+async function hold(path, seconds = 30) {
+  const holder = spawn('perl', ['-MFcntl=:flock', '-e', `open my $f, ">>", $ARGV[0] or die; flock($f, LOCK_EX) or die; print "held\\n"; $| = 1; sleep ${seconds}`, path], { stdio: ['ignore', 'pipe', 'inherit'] });
+  await new Promise(ok => holder.stdout.once('data', ok));
+  return holder;
+}
+const relativeTo = (t, { remove, kept }) => ({ remove: remove.map(p => relative(t, p)).sort(), kept: kept.map(k => [relative(t, k.path), k.why]).sort() });
+
+test.skipIf(process.platform === 'win32')('clean removes what builds remake, keeps records and what it does not list, and a dry run removes nothing', async () => {
+  const t = appTarget();
+  try {
+    // A sweep resolveApp started holds the sweep's lock: clean waits for it.
+    await hold(resolve(t, '.exact-sweep.json.lock'), 1);
+    const dry = await clean(t, { dryRun: true });
+    assert.equal(dry.status, 'ok', JSON.stringify(dry.held));
+    assert.deepEqual(relativeTo(t, dry), { remove: REMOVED, kept: KEPT });
+    for (const path of REMOVED) assert.ok(existsSync(resolve(t, path)), path);
+    const done = await clean(t);
+    assert.equal(done.status, 'ok');
+    assert.deepEqual(relativeTo(t, done), { remove: REMOVED, kept: KEPT });
+    for (const path of REMOVED) assert.ok(!existsSync(resolve(t, path)), path);
+    for (const [path] of KEPT) assert.ok(existsSync(resolve(t, path)), path);
+    assert.ok(!existsSync(resolve(t, '.exact-swept')));
+  } finally { rmSync(t, { recursive: true, force: true }); }
+}, 30_000);
+
+test.skipIf(process.platform === 'win32')('clean removes nothing while a build holds a lock in target/ or a drive leases a web build there', async () => {
+  // A Cargo build, an Apple build of the app, an Apple build of a release whose output clean keeps, and a drive.
+  // And the filesystem helper's build claim, a file naming a live owner; a dead owner's claim holds nothing.
+  for (const busyWith of ['debug/.cargo-lock', 'clients/k/app.id/.apple-build.lock.flock', 'clients/k/release.id/.apple-build.lock.flock', 'lease', 'exact-filesystem-tool/.bootstrap.lock']) {
+    const t = appTarget(), generation = '0'.repeat(32), claim = resolve(t, 'exact-filesystem-tool/.bootstrap.lock');
+    mkdirSync(resolve(claim, '..'));
+    writeFileSync(claim, `${busyWith === 'exact-filesystem-tool/.bootstrap.lock' ? process.pid : 2 ** 22 + 1}-0123`);
+    const holder = ['lease', 'exact-filesystem-tool/.bootstrap.lock'].includes(busyWith) ? null : await hold(resolve(t, busyWith));
+    const release = holder ? () => holder.kill() : busyWith === 'lease' ? leaseGeneration(resolve(t, 'web-loops/0123/web'), generation) : () => {};
+    try {
+      for (const dryRun of [true, false]) {
+        const busy = await clean(t, { dryRun });
+        assert.equal(busy.status, 'busy');
+        assert.deepEqual(busy.held, [resolve(t, busyWith === 'lease' ? `web-loops/0123/web.leases/${generation}` : busyWith)]);
+        assert.deepEqual(busy.remove, []);
+      }
+      for (const path of REMOVED) assert.ok(existsSync(resolve(t, path)), path);
+    } finally { release(); rmSync(t, { recursive: true, force: true }); }
+  }
+}, 30_000);
+
+test.skipIf(process.platform === 'win32')('clean leaves a shared target alone', () => {
+  const dir = mkdtempSync(resolve(tmpdir(), 'exact-clean-shared-'));
+  try {
+    const run = spawnSync(process.execPath, [resolve(import.meta.dir, 'sweep.mjs'), 'clean', dir, '--json'], { encoding: 'utf8', env: { ...process.env, CARGO_TARGET_DIR: dir } });
+    assert.equal(run.status, 2, run.stderr);
+    assert.deepEqual({ ...JSON.parse(run.stdout), error: undefined }, { version: 1, status: 'refused', dryRun: false, target: null, remove: [], kept: [], held: [], error: undefined });
+  } finally { rmSync(dir, { recursive: true, force: true }); }
 });
