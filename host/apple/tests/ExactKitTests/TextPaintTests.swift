@@ -65,7 +65,7 @@ final class TextPaintTests: XCTestCase {
             var faded = run("HHHH HHHH HHHH")
             faded.size = 32
             faded.background = [255, 0, 0, 255]
-            faded.shadow = [0, 30, 0, 0, 255, 0, 255]
+            faded.shadow = [[0, 30, 0, 0, 255, 0, 255]]
             faded.opacity = [InlineOpacity(box: 2, alpha: opacity)]
             faded.backgroundOpacity = faded.opacity
             let spec = Spec(runs: [faded], align: 0, lineClamp: 0, color: [0, 0, 0, 255])
@@ -102,7 +102,7 @@ final class TextPaintTests: XCTestCase {
         let hdr: BatchValue = ["cs": [["s": "srgb-linear", "v": [0, 0, 2, 1]]], "c": [0, 0, 255, 255]]
         var faded = run("HHHH")
         faded.opacity = [InlineOpacity(box: 2, alpha: 0.5)]
-        faded.shadow = [80, 0, 0] + (try XCTUnwrap(hdr.textChannels(dark: false)))
+        faded.shadow = [[80, 0, 0] + (try XCTUnwrap(hdr.textChannels(dark: false)))]
         let spec = Spec(runs: [faded], align: 0, lineClamp: 0, color: [0, 0, 0, 255])
         let paragraph = engine.paragraph(spec, width: 200)
         let job = TextRasterJob(source: engine.attributed(spec), ranges: paragraph.lines.map { CTLineGetStringRange($0) },
@@ -111,7 +111,7 @@ final class TextPaintTests: XCTestCase {
         let image = try XCTUnwrap(job.render())
         XCTAssertNil(image.cast, "the grouped shadow composites with its glyphs")
         let shadow = try XCTUnwrap(rasterPixels(image).max { $0.z < $1.z })
-        let color = try XCTUnwrap(TextEngine.shadowColor(faded.shadow!).converted(to: CGColorSpace(name: CGColorSpace.extendedSRGB)!, intent: .relativeColorimetric, options: nil))
+        let color = try XCTUnwrap(TextEngine.shadowColor(faded.shadow![0]).converted(to: CGColorSpace(name: CGColorSpace.extendedSRGB)!, intent: .relativeColorimetric, options: nil))
         XCTAssertGreaterThan(image.headroom, 1)
         XCTAssertEqual(Double(shadow.z), color.components![2] * 0.5, accuracy: 0.01)
         XCTAssertEqual(shadow.w, 0.5, accuracy: 0.01)
@@ -128,7 +128,7 @@ final class TextPaintTests: XCTestCase {
             let background: [String: Any] = ["background_color": [255, 0, 0, 255]]
             var parent: [String: Any] = ["font_size": 32]
             var leaf: [String: Any] = ["font_size": 32, "text_color": [0, 0, 0, 255],
-                                       "text_shadow": ["o": [0, 35], "b": 0, "c": [0, 255, 0, 255]],
+                                       "text_shadow": [["o": [0, 35], "b": 0, "c": [0, 255, 0, 255]]],
                                        "text_stroke_width": 1, "text_stroke_color": [0, 0, 255, 255]]
             if parentBackground { parent.merge(background) { _, b in b } }
             else { leaf.merge(background) { _, b in b } }
@@ -166,7 +166,7 @@ final class TextPaintTests: XCTestCase {
                 ["op": "create", "id": 1, "kind": "text", "style": ["font_size": 32, "text_color": [255, 0, 0, 255], "text_decoration_line": "underline"]],
                 ["op": "paragraph", "id": 1, "runs": [
                     ["id": 2, "parent": 1, "paint": true, "opacity": opacity, "props": ["text": "HHHH"],
-                     "style": ["font_size": 32, "text_color": [0, 0, 0, 0], "text_shadow": ["o": [120, 0], "b": 0, "c": [0, 0, 255, 255]]]],
+                     "style": ["font_size": 32, "text_color": [0, 0, 0, 0], "text_shadow": [["o": [120, 0], "b": 0, "c": [0, 0, 255, 255]]]]],
                 ]],
             ]))
             let spec = try XCTUnwrap(p.views[1]).paragraphSpec()
@@ -432,11 +432,11 @@ final class TextPaintTests: XCTestCase {
         let red: BatchValue = [229, 57, 53, 255]
         let plain = try row(2, "Pl ", ["text_color": [33, 33, 33, 255], "text_stroke_width": 0, "text_stroke_color": "currentcolor"])
         let glow = try row(3, "Glow", ["text_color": [[33, 33, 33, 255], [238, 238, 238, 255]],
-                                       "text_shadow": ["o": [0, 0], "b": 6, "c": red],
+                                       "text_shadow": [["o": [0, 0], "b": 6, "c": red]],
                                        "text_stroke_width": 2, "text_stroke_color": "currentcolor"])
         XCTAssertNil(plain.run(dark: false).shadow)
         XCTAssertNil(plain.run(dark: false).stroke, "a zero width is no stroke")
-        XCTAssertEqual(glow.run(dark: false).shadow, [0, 0, 6, 229, 57, 53, 255])
+        XCTAssertEqual(glow.run(dark: false).shadow, [[0, 0, 6, 229, 57, 53, 255]])
         XCTAssertEqual(glow.run(dark: false).stroke, [2, 33, 33, 33, 255], "currentcolor is the run's colour")
         XCTAssertEqual(glow.run(dark: true).stroke, [2, 238, 238, 238, 255], "in its appearance")
 
@@ -470,6 +470,90 @@ final class TextPaintTests: XCTestCase {
         XCTAssertNil(engine.attributed(same).attribute(.exactShadow, at: 4, effectiveRange: nil))
     }
 
+    /// A `text-shadow` list stays on its runs, and each shadow casts, the
+    /// first on top, none of them recolouring the glyphs (LLP 1077 D3).
+    func testAShadowListCastsEachShadowUnderTheGlyphs() throws {
+        var spec = Spec(runs: [run("HHHH", weight: 800)], align: 0, lineClamp: 0, color: [0, 0, 0, 255])
+        spec.runs[0].size = 32
+        spec.runs[0].shadow = [[0, 30, 0, 255, 0, 0, 255], [0, 30, 0, 0, 0, 255, 255], [0, -30, 0, 0, 0, 255, 255]]
+        spec.gatherShadows()
+        XCTAssertNil(spec.shadow, "a list is the runs' to paint")
+        let p = engine.paragraph(spec, width: 300)
+        let shot = paint(p, spec, size: CGSize(width: 200, height: 140))
+        func pixels(_ rows: Range<Int>) -> [(r: UInt8, g: UInt8, b: UInt8, a: UInt8)] {
+            rows.flatMap { y in (0..<shot.width).map { x in
+                let i = (y * shot.width + x) * 4
+                return (shot.bytes[i], shot.bytes[i + 1], shot.bytes[i + 2], shot.bytes[i + 3])
+            } }
+        }
+        // The glyphs' rows: above the baseline, under the cap height.
+        let glyphs = Int(20 + p.baselines[0]) - 18..<Int(20 + p.baselines[0]) - 6
+        let below = glyphs.lowerBound + 30..<glyphs.upperBound + 30, above = glyphs.lowerBound - 30..<glyphs.upperBound - 30
+        XCTAssertGreaterThanOrEqual(above.lowerBound, 0)
+        XCTAssertTrue(pixels(below).contains { $0.a == 255 && $0.r > 200 && $0.b < 40 }, "the first shadow covers the second")
+        XCTAssertFalse(pixels(below).contains { $0.b > 200 }, "the second is under it")
+        XCTAssertTrue(pixels(above).contains { $0.a == 255 && $0.b > 200 && $0.r < 40 }, "the third casts too")
+        XCTAssertTrue(pixels(glyphs).contains { $0.a == 255 && $0.r < 40 && $0.b < 40 && $0.g < 40 }, "the glyphs keep their ink")
+    }
+
+    /// A list the whole paragraph shares is cast under every line before
+    /// any line's glyphs: the second line's shadow, cast up onto the first,
+    /// stays under the first line's text.
+    func testASharedShadowListStaysUnderEveryLinesText() throws {
+        var spec = Spec(runs: [run("HHHH HHHH", weight: 800)], align: 0, lineClamp: 0, color: [0, 0, 0, 255])
+        spec.runs[0].size = 32
+        let probe = engine.paragraph(spec, width: 110)
+        XCTAssertEqual(probe.lines.count, 2)
+        let up = Double(probe.baselines[1] - probe.baselines[0])
+        spec.runs[0].shadow = [[0, -up, 0, 255, 0, 0, 255], [300, 0, 0, 0, 0, 255, 255]]
+        spec.gatherShadows()
+        let p = engine.paragraph(spec, width: 110)
+        let shot = paint(p, spec, size: CGSize(width: 160, height: 140))
+        let rows = Int(20 + p.baselines[0]) - 18..<Int(20 + p.baselines[0]) - 6
+        func count(_ rows: Range<Int>, _ test: (UInt8, UInt8, UInt8) -> Bool) -> Int {
+            rows.reduce(0) { n, y in n + (0..<shot.width).filter { x in
+                let i = (y * shot.width + x) * 4
+                return shot.bytes[i + 3] == 255 && test(shot.bytes[i], shot.bytes[i + 1], shot.bytes[i + 2])
+            }.count }
+        }
+        XCTAssertGreaterThan(count(0..<shot.height) { r, g, _ in r > 200 && g < 40 }, 50, "the shadow is cast")
+        XCTAssertGreaterThan(count(rows) { r, g, b in r < 40 && g < 40 && b < 40 }, 100, "the second line's shadow stays under the first line's glyphs")
+    }
+
+    /// `paint-order: stroke` paints `-webkit-text-stroke` under the fill:
+    /// the glyphs' middle keeps the fill, and the stroke shows only
+    /// outside them (LLP 1077 D7).
+    func testAStrokeUnderTheFillShowsOutsideTheGlyphs() throws {
+        func shot(under: Bool, fill: [Double]) -> (bytes: [UInt8], width: Int, height: Int) {
+            var stroked = run("I", weight: 800)
+            stroked.size = 64
+            stroked.stroke = [under ? -8 : 8, 255, 0, 0, 255]
+            let spec = Spec(runs: [stroked], align: 0, lineClamp: 0, color: fill)
+            return paint(engine.paragraph(spec, width: 200), spec, size: CGSize(width: 100, height: 120))
+        }
+        func reddest(_ s: (bytes: [UInt8], width: Int, height: Int), in xs: Range<Int>, y: Int) -> UInt8 {
+            xs.map { s.bytes[(y * s.width + $0) * 4] }.max() ?? 0
+        }
+        let over = shot(under: false, fill: [0, 0, 255, 255]), under = shot(under: true, fill: [0, 0, 255, 255])
+        // The stem's columns: where the unstroked fill paints blue.
+        let y = 60
+        let plain = { () -> [Int] in
+            var r = run("I", weight: 800); r.size = 64
+            let spec = Spec(runs: [r], align: 0, lineClamp: 0, color: [0, 0, 255, 255])
+            let s = paint(engine.paragraph(spec, width: 200), spec, size: CGSize(width: 100, height: 120))
+            return (0..<s.width).filter { s.bytes[(y * s.width + $0) * 4 + 2] == 255 }
+        }()
+        let stem = try XCTUnwrap(plain.first)..<(try XCTUnwrap(plain.last) + 1)
+        XCTAssertGreaterThan(stem.count, 8)
+        let edge = stem.lowerBound..<stem.lowerBound + 2
+        XCTAssertGreaterThan(reddest(over, in: edge, y: y), 200, "over the fill the stroke covers the stem's edge")
+        XCTAssertLessThan(reddest(under, in: edge, y: y), 40, "under it the fill covers the inner half")
+        let outside = stem.lowerBound - 3..<stem.lowerBound - 1
+        XCTAssertGreaterThan(reddest(under, in: outside, y: y), 200, "the outer half shows")
+        XCTAssertEqual(engine.attributed(Spec(runs: [{ var r = run("I"); r.stroke = [-2, 255, 0, 0, 255]; return r }()], align: 0, lineClamp: 0, color: [0, 0, 0, 255]))
+            .attribute(.strokeWidth, at: 0, effectiveRange: nil) as? Double, -2 / 16 * 100, "the stroke's width still bounds the ink")
+    }
+
     func testShadowedRunsKeepTheWholeLinesDecorations() throws {
         let font = engine.font(size: 32, weight: 400, family: 1, italic: false)
         let attributes: [NSAttributedString.Key: Any] = [
@@ -479,7 +563,7 @@ final class TextPaintTests: XCTestCase {
         ]
         let plain = NSAttributedString(string: "MM  WW  II", attributes: attributes)
         let shadowed = NSMutableAttributedString(attributedString: plain)
-        let shadow = TextRunShadow([0, 8, 0, 0, 0, 0, 0])
+        let shadow = TextRunShadow([[0, 8, 0, 0, 0, 0, 0]])
         shadowed.addAttribute(.exactShadow, value: shadow, range: NSRange(location: 4, length: 4))
         func capture(_ string: NSAttributedString, pass: TextLinePaint.Pass = .all) throws -> [UInt8] {
             let ctx = try CapturePixelsTests.clearedContext(width: 240, height: 60)
@@ -525,7 +609,7 @@ final class TextPaintTests: XCTestCase {
     /// separate cast an opaque sibling's equal shadow makes leaves it out.
     func testAGroupedRunIsNotInItsSiblingsSeparateCast() throws {
         let font = engine.font(size: 32, weight: 400, family: 1, italic: false)
-        let shadow = TextRunShadow([0, 8, 0, 0, 0, 0, 255])
+        let shadow = TextRunShadow([[0, 8, 0, 0, 0, 0, 255]])
         let plain = NSMutableAttributedString(string: "HHHH HHHH", attributes: [.font: font, .foregroundColor: PlatformColor.black])
         plain.addAttribute(.exactShadow, value: shadow, range: NSRange(location: 0, length: 9))
         let faded = NSMutableAttributedString(attributedString: plain)
@@ -551,7 +635,7 @@ final class TextPaintTests: XCTestCase {
             .underlineStyle: 1, .strikethroughStyle: 1, .underlineColor: PlatformColor.red,
         ])
         let shadowed = NSMutableAttributedString(attributedString: plain)
-        shadowed.addAttribute(.exactShadow, value: TextRunShadow([0, 8, 0, 0, 0, 0, 0]),
+        shadowed.addAttribute(.exactShadow, value: TextRunShadow([[0, 8, 0, 0, 0, 0, 0]]),
                               range: NSRange(location: 4, length: 2))
         func capture(_ source: NSAttributedString, pass: TextLinePaint.Pass, reference: Bool = false) throws -> [UInt8] {
             let ctx = try XCTUnwrap(CGContext(data: nil, width: 240, height: 80, bitsPerComponent: 8,
@@ -589,7 +673,7 @@ final class TextPaintTests: XCTestCase {
     func testARunShadowFarPastTheBoxStaysInTheRasterUpToItsCap() throws {
         func frame(_ dx: Double) throws -> CGRect {
             var far = run("Cd", weight: 800)
-            far.shadow = [dx, 0, 0, 255, 0, 0, 255]
+            far.shadow = [[dx, 0, 0, 255, 0, 0, 255]]
             var spec = Spec(runs: [run("Ab ", weight: 800), far], align: 0, lineClamp: 0, color: [0, 0, 0, 255])
             spec.gatherShadows()
             XCTAssertNil(spec.shadow, "mixed runs: the raster carries the shadow")
@@ -613,7 +697,7 @@ final class TextPaintTests: XCTestCase {
     /// and the band's height pays for the width (LLP 1077 D3).
     func testABandAdmitsARunShadowCastSidewaysPastItsClip() throws {
         var far = run("Cd", weight: 800)
-        far.shadow = [400, 0, 0, 255, 0, 0, 255]
+        far.shadow = [[400, 0, 0, 255, 0, 0, 255]]
         var spec = Spec(runs: [run("Ab ", weight: 800), far], align: 0, lineClamp: 0, color: [0, 0, 0, 255])
         spec.gatherShadows()
         let plain = Spec(runs: [run("Ab ", weight: 800), run("Cd", weight: 800)], align: 0, lineClamp: 0, color: [0, 0, 0, 255])
@@ -634,7 +718,7 @@ final class TextPaintTests: XCTestCase {
         let cd = CGFloat(CTLineGetOffsetForStringIndex(engine.paragraph(plain, width: 100).lines[0], 3, nil))
         XCTAssertGreaterThan(try XCTUnwrap(job.render()).frame.maxX, cd + 400, "the shadow is in the band's pixels")
 
-        far.shadow = [5000, 0, 40, 255, 0, 0, 255]
+        far.shadow = [[5000, 0, 40, 255, 0, 0, 255]]
         spec.runs[1] = far
         let capped = TextRasterJob.band(spec, width: 100, port: port, scale: 3, maximumBytes: budget)
         XCTAssertEqual(capped.maxX, 100 + 32 + TextRasterJob.maxShadowReach, accuracy: 0.01, "under the cap")
@@ -730,7 +814,7 @@ final class TextPaintTests: XCTestCase {
             var spec = Spec(runs: [red], align: 0, lineClamp: 1, color: blockColor)
             spec.strut = run("")
             spec.strut?.color = blockColor
-            spec.strut?.shadow = shadow
+            spec.strut?.shadow = shadow.map { [$0] }
             spec.gatherShadows()
             let paragraph = engine.paragraph(spec, width: 100)
             let geometry = try XCTUnwrap(engine.measuredBreaks(spec, width: 100))

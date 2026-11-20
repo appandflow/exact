@@ -415,6 +415,11 @@ impl PaintOrder {
         Some(PaintOrder([order[0], order[1], order[2]]))
     }
 
+    /// Whether the stroke paints before, so under, the fill.
+    pub fn stroke_under_fill(&self) -> bool {
+        self.0.iter().position(|&v| v == 1) < self.0.iter().position(|&v| v == 0)
+    }
+
     /// The value as CSS reads it.
     pub fn css(&self) -> String {
         if *self == PaintOrder::default() {

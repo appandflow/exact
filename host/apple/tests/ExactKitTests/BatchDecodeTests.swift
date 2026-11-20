@@ -551,7 +551,7 @@ final class BatchDecodeTests: XCTestCase {
     }
 
     func testGeneratedInlineStyleDispatchAndDeferredHeight() throws {
-        let style = #"{"line_height":1.5,"font_size":20,"font_weight":650,"font_family":2,"font_stretch":1.25,"font_style":"italic","letter_spacing":0.5,"font_variant_numeric":3,"font_variant_ligatures":2,"font_optical_sizing":"none","font_variation_settings":[],"font_feature_settings":[],"visibility":"hidden","user_select":"all","outline_style":"none","text_decoration_line":"underline","text_color":[1,2,3,4],"background_color":[[5,6,7,8],[9,10,11,12]],"border_color_left":[1,2,3,4],"border_style_right":"dashed","border_radius_bottom_right":5,"text_shadow":{"o":[1,2],"b":3},"text_stroke_width":2,"text_stroke_color":[3,4,5,6],"future":{"ignored":true}}"#
+        let style = #"{"line_height":1.5,"font_size":20,"font_weight":650,"font_family":2,"font_stretch":1.25,"font_style":"italic","letter_spacing":0.5,"font_variant_numeric":3,"font_variant_ligatures":2,"font_optical_sizing":"none","font_variation_settings":[],"font_feature_settings":[],"visibility":"hidden","user_select":"all","outline_style":"none","text_decoration_line":"underline","text_color":[1,2,3,4],"background_color":[[5,6,7,8],[9,10,11,12]],"border_color_left":[1,2,3,4],"border_style_right":"dashed","border_radius_bottom_right":5,"text_shadow":[{"o":[1,2],"b":3}],"text_stroke_width":2,"text_stroke_color":[3,4,5,6],"future":{"ignored":true}}"#
         for op in ["{\"op\":\"paragraph\",\"runs\":[{\"id\":2,\"parent\":1,\"opacity\":0.4,\"style\":\(style)}]}",
                    "{\"runs\":[{\"style\":\(style),\"opacity\":0.4,\"parent\":1,\"id\":2}],\"op\":\"paragraph\"}"] {
             let batch = Batch.decode(Data("{\"ops\":[\(op)]}".utf8))
@@ -568,7 +568,7 @@ final class BatchDecodeTests: XCTestCase {
             XCTAssertEqual(run.decoration, "underline"); XCTAssertTrue(row.fixedInk)
             XCTAssertEqual(row.darkBackground, [9,10,11,12])
             XCTAssertEqual(row.borderColors[3], [1,2,3,4])
-            XCTAssertEqual(row.paint.shadow, [1,2,3]); XCTAssertEqual(row.paint.strokeWidth, 2)
+            XCTAssertEqual(row.paint.shadows, [[1,2,3]]); XCTAssertEqual(row.paint.strokeWidth, 2)
             XCTAssertEqual(row.paint.strokeColor, [3,4,5,6])
         }
     }

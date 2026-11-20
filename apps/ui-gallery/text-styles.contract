@@ -71,6 +71,10 @@ component TextStyles
         text "HDR white · 1×" color=one font-size=22
         text "HDR white · 4×" color=four font-size=22 testId="text-hdr"
         text "HDR text shadow" color=one text-shadow=`0 0 5px ${four}` font-size=22
+      column class=TextPanel background-image="repeating-linear-gradient(45deg, #f59e0b 0px, #f59e0b 6px, #10b981 6px, #10b981 12px)" color="#111827"
+        text "Stroke under the fill" font-size=26 font-weight=800 -webkit-text-stroke="3px #ffffff" paint-order="stroke" testId="text-stroke-under"
+        text "Stroke over the fill" font-size=26 font-weight=800 -webkit-text-stroke="3px #ffffff" testId="text-stroke-over"
+        text "Four white shadows" font-size=26 font-weight=800 text-shadow="-1.5px 0 #ffffff, 1.5px 0 #ffffff, 0 -1.5px #ffffff, 0 1.5px #ffffff" testId="text-shadow-list"
       column class=TextPanel backgroundMaterial="ultra-thin" overflow="hidden"
         text "Vibrant system label" color="-exact-label" font-size=22 testId="text-vibrant"
         text "Vibrant secondary label" color="-exact-secondary-label" font-size=17

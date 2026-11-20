@@ -119,7 +119,7 @@ impl BoxShadows {
 
 fn one_shadow(text: &str) -> Result<BoxShadow, &'static str> {
     let (mut lengths, mut color, mut inset, mut closed) = (Vec::new(), None, false, false);
-    for token in tokens(text)? {
+    for token in tokens(text) {
         if token.eq_ignore_ascii_case("inset") {
             if inset {
                 return Err("`inset` once per shadow");
@@ -185,10 +185,10 @@ fn split_commas(text: &str) -> Vec<&str> {
     out
 }
 
-/// CSS `text-shadow`: `none`, or one shadow under the node's glyphs and
-/// decorations, inherited (LLP 1077 D3).
-#[derive(Debug, Clone, Copy, PartialEq, Default)]
-pub struct TextShadow(Option<GlyphShadow>);
+/// CSS `text-shadow`: `none`, or a list of shadows under the node's glyphs
+/// and decorations, the first on top, inherited (LLP 1077 D3).
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct TextShadow(pub Vec<GlyphShadow>);
 
 /// One text shadow.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -210,62 +210,32 @@ impl TextShadow {
         Self::check(css).ok()
     }
 
-    /// `none`, or `<color>? <length>{2,3} <color>?` with lengths in `px`
-    /// (unitless zero). Refused, by name: a list and a fourth length (text
-    /// shadows have no spread).
+    /// `none`, or up to [`MAX_SHADOWS`] shadows separated by commas, each
+    /// `<color>? <length>{2,3} <color>?` with lengths in `px` (unitless
+    /// zero). Refused, by name: a fourth length (text shadows have no
+    /// spread).
     pub fn check(css: &str) -> Result<Self, &'static str> {
         let css = css.trim();
         if css.eq_ignore_ascii_case("none") {
-            return Ok(Self(None));
+            return Ok(Self(Vec::new()));
         }
-        let (mut lengths, mut color, mut closed) = (Vec::new(), None, false);
-        for token in tokens(css)? {
-            if let Some(n) = parse_pixel_length(token) {
-                if closed {
-                    return Err("the lengths are written together: <offset-x> <offset-y> [<blur>], the colour before or after them");
-                }
-                lengths.push(n);
-                continue;
-            }
-            if color.is_some() {
-                return Err("one colour, and lengths in px (unitless zero)");
-            }
-            closed = !lengths.is_empty();
-            color = Some(if token.eq_ignore_ascii_case("currentcolor") {
-                None
-            } else {
-                Some(
-                    ColorValue::parse_light_dark(token)
-                        .or_else(|| Color::parse(token).map(ColorValue::Fixed))
-                        .ok_or("a word is neither a length in px (unitless zero) nor a colour")?,
-                )
-            });
+        let list = split_commas(css);
+        if list.len() > MAX_SHADOWS {
+            return Err("at most 8 shadows in one text-shadow");
         }
-        let (x, y, blur) = match lengths[..] {
-            [x, y] => (x, y, 0.0),
-            [x, y, blur] => (x, y, blur),
-            [_, _, _, _] => {
-                return Err("a text shadow has no spread: <offset-x> <offset-y> [<blur>]")
-            }
-            _ => return Err("two or three lengths: <offset-x> <offset-y> [<blur>]"),
-        };
-        if blur < 0.0 {
-            return Err("a blur radius is never negative");
-        }
-        Ok(Self(Some(GlyphShadow {
-            color: color.flatten(),
-            offset: Vec2 { x, y },
-            blur,
-        })))
+        list.into_iter()
+            .map(one_glyph_shadow)
+            .collect::<Result<_, _>>()
+            .map(Self)
     }
 
-    /// The shadow, or `None` for `none`.
-    pub fn shadow(&self) -> Option<&GlyphShadow> {
-        self.0.as_ref()
+    /// The shadows, the first painted on top; empty for `none`.
+    pub fn shadows(&self) -> &[GlyphShadow] {
+        &self.0
     }
 
-    /// Canonical CSS: `none`, or offsets and blur in px and the colour
-    /// (`currentcolor` when none was written).
+    /// Canonical CSS: `none`, or each shadow's offsets and blur in px and
+    /// its colour (`currentcolor` when none was written).
     pub fn css(&self) -> String {
         self.text(ColorText::Css)
     }
@@ -276,34 +246,78 @@ impl TextShadow {
     }
 
     fn text(&self, mode: ColorText) -> String {
-        let Some(s) = &self.0 else {
+        if self.0.is_empty() {
             return "none".into();
-        };
-        let mut out = exact_num::text!(
-            "{}px {}px {}px ",
-            exact_num::Shortest32(s.offset.x),
-            exact_num::Shortest32(s.offset.y),
-            exact_num::Shortest32(s.blur)
-        );
-        match s.color {
-            Some(c) => crate::gradient::color_text(&mut out, c, mode),
-            None => out.push_str("currentcolor"),
+        }
+        let mut out = String::new();
+        for (i, s) in self.0.iter().enumerate() {
+            if i > 0 {
+                out.push_str(", ");
+            }
+            out.push_str(&exact_num::text!(
+                "{}px {}px {}px ",
+                exact_num::Shortest32(s.offset.x),
+                exact_num::Shortest32(s.offset.y),
+                exact_num::Shortest32(s.blur)
+            ));
+            match s.color {
+                Some(c) => crate::gradient::color_text(&mut out, c, mode),
+                None => out.push_str("currentcolor"),
+            }
         }
         out
     }
 }
 
+fn one_glyph_shadow(text: &str) -> Result<GlyphShadow, &'static str> {
+    let (mut lengths, mut color, mut closed) = (Vec::new(), None, false);
+    for token in tokens(text) {
+        if let Some(n) = parse_pixel_length(token) {
+            if closed {
+                return Err("the lengths are written together: <offset-x> <offset-y> [<blur>], the colour before or after them");
+            }
+            lengths.push(n);
+            continue;
+        }
+        if color.is_some() {
+            return Err("one colour, and lengths in px (unitless zero)");
+        }
+        closed = !lengths.is_empty();
+        color = Some(if token.eq_ignore_ascii_case("currentcolor") {
+            None
+        } else {
+            Some(
+                ColorValue::parse_light_dark(token)
+                    .or_else(|| Color::parse(token).map(ColorValue::Fixed))
+                    .ok_or("a word is neither a length in px (unitless zero) nor a colour")?,
+            )
+        });
+    }
+    let (x, y, blur) = match lengths[..] {
+        [x, y] => (x, y, 0.0),
+        [x, y, blur] => (x, y, blur),
+        [_, _, _, _] => return Err("a text shadow has no spread: <offset-x> <offset-y> [<blur>]"),
+        _ => return Err("two or three lengths: <offset-x> <offset-y> [<blur>]"),
+    };
+    if blur < 0.0 {
+        return Err("a blur radius is never negative");
+    }
+    Ok(GlyphShadow {
+        color: color.flatten(),
+        offset: Vec2 { x, y },
+        blur,
+    })
+}
+
 /// The value's tokens: split at CSS white space outside parentheses, so
-/// `rgba(0, 0, 0, 0.2)` is one. A comma outside them is a second shadow.
-fn tokens(text: &str) -> Result<Vec<&str>, &'static str> {
+/// `rgba(0, 0, 0, 0.2)` is one. Each list item is tokenized after
+/// `split_commas`, so it holds no comma outside them.
+fn tokens(text: &str) -> Vec<&str> {
     let (mut out, mut depth, mut start) = (Vec::new(), 0usize, None);
     for (i, c) in text.char_indices() {
         match c {
             '(' => depth += 1,
             ')' => depth = depth.saturating_sub(1),
-            ',' if depth == 0 => {
-                return Err("one shadow: CSS's comma-separated list is not implemented")
-            }
             '\t' | '\n' | '\u{c}' | '\r' | ' ' if depth == 0 => {
                 if let Some(s) = start.take() {
                     out.push(&text[s..i]);
@@ -317,7 +331,7 @@ fn tokens(text: &str) -> Result<Vec<&str>, &'static str> {
     if let Some(s) = start {
         out.push(&text[s..]);
     }
-    Ok(out)
+    out
 }
 
 #[cfg(test)]
@@ -374,22 +388,47 @@ mod tests {
         assert_eq!(s.css(), "1px 2px 3px #00000080");
         assert_eq!(TextShadow::check(&s.css()).unwrap(), s);
         let s = TextShadow::check("currentcolor 0 1px").unwrap();
-        let g = s.shadow().unwrap();
+        let g = s.shadows()[0];
         assert_eq!((g.color, g.offset.y, g.blur), (None, 1.0, 0.0));
         assert_eq!(s.css(), "0px 1px 0px currentcolor");
         assert_eq!(
             TextShadow::check("2px 2px").unwrap().css(),
             "2px 2px 0px currentcolor"
         );
-        assert_eq!(TextShadow::check(" NONE ").unwrap().shadow(), None);
+        assert_eq!(TextShadow::check(" NONE ").unwrap().shadows(), []);
         for (text, says) in [
-            ("1px 1px #000, 2px 2px #fff", "one shadow"),
+            ("1px 1px #000,", "two or three"),
             ("1px 1px 2px 3px #000", "no spread"),
             ("1px #000", "two or three"),
             ("1px 1px -2px", "negative"),
+            (
+                "0 0 #000,0 0 #000,0 0 #000,0 0 #000,0 0 #000,0 0 #000,0 0 #000,0 0 #000,0 0 #000",
+                "at most 8",
+            ),
         ] {
             let e = TextShadow::check(text).unwrap_err();
             assert!(e.contains(says), "{text}: {e}");
         }
+    }
+
+    #[test]
+    fn a_text_shadow_list_keeps_its_order_and_round_trips() {
+        let s = TextShadow::check("-1px 0 #fff, 1px 0 2px rgba(0, 0, 0, 0.5), currentcolor 0 1px")
+            .unwrap();
+        let offsets: Vec<_> = s
+            .shadows()
+            .iter()
+            .map(|g| (g.offset.x, g.offset.y, g.blur))
+            .collect();
+        assert_eq!(
+            offsets,
+            [(-1.0, 0.0, 0.0), (1.0, 0.0, 2.0), (0.0, 1.0, 0.0)]
+        );
+        assert_eq!(s.shadows()[2].color, None);
+        assert_eq!(
+            s.css(),
+            "-1px 0px 0px #ffffffff, 1px 0px 2px #00000080, 0px 1px 0px currentcolor"
+        );
+        assert_eq!(TextShadow::check(&s.css()).unwrap(), s);
     }
 }

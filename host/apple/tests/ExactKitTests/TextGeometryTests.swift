@@ -437,17 +437,17 @@ final class TextGeometryTests: XCTestCase {
         let presenter = Presenter()
         presenter.apply(wireBatch([
             ["op": "create", "id": 1, "kind": "text", "props": ["text": "A clamped paragraph"],
-             "style": ["line_clamp": 1, "text_shadow": ["o": [0, 2], "b": 3, "c": [0, 0, 255, 255]]]],
+             "style": ["line_clamp": 1, "text_shadow": [["o": [0, 2], "b": 3, "c": [0, 0, 255, 255]]]]],
             ["op": "roots", "ids": [1]],
         ]))
         let captured = try XCTUnwrap(presenter.views[1]).paragraphSpec()
-        XCTAssertEqual(captured.strut?.shadow, blue, "the view supplies block paint, not just metrics")
+        XCTAssertEqual(captured.strut?.shadow, [blue], "the view supplies block paint, not just metrics")
         XCTAssertEqual(captured.shadow, blue, "uniform shadow still belongs to the paragraph layer")
         for inline in [blue, red] {
             var value = spec("Words that need more than one line to fit")
-            var block = value.runs[0]; block.shadow = blue
+            var block = value.runs[0]; block.shadow = [blue]
             value.strut = block; value.lineClamp = 1
-            value.runs[0].shadow = inline
+            value.runs[0].shadow = [inline]
             value.gatherShadows()
             let line = try XCTUnwrap(engine.paragraph(value, width: 145).lines.last)
             let token = try XCTUnwrap((CTLineGetGlyphRuns(line) as! [CTRun]).first {
@@ -458,7 +458,7 @@ final class TextGeometryTests: XCTestCase {
                 XCTAssertNil(TextRunShadow.of(token), "the token does not cast that shadow a second time")
             } else {
                 XCTAssertNil(value.shadow, "the token and inline text have different shadows")
-                XCTAssertEqual(TextRunShadow.of(token), TextRunShadow(blue), "the block styles the token")
+                XCTAssertEqual(TextRunShadow.of(token), TextRunShadow([blue]), "the block styles the token")
             }
         }
     }

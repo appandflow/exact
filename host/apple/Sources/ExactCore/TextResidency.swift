@@ -211,7 +211,7 @@ package struct TextPaint: Hashable {
         let backgroundReach: [CGFloat]
         let border: InlineBorder?
         let outerBackgrounds: [OuterBackground]
-        let shadow: [Double]?
+        let shadow: [[Double]]?
         let stroke: [Double]?
         let atomIcon: AtomIconRun?
         package init(_ r: Run) {
@@ -245,7 +245,7 @@ package struct TextPaint: Hashable {
         antialiased = spec.antialiased
         runs = spec.runs.map(Inline.init)
         if spec.lineClamp > 0, var block = spec.strut ?? spec.runs.first {
-            if block.shadow == spec.shadow { block.shadow = nil }
+            if block.shadow == spec.shadow.map({ [$0] }) { block.shadow = nil }
             clamp = Inline(block)
         } else { clamp = nil }
     }

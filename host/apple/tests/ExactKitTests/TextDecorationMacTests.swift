@@ -103,7 +103,7 @@ final class TextDecorationMacTests: XCTestCase {
         for shadowed in [false, true] {
             let string = NSMutableAttributedString(attributedString: part("MMMM", ink: .blue, hidden: true))
             string.append(part("WWWW", ink: .black, hidden: false))
-            if shadowed { string.addAttribute(.exactShadow, value: TextRunShadow([0, 2, 1, 0, 0, 0, 128]), range: NSRange(location: 4, length: 4)) }
+            if shadowed { string.addAttribute(.exactShadow, value: TextRunShadow([[0, 2, 1, 0, 0, 0, 128]]), range: NSRange(location: 4, length: 4)) }
             let line = CTLineCreateWithAttributedString(string)
             let hiddenWidth = CTLineGetOffsetForStringIndex(line, 4, nil)
             let (w, h) = (400, 60)

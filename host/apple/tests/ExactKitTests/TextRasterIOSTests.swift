@@ -345,7 +345,7 @@ final class TextRasterIOSTests: XCTestCase {
         window.makeKeyAndVisible()
         let cast = 2000.0, style: [String: Any] = ["font_size": 17.0, "line_height": "100px"]
         var caster = style
-        caster["text_shadow"] = ["o": [0.0, cast], "b": 0.0, "c": [255.0, 0.0, 0.0, 255.0]]
+        caster["text_shadow"] = [["o": [0.0, cast], "b": 0.0, "c": [255.0, 0.0, 0.0, 255.0]]]
         func frames(_ height: Double) -> [[String: Any]] { [
             ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 800.0, "h": height + 32],
             ["op": "frame", "id": 2, "x": 16.0, "y": 16.0, "w": 700.0, "h": height],

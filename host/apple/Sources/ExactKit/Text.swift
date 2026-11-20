@@ -63,11 +63,17 @@ final class PresentedText: TextPresentation {
         // A centred stroke over the fill: Core Text's negative width,
         // in percent of the run's size (LLP 1077 D7). Each run's own.
         // Its colour four channels, or nine in its own space (a wide colour).
-        if let st = r.stroke, st.count == 5 || st.count == 10, st[0] > 0, r.size > 0 {
-            a[.strokeWidth] = -st[0] / Double(r.size) * 100
-            a[.strokeColor] = TextEngine.color(Array(st[1...]))
+        // A negative width is one `paint-order` paints under the fill.
+        if let st = r.stroke, st.count == 5 || st.count == 10, st[0] != 0, r.size > 0 {
+            let color = TextEngine.color(Array(st[1...]))
+            a[.strokeWidth] = -abs(st[0]) / Double(r.size) * 100
+            a[.strokeColor] = color
+            if st[0] < 0 {
+                a[.strokeColor] = TextEngine.color([0, 0, 0, 0])
+                a[.exactStrokeUnder] = TextStrokeUnder(width: -st[0], color: color.cgColor)
+            }
         }
-        if let sh = r.shadow, TextEngine.isShadow(sh) { a[.exactShadow] = TextRunShadow(sh) }
+        if let sh = r.shadow, sh.contains(where: TextEngine.isShadow) { a[.exactShadow] = TextRunShadow(sh) }
         // A run's own line is in its own colour and shows over its boxes';
         // a box's alone is in that box's colour (`Run.propagate`).
         if r.atomIcon == nil, r.underlined || r.underlineColor != nil {
@@ -240,11 +246,12 @@ extension TextEngine {
             let shown = p.lines.indices.filter { lines?.contains($0) != false }.map(placed)
             if TextLinePaint.drawOpacity(shown.map(\.0), at: shown.map(\.1), in: ctx, scale: 1, pass: pass, background: background) { return }
         }
+        let cast = TextLinePaint.castShared(p.lines.indices.map(placed), in: ctx, scale: 1, pass: pass)
         func paint(_ index: Int) {
             if let lines, !lines.contains(index) { return }
             let (line, origin) = placed(index)
             background?(CTLineGetGlyphRuns(line) as! [CTRun], origin)
-            TextLinePaint.draw(line, at: origin, in: ctx, pass: pass)
+            TextLinePaint.draw(line, at: origin, in: ctx, pass: pass, castsLists: !cast)
         }
         if let dirty {
             // A background's block padding paints past its line's ink, by as
@@ -356,7 +363,7 @@ enum TextLinePaint {
     /// ink fell below the line box it was measured in.
     /// `scale`: base-space units per point, for a run's own shadow (1 in a
     /// view's context, the pixel scale in a bitmap the host made).
-    static func draw(_ line: CTLine, at origin: CGPoint, in ctx: CGContext, scale: CGFloat = 1, pass: Pass = .all) {
+    static func draw(_ line: CTLine, at origin: CGPoint, in ctx: CGContext, scale: CGFloat = 1, pass: Pass = .all, castsLists: Bool = true) {
         if drawOpacity(line, at: origin, in: ctx, scale: scale, pass: pass) { return }
         ctx.saveGState()
         for fill in backgrounds(line, at: origin) where pass.paintsBackgrounds { fill.paint(in: ctx) }
@@ -367,7 +374,7 @@ enum TextLinePaint {
         ctx.scaleBy(x: 1, y: -1)
         ctx.textMatrix = .identity
         ctx.textPosition = .zero
-        if !drawShadowed(line, in: ctx, scale: scale, pass: pass) {
+        if !drawShadowed(line, in: ctx, scale: scale, pass: pass, castsLists: castsLists) {
             CTLineDraw(line, ctx)
             TextAtomIcons.draw(line, in: ctx)
         }

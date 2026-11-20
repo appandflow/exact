@@ -108,7 +108,7 @@ final class TextPaintIOSTests: XCTestCase {
         let hdr: [String: Any] = ["cs": [["s": "srgb-linear", "v": [4.0, 4.0, 4.0, 1.0]]], "c": [255.0, 255.0, 255.0, 255.0]]
         p.apply(wireBatch([
             ["op": "create", "id": 1, "kind": "text", "props": ["text": "41"],
-             "style": ["font_size": 24.0, "content_transition": "numeric", "text_shadow": ["o": [3.0, 3.0], "b": 0.0, "c": hdr]]],
+             "style": ["font_size": 24.0, "content_transition": "numeric", "text_shadow": [["o": [3.0, 3.0], "b": 0.0, "c": hdr]]]],
             ["op": "roots", "ids": [1]],
             ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 300.0, "h": 60.0],
         ]))

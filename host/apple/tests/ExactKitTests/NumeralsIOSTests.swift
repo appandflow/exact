@@ -339,7 +339,7 @@ final class NumeralsIOSTests: XCTestCase {
         // style, whether it rolls, and what makes it the case it names, read off the built paragraph.
         let runs = { (n: NodeView) in n.paragraphSpec().runs }
         let hidden = { (n: NodeView) in runs(n).contains { $0.hidden } }
-        let shadowed: [String: Any] = ["text_shadow": ["o": [3.0, 3.0], "b": 0.0, "c": [0.0, 0.0, 255.0, 255.0]]]
+        let shadowed: [String: Any] = ["text_shadow": [["o": [3.0, 3.0], "b": 0.0, "c": [0.0, 0.0, 255.0, 255.0]]]]
         let cases: [(String, [String: Any], String, [String: Any], [String: Any], Bool, (NodeView) -> Bool)] = [
             ("hidden words", [:], "Finished ", ["visibility": "hidden"], [:], false, hidden),
             ("a hidden stroke", [:], "Finished ", ["visibility": "hidden", "text_stroke_width": 2.0, "text_stroke_color": [0.0, 0.0, 255.0, 255.0]], [:], false, { hidden($0) && runs($0).contains { $0.stroke != nil } }),

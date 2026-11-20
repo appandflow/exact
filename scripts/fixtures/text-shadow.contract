@@ -1,5 +1,5 @@
 // LLP 1077 D3's parity page: `text-shadow`, the browser the oracle. Offset,
-// blurred, `currentcolor`, `light-dark()`, over several lines and none.
+// blurred, `currentcolor`, `light-dark()`, over several lines, a list and none.
 // Chrome's pictures (the web host at 1×) are text-shadow.web.png as booted
 // and text-shadow.web-dark.png after `dark`.
 component TextShadows
@@ -14,5 +14,6 @@ component TextShadows
       text "Ab" testId="current" position="absolute" left=270 top=20 width=100 height=70 font-size=40 font-weight=700 color="light-dark(#43a047, #ce93d8)" text-shadow="2px 4px 3px"
       text "Ab" testId="scheme" position="absolute" left=20 top=115 width=100 height=70 font-size=40 font-weight=700 color="#1e88e5" text-shadow="2px 2px 2px light-dark(#000000, #ffffff)"
       text "Two lines of text with a shadow under both" testId="lines" position="absolute" left=145 top=115 width=225 height=70 font-size=20 color="#212121" text-shadow="0 6px 4px #e53935"
+      text "Ab" testId="list" position="absolute" left=145 top=210 width=100 height=70 font-size=40 font-weight=700 color="#1e88e5" text-shadow="-6px 0 #e53935, 6px 0 #43a047"
       text "Ab" testId="none" position="absolute" left=20 top=210 width=100 height=70 font-size=40 font-weight=700 color="#43a047" text-shadow="none"
       button testId="dark" press=scheme aria-label="Scheme" position="absolute" left=20 top=400 width=40 height=40 background-color="#757575"

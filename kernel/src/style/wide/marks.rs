@@ -62,7 +62,7 @@ impl Colors for BoxShadows {
 
 impl Colors for TextShadow {
     fn colors(&self, m: &mut WideMark) {
-        if let Some(s) = self.shadow() {
+        for s in self.shadows() {
             s.color.colors(m);
         }
     }

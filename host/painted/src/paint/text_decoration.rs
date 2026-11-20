@@ -1,5 +1,5 @@
 //! Solid currentcolor decorations stay paint-only, following shaped glyph advances.
-use super::text_shadow::Shadow;
+use super::text_shadow::Shadows;
 use super::{Backend, Painter, Rect4, Shape};
 use crate::text::markup::{STRIKE, UNDERLINE};
 use crate::text::{Paragraph, RunPaint};
@@ -22,7 +22,7 @@ struct DecorationPaint {
     source: ViewId,
     depth: usize,
     color: [u8; 4],
-    shadow: Option<Shadow>,
+    shadow: Option<Shadows>,
 }
 
 impl Decoration {
@@ -91,7 +91,7 @@ impl Decorations {
 
 pub(super) struct DecorationShadow<'a> {
     pub first_run: usize,
-    pub shadow: Shadow,
+    pub shadow: Shadows,
     pub mask: DecorationMask<'a>,
 }
 
@@ -127,7 +127,7 @@ impl Painter {
         palette: &[RunPaint],
         reveal: Option<ViewId>,
         selected: std::ops::Range<usize>,
-        run_shadows: Option<&[Option<Shadow>]>,
+        run_shadows: Option<&[Option<Shadows>]>,
     ) -> Decorations {
         // CSS Text Decoration 3 §2.1: a box's lines are drawn through its
         // descendants' visible text in the box's own colour, whatever the

@@ -89,10 +89,12 @@ package struct Run: Hashable {
     /// the Mac in the light appearance, such text keeps its ink, as an
     /// `NSTextView` leaves it (LLP 1115.000 D7.9). Paint, never metrics.
     package var fixedInk = false
-    /// Its own `text-shadow` (offset x, y, blur, r g b a) when the
-    /// paragraph cannot share it (`Spec.gatherShadows`), and its
-    /// `-webkit-text-stroke` (width, r g b a): paint (LLP 1077 D3, D7).
-    package var shadow: [Double]? = nil
+    /// Its own `text-shadow` list (each offset x, y, blur, r g b a, the
+    /// first on top) when the paragraph cannot share it
+    /// (`Spec.gatherShadows`), and its `-webkit-text-stroke` (width, r g b
+    /// a; the width negative where `paint-order` puts the stroke under the
+    /// fill): paint (LLP 1077 D3, D7).
+    package var shadow: [[Double]]? = nil
     package var stroke: [Double]? = nil
     /// A Markdown list item's head indent and hung marker (LLP 1045 D4,
     /// `LineInsets`): where its paragraph's lines start, so a metric.
@@ -172,7 +174,7 @@ package struct Run: Hashable {
         hasher.combine(inlineStart)
         hasher.combine(inlineEnd)
     }
-    package init(text: String, size: CGFloat, weight: Int, family: Int, italic: Bool, lineHeight: CGFloat?, letterSpacing: CGFloat, numeric: Int = 0, ligatures: Int = 0, stretch: CGFloat = 100, variations: [FontAxis] = [], features: [FontFeature] = [], color: [Double]? = nil, decoration: String = "", href: String = "", background: [Double]? = nil, hidden: Bool = false, fixedInk: Bool = false, shadow: [Double]? = nil, stroke: [Double]? = nil, indent: CGFloat = 0, hang: Bool = false) {
+    package init(text: String, size: CGFloat, weight: Int, family: Int, italic: Bool, lineHeight: CGFloat?, letterSpacing: CGFloat, numeric: Int = 0, ligatures: Int = 0, stretch: CGFloat = 100, variations: [FontAxis] = [], features: [FontFeature] = [], color: [Double]? = nil, decoration: String = "", href: String = "", background: [Double]? = nil, hidden: Bool = false, fixedInk: Bool = false, shadow: [[Double]]? = nil, stroke: [Double]? = nil, indent: CGFloat = 0, hang: Bool = false) {
         self.text = text
         self.size = size
         self.weight = weight
@@ -903,7 +905,7 @@ package final class TextEngine {
             offset += length
         }
         if spec.lineClamp > 0, s.length > 0, var block = spec.strut ?? spec.runs.first {
-            if block.shadow == spec.shadow { block.shadow = nil }
+            if block.shadow == spec.shadow.map({ [$0] }) { block.shadow = nil }
             var a: [NSAttributedString.Key: Any] = [.font: font(block)]
             if block.letterSpacing != 0 { a[.kern] = block.letterSpacing }
             presentation?.attributes(block, color: spec.color, scale: lineScale, attributes: &a)

@@ -95,7 +95,7 @@ final class HDRColorTests: XCTestCase {
             case 1: spec.shadow = [0, 0, 0] + hdr
             case 2: spec.runs[0].color = hdr
             case 3: spec.runs[0].background = hdr
-            case 4: spec.runs[0].shadow = [0, 0, 0] + hdr
+            case 4: spec.runs[0].shadow = [[0, 0, 0] + hdr]
             default: spec.runs[0].stroke = [1] + hdr
             }
             XCTAssertEqual(spec.headroom, 4, accuracy: 0.001, "paint field \(field)")
@@ -265,7 +265,7 @@ final class HDRColorTests: XCTestCase {
         let sdr = [rgb(CGColorSpace.sRGB, [0, 0, 0]), rgb(CGColorSpace.sRGB, [1, 0.85, 0.24]), rgb(CGColorSpace.extendedSRGB, [0.2, 0.4, 0.6])]
         let p3 = rgb(CGColorSpace.displayP3, [1, 0, 0])
         let rec2020 = rgb(CGColorSpace.itur_2020, [0, 1, 0])
-        let hdr = TextRunShadow([3, 3, 0] + (try XCTUnwrap(fourTimesWhite.textChannels(dark: false))))
+        let hdr = TextRunShadow([[3, 3, 0] + (try XCTUnwrap(fourTimesWhite.textChannels(dark: false)))])
         func format(_ paints: [(NSAttributedString.Key, Any)]) -> (space: String, headroom: Float, deep: Bool) {
             let runs = (0..<100).flatMap { _ in paints.map { [$0.0: $0.1] as NSDictionary } }
             let f = TextRasterJob.format(runs)
@@ -276,7 +276,7 @@ final class HDRColorTests: XCTestCase {
         XCTAssertTrue(format(ink(sdr + [p3])) == (CGColorSpace.displayP3 as String, 0, false))
         XCTAssertTrue(format(ink(sdr + [p3, rec2020])) == (CGColorSpace.extendedSRGB as String, 1, true))
         XCTAssertTrue(format(ink(sdr) + [(.exactShadow, hdr)]) == (CGColorSpace.sRGB as String, 0, false))
-        let both = format(ink(sdr) + [(.exactShadow, hdr), (.foregroundColor, hdr.color)])
+        let both = format(ink(sdr) + [(.exactShadow, hdr), (.foregroundColor, hdr.list[0].color)])
         XCTAssertEqual(both.space, CGColorSpace.extendedSRGB as String)
         XCTAssertEqual(both.headroom, 4, accuracy: 0.001)
     }
@@ -289,10 +289,10 @@ final class HDRColorTests: XCTestCase {
         XCTAssertEqual(nine.count, 9)
         let shadow = [3, 3, 0] + nine
         XCTAssertTrue(TextEngine.isShadow(shadow))
-        XCTAssertTrue(ColorRange.isHDR(TextRunShadow(shadow).color))
+        XCTAssertTrue(ColorRange.isHDR(TextRunShadow([shadow]).list[0].color))
         XCTAssertFalse(ColorRange.isHDR(TextEngine.shadowColor([0, 0, 6, 255, 255, 255, 255])))
         let plain = try XCTUnwrap(shadowJob(white("HDR")).render())
-        let cast = try XCTUnwrap(shadowJob(white("HDR"), shadow: TextRunShadow(shadow)).render())
+        let cast = try XCTUnwrap(shadowJob(white("HDR"), shadow: TextRunShadow([shadow])).render())
         XCTAssertNil(plain.cast)
         XCTAssertEqual(cast.headroom, 0, "the ink")
         XCTAssertEqual(cast.castHeadroom, 4, accuracy: 0.001)
@@ -306,13 +306,13 @@ final class HDRColorTests: XCTestCase {
         XCTAssertEqual(try XCTUnwrap(channel(0, of: try XCTUnwrap(cast.cast)).v.max()), 1.055 * pow(4, 1 / 2.4) - 0.055, accuracy: 0.01)
         // A line running far past its box casts only what its pixels hold.
         let long = try XCTUnwrap(shadowJob(white(String(repeating: "The quick brown fox jumps over the lazy dog. ", count: 40)),
-                                           shadow: TextRunShadow(shadow)).render())
+                                           shadow: TextRunShadow([shadow])).render())
         let far = try compare(long, by: 6)
         XCTAssertGreaterThan(far.lit, 5000)
         XCTAssertEqual(far.stray, 0, "no glyph's ink in the shadow's bitmap")
         XCTAssertEqual(far.missing, 0)
         // A blurred shadow spreads past the glyphs it is under.
-        let soft = try XCTUnwrap(shadowJob(white("HDR"), shadow: TextRunShadow([0, 0, 8] + nine)).render())
+        let soft = try XCTUnwrap(shadowJob(white("HDR"), shadow: TextRunShadow([[0, 0, 8] + nine])).render())
         let alpha = channel(3, of: try XCTUnwrap(soft.cast)).v
         XCTAssertGreaterThan(try XCTUnwrap(alpha.max()), 0.2)
         XCTAssertGreaterThan(alpha.filter { $0 > 0.02 }.count, pixels.lit * 2)
@@ -323,7 +323,7 @@ final class HDRColorTests: XCTestCase {
     func testARunsOwnHDRShadowIsPaintedApartFromTheInk() throws {
         let nine = try XCTUnwrap(fourTimesWhite.textChannels(dark: false))
         let text = white("HDR sdr")
-        text.addAttribute(.exactShadow, value: TextRunShadow([3, 3, 0] + nine), range: NSRange(location: 0, length: 3))
+        text.addAttribute(.exactShadow, value: TextRunShadow([[3, 3, 0] + nine]), range: NSRange(location: 0, length: 3))
         let image = try XCTUnwrap(shadowJob(text).render())
         XCTAssertEqual(image.headroom, 0, "the ink is four bytes a pixel")
         XCTAssertEqual(image.castHeadroom, 4, accuracy: 0.001)
@@ -333,14 +333,14 @@ final class HDRColorTests: XCTestCase {
         XCTAssertGreaterThan(pixels.missing, 200, "the run with no shadow casts none")
         // An SDR shadow of a run's own stays in the ink.
         let sdr = white("HDR sdr")
-        sdr.addAttribute(.exactShadow, value: TextRunShadow([3, 3, 0, 255, 0, 0, 255]), range: NSRange(location: 0, length: 3))
+        sdr.addAttribute(.exactShadow, value: TextRunShadow([[3, 3, 0, 255, 0, 0, 255]]), range: NSRange(location: 0, length: 3))
         XCTAssertNil(try XCTUnwrap(shadowJob(sdr).render()).cast)
     }
 
     /// The cast's layer sits under the ink's and takes the limit on its own.
     func testAnHDRTextShadowsLayerFollowsTheLimit() throws {
         let nine = try XCTUnwrap(fourTimesWhite.textChannels(dark: false))
-        let image = try XCTUnwrap(shadowJob(white("HDR"), shadow: TextRunShadow([3, 3, 0] + nine)).render())
+        let image = try XCTUnwrap(shadowJob(white("HDR"), shadow: TextRunShadow([[3, 3, 0] + nine])).render())
         let ink = CALayer(), parent = CALayer()
         parent.addSublayer(ink)
         ink.applyTextRange(headroom: image.headroom, limit: "standard")
@@ -395,7 +395,7 @@ final class HDRColorTests: XCTestCase {
             ["op": "create", "id": 1, "kind": "view"],
             ["op": "create", "id": 2, "kind": "text", "props": ["text": "SDR"]],
             ["op": "create", "id": 3, "kind": "text", "props": ["text": "HDR"], "style": ["text_color": hdr]],
-            ["op": "create", "id": 4, "kind": "text", "props": ["text": "HDR"], "style": ["text_shadow": ["o": [3.0, 3.0], "b": 0.0, "c": hdr]]],
+            ["op": "create", "id": 4, "kind": "text", "props": ["text": "HDR"], "style": ["text_shadow": [["o": [3.0, 3.0], "b": 0.0, "c": hdr]]]],
             ["op": "children", "id": 1, "ids": [2, 3, 4]],
             ["op": "roots", "ids": [1]],
             ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 500.0, "h": 400.0],

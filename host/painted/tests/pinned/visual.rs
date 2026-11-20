@@ -282,6 +282,11 @@ fn a_text_shadow_paints_its_colour_under_the_glyphs_and_none_paints_none() {
             shadowed > plain,
             "{choice:?}: currentcolor shadow {shadowed} vs {plain}"
         );
+        // A list: each shadow casts, one to either side.
+        assert!(
+            count(&mut p, "list", 8.0, red) > 30 && count(&mut p, "list", 8.0, green) > 30,
+            "{choice:?}: both shadows of a list"
+        );
         // A blurred black shadow: grey around black glyphs.
         assert!(
             count(&mut p, "blurred", 8.0, [0x99, 0x99, 0x99]) > 30,
@@ -388,6 +393,19 @@ fn background_clip_and_text_stroke_paint_where_css_paints_them() {
         assert!(
             count_where(&mut p, "hollow", 0.0, green) > 60,
             "{name}: hollow stroke"
+        );
+        // `paint-order: stroke`: the fill covers the stroke's inner half.
+        let (over, under) = (
+            count_where(&mut p, "over", 0.0, yellow),
+            count_where(&mut p, "under", 0.0, yellow),
+        );
+        assert!(
+            under > over + 100,
+            "{name}: fill over the stroke {under} vs under it {over}"
+        );
+        assert!(
+            count_where(&mut p, "under", 0.0, black) > 100,
+            "{name}: the stroke's outer half"
         );
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));
