@@ -1085,6 +1085,7 @@ extension NavigationHost {
         if let sv = physical, c.collapseScroll === target, c.collapseScrollView === sv {
             let adjustment: UIScrollView.ContentInsetAdjustmentBehavior = RouteGeometry.insetsNoTop(c.node) ? .never : .automatic
             if sv.contentInsetAdjustmentBehavior != adjustment { sv.contentInsetAdjustmentBehavior = adjustment }
+            if c.followsTransparentBar != RouteGeometry.transparentBar(c.node) { c.refollowTopEdge() }
         }
         guard c.collapseScroll !== target || c.collapseScrollView !== physical else {
             // Select it again where the route's selection differs (an app gave the edge back with

@@ -253,6 +253,37 @@ final class NavigationCollapseIOSTests: XCTestCase {
         XCTAssertEqual(home.scrollOrigin, 0, "CSS scrollTop 0 is the top edge")
     }
 
+    /// iOS 26's top edge effect would blur the content resting under a
+    /// transparent bar: it waits for the content to scroll, as the bar's
+    /// material does, and an authored `-exact-scroll-edge-effect` keeps its own.
+    func testATransparentBarsEdgeEffectWaitsForTheContentToScroll() throws {
+        guard #available(iOS 26.0, *) else { throw XCTSkip("the scroll edge effect is iOS 26's") }
+        let session = try booted("EXACT_TRANSPARENT_BAR_PLAN", label: "transparent-edge-effect", beforeItsWindow: true)
+        let navigation = session.presenter.navigationHost
+        let nav = try XCTUnwrap(navigation.primaryNavigation)
+        let route = try XCTUnwrap(nav.topViewController as? RouteController)
+        let home = try node(session, "home-scroll"), sv = try XCTUnwrap(home.scrollView)
+        XCTAssertTrue(sv.topEdgeEffect.isHidden, "no effect over the content at rest")
+        sv.contentOffset.y = 100
+        XCTAssertFalse(sv.topEdgeEffect.isHidden, "the effect comes as the content scrolls under the bar")
+        sv.contentOffset.y = 0
+        XCTAssertTrue(sv.topEdgeEffect.isHidden, "and goes back at rest")
+
+        route.node.props["navigationBar"] = nil
+        navigation.prepareRoutes([route], in: nav)
+        XCTAssertFalse(sv.topEdgeEffect.isHidden, "an opaque bar's scroller keeps UIKit's effect")
+        route.node.props["navigationBar"] = "transparent"
+        navigation.prepareRoutes([route], in: nav)
+        sv.contentOffset.y = -sv.adjustedContentInset.top
+        XCTAssertTrue(sv.topEdgeEffect.isHidden, "turned transparent again, it waits at rest")
+
+        var authored = home.style
+        authored["scroll_edge_effect"] = .string("soft")
+        home.applyStyle(authored)
+        XCTAssertFalse(sv.topEdgeEffect.isHidden, "an authored effect is left as written")
+        XCTAssertEqual(sv.topEdgeEffect.style, .soft)
+    }
+
     func testATransparentBarsEmptyBandLeavesTouchesToThePage() throws {
         let session = try booted("EXACT_TRANSPARENT_BAR_PLAN", label: "transparent-bar-touch", beforeItsWindow: true)
         let nav = try XCTUnwrap(session.presenter.navigationHost.primaryNavigation)
