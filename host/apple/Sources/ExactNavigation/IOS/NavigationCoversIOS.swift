@@ -430,6 +430,17 @@ extension NavigationHost {
         return (max(0, safe.left - minX), max(0, safe.right - (container.bounds.maxX - maxX)))
     }
 
+    /// Whether the route is in a sheet still being presented.
+    static func sheetComesIn(_ c: RouteController) -> Bool {
+        #if os(iOS)
+        var top: UIViewController = c
+        while let parent = top.parent { top = parent }
+        return top.isBeingPresented && top.sheetPresentationController != nil
+        #else
+        return false
+        #endif
+    }
+
     /// @ref LLP 1123 D9 — each route's own safe area, which its content reads
     /// as `var(--exact-safe-area-inset-*)`: its controller's view's, the bars,
     /// the status bar and the home indicator in it, on the sides only as far
@@ -449,16 +460,16 @@ extension NavigationHost {
         for c in controllers.values where presenter.views[c.node.id] === c.node {
             let last = localInsets.wanted[c.node.id]
             let view = c.surface
-            let landing = Self.landingSides(c)
+            let following = Self.sheetComesIn(c)
             guard view.window != nil, c.node.window != nil,
-                  last == nil || landing != nil || c.navigationController?.transitionCoordinator == nil else {
+                  last == nil || following || c.navigationController?.transitionCoordinator == nil else {
                 wanted[c.node.id] = last
                 continue
             }
             let box = c.node.convert(c.node.bounds, to: view)
             let safe = view.safeAreaInsets
             var sides = (left: max(0, safe.left - max(0, box.minX)), right: max(0, safe.right - max(0, view.bounds.maxX - box.maxX)))
-            if let landing { sides = landing }
+            if last == nil || following, let landing = Self.landingSides(c) { sides = landing }
             wanted[c.node.id] = [safe.top, sides.right, safe.bottom, sides.left]
         }
         if wantsWholeView, let view = presenter.session?.view, view.window != nil {
