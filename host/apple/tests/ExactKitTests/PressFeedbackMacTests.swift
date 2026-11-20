@@ -84,9 +84,10 @@ final class PressFeedbackMacTests: XCTestCase {
             XCTAssertFalse(ancestor.press.releaseHeld)
             XCTAssertEqual(ancestor.press.from, 0.97)
             XCTAssertEqual(ancestor.press.to, 1)
-            let halfway = ancestor.press.factor(at: ancestor.press.start + PressFeedback.duration / 2)
-            XCTAssertGreaterThan(halfway, 0.97)
-            XCTAssertLessThan(halfway, 1)
+            let early = ancestor.press.factor(at: ancestor.press.start + PressFeedback.releaseDuration / 20)
+            XCTAssertGreaterThan(early, 0.97)
+            XCTAssertLessThan(early, 1)
+            XCTAssertGreaterThan(ancestor.press.factor(at: ancestor.press.start + PressFeedback.releaseDuration * 0.35), 1, "it springs past rest")
         }
         click(ancestor)
         p.menus.painted = true

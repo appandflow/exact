@@ -332,6 +332,8 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
   const paints = new Map();
   const hasPaint = el => PAINT.some(p => el.style.getPropertyValue(p));
   const EASE = { duration: 120, easing: "cubic-bezier(0.16,1,0.3,1)", fill: "both" };
+  // The scale's way back springs past rest by a quarter of the travel (PressFeedback.swift `releaseTiming`).
+  const RELEASE = { duration: 220, easing: "cubic-bezier(0.2,2,0.4,1)", fill: "both" };
   const pressDuration = (el, duration) => agentMode || el.matches('button[data-button-style]') ? 0 : duration;
   // Start the ease toward `state.to` from where it shows, over `duration`,
   // on the node's look beneath, read now (`paintRule`): at the press, as it
@@ -624,11 +626,13 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
     const from = old ? old.from + (old.to - old.from) * progress : 1;
     const offset = old ? old.offset + (old.pressed - old.offset) * progress : 0;
     old?.animation.cancel();
-    const ms = pressDuration(el, EASE.duration);
+    // A press translation shares the keyframes, and an offset plate is never overshot.
+    const curve = to === 1 && from !== 1 && !shift ? RELEASE : EASE;
+    const ms = pressDuration(el, curve.duration);
     const animation = el.animate([
       { "--exact-press-factor": from, "--exact-pressed": offset },
       { "--exact-press-factor": to, "--exact-pressed": pressed },
-    ], { ...EASE, duration: ms });
+    ], { ...curve, duration: ms });
     const state = { animation, from, to, offset, pressed };
     feedback.set(el, state);
     animation.onfinish = () => {

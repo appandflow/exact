@@ -5204,7 +5204,10 @@ Write pressed `background-color`, `color` and absolute `opacity` in a
 `:active` block. `-exact-press-opacity` multiplies the node's presented opacity;
 `-exact-press-scale` multiplies its presented scale. The host applies these
 values while a finger or mouse holds the innermost pressable inside its box.
-Sliding off, cancellation or a pan releases it. Custom nodes ease over 120 ms;
+Sliding off, cancellation or a pan releases it. Custom nodes ease in over 120 ms
+and back over 120 ms, except the scale, which springs back over 220 ms past rest
+by a quarter of its travel (0.96 overshoots to 1.01) on Apple and the web, unless
+the node also has a pressed `translate`;
 native controls keep the platform's timing. The agent applies the target at
 once, so `"tap row down" "screenshot x.png" "tap up"` shows it. Pressing requires
 no runner round trip. Active `color` reaches text that inherits the node's

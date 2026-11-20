@@ -53,6 +53,26 @@ final class PressFeedbackIOSTests: XCTestCase {
         XCTAssertEqual(v.press.to, 1)
     }
 
+    /// The scale's release springs past rest by a quarter of its travel and
+    /// settles there, on the render server and in `factor(at:)` alike.
+    func testReleasingSpringsBackPastRest() throws {
+        let (_, v) = try fixture(style: ["press_scale": 0.96])
+        v.pressed = true
+        v.press.start -= PressFeedback.duration
+        v.pressed = false
+        XCTAssertTrue(v.press.springs)
+        let start = v.press.start
+        XCTAssertEqual(v.press.factor(at: start), 0.96, accuracy: 1e-9, "no jump at the release")
+        XCTAssertEqual(v.press.factor(at: start + PressFeedback.releaseDuration * 0.35), 1.01, accuracy: 1e-3)
+        XCTAssertEqual(v.press.factor(at: start + PressFeedback.releaseDuration), 1, accuracy: 1e-9)
+        let ease = try XCTUnwrap(v.layer.animation(forKey: "press") as? CABasicAnimation)
+        XCTAssertEqual(ease.duration, PressFeedback.releaseDuration)
+        XCTAssertEqual(ease.timingFunction, PressFeedback.releaseTiming)
+        v.pressed = true
+        XCTAssertFalse(v.press.springs, "a press eases in on the press curve")
+        XCTAssertFalse(v.pressPaint.ease.springs, "the paint never springs")
+    }
+
     func testReducedMotionKeepsThePress() throws {
         let previous = DisplayPreferences.agent
         defer { DisplayPreferences.agent = previous }
@@ -179,7 +199,7 @@ final class PressFeedbackIOSTests: XCTestCase {
         RunLoop.main.run(until: Date(timeIntervalSinceNow: PressFeedback.duration + 0.05))
         XCTAssertFalse(v.press.releaseHeld)
         XCTAssertEqual(v.press.to, 1, "then released")
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: PressFeedback.duration + 0.1))
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: PressFeedback.releaseDuration + 0.1))
         XCTAssertTrue(v.press.idle)
         XCTAssertTrue(v.transform.isIdentity)
         // A press already on screen releases at once.

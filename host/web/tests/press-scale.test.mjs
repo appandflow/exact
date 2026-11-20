@@ -207,3 +207,37 @@ for (const engine of ['chromium', 'webkit']) engineTest[engine](`${engine}: acti
     }
   } finally { await browser.close(); }
 }, 60_000);
+
+for (const engine of ['chromium', 'webkit']) engineTest[engine](`${engine}: the scale's release springs past rest and settles, a translating press does not`, async () => {
+  const browser = await suiteBrowser(engine);
+  try {
+    const page = await browser.newPage();
+    await page.goto(server.url.href);
+    await page.waitForFunction(() => window.ready);
+    const seen = await page.evaluate(async () => {
+      const root = document.getElementById('exact-root'), out = {};
+      for (const shift of [false, true]) {
+        root.innerHTML = `<div data-exact-on="press" style="width:100px;height:80px;--exact-press:0.96;${shift ? '--exact-press-translate:4px 4px;--exact-press-x:4px;--exact-press-y:4px;--exact-translate-composes:1;' : ''}scale:calc(var(--exact-press-factor,1))">Card</div>`;
+        const el = root.firstElementChild;
+        const factor = () => Number(getComputedStyle(el).getPropertyValue('--exact-press-factor'));
+        exact.hold(el, 'active');
+        const press = el.getAnimations().find(a => a.effect.getKeyframes().some(f => '--exact-press-factor' in f));
+        const pressTiming = press.effect.getTiming();
+        press.finish(); await press.finished;
+        exact.hold(el, null);
+        const release = el.getAnimations().find(a => a.effect.getKeyframes().some(f => '--exact-press-factor' in f));
+        const timing = release.effect.getTiming();
+        release.pause(); release.currentTime = timing.duration * 0.35;
+        const peak = factor();
+        out[shift ? 'shift' : 'plain'] = { press: [pressTiming.duration, pressTiming.easing], release: [timing.duration, timing.easing], peak };
+        release.finish(); await release.finished;
+      }
+      return out;
+    });
+    expect(seen.plain.press).toEqual([120, 'cubic-bezier(0.16, 1, 0.3, 1)']);
+    expect(seen.plain.release).toEqual([220, 'cubic-bezier(0.2, 2, 0.4, 1)']);
+    expect(seen.plain.peak).toBeCloseTo(1.01, 3);
+    expect(seen.shift.release).toEqual([120, 'cubic-bezier(0.16, 1, 0.3, 1)']);
+    expect(seen.shift.peak).toBeLessThanOrEqual(1);
+  } finally { await browser.close(); }
+}, 30_000);
