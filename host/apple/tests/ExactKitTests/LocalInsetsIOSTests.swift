@@ -153,6 +153,55 @@ final class LocalInsetsIOSTests: XCTestCase {
         XCTAssertEqual(reported[3], max(0, safe.left - max(0, box.minX)), accuracy: 0.5, "left")
     }
 
+    /// The top and bottom a fitted sheet's content reads in the last frames before the sheet lands are the ones it
+    /// lands with, so nothing in it moves as it lands. UIKit gives the sheet that safe area only once it lays the sheet
+    /// out, after the first report (on an iPhone, a shorter bar and no home indicator before it).
+    func testAFittedSheetsContentReadsTheTopAndBottomItLandsWithBeforeItLands() throws {
+        guard let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene else {
+            throw missing("scene", "the bars and the safe area are a scene window's")
+        }
+        let (session, _) = try fixture(scene)
+        let navigation = session.presenter.navigationHost
+        until("the route shows") { self.node(session, "open-fitted") != nil }
+        _ = Agent(session: session).tap(["id": Int(try XCTUnwrap(node(session, "open-fitted")).id)])
+        var reported: [CGFloat]?
+        until("the sheet lands") {
+            guard let sheet = self.node(session, "fitted"), let c = navigation.controllers[sheet.id] else { return false }
+            if c.transitionCoordinator != nil { reported = navigation.localInsets.wanted[sheet.id] }
+            return c.presentingViewController != nil && c.transitionCoordinator == nil
+        }
+        let c = try XCTUnwrap(navigation.controllers[try XCTUnwrap(node(session, "fitted")).id])
+        let landed = c.surface.safeAreaInsets, insets = try XCTUnwrap(reported, "the insets the sheet's content read as it came in")
+        XCTAssertEqual(insets[0], landed.top, accuracy: 0.5, "top")
+        XCTAssertEqual(insets[2], landed.bottom, accuracy: 0.5, "bottom")
+    }
+
+    /// A sheet sized to content its insets change as it comes in: what dims the screen behind it fades in place. Laid
+    /// out for the first time inside the sheet's resize, it grew out of the screen's top-left corner instead.
+    func testWhatDimsTheScreenBehindAFittedSheetFadesInPlace() throws {
+        guard let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene else {
+            throw missing("scene", "the bars and the safe area are a scene window's")
+        }
+        let (session, view) = try fixture(scene)
+        let window = try XCTUnwrap(view.window)
+        until("the route shows") { self.node(session, "open-fitted") != nil }
+        _ = Agent(session: session).tap(["id": Int(try XCTUnwrap(node(session, "open-fitted")).id)])
+        var moved: Set<String> = []
+        func scan(_ layer: CALayer) {
+            let keys = (layer.animationKeys() ?? []).filter { $0.hasPrefix("bounds") || $0.hasPrefix("position") }
+            if layer !== window.layer, !keys.isEmpty, layer.convert(layer.bounds, to: window.layer).contains(window.bounds) {
+                moved.insert("\(layer.delegate.map { "\(type(of: $0))" } ?? "\(type(of: layer))") \(keys)")
+            }
+            layer.sublayers?.forEach(scan)
+        }
+        until("the sheet lands") {
+            scan(window.layer)
+            guard let sheet = self.node(session, "fitted"), let c = session.presenter.navigationHost.controllers[sheet.id] else { return false }
+            return c.presentingViewController != nil && c.transitionCoordinator == nil
+        }
+        XCTAssertEqual(moved, [], "a layer covering the screen moved or resized while the sheet came in")
+    }
+
     func testAScrollerAtTheTopOptsOutAndItsFirstBoxReachesUnderTheBar() throws {
         guard let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene else {
             throw missing("scene", "the bars and the safe area are a scene window's")

@@ -93,7 +93,7 @@ private final class ModalController: UIViewController, UIGestureRecognizerDelega
             // In `animateChanges`, the surface moves with the sheet.
             self.paintSurface()
         }
-        if viewIfLoaded?.window != nil { sheet.animateChanges(configure) }
+        if viewIfLoaded?.window != nil { animate(sheet, configure) }
         else { configure() }
         #endif
     }
@@ -103,10 +103,23 @@ private final class ModalController: UIViewController, UIGestureRecognizerDelega
         #if !os(tvOS)
         guard modalPresentationStyle == .pageSheet, let sheet = sheetPresentationController,
               (detentValue ?? "").split(separator: " ").contains("fit-content") else { return }
-        if viewIfLoaded?.window != nil { sheet.animateChanges { sheet.invalidateDetents() } }
+        if viewIfLoaded?.window != nil { animate(sheet) { sheet.invalidateDetents() } }
         else { sheet.invalidateDetents() }
         #endif
     }
+    #if !os(tvOS)
+    /// A sheet's changes, animated. While a sheet is being presented, UIKit may
+    /// not yet have laid out the dimming views its presentation added. Laid out
+    /// first inside `animateChanges`, a dimming view grows from zero size out of
+    /// the screen's top-left corner instead of fading in place (measured on
+    /// iOS 27). The window is laid out first, unanimated.
+    private func animate(_ sheet: UISheetPresentationController, _ changes: @escaping () -> Void) {
+        if isBeingPresented, let window = view.window {
+            UIView.performWithoutAnimation { window.layoutIfNeeded() }
+        }
+        sheet.animateChanges(changes)
+    }
+    #endif
     required init?(coder: NSCoder) { nil }
     #if os(iOS)
     // LLP 1105 D6: UIKit asks a presented controller that covers the screen;

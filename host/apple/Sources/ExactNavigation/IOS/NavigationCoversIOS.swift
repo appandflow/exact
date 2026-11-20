@@ -436,8 +436,12 @@ extension NavigationHost {
     /// as the route's box reaches them, as its covers are. A route out of a
     /// window keeps the last it had, UIKit's zero there being no measurement,
     /// and so does one while its stack's transition runs, as its cover does;
-    /// one that has none yet takes what it has from its first frame, its sides
-    /// from where a sheet being presented lands (`landingSides`). And the
+    /// one that has none yet takes what it has from its first frame. A route
+    /// in a sheet being presented follows the sheet's safe area until it lands,
+    /// its sides taken from where it lands (`landingSides`): the safe area it
+    /// has before UIKit first lays the sheet out is not the landed one (on an
+    /// iPhone on iOS 27, a bar 6 points shorter and no home indicator), and held
+    /// until the sheet landed, the content moved as it did. And the
     /// session root's while the containers take the whole view, where `env()`
     /// is 0 but the screen's insets are not. Whether any changed.
     func reportLocalInsets() -> Bool {
@@ -445,15 +449,16 @@ extension NavigationHost {
         for c in controllers.values where presenter.views[c.node.id] === c.node {
             let last = localInsets.wanted[c.node.id]
             let view = c.surface
+            let landing = Self.landingSides(c)
             guard view.window != nil, c.node.window != nil,
-                  last == nil || c.navigationController?.transitionCoordinator == nil else {
+                  last == nil || landing != nil || c.navigationController?.transitionCoordinator == nil else {
                 wanted[c.node.id] = last
                 continue
             }
             let box = c.node.convert(c.node.bounds, to: view)
             let safe = view.safeAreaInsets
             var sides = (left: max(0, safe.left - max(0, box.minX)), right: max(0, safe.right - max(0, view.bounds.maxX - box.maxX)))
-            if last == nil, let landing = Self.landingSides(c) { sides = landing }
+            if let landing { sides = landing }
             wanted[c.node.id] = [safe.top, sides.right, safe.bottom, sides.left]
         }
         if wantsWholeView, let view = presenter.session?.view, view.window != nil {
