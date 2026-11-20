@@ -1837,6 +1837,21 @@ and date only the files the checkout wrote, before any step changes the
 clone. Leave the app's own files their checkout times unless the key names
 the app's commit too.
 
+### Reclaim an idle app's build output
+
+An app's `target/` holds records beside what its builds remake, so deleting it
+loses them. `bun <exact>/scripts/sweep.mjs clean <app-dir> --dry-run --json`
+names what a build would remake and what is kept; without `--dry-run` it
+removes the former. It keeps `traces/`, `web-receipts/`, `native-receipts/`,
+each production build under `bake/` and `clients/` (the receipt `push` reads,
+the dSYM a crash report needs), and any name it does not know. It removes
+nothing while a build holds a lock in what it would remove, and refuses a
+`target/` that another app or this checkout shares (`CARGO_TARGET_DIR`, an app
+under `apps/`). A caller still decides the app is idle: a dev server or a
+running app holds no lock. The JSON is one object, `version` 1, with `status`
+`ok` (exit 0), `busy` (exit 1, `held` names the locks), `refused` (exit 2) or
+`failed` (exit 1), and `remove` and `kept` as absolute paths.
+
 ### Import an iOS signing identity on a CI worker
 
 For the iOS recipe, save this as `.ci/sign-ios.sh`. Source it in the build
