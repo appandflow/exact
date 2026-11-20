@@ -51,6 +51,7 @@ mod color_scheme;
 mod color_spaces;
 mod compose;
 mod contacts_calendar;
+mod contain;
 mod control_roles;
 mod controls;
 mod corpus;
