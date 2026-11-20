@@ -869,7 +869,8 @@ impl<'a> Replay<'a> {
                             parent.pre_translate(g.outer.rect.0, g.outer.rect.1),
                         ));
                     }
-                    n.paint.paint(painter.backend.as_mut(), g, parent);
+                    n.paint
+                        .paint(painter.backend.as_mut(), g, parent, painter.scale);
                     // The overflow clip holds a text's own lines, as the
                     // live walk clips them (CSS Overflow 3 §3), and the
                     // children; the leave pops it.

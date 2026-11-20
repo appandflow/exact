@@ -36,6 +36,16 @@ fn balance_and_the_part_colours_are_written_for_the_browser() {
     assert_eq!(dim, "--exact-backdrop-color:rgba(0,0,0,0);");
 }
 
+/// CSS Compositing 1 §4: the browser blends the background's layers itself.
+#[test]
+fn background_blend_mode_is_its_css() {
+    let mode = StyleValue::Text("multiply".into());
+    assert_eq!(
+        css(&[(StyleId::BackgroundBlendMode, mode)], &[]),
+        "background-blend-mode:multiply;"
+    );
+}
+
 /// CSS Fonts 4 §6.12: `font-feature-settings` is written as CSS serializes it.
 #[test]
 fn font_feature_settings_are_their_css() {

@@ -180,6 +180,8 @@ final class BoxFilter: BoxFilterEffect {
         if picture.opacity != box.opacity { picture.opacity = box.opacity }
         if picture.isHidden != box.isHidden { picture.isHidden = box.isHidden }
         if picture.mask !== clip { picture.mask = clip }
+        // A box's `mix-blend-mode` (macOS) blends what shows: its picture.
+        if (picture.compositingFilter as AnyObject?) !== (box.compositingFilter as AnyObject?) { picture.compositingFilter = box.compositingFilter }
         let now = Drawn(node: node, size: b.size, scale: scale, dark: dark)
         guard fresh || drawn != now else { return }
         // Out to whole device pixels: over a fraction of one the box is drawn

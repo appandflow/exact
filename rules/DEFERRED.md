@@ -1803,6 +1803,15 @@ reading. Nothing that isn't HTML is added by it.
   modes, variable values and effects; vibrancy; press haptics; rolling numerals; the
   scroll edge effect; iPad pointer effects; -exact-smart-invert opt-out. Still out:
   `mix-blend-mode` on boxes (LLP 1077 D9).
+  **Expanded (App & Flow fork, 2026-11-19):** CSS `background-blend-mode`,
+  one `<blend-mode>` for every background layer, drawn on every host. Unblocks a
+  stripe that darkens whatever colour its box has, with no darker colour picked
+  per box. It reads no backdrop outside the box, so D9's objection does
+  not reach it. `mix-blend-mode` on a box is admitted where the host blends a
+  layer publicly: the web and macOS (`NSView.compositingFilter`, which blends
+  past the stacking context). Take: none named. Still out: a per-layer
+  `background-blend-mode` list, `mix-blend-mode` on boxes on iOS (D9) and the
+  painted hosts, and `isolation` on boxes.
 - No virtualList v2 (cert wires, extent demand, proxy lanes). **Admitted 2026-09-14
   (Charlie: "ok do what you think"):** a straightforward windowed list with bounded
   row/view lifetime and a separate decoded-image budget (LLP 1010 §6). Unblocks

@@ -405,17 +405,17 @@
         "app.contract": "component App\n  view\n    column\n      box mix-blend-mode=\"multiply\" width=20 height=20\n      svg width=20 height=20\n        rect width=10 height=10 mix-blend-mode=\"screen\"\n",
         "app.json": "{\"app\": {\"id\": \"dev.test.checking\", \"name\": \"Checking\"}, \"host\": {\"ios\": {}, \"macos\": {}, \"web\": {}, \"android\": {}, \"linux\": {}, \"windows\": {}}}"
       },
-      "status": 1,
+      "status": 0,
       "diagnostics": [
         {
           "col": 11,
           "end_col": 25,
           "file": "$APP/app.contract",
-          "id": "lower-attr-tag",
+          "id": "style-undrawn",
           "line": 4,
-          "message": "`mix-blend-mode` applies to SVG elements (LLP 1055.000 D19); boxes do not blend yet",
+          "message": "`mix-blend-mode` is not drawn on ios (app.json `host.ios`): UIKit has no public layer blend (LLP 1077 D9); to blend a box's own layers use background-blend-mode, and for artwork put it all inside one svg or one canvas (Canvas 2D globalCompositeOperation). The node draws there as if it were unset (set at line 4; LLP 1159.000). `contract vocab mix-blend-mode` says what each host does",
           "related": [],
-          "severity": "error"
+          "severity": "warning"
         },
         {
           "col": 11,
@@ -423,7 +423,7 @@
           "file": "$APP/app.contract",
           "id": "style-undrawn",
           "line": 4,
-          "message": "`mix-blend-mode` is not drawn on ios (app.json `host.ios`) and android (app.json `host.android`): blending with a backdrop outside the SVG is not drawn; put all overlapping artwork inside one svg, or use Canvas 2D globalCompositeOperation (including multiply) inside one canvas. The node draws there as if it were unset (set at line 4; LLP 1159.000). `contract vocab mix-blend-mode` says what each host does",
+          "message": "`mix-blend-mode` is not drawn on linux (app.json `host.linux`) and windows (app.json `host.windows`) and android (app.json `host.android`): a box draws unblended; to blend a box's own layers use background-blend-mode, and for artwork put it all inside one svg or one canvas (Canvas 2D globalCompositeOperation). The node draws there as if it were unset (set at line 4; LLP 1159.000). `contract vocab mix-blend-mode` says what each host does",
           "related": [],
           "severity": "warning"
         }

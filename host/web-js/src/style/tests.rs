@@ -793,3 +793,29 @@ fn svg_children_emit_basic_clip_css_on_both_web_targets() {
         assert!(css.contains("clip-path:inset(25%"), "{css}");
     }
 }
+
+/// The JS target writes `background-blend-mode` as written, static or bound.
+#[test]
+fn background_blend_mode_is_the_browsers() {
+    let plan = contract::compile(
+        r##"component App
+  state screen = false
+  view
+    column
+      box testId="still" width=20 height=20 background-color="#2a7ae2" background-image="linear-gradient(#cccccc, #ffffff)" background-blend-mode="multiply"
+      box testId="bound" width=20 height=20 background-image="linear-gradient(#cccccc, #ffffff)" background-blend-mode=(screen ? "screen" : "multiply")
+"##,
+    )
+    .unwrap();
+    let out = crate::emit::emit(&plan, false, false).unwrap();
+    assert!(
+        out.css.contains("background-blend-mode:multiply"),
+        "{}",
+        out.css
+    );
+    assert!(
+        out.js.contains(r#"S(e2,"background-blend-mode","#),
+        "{}",
+        out.js
+    );
+}

@@ -78,7 +78,10 @@ fn what_no_host_draws_is_refused_by_name() {
             "mask-image=\"linear-gradient(#000, #fff), linear-gradient(#fff, #000)\"",
             "several",
         ),
-        ("text-shadow=\"1px 1px #000, 2px 2px #fff\"", "one shadow"),
+        (
+            "text-shadow=\"1px 1px #000, 1px 1px #000, 1px 1px #000, 1px 1px #000, 1px 1px #000, 1px 1px #000, 1px 1px #000, 1px 1px #000, 1px 1px #000\"",
+            "at most 8 shadows",
+        ),
         ("text-shadow=\"1px 1px 2px 3px #000\"", "no spread"),
     ] {
         let e = refused(attr);
@@ -255,4 +258,24 @@ fn a_rolling_number_uses_the_numerals_capability() {
     assert!(exact_runner::uses(&rolls).has(Capability::Numerals));
     let still = contract::compile("component A\n  view\n    text \"1,234\"\n").unwrap();
     assert!(!exact_runner::uses(&still).has(Capability::Numerals));
+}
+
+/// CSS `background-blend-mode`: one `<blend-mode>` for every layer, in a
+/// literal, a `style` and a conditional; a per-layer list is refused.
+#[test]
+fn background_blend_mode_takes_one_mode() {
+    use exact_kernel::MixBlendMode;
+    let r = boot(
+        "style Hatch\n  background-blend-mode=\"multiply\"\n\ncomponent App\n  state on = true\n  view\n    column\n      view class=Hatch testId=\"a\"\n      view background-blend-mode=(on ? \"screen\" : \"normal\") testId=\"b\"\n",
+    );
+    assert_eq!(
+        style_of(&r, "a").background_blend_mode,
+        MixBlendMode::Multiply
+    );
+    assert_eq!(
+        style_of(&r, "b").background_blend_mode,
+        MixBlendMode::Screen
+    );
+    let e = refused("background-blend-mode=\"multiply, normal\"");
+    assert_eq!(e.id, "lower-attr-value", "{e}");
 }

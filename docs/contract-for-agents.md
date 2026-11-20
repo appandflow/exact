@@ -2312,6 +2312,15 @@ Linux’s and the web’s hatches match Chrome
 a repeating background with `background-attachment="fixed"` draws unfixed, as
 any drawn gradient does there.
 
+`background-blend-mode` blends each `background-image` layer with the layers
+and the `background-color` beneath it, never with what is behind the box. It
+takes one CSS `<blend-mode>` (`multiply`, `screen`, `overlay` and the rest),
+which applies to every layer; a comma list is refused. To darken a stripe
+over whatever colour a box has, multiply a grey hatch over it:
+`background-color=(floor) background-image="repeating-linear-gradient(45deg, #cccccc 0 10px, #ffffff 10px 20px)" background-blend-mode="multiply"`.
+Every host draws it. Native hosts draw a blended background as a picture,
+not with their gradient or pattern layers.
+
 For scrolling, provide a bound and inspect measured layout. For virtualized
 lists, use `list virtualized=true` (no other tag takes it), one direct keyed
 `for`, and one flow root per row. A vertical list with `appearance="none"`
@@ -7136,6 +7145,13 @@ boxes or a different surface outside that SVG remains unsupported on iOS and
 Android. Canvas 2D's `globalCompositeOperation = "multiply"` also draws on both:
 draw the backdrop and foreground into the same canvas. It does not blend the
 canvas with the page beneath it.
+
+`mix-blend-mode` on a box blends it with what is behind it on the web and
+macOS. macOS blends with everything drawn behind the box in the window, past
+its stacking context. iOS, Linux, Windows and Android draw the box unblended,
+and `style-undrawn` says so. `isolation` stays SVG elements'. To blend a
+box's own gradients with its colour, use `background-blend-mode`, which every
+host draws.
 
 A background, border or radius makes it your own box, as in a browser;
 `appearance="none"` says so explicitly. This is decided once after classes

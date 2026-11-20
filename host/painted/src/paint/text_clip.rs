@@ -3,7 +3,7 @@
 //! where its paragraph's glyphs cover, and placed under the glyphs by either
 //! backend. The box itself painted no background (`background_shape`).
 
-use super::{gradient, BoxPaint, Painter, Rect4};
+use super::{BoxPaint, Painter, Rect4};
 use crate::text::{Paragraph, RunPaint};
 use exact_kernel::{BackgroundClip, Kernel, ViewId};
 use std::sync::Arc;
@@ -41,19 +41,8 @@ impl Painter {
         }
         let geometry = paint.geometry(rect);
         let Some(mut fill) = self.island(rect, |p, t| {
-            if paint.background[3] > 0 {
-                p.backend.fill(&geometry.outer, paint.background, t);
-            }
-            for g in paint.gradients.iter().rev() {
-                gradient::paint(
-                    g,
-                    &geometry.outer,
-                    &geometry.outer,
-                    paint.widths,
-                    &mut *p.backend,
-                    t,
-                );
-            }
+            let scale = p.scale;
+            paint.layers(&mut *p.backend, &geometry.outer, &geometry.outer, t, scale);
         }) else {
             return;
         };

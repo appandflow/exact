@@ -79,6 +79,7 @@ pub(crate) mod stage;
 mod svg;
 pub(crate) mod tape;
 pub(crate) use svg::{fitted, view_box};
+mod blend;
 mod text_clip;
 mod text_decoration;
 mod text_shadow;
@@ -108,6 +109,8 @@ struct BoxPaint {
     colors: [[u8; 4]; 4],
     background: [u8; 4],
     gradients: Vec<gradient::Captured>,
+    /// CSS `background-blend-mode`, every layer's.
+    blend: exact_kernel::MixBlendMode,
     padding: [f32; 4],
     shadows: Vec<shadow::ShadowPaint>,
     /// The ordered backdrop functions, or the winning material's blur.
@@ -194,6 +197,7 @@ impl BoxPaint {
                 _ => rgba(s.background_color.unwrap_or(current).resolve(dark)),
             },
             gradients: gradient::Captured::capture(s, dark),
+            blend: s.background_blend_mode,
             shadows: shadow::ShadowPaint::capture(s, dark),
             backdrop: material.map_or_else(
                 || s.backdrop_filter.clone(),
@@ -221,7 +225,7 @@ impl BoxPaint {
             ),
         }
     }
-    fn paint(&self, backend: &mut dyn Backend, geometry: &BoxGeometry, ts: Transform) {
+    fn paint(&self, backend: &mut dyn Backend, geometry: &BoxGeometry, ts: Transform, scale: f32) {
         // The outer shadows, the list's first on top: by the backend's blur
         // where it has one, else as bands.
         for s in self.shadows.iter().rev().filter(|s| !s.inset()) {
@@ -232,12 +236,18 @@ impl BoxPaint {
         if !self.backdrop.is_none() {
             backend.backdrop_filter(&geometry.outer, &self.backdrop, ts);
         }
-        self.emit(geometry, |shape, color| backend.fill(&shape, color, ts));
-        // The last layer first, so the first is on top (LLP 1077 D5), within
-        // the background's clip (D6).
-        if let Some(clip) = self.background_shape(geometry) {
-            for g in self.gradients.iter().rev() {
-                gradient::paint(g, &geometry.outer, &clip, self.widths, backend, ts);
+        let blended = self.blends()
+            && self
+                .background_shape(geometry)
+                .is_some_and(|clip| self.blended(backend, geometry, &clip, ts, scale));
+        if !blended {
+            self.emit(geometry, |shape, color| backend.fill(&shape, color, ts));
+            // The last layer first, so the first is on top (LLP 1077 D5),
+            // within the background's clip (D6).
+            if let Some(clip) = self.background_shape(geometry) {
+                for g in self.gradients.iter().rev() {
+                    gradient::paint(g, &geometry.outer, &clip, self.widths, backend, ts);
+                }
             }
         }
         for band in self.inset_shadow_fills(geometry) {
@@ -1098,7 +1108,7 @@ impl Painter {
         // A hidden box paints none of its own chrome. Children still do,
         // and a text node still walks its runs so a visible inline paints.
         if paints_self {
-            paint.paint(self.backend.as_mut(), &surface, ts);
+            paint.paint(self.backend.as_mut(), &surface, ts, self.scale);
             self.column_rules(walk.scene.kernel, node, rect, ts);
             let (dark, feedback) = (
                 self.dark,
