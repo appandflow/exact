@@ -429,6 +429,8 @@ final class RouteController: UIViewController, UIScrollViewDelegate {
 
     private var topEdgeWatch: NSKeyValueObservation?
     private weak var clearTopEdgeRest: NodeView?
+    /// Whether the bar was transparent when the top edge was last followed.
+    private(set) var followsTransparentBar = false
     /// iOS 26 draws the bar's edge effect on the outermost scroll view under it, which for a route
     /// whose scroller (a list) lies in its page is the page's viewport, not that scroller (measured
     /// on iOS 27: UIKit alone does the same with a table view in a scroll view). So the viewport's
@@ -444,24 +446,20 @@ final class RouteController: UIViewController, UIScrollViewDelegate {
         topEdgeWatch = nil
         clearTopEdgeRest?.topEdgeRests = false
         clearTopEdgeRest = nil
+        followsTransparentBar = RouteGeometry.transparentBar(node)
         guard #available(iOS 26.0, tvOS 26.0, *) else { return }
-        if let scrollView, RouteGeometry.transparentBar(node), let owner = collapseScroll, owner.scrollView === scrollView {
-            clearTopEdgeRest = owner
-            let follow = { [weak owner] (sv: UIScrollView) in
-                owner?.topEdgeRests = sv.contentOffset.y <= 0.5 - sv.adjustedContentInset.top
-            }
-            follow(scrollView)
-            topEdgeWatch = scrollView.observe(\.contentOffset) { sv, _ in follow(sv) }
-            return
-        }
-        guard let page = contentViewport else { return }
-        guard let scrollView, scrollView !== page, node.style["scroll_edge_effect"] == nil else {
+        let owner = followsTransparentBar ? collapseScroll.flatMap { $0.scrollView === scrollView ? $0 : nil } : nil
+        let page = contentViewport
+        if let page, scrollView == nil || scrollView === page || node.style["scroll_edge_effect"] != nil {
             if page.topEdgeEffect.isHidden, node.style["scroll_edge_effect"]?.string != "none" { page.topEdgeEffect.isHidden = false }
-            return
         }
-        let follow = { [weak page] (sv: UIScrollView) in
+        guard let scrollView, owner != nil || (page != nil && scrollView !== page && node.style["scroll_edge_effect"] == nil) else { return }
+        let follows = page.map { scrollView !== $0 && node.style["scroll_edge_effect"] == nil } ?? false
+        clearTopEdgeRest = owner
+        let follow = { [weak page, weak owner] (sv: UIScrollView) in
             let rest = sv.contentOffset.y <= 0.5 - sv.adjustedContentInset.top
-            if let page, page.topEdgeEffect.isHidden != rest { page.topEdgeEffect.isHidden = rest }
+            owner?.topEdgeRests = rest
+            if follows, let page, page.topEdgeEffect.isHidden != rest { page.topEdgeEffect.isHidden = rest }
         }
         follow(scrollView)
         topEdgeWatch = scrollView.observe(\.contentOffset) { sv, _ in follow(sv) }
