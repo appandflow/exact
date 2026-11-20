@@ -22,7 +22,7 @@ extension NodeView {
         guard #available(iOS 26.0, tvOS 26.0, *) else { return }
         let value = style["scroll_edge_effect"]?.string ?? "automatic"
         for edge in [sv.topEdgeEffect, sv.bottomEdgeEffect, sv.leftEdgeEffect, sv.rightEdgeEffect] {
-            let hidden = value == "none"
+            let hidden = value == "none" || (edge === sv.topEdgeEffect && topEdgeRests && style["scroll_edge_effect"] == nil)
             if edge.isHidden != hidden { edge.isHidden = hidden }
             let style: UIScrollEdgeEffect.Style = value == "soft" ? .soft : value == "hard" ? .hard : .automatic
             if edge.style != style { edge.style = style }

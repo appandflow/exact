@@ -40,6 +40,10 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
     /// author did not ask for: it does not keep a later autofocus off
     /// (Accessibility). Tab and `focus(id)` clear it (`chooseFocus`).
     package var focusedBySurfaceTouch = false
+    /// iOS 26: the top edge effect waits while the scroller rests at its
+    /// start under a transparent bar (the navigation host sets it). An
+    /// authored `-exact-scroll-edge-effect` wins.
+    package var topEdgeRests = false { didSet { if oldValue != topEdgeRests { applyAffordances() } } }
     /// A native swipe row's scroll container (`swipeContent`, LLP 1008 §9)
     /// waits for its UIScrollView. UIKit's swipe cell, not the scroll, takes
     /// the row's touches (`SwipeActionsHost`), and a closed row's content

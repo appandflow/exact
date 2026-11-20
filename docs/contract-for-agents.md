@@ -2749,7 +2749,8 @@ forward"`, the default, `"back"`, `"forward"` or `"none"`): on the Mac a way wit
 no swipe, menu item or mouse button (`contract vocab navigationHistory`). A route whose scroller opens
 with a full-bleed picture says `navigationBar="transparent"`: iOS draws its bar clear at
 the scroller's top and insets nothing, so the picture sits under the bar as under a fixed
-transparent header on the web, and the bar's material comes as the content scrolls.
+transparent header on the web, and the bar's material, with iOS 26's scroll edge effect,
+comes as the content scrolls (an authored `-exact-scroll-edge-effect` keeps its own).
 At the clear edge, the iOS bar's empty areas let touches reach the page; its title,
 Back and bar items keep their touches. Once scrolled, its material's band takes touches,
 as does a visible background supplied by a native hatch.
