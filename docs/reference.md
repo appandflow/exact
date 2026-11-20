@@ -1845,12 +1845,14 @@ names what a build would remake and what is kept; without `--dry-run` it
 removes the former. It keeps `traces/`, `web-receipts/`, `native-receipts/`,
 each production build under `bake/` and `clients/` (the receipt `push` reads,
 the dSYM a crash report needs), and any name it does not know. It removes
-nothing while a build holds a lock in what it would remove, and refuses a
-`target/` that another app or this checkout shares (`CARGO_TARGET_DIR`, an app
-under `apps/`). A caller still decides the app is idle: a dev server or a
-running app holds no lock. The JSON is one object, `version` 1, with `status`
-`ok` (exit 0), `busy` (exit 1, `held` names the locks), `refused` (exit 2) or
-`failed` (exit 1), and `remove` and `kept` as absolute paths.
+nothing while a build holds a lock in `target/` or a drive leases a web build
+there, and refuses a `target/` that another app or this checkout shares
+(`CARGO_TARGET_DIR`, an app under `apps/`, a link). A caller still decides the
+app is idle: a dev server or a running app holds no lock. The JSON is one
+object: `version` 1; `status` `ok` (exit 0), `busy` (exit 1, `held` names the
+locks and leases), `refused` (exit 2) or `failed` (exit 1, `remove` names what
+was already removed); `remove`, absolute paths; and `kept`, `{path, why}` with
+`why` `record` or `unlisted`.
 
 ### Import an iOS signing identity on a CI worker
 

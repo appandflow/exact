@@ -17,7 +17,7 @@
 // Cargo holds `<profile>/.cargo-lock` (flock) while it builds into a profile directory. The sweep
 // takes the same lock without waiting and skips a directory a build holds; under the lock it only
 // renames, fingerprints first, so a unit is never half there. It deletes after letting go.
-import { closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { spawn } from 'node:child_process';
 import { basename, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -58,8 +58,13 @@ async function libc() {
   // Two 64-bit timespecs: the access time is RESET, the modification time is left as it is.
   const times = new BigInt64Array([BigInt(RESET), 0n, 0n, BigInt(UTIME_OMIT)]);
   return {
-    // LOCK_EX | LOCK_NB, the same flock Cargo takes. Closing the descriptor releases it.
-    lock: path => { const fd = openSync(path, 'a'); if (symbols.flock(fd, 6) === 0) return fd; closeSync(fd); return null; },
+    // LOCK_EX | LOCK_NB, the same flock Cargo takes (`shared`: LOCK_SH | LOCK_NB). Closing the descriptor releases it.
+    lock: (path, { create = true, shared = false } = {}) => {
+      const fd = openSync(path, create ? 'a' : 'r');
+      if (symbols.flock(fd, shared ? 5 : 6) === 0) return fd;
+      closeSync(fd);
+      return null;
+    },
     resetAccess: path => {
       if (symbols.utimensat(AT_FDCWD, Buffer.from(`${path}\0`), times, 0) !== 0) throw new Error(`${path}: could not reset its access time`);
     },
@@ -148,21 +153,23 @@ const RECORDS = new Set(['traces', 'web-receipts', 'native-receipts']);
 // bundle assembled beside them, clients/<source>/<id>/macos/<name>.app, is kept: its trust is not in its path.
 const TRUSTED = { bake: 3, clients: 6 };
 // The flock files builds hold: Cargo's, build-lock.mjs's, claimBuildOutput's `.flock`, SwiftPM's scratch `.lock`.
-const LOCK = /^\.cargo-lock$|\.(lock|flock)$/;
+const LOCK = /^\.cargo(-build|-artifact)?-lock$|\.(lock|flock)$/;
 const NO_LOCKS = new Set(['.fingerprint', 'build', 'deps', 'examples', 'incremental', 'node_modules']);
 
 const isDirectory = path => { try { return statSync(path).isDirectory(); } catch { return false; } };
 const cargoOutput = path => existsSync(resolve(path, '.fingerprint'))
   || isDirectory(path) && readdirSync(path).some(name => existsSync(resolve(path, name, '.fingerprint')));
-const atDepth = (dir, depth) => depth === 0 || dir.endsWith('.app') ? [dir]
+const atDepth = (dir, depth) => depth === 0 || dir.endsWith('.app') && basename(resolve(dir, '..')) === 'macos' ? [dir]
   : readdirSync(dir, { withFileTypes: true }).filter(e => e.isDirectory()).flatMap(e => atDepth(resolve(dir, e.name), depth - 1));
-function locksIn(path, depth, out) {
-  if (!isDirectory(path)) { if (LOCK.test(basename(path))) out.add(path); return; }
-  for (const e of readdirSync(path, { withFileTypes: true })) {
-    const at = resolve(path, e.name);
-    if (e.isFile() && LOCK.test(e.name)) out.add(at);
+/** The lock files under `dir`, and the directories of web-build leases (host/web/generations.mjs). */
+function locksIn(dir, depth, out) {
+  for (const e of readdirSync(dir, { withFileTypes: true })) {
+    const at = resolve(dir, e.name);
+    if (e.isFile() && LOCK.test(e.name)) out.locks.push(at);
+    else if (e.isDirectory() && e.name.endsWith('.leases')) out.leases.push(at);
     else if (e.isDirectory() && depth > 0 && !NO_LOCKS.has(e.name)) locksIn(at, depth - 1, out);
   }
+  return out;
 }
 
 /** What `clean` would remove from `target` and what it keeps, each an absolute path. */
@@ -183,10 +190,11 @@ function cleanable(target) {
   return { remove, kept };
 }
 
-/** Remove what `cleanable` lists, all or nothing: while a build holds a lock in or above any of it, or a drive leases a
- * web build in it, nothing is removed and `held` names those. It takes the sweep's lock first, waiting up to `wait` ms,
- * so a sweep `resolveApp` just started finishes first. A build that starts while it runs may still lose its output:
- * a caller cleans an app it knows is idle. */
+/** Remove what `cleanable` lists, all or nothing: while a build holds any lock in `target`, or a drive leases a web
+ * build there, nothing is removed and `held` names those. It takes the sweep's lock first, waiting up to `wait` ms, so a
+ * sweep `resolveApp` just started finishes first. A dry run only tests the locks (shared) and lets them go. A build that
+ * starts while it runs may still lose its output, and one waiting on a lock it removes then holds a lock no other
+ * build sees: a caller cleans an app it knows is idle. */
 export async function clean(target, { dryRun = false, now = Date.now(), wait = 60_000 } = {}) {
   if (process.platform === 'win32') throw new Error('clean is unavailable on Windows: its lock semantics have not been verified');
   const { lock } = await libc(), sweepLock = resolve(target, `${LEDGER}.lock`), held = [], fds = [];
@@ -197,32 +205,34 @@ export async function clean(target, { dryRun = false, now = Date.now(), wait = 6
   }
   if (own === null) return { status: 'busy', remove: [], kept: [], held: [sweepLock] };
   try {
-    const { remove, kept } = cleanable(target), locks = new Set();
-    for (const path of remove) {
-      locksIn(path, 6, locks);
-      for (let dir = resolve(path, '..'); dir.startsWith(target); dir = resolve(dir, '..')) locksIn(dir, 0, locks);
-    }
-    locks.delete(sweepLock);
-    for (const path of locks) {
+    const { remove, kept } = cleanable(target), { locks, leases } = locksIn(target, 7, { locks: [], leases: [] });
+    for (const path of locks.filter(path => path !== sweepLock)) {
       let fd = null;
-      try { fd = lock(path); } catch (error) { if (error.code === 'ENOENT') continue; throw error; }
+      try { fd = lock(path, { create: false, shared: dryRun }); } catch (error) { if (error.code === 'ENOENT') continue; throw error; }
       if (fd === null) held.push(path); else fds.push(fd);
     }
-    const leased = remove.filter(path => path.endsWith('.leases'));
-    if (leased.length) {
+    if (dryRun) for (const fd of fds.splice(0)) closeSync(fd);
+    if (leases.length) {
       const { leasedGenerations } = await import('../host/web/generations.mjs');
-      for (const path of leased) for (const id of leasedGenerations(path.slice(0, -'.leases'.length))) held.push(resolve(path, id));
+      for (const path of leases) for (const id of leasedGenerations(path.slice(0, -'.leases'.length))) held.push(resolve(path, id));
     }
     if (held.length) return { status: 'busy', remove: [], kept, held };
-    if (!dryRun) {
-      // The sweep removes this directory at the end of every run, so a clean that stops part way is finished then.
-      const aside = resolve(target, ASIDE, `clean-${now}`);
-      mkdirSync(aside, { recursive: true });
-      remove.forEach((path, n) => renameSync(path, resolve(aside, String(n))));
+    if (dryRun) return { status: 'ok', remove, kept, held };
+    // The sweep removes this directory at the end of every run, so what a failed clean moved aside goes then at the latest.
+    const aside = resolve(target, ASIDE, `clean-${now}`), removed = [];
+    mkdirSync(aside, { recursive: true });
+    try {
+      for (const path of remove) {
+        // A build's private stage (`web-check-*`, `push-ts-*`) can remove itself between the listing and here.
+        try { renameSync(path, resolve(aside, String(removed.length))); } catch (error) { if (error.code === 'ENOENT') continue; throw error; }
+        removed.push(path);
+      }
+    } catch (error) { throw Object.assign(error, { removed }); }
+    finally {
       for (const fd of fds.splice(0)) closeSync(fd);
       rmSync(resolve(target, ASIDE), { recursive: true, force: true });
     }
-    return { status: 'ok', remove, kept, held };
+    return { status: 'ok', remove: removed, kept, held };
   } finally {
     for (const fd of fds) closeSync(fd);
     closeSync(own);
@@ -250,10 +260,10 @@ async function cleanCommand(args) {
   try { app = (await import('./app.mjs')).resolveApp(resolve(words[0])); }
   catch (error) { return report('refused', { error: error.message }); }
   target = app.target;
-  if (target !== resolve(app.dir, 'target')) return report('refused', { error: `${target} is shared with the app's workspace or this checkout, so clean leaves it alone` });
   if (!existsSync(target)) return report('ok');
+  if (realpathSync(target) !== resolve(app.dir, 'target')) return report('refused', { error: `${target} is shared with the app's workspace, this checkout or through a link, so clean leaves it alone` });
   try { const result = await clean(target, { dryRun }); return report(result.status, result); }
-  catch (error) { return report(process.platform === 'win32' ? 'refused' : 'failed', { error: error.message }); }
+  catch (error) { return report(process.platform === 'win32' ? 'refused' : 'failed', { remove: error.removed, error: error.message }); }
 }
 
 if (import.meta.main) {
