@@ -404,6 +404,46 @@ fn svg_filter_colors_follow_session_and_view_appearance() {
     check(&host.set_view_scheme(chart, false), light);
 }
 
+/// A scheme change rebuilds only the scenes whose appearance it turns: one
+/// view's own appearance (LLP 1062 D4) rebuilds that `svg`'s scene, and the
+/// session's rebuilds the scenes that follow it.
+#[test]
+fn a_scheme_change_rebuilds_only_the_scenes_it_turns() {
+    let shadow = r#"filter="drop-shadow(8px 8px 0px light-dark(#00aa00, #ff00ff))""#;
+    let app = format!(
+        "component App\n  view\n    column\n{}",
+        ["a", "b", "c"]
+            .map(|id| format!("      svg testId=\"{id}\" width=40 height=40\n        rect width=20 height=10 {shadow}\n"))
+            .concat()
+    );
+    let (mut host, _) = Host::boot(
+        &contract::compile(&app).unwrap().encode(),
+        NoData,
+        Box::new(MonospaceMeasurer::default()),
+        100.0,
+        200.0,
+    )
+    .unwrap();
+    host.set_scheme(false);
+    let [a, b, c] = ["a", "b", "c"].map(|t| {
+        let kernel = host.runner().kernel();
+        kernel.node_by_key(kernel.find_by_test_id(t)[0]).unwrap().id
+    });
+    let rebuilt = |host: &mut Host<NoData>, change: &dyn Fn(&mut Host<NoData>) -> String| {
+        let builds = host.svg.scene_builds;
+        let batch = change(host);
+        (host.svg.scene_builds - builds, scenes(&batch).len())
+    };
+    assert_eq!(rebuilt(&mut host, &|h| h.set_view_scheme(a, true)), (1, 1));
+    assert_eq!(
+        rebuilt(&mut host, &|h| h.set_scheme(true)),
+        (2, 2),
+        "a is dark already"
+    );
+    assert_eq!(rebuilt(&mut host, &|h| h.set_view_scheme(b, false)), (1, 1));
+    assert_eq!(rebuilt(&mut host, &|h| h.set_view_scheme(b, false)), (0, 0));
+}
+
 #[test]
 fn an_svg_is_one_scene_with_lowered_animations() {
     let plan = contract::compile(APP).unwrap().encode();

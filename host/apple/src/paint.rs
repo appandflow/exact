@@ -96,7 +96,8 @@ impl<D: DataSource> Host<D> {
             self.now_ms / 1000.0,
         ) {
             self.retire_paint(retired, &mut batch);
-            self.svg.all_dirty();
+            self.svg
+                .appearance_dirty(self.runner.kernel(), &self.paint.motion);
             self.present(&mut batch, false);
         }
         self.finish(batch, None)
@@ -133,7 +134,8 @@ impl<D: DataSource> Host<D> {
                 self.now_ms / 1000.0,
             ) {
                 self.retire_paint(retired, &mut batch);
-                self.svg.all_dirty();
+                self.svg
+                    .appearance_dirty(self.runner.kernel(), &self.paint.motion);
                 self.present(&mut batch, false);
             }
         }
