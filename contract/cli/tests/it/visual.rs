@@ -78,7 +78,10 @@ fn what_no_host_draws_is_refused_by_name() {
             "mask-image=\"linear-gradient(#000, #fff), linear-gradient(#fff, #000)\"",
             "several",
         ),
-        ("text-shadow=\"1px 1px #000, 2px 2px #fff\"", "one shadow"),
+        (
+            "text-shadow=\"1px 1px #000, 1px 1px #000, 1px 1px #000, 1px 1px #000, 1px 1px #000, 1px 1px #000, 1px 1px #000, 1px 1px #000, 1px 1px #000\"",
+            "at most 8 shadows",
+        ),
         ("text-shadow=\"1px 1px 2px 3px #000\"", "no spread"),
     ] {
         let e = refused(attr);
