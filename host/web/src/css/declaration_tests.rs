@@ -46,6 +46,14 @@ fn background_blend_mode_is_its_css() {
     );
 }
 
+/// CSS Containment 2 §3.2: the browser keeps a contained box's overflow out of
+/// its scroller's extent itself.
+#[test]
+fn contain_is_its_css() {
+    let layout = StyleValue::Text("layout".into());
+    assert_eq!(css(&[(StyleId::Contain, layout)], &[]), "contain:layout;");
+}
+
 /// CSS Fonts 4 §6.12: `font-feature-settings` is written as CSS serializes it.
 #[test]
 fn font_feature_settings_are_their_css() {

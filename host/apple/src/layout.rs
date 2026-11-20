@@ -849,8 +849,9 @@ pub(super) fn content_size(node: &NodeRef<'_>, kernel: &Kernel) -> (f32, f32) {
 }
 
 /// What a root that does not clip adds to the document: its border box and
-/// every laid-out box below it, down to a box that clips or scrolls (whose
-/// own box counts, not what it holds), as a browser's viewport scrolls the
+/// every laid-out box below it, down to a box that clips, scrolls or has
+/// layout containment (whose own box counts, not what it holds), as a
+/// browser's viewport scrolls the
 /// root element's overflow (CSS Overflow 3 §2.2). The root's end padding is
 /// not added: the viewport is the scroll container, not the root. A box in
 /// another containing block, the top layer, an `svg`'s inside and the head
@@ -875,7 +876,9 @@ pub(super) fn document_extent(root: &NodeRef<'_>, kernel: &Kernel) -> (f32, f32)
             w = w.max(c.frame.x - x0 + c.frame.width);
             h = h.max(c.frame.y - y0 + c.frame.height);
         }
-        if style::effective_overflow(&c) == (Overflow::Visible, Overflow::Visible) {
+        if style::effective_overflow(&c) == (Overflow::Visible, Overflow::Visible)
+            && c.style.contain == exact_kernel::Contain::None
+        {
             below.extend(c.children());
         }
     }

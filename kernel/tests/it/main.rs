@@ -19,6 +19,7 @@ mod browser_zoom;
 mod canvas;
 mod clock_sync;
 mod compare;
+mod contain;
 mod content_region;
 mod cover;
 mod env;

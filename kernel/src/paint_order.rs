@@ -20,7 +20,9 @@
 //! pass is enough and a second changes nothing.
 
 use crate::arena::NodeArena;
-use crate::generated::{Display, Isolation, MixBlendMode, NodeType, PositionType, PropId, StyleId};
+use crate::generated::{
+    Contain, Display, Isolation, MixBlendMode, NodeType, PositionType, PropId, StyleId,
+};
 use crate::id::ViewId;
 use crate::kernel::Kernel;
 
@@ -246,6 +248,7 @@ pub fn own_from(f: Facts<'_>) -> Own {
         || (m.has(StyleId::Perspective) && s.perspective > 0.0)
         || s.mix_blend_mode != MixBlendMode::Normal
         || s.isolation == Isolation::Isolate
+        || s.contain == Contain::Layout
         || position == PositionType::Sticky
         || z.is_some();
     // Host policy (D2): what the hosts paint as a stacking context of their own.

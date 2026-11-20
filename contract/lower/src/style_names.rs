@@ -19,6 +19,7 @@ pub const STYLE_NAMES: &[(&str, &str, AttrTarget)] = &[
     ("filter", "css CSS Filter Effects 1", AttrTarget::Styles(&[StyleId::Filter])),
     ("mix-blend-mode", "css CSS Compositing 1", AttrTarget::Styles(&[StyleId::MixBlendMode])),
     ("isolation", "css CSS Compositing 1", AttrTarget::Styles(&[StyleId::Isolation])),
+    ("contain", "css CSS Containment 2", AttrTarget::Styles(&[StyleId::Contain])),
     ("flood-color", "css CSS Filter Effects 1", AttrTarget::Styles(&[StyleId::FloodColor])),
     ("flood-opacity", "css CSS Filter Effects 1", AttrTarget::Styles(&[StyleId::FloodOpacity])),
     ("lighting-color", "css CSS Filter Effects 1", AttrTarget::Styles(&[StyleId::LightingColor])),

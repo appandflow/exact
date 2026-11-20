@@ -1251,8 +1251,7 @@ impl StyleProps {
             PositionType::Relative => taffy::style::Position::Relative,
             PositionType::Absolute => taffy::style::Position::Absolute,
             // @ref LLP 1083 D1 — a sticky box lays out as a relative one
-            // whose insets are not offsets: the host moves it as its
-            // scroller scrolls (`sticky.rs`).
+            // whose insets are not offsets: the host moves it as its scroller scrolls (`sticky.rs`).
             PositionType::Sticky => taffy::style::Position::Relative,
         };
         let y = if !self.mask.has(StyleId::OverflowY) && node_type.scrolls_by_default() {
@@ -1266,6 +1265,7 @@ impl StyleProps {
             y: engine::overflow(y.computed(x)),
         };
         s.scrollbar_width = 0.0;
+        s.contain = engine::contain(self.contain);
 
         s.size = taffy::geometry::Size {
             width: self.width.floor_taffy(env),
