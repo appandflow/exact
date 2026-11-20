@@ -236,11 +236,11 @@ impl BoxPaint {
         if !self.backdrop.is_none() {
             backend.backdrop_filter(&geometry.outer, &self.backdrop, ts);
         }
-        if self.blends() {
-            if let Some(clip) = self.background_shape(geometry) {
-                self.blended(backend, geometry, &clip, ts, scale);
-            }
-        } else {
+        let blended = self.blends()
+            && self
+                .background_shape(geometry)
+                .is_some_and(|clip| self.blended(backend, geometry, &clip, ts, scale));
+        if !blended {
             self.emit(geometry, |shape, color| backend.fill(&shape, color, ts));
             // The last layer first, so the first is on top (LLP 1077 D5),
             // within the background's clip (D6).

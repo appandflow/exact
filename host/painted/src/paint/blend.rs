@@ -15,7 +15,10 @@ impl BoxPaint {
         self.blend != exact_kernel::MixBlendMode::Normal && !self.gradients.is_empty()
     }
 
-    /// The background colour and gradients within `clip`, as one group.
+    /// The background colour and gradients within `clip`, as one group;
+    /// false, having drawn nothing, for a box past the largest island. Such a
+    /// box (a scrolled column over 16,384 device pixels) draws unblended
+    /// rather than an island cut to what shows, which would move its layers.
     pub(super) fn blended(
         &self,
         backend: &mut dyn Backend,
@@ -23,15 +26,19 @@ impl BoxPaint {
         clip: &Shape,
         ts: Transform,
         scale: f32,
-    ) {
+    ) -> bool {
         let rect = geometry.outer.rect;
+        let side = (rect.2.max(rect.3) * scale).ceil();
+        if !(side <= crate::raster::MAX_FRAME_SIDE as f32) {
+            return false;
+        }
         let shift = Transform::from_translate(-rect.0, -rect.1);
-        let Some(group) = island(rect, scale, |group| {
+        if let Some(group) = island(rect, scale, |group| {
             self.layers(group, &geometry.outer, clip, shift, scale);
-        }) else {
-            return;
-        };
-        backend.island_image(Arc::new(group), rect, ts, 0);
+        }) {
+            backend.island_image(Arc::new(group), rect, ts, 0);
+        }
+        true
     }
 
     /// The colour within `clip`, then each gradient blended over what is

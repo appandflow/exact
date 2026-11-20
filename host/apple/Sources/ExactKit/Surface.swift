@@ -193,9 +193,12 @@ extension NodeView {
                 guard let self else { return }
                 let path = self.roundedPath(in: rect).cgPath
                 if let ground = clipped ? self.backgroundOutline(path, in: rect) : path {
-                    if let fill { ctx.addPath(ground); ctx.setFillColor(fill); ctx.fillPath() }
-                    for gradient in gradients.reversed() {
-                        gradient.paint(ctx, clip: ground, box: rect.insetBy(left: widths[3], top: widths[0], right: widths[1], bottom: widths[2]), dark: dark)
+                    let box = rect.insetBy(left: widths[3], top: widths[0], right: widths[1], bottom: widths[2])
+                    self.isolatingBackground(ctx) {
+                        if let fill { ctx.addPath(ground); ctx.setFillColor(fill); ctx.fillPath() }
+                        for gradient in gradients.reversed() {
+                            self.blending(ctx) { gradient.paint(ctx, clip: ground, box: box, dark: dark) }
+                        }
                     }
                 }
                 BorderPaint.paint(ctx, box: rect, widths: widths, colors: colors, radii: sizes, styles: styles, shape: shape)

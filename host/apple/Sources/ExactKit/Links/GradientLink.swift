@@ -108,17 +108,21 @@ extension NodeView {
         if gradientLayered && boxGradient != nil { return }
         #endif
         // The last layer first, so the first is on top (LLP 1077 D5).
-        let blend = backgroundBlend
         for g in GradientLink.layers(style["background_image"], tint: gradientTint).reversed() {
-            guard let blend else { g.paint(ctx, clip: clip, box: gradientBox, dark: drawsDark); continue }
-            // A layer may lay a pixel twice (hard stops, tiles): blend it once, whole.
-            ctx.saveGState()
-            ctx.setBlendMode(blend)
-            ctx.beginTransparencyLayer(auxiliaryInfo: nil)
-            g.paint(ctx, clip: clip, box: gradientBox, dark: drawsDark)
-            ctx.endTransparencyLayer()
-            ctx.restoreGState()
+            blending(ctx) { g.paint(ctx, clip: clip, box: gradientBox, dark: drawsDark) }
         }
+    }
+
+    /// One background layer, composited with `background-blend-mode`. A layer
+    /// may lay a pixel twice (hard stops, tiles), so it blends once, whole.
+    func blending(_ ctx: CGContext, _ paint: () -> Void) {
+        guard let blend = backgroundBlend else { return paint() }
+        ctx.saveGState()
+        ctx.setBlendMode(blend)
+        ctx.beginTransparencyLayer(auxiliaryInfo: nil)
+        paint()
+        ctx.endTransparencyLayer()
+        ctx.restoreGState()
     }
 
     /// CSS `background-blend-mode` (CSS Compositing 1 §4), one mode for every
