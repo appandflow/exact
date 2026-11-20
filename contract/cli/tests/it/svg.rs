@@ -837,7 +837,8 @@ fn stage_nine_filters() {
     assert!(refused(&svg("rect filter=\"wobble(2)\"")).contains("lower-attr-value"));
 }
 
-// LLP 1055.000 stage 10: geometry keyframes and blending on SVG elements only.
+// LLP 1055.000 stage 10: geometry keyframes and blending on SVG elements;
+// `isolation` on a box is refused.
 #[test]
 fn stage_ten_geometry_and_blend() {
     let r = boot(
@@ -852,7 +853,7 @@ fn stage_ten_geometry_and_blend() {
         .properties()
         .contains(&exact_motion::Property::Cx));
     assert!(
-        refused("component A\n  view\n    column mix-blend-mode=\"multiply\"\n")
+        refused("component A\n  view\n    column isolation=\"isolate\"\n")
             .contains("lower-attr-tag")
     );
 }
@@ -1236,7 +1237,7 @@ fn box_transforms_report_independent_attribute_refusals() {
         ][..];
         let with_blend = &[
             ("lower-attr-tag", "transform"),
-            ("lower-attr-tag", "mix-blend-mode"),
+            ("lower-attr-tag", "isolation"),
         ][..];
         for (body, expected) in [
             (
@@ -1256,11 +1257,11 @@ fn box_transforms_report_independent_attribute_refusals() {
                 with_width,
             ),
             (
-                format!("column {transform} mix-blend-mode=\"multiply\""),
+                format!("column {transform} isolation=\"isolate\""),
                 with_blend,
             ),
             (
-                format!("column mix-blend-mode=\"multiply\" {transform}"),
+                format!("column isolation=\"isolate\" {transform}"),
                 with_blend,
             ),
         ] {

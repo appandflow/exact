@@ -56,3 +56,19 @@ fn best_effort_and_an_unset_value_say_nothing() {
 fn it_is_information_like_forma_unreachable() {
     assert!(contract_lower::warning_rank::information("style-undrawn"));
 }
+
+/// A box's `mix-blend-mode` draws on the web and macOS only; its own
+/// layers' `background-blend-mode` draws everywhere.
+#[test]
+fn a_blended_box_is_undrawn_on_ios_and_the_painted_hosts() {
+    let view = "component App\n  view\n    column\n      box mix-blend-mode=\"multiply\" background-blend-mode=\"multiply\" width=20 height=20\n";
+    let said = undrawn(&app("box-blend", "\"web\": {}, \"macos\": {}", view));
+    assert_eq!(said, Vec::<String>::new());
+    let said = undrawn(&app("box-blend-native", "\"ios\": {}, \"linux\": {}", view));
+    assert_eq!(said.len(), 2, "{said:?}");
+    assert!(
+        said.iter()
+            .all(|s| s.starts_with("`mix-blend-mode` is not drawn on")),
+        "{said:?}"
+    );
+}

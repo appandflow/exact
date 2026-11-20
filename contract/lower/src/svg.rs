@@ -889,15 +889,12 @@ fn check_svg_attrs_with(
                 a.span,
             );
         }
-        // @ref LLP 1055.000 D19 — blending is SVG elements' so far: a
-        // native box would draw it unblended.
-        if matches!(a.name.as_str(), "mix-blend-mode" | "isolation") && !element {
+        // @ref LLP 1055.000 D19 — a box's `isolation` is the web's alone;
+        // a native host would not bound a blend by it.
+        if a.name == "isolation" && !element {
             return err(
                 "lower-attr-tag",
-                format!(
-                    "`{}` applies to SVG elements (LLP 1055.000 D19); boxes do not blend yet",
-                    a.name
-                ),
+                "`isolation` applies to SVG elements (LLP 1055.000 D19); a box is not isolated yet",
                 a.span,
             );
         }

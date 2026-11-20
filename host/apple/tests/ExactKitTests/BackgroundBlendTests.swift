@@ -94,4 +94,14 @@ final class BackgroundBlendTests: XCTestCase {
         XCTAssertGreaterThan(share(shot, [204, 204, 204]), 0.25)
         XCTAssertGreaterThan(share(shot, [255, 255, 255]), 0.25)
     }
+
+    #if os(macOS)
+    /// A box's `mix-blend-mode` is AppKit's compositing filter, cleared by `normal`.
+    func testABoxBlendIsItsCompositingFilter() throws {
+        let node = try box(["background_color": [255, 214, 0, 255], "mix_blend_mode": "multiply"])
+        XCTAssertEqual(node.compositingFilter?.name, "CIMultiplyBlendMode")
+        node.applyStyle(["background_color": [255, 214, 0, 255], "mix_blend_mode": "normal"])
+        XCTAssertNil(node.compositingFilter)
+    }
+    #endif
 }

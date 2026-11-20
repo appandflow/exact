@@ -7146,6 +7146,13 @@ Android. Canvas 2D's `globalCompositeOperation = "multiply"` also draws on both:
 draw the backdrop and foreground into the same canvas. It does not blend the
 canvas with the page beneath it.
 
+`mix-blend-mode` on a box blends it with what is behind it on the web and
+macOS. macOS blends with everything drawn behind the box in the window, past
+its stacking context. iOS, Linux, Windows and Android draw the box unblended,
+and `style-undrawn` says so. `isolation` stays SVG elements'. To blend a
+box's own gradients with its colour, use `background-blend-mode`, which every
+host draws.
+
 A background, border or radius makes it your own box, as in a browser;
 `appearance="none"` says so explicitly. This is decided once after classes
 and shorthands: a row on any conditional arm counts, even if its value is

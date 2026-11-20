@@ -4329,10 +4329,11 @@
       "bit": 138,
       "field": "mix_blend_mode",
       "codec": "enum:MixBlendMode",
-      "_comment": "@ref LLP 1055.000 D19, §8 ruling 6: mix-blend-mode and isolation on SVG elements.",
+      "_comment": "@ref LLP 1055.000 D19, §8 ruling 6: mix-blend-mode and isolation on SVG elements; on a box, CSS Compositing 1 §3, blended with what is behind it. `isolation` stays SVG elements'.",
       "hosts": [
-        { "host": "ios", "on": "box", "fidelity": "none", "why": "blending with a backdrop outside the SVG is not drawn; put all overlapping artwork inside one svg, or use Canvas 2D globalCompositeOperation (including multiply) inside one canvas" },
-        { "host": "android", "on": "box", "fidelity": "none", "why": "blending with a backdrop outside the SVG is not drawn; put all overlapping artwork inside one svg, or use Canvas 2D globalCompositeOperation (including multiply) inside one canvas" }
+        { "host": "ios", "on": "box", "fidelity": "none", "why": "UIKit has no public layer blend (LLP 1077 D9); to blend a box's own layers use background-blend-mode, and for artwork put it all inside one svg or one canvas (Canvas 2D globalCompositeOperation)" },
+        { "host": "painted", "on": "box", "fidelity": "none", "why": "a box draws unblended; to blend a box's own layers use background-blend-mode, and for artwork put it all inside one svg or one canvas (Canvas 2D globalCompositeOperation)" },
+        { "host": "macos", "on": "box", "fidelity": "best-effort", "why": "Core Animation blends the box with everything drawn behind it in the window, past its stacking context" }
       ],
       "cold": true
     },

@@ -1138,6 +1138,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         if kind != "text" || superview != nil { wantsLayer = true }
         applyBoxMask()
         applyFilter()
+        applyBoxBlend()
         // Scrolling and clipping come from the effective overflow the host
         // wrote in (never from the node's kind): `scroll` on an axis makes a
         // scroll container that scrolls that axis; `hidden` clips.
