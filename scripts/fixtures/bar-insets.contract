@@ -4,13 +4,18 @@
 // starts below it, without a hard-coded bar height (expo/exact#36); the list
 // beside it already clears the bar and stays. A box outside every route reads
 // the session root's insets, the status bar's, which `env()` leaves at 0.
+// The fitted sheet sizes to its content, which clears its transparent bar and
+// the home indicator by its insets.
 routes nav
   home "/"
   sheet "/sheet"
+  fitted "/fitted"
 
 component BarInsets
   action open
     nav = push(nav, "/sheet")
+  action openFitted
+    nav = push(nav, "/fitted")
   view
     main navigationKey=`${top(nav).id}` width="100%" height="100%"
       for e in stack(nav) key=e.id
@@ -24,10 +29,20 @@ component BarInsets
                 text "Sidebar" testId="sidebar-first"
                 button press=open testId="open"
                   text "Open"
+                button press=openFitted testId="open-fitted"
+                  text "Open fitted"
               scroll id="list" flex=1 min-height=0 testId="list"
                 for i in range(30) key=i
                   text `Row ${i}` padding=12
         if e.name == "sheet"
           column navigationKey=`${e.id}` navigationPresentation="modal" testId="sheet" display="flex" flex-direction="column"
             column height="var(--exact-safe-area-inset-bottom)" testId="sheet-probe"
+        if e.name == "fitted"
+          column navigationKey=`${e.id}` navigationPresentation="modal" navigationDetent="fit-content" navigationBar="transparent" -exact-safe-area="bottom" testId="fitted" display="flex" flex-direction="column"
+            header
+              text "Fitted" role="heading"
+            scroll flex=1 min-height=0
+              column padding-top="var(--exact-safe-area-inset-top)" padding-bottom="var(--exact-safe-area-inset-bottom)"
+                for i in range(8) key=i
+                  text `Row ${i}` padding=12
       column position="absolute" top=0 right=0 width=4 height="var(--exact-safe-area-inset-top)" testId="root-probe"
