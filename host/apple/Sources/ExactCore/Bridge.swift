@@ -248,6 +248,10 @@ package final class Runtime {
     package private(set) var heldCalls: [String] = []
     /// The batch-answering calls `on` let through on main: a test's spy on what reached the runtime.
     package private(set) var entered = 0
+    #if DEBUG
+    /// Tests: each batch-answering call `on` lets through on main, by its method.
+    package var onEnterForTests: ((String) -> Void)?
+    #endif
     package static let heldBatch = { var batch = Batch(ops: [], timers: false, motion: false, clock: nil, error: nil); batch.held = true; return batch }()
     package func takeHeldCalls() -> [String] { defer { heldCalls = [] }; return heldCalls }
     /// Whether held; if so, `caller` is named in `heldCalls` (a call held outside `on`: `selection`, a notice's `later`).
@@ -260,6 +264,9 @@ package final class Runtime {
     package func on(layout: Bool = false, _ body: () -> Batch, caller: String = #function) -> Batch {
         if enter(caller, layout: layout) { return Runtime.heldBatch }
         if Thread.isMainThread { entered &+= 1 } // (`later` calls on the owner: the spy counts main's)
+        #if DEBUG
+        if Thread.isMainThread { onEnterForTests?(caller) }
+        #endif
         let (open, modal, backdrop) = topLayer?() ?? ([], nil, nil)
         return Owner.shared.sync({
             installTopLayer(open, modal: modal, backdrop: backdrop)
@@ -1058,8 +1065,18 @@ package final class Runtime {
     package func tick(now: Double, frame: Double? = nil, presentOnly: Bool = false) -> Batch {
         on(layout: presentOnly) { read(frame.map { exact_tick_at(rt, now, $0) } ?? exact_tick(rt, now)).made(by: .tick) }
     }
-    package func scheme(dark: Bool) -> Batch { on(layout: true) { read(exact_scheme(rt, dark ? 1 : 0)) } }
-    package func viewScheme(_ view: UInt32, dark: Bool) -> Batch { on(layout: true) { read(exact_view_scheme(rt, view, dark ? 1 : 0)) } }
+    /// One appearance change: the view's scheme and the preferences' bits, presented once.
+    package func appearance(dark: Bool, preferences bits: UInt32) -> Batch { on(layout: true) { read(exact_appearance(rt, dark ? 1 : 0, bits)) } }
+    /// Views' own appearances, where they differ from the session's (LLP 1062 D4), presented once.
+    package func viewSchemes(_ views: [(UInt32, Bool)]) -> Batch {
+        on(layout: true) {
+            var bytes = Data(capacity: views.count * 8)
+            for (view, dark) in views {
+                for word in [view, dark ? 1 : 0] { withUnsafeBytes(of: word.littleEndian) { bytes.append(contentsOf: $0) } }
+            }
+            return read(exact_view_schemes(rt, write(bytes)))
+        }
+    }
 
     /// Host intrinsic sizes (nil clears one), under one layout.
     package func intrinsics(_ sizes: [(UInt32, CGSize?)]) -> Batch {

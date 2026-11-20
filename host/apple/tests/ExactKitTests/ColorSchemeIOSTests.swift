@@ -319,6 +319,97 @@ final class ColorSchemeIOSTests: XCTestCase {
         withExtendedLifetime(window) {}
     }
 
+    /// One appearance change reaches the runtime once: the scheme and the
+    /// preferences in one call. A view outside the session's view that hears
+    /// it first, as a presented sheet's does, follows the session's report
+    /// rather than reporting its own, which was one paint pass for each view.
+    @MainActor
+    func testOneAppearanceChangeIsOneRuntimeCall() throws {
+        let session = ExactApp.shared.makeSession(label: "appearance-once")
+        self.session = session
+        let view = ExactView(session: session)
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 402, height: 874))
+        self.window = window
+        window.overrideUserInterfaceStyle = .light
+        let host = UIViewController()
+        window.rootViewController = host
+        window.makeKeyAndVisible()
+        host.view.addSubview(view)
+        view.frame = host.view.bounds
+        view.layoutIfNeeded()
+        waitForActivation(session)
+        XCTAssertEqual(session.schemeDark, false)
+        let p = session.presenter
+        p.apply(wireBatch([
+            ["op": "create", "id": 99_998, "kind": "view", "style": ["background_color": [[255, 255, 255, 255], [0, 0, 0, 255]]]],
+            ["op": "frame", "id": 99_998, "x": 0, "y": 0, "w": 10, "h": 10],
+        ]))
+        let sheet = UIView(frame: window.bounds), node = try XCTUnwrap(p.views[99_998])
+        window.addSubview(sheet)
+        sheet.addSubview(node)
+        sheet.updateTraitsIfNeeded()
+        var calls: [String] = []
+        session.runtime.onEnterForTests = { calls.append($0) }
+        defer { session.runtime.onEnterForTests = nil }
+        for style in [UIUserInterfaceStyle.dark, .light] {
+            calls = []
+            window.overrideUserInterfaceStyle = style
+            sheet.updateTraitsIfNeeded()
+            XCTAssertEqual(node.drawsDark, style == .dark, "the sheet hears it first")
+            window.updateTraitsIfNeeded()
+            XCTAssertEqual(session.schemeDark, style == .dark)
+            XCTAssertEqual(calls.filter(Self.appearanceCalls.contains), ["appearance(dark:preferences:)"], "\(style.rawValue)")
+            XCTAssertNil(session.viewDark[node.id], "it agrees with the session")
+        }
+        // A session its embedder pins keeps its appearance: a view that follows the window differs from it.
+        host.overrideUserInterfaceStyle = .light
+        window.overrideUserInterfaceStyle = .dark
+        sheet.updateTraitsIfNeeded()
+        window.updateTraitsIfNeeded()
+        XCTAssertEqual(session.schemeDark, false)
+        XCTAssertEqual(session.viewDark[node.id], true, "the sheet's dark is its own")
+    }
+
+    /// The runtime calls that tell an appearance: the scheme, the preferences and views' own appearances.
+    private static let appearanceCalls: Set = ["scheme(dark:)", "setPreferences(_:)", "appearance(dark:preferences:)", "viewScheme(_:dark:)", "viewSchemes(_:)"]
+
+    /// Subtrees whose `color-scheme` the contract derives from
+    /// `prefers-color-scheme` turn with the session: the contract answers the
+    /// new preferences before their appearance is read, so none reports one
+    /// of its own, which was a paint pass for each, twice a change.
+    @MainActor
+    func testASchemeTheContractFollowsReportsNoViewOfItsOwn() throws {
+        let session = ExactApp.shared.makeSession(label: "scheme-follow")
+        self.session = session
+        XCTAssertNil(session.boot(plan: try fixturePlan("SCHEME_FOLLOW"), size: CGSize(width: 390, height: 844)).error)
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
+        self.window = window
+        window.overrideUserInterfaceStyle = .light
+        let view = ExactView(session: session)
+        window.addSubview(view)
+        view.frame = window.bounds
+        window.makeKeyAndVisible()
+        window.layoutIfNeeded()
+        XCTAssertEqual(session.schemeDark, false)
+        let followers = session.presenter.views.values.filter { $0.style["color_scheme"] != nil }
+        XCTAssertEqual(followers.count, 20)
+        var calls: [String] = []
+        session.runtime.onEnterForTests = { calls.append($0) }
+        defer { session.runtime.onEnterForTests = nil }
+        // `prefers-color-scheme` is the scene's appearance, or, with no scene, the one last read.
+        let scene = window.windowScene
+        defer { scene?.traitOverrides.remove(UITraitUserInterfaceStyle.self) }
+        for style in [UIUserInterfaceStyle.dark, .light] {
+            calls = []
+            if let scene { scene.traitOverrides.userInterfaceStyle = style } else { session.systemDark = style == .dark }
+            window.overrideUserInterfaceStyle = style
+            window.updateTraitsIfNeeded()
+            XCTAssertEqual(calls.filter(Self.appearanceCalls.contains), ["appearance(dark:preferences:)"], "\(style.rawValue)")
+            XCTAssertEqual(followers.filter { $0.drawsDark != (style == .dark) }.count, 0, "they follow the preference")
+            XCTAssertEqual(session.viewDark, [:])
+        }
+    }
+
     private var session: ExactSession?
     private var window: UIWindow?
     override func tearDown() {

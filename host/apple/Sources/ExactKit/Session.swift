@@ -1106,15 +1106,19 @@ public final class ExactSession {
     private func drainReports() {
         reportMeasured()
         if colorsOwed, !holdingReports, !awaitingTree { colorsOwed = false; apply(runtime.reportColors(tint: SystemColor.appTint.flatMap { SystemColor.tintPair($0) })) }
-        while !holdingReports, !pendingViewDark.isEmpty {
-            let (id, dark) = pendingViewDark.removeFirst()
-            let batch = runtime.viewScheme(id, dark: dark)
-            // Appearance already changed natively; retain its transaction accounting without rescheduling.
-            if !ownerInFlight, changesNothing(batch), clockUnchanged(batch) {
-                sampler?.batch(batch.seq, ms: 0); logSkipped(batch)
-                followRunner(batch)
-            } else { apply(batch) }
+        guard !holdingReports, !pendingViewDark.isEmpty else { return }
+        // Each view's last appearance, in one call: a view noted twice, as one an appearance change restyles, is told once.
+        var views: [(UInt32, Bool)] = [], at: [UInt32: Int] = [:]
+        for (id, dark) in pendingViewDark {
+            if let i = at[id] { views[i].1 = dark } else { at[id] = views.count; views.append((id, dark)) }
         }
+        pendingViewDark = []
+        let batch = runtime.viewSchemes(views)
+        // Appearance already changed natively; retain its transaction accounting without rescheduling.
+        if !ownerInFlight, changesNothing(batch), clockUnchanged(batch) {
+            sampler?.batch(batch.seq, ms: 0); logSkipped(batch)
+            followRunner(batch)
+        } else { apply(batch) }
     }
 
     #if DEBUG
@@ -1380,21 +1384,25 @@ public final class ExactSession {
         applyUnlessEmpty(batch, scrolled: true, resized: change.size != nil)
     }
     private(set) var screenSize: CGSize? // the screen last told, for the agent's synthetic segments
-    /// The view's appearance, for paint motion's `light-dark()` (LLP 1062).
-    /// The platform's colours are reported first: before the first scheme
-    /// that fills the kernel's table without motion, so nothing eases from a
-    /// fallback to the platform's colour at startup (LLP 1095 D9).
+    /// The view's appearance, for paint motion's `light-dark()` (LLP 1062),
+    /// told with the preferences, whose `prefers-color-scheme` the same change
+    /// moves: one runtime call, presented once. The platform's colours are
+    /// reported first: before the first scheme that fills the kernel's table
+    /// without motion, so nothing eases from a fallback to the platform's
+    /// colour at startup (LLP 1095 D9).
     public func scheme(dark: Bool) {
         guard booted, state != .destroyed else { return }
         let first = schemeDark == nil
         schemeDark = dark
         reportColors()
         reportDeferredAppearances(first: first)
+        apply(runtime.appearance(dark: dark, preferences: preferenceBits()))
         // A subtree with a `color-scheme` of its own keeps its appearance when the session's changes, so no trait
-        // callback says it: said here, after the scheme. Its views' appearance is the row's, already settled,
+        // callback says it: said here, once the contract has answered the new preferences (a `color-scheme` it
+        // derives from them has moved with the session's). Its views' appearance is the row's, already settled,
         // whatever the platform's walk has reached.
         for v in presenter.views.values where v.style["color_scheme"] != nil { noteAppearance(v) }
-        apply(runtime.scheme(dark: dark))
+        drainReports()
     }
     /// The appearance last reported for the session, and each node view found painting motion in another (a sheet's override, say), by id.
     private(set) var schemeDark: Bool?

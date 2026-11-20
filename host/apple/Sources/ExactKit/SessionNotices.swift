@@ -151,6 +151,13 @@ extension ExactSession {
         #if os(iOS) || os(tvOS)
         // The session's own trait walk is not an independent subtree override.
         if let view, (view.traitCollection.userInterfaceStyle == .dark) != session { unreported.insert(id); return }
+        // UIKit can reach a view before the session's view: a presented
+        // sheet hears an appearance change first. While the window shows an
+        // appearance the session's view follows but has yet to report, a view
+        // in it with no override of its own follows that report
+        // (`scheme(dark:)` checks it again).
+        if dark != session, let view, let window = view.window, (window.traitCollection.userInterfaceStyle == .dark) == dark,
+           Self.styleOverride(above: view, session: nil) == nil, !hasAppearanceOverride(id, dark: dark) { unreported.insert(id); return }
         // The session can report before UIKit reaches a deferred child. A
         // colour-table batch may restyle it in between. An authored scheme
         // or a native override already fixes the subtree's appearance.

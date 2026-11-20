@@ -10,7 +10,7 @@ use crate::style::Shown;
 use exact_kernel::motion::{node_key, PaintMotion};
 use exact_kernel::{CommitReceipt, NodeKey, ViewId};
 use exact_motion::Property;
-use exact_runner::DataSource;
+use exact_runner::{DataSource, Timed};
 use std::collections::BTreeMap;
 
 /// The host's paint-motion state.
@@ -89,18 +89,48 @@ impl<D: DataSource> Host<D> {
     /// its row; the first report only corrects boot's guess, without motion.
     pub fn set_scheme(&mut self, dark: bool) -> String {
         let mut batch = Batch::new();
-        if let Some(retired) = self.paint.motion.set_scheme(
+        if self.retarget_scheme(dark, &mut batch) {
+            self.present(&mut batch, false);
+        }
+        self.finish(batch, None)
+    }
+
+    /// One appearance change, which a platform reports as the view's
+    /// appearance and the person's preferences together: the scheme
+    /// re-targets paint as `set_scheme` does, the preferences re-answer
+    /// `exactViewport` as `set_preferences` does, and one pass presents both.
+    pub fn set_appearance(&mut self, dark: bool, preferences: exact_runner::Preferences) -> String {
+        let mut batch = Batch::new();
+        let repainted = self.retarget_scheme(dark, &mut batch);
+        let error = match self.runner.set_preferences(preferences) {
+            Ok(Some(receipt)) => {
+                let at_ms = self.now_ms;
+                return self.commit_into(&[Timed { at_ms, receipt }], None, batch);
+            }
+            Ok(None) => None,
+            Err(e) => Some(format!("preferences: {e:?}")),
+        };
+        if repainted {
+            self.present(&mut batch, false);
+        }
+        self.finish(batch, error)
+    }
+
+    /// The scheme's paint re-targeted into `batch`, unpresented; false when
+    /// it is the scheme paint already resolves by.
+    fn retarget_scheme(&mut self, dark: bool, batch: &mut Batch) -> bool {
+        let Some(retired) = self.paint.motion.set_scheme(
             self.runner.kernel(),
             &mut self.engine,
             dark,
             self.now_ms / 1000.0,
-        ) {
-            self.retire_paint(retired, &mut batch);
-            self.svg
-                .appearance_dirty(self.runner.kernel(), &self.paint.motion);
-            self.present(&mut batch, false);
-        }
-        self.finish(batch, None)
+        ) else {
+            return false;
+        };
+        self.retire_paint(retired, batch);
+        self.svg
+            .appearance_dirty(self.runner.kernel(), &self.paint.motion);
+        true
     }
 
     /// The platform's colours resolve differently (LLP 1095 D1): paint
@@ -123,9 +153,17 @@ impl<D: DataSource> Host<D> {
     /// session's first does; a later change transitions, and so does a view
     /// that agrees with the session again.
     pub fn set_view_scheme(&mut self, view: ViewId, dark: bool) -> String {
+        self.set_view_schemes(&[(view, dark)])
+    }
+
+    /// `set_view_scheme` for each view in turn, presented once.
+    pub fn set_view_schemes(&mut self, views: &[(ViewId, bool)]) -> String {
         let mut batch = Batch::new();
-        let key = self.runner.kernel().node(view).map(|n| n.key);
-        if let Some(key) = key {
+        let mut repainted = false;
+        for &(view, dark) in views {
+            let Some(key) = self.runner.kernel().node(view).map(|n| n.key) else {
+                continue;
+            };
             if let Some(retired) = self.paint.motion.set_view_scheme(
                 self.runner.kernel(),
                 &mut self.engine,
@@ -134,10 +172,13 @@ impl<D: DataSource> Host<D> {
                 self.now_ms / 1000.0,
             ) {
                 self.retire_paint(retired, &mut batch);
-                self.svg
-                    .appearance_dirty(self.runner.kernel(), &self.paint.motion);
-                self.present(&mut batch, false);
+                repainted = true;
             }
+        }
+        if repainted {
+            self.svg
+                .appearance_dirty(self.runner.kernel(), &self.paint.motion);
+            self.present(&mut batch, false);
         }
         self.finish(batch, None)
     }

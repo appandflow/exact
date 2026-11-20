@@ -440,8 +440,58 @@ fn a_scheme_change_rebuilds_only_the_scenes_it_turns() {
         (2, 2),
         "a is dark already"
     );
-    assert_eq!(rebuilt(&mut host, &|h| h.set_view_scheme(b, false)), (1, 1));
-    assert_eq!(rebuilt(&mut host, &|h| h.set_view_scheme(b, false)), (0, 0));
+    assert_eq!(
+        rebuilt(&mut host, &|h| h
+            .set_view_schemes(&[(b, false), (c, false)])),
+        (2, 2)
+    );
+    assert_eq!(
+        rebuilt(&mut host, &|h| h.set_view_schemes(&[(b, false)])),
+        (0, 0)
+    );
+}
+
+/// One appearance change (`set_appearance`) re-targets paint and re-answers
+/// the preferences in one batch: the scene drawn again in the new scheme and
+/// the text that reads `prefersColorScheme`. The same appearance again is
+/// no work.
+#[test]
+fn an_appearance_change_repaints_and_re_answers_in_one_batch() {
+    use exact_runner::Preferences;
+    let app = r##"shape V
+  prefersColorScheme: string
+
+component App
+  resource viewport = exactViewport() as shape V
+  view
+    column
+      text viewport.prefersColorScheme testId="scheme"
+      svg testId="chart" width=100 height=100
+        rect width=20 height=10 filter="drop-shadow(8px 8px 0px light-dark(#00aa00, #ff00ff))"
+"##;
+    let (mut host, _) = Host::boot(
+        &contract::compile(app).unwrap().encode(),
+        NoData,
+        Box::new(MonospaceMeasurer::default()),
+        100.0,
+        100.0,
+    )
+    .unwrap();
+    host.set_appearance(false, Preferences::default());
+    let dark = Preferences {
+        dark: true,
+        ..Preferences::default()
+    };
+    let ops = |batch: &str| -> Vec<serde_json::Value> {
+        let v: serde_json::Value = serde_json::from_str(batch).unwrap();
+        v["ops"].as_array().cloned().unwrap_or_default()
+    };
+    let batch = host.set_appearance(true, dark);
+    let told = ops(&batch);
+    assert!(told.iter().any(|op| op["op"] == "svg"), "{batch}");
+    assert!(told.iter().any(|op| op["set"]["text"] == "dark"), "{batch}");
+    let again = host.set_appearance(true, dark);
+    assert!(ops(&again).is_empty(), "{again}");
 }
 
 #[test]
