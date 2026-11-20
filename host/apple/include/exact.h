@@ -1015,12 +1015,16 @@ uint32_t exact_view(ExactRuntime rt, size_t len);
  * viewport and preferences together. */
 uint32_t exact_segments(ExactRuntime rt, uint32_t posture, uint32_t cols, uint32_t rows, uint32_t count);
 /* The presenter's appearance (nonzero: dark), which a light-dark() colour
- * under paint motion resolves by; a change transitions it (LLP 1062). */
-uint32_t exact_scheme(ExactRuntime rt, uint32_t dark);
-/* One view's appearance (nonzero: dark), where the presenter finds it
- * differs from the session's: its node's light-dark() colours resolve by it
- * (LLP 1062). */
-uint32_t exact_view_scheme(ExactRuntime rt, uint32_t view, uint32_t dark);
+ * under paint motion resolves by, and the display preferences
+ * (exact_set_preferences's bits): one appearance change, the paint
+ * re-targeted and the preferences re-answered before one presentation; a
+ * change transitions (LLP 1062). */
+uint32_t exact_appearance(ExactRuntime rt, uint32_t dark, uint32_t bits);
+/* Views' appearances, where the presenter finds them different from the
+ * session's: their nodes' light-dark() colours resolve by them (LLP 1062).
+ * LE records of (u32 view, u32 dark, nonzero dark) in the input buffer;
+ * returns the batch's length. */
+uint32_t exact_view_schemes(ExactRuntime rt, size_t len);
 /** LLP 1095 D1: every colour reference the presenter should resolve, as JSON
  *  `[[kind, id, "name"], …]` in the output buffer; returns its length. */
 uint32_t exact_color_references(ExactRuntime rt);

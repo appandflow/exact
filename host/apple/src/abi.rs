@@ -1272,22 +1272,27 @@ impl<D: DataSource> Bridge<D> {
         self.emit(out)
     }
 
-    /// The presenter's appearance, which `light-dark()` paint motion resolves by.
-    pub fn scheme(&mut self, dark: bool) -> u32 {
-        let out = self
-            .host
-            .as_mut()
-            .map_or_else(not_booted, |h| h.set_scheme(dark));
-        self.emit(out)
-    }
-
-    /// One view's own appearance, where the presenter finds it differs from
-    /// the session's (LLP 1062 D4).
-    pub fn view_scheme(&mut self, view: u32, dark: bool) -> u32 {
-        let out = self
-            .host
-            .as_mut()
-            .map_or_else(not_booted, |h| h.set_view_scheme(view, dark));
+    /// Views' own appearances, where the presenter finds them different from
+    /// the session's (LLP 1062 D4): LE records of (u32 view, u32 dark) in the
+    /// input buffer's first `len` bytes, nonzero dark, presented once.
+    pub fn view_schemes(&mut self, len: usize) -> u32 {
+        let bytes = self.input.get(..len).unwrap_or(&[]);
+        let out = if bytes.len() % 8 != 0 {
+            self.refusal("view schemes: truncated record")
+        } else {
+            let views: Vec<_> = bytes
+                .as_chunks::<8>()
+                .0
+                .iter()
+                .map(|r| {
+                    let view = u32::from_le_bytes([r[0], r[1], r[2], r[3]]);
+                    (view, u32::from_le_bytes([r[4], r[5], r[6], r[7]]) != 0)
+                })
+                .collect();
+            self.host
+                .as_mut()
+                .map_or_else(not_booted, |h| h.set_view_schemes(&views))
+        };
         self.emit(out)
     }
 

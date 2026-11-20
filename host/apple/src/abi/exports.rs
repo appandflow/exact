@@ -1134,17 +1134,20 @@ macro_rules! host {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.segments(posture, cols, rows, count), |n| n)
         }
 
-        /// The presenter's appearance: nonzero is dark (LLP 1062); returns the batch's length.
+        /// The presenter's appearance (nonzero: dark) and the display
+        /// preferences (`exact_set_preferences`'s bits), one appearance change
+        /// in one batch; returns the batch's length.
         #[no_mangle]
-        pub extern "C" fn exact_scheme(rt: u32, dark: u32) -> u32 {
-            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.scheme(dark != 0), |n| n)
+        pub extern "C" fn exact_appearance(rt: u32, dark: u32, bits: u32) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.appearance(dark != 0, bits), |n| n)
         }
 
-        /// One view's appearance (nonzero: dark), where it differs from the
-        /// session's (LLP 1062 D4); returns the batch's length.
+        /// Views' own appearances (LLP 1062 D4), as LE records of (u32 view,
+        /// u32 dark) in the input buffer's first `len` bytes; returns the
+        /// batch's length.
         #[no_mangle]
-        pub extern "C" fn exact_view_scheme(rt: u32, view: u32, dark: u32) -> u32 {
-            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.view_scheme(view, dark != 0), |n| n)
+        pub extern "C" fn exact_view_schemes(rt: u32, len: usize) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.view_schemes(len), |n| n)
         }
 
         /// Every colour reference the presenter should resolve (LLP 1095

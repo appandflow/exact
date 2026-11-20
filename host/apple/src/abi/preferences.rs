@@ -178,6 +178,19 @@ impl<D: DataSource> Bridge<D> {
         self.emit(out)
     }
 
+    /// One appearance change (`Host::set_appearance`): the presenter's
+    /// scheme, which `light-dark()` paint motion resolves by, and the
+    /// preferences as `set_preferences` tells them, in one batch.
+    pub fn appearance(&mut self, dark: bool, bits: u32) -> u32 {
+        let preferences = exact_runner::Preferences::from_bits(bits);
+        self.preferences = preferences;
+        let out = self
+            .host
+            .as_mut()
+            .map_or_else(not_booted, |h| h.set_appearance(dark, preferences));
+        self.emit(out)
+    }
+
     /// The date changed (LLP 1027.000.000), told to the running host.
     pub fn set_time(&mut self, epoch_at_zero: f64, utc_offset: f64) -> u32 {
         let out = self

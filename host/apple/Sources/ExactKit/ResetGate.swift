@@ -141,8 +141,8 @@ enum ResetGate {
         // Told again before the reset returns (Session `presentCommitted`, `applyTogether`): moot.
         "setPreferences(_:)": "the person's preferences: `tellTime` tells the new runtime them again (`tellPreferences`)",
         "reportColors(tint:)": "the window's tint: `treeIsIn` flushes `colorsOwed`, and `tellPreferences` reports it again",
-        "scheme(dark:)": "the window's colour scheme: the view's `rebooted` tells the new runtime it again",
-        "viewScheme(_:dark:)": "a view's colour scheme: told again with the window's (`rebooted`)",
+        "appearance(dark:preferences:)": "the window's colour scheme and the person's preferences: the view's `rebooted` tells the new runtime them again",
+        "viewSchemes(_:)": "views' colour schemes: told again with the window's (`rebooted`)",
         "segments(_:)": "the posture and viewport segments: the view's `rebooted` tells them again",
         "listMargins(_:)": "UIKit's cell margins: the presenter's reset clears what was told (`RowCells.reset`), and the new rows report their own",
         "groupedMargins(_:)": "UIKit's grouped-card margins: the new tree's grouped lists measure and report their own",

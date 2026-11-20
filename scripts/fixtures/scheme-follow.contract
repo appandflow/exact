@@ -1,0 +1,11 @@
+// Boxes whose `color-scheme` follows `prefers-color-scheme`, as an app's
+// own appearance setting left at "system" writes it (ColorSchemeIOSTests).
+shape V
+  prefersColorScheme: string
+
+component App
+  resource viewport = exactViewport() as shape V
+  view
+    column width="100%" height="100%"
+      for i in range(20) key=i
+        column color-scheme=viewport.prefersColorScheme background-color="light-dark(#ffffff, #000000)" height=10

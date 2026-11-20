@@ -82,6 +82,8 @@ pub(crate) struct SvgState {
     pub(crate) scene_builds: usize,
     /// The last scene sent per `svg`, and its content box.
     sent: IdMap<ViewId, (String, Rect)>,
+    /// The appearance each `svg`'s last scene resolved in.
+    resolved_dark: IdMap<ViewId, bool>,
     /// SVG roots whose cost-limit warning was logged during this node's lifetime.
     over_warned: IdSet<ViewId>,
     /// Environment used by the cached scenes, including the window unit basis.
@@ -188,6 +190,23 @@ impl SvgState {
         self.dirty.extend(self.sent.keys().copied());
     }
 
+    /// The scenes whose `svg` now paints in another appearance than its
+    /// last scene resolved in are rebuilt (LLP 1062).
+    pub(crate) fn appearance_dirty(
+        &mut self,
+        kernel: &Kernel,
+        appearance: &exact_kernel::motion::PaintMotion,
+    ) {
+        for (root, dark) in &self.resolved_dark {
+            if kernel
+                .node(*root)
+                .is_some_and(|n| appearance.dark(n.key) != *dark)
+            {
+                self.dirty.insert(*root);
+            }
+        }
+    }
+
     /// Whether an SVG element handles presses; its scene says so.
     pub(crate) fn handlers(&mut self, id: ViewId, press: bool) {
         if press {
@@ -209,6 +228,7 @@ impl SvgState {
         self.pressable.remove(&id);
         self.played.remove(&id);
         self.sent.remove(&id);
+        self.resolved_dark.remove(&id);
         self.over_warned.remove(&id);
         self.box_sent.remove(&id);
         self.box_size.remove(&id);
@@ -299,6 +319,7 @@ impl SvgState {
         for root in dirty {
             let Some(node) = kernel.node(root) else {
                 self.sent.remove(&root);
+                self.resolved_dark.remove(&root);
                 continue;
             };
             let bx = content_box(kernel, &node);
@@ -307,13 +328,10 @@ impl SvgState {
                 self.scene_builds += 1;
             }
             // Sampled motion contributes its value; lowered motion carries its spec.
-            let resolved = exact_kernel::svg::scene::resolve(
-                kernel,
-                &node,
-                bx,
-                &Sampled(engine),
-                appearance.dark(node.key),
-            );
+            let dark = appearance.dark(node.key);
+            self.resolved_dark.insert(root, dark);
+            let resolved =
+                exact_kernel::svg::scene::resolve(kernel, &node, bx, &Sampled(engine), dark);
             let note = resolved
                 .over
                 .map(|limit| format!("{limit}; drawing nothing"))

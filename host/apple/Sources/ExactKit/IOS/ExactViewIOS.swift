@@ -193,7 +193,7 @@ public final class ExactView: UIView {
         reportedTraits = (traitCollection.userInterfaceStyle, traitCollection.displayScale, traitCollection.accessibilityContrast)
         fitAheadOfLayout()
         session.scheme(dark: traitCollection.userInterfaceStyle == .dark)
-        session.tellPreferences()
+        session.app.buildFactsMoved()
         session.natives.scopesChanged()
         session.presenter.navigation.appearanceChanged()
     }
