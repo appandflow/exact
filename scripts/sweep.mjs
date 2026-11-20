@@ -60,7 +60,8 @@ async function libc() {
   return {
     // LOCK_EX | LOCK_NB, the same flock Cargo takes (`shared`: LOCK_SH | LOCK_NB). Closing the descriptor releases it.
     lock: (path, { create = true, shared = false } = {}) => {
-      const fd = openSync(path, create ? 'a' : 'r');
+      // NFS grants LOCK_EX only on a descriptor open for writing.
+      const fd = openSync(path, create ? 'a' : shared ? 'r' : 'r+');
       if (symbols.flock(fd, shared ? 5 : 6) === 0) return fd;
       closeSync(fd);
       return null;
@@ -154,6 +155,12 @@ const RECORDS = new Set(['traces', 'web-receipts', 'native-receipts']);
 const TRUSTED = { bake: 3, clients: 6 };
 // The flock files builds hold: Cargo's, build-lock.mjs's, claimBuildOutput's `.flock`, SwiftPM's scratch `.lock`.
 const LOCK = /^\.cargo(-build|-artifact)?-lock$|\.(lock|flock)$/;
+// The filesystem helper's build claim (scripts/filesystem.mjs) is a file naming its owner, `<pid>-<nonce>`, not a flock.
+const BOOTSTRAP = '.bootstrap.lock';
+const bootstrapping = path => {
+  try { const pid = Number.parseInt(readFileSync(path, 'utf8'), 10); return pid > 0 && process.kill(pid, 0); }
+  catch (error) { return error.code === 'EPERM'; }
+};
 const NO_LOCKS = new Set(['.fingerprint', 'build', 'deps', 'examples', 'incremental', 'node_modules']);
 
 const isDirectory = path => { try { return statSync(path).isDirectory(); } catch { return false; } };
@@ -207,6 +214,7 @@ export async function clean(target, { dryRun = false, now = Date.now(), wait = 6
   try {
     const { remove, kept } = cleanable(target), { locks, leases } = locksIn(target, 7, { locks: [], leases: [] });
     for (const path of locks.filter(path => path !== sweepLock)) {
+      if (basename(path) === BOOTSTRAP) { if (bootstrapping(path)) held.push(path); continue; }
       let fd = null;
       try { fd = lock(path, { create: false, shared: dryRun }); } catch (error) { if (error.code === 'ENOENT') continue; throw error; }
       if (fd === null) held.push(path); else fds.push(fd);

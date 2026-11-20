@@ -151,15 +151,18 @@ test.skipIf(process.platform === 'win32')('clean removes what builds remake, kee
 
 test.skipIf(process.platform === 'win32')('clean removes nothing while a build holds a lock in target/ or a drive leases a web build there', async () => {
   // A Cargo build, an Apple build of the app, an Apple build of a release whose output clean keeps, and a drive.
-  for (const busyWith of ['debug/.cargo-lock', 'clients/k/app.id/.apple-build.lock.flock', 'clients/k/release.id/.apple-build.lock.flock', 'lease']) {
-    const t = appTarget(), generation = '0'.repeat(32);
-    const holder = busyWith === 'lease' ? null : await hold(resolve(t, busyWith));
-    const release = holder ? () => holder.kill() : leaseGeneration(resolve(t, 'web-loops/0123/web'), generation);
+  // And the filesystem helper's build claim, a file naming a live owner; a dead owner's claim holds nothing.
+  for (const busyWith of ['debug/.cargo-lock', 'clients/k/app.id/.apple-build.lock.flock', 'clients/k/release.id/.apple-build.lock.flock', 'lease', 'exact-filesystem-tool/.bootstrap.lock']) {
+    const t = appTarget(), generation = '0'.repeat(32), claim = resolve(t, 'exact-filesystem-tool/.bootstrap.lock');
+    mkdirSync(resolve(claim, '..'));
+    writeFileSync(claim, `${busyWith === 'exact-filesystem-tool/.bootstrap.lock' ? process.pid : 2 ** 22 + 1}-0123`);
+    const holder = ['lease', 'exact-filesystem-tool/.bootstrap.lock'].includes(busyWith) ? null : await hold(resolve(t, busyWith));
+    const release = holder ? () => holder.kill() : busyWith === 'lease' ? leaseGeneration(resolve(t, 'web-loops/0123/web'), generation) : () => {};
     try {
       for (const dryRun of [true, false]) {
         const busy = await clean(t, { dryRun });
         assert.equal(busy.status, 'busy');
-        assert.deepEqual(busy.held, [resolve(t, holder ? busyWith : `web-loops/0123/web.leases/${generation}`)]);
+        assert.deepEqual(busy.held, [resolve(t, busyWith === 'lease' ? `web-loops/0123/web.leases/${generation}` : busyWith)]);
         assert.deepEqual(busy.remove, []);
       }
       for (const path of REMOVED) assert.ok(existsSync(resolve(t, path)), path);
