@@ -15,6 +15,22 @@ final class NavigationTitleInk {
     private var ink: UIColor?
     private var fonts: Fonts?
     private var transparent = false
+    private var pair: (light: CGColor, dark: CGColor, color: UIColor)?
+
+    /// The colour `heading`'s author wrote for the bar's title. A `light-dark()` pair on a heading
+    /// that takes the surrounding appearance is a colour UIKit resolves in the bar's appearance: an
+    /// appearance change restyles no node, and the heading's own traits may not have turned yet
+    /// when the bar is prepared for it. One colour for each pair, so an unchanged pair is no change.
+    func color(of heading: NodeView?) -> UIColor? {
+        guard let heading, let own = heading.ownUIColor("text_color") else { return nil }
+        guard heading.colorScheme == .unspecified, heading.style["text_color"]?.tintAlpha == nil,
+              let light = heading.cgColor("text_color", dark: false), let dark = heading.cgColor("text_color", dark: true),
+              light != dark else { return own }
+        if let pair, pair.light == light, pair.dark == dark { return pair.color }
+        let color = UIColor { $0.userInterfaceStyle == .dark ? UIColor(cgColor: dark) : UIColor(cgColor: light) }
+        pair = (light, dark, color)
+        return color
+    }
 
     #if os(iOS)
     /// UIKit's own title fonts, which a row the author left unsaid keeps: the
